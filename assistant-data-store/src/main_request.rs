@@ -24,8 +24,10 @@ use crate::{AssistantStoreError, entity::agent_main_request as request, signed};
 
 pub mod coordination;
 pub mod dispatch;
+#[cfg(test)]
+mod tests;
 
-const QUEUED: &str = "queued";
+pub const QUEUED: &str = "queued";
 const ACTIVATED: &str = "activated";
 const CANCELLED: &str = "cancelled";
 const SUPERSEDED: &str = "superseded";
@@ -137,7 +139,12 @@ impl<'a> OwnerAdmission<'a> {
 
 pub enum OwnerAdmissionResult<R> {
     Native(R),
-    Queued(Box<request::Model>),
+    /// `waiting` tells the client whether the new input waits behind other
+    /// work; it is `None` when admission returned an earlier row.
+    Queued {
+        row: Box<request::Model>,
+        waiting: Option<bool>,
+    },
     Dispatched,
     Waiting,
 }
@@ -881,7 +888,8 @@ pub fn workbench_execution(
 }
 
 /// Active queue entries and recent failures, or a specific receipt regardless
-/// of state. This view never loads the frozen input or any of its attachments.
+/// of state. Rows that have not reached the conversation carry the owner's own
+/// question; the rest of the frozen input is never decoded.
 pub async fn receipts(
     db: &impl ConnectionTrait,
     actor_id: &str,
@@ -898,10 +906,11 @@ pub async fn receipts(
             Column::Failure,
             Column::InputRevision,
             Column::AcceptedAtMs,
+            Column::PendingInputJson,
         ])
         .filter(Column::ActorId.eq(actor_id))
         .filter(Column::ConversationId.eq(conversation_id));
-    let rows: Vec<ReceiptRow> = match request_id {
+    let rows: Vec<ReceiptInputRow> = match request_id {
         Some(id) => {
             query
                 .filter(Column::RequestId.eq(id))
@@ -911,7 +920,7 @@ pub async fn receipts(
                 .await?
         }
         None => {
-            let mut rows: Vec<ReceiptRow> = query
+            let mut rows: Vec<ReceiptInputRow> = query
                 .clone()
                 .filter(recoverable_condition())
                 .order_by_asc(Column::Id)
@@ -924,14 +933,54 @@ pub async fn receipts(
                     .filter(Column::State.eq(FAILED))
                     .order_by_desc(Column::Id)
                     .limit(8)
-                    .into_tuple::<ReceiptRow>()
+                    .into_tuple::<ReceiptInputRow>()
                     .all(db)
                     .await?,
             );
             rows
         }
     };
-    rows.into_iter().map(decode_receipt).collect()
+    rows.into_iter()
+        .map(|(id, message, state, failure, revision, accepted, input)| {
+            let mut receipt = decode_receipt((id, message, state, failure, revision, accepted))?;
+            if matches!(
+                receipt.state,
+                MainRequestState::Queued | MainRequestState::Activated
+            ) && let Some(input) = input.as_deref()
+            {
+                receipt.question = owner_question(input)?;
+            }
+            Ok(receipt)
+        })
+        .collect()
+}
+
+type ReceiptInputRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<i64>,
+    i64,
+    Option<String>,
+);
+
+/// Reads only the question of a frozen input. Subscription-sourced requests
+/// carry a generated requirement rather than owner text, so they stay blank.
+fn owner_question(input: &str) -> Result<Option<String>, AssistantStoreError> {
+    #[derive(Deserialize)]
+    struct QueuedAsk {
+        question: String,
+    }
+    #[derive(Deserialize)]
+    struct QueuedInput {
+        #[serde(default)]
+        issue_source: Option<serde::de::IgnoredAny>,
+        ask: QueuedAsk,
+    }
+    let input: QueuedInput = serde_json::from_str(input)
+        .map_err(|_| AssistantStoreError::Invalid("Invalid assistant request input"))?;
+    Ok(input.issue_source.is_none().then_some(input.ask.question))
 }
 
 pub(crate) type ReceiptRow = (String, String, String, Option<String>, Option<i64>, i64);
@@ -969,6 +1018,7 @@ pub(crate) fn decode_receipt(
         failure,
         input_revision,
         accepted_at_ms,
+        question: None,
     })
 }
 

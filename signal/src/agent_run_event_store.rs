@@ -172,7 +172,10 @@ impl SignalAgentRunEventStore {
                     txn.commit()
                         .await
                         .map_err(|_| internal("commit queued input replay"))?;
-                    return Ok(OwnerAdmissionResult::Queued(Box::new(queued)));
+                    return Ok(OwnerAdmissionResult::Queued {
+                        row: Box::new(queued),
+                        waiting: None,
+                    });
                 }
             }
 
@@ -358,10 +361,23 @@ impl SignalAgentRunEventStore {
                     })
                     .await
                     .map_err(|error| error.into_agent_error())?;
+                    let waiting = desk_diagnose_core::future::boxed(|| {
+                        main_requests::queued_waiting(
+                            &txn,
+                            &session,
+                            queue_id,
+                            &queued,
+                            now.timestamp_millis(),
+                        )
+                    })
+                    .await?;
                     txn.commit()
                         .await
                         .map_err(|_| internal("commit queued assistant input"))?;
-                    return Ok(OwnerAdmissionResult::Queued(Box::new(queued)));
+                    return Ok(OwnerAdmissionResult::Queued {
+                        row: Box::new(queued),
+                        waiting,
+                    });
                 }
                 OwnerAdmission::Activate { request_id, .. } => {
                     let head = main_request::first_pending(&txn, &params.actor_id, queue_id)
@@ -2557,7 +2573,10 @@ mod tests {
                 conversation_id: next.client_conversation_id.clone(),
                 ..Default::default()
             };
-            let OwnerAdmissionResult::Queued(queued) = store
+            let OwnerAdmissionResult::Queued {
+                row: queued,
+                waiting,
+            } = store
                 .admit_user_input(
                     &next,
                     None,
@@ -2572,6 +2591,7 @@ mod tests {
             else {
                 panic!("expected a durable queued request")
             };
+            assert_eq!(waiting, Some(true), "a pending permission holds the slot");
             assert!(matches!(
                 store
                     .admit_user_input(
@@ -2943,7 +2963,7 @@ mod tests {
                 conversation_id: input.client_conversation_id.clone(),
                 ..Default::default()
             };
-            let OwnerAdmissionResult::Queued(row) = store
+            let OwnerAdmissionResult::Queued { row, .. } = store
                 .admit_user_input(
                     input,
                     None,
@@ -3178,21 +3198,47 @@ mod tests {
             conversation_id: next.client_conversation_id.clone(),
             ..Default::default()
         };
-        let OwnerAdmissionResult::Queued(row) = events
-            .admit_user_input(
-                &next,
-                None,
-                OwnerAdmission::Enqueue {
-                    ask: &ask,
-                    limit: 4,
-                    reply_connection_id: None,
-                },
-            )
+        let enqueue = || OwnerAdmission::Enqueue {
+            ask: &ask,
+            limit: 4,
+            reply_connection_id: None,
+        };
+        let OwnerAdmissionResult::Queued { row, waiting } = events
+            .admit_user_input(&next, None, enqueue())
             .await
             .unwrap()
         else {
             panic!("expected queued input")
         };
+        assert_eq!(
+            waiting,
+            Some(false),
+            "an idle conversation activates at once"
+        );
+        let OwnerAdmissionResult::Queued {
+            row: replayed,
+            waiting: replay_waiting,
+        } = events
+            .admit_user_input(&next, None, enqueue())
+            .await
+            .unwrap()
+        else {
+            panic!("expected the queued replay")
+        };
+        assert_eq!(replayed.request_id, row.request_id);
+        assert_eq!(replay_waiting, None, "a replay is not judged again");
+        let receipt = |db: DatabaseConnection, request: Option<String>| {
+            let actor = next.actor_id.clone();
+            let run = next.run_id.clone();
+            async move {
+                main_request::receipts(&db, &actor, &run, request.as_deref())
+                    .await
+                    .unwrap()
+            }
+        };
+        let queued = receipt(db.clone(), None).await;
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].question.as_deref(), Some("Analyze next"));
         let activation = OwnerAdmission::Activate {
             issue_source: None,
             request_id: &row.request_id,
@@ -3203,6 +3249,16 @@ mod tests {
             .unwrap()
             .native()
             .unwrap();
+        let activated = receipt(db.clone(), None).await;
+        assert_eq!(
+            activated[0].state,
+            desk_agent_protocol::ai_assistant::MainRequestState::Activated
+        );
+        assert_eq!(
+            activated[0].question.as_deref(),
+            Some("Analyze next"),
+            "an activated input keeps its text until the session commits it"
+        );
         drop(events);
         drop(db);
 
@@ -3300,6 +3356,70 @@ mod tests {
                 .await
                 .unwrap()
                 .is_empty()
+        );
+        assert!(receipt(db.clone(), None).await.is_empty());
+        let committed = receipt(db.clone(), Some(row.request_id.clone())).await;
+        assert_eq!(
+            committed[0].question, None,
+            "committed text lives in the session"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_queued_input_behind_an_earlier_request_waits() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = file_db(&directory.path().join("waiting.sqlite")).await;
+        let events = SignalAgentRunEventStore::new(db.clone());
+        let mut first = params("first-event", "first-input", "First request");
+        first.device_id.clear();
+        first.policy_revision =
+            desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
+        first.run_id = desk_diagnose_core::conversation_key::derive_assistant_conversation_key(
+            &first.actor_id,
+            desk_diagnose_core::conversation_key::AssistantConversationScope::Personal,
+            first.client_conversation_id.as_deref().unwrap(),
+        );
+        first.read_context =
+            Some(ReadContextSelection::capture(&[], &first.current_scope).unwrap());
+        let mut second = first.clone();
+        second.event_id = "second-event".into();
+        second.message = params("second-event", "second-input", "Second request").message;
+        let mut outcomes = Vec::new();
+        for input in [&first, &second] {
+            let ask = desk_agent_protocol::ai_assistant::AiAssistantAsk {
+                question: input.message.text.clone(),
+                client_message_id: input.message.message_id.clone(),
+                client_timezone: input.client_timezone.clone(),
+                conversation_id: input.client_conversation_id.clone(),
+                ..Default::default()
+            };
+            let OwnerAdmissionResult::Queued { waiting, .. } = events
+                .admit_user_input(
+                    input,
+                    None,
+                    OwnerAdmission::Enqueue {
+                        ask: &ask,
+                        limit: 4,
+                        reply_connection_id: None,
+                    },
+                )
+                .await
+                .unwrap()
+            else {
+                panic!("expected queued input")
+            };
+            outcomes.push(waiting);
+        }
+        assert_eq!(outcomes, [Some(false), Some(true)]);
+        let questions = main_request::receipts(&db, &first.actor_id, &first.run_id, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|receipt| receipt.question)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            questions,
+            [Some("First request".into()), Some("Second request".into())]
         );
     }
 

@@ -59,6 +59,9 @@ pub struct MainRequestReceipt {
     pub failure: Option<MainRequestFailure>,
     pub input_revision: Option<i64>,
     pub accepted_at_ms: i64,
+    /// The owner's own text while the request has not reached the conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
 }
 
 /// Device-owned product switch projected to trusted central orchestrators.

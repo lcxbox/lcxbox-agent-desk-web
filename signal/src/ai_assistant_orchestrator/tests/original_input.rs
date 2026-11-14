@@ -2387,18 +2387,19 @@ async fn run_selected_command(finish: SelectedCommandFinish) {
         let request_id = if retired {
             None
         } else {
-            let OwnerAdmissionResult::Queued(receipt) = SignalAgentRunEventStore::new(db.clone())
-                .admit_user_input(
-                    &next,
-                    None,
-                    OwnerAdmission::Enqueue {
-                        ask: &ask,
-                        limit: 4,
-                        reply_connection_id: None,
-                    },
-                )
-                .await
-                .unwrap()
+            let OwnerAdmissionResult::Queued { row: receipt, .. } =
+                SignalAgentRunEventStore::new(db.clone())
+                    .admit_user_input(
+                        &next,
+                        None,
+                        OwnerAdmission::Enqueue {
+                            ask: &ask,
+                            limit: 4,
+                            reply_connection_id: None,
+                        },
+                    )
+                    .await
+                    .unwrap()
             else {
                 panic!("expected a queued request")
             };

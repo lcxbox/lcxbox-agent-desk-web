@@ -140,6 +140,7 @@ impl<S: AgentFrameSink> StreamingTurnSink<S> {
         if let LoopOutcome::RequestQueued {
             request_id,
             session_id,
+            waiting,
         } = outcome
         {
             if !self.terminated {
@@ -149,6 +150,7 @@ impl<S: AgentFrameSink> StreamingTurnSink<S> {
                     seq,
                     request_id,
                     session_id,
+                    *waiting,
                 ));
                 self.terminated = true;
             }
@@ -516,6 +518,30 @@ mod tests {
         assert_eq!(ev[3].answer.as_deref(), Some("all good"));
         assert!(ev[3].is_terminal());
         assert!(b.is_terminated());
+    }
+
+    #[test]
+    fn queued_frame_carries_the_admission_waiting_hint() {
+        for waiting in [Some(true), Some(false), None] {
+            let (store, sink) = recorder();
+            let mut bridge = StreamingTurnSink::new(sink, "req-1");
+            bridge.finish_outcome(&LoopOutcome::RequestQueued {
+                request_id: "main-1".into(),
+                session_id: "session-1".into(),
+                waiting,
+            });
+            let events = store.borrow();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].status.as_deref(), Some("queued"));
+            assert_eq!(events[0].main_request_id.as_deref(), Some("main-1"));
+            assert_eq!(events[0].main_request_waiting, waiting);
+            let json = serde_json::to_value(&events[0]).unwrap();
+            assert_eq!(
+                json.get("main_request_waiting").is_some(),
+                waiting.is_some(),
+                "an unknown hint is omitted from the frame"
+            );
+        }
     }
 
     #[test]

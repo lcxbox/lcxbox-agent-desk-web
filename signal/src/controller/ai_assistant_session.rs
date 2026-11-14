@@ -427,6 +427,15 @@ pub async fn get_ai_assistant_session(
     let Some((session_id, target_audience)) = selected else {
         return Ok(not_accessible());
     };
+    // Read queue receipts before the session: a request committed in between
+    // then appears in the session messages instead of in neither view.
+    let main_requests = desk_assistant_data_store::main_request::receipts(
+        crate::db::get_db(),
+        &actor_id,
+        &session_id,
+        None,
+    )
+    .await;
     // The snapshot reader applies its current subject checks; selectors are not authority.
     let snapshot_started = std::time::Instant::now();
     let snapshot = store
@@ -640,14 +649,7 @@ pub async fn get_ai_assistant_session(
                     latest_input_seq: snapshot.latest_input_seq,
                     input_revision: snapshot.input_revision,
                     handled_input_seq: snapshot.handled_input_seq,
-                    main_requests: desk_assistant_data_store::main_request::receipts(
-                        crate::db::get_db(),
-                        &actor_id,
-                        &session_id,
-                        None,
-                    )
-                    .await
-                    .map_err(|error| {
+                    main_requests: main_requests.map_err(|error| {
                         DeskSignalError::new_custom_error(
                             DeskErrorCode::SYSTEM_ERROR,
                             &error.into_agent_error().message,

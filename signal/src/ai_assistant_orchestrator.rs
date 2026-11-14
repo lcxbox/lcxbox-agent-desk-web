@@ -3438,8 +3438,8 @@ async fn prepare_composed_turn(
         let append_result = desk_diagnose_core::future::boxed(|| event_store.admit_user_input(&input, goal_start, admission)).await;
         let ack = match append_result {
             Ok(OwnerAdmissionResult::Native(ack)) => ack,
-            Ok(OwnerAdmissionResult::Queued(row)) => {
-                let event = AgentEvent::queued(&request_id, 1, &row.request_id, &row.conversation_id);
+            Ok(OwnerAdmissionResult::Queued { row, waiting }) => {
+                let event = AgentEvent::queued(&request_id, 1, &row.request_id, &row.conversation_id, waiting);
                 desk_diagnose_core::future::boxed(|| stream_event(
                     connections.as_ref(), &browser_connection_id,
                     &event,
@@ -3448,6 +3448,7 @@ async fn prepare_composed_turn(
                 return Ok(Some(LoopOutcome::RequestQueued {
                     request_id: row.request_id,
                     session_id: row.conversation_id,
+                    waiting,
                 }));
             }
             Ok(OwnerAdmissionResult::Dispatched) => {

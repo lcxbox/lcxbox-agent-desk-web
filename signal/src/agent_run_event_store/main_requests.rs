@@ -122,6 +122,32 @@ pub(crate) async fn claim_workbench_on(
     Ok(changed.rows_affected == 1)
 }
 
+/// Display hint for a newly queued input: it waits when activation would wait
+/// now. Rows returned by a replay are not judged.
+pub(crate) async fn queued_waiting(
+    txn: &DatabaseTransaction,
+    session: &PersistedAgentSession,
+    queue_id: &str,
+    row: &desk_assistant_data_store::entity::agent_main_request::Model,
+    now_ms: i64,
+) -> Result<Option<bool>, AgentError> {
+    if row.state != main_request::QUEUED {
+        return Ok(None);
+    }
+    if session.has_live_main_coordination(now_ms) {
+        return Ok(Some(true));
+    }
+    let head = main_request::first_pending(txn, &row.actor_id, queue_id)
+        .await
+        .map_err(|error| error.into_agent_error())?;
+    if head.is_none_or(|head| head.request_id != row.request_id) {
+        return Ok(Some(true));
+    }
+    Ok(Some(
+        desk_diagnose_core::future::boxed(|| slot_held(txn, session)).await?,
+    ))
+}
+
 pub(crate) async fn slot_held(
     txn: &DatabaseTransaction,
     session: &PersistedAgentSession,

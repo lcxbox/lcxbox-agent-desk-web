@@ -77,6 +77,10 @@ pub struct AgentEvent {
     /// Conversation that owns the queued receipt, including before its first turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_request_session_id: Option<String>,
+    /// Whether the queued input waits behind other work at admission time.
+    /// Display hint only; absent when the admission replayed an earlier row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main_request_waiting: Option<bool>,
     /// `kind = Partial`: an incremental summary fragment.
     #[serde(default)]
     pub partial_summary: Option<String>,
@@ -165,6 +169,7 @@ impl AgentEvent {
             status: None,
             main_request_id: None,
             main_request_session_id: None,
+            main_request_waiting: None,
             partial_summary: None,
             error: None,
             retraction_reason: None,
@@ -209,10 +214,12 @@ impl AgentEvent {
         seq: u32,
         main_request_id: &str,
         session_id: &str,
+        waiting: Option<bool>,
     ) -> Self {
         Self {
             main_request_id: Some(main_request_id.into()),
             main_request_session_id: Some(session_id.into()),
+            main_request_waiting: waiting,
             ..Self::status(request_id, seq, "queued")
         }
     }

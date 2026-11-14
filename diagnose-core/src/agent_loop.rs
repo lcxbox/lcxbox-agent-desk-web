@@ -301,6 +301,8 @@ pub enum LoopOutcome {
     RequestQueued {
         request_id: String,
         session_id: String,
+        /// Display hint: the input waits behind other work at admission.
+        waiting: Option<bool>,
     },
     /// The follow-up came from a different subject than the session.
     SubjectRejected(SubjectMismatch),
