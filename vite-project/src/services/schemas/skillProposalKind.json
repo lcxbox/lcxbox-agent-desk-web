@@ -1,1 +1,1 @@
-{"type":"string","enum":["create","update"],"x-readme-ref-name":"SkillProposalKind"}
+{"type":"string","enum":["create","update","disable","delete"],"x-readme-ref-name":"SkillProposalKind"}

@@ -19,6 +19,10 @@ const updated: SkillProposalView = {
     diff: [{ path: 'SKILL.md', change: 'modified', truncated: false,
         hunks: [{ oldStart: 3, newStart: 3, lines: [{ op: 'remove', text: 'Old step' }, { op: 'add', text: 'New step' }] }] }],
 };
+const disabling: SkillProposalView = {
+    ...created, proposalId: 'p4', kind: 'disable', baseSkillId: 's1', baseVersion: 2, diff: [],
+};
+const deleting: SkillProposalView = { ...disabling, proposalId: 'p5', kind: 'delete' };
 const ok = (data: SkillProposalView) => ({ success: true, code: 0, message: '', data });
 
 beforeEach(() => vi.resetAllMocks());
@@ -70,6 +74,41 @@ describe('skill proposal card', () => {
         render(<SkillProposalCard proposal={{ ...updated, status: 'conflicted', decisionSource: 'ai_review' }} onRefresh={vi.fn()} />);
         expect(screen.getByText(/propose again based on the new version/)).toBeInTheDocument();
         expect(screen.getByText('AI review')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    });
+
+    it.each([
+        { proposal: disabling, action: 'Disable skill' },
+        { proposal: deleting, action: 'Delete skill' },
+    ])('shows a $proposal.kind proposal with its content snapshot collapsed', ({ proposal, action }) => {
+        render(<SkillProposalCard proposal={proposal} onRefresh={vi.fn()} />);
+        const card = screen.getByRole('article', { name: 'disk-cleanup' });
+        expect(within(card).getByText(action)).toBeInTheDocument();
+        expect(within(card).queryByRole('group')).toBeNull();
+        const skillMd = within(card).getByRole('button', { name: 'SKILL.md' });
+        expect(skillMd).toHaveAttribute('aria-expanded', 'false');
+        expect(within(card).getByRole('button', { name: 'scripts/clean.sh' })).toHaveAttribute('aria-expanded', 'false');
+        expect(within(card).getByText(/Free space safely/).closest('[data-state]')).toHaveAttribute('data-state', 'closed');
+        fireEvent.click(skillMd);
+        expect(skillMd).toHaveAttribute('aria-expanded', 'true');
+        expect(within(card).getByText(/Free space safely/).closest('[data-state]')).toHaveAttribute('data-state', 'open');
+        expect(within(card).queryByText('Deleting cannot be undone') != null).toBe(proposal.kind === 'delete');
+    });
+
+    it('keeps a new skill expanded and warns only before deleting', () => {
+        render(<SkillProposalCard proposal={created} onRefresh={vi.fn()} />);
+        expect(screen.getByRole('button', { name: 'SKILL.md' })).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.queryByText('Deleting cannot be undone')).toBeNull();
+    });
+
+    it.each([
+        { proposal: created, note: /propose again based on the new version/ },
+        { proposal: updated, note: /propose again based on the new version/ },
+        { proposal: disabling, note: /no longer assistant-written; nothing was changed/ },
+        { proposal: deleting, note: /no longer assistant-written; nothing was changed/ },
+    ])('explains a conflicted $proposal.kind proposal by its kind', ({ proposal, note }) => {
+        render(<SkillProposalCard proposal={{ ...proposal, status: 'conflicted' }} onRefresh={vi.fn()} />);
+        expect(screen.getByText(note)).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
     });
 

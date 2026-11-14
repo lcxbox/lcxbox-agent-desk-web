@@ -2923,7 +2923,9 @@ export type SkillFileInput = {
 
 export const skillProposalKindEnum = {
     create: "create",
-    update: "update"
+    update: "update",
+    disable: "disable",
+    delete: "delete"
 } as const;
 
 export type SkillProposalKindEnumKey = (typeof skillProposalKindEnum)[keyof typeof skillProposalKindEnum];

@@ -3366,6 +3366,8 @@ export default {
     'pages.assistantSkills.diffToCurrent': "到当前版本的变更",
     'pages.assistantSkills.proposal.kind.create': "新 Skill",
     'pages.assistantSkills.proposal.kind.update': "新版本",
+    'pages.assistantSkills.proposal.kind.disable': "禁用 Skill",
+    'pages.assistantSkills.proposal.kind.delete': "删除 Skill",
     'pages.assistantSkills.proposal.status.pending': "待决定",
     'pages.assistantSkills.proposal.status.approved': "已批准",
     'pages.assistantSkills.proposal.status.rejected': "已拒绝",
@@ -3374,6 +3376,8 @@ export default {
     'pages.assistantSkills.proposal.approve': "批准",
     'pages.assistantSkills.proposal.reject': "拒绝",
     'pages.assistantSkills.proposal.conflictedNote': "Skill 已被修改，请让助手基于新版本重新提议。",
+    'pages.assistantSkills.proposal.removalConflictedNote': "Skill 已改动、删除或不再由 AI 编写，未执行。",
+    'pages.assistantSkills.proposal.deleteIrreversible': "删除后无法恢复",
     'pages.assistantSkills.proposal.changed': "提议状态已变化，已重新加载。",
     'pages.assistantSkills.proposal.pendingTitle': "待你决定的 Skill 提议",
 };

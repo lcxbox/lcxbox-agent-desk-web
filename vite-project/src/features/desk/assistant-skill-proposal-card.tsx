@@ -16,8 +16,9 @@ const prefix = 'pages.assistantSkills.proposal.';
 const stale: number[] = [deskErrorCodeEnum.REVISION_CONFLICT, deskErrorCodeEnum.PRECONDITION_FAILED];
 
 /**
- * One AI-proposed personal skill. A pending proposal can be decided by the
- * owner at any time; `awaitingOwner` marks it as the owner's pending item.
+ * One AI-proposed change to a personal skill: create, update, disable or
+ * delete. A pending proposal can be decided by the owner at any time;
+ * `awaitingOwner` marks it as the owner's pending item.
  */
 export function SkillProposalCard({ proposal, onRefresh, onDecided }: {
     proposal: SkillProposalView; onRefresh(): void; onDecided?(proposal: SkillProposalView): void;
@@ -28,6 +29,8 @@ export function SkillProposalCard({ proposal, onRefresh, onDecided }: {
     const [error, setError] = useState('');
     const view = decided && decided.proposalId === proposal.proposalId && decided.revision >= proposal.revision ? decided : proposal;
     const pending = view.status === 'pending';
+    // Disable and delete proposals carry the current version as a snapshot, not a change to review.
+    const removal = view.kind === 'disable' || view.kind === 'delete';
 
     const decide = async (approve: boolean) => {
         if (busy || !pending) return;
@@ -57,14 +60,16 @@ export function SkillProposalCard({ proposal, onRefresh, onDecided }: {
         {view.kind === 'update'
             ? <SkillDiffList diff={view.diff} />
             : <div className="space-y-2">
-                <Disclosure title={<span className="font-mono text-xs">SKILL.md</span>} defaultOpen>
+                <Disclosure title={<span className="font-mono text-xs">SKILL.md</span>} defaultOpen={!removal}>
                     <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-2 text-xs">{view.skillMd}</pre>
                 </Disclosure>
                 {view.files.map(file => <Disclosure key={file.path} title={<span className="break-all font-mono text-xs">{file.path}</span>}>
                     <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-2 text-xs">{file.text}</pre>
                 </Disclosure>)}
             </div>}
-        {view.status === 'conflicted' && <p className="text-sm text-muted-foreground">{t(`${prefix}conflictedNote`)}</p>}
+        {view.kind === 'delete' && <p className="text-sm text-destructive">{t(`${prefix}deleteIrreversible`)}</p>}
+        {view.status === 'conflicted' && <p className="text-sm text-muted-foreground">
+            {t(`${prefix}${removal ? 'removalConflictedNote' : 'conflictedNote'}`)}</p>}
         {pending && <ProposalDecisionActions disabled={busy} approveLabel={t(`${prefix}approve`)} rejectLabel={t(`${prefix}reject`)}
             onDecide={approve => void decide(approve)} />}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

@@ -3379,6 +3379,8 @@ export default {
     'pages.assistantSkills.diffToCurrent': "Changes to the current version",
     'pages.assistantSkills.proposal.kind.create': "New skill",
     'pages.assistantSkills.proposal.kind.update': "New version",
+    'pages.assistantSkills.proposal.kind.disable': "Disable skill",
+    'pages.assistantSkills.proposal.kind.delete': "Delete skill",
     'pages.assistantSkills.proposal.status.pending': "Awaiting decision",
     'pages.assistantSkills.proposal.status.approved': "Approved",
     'pages.assistantSkills.proposal.status.rejected': "Rejected",
@@ -3387,6 +3389,8 @@ export default {
     'pages.assistantSkills.proposal.approve': "Approve",
     'pages.assistantSkills.proposal.reject': "Reject",
     'pages.assistantSkills.proposal.conflictedNote': "The skill has changed. Ask the assistant to propose again based on the new version.",
+    'pages.assistantSkills.proposal.removalConflictedNote': "The skill changed, was deleted, or is no longer assistant-written; nothing was changed.",
+    'pages.assistantSkills.proposal.deleteIrreversible': "Deleting cannot be undone",
     'pages.assistantSkills.proposal.changed': "The proposal changed and has been reloaded.",
     'pages.assistantSkills.proposal.pendingTitle': "Skill proposals awaiting your decision",
 };
