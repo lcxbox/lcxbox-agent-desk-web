@@ -365,3 +365,49 @@ mod service_tests {
         assert!(external.stored.is_empty() && external.loaded.is_empty());
     }
 }
+
+#[tokio::test]
+async fn a_retained_version_shows_its_content_scan_and_changes_to_current() {
+    let db = db().await;
+    let scope = personal_scope("9");
+    let scan_id = save_scan_on(&db, &scope, r#"{"verdict":"clean","findings":[]}"#, 1)
+        .await
+        .unwrap();
+    let created = save_manual_on(
+        &db,
+        &scope,
+        &parsed("notes", "old\n"),
+        None,
+        SkillOrigin::Imported,
+        Some(&scan_id),
+        2,
+    )
+    .await
+    .unwrap();
+    update_on(
+        &db,
+        &scope,
+        &created.skill_id,
+        1,
+        None,
+        Some((&package("notes", "new\n"), &manual())),
+        3,
+    )
+    .await
+    .unwrap();
+    let view = version_view_on(&db, &scope, &created.skill_id, 1)
+        .await
+        .unwrap();
+    assert!(view.skill_md.ends_with("old\n"));
+    assert_eq!(
+        view.info.scan.as_ref().unwrap().verdict,
+        desk_agent_protocol::ai_assistant::skill::SkillScanVerdict::Clean
+    );
+    assert_eq!(view.diff_to_current[0].path, "SKILL.md");
+    let detail = detail_on(&db, &scope, &created.skill_id).await.unwrap();
+    assert!(detail.versions.iter().any(|v| v.scan.is_some()));
+    assert!(matches!(
+        version_view_on(&db, &scope, &created.skill_id, 7).await,
+        Err(SkillStoreError::NotFound)
+    ));
+}

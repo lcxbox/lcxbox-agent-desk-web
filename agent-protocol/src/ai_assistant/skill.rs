@@ -196,6 +196,27 @@ pub struct SkillVersionInfo {
     pub origin: SkillOrigin,
     pub size_bytes: u64,
     pub created_at_ms: i64,
+    /// The AI security scan the uploader saw before saving this version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan: Option<SkillScanResult>,
+}
+
+/// The content of one retained version and its changes to the current version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillVersionView {
+    pub info: SkillVersionInfo,
+    pub skill_md: String,
+    pub files: Vec<SkillFileView>,
+    /// Changes from this version to the current version.
+    pub diff_to_current: Vec<SkillFileDiff>,
+}
+
+/// Whether uploads can be scanned now: an approval model is configured and ready.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillScanAvailability {
+    pub available: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

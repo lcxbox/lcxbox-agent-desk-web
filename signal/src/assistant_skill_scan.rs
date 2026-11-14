@@ -52,6 +52,14 @@ pub fn files(parsed: &ParsedPackage) -> Vec<ScanFile> {
     .collect()
 }
 
+/// Whether an upload can be scanned now; the same checks as [`scan`].
+pub async fn available(db: &DatabaseConnection) -> bool {
+    crate::ai_assistant_gate::global_ai_assistant_gate().is_enabled()
+        && boxed(|| crate::approval_model_provider::load(db))
+            .await
+            .is_ok_and(|config| config.destination_identity().is_ok())
+}
+
 /// Scans `files` batch by batch. The scan is unavailable when the device-owned
 /// AI Assistant switch is off or the approval model is disabled or not configured.
 pub async fn scan(db: &DatabaseConnection, files: &[ScanFile]) -> SkillScanResult {

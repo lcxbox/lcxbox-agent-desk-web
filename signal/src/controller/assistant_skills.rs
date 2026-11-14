@@ -294,3 +294,60 @@ pub async fn delete_my_skill(
     )
     .await
 }
+
+// Retained versions and scan availability.
+
+async fn version_view(
+    scope: &str,
+    skill_id: &str,
+    version: u64,
+) -> Result<HttpResponse, DeskSignalError> {
+    Ok(
+        match skill_store::version_view_on(db()?, scope, skill_id, version).await {
+            Ok(view) => reply(view),
+            Err(error) => failure(error.into()),
+        },
+    )
+}
+
+async fn scan_availability() -> Result<HttpResponse, DeskSignalError> {
+    Ok(reply(
+        desk_agent_protocol::ai_assistant::skill::SkillScanAvailability {
+            available: crate::assistant_skill_scan::available(db()?).await,
+        },
+    ))
+}
+
+#[utoipa::path(tag = TAG,
+    responses((status = 200, body = RestResponse<desk_agent_protocol::ai_assistant::skill::SkillVersionView>)))]
+#[get("/admin/system/assistant-skills/{skill_id}/versions/{version}")]
+pub async fn get_platform_skill_version(
+    path: web::Path<(String, u64)>,
+) -> Result<HttpResponse, DeskSignalError> {
+    let (skill_id, version) = path.into_inner();
+    version_view(PLATFORM_SCOPE, &skill_id, version).await
+}
+
+#[utoipa::path(tag = TAG,
+    responses((status = 200, body = RestResponse<desk_agent_protocol::ai_assistant::skill::SkillScanAvailability>)))]
+#[get("/admin/system/assistant-skill-scan")]
+pub async fn get_platform_skill_scan() -> Result<HttpResponse, DeskSignalError> {
+    scan_availability().await
+}
+
+#[utoipa::path(tag = TAG,
+    responses((status = 200, body = RestResponse<desk_agent_protocol::ai_assistant::skill::SkillVersionView>)))]
+#[get("/my/ai-assistant-skills/{skill_id}/versions/{version}")]
+pub async fn get_my_skill_version(
+    path: web::Path<(String, u64)>,
+) -> Result<HttpResponse, DeskSignalError> {
+    let (skill_id, version) = path.into_inner();
+    version_view(&assistant_skills::personal_scope(), &skill_id, version).await
+}
+
+#[utoipa::path(tag = TAG,
+    responses((status = 200, body = RestResponse<desk_agent_protocol::ai_assistant::skill::SkillScanAvailability>)))]
+#[get("/my/ai-assistant-skill-scan")]
+pub async fn get_my_skill_scan() -> Result<HttpResponse, DeskSignalError> {
+    scan_availability().await
+}

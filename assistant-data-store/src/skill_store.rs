@@ -332,12 +332,7 @@ pub async fn detail_on<C: ConnectionTrait>(
         .all(db)
         .await?
         .into_iter()
-        .map(|v| SkillVersionInfo {
-            version: v.version as u64,
-            origin: parse_origin(&v.origin),
-            size_bytes: v.size_bytes as u64,
-            created_at_ms: v.created_at_ms,
-        })
+        .map(|v| version_info(&v))
         .collect();
     Ok(SkillDetail {
         summary: summary_of(db, &row, &current).await?,
@@ -355,6 +350,50 @@ pub async fn detail_on<C: ConnectionTrait>(
             })
             .collect(),
         versions,
+    })
+}
+
+fn version_info(row: &version::Model) -> SkillVersionInfo {
+    SkillVersionInfo {
+        version: row.version as u64,
+        origin: parse_origin(&row.origin),
+        size_bytes: row.size_bytes as u64,
+        created_at_ms: row.created_at_ms,
+        scan: row
+            .scan_summary_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str(json).ok()),
+    }
+}
+
+/// One retained version with its changes to the current version.
+pub async fn version_view_on<C: ConnectionTrait>(
+    db: &C,
+    scope_key: &str,
+    skill_id: &str,
+    number: u64,
+) -> Result<desk_agent_protocol::ai_assistant::skill::SkillVersionView, SkillStoreError> {
+    let (row, current) = current_package_on(db, scope_key, skill_id).await?;
+    let stored = version_on(db, skill_id, number as i64)
+        .await?
+        .ok_or(SkillStoreError::NotFound)?;
+    let package = package_of(&row.name, &stored)?;
+    Ok(desk_agent_protocol::ai_assistant::skill::SkillVersionView {
+        info: version_info(&stored),
+        skill_md: package.render_skill_md(),
+        files: package
+            .resources
+            .iter()
+            .map(|r| SkillFileView {
+                meta: r.meta(),
+                text: r.text.clone(),
+            })
+            .collect(),
+        diff_to_current: crate::skill_package::diff::diff_packages(
+            Some(&package),
+            &current,
+            service::MAX_PREVIEW_DIFF_BYTES,
+        ),
     })
 }
 

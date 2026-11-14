@@ -313,6 +313,8 @@ pub fn configure_api_surface(
                 .service(desk_signal::controller::assistant_skills::preview_my_skill_version)
                 .service(desk_signal::controller::assistant_skills::update_my_skill)
                 .service(desk_signal::controller::assistant_skills::delete_my_skill)
+                .service(desk_signal::controller::assistant_skills::get_my_skill_version)
+                .service(desk_signal::controller::assistant_skills::get_my_skill_scan)
                         .service(list_assistant_images)
                         .service(desk_signal::controller::ai_assistant_session::get_ai_assistant_context_summary)
                         .service(desk_signal::controller::ai_assistant_session::list_assistant_attachments)
@@ -508,6 +510,8 @@ pub fn configure_api_surface(
                     .service(desk_signal::controller::assistant_skills::delete_platform_skill)
                     .service(desk_signal::controller::assistant_skills::list_bundled_skills)
                     .service(desk_signal::controller::assistant_skills::set_bundled_skill)
+                    .service(desk_signal::controller::assistant_skills::get_platform_skill_version)
+                    .service(desk_signal::controller::assistant_skills::get_platform_skill_scan)
                     // Usage-retention windows govern both rollup tables; the row
                     // lives in the same local signal DB, present whenever the
                     // usage view is.
