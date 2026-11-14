@@ -498,22 +498,19 @@ impl ModelSeam for ObservedScript<'_> {
 }
 
 #[tokio::test]
-async fn directory_loop_binds_only_the_published_proposal_and_never_infers_a_denial_from_polling() {
+async fn directory_loop_binds_only_the_published_proposal_and_ends_waiting_for_the_decision() {
     use crate::model_observability::{
         ObservationAlias, ObservationRelation,
         aggregate::{Count, MergeResult, contribution, merge},
     };
-    for decision in [Some(true), Some(false), None] {
+    {
         let run = crate::conversation_key::derive_conversation_key(
             "actor",
             "device",
             Some("client"),
             "fallback",
         );
-        let store = MemSession {
-            directory_review_decision: decision,
-            ..Default::default()
-        };
+        let store = MemSession::default();
         let mut initial =
             PersistedAgentSession::new(&run, "actor", "device", 1, scope(), "2026-06-20T00:00:00Z");
         initial.adopt_client_metadata(
@@ -539,12 +536,7 @@ async fn directory_loop_binds_only_the_published_proposal_and_never_infers_a_den
         };
         let registry = crate::directory_tools::registry();
         let clock = || "2026-06-20T00:00:01Z".into();
-        let heartbeat = DirectoryReviewHeartbeat {
-            polls: &store.directory_review_polls,
-            stop: decision.is_none(),
-        };
-        let mut dependencies = deps(&store, &model, &tools, &registry, &clock);
-        dependencies.heartbeat = Some(&heartbeat);
+        let dependencies = deps(&store, &model, &tools, &registry, &clock);
         let mut params = claim();
         params.conversation_id = run.clone();
         let outcome = run_agent_turn(
@@ -558,7 +550,7 @@ async fn directory_loop_binds_only_the_published_proposal_and_never_infers_a_den
             &mut NullTurnSink,
         )
         .await;
-        assert_eq!(outcome.is_ok(), decision.is_some());
+        assert!(matches!(outcome, Ok(LoopOutcome::DecisionRequested { .. })));
         assert_eq!(
             tools.calls.borrow().as_slice(),
             ["resolve-directory:/tmp/private-directory"]
@@ -585,8 +577,7 @@ async fn directory_loop_binds_only_the_published_proposal_and_never_infers_a_den
         let ObservationPayload::Tool(tool) = &restored.payload else {
             panic!("tool required")
         };
-        // This transient seam has no backend observation publication. Missing
-        // approval facts remain waiting even if the business poll returned false.
+        // The turn ends while the request waits; only a decision settles it.
         assert_eq!(tool.permission, PermissionOutcome::Waiting);
         assert_eq!(tool.conclusion, InputConclusion::Accepted);
         assert_eq!(tool.stages[&Stage::Dispatch], StageOutcome::NotReached);

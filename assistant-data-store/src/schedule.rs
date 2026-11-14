@@ -37,7 +37,6 @@ mod resume_admission;
 mod resume_claim;
 mod resume_lease;
 mod resume_result;
-mod review_wait;
 mod scan;
 mod search;
 pub mod session;
@@ -103,7 +102,6 @@ pub use resume_lease::{ContinuationLease, FreshTaskLease, renew_paired_lease_on}
 pub use resume_result::{
     CommittedResult, SettlementLease, committed_result, record_committed_continuation_on,
 };
-pub use review_wait::{ReviewPoll, poll_review_decision_on};
 pub use scan::{
     ScanCursors, ScanWarning, ScheduleScanOps, ScheduleScanReport, scan_action_cancellations_once,
     scan_calendar_once, scan_children_wait_settlement_once, scan_committed_recovery_once,

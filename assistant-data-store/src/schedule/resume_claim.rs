@@ -106,6 +106,11 @@ pub async fn claim_continuation_on<C: ConnectionTrait, H: ScheduleHostStores<C>>
         consent,
     } = task_claim.as_mut();
     let ContinuationSessionClaim { row, session, now } = source_claim.as_mut();
+    // A conversation paused on a proposal or directory request resumes only
+    // through its decision; the timer waits until then.
+    if session.decision_pause.is_some() {
+        return Err(ScheduleStoreError::Conflict);
+    }
     let now = *now;
     let source = task
         .source_conversation_id

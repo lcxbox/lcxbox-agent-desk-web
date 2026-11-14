@@ -341,12 +341,12 @@ async fn orphan_proposal_can_still_be_rejected() {
 }
 
 #[tokio::test]
-async fn live_review_delivers_approval_or_rejection_to_the_same_turn() {
+async fn a_decision_records_the_resume_of_the_paused_proposing_turn() {
     exercise_live_review(false).await;
 }
 
 #[tokio::test]
-async fn selectable_live_review_delivers_approval_or_rejection_to_the_original_root() {
+async fn a_selectable_decision_records_the_resume_of_the_original_root() {
     exercise_live_review(true).await;
 }
 
@@ -387,24 +387,31 @@ async fn exercise_live_review(selectable: bool) {
         let proposal: serde_json::Value =
             serde_json::from_str(&session.conversation.last().unwrap().text).unwrap();
         assert_eq!(proposal["awaiting_decision"], true);
-        let id = session.pending_proposal_review.clone().unwrap().id;
+        let pause = desk_diagnose_core::proposal_review::awaiting_proposal(
+            &session,
+            &call.id,
+            "review-turn",
+            1,
+        )
+        .unwrap();
+        let id = pause.id.clone();
         assert_eq!(proposal["schedule_id"], id);
         let task = store.read(1, &id).await.unwrap();
         assert_eq!(task.status, "pending_review");
-        PersistedAgentSession::decode_json(&session.encode_json_for_storage().unwrap()).unwrap();
-        assert!(
-            !store
-                .poll_review_decision(
-                    &mut session,
-                    &desk_diagnose_core::proposal_review::ProposalReviewRef::schedule(
-                        &task.schedule_id
-                    ),
-                    &desk_diagnose_core::model_observability::tool::ToolObservation::default()
+        // A decision while the proposing turn still runs is refused.
+        assert!(matches!(
+            store
+                .decide_proposal(
+                    1,
+                    &task.schedule_id,
+                    task.revision,
+                    approve,
+                    ProposalDecider::Owner
                 )
-                .await
-                .unwrap()
-        );
-        let before = session.clone();
+                .await,
+            Err(ScheduleStoreError::Conflict)
+        ));
+        let before = pause_session(&store, &mut session, pause).await;
         let decider = if approve {
             ProposalDecider::Owner
         } else {
@@ -417,22 +424,23 @@ async fn exercise_live_review(selectable: bool) {
             .await
             .unwrap();
         assert_eq!(decided.status, if approve { "active" } else { "deleted" });
-        assert!(
-            store
-                .poll_review_decision(
-                    &mut session,
-                    &desk_diagnose_core::proposal_review::ProposalReviewRef::schedule(
-                        &task.schedule_id
-                    ),
-                    &desk_diagnose_core::model_observability::tool::ToolObservation::default()
-                )
-                .await
-                .unwrap()
+        let session = stored_session(&store, &session.conversation_id).await;
+        assert_eq!(session.conversation.len(), before.conversation.len() + 1);
+        // The pause remains until the decision-resume claim takes it.
+        assert_eq!(session.decision_pause, before.decision_pause);
+        let resume = desk_assistant_data_store::entity::agent_decision_resume::Entity::find()
+            .one(&store.db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (
+                resume.kind.as_str(),
+                resume.request_id.as_str(),
+                resume.state.as_str()
+            ),
+            ("schedule", id.as_str(), "pending")
         );
-        assert_eq!(session.current_turn_id, before.current_turn_id);
-        assert_eq!(session.lease_token, before.lease_token);
-        assert_eq!(session.scope_snapshot, before.scope_snapshot);
-        assert!(session.turn_state.is_active());
         let receipt: serde_json::Value =
             serde_json::from_str(&session.conversation.last().unwrap().text).unwrap();
         assert_eq!(
@@ -448,6 +456,49 @@ async fn exercise_live_review(selectable: bool) {
             if approve { "owner" } else { "approval_ai" }
         );
     }
+}
+
+/// Ends the proposing turn paused on `pause`, as the loop's settlement does,
+/// and returns the stored session.
+async fn pause_session(
+    store: &ScheduleStore,
+    session: &mut PersistedAgentSession,
+    pause: desk_diagnose_core::proposal_review::DecisionPause,
+) -> PersistedAgentSession {
+    session.finish_turn(
+        desk_diagnose_core::session::TurnState::Idle,
+        "2026-09-09T00:00:01Z",
+    );
+    session.decision_pause = Some(pause);
+    session.version += 1;
+    session_row::Entity::update_many()
+        .col_expr(
+            session_row::Column::StateJson,
+            sea_orm::sea_query::Expr::value(session.encode_json_for_storage().unwrap()),
+        )
+        .col_expr(
+            session_row::Column::Version,
+            sea_orm::sea_query::Expr::value(session.version),
+        )
+        .col_expr(
+            session_row::Column::LeaseDeadline,
+            sea_orm::sea_query::Expr::value(Option::<chrono::DateTime<chrono::Utc>>::None),
+        )
+        .filter(session_row::Column::ConversationId.eq(&session.conversation_id))
+        .exec(&store.db)
+        .await
+        .unwrap();
+    stored_session(store, &session.conversation_id).await
+}
+
+async fn stored_session(store: &ScheduleStore, conversation: &str) -> PersistedAgentSession {
+    let row = session_row::Entity::find()
+        .filter(session_row::Column::ConversationId.eq(conversation))
+        .one(&store.db)
+        .await
+        .unwrap()
+        .unwrap();
+    PersistedAgentSession::decode_json(&row.state_json).unwrap()
 }
 
 /// Put the session in a running turn whose assistant message calls
@@ -531,7 +582,15 @@ async fn an_ai_conversation_timer_is_enabled_without_waiting() {
         .await
         .unwrap();
     // The tool result is the receipt; the turn keeps running and is not paused.
-    assert!(session.pending_proposal_review.is_none());
+    assert!(
+        desk_diagnose_core::proposal_review::awaiting_proposal(
+            &session,
+            &call.id,
+            "review-turn",
+            1
+        )
+        .is_none()
+    );
     assert_eq!(session.conversation.len(), before + 1);
     let receipt: serde_json::Value =
         serde_json::from_str(&session.conversation.last().unwrap().text).unwrap();
@@ -562,52 +621,6 @@ async fn owner_created_fresh_tasks_are_enabled_at_once() {
         store.create_task(1, &ai).await,
         Err(ScheduleStoreError::Invalid)
     ));
-}
-
-#[tokio::test]
-async fn live_review_cannot_adopt_new_input_or_a_changed_lease() {
-    for change_lease in [true, false] {
-        let (store, task, row, mut session) = fixture().await;
-        session
-            .begin_turn(
-                "review-turn",
-                None,
-                None,
-                1,
-                session.scope_snapshot.clone(),
-                "2026-09-09T00:00:00Z",
-            )
-            .unwrap();
-        session.pending_proposal_review = Some(
-            desk_diagnose_core::proposal_review::ProposalReviewRef::schedule(&task.schedule_id),
-        );
-        let before = session.clone();
-        let mut updated = session.clone();
-        if change_lease {
-            updated.lease_token += 1;
-        } else {
-            updated.begin_focus_epoch(2, Vec::<String>::new()).unwrap();
-            updated.input_revision = 2;
-        }
-        let mut changed: session_row::ActiveModel = row.into();
-        changed.state_json = Set(updated.encode_json_for_storage().unwrap());
-        changed.lease_token = Set(updated.lease_token as i64);
-        changed.lease_deadline = Set(Some(chrono::Utc::now() + chrono::Duration::minutes(5)));
-        changed.update(&store.db).await.unwrap();
-        assert!(matches!(
-            store
-                .poll_review_decision(
-                    &mut session,
-                    &desk_diagnose_core::proposal_review::ProposalReviewRef::schedule(
-                        &task.schedule_id
-                    ),
-                    &desk_diagnose_core::model_observability::tool::ToolObservation::default()
-                )
-                .await,
-            Err(ScheduleStoreError::Conflict)
-        ));
-        assert_eq!(session, before);
-    }
 }
 
 #[tokio::test]

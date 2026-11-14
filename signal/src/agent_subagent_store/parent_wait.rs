@@ -329,7 +329,7 @@ impl SubAgentStore {
             || parent.turn_state == TurnState::Cancelled
             || parent.subagent_wait.is_some()
             || !parent.has_ready_subagent_completion()
-            || parent.terminal_permission_request_id.is_some()
+            || parent.paused_for_decision()
             || !parent.unclosed_tool_call_ids().is_empty()
             || parent.execution_state.has_unresolved_outcome()
             || !parent.execution_state.tasks().is_empty()

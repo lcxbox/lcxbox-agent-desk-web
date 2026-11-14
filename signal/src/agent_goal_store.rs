@@ -592,6 +592,147 @@ pub async fn wake_for_permission_decision(
     Ok(outcome)
 }
 
+/// Wakes the goal whose segment paused on the decided proposal or directory
+/// request of `record`, clears the pause and ends the record. `NoGoal` leaves
+/// an ordinary conversation to the decision resume.
+pub async fn wake_for_decision(
+    db: &DatabaseConnection,
+    session: &PersistedAgentSession,
+    record: &desk_assistant_data_store::entity::agent_decision_resume::Model,
+    now: DateTime<Utc>,
+) -> Result<GoalPermissionWake, DbErr> {
+    let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
+    if !session.agent_role.is_main() || session.surface != AgentSessionSurface::AiAssistant {
+        return Ok(GoalPermissionWake::NoGoal);
+    }
+    let txn = crate::db::begin_write(db, agent_session::Entity).await?;
+    let history = desk_diagnose_core::future::boxed(|| {
+        crate::assistant_data_store::native_scope_on(
+            &txn,
+            &record.actor_id,
+            &record.device_id,
+            &record.conversation_id,
+        )
+    })
+    .await?;
+    let Some(session_row) = agent_session::Entity::find()
+        .filter(agent_session::Column::ConversationId.eq(&record.conversation_id))
+        .filter(agent_session::Column::ActorId.eq(&record.actor_id))
+        .filter(agent_session::Column::DeviceId.eq(&record.device_id))
+        .one(&txn)
+        .await?
+    else {
+        return Ok(GoalPermissionWake::NoGoal);
+    };
+    let mut session =
+        PersistedAgentSession::decode_json(&session_row.state_json).map_err(|_| invalid())?;
+    let Some(goal_record) = goal_row::Entity::find()
+        .filter(goal_row::Column::ConversationId.eq(&record.conversation_id))
+        .filter(goal_row::Column::ActorId.eq(&record.actor_id))
+        .filter(goal_row::Column::DeviceId.eq(&record.device_id))
+        .order_by_desc(goal_row::Column::CreatedAt)
+        .order_by_desc(goal_row::Column::Id)
+        .one(&txn)
+        .await?
+    else {
+        return Ok(GoalPermissionWake::NoGoal);
+    };
+    let mut goal = decode(&goal_record)?;
+    if goal.state.is_terminal() || goal.input_revision != session.input_revision {
+        return Ok(GoalPermissionWake::NoGoal);
+    }
+    if goal.state == GoalState::Running {
+        // The segment may not have settled into waiting yet.
+        return Ok(GoalPermissionWake::Held);
+    }
+    if goal.state != GoalState::Waiting(GoalWaitReason::Approval)
+        || goal.status_reason.as_deref() != Some(record.request_id.as_str())
+    {
+        return Ok(GoalPermissionWake::NoGoal);
+    }
+    if !session.turn_state.can_claim()
+        || session_row
+            .lease_deadline
+            .is_some_and(|deadline| deadline >= now)
+    {
+        return Ok(GoalPermissionWake::Held);
+    }
+    let previous_state_version = goal.state_version;
+    let previous_lease_epoch = goal.lease_epoch;
+    goal.wake_from(GoalWaitReason::Approval, now_ms)
+        .map_err(|_| invalid())?;
+    session.decision_pause = None;
+    session.last_event_seq = session.last_event_seq.checked_add(1).ok_or_else(invalid)?;
+    session.version = session_row.version.checked_add(1).ok_or_else(invalid)?;
+    let ledger = GoalLedgerEvent::new(
+        &goal,
+        AgentRunEventKind::GoalRevised,
+        session.last_event_seq,
+        now.to_rfc3339(),
+    )
+    .map_err(|_| invalid())?;
+    let changed = agent_session::Entity::update_many()
+        .set(agent_session::ActiveModel {
+            state_json: Set(session.encode_json_for_storage().map_err(|_| invalid())?),
+            version: Set(session.version),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .filter(agent_session::Column::Id.eq(session_row.id))
+        .filter(agent_session::Column::Version.eq(session_row.version))
+        .filter(agent_session::Column::LeaseToken.eq(session_row.lease_token))
+        .exec(&txn)
+        .await?;
+    if changed.rows_affected != 1
+        || !replace_on(
+            &txn,
+            &goal,
+            previous_state_version,
+            previous_lease_epoch,
+            None,
+            None,
+        )
+        .await?
+    {
+        return Err(invalid());
+    }
+    agent_run_event::ActiveModel {
+        event_id: Set(ledger.event.event_id.clone()),
+        run_id: Set(goal.conversation_id.clone()),
+        event_seq: Set(as_i64(ledger.event.event_seq)?),
+        input_revision: Set(as_i64(goal.input_revision)?),
+        kind: Set(ledger.event.kind.as_str().into()),
+        correlation_id: Set(Some(goal.goal_id.clone())),
+        input_seq: Set(None),
+        actor_id: Set(Some(goal.owner_id.clone())),
+        source_envelope_ids_json: Set("[]".into()),
+        result_envelope_ids_json: Set("[]".into()),
+        payload_json: Set(serde_json::to_string(&ledger).map_err(|_| invalid())?),
+        payload_schema_version: Set(i32::from(AGENT_RUN_EVENT_SCHEMA_VERSION)),
+        created_at: Set(now),
+        ..Default::default()
+    }
+    .insert(&txn)
+    .await?;
+    if !desk_assistant_data_store::decision_resume::transition_on(
+        &txn,
+        record.id,
+        desk_assistant_data_store::decision_resume::PENDING,
+        desk_assistant_data_store::decision_resume::DONE,
+        now.timestamp_millis(),
+    )
+    .await
+    .map_err(|_| invalid())?
+    {
+        return Err(invalid());
+    }
+    if let Some(history) = &history {
+        desk_diagnose_core::future::boxed(|| history.capture_on(&txn)).await?;
+    }
+    txn.commit().await?;
+    Ok(GoalPermissionWake::Queued)
+}
+
 /// Keyset position in the FIFO of runnable goals.
 pub type ContinuationCursor = (i64, String);
 

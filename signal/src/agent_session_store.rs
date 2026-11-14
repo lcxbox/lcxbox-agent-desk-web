@@ -78,6 +78,8 @@ pub struct SignalAgentSessionStore {
     queued_input: Option<(String, String)>,
     work_event: Option<String>,
     permission_resume: Option<permission_resume::ClaimBinding>,
+    /// The decided request a `ProposalDecision` claim resumes after.
+    decision_resume: Option<(desk_diagnose_core::proposal_review::DecisionKind, String)>,
 }
 
 pub use desk_diagnose_core::live_context::ContextSelectionClaim;
@@ -93,6 +95,7 @@ impl SignalAgentSessionStore {
             queued_input: None,
             work_event: None,
             permission_resume: None,
+            decision_resume: None,
         }
     }
 
@@ -125,6 +128,17 @@ impl SignalAgentSessionStore {
 
     pub(crate) fn with_work_event(mut self, event_id: String) -> Self {
         self.work_event = Some(event_id);
+        self
+    }
+
+    /// Claim the turn that resumes after the decision of `request_id`. The
+    /// claim clears the pause and starts the resume record atomically.
+    pub(crate) fn with_decision_resume(
+        mut self,
+        kind: desk_diagnose_core::proposal_review::DecisionKind,
+        request_id: String,
+    ) -> Self {
+        self.decision_resume = Some((kind, request_id));
         self
     }
 
@@ -221,6 +235,7 @@ impl SignalAgentSessionStore {
             control_revision: session.control_revision,
             main_stopped: session.main_stopped,
             subagents: Default::default(),
+            decision_pause: session.decision_pause.clone(),
             file_scope: session.file_scope,
             terminal_error: session.terminal_error,
             temporary_conversation: session.assistant_data.as_ref().map(|data| data.temporary),
@@ -1039,8 +1054,8 @@ impl SignalAgentSessionStore {
                     request.state
                         == desk_diagnose_core::dynamic_run::PermissionRequestState::Pending
                 })
-                // No proposal of any kind may still wait in the turn.
-                && session.pending_proposal_review.is_none();
+                // No proposal or directory request may still pause the turn.
+                && session.decision_pause.is_none();
             let previous = (goal.state_version, goal.lease_epoch);
             goal.apply_budget_policy(
                 &crate::goal_budget_policy::read(&txn)
@@ -1508,6 +1523,7 @@ pub struct SessionSnapshot {
     pub main_stopped: bool,
     pub subagents: desk_agent_protocol::ai_assistant::subagent::AiAssistantDelegationSnapshot,
     pub file_scope: desk_diagnose_core::file_scope::SessionFileScope,
+    pub decision_pause: Option<desk_diagnose_core::proposal_review::DecisionPause>,
     pub terminal_error: Option<desk_agent_protocol::AgentError>,
     pub context_usage: Option<desk_diagnose_core::context_usage::ContextUsage>,
     pub client_conversation_id: Option<String>,
@@ -1562,6 +1578,7 @@ fn snapshot_from_session(
         control_revision: session.control_revision,
         main_stopped: session.main_stopped,
         subagents: Default::default(),
+        decision_pause: session.decision_pause.clone(),
         file_scope: session.file_scope,
         terminal_error: session.terminal_error,
         temporary_conversation: session.assistant_data.as_ref().map(|data| data.temporary),
@@ -2007,18 +2024,6 @@ impl SessionSeam for SignalAgentSessionStore {
             })
     }
 
-    async fn poll_proposal_review(
-        &self,
-        session: &mut PersistedAgentSession,
-        reference: &desk_diagnose_core::proposal_review::ProposalReviewRef,
-        observation: desk_diagnose_core::model_observability::tool::ToolObservation,
-    ) -> Result<bool, AgentError> {
-        crate::schedule_store::ScheduleStore::new(self.db.clone())
-            .poll_review_decision(session, reference, &observation)
-            .await
-            .map_err(|_| desk_diagnose_core::schedule::proposal::unavailable())
-    }
-
     async fn propose_skill(
         &self,
         session: &mut PersistedAgentSession,
@@ -2046,7 +2051,11 @@ impl SessionSeam for SignalAgentSessionStore {
         if params.trigger_origin == desk_diagnose_core::session::TriggerOrigin::PermissionDecision {
             return self.claim_permission_resume(params).await;
         }
-        if self.permission_resume.is_some() {
+        if self.permission_resume.is_some()
+            || (params.trigger_origin
+                == desk_diagnose_core::session::TriggerOrigin::ProposalDecision)
+                != self.decision_resume.is_some()
+        {
             return Err(ClaimError::Backend(internal(
                 "permission resume trigger mismatch",
             )));
@@ -2125,7 +2134,20 @@ impl SessionSeam for SignalAgentSessionStore {
                     if self.queued_input.is_some() && session.main_stopped {
                         return Err(ClaimError::Busy);
                     }
-                    if let (Some(event_id), Some(revision)) =
+                    // A paused turn resumes only through its decision.
+                    if session.decision_pause.is_some() && self.decision_resume.is_none() {
+                        return Err(ClaimError::Busy);
+                    }
+                    if let Some((kind, request_id)) = &self.decision_resume {
+                        desk_diagnose_core::assistant_policy::validate_decision_resume_claim(
+                            &session,
+                            &params,
+                            *kind,
+                            request_id,
+                            self.expected_input_revision.ok_or(ClaimError::Busy)?,
+                        )
+                        .map_err(|_| ClaimError::Busy)?;
+                    } else if let (Some(event_id), Some(revision)) =
                         (&self.work_event, self.expected_input_revision)
                     {
                         desk_diagnose_core::assistant_policy::validate_personal_work_claim(
@@ -2220,6 +2242,9 @@ impl SessionSeam for SignalAgentSessionStore {
                         return Err(ClaimError::Busy);
                     }
                     session.adopt_trigger(params.trigger_origin, &params.turn_id);
+                    if self.decision_resume.is_some() {
+                        session.decision_pause = None;
+                    }
                     if let Some((_, message_id)) = &self.queued_input {
                         if !params.trigger_origin.is_request_input()
                             || self.expected_input_revision != Some(session.input_revision)
@@ -2299,6 +2324,53 @@ impl SessionSeam for SignalAgentSessionStore {
                             .await
                             .map_err(|error| ClaimError::Backend(error.into_agent_error()))?
                         {
+                            return Err(ClaimError::Busy);
+                        }
+                        txn.commit()
+                            .await
+                            .map_err(|error| ClaimError::Backend(internal(error.to_string())))?;
+                        result
+                    } else if let Some((kind, request_id)) = &self.decision_resume {
+                        // The resume record leaves `pending` exactly once.
+                        let txn = crate::db::begin_write(&self.db, agent_session::Entity)
+                            .await
+                            .map_err(|error| ClaimError::Backend(internal(error.to_string())))?;
+                        // A child resumes only while its task source still admits it.
+                        if session.agent_role.binding().is_some()
+                            && !crate::agent_subagent_store::child_resume_admitted_on(
+                                &txn,
+                                &session,
+                                now.timestamp_millis(),
+                            )
+                            .await
+                            .map_err(|error| ClaimError::Backend(internal(error.to_string())))?
+                        {
+                            return Err(ClaimError::Busy);
+                        }
+                        let record = desk_assistant_data_store::decision_resume::find_on(
+                            &txn, *kind, request_id,
+                        )
+                        .await
+                        .map_err(|error| ClaimError::Backend(internal(format!("{error:?}"))))?
+                        .filter(|record| record.conversation_id == session.conversation_id)
+                        .ok_or(ClaimError::Busy)?;
+                        if !desk_assistant_data_store::decision_resume::transition_on(
+                            &txn,
+                            record.id,
+                            desk_assistant_data_store::decision_resume::PENDING,
+                            desk_assistant_data_store::decision_resume::STARTED,
+                            now.timestamp_millis(),
+                        )
+                        .await
+                        .map_err(|error| ClaimError::Backend(internal(format!("{error:?}"))))?
+                        {
+                            return Err(ClaimError::Busy);
+                        }
+                        let result = update
+                            .exec(&txn)
+                            .await
+                            .map_err(|error| ClaimError::Backend(internal(error.to_string())))?;
+                        if result.rows_affected != 1 {
                             return Err(ClaimError::Busy);
                         }
                         txn.commit()
@@ -2599,14 +2671,6 @@ impl SessionSeam for SignalAgentSessionStore {
             .await
             .map_err(|error| internal(format!("settle AI Assistant goal budget: {error}")))?;
         Ok(())
-    }
-
-    async fn poll_directory_review(
-        &self,
-        session: &mut PersistedAgentSession,
-        request_id: &str,
-    ) -> Result<Option<bool>, AgentError> {
-        self.poll_file_scope_review(session, request_id).await
     }
 
     async fn propose_directory(
@@ -3780,8 +3844,14 @@ mod tests {
     async fn expired_lease_snapshot_does_not_keep_the_conversation_running() {
         let store = store().await;
         let mut session = store.claim_turn(claim("expired-snapshot")).await.unwrap();
-        session.pending_proposal_review =
-            Some(desk_diagnose_core::proposal_review::ProposalReviewRef::schedule("pending-timer"));
+        session.decision_pause = Some(desk_diagnose_core::proposal_review::DecisionPause {
+            kind: desk_diagnose_core::proposal_review::DecisionKind::Schedule,
+            id: "pending-timer".into(),
+            turn_id: "turn".into(),
+            call_id: "call".into(),
+            input_revision: session.input_revision,
+            requested_at_unix_ms: 1,
+        });
         store.save(&mut session).await.unwrap();
         assert!(
             store
@@ -3813,10 +3883,7 @@ mod tests {
                 .unwrap();
             assert!(!snapshot_from_row(row.clone()).unwrap().active);
             let stored = PersistedAgentSession::decode_json(&row.state_json).unwrap();
-            assert_eq!(
-                stored.pending_proposal_review,
-                session.pending_proposal_review
-            );
+            assert_eq!(stored.decision_pause, session.decision_pause);
             assert_eq!(stored.conversation, session.conversation);
             let mut raw = row;
             raw.state_json = "already decoded; not read by presentation".into();

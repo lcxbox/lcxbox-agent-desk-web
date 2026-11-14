@@ -27,7 +27,7 @@ pub struct Model {
     pub source_policy_json: String,
     #[sea_orm(column_type = "Text")]
     pub reason: String,
-    /// `pending`, `approved`, `rejected`, `expired` or `conflicted`.
+    /// `pending`, `approved`, `rejected`, `withdrawn` or `conflicted`.
     #[sea_orm(indexed)]
     pub status: String,
     pub decision_source: Option<String>,
@@ -35,7 +35,6 @@ pub struct Model {
     pub decision_reason: Option<String>,
     pub created_at_ms: i64,
     pub decided_at_ms: Option<i64>,
-    pub expires_at_ms: i64,
     pub revision: i64,
 }
 

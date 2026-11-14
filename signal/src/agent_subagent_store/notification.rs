@@ -106,7 +106,7 @@ pub(crate) async fn batch_report_read_scope_on(
         || parent.turn_state == TurnState::Cancelled
         || parent.subagent_wait.is_some()
         || parent.ready_subagent_wait.is_some()
-        || parent.terminal_permission_request_id.is_some()
+        || parent.paused_for_decision()
         || !parent.unclosed_tool_call_ids().is_empty()
         || !parent.execution_state.tasks().is_empty()
         || parent.execution_state.has_unresolved_outcome()

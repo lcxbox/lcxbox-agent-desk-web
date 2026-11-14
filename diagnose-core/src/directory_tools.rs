@@ -4,8 +4,6 @@ use crate::{
     file_scope::{DirectoryConsentSource, DirectoryProposal},
     registry::{RegisteredTool, ToolEffect},
 };
-#[cfg(test)]
-use desk_agent_protocol::Capability;
 use desk_agent_protocol::{AgentError, AgentErrorKind};
 use serde::Deserialize;
 use serde_json::json;
@@ -15,8 +13,8 @@ pub(crate) const DIRECTORY_PROMPT_MAX_BYTES: usize = 8192;
 
 /// Durable pause payload shared by the loop and interrupted-turn recovery.
 pub fn pending_result(request_id: &str) -> serde_json::Value {
-    json!({"directory_request_id": request_id, "state": "pending",
-        "message": "Awaiting owner confirmation in Conversation directories. No file operation has been authorized."})
+    json!({"directory_request_id": request_id, "state": "pending", "awaiting_decision": true,
+        "message": "Submitted for a decision. This turn ends now; when the AI reviewer or the owner decides, the server continues this requirement and this result shows the decision. No file operation has been authorized."})
 }
 
 /// Bounded current scope metadata, rebuilt each step rather than appended to
@@ -74,7 +72,7 @@ pub fn scope_prompt(session: &crate::session::PersistedAgentSession, now_unix_ms
 pub fn registry() -> Vec<RegisteredTool> {
     vec![RegisteredTool {
         spec: ToolSpec { name: REQUEST_DIRECTORY.into(),
-            description: "Request consent for one existing absolute directory on the controlled device in this conversation. Supply the path and purpose. Resolves directory identity only, without listing or reading contents. In interactive conversations, this call waits for AI approval when the owner enabled it, otherwise for the owner to approve or reject the canonical path in Conversation directories, then returns the decision. Continue the existing requirement after approval; do not ask for another directory confirmation. Directory consent does not grant file read, write or export permissions; request those separately when required.".into(),
+            description: "Request consent for one existing absolute directory on the controlled device in this conversation. Supply the path and purpose. Resolves directory identity only, without listing or reading contents. After this call the turn ends; the AI reviewer, when the owner enabled it, or the owner approves or rejects the canonical path in Conversation directories, and the server then continues this requirement with the decision as this call's result. Do not ask for another directory confirmation. Directory consent does not grant file read, write or export permissions; request those separately when required.".into(),
             parameters_schema: json!({"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":4096},"purpose":{"type":"string","minLength":1,"maxLength":2048}},"required":["path","purpose"],"additionalProperties":false}) },
         required_device_capability: None,
         effect: ToolEffect::DirectoryPlanning,
@@ -178,64 +176,6 @@ pub fn unavailable() -> AgentError {
     }
 }
 
-/// Accept only directory-scope updates on this exact executing turn. In particular,
-/// never overwrite a stop, new user input, another lease, or changed tool authority.
-pub fn adopt_review_snapshot(
-    held: &mut crate::session::PersistedAgentSession,
-    current: crate::session::PersistedAgentSession,
-    request_id: &str,
-) -> Result<Option<bool>, AgentError> {
-    use crate::file_scope::DirectoryConsentState;
-    if !held.turn_state.is_active()
-        || held.version < 0
-        || !held
-            .file_scope
-            .records()
-            .iter()
-            .any(|r| r.proposal.request_id == request_id)
-        || current.version < held.version
-        || current.last_event_seq < held.last_event_seq
-        || current.file_scope.revision() < held.file_scope.revision()
-        || u64::try_from(current.version - held.version).ok()
-            != Some(current.last_event_seq - held.last_event_seq)
-    {
-        return Err(unavailable());
-    }
-    let mut expected = held.clone();
-    expected.file_scope = current.file_scope.clone();
-    expected.last_event_seq = current.last_event_seq;
-    expected.version = current.version;
-    expected.updated_at = current.updated_at.clone();
-    // Compare the durable boundary: resolved results, request context and live
-    // images deliberately differ from their stored session representation.
-    if expected
-        .encode_json_for_storage()
-        .map_err(|_| unavailable())?
-        != current
-            .encode_json_for_storage()
-            .map_err(|_| unavailable())?
-    {
-        return Err(unavailable());
-    }
-    let decision = match current
-        .file_scope
-        .records()
-        .iter()
-        .find(|r| r.proposal.request_id == request_id)
-        .map(|r| r.state)
-    {
-        Some(DirectoryConsentState::Pending) => None,
-        Some(DirectoryConsentState::Approved) => Some(true),
-        _ => Some(false),
-    };
-    // Adopt only the validated directory update; keep live evidence and caches.
-    held.file_scope = current.file_scope;
-    held.last_event_seq = current.last_event_seq;
-    held.version = current.version;
-    held.updated_at = current.updated_at;
-    Ok(decision)
-}
-
 pub fn decision_result(request_id: &str, approved: bool) -> serde_json::Value {
     json!({"directory_request_id": request_id,
     "state": if approved { "approved" } else { "rejected" },
@@ -277,189 +217,96 @@ pub fn reviewed_decision_result(
     }})
 }
 
+/// The system event recording the decision of an interactive directory
+/// request. The deciding transaction appends it to the paused session; the
+/// resumed turn sees it projected onto the request's pending tool result.
+pub fn decision_event(
+    session: &crate::session::PersistedAgentSession,
+    request_id: &str,
+    approved: bool,
+) -> Result<crate::chat::ChatMessage, AgentError> {
+    let text = reviewed_decision_result(session, request_id, approved).to_string();
+    let id = format!("directory-decision:{request_id}");
+    let parent = session
+        .conversation
+        .iter()
+        .rev()
+        .find_map(|message| message.data_envelope.as_ref());
+    let mut message = crate::chat::ChatMessage::system_event(&id, &text);
+    message.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        parent,
+        &id,
+        &text,
+        "directory_decision",
+    )?;
+    Ok(message)
+}
+
+/// Appends the decision event when `session` paused on this directory
+/// request and has just decided it. Returns whether the paused turn now needs
+/// a decision resume; the host records it in the same transaction.
+pub fn record_paused_decision(
+    session: &mut crate::session::PersistedAgentSession,
+    request_id: &str,
+    approved: bool,
+) -> Result<bool, AgentError> {
+    if session.turn_state.is_active()
+        || crate::proposal_review::current_pause(
+            session,
+            crate::proposal_review::DecisionKind::Directory,
+            request_id,
+        )
+        .is_none()
+    {
+        return Ok(false);
+    }
+    let event = decision_event(session, request_id, approved)?;
+    session.conversation.push(event);
+    Ok(true)
+}
+
+/// Model-only projection of decided directory requests onto their pending
+/// tool results. The stored records stay unchanged.
+pub fn project_decisions(messages: &mut [crate::chat::ChatMessage]) -> Result<(), AgentError> {
+    use crate::chat::ChatRole;
+    use crate::schedule::review_result::labelled;
+    for index in 0..messages.len() {
+        let pending = &messages[index];
+        if !labelled(pending, ChatRole::Tool, "directory_proposal_pending") {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&pending.text) else {
+            continue;
+        };
+        let Some(id) = value["directory_request_id"].as_str() else {
+            continue;
+        };
+        let Some(call_id) = pending.tool_call_id.clone() else {
+            continue;
+        };
+        let decided = messages[index + 1..].iter().find(|message| {
+            labelled(message, ChatRole::SystemEvent, "directory_decision")
+                && serde_json::from_str::<serde_json::Value>(&message.text)
+                    .is_ok_and(|decision| decision["directory_request_id"].as_str() == Some(id))
+        });
+        let Some(decided) = decided.cloned() else {
+            continue;
+        };
+        let envelope = crate::model_message_labels::conversation_history_result_envelope(
+            pending.data_envelope.as_ref(),
+            std::slice::from_ref(&decided),
+            &call_id,
+            &decided.text,
+        )?;
+        messages[index].text = decided.text;
+        messages[index].data_envelope = envelope;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn waiting_session() -> crate::session::PersistedAgentSession {
-        use crate::{chat::ChatMessage, file_scope::FileScopeSubject, session::*};
-        use desk_agent_protocol::{AgentScope, ExecutionMode, computer_use::*};
-
-        let mut session = PersistedAgentSession::new(
-            "conversation",
-            "owner",
-            "device",
-            1,
-            AgentScope {
-                granted: vec![],
-                mode: ExecutionMode::ReadOnly,
-                expires_at: None,
-                policy_name: None,
-            },
-            "2026-10-15T00:00:00Z",
-        );
-        session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAssistant);
-        session.turn_state = TurnState::Running;
-        session.current_turn_id = Some("directory-turn".into());
-        session
-            .file_scope
-            .propose(
-                &FileScopeSubject {
-                    actor_id: session.actor_id.clone(),
-                    device_id: session.device_id.clone(),
-                    conversation_id: session.conversation_id.clone(),
-                },
-                0,
-                DirectoryProposal {
-                    request_id: "directory-request".into(),
-                    requested_path: "/tmp/work".into(),
-                    canonical_path: "/tmp/work".into(),
-                    directory: ObjectRef {
-                        token: "directory-reference".into(),
-                        snapshot_id: "directory-generation".into(),
-                        object_kind: ObjectKind::Directory,
-                        expires_at: String::new(),
-                    },
-                    purpose: "Create the requested document".into(),
-                    source: DirectoryConsentSource::ModelProposal,
-                },
-                1,
-            )
-            .unwrap();
-        let mut result = ChatMessage::text(
-            "network-result",
-            crate::chat::ChatRole::Tool,
-            "Read the network ports attachment before interpreting it.",
-        );
-        result.resolved_result = Some(Box::new(ChatMessage::text(
-            "network-result",
-            crate::chat::ChatRole::Tool,
-            "Verified complete network ports result",
-        )));
-        result.runtime_context = Some(Box::new(ChatMessage::text(
-            "runtime-context",
-            crate::chat::ChatRole::System,
-            "Request-only runtime context",
-        )));
-        session.conversation.push(result);
-        session
-    }
-
-    fn stored(
-        session: &crate::session::PersistedAgentSession,
-    ) -> crate::session::PersistedAgentSession {
-        crate::session::PersistedAgentSession::decode_json(
-            &session.encode_json_for_storage().unwrap(),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn directory_review_preserves_live_results_for_pending_approved_and_rejected_snapshots() {
-        for decision in [None, Some(true), Some(false)] {
-            let mut held = waiting_session();
-            let before = held.clone();
-            let mut current = stored(&held);
-            assert!(current.conversation[0].resolved_result.is_none());
-            assert!(current.conversation[0].runtime_context.is_none());
-            if let Some(approve) = decision {
-                let subject = crate::file_scope::FileScopeSubject {
-                    actor_id: held.actor_id.clone(),
-                    device_id: held.device_id.clone(),
-                    conversation_id: held.conversation_id.clone(),
-                };
-                current
-                    .file_scope
-                    .decide(&subject, 1, "directory-request", approve, 2)
-                    .unwrap();
-                current.version += 1;
-                current.last_event_seq += 1;
-            }
-            let scope = current.file_scope.clone();
-            assert_eq!(
-                adopt_review_snapshot(&mut held, current, "directory-request").unwrap(),
-                decision
-            );
-            assert_eq!(held.file_scope, scope);
-            assert_eq!(held.conversation, before.conversation);
-            assert_eq!(held.scope_snapshot, before.scope_snapshot);
-            assert_eq!(held.version, before.version + i64::from(decision.is_some()));
-            assert_eq!(
-                held.last_event_seq,
-                before.last_event_seq + u64::from(decision.is_some())
-            );
-        }
-    }
-
-    #[test]
-    fn directory_review_keeps_live_screen_pixels_across_the_storage_boundary() {
-        let mut held = waiting_session();
-        held.conversation.push(
-            crate::chat::ChatMessage::text(
-                "screen-result",
-                crate::chat::ChatRole::Tool,
-                "Captured screen",
-            )
-            .with_image("data:image/jpeg;base64,AQID"),
-        );
-        let before = held.clone();
-        let current = stored(&held);
-        assert!(
-            current
-                .conversation
-                .last()
-                .unwrap()
-                .image_data_url
-                .is_none()
-        );
-        assert_eq!(
-            adopt_review_snapshot(&mut held, current, "directory-request").unwrap(),
-            None
-        );
-        assert_eq!(held, before);
-    }
-
-    #[test]
-    fn directory_review_with_live_cache_still_rejects_changed_durable_authority() {
-        for change in [
-            "input",
-            "control",
-            "lease",
-            "policy",
-            "scope",
-            "stopped",
-            "turn",
-            "actor",
-            "device",
-            "transcript",
-            "version",
-            "event",
-        ] {
-            let mut held = waiting_session();
-            let before = held.clone();
-            let mut current = stored(&held);
-            match change {
-                "input" => current.input_revision += 1,
-                "control" => current.control_revision += 1,
-                "lease" => current.lease_token += 1,
-                "policy" => current.policy_revision += 1,
-                "scope" => current.scope_snapshot.granted.push(Capability::SystemInfo),
-                "stopped" => current.main_stopped = true,
-                "turn" => current.current_turn_id = Some("another-turn".into()),
-                "actor" => current.actor_id = "another-owner".into(),
-                "device" => current.device_id = "another-device".into(),
-                "transcript" => current.conversation[0].text = "changed result".into(),
-                "version" => current.version += 1,
-                "event" => current.last_event_seq += 1,
-                _ => unreachable!(),
-            }
-            assert!(
-                adopt_review_snapshot(&mut held, current, "directory-request").is_err(),
-                "{change}"
-            );
-            assert_eq!(held, before, "{change}");
-        }
-    }
 
     #[test]
     fn proposals_are_bounded_and_cannot_supply_confirmation_or_device_references() {

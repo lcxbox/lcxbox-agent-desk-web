@@ -119,6 +119,7 @@ pub fn eligible_origin(session: &PersistedAgentSession) -> bool {
                 session.trigger_origin,
                 TriggerOrigin::DelegatedTask
                     | TriggerOrigin::PermissionDecision
+                    | TriggerOrigin::ProposalDecision
                     | TriggerOrigin::WorkContinuation
             )
             && session.assistant_data.as_ref().is_some_and(|data| {
@@ -133,6 +134,7 @@ pub fn eligible_origin(session: &PersistedAgentSession) -> bool {
             session.trigger_origin,
             TriggerOrigin::User
                 | TriggerOrigin::PermissionDecision
+                | TriggerOrigin::ProposalDecision
                 | TriggerOrigin::WorkContinuation
                 | TriggerOrigin::GoalContinuation
                 | TriggerOrigin::ScheduledTask

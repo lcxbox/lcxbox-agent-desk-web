@@ -165,21 +165,21 @@ pub fn pending<'a>(
         .review_context
         .as_ref()
         .ok_or(ApprovalReviewError::InvalidContext)?;
+    // The request's turn has ended and paused on it; the decision resumes it.
     if record.state != DirectoryConsentState::Pending
         || record.proposal.source != DirectoryConsentSource::ModelProposal
         || session.trigger_origin == TriggerOrigin::ScheduledTask
-        || !session.turn_state.is_active()
+        || session.turn_state.is_active()
         || session.main_stopped
-        || session.current_turn_id.as_deref() != Some(&context.turn_id)
+        || crate::proposal_review::current_pause(
+            session,
+            crate::proposal_review::DecisionKind::Directory,
+            id,
+        )
+        .is_none_or(|pause| pause.turn_id != context.turn_id || pause.call_id != context.call_id)
         || session.input_revision != context.input_revision
         || session.control_revision != context.control_revision
-        || session.latest_input_seq != context.input_watermark
-        || session.lease_token != context.lease_token
         || (session.device_id.is_empty() && !session.admits_assistant_device(&record.device_id))
-        || session
-            .conversation
-            .iter()
-            .any(|message| message.tool_call_id.as_deref() == Some(&context.call_id))
     {
         return Err(ApprovalReviewError::InvalidContext);
     }
@@ -340,6 +340,20 @@ mod tests {
         computer_use::{ObjectKind, ObjectRef},
     };
 
+    /// The requesting turn ended paused on directory request `id`.
+    fn paused(mut session: PersistedAgentSession, id: &str) -> PersistedAgentSession {
+        session.turn_state = TurnState::Idle;
+        session.decision_pause = Some(crate::proposal_review::DecisionPause {
+            kind: crate::proposal_review::DecisionKind::Directory,
+            id: id.into(),
+            turn_id: session.current_turn_id.clone().unwrap(),
+            call_id: "call".into(),
+            input_revision: session.input_revision,
+            requested_at_unix_ms: 0,
+        });
+        session
+    }
+
     fn fixture() -> (
         PersistedAgentSession,
         ApprovalDelegation,
@@ -432,6 +446,7 @@ mod tests {
             },
         };
         let (session, _) = transaction::prepare(&session, &update, now).unwrap();
+        let session = paused(session, &id);
         let delegation = ApprovalDelegation::new_usage_only(
             "delegation".into(),
             "run".into(),
@@ -450,6 +465,9 @@ mod tests {
             AssistantConversationScope, derive_assistant_conversation_key,
         };
         let (mut session, _, destination, now, _) = fixture();
+        // The new request is made in a running turn, which then pauses on it.
+        session.turn_state = TurnState::Running;
+        session.decision_pause = None;
         let mut proposal = session.file_scope.records()[0].proposal.clone();
         session.device_id.clear();
         session.file_scope = Default::default();
@@ -481,6 +499,7 @@ mod tests {
         assert!(transaction::prepare(&session, &update, now).is_err());
         update.subject.device_id = "device-a".into();
         let (pending_session, _) = transaction::prepare(&session, &update, now).unwrap();
+        let pending_session = paused(pending_session, &id);
         let delegation = ApprovalDelegation::new_default(
             "delegation".into(),
             session.conversation_id.clone(),
@@ -624,7 +643,41 @@ mod tests {
     }
 
     #[test]
-    fn active_directory_review_is_exact_and_keeps_native_proofs_out_of_model_input() {
+    fn the_owner_decides_a_model_request_only_after_its_turn_paused() {
+        let (session, _, _, now, id) = fixture();
+        let decide = |session: &PersistedAgentSession| {
+            transaction::prepare(
+                session,
+                &FileScopeUpdate {
+                    subject: session
+                        .file_scope_subject("owner", "device", "run")
+                        .unwrap(),
+                    client_conversation_id: "client".into(),
+                    client_request_id: "owner-decision".into(),
+                    expected_revision: session.file_scope.revision(),
+                    mutation: FileScopeMutation::Decide {
+                        directory_request_id: id.clone(),
+                        approve: true,
+                    },
+                },
+                now,
+            )
+        };
+        let mut running = session.clone();
+        running.turn_state = TurnState::Running;
+        assert_eq!(
+            decide(&running).unwrap_err(),
+            crate::file_scope::FileScopeError::StaleRevision
+        );
+        let (decided, _) = decide(&session).unwrap();
+        assert_eq!(
+            decided.file_scope.records()[0].state,
+            DirectoryConsentState::Approved
+        );
+    }
+
+    #[test]
+    fn paused_directory_review_is_exact_and_keeps_native_proofs_out_of_model_input() {
         let (session, delegation, destination, now, id) = fixture();
         let candidate = candidate(&session, &id, &delegation, None, now).unwrap();
         let authorized =
@@ -640,10 +693,10 @@ mod tests {
             match mutation {
                 0 => changed.input_revision += 1,
                 1 => changed.control_revision += 1,
-                2 => changed.latest_input_seq += 1,
+                2 => changed.decision_pause = None,
                 3 => changed.lease_token += 1,
                 4 => changed.current_turn_id = Some("other".into()),
-                5 => changed.turn_state = TurnState::Idle,
+                5 => changed.turn_state = TurnState::Running,
                 6 => changed.trigger_origin = TriggerOrigin::ScheduledTask,
                 7 => changed.device_id = "other".into(),
                 8 => changed.main_stopped = true,
@@ -665,7 +718,7 @@ mod tests {
     }
 
     #[test]
-    fn directory_rejection_resumes_the_same_turn_and_cannot_be_reproposed_under_a_new_id() {
+    fn directory_rejection_is_reported_and_cannot_be_reproposed_under_a_new_id() {
         let (session, delegation, _, now, id) = fixture();
         let candidate = candidate(&session, &id, &delegation, None, now).unwrap();
         let decision = DirectoryDecision {
@@ -678,17 +731,16 @@ mod tests {
         };
         let (current, receipt) =
             transaction::prepare_ai_decision(&session, &id, false, decision, now + 1).unwrap();
-        let mut held = session.clone();
         assert_eq!(
-            crate::directory_tools::adopt_review_snapshot(&mut held, current.clone(), &id).unwrap(),
-            Some(false)
+            current.file_scope.records()[0].state,
+            DirectoryConsentState::Rejected
         );
         assert!(
-            crate::directory_tools::reviewed_decision_result(&held, &id, false)
+            crate::directory_tools::reviewed_decision_result(&current, &id, false)
                 .to_string()
                 .contains("Reviewer timed out")
         );
-        assert!(held.scope_snapshot.granted.is_empty());
+        assert!(current.scope_snapshot.granted.is_empty());
         assert!(receipt.decision.is_some());
         assert!(
             transaction::prepare_ai_decision(

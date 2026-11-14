@@ -36,8 +36,42 @@ async fn proposal_fixture_with(
         )
         .await
         .unwrap();
-    let schedule_id = session.pending_proposal_review.clone().unwrap().id;
+    let pause = desk_diagnose_core::proposal_review::awaiting_proposal(
+        &session,
+        &call.id,
+        session.current_turn_id.as_deref().unwrap(),
+        now.timestamp_millis() as u64,
+    )
+    .unwrap();
+    let schedule_id = pause.id.clone();
+    let session = pause_turn(&db, session, pause).await;
     (db, session, schedule_id, now.timestamp_millis() as u64)
+}
+
+/// Ends the proposing turn paused on `pause`, as the loop's settlement does.
+pub(super) async fn pause_turn(
+    db: &DatabaseConnection,
+    mut session: PersistedAgentSession,
+    pause: desk_diagnose_core::proposal_review::DecisionPause,
+) -> PersistedAgentSession {
+    session.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    session.decision_pause = Some(pause);
+    session.version += 1;
+    session_row::Entity::update_many()
+        .col_expr(
+            session_row::Column::StateJson,
+            Expr::value(session.encode_json_for_storage().unwrap()),
+        )
+        .col_expr(session_row::Column::Version, Expr::value(session.version))
+        .col_expr(
+            session_row::Column::LeaseDeadline,
+            Expr::value(Option::<chrono::DateTime<chrono::Utc>>::None),
+        )
+        .filter(session_row::Column::ConversationId.eq(&session.conversation_id))
+        .exec(db)
+        .await
+        .unwrap();
+    saved(db, &session.conversation_id).await
 }
 
 /// A running owner turn whose last assistant message makes `call`.

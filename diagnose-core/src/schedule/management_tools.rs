@@ -48,7 +48,9 @@ pub fn parse(
         && !session.agent_role.is_main()
         && matches!(
             session.trigger_origin,
-            TriggerOrigin::DelegatedTask | TriggerOrigin::PermissionDecision
+            TriggerOrigin::DelegatedTask
+                | TriggerOrigin::PermissionDecision
+                | TriggerOrigin::ProposalDecision
         );
     let outside_scope = (!session.owner_direct_planning() && !delegated_inspection)
         || session.surface != AgentSessionSurface::AiAssistant

@@ -80,7 +80,7 @@ pub async fn manage_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
                 "The conversation timer is enabled. It grants no tool permissions; its run approves device actions one at a time."
             } else {
                 awaiting_review = Some(task.schedule_id.clone());
-                "The AI reviewer or the owner decides this proposal in the application review dialog, and this turn waits for that decision. Do not report success before it. No extra chat confirmation is needed. No tool permission is granted; every run approves device actions one at a time."
+                "Submitted for a decision. This turn ends now; when the AI reviewer or the owner decides in the application, the server continues this requirement and this result shows the decision. Do not report success before it. No extra chat confirmation is needed. No tool permission is granted; every run approves device actions one at a time."
             };
             (serde_json::json!({"schedule_id":task.schedule_id,"kind":task.kind,"state":task.status,
                 "next_run_at_utc_ms":task.next_run_at,"awaiting_decision":awaiting_review.is_some(),
@@ -243,7 +243,6 @@ pub(crate) async fn commit_tool_receipt_on<C: ConnectionTrait, H: ScheduleHostSt
             .await?
             .ok_or(ScheduleStoreError::NotFound)?;
     }
-    next.pending_proposal_review = receipt.awaiting;
     let mut message =
         ChatMessage::tool_result(receipt.message_id, receipt.call_id, receipt.content);
     message.turn_id = next.current_turn_id.clone();

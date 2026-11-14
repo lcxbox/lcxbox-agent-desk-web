@@ -4142,16 +4142,36 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     // The proposal transaction already stored a labelled
                                                     // result. Do not append a second success message.
                                                     finish_tool(session, &call.id, true, sink);
-                                                    crate::future::phase(|| {
-                                                        super::proposal_wait::run(
-                                                            deps,
+                                                    if let Some(pause) =
+                                                        crate::proposal_review::awaiting_proposal(
                                                             session,
                                                             &call.id,
-                                                            &tool_observation,
-                                                            sink,
+                                                            turn_id,
+                                                            current_unix_ms(deps.clock)?,
                                                         )
-                                                    })
-                                                    .await?;
+                                                    {
+                                                        // The turn ends here; the decision resumes it.
+                                                        tool_observation.permission(
+                                                            crate::model_observability::PermissionOutcome::Waiting,
+                                                        );
+                                                        append_unstarted_tool_results(
+                                                            session,
+                                                            &turn.tool_calls[call_index + 1..],
+                                                            turn.provider_meta
+                                                                .data_envelope
+                                                                .as_ref(),
+                                                            &mut (state.mint),
+                                                            "not executed: waiting for the proposal decision",
+                                                            "proposal_pause_tool_call",
+                                                        )?;
+                                                        deps.session_seam.save(session).await?;
+                                                        sink.on_permission_requested(&pause.id, 1);
+                                                        return Ok(Some(
+                                                            LoopOutcome::DecisionRequested {
+                                                                pause,
+                                                            },
+                                                        ));
+                                                    }
                                                 }
 
                                                 Ok(None)
@@ -4268,46 +4288,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 tool_observation.permission(
                                             crate::model_observability::PermissionOutcome::Waiting,
                                         );
-                                                // A scheduled run pauses for its durable approval flow.
-                                                // Interactive directory requests wait in this turn, like
-                                                // schedule reviews, without another model call.
-                                                if session.trigger_origin
-                                                    != crate::session::TriggerOrigin::ScheduledTask
-                                                {
-                                                    // Session snapshots expose the pending directory. The
-                                                    // permission-required stream frame is terminal and must
-                                                    // not close this still-running synchronous tool call.
-                                                    let approved = loop {
-                                                        ensure_lease_healthy(deps).await?;
-                                                        if let Some(approved) = deps
-                                                            .session_seam
-                                                            .poll_directory_review(
-                                                                session,
-                                                                &request_id,
-                                                            )
-                                                            .await?
-                                                        {
-                                                            break approved;
-                                                        }
-                                                    };
-                                                    ensure_lease_healthy(deps).await?;
-                                                    append_internal_tool_result(
-                                                session,
-                                                turn.provider_meta.data_envelope.as_ref(),
-                                                (state.mint)(),
-                                                &call.id,
-                                                crate::directory_tools::reviewed_decision_result(
-                                                    session,
-                                                    &request_id,
-                                                    approved,
-                                                )
-                                                .to_string(),
-                                                "directory_decision",
-                                            )?;
-                                                    deps.session_seam.save(session).await?;
-                                                    finish_tool(session, &call.id, true, sink);
-                                                    return Ok(None);
-                                                }
                                                 append_internal_tool_result(
                                                     session,
                                                     turn.provider_meta.data_envelope.as_ref(),
@@ -4330,8 +4310,27 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 deps.session_seam.save(session).await?;
                                                 finish_tool(session, &call.id, true, sink);
                                                 sink.on_permission_requested(&request_id, 1);
-                                                Ok(Some(LoopOutcome::PermissionRequested {
-                                                    request_id,
+                                                // A scheduled run pauses for its durable approval
+                                                // flow; every other turn ends for a decision that
+                                                // resumes the requirement.
+                                                if session.trigger_origin
+                                                    == crate::session::TriggerOrigin::ScheduledTask
+                                                {
+                                                    return Ok(Some(
+                                                        LoopOutcome::PermissionRequested {
+                                                            request_id,
+                                                        },
+                                                    ));
+                                                }
+                                                Ok(Some(LoopOutcome::DecisionRequested {
+                                                    pause: crate::proposal_review::DecisionPause {
+                                                        kind: crate::proposal_review::DecisionKind::Directory,
+                                                        id: request_id,
+                                                        turn_id: turn_id.to_owned(),
+                                                        call_id: call.id.clone(),
+                                                        input_revision: session.input_revision,
+                                                        requested_at_unix_ms: current_unix_ms(deps.clock)?,
+                                                    },
                                                 }))
                                             })
                                         }

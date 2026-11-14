@@ -66,7 +66,12 @@ pub(crate) async fn synchronize_control_on<C: ConnectionTrait + crate::config::C
             _ => invalid(),
         })?;
     }
+    let before = session.clone();
     synchronize_session(&mut session, run, &now.to_rfc3339()).map_err(|_| invalid())?;
+    desk_diagnose_core::future::boxed(|| async {
+        crate::decision_resume::withdraw_on(db, &before, &session).await
+    })
+    .await?;
     if input_changed {
         let task = desk_diagnose_core::future::boxed(|| async {
             run_row::Entity::find()

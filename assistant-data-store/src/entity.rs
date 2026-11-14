@@ -18,6 +18,7 @@ pub mod agent_assistant_search_document;
 pub mod agent_assistant_search_term;
 pub mod agent_assistant_source_suppression;
 pub mod agent_assistant_source_use;
+pub mod agent_decision_resume;
 pub mod agent_delegation_group;
 pub mod agent_issue_admission;
 pub mod agent_issue_event;
@@ -87,4 +88,5 @@ pub fn register_schema(schema: sea_orm::SchemaBuilder) -> sea_orm::SchemaBuilder
         .register(agent_skill_scope::Entity)
         .register(agent_skill_proposal::Entity)
         .register(agent_skill_scan::Entity)
+        .register(agent_decision_resume::Entity)
 }

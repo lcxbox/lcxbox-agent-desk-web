@@ -360,7 +360,8 @@ pub enum SkillProposalStatus {
     Pending,
     Approved,
     Rejected,
-    Expired,
+    /// Withdrawn when the owner stopped the conversation that paused on it.
+    Withdrawn,
     /// The skill changed, or a limit was reached, before approval.
     Conflicted,
 }
@@ -390,10 +391,14 @@ pub struct SkillProposalView {
     /// Changes from the base version; empty for a new skill.
     pub diff: Vec<SkillFileDiff>,
     pub created_at_ms: i64,
-    pub expires_at_ms: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decided_at_ms: Option<i64>,
     pub revision: u64,
+    /// Whether the owner must decide this pending proposal now: manual
+    /// approval, the AI review window ended or produced no verdict, or the
+    /// approval model is unavailable. Computed by the host.
+    #[serde(default)]
+    pub awaiting_owner: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

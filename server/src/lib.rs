@@ -843,6 +843,14 @@ pub async fn run_with_hub(
             .run(),
         );
         actix_web::rt::spawn(
+            desk_signal::decision_resume::DecisionResumeExecutor::new(
+                desk_signal::db::get_db().clone(),
+                connection_map.clone(),
+                desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
+            )
+            .run(),
+        );
+        actix_web::rt::spawn(
             desk_signal::schedule_executor::SignalScheduleExecutor::new(
                 desk_signal::db::get_db().clone(),
                 connection_map.clone(),

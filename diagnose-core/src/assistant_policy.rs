@@ -529,10 +529,86 @@ pub fn validate_personal_work_claim(
     })
 }
 
+/// A decision-resume claim continues only the exact paused input of a decided
+/// proposal or directory request. It carries no new requirement or authority:
+/// a targetless conversation keeps its targetless scope.
+pub fn validate_decision_resume_claim(
+    session: &PersistedAgentSession,
+    params: &ClaimTurnParams,
+    kind: crate::proposal_review::DecisionKind,
+    request_id: &str,
+    input_revision: u64,
+) -> Result<(), AgentError> {
+    require_current_policy(params.policy_revision)?;
+    require_current_policy(session.policy_revision)?;
+    if params.trigger_origin == TriggerOrigin::ProposalDecision
+        && !session.turn_state.is_active()
+        && !session.main_stopped
+        && session.input_revision == input_revision
+        && crate::proposal_review::current_pause(session, kind, request_id).is_some()
+        && (!params.device_id.is_empty() || is_targetless_scope(&params.current_pdp_scope))
+    {
+        return Ok(());
+    }
+    Err(AgentError {
+        kind: AgentErrorKind::SessionUnavailable,
+        message: "The original request is no longer paused on this decision".into(),
+        retryable: false,
+        safe_for_model: false,
+        error_code: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use desk_agent_protocol::{AgentScope, ExecutionMode};
+
+    #[test]
+    fn a_decision_resume_claims_only_the_paused_input() {
+        let mut session = PersistedAgentSession::new(
+            "run",
+            "1",
+            "",
+            PERSONAL_ASSISTANT_POLICY_REVISION,
+            targetless_scope(),
+            "2026-11-14T00:00:00Z",
+        );
+        session.input_revision = 2;
+        session.decision_pause = Some(crate::proposal_review::DecisionPause {
+            kind: crate::proposal_review::DecisionKind::Directory,
+            id: "dir".into(),
+            turn_id: "turn".into(),
+            call_id: "call".into(),
+            input_revision: 2,
+            requested_at_unix_ms: 1,
+        });
+        let params = ClaimTurnParams {
+            conversation_id: "run".into(),
+            actor_id: "1".into(),
+            device_id: String::new(),
+            turn_id: "resume".into(),
+            request_id: None,
+            connection_id: None,
+            policy_revision: PERSONAL_ASSISTANT_POLICY_REVISION,
+            current_pdp_scope: targetless_scope(),
+            now: "2026-11-14T00:00:01Z".into(),
+            trigger_origin: TriggerOrigin::ProposalDecision,
+        };
+        let kind = crate::proposal_review::DecisionKind::Directory;
+        validate_decision_resume_claim(&session, &params, kind, "dir", 2).unwrap();
+        assert!(validate_decision_resume_claim(&session, &params, kind, "other", 2).is_err());
+        assert!(validate_decision_resume_claim(&session, &params, kind, "dir", 1).is_err());
+        let mut permission = params.clone();
+        permission.trigger_origin = TriggerOrigin::PermissionDecision;
+        assert!(validate_decision_resume_claim(&session, &permission, kind, "dir", 2).is_err());
+        let mut stopped = session.clone();
+        stopped.main_stopped = true;
+        assert!(validate_decision_resume_claim(&stopped, &params, kind, "dir", 2).is_err());
+        let mut running = session.clone();
+        running.turn_state = crate::session::TurnState::Running;
+        assert!(validate_decision_resume_claim(&running, &params, kind, "dir", 2).is_err());
+    }
 
     fn targetless_scope() -> AgentScope {
         AgentScope {

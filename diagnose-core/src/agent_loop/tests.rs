@@ -411,8 +411,6 @@ struct MemSession {
     allow_permission_renewal: bool,
     inner: RefCell<Option<PersistedAgentSession>>,
     latest_revision: Rc<RefCell<Option<u64>>>,
-    directory_review_decision: Option<bool>,
-    directory_review_polls: RefCell<usize>,
     superseded_settles: Rc<RefCell<u32>>,
     saves: RefCell<usize>,
     fail_save_at: Option<usize>,
@@ -582,40 +580,6 @@ impl SessionSeam for MemSession {
             crate::file_scope::transaction::prepare(session, &update, now_unix_ms).unwrap();
         *session = next;
         self.save(session).await
-    }
-    async fn poll_directory_review(
-        &self,
-        session: &mut PersistedAgentSession,
-        request_id: &str,
-    ) -> Result<Option<bool>, AgentError> {
-        *self.directory_review_polls.borrow_mut() += 1;
-        if *self.directory_review_polls.borrow() < 3 {
-            return Ok(None);
-        }
-        let approve = self
-            .directory_review_decision
-            .ok_or_else(crate::directory_tools::unavailable)?;
-        let update = crate::file_scope::transaction::FileScopeUpdate {
-            subject: session
-                .file_scope_subject(
-                    &session.actor_id,
-                    &session.device_id,
-                    &session.conversation_id,
-                )
-                .unwrap(),
-            client_conversation_id: session.client_conversation_id.clone().unwrap(),
-            client_request_id: "owner-decision".into(),
-            expected_revision: session.file_scope.revision(),
-            mutation: crate::file_scope::transaction::FileScopeMutation::Decide {
-                directory_request_id: request_id.into(),
-                approve,
-            },
-        };
-        let (current, _) =
-            crate::file_scope::transaction::prepare(session, &update, 1781913602000).unwrap();
-        let decision = crate::directory_tools::adopt_review_snapshot(session, current, request_id)?;
-        *self.inner.borrow_mut() = Some(session.clone());
-        Ok(decision)
     }
     async fn claim_turn(
         &self,
@@ -2493,30 +2457,38 @@ async fn task_status_tool_updates_projection_without_dispatch() {
     assert_eq!(stored.as_ref().unwrap().last_event_seq, 1);
 }
 
-struct DirectoryReviewHeartbeat<'a> {
-    polls: &'a RefCell<usize>,
-    stop: bool,
-}
-struct DirectoryReviewGuard;
-impl crate::seam::HeartbeatGuard for DirectoryReviewGuard {}
-impl crate::seam::LeaseHeartbeat for DirectoryReviewHeartbeat<'_> {
-    fn is_healthy(&self) -> bool {
-        !self.stop || *self.polls.borrow() == 0
-    }
-    fn start(&self, _: String, _: u64) -> Box<dyn crate::seam::HeartbeatGuard> {
-        Box::new(DirectoryReviewGuard)
-    }
+/// Applies a directory decision the way a host decision transaction does:
+/// the file-scope transition, the decision event and the cleared pause.
+fn decide_directory(sess: &MemSession, request_id: &str, approve: bool) {
+    let mut slot = sess.inner.borrow_mut();
+    let session = slot.as_mut().unwrap();
+    let device_id = session.file_scope.records()[0].device_id.clone();
+    let update = crate::file_scope::transaction::FileScopeUpdate {
+        subject: session
+            .file_scope_subject(&session.actor_id, &device_id, &session.conversation_id)
+            .unwrap(),
+        client_conversation_id: session.client_conversation_id.clone().unwrap(),
+        client_request_id: "owner-decision".into(),
+        expected_revision: session.file_scope.revision(),
+        mutation: crate::file_scope::transaction::FileScopeMutation::Decide {
+            directory_request_id: request_id.into(),
+            approve,
+        },
+    };
+    let (mut next, _) =
+        crate::file_scope::transaction::prepare(session, &update, 1781913602000).unwrap();
+    let event = crate::directory_tools::decision_event(&next, request_id, approve).unwrap();
+    next.conversation.push(event);
+    next.decision_pause = None;
+    *session = next;
 }
 
-/// Directory consent waits inside the original turn and is not tool authority.
+/// A directory request ends the turn; its decision resumes the requirement
+/// and grants no tool authority.
 #[tokio::test]
-async fn directory_planning_waits_for_decision_then_continues_without_granting_authority() {
-    for decision in [Some(true), Some(false), None] {
-        let approved = decision.unwrap_or(false);
-        let sess = MemSession {
-            directory_review_decision: decision,
-            ..Default::default()
-        };
+async fn directory_planning_pauses_then_the_decision_continues_without_granting_authority() {
+    for approved in [true, false] {
+        let sess = MemSession::default();
         let mut initial = PersistedAgentSession::new(
             "conv",
             "actor",
@@ -2532,18 +2504,28 @@ async fn directory_planning_waits_for_decision_then_continues_without_granting_a
         initial.latest_input_seq = 1;
         initial.input_revision = 1;
         *sess.inner.borrow_mut() = Some(initial);
+        // A labelled model turn, as model egress produces, so the pending
+        // result and its decision carry runtime labels.
+        let mut request = tool_use_args(
+            "directory-call",
+            crate::directory_tools::REQUEST_DIRECTORY,
+            r#"{"path":"/tmp/work","purpose":"create a report"}"#,
+        );
+        request.provider_meta.data_envelope =
+            crate::model_message_labels::model_bound_user_message(
+                "model-output".into(),
+                "directory request".into(),
+                desk_agent_protocol::data_lineage::DestinationIdentity::Model {
+                    connection_id: "gateway".into(),
+                    connection_revision: 1,
+                    model_id: "model".into(),
+                    profile_revision: 1,
+                },
+            )
+            .unwrap()
+            .data_envelope;
         let model = ScriptModel {
-            turns: RefCell::new(
-                [
-                    tool_use_args(
-                        "directory-call",
-                        crate::directory_tools::REQUEST_DIRECTORY,
-                        r#"{"path":"/tmp/work","purpose":"create a report"}"#,
-                    ),
-                    answer("directory decision received"),
-                ]
-                .into(),
-            ),
+            turns: RefCell::new([request, answer("directory decision received")].into()),
             requests: Rc::new(RefCell::new(vec![])),
         };
         let tools = RecordingTools {
@@ -2552,12 +2534,7 @@ async fn directory_planning_waits_for_decision_then_continues_without_granting_a
         };
         let registry = crate::directory_tools::registry();
         let clock = || "2026-06-20T00:00:01Z".to_string();
-        let heartbeat = DirectoryReviewHeartbeat {
-            polls: &sess.directory_review_polls,
-            stop: decision.is_none(),
-        };
-        let mut dependencies = deps(&sess, &model, &tools, &registry, &clock);
-        dependencies.heartbeat = Some(&heartbeat);
+        let dependencies = deps(&sess, &model, &tools, &registry, &clock);
         let frames = Rc::new(RefCell::new(vec![]));
         let emitted = frames.clone();
         let mut sink = crate::stream::StreamingTurnSink::new(
@@ -2570,28 +2547,47 @@ async fn directory_planning_waits_for_decision_then_continues_without_granting_a
             ChatMessage::text("u", ChatRole::User, "create a report"),
             &mut sink,
         )
-        .await;
-        if decision.is_none() {
-            assert!(outcome.is_err());
-            assert_eq!(*sess.directory_review_polls.borrow(), 1);
-            assert_eq!(model.requests.borrow().len(), 1);
-            continue;
-        }
-        assert!(matches!(outcome.unwrap(), LoopOutcome::Answered(_)));
+        .await
+        .unwrap();
+        let LoopOutcome::DecisionRequested { pause } = outcome else {
+            panic!("a directory request must end the turn: {outcome:?}");
+        };
+        assert_eq!(pause.kind, crate::proposal_review::DecisionKind::Directory);
         use desk_agent_protocol::agent_event::AgentEventKind;
         assert!(
             frames
                 .borrow()
                 .iter()
-                .any(|e| e.kind == AgentEventKind::Answer)
-        );
-        assert!(
-            !frames
-                .borrow()
-                .iter()
                 .any(|e| e.kind == AgentEventKind::PermissionRequired)
         );
-        assert_eq!(*sess.directory_review_polls.borrow(), 3);
+        assert_eq!(model.requests.borrow().len(), 1);
+        assert_eq!(
+            sess.inner
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .decision_pause
+                .as_ref(),
+            Some(&pause)
+        );
+
+        decide_directory(&sess, &pause.id, approved);
+        let resume = ClaimTurnParams {
+            turn_id: "turn-2".into(),
+            request_id: None,
+            connection_id: None,
+            trigger_origin: crate::session::TriggerOrigin::ProposalDecision,
+            ..claim()
+        };
+        let resumed = resume_agent_turn_after_permission(
+            &dependencies,
+            resume,
+            ChatMessage::text("bridge", ChatRole::User, "AUTOMATIC SERVER CONTROL EVENT"),
+            &mut NullTurnSink,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(resumed, LoopOutcome::Answered(_)));
         assert_eq!(model.requests.borrow().len(), 2);
         let requests = model.requests.borrow();
         let result = requests[1]
@@ -2618,12 +2614,6 @@ async fn directory_planning_waits_for_decision_then_continues_without_granting_a
                 crate::file_scope::DirectoryConsentState::Rejected
             }
         );
-        if approved {
-            assert_eq!(
-                stored.file_scope.records()[0].state,
-                crate::file_scope::DirectoryConsentState::Approved
-            );
-        }
         assert!(stored.permission_requests.is_empty());
         assert!(stored.unclosed_tool_call_ids().is_empty());
         let conversation = serde_json::to_string(&stored.conversation).unwrap();

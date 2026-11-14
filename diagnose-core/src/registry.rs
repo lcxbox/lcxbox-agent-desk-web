@@ -251,6 +251,7 @@ pub fn exposure_block_reason(
             origin,
             TriggerOrigin::User
                 | TriggerOrigin::PermissionDecision
+                | TriggerOrigin::ProposalDecision
                 | TriggerOrigin::WorkContinuation
                 | TriggerOrigin::GoalContinuation
                 | TriggerOrigin::ScheduledTask
@@ -273,6 +274,7 @@ pub fn exposure_block_reason(
             TriggerOrigin::User
                 | TriggerOrigin::DelegatedTask
                 | TriggerOrigin::PermissionDecision
+                | TriggerOrigin::ProposalDecision
                 | TriggerOrigin::SubAgentCompletion
         ))
         .then_some("trigger_origin_disallows_schedule_query");

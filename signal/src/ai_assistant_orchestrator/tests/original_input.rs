@@ -3519,6 +3519,15 @@ async fn run_selected_device_reads(scenario: SelectedReadScenario) {
             };
             tokio::time::timeout(SCENARIO_TIMEOUT, async {
                 tokio::join!(turn, decide_directory);
+                // The request ended the turn; the decision resumes it.
+                crate::decision_resume::DecisionResumeExecutor::new(
+                    db.clone(),
+                    connections.clone(),
+                    crate::ai_assistant_gate::global_ai_assistant_gate(),
+                )
+                .scan_once(0)
+                .await
+                .unwrap();
             })
             .await
             .unwrap();

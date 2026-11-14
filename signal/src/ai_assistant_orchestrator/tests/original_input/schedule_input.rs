@@ -55,9 +55,11 @@ async fn scenario() {
         tokio::time::timeout(MODEL_IO_TIMEOUT,capture_one_openai_request_with_reply(&listener, |_| memory_sse(json!({"tool_calls":[{
             "index":0,"id":call_id,"type":"function","function":{"name":name,"arguments":original}
         }]}),"tool_calls"))).await.expect("tool request timed out");
-        // A fresh-task proposal waits for a decision; the owner approves it.
+        // A fresh-task proposal ends the turn; once it has paused the owner
+        // approves it, and the decision resumes the requirement.
         let approver = (step == 2).then(|| {
             let db = db.clone();
+            let connections = connections.clone();
             actix_web::rt::spawn(async move {
                 loop {
                     if let Some(task) = agent_schedule::Entity::find()
@@ -65,8 +67,7 @@ async fn scenario() {
                         .one(&db)
                         .await
                         .unwrap()
-                    {
-                        crate::schedule_store::ScheduleStore::new(db.clone())
+                        && crate::schedule_store::ScheduleStore::new(db.clone())
                             .decide_proposal(
                                 1,
                                 &task.schedule_id,
@@ -75,11 +76,20 @@ async fn scenario() {
                                 crate::schedule_store::ProposalDecider::Owner,
                             )
                             .await
-                            .unwrap();
+                            .is_ok()
+                    {
                         break;
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                 }
+                crate::decision_resume::DecisionResumeExecutor::new(
+                    db.clone(),
+                    connections,
+                    crate::ai_assistant_gate::global_ai_assistant_gate(),
+                )
+                .scan_once(0)
+                .await
+                .unwrap();
             })
         });
         tokio::time::timeout(

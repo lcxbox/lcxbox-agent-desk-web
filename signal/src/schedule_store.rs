@@ -15,7 +15,6 @@ mod proposal;
 mod proposal_review;
 pub(crate) use desk_assistant_data_store::proposal_review::review_proposal_on;
 pub(crate) use proposal_review::decide_by_ai_on;
-mod review_wait;
 mod search;
 pub use desk_assistant_data_store::schedule::RunHistoryPage;
 mod fresh_admission;
@@ -347,6 +346,9 @@ pub(crate) mod tests {
             .await
             .unwrap();
         db.execute(&schema.entity_table(crate::entity::agent_goal_run::Entity))
+            .await
+            .unwrap();
+        db.execute(&schema.entity_table(crate::entity::agent_decision_resume::Entity))
             .await
             .unwrap();
         db.execute(&schema.entity_table(entity::Entity))

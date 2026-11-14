@@ -1,9 +1,7 @@
 //! Commit an AI draft and its original tool-result receipt under one turn fence.
 use super::{ScheduleStore, ScheduleStoreError};
 use desk_diagnose_core::{
-    chat::ToolCall,
-    model_observability::{PermissionOutcome, tool::ToolObservation},
-    session::PersistedAgentSession,
+    chat::ToolCall, model_observability::tool::ToolObservation, session::PersistedAgentSession,
 };
 
 impl ScheduleStore {
@@ -41,9 +39,6 @@ impl ScheduleStore {
         .await?;
         txn.commit().await?;
         *session = next;
-        if session.pending_proposal_review.is_some() {
-            observation.permission(PermissionOutcome::Waiting);
-        }
         Ok(receipt)
     }
 }

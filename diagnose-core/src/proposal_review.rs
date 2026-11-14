@@ -1,6 +1,7 @@
-//! Owner-directed proposals that wait in the proposing turn for an AI or
-//! owner decision. Schedule and skill proposals share the waiting field, the
-//! turn checks and the decision receipt shape; each kind keeps its own store.
+//! Requests that pause their turn until an AI or owner decision: schedule and
+//! skill proposals and interactive directory requests. The paused turn ends;
+//! the decision is written as a receipt and a decision-resume record, and the
+//! host resumes the original requirement with `TriggerOrigin::ProposalDecision`.
 use crate::{
     approval_review::ApprovalReviewError,
     chat::ChatRole,
@@ -8,7 +9,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-/// How long the AI reviewer may decide a proposal; afterwards only the owner can.
+/// How long the AI reviewer may decide a request; afterwards only the owner can.
 pub const AI_REVIEW_WINDOW_MS: u64 = 10 * 60 * 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -20,7 +21,7 @@ pub enum ProposalKind {
     Skill,
 }
 
-/// The proposal awaited by the current turn. It is not a permission grant.
+/// A proposal under review. It is not a permission grant.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProposalReviewRef {
@@ -42,6 +43,94 @@ impl ProposalReviewRef {
             id: id.into(),
         }
     }
+}
+
+/// The kind of request a paused turn waits for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecisionKind {
+    Schedule,
+    Skill,
+    /// An interactive directory request of the model.
+    Directory,
+}
+
+impl DecisionKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Schedule => "schedule",
+            Self::Skill => "skill",
+            Self::Directory => "directory",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "schedule" => Some(Self::Schedule),
+            "skill" => Some(Self::Skill),
+            "directory" => Some(Self::Directory),
+            _ => None,
+        }
+    }
+
+    pub fn proposal(self) -> Option<ProposalKind> {
+        match self {
+            Self::Schedule => Some(ProposalKind::Schedule),
+            Self::Skill => Some(ProposalKind::Skill),
+            Self::Directory => None,
+        }
+    }
+}
+
+impl From<ProposalKind> for DecisionKind {
+    fn from(kind: ProposalKind) -> Self {
+        match kind {
+            ProposalKind::Schedule => Self::Schedule,
+            ProposalKind::Skill => Self::Skill,
+        }
+    }
+}
+
+/// The request a finished turn paused on. Set only when the turn ends with
+/// `LoopOutcome::DecisionRequested`; cleared by the decision-resume claim, a
+/// goal wake or a withdrawal. While set, no other turn may be claimed and new
+/// owner input queues behind it. It grants nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionPause {
+    pub kind: DecisionKind,
+    pub id: String,
+    pub turn_id: String,
+    pub call_id: String,
+    pub input_revision: u64,
+    /// When the turn paused; the AI review window starts here.
+    pub requested_at_unix_ms: u64,
+}
+
+impl DecisionPause {
+    pub fn proposal(&self) -> Option<ProposalReviewRef> {
+        Some(ProposalReviewRef {
+            kind: self.kind.proposal()?,
+            id: self.id.clone(),
+        })
+    }
+
+    pub fn is(&self, kind: DecisionKind, id: &str) -> bool {
+        self.kind == kind && self.id == id
+    }
+}
+
+/// The pause of `session` when it waits for exactly this request in its
+/// current input. Decisions and AI review apply only then.
+pub fn current_pause<'a>(
+    session: &'a PersistedAgentSession,
+    kind: DecisionKind,
+    id: &str,
+) -> Option<&'a DecisionPause> {
+    session
+        .decision_pause
+        .as_ref()
+        .filter(|pause| pause.is(kind, id) && pause.input_revision == session.input_revision)
 }
 
 impl ProposalKind {
@@ -91,10 +180,87 @@ impl ProposalKind {
 
 /// Event name of a skill proposal decision receipt.
 pub const SKILL_DECIDED_EVENT: &str = "skill_proposal_decided";
-/// Event of a skill proposal left to the owner after the AI review window.
-pub const SKILL_AWAITING_OWNER_EVENT: &str = "skill_proposal_awaiting_owner";
 
-/// The identity of a proposal waiting in its original turn.
+/// What a host knows about one pending request when it shows it to the owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OwnerDecisionFacts {
+    /// The conversation uses manual approval.
+    pub manual_approval: bool,
+    /// The approval model is configured and enabled.
+    pub reviewer_available: bool,
+    /// The AI review of this request ended without approving or denying it.
+    pub review_ended_without_verdict: bool,
+    pub requested_at_unix_ms: u64,
+    pub now_unix_ms: u64,
+}
+
+/// Whether the owner must decide a pending request now rather than wait for
+/// the AI reviewer.
+pub fn awaiting_owner(facts: OwnerDecisionFacts) -> bool {
+    facts.manual_approval
+        || !facts.reviewer_available
+        || facts.review_ended_without_verdict
+        || facts
+            .requested_at_unix_ms
+            .saturating_add(AI_REVIEW_WINDOW_MS)
+            <= facts.now_unix_ms
+}
+
+/// Withdraws the pause when the owner stops the conversation or resumes its
+/// queue, like a pending permission request: a pending directory request is
+/// rejected by the system and the turn is not resumed. The host withdraws a
+/// paused proposal's own row and its resume record in the same transaction.
+pub fn withdraw_pause(session: &mut PersistedAgentSession) -> Option<DecisionPause> {
+    let pause = session.decision_pause.take()?;
+    if pause.kind == DecisionKind::Directory {
+        session.file_scope.withdraw_pending(
+            &pause.id,
+            crate::directory_review::DirectoryDecision {
+                source: crate::dynamic_run::PermissionDecisionSource::SystemDecision {
+                    reason_code: "owner_stopped".into(),
+                    reason: "The owner stopped the conversation before the decision.".into(),
+                },
+                reason: "The owner stopped the conversation before the decision.".into(),
+                candidate_id: None,
+            },
+        );
+    }
+    Some(pause)
+}
+
+/// The pause for a proposal the call `call_id` of turn `turn_id` just saved,
+/// read from the receipt its store committed. `None` when the call settled
+/// without a decision, such as a conversation timer created directly.
+pub fn awaiting_proposal(
+    session: &PersistedAgentSession,
+    call_id: &str,
+    turn_id: &str,
+    now_unix_ms: u64,
+) -> Option<DecisionPause> {
+    let receipt = session.conversation.iter().rev().find(|message| {
+        message.role == ChatRole::Tool
+            && message.tool_call_id.as_deref() == Some(call_id)
+            && message.turn_id.as_deref() == Some(turn_id)
+    })?;
+    let kind = [ProposalKind::Skill, ProposalKind::Schedule]
+        .into_iter()
+        .find(|kind| receipt.message_id.starts_with(kind.receipt_prefix()))?;
+    let value = serde_json::from_str::<serde_json::Value>(&receipt.text).ok()?;
+    if value["awaiting_decision"] != true {
+        return None;
+    }
+    let id = value[kind.id_key()].as_str().filter(|id| !id.is_empty())?;
+    Some(DecisionPause {
+        kind: kind.into(),
+        id: id.to_owned(),
+        turn_id: turn_id.to_owned(),
+        call_id: call_id.to_owned(),
+        input_revision: session.input_revision,
+        requested_at_unix_ms: now_unix_ms,
+    })
+}
+
+/// The identity of a proposal its turn paused on.
 #[derive(Debug, Clone, Copy)]
 pub struct WaitingProposal<'a> {
     pub reference: &'a ProposalReviewRef,
@@ -104,16 +270,22 @@ pub struct WaitingProposal<'a> {
     pub review_expires_at_unix_ms: u64,
 }
 
-/// The proposal must still wait in its original, owner-directed turn.
+/// The proposal must still pause its original, owner-directed turn and be
+/// within the AI review window.
 pub fn pending(
     session: &PersistedAgentSession,
     proposal: WaitingProposal<'_>,
     now: u64,
 ) -> Result<(), ApprovalReviewError> {
     if !proposal.reference.kind.allowed(session)
-        || !session.turn_state.is_active()
         || session.main_stopped
-        || session.pending_proposal_review.as_ref() != Some(proposal.reference)
+        || session.turn_state.is_active()
+        || current_pause(
+            session,
+            proposal.reference.kind.into(),
+            &proposal.reference.id,
+        )
+        .is_none()
         || proposal.conversation_id != session.conversation_id
         || proposal.owner_id != session.actor_id
         || proposal.input_revision != session.input_revision
@@ -125,19 +297,22 @@ pub fn pending(
     Ok(())
 }
 
-/// The proposal's original tool call, found through its receipt in this turn.
+/// The proposal's original tool call, found through its receipt in the turn
+/// that paused on it.
 pub fn proposal_call<'a>(
     session: &'a PersistedAgentSession,
     reference: &ProposalReviewRef,
 ) -> Result<&'a str, ApprovalReviewError> {
+    let pause = current_pause(session, reference.kind.into(), &reference.id)
+        .ok_or(ApprovalReviewError::InvalidContext)?;
     session
         .conversation
         .iter()
         .rev()
         .filter(|message| {
             message.role == ChatRole::Tool
-                && message.turn_id.is_some()
-                && message.turn_id == session.current_turn_id
+                && message.turn_id.as_deref() == Some(pause.turn_id.as_str())
+                && message.tool_call_id.as_deref() == Some(pause.call_id.as_str())
                 && message
                     .message_id
                     .starts_with(reference.kind.receipt_prefix())
@@ -262,6 +437,86 @@ mod tests {
             serde_json::json!({"event":SKILL_DECIDED_EVENT,"proposal_id":"a","status":"approved"});
         assert_eq!(ProposalKind::Skill.decision(&approved, "a"), Some(true));
         assert_eq!(ProposalKind::Schedule.decision(&approved, "a"), None);
+    }
+
+    fn paused_session(kind: DecisionKind) -> PersistedAgentSession {
+        let mut session = PersistedAgentSession::new(
+            "run",
+            "owner",
+            "",
+            1,
+            desk_agent_protocol::AgentScope {
+                granted: vec![],
+                mode: desk_agent_protocol::ExecutionMode::ConfirmEachAction,
+                expires_at: None,
+                policy_name: None,
+            },
+            "2026-11-14T00:00:00Z",
+        );
+        session.input_revision = 3;
+        session.decision_pause = Some(DecisionPause {
+            kind,
+            id: "request".into(),
+            turn_id: "turn".into(),
+            call_id: "call".into(),
+            input_revision: 3,
+            requested_at_unix_ms: 1_000,
+        });
+        session
+    }
+
+    #[test]
+    fn a_pause_applies_only_to_its_request_in_the_current_input() {
+        let mut session = paused_session(DecisionKind::Skill);
+        assert!(current_pause(&session, DecisionKind::Skill, "request").is_some());
+        assert!(current_pause(&session, DecisionKind::Skill, "other").is_none());
+        assert!(current_pause(&session, DecisionKind::Schedule, "request").is_none());
+        session.input_revision += 1;
+        assert!(current_pause(&session, DecisionKind::Skill, "request").is_none());
+    }
+
+    #[test]
+    fn withdrawing_a_directory_pause_rejects_the_request_by_the_system() {
+        let mut session = paused_session(DecisionKind::Skill);
+        assert_eq!(withdraw_pause(&mut session).unwrap().id, "request");
+        assert!(session.decision_pause.is_none());
+        assert!(withdraw_pause(&mut session).is_none());
+        // A directory pause without its record still clears the pause.
+        let mut directory = paused_session(DecisionKind::Directory);
+        assert!(withdraw_pause(&mut directory).is_some());
+        assert!(directory.decision_pause.is_none());
+    }
+
+    #[test]
+    fn the_owner_decides_when_the_reviewer_cannot() {
+        let facts = OwnerDecisionFacts {
+            manual_approval: false,
+            reviewer_available: true,
+            review_ended_without_verdict: false,
+            requested_at_unix_ms: 1_000,
+            now_unix_ms: 1_000 + AI_REVIEW_WINDOW_MS - 1,
+        };
+        assert!(!awaiting_owner(facts));
+        for owner in [
+            OwnerDecisionFacts {
+                manual_approval: true,
+                ..facts
+            },
+            OwnerDecisionFacts {
+                reviewer_available: false,
+                ..facts
+            },
+            OwnerDecisionFacts {
+                review_ended_without_verdict: true,
+                ..facts
+            },
+            OwnerDecisionFacts {
+                now_unix_ms: 1_000 + AI_REVIEW_WINDOW_MS,
+                ..facts
+            },
+        ] {
+            assert!(awaiting_owner(owner), "{owner:?}");
+        }
     }
 
     #[test]

@@ -959,6 +959,48 @@ pub async fn resume_after_permission_decision(
             conversation_id,
             permission_request_id: Some(permission_request_id),
             work_event: None,
+            decision: None,
+        }),
+        None,
+    )
+    .await;
+}
+
+/// Resume the exact paused requirement after the AI reviewer or the owner
+/// decided the proposal or directory request its turn paused on. A goal
+/// segment is woken instead by the decision-resume executor.
+#[allow(clippy::too_many_arguments)]
+pub async fn resume_after_decision(
+    connections: web::Data<SharedConnectionMap>,
+    db: DatabaseConnection,
+    request_id: String,
+    target_connection_id: String,
+    actor_user_id: i32,
+    target_device_id: String,
+    conversation_id: String,
+    kind: desk_diagnose_core::proposal_review::DecisionKind,
+    decided_request_id: String,
+    input_revision: u64,
+    ask: AiAssistantAsk,
+) {
+    run_turn_inner_with_queue(
+        connections,
+        db,
+        request_id,
+        String::new(),
+        target_connection_id,
+        actor_user_id,
+        target_device_id,
+        ask,
+        Some(PermissionResume {
+            conversation_id,
+            permission_request_id: None,
+            work_event: None,
+            decision: Some(DecisionResume {
+                kind,
+                request_id: decided_request_id,
+                input_revision,
+            }),
         }),
         None,
     )
@@ -1005,6 +1047,7 @@ pub async fn resume_after_work_completion(
             conversation_id: session.conversation_id,
             permission_request_id: None,
             work_event: selected_event_id.map(|event| (session.input_revision, event)),
+            decision: None,
         }),
         None,
         None,
@@ -1014,13 +1057,50 @@ pub async fn resume_after_work_completion(
     .ok_or_else(|| transport_error("work continuation did not pass runtime preflight"))
 }
 
-/// A server-authored continuation. `None` means a background result triggered it;
-/// `Some` names the owner permission decision being resumed.
+/// Conversation tools the host serves itself. The model never gets a tool to
+/// request permissions: a direct call without a matching grant becomes the
+/// approval request, built by the server in the same internal format.
+fn extend_internal_tools(registry: &mut Vec<desk_diagnose_core::registry::RegisteredTool>) {
+    // Internal run projection is not a Provider capability and grants no device
+    // authority. It is always callable so the model can keep the user-visible
+    // task assessment current even when no device context was selected.
+    registry.extend(desk_diagnose_core::task_status_tools::task_status_tool_registry());
+    registry.extend(desk_diagnose_core::subagent::tools::registry());
+    registry.extend(desk_diagnose_core::goal_tools::registry());
+    registry.extend(desk_diagnose_core::goal_tools::open_registry());
+    registry.extend(desk_diagnose_core::directory_tools::registry());
+    registry.extend(desk_diagnose_core::schedule::proposal::registry());
+    registry.extend(desk_diagnose_core::skills::authoring::registry());
+    registry
+        .extend(desk_diagnose_core::capability_disclosure::capability_discovery_tool_registry());
+    registry.extend(desk_diagnose_core::conversation_history::conversation_history_tool_registry());
+    registry.extend(desk_diagnose_core::wait_tools::wait_tool_registry());
+}
+
+/// A server-authored continuation of an existing requirement: after a
+/// permission decision (`permission_request_id`), a background result
+/// (`work_event`) or a proposal or directory decision (`decision`).
 #[derive(Clone)]
 struct PermissionResume {
     conversation_id: String,
     permission_request_id: Option<String>,
     work_event: Option<(u64, String)>,
+    decision: Option<DecisionResume>,
+}
+
+/// The decided request a paused conversation resumes after.
+#[derive(Clone)]
+struct DecisionResume {
+    kind: desk_diagnose_core::proposal_review::DecisionKind,
+    request_id: String,
+    input_revision: u64,
+}
+
+impl PermissionResume {
+    /// A decision of the owner or the AI reviewer resumes the requirement.
+    fn is_decided(&self) -> bool {
+        self.permission_request_id.is_some() || self.decision.is_some()
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1214,9 +1294,9 @@ async fn prepare_composed_turn(
     if targetless
         && (!target_connection_id.is_empty()
             || actor_user_id != crate::control_authorizer::SINGLE_ACCOUNT_USER_ID
-            || resume_conversation_id.as_ref().is_some_and(|resume| {
-                resume.permission_request_id.is_none() && resume.work_event.is_none()
-            }))
+            || resume_conversation_id
+                .as_ref()
+                .is_some_and(|resume| !resume.is_decided() && resume.work_event.is_none()))
     {
         return Err(transport_error(
             "targetless assistant input cannot carry device context",
@@ -1228,7 +1308,7 @@ async fn prepare_composed_turn(
     let resumed_child = targetless
         && delegated.is_none()
         && resume_conversation_id.as_ref().is_some_and(|resume| {
-            resume.permission_request_id.is_some()
+            resume.is_decided()
                 && desk_diagnose_core::assistant_policy::targetless_subject(
                     &actor_user_id.to_string(),
                     &resume.conversation_id,
@@ -1367,7 +1447,7 @@ async fn prepare_composed_turn(
         let (conversation, entry) = match resume_conversation_id.as_ref() {
             Some(resume) => (
                 resume.conversation_id.clone(),
-                if resume.permission_request_id.is_some() {
+                if resume.is_decided() {
                     TargetlessEntry::PermissionResume
                 } else {
                     TargetlessEntry::Input
@@ -1474,12 +1554,18 @@ async fn prepare_composed_turn(
             return Ok(PreparationStep::Ready(None));
         }
     };
-    if let Some((revision, _)) = resume_conversation_id
-        .as_ref()
-        .and_then(|resume| resume.work_event.as_ref())
-        && snapshot
+    if let Some(revision) = resume_conversation_id.as_ref().and_then(|resume| {
+        resume
+            .work_event
             .as_ref()
-            .is_some_and(|session| *revision != session.input_revision)
+            .map(|(revision, _)| revision)
+            .or(resume
+                .decision
+                .as_ref()
+                .map(|decision| &decision.input_revision))
+    }) && snapshot
+        .as_ref()
+        .is_some_and(|session| *revision != session.input_revision)
     {
         return Ok(PreparationStep::Ready(Some(Box::pin(async {
             Ok(Some(LoopOutcome::TurnBusy))
@@ -1487,7 +1573,7 @@ async fn prepare_composed_turn(
     }
     let permission_child_context = if resume_conversation_id
         .as_ref()
-        .is_some_and(|resume| resume.permission_request_id.is_some())
+        .is_some_and(PermissionResume::is_decided)
     {
         let snapshot = snapshot
             .as_ref()
@@ -1580,6 +1666,16 @@ async fn prepare_composed_turn(
                     {
                         return Err(transport_error(
                             "permission decision no longer belongs to the current input",
+                        ));
+                    }
+                    if let Some(decision) = &resume.decision
+                        && session.decision_pause.as_ref().is_none_or(|pause| {
+                            !pause.is(decision.kind, &decision.request_id)
+                                || pause.input_revision != session.input_revision
+                        })
+                    {
+                        return Err(transport_error(
+                            "the decided request no longer pauses the current input",
                         ));
                     }
                     desk_diagnose_core::future::boxed(|| async {
@@ -2104,13 +2200,23 @@ async fn prepare_composed_turn(
                         .unwrap_or_else(|| {
                             resume_conversation_id
                                 .as_ref()
-                                .and_then(|resume| resume.permission_request_id.as_ref())
+                                .and_then(|resume| {
+                                    resume.permission_request_id.clone().or_else(|| {
+                                        resume.decision.as_ref().map(|decision| {
+                                            format!(
+                                                "decision:{}:{}",
+                                                decision.kind.as_str(),
+                                                decision.request_id
+                                            )
+                                        })
+                                    })
+                                })
                                 .map_or_else(
                                     || uuid::Uuid::new_v4().to_string(),
                                     |permission_request_id| {
                                         crate::agent_session_store::permission_resume::turn_id(
                                             &conversation_id,
-                                            permission_request_id,
+                                            &permission_request_id,
                                         )
                                     },
                                 )
@@ -2425,22 +2531,7 @@ async fn prepare_composed_turn(
                 .map_or(0, |session| session.input_revision),
             grant_readiness_revision,
         );
-                            // Internal run projection is not a Provider capability and grants no device
-                            // authority. It is always callable so the model can keep the user-visible
-                            // task assessment current even when no device context was selected.
-                            registry.extend(
-                                desk_diagnose_core::task_status_tools::task_status_tool_registry(),
-                            );
-                            registry.extend(desk_diagnose_core::subagent::tools::registry());
-                            registry.extend(desk_diagnose_core::goal_tools::registry());
-                            registry.extend(desk_diagnose_core::goal_tools::open_registry());
-                            registry.extend(desk_diagnose_core::directory_tools::registry());
-                            registry.extend(desk_diagnose_core::schedule::proposal::registry());
-                            registry.extend(desk_diagnose_core::skills::authoring::registry());
-                            registry
-        .extend(desk_diagnose_core::capability_disclosure::capability_discovery_tool_registry());
-                            registry.extend(desk_diagnose_core::conversation_history::conversation_history_tool_registry());
-                            registry.extend(desk_diagnose_core::wait_tools::wait_tool_registry());
+                            extend_internal_tools(&mut registry);
                             if targetless {
                                 registry.retain(
                                     desk_diagnose_core::assistant_policy::is_targetless_web_tool,
@@ -2500,6 +2591,14 @@ async fn prepare_composed_turn(
                                         snapshot.seq,
                                         capability_grants.clone(),
                                     ),
+                                    None if resume.decision.is_some() => {
+                                        let decision =
+                                            resume.decision.as_ref().expect("checked decision");
+                                        sessions.with_decision_resume(
+                                            decision.kind,
+                                            decision.request_id.clone(),
+                                        )
+                                    }
                                     None => match &resume.work_event {
                                         Some((_, event_id)) => {
                                             sessions.with_work_event(event_id.clone())
@@ -3073,9 +3172,10 @@ async fn prepare_composed_turn(
                                             .await;
                                         }
                                         let accepted_at = clock();
-                                        if resume_conversation_id.as_ref().is_some_and(|resume| {
-                                            resume.permission_request_id.is_none()
-                                        }) {
+                                        if resume_conversation_id
+                                            .as_ref()
+                                            .is_some_and(|resume| !resume.is_decided())
+                                        {
                                             let model = &model;
                                             return desk_diagnose_core::future::phase(|| async move {
                                                 let policy = model.model_egress_policy()?.ok_or_else(|| {
@@ -3129,15 +3229,24 @@ async fn prepare_composed_turn(
                                             let model = &model;
                                             return desk_diagnose_core::future::phase(|| async move {
 
+            let proposal_decision = resume_conversation_id
+                .as_ref()
+                .is_some_and(|resume| resume.decision.is_some());
             let decision_message = match (|| {
                 let policy = model
                     .model_egress_policy()?
                     .ok_or_else(|| transport_error("permission model policy is unavailable"))?;
                 if let Some((creation, child)) = permission_child_context.as_deref() {
-                    return desk_diagnose_core::permission_resume::authorized_child_permission_resume_message(
-                    format!("{request_id}-decision"), &policy, creation,
-                    child.agent_role.binding().ok_or_else(|| transport_error("delegated permission role is unavailable"))?,
-                );
+                    let binding = child.agent_role.binding().ok_or_else(|| transport_error("delegated permission role is unavailable"))?;
+                    return if proposal_decision {
+                        desk_diagnose_core::permission_resume::authorized_child_decision_resume_message(
+                            format!("{request_id}-decision"), &policy, creation, binding,
+                        )
+                    } else {
+                        desk_diagnose_core::permission_resume::authorized_child_permission_resume_message(
+                            format!("{request_id}-decision"), &policy, creation, binding,
+                        )
+                    };
                 }
                 let original = snapshot
                     .as_ref()
@@ -3147,6 +3256,13 @@ async fn prepare_composed_turn(
                         )
                     })
                     .ok_or_else(|| transport_error("original permission input is unavailable"))?;
+                if proposal_decision {
+                    return desk_diagnose_core::permission_resume::authorized_decision_resume_message(
+                        format!("{request_id}-decision"),
+                        &policy,
+                        original,
+                    );
+                }
                 authorized_permission_resume_message(
                     format!("{request_id}-decision"),
                     &policy,
@@ -3207,7 +3323,11 @@ async fn prepare_composed_turn(
                 turn_id: turn_id.clone(),
                 request_id: sender.as_ref().map(|_| request_id.clone()),
                 connection_id: None,
-                trigger_origin: TriggerOrigin::PermissionDecision,
+                trigger_origin: if proposal_decision {
+                    TriggerOrigin::ProposalDecision
+                } else {
+                    TriggerOrigin::PermissionDecision
+                },
                 now: accepted_at,
             };
             let emitted = std::cell::Cell::new(false);
@@ -3562,6 +3682,19 @@ mod tests {
     use desk_diagnose_core::seam::NullTurnSink;
     use sea_orm::EntityTrait;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// The model calls tools directly; a call without a grant becomes the
+    /// approval request. No tool lets the model request permissions itself.
+    #[test]
+    fn the_assistant_tool_list_has_no_permission_request_tool() {
+        let mut registry = Vec::new();
+        extend_internal_tools(&mut registry);
+        assert!(!registry.is_empty());
+        assert!(registry.iter().all(|tool| {
+            tool.name() != desk_diagnose_core::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME
+                && tool.effect != desk_diagnose_core::registry::ToolEffect::PermissionPlanning
+        }));
+    }
     use tokio::net::TcpListener;
 
     #[actix_web::test]
@@ -3614,6 +3747,7 @@ mod tests {
             conversation_id,
             permission_request_id: Some("rq_child".into()),
             work_event: None,
+            decision: None,
         };
         let input = compose(None, None).await.unwrap_err();
         assert_eq!(

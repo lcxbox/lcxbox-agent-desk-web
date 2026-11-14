@@ -5,7 +5,7 @@
 use super::*;
 use crate::schedule::{
     ScheduleStoreError, ToolReceipt, authority_now, commit_tool_receipt_on, lock_tool_call_on,
-    session::{OrgMode, ScheduleHostStores, SessionGuard, SessionKey, SessionPatch, timestamp},
+    session::{OrgMode, ScheduleHostStores, SessionKey},
 };
 use crate::skill_package::{diff::diff_packages, parse_input, validate_name};
 use desk_agent_protocol::ai_assistant::skill::{
@@ -14,7 +14,7 @@ use desk_agent_protocol::ai_assistant::skill::{
 use desk_diagnose_core::{
     chat::{ChatMessage, ToolCall},
     model_observability::tool::ToolObservation,
-    proposal_review::{ProposalKind, ProposalReviewRef, SKILL_DECIDED_EVENT},
+    proposal_review::{DecisionKind, ProposalKind, ProposalReviewRef, SKILL_DECIDED_EVENT},
     session::PersistedAgentSession,
     skills::authoring::{self, AuthoredSkillSource, SkillProposal},
 };
@@ -72,7 +72,7 @@ fn status_name(status: SkillProposalStatus) -> &'static str {
         SkillProposalStatus::Pending => "pending",
         SkillProposalStatus::Approved => "approved",
         SkillProposalStatus::Rejected => "rejected",
-        SkillProposalStatus::Expired => "expired",
+        SkillProposalStatus::Withdrawn => "withdrawn",
         SkillProposalStatus::Conflicted => "conflicted",
     }
 }
@@ -81,7 +81,7 @@ fn parse_status(value: &str) -> SkillProposalStatus {
     match value {
         "approved" => SkillProposalStatus::Approved,
         "rejected" => SkillProposalStatus::Rejected,
-        "expired" => SkillProposalStatus::Expired,
+        "withdrawn" => SkillProposalStatus::Withdrawn,
         "conflicted" => SkillProposalStatus::Conflicted,
         _ => SkillProposalStatus::Pending,
     }
@@ -184,7 +184,6 @@ pub async fn propose_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         observation.reject(Stage::Preflight, InputIssue::Length);
         return Err(rejected(authoring::TOO_LARGE));
     }
-    expire_stale_on(txn, &session.actor_id, now).await?;
     adjust_scope_on(
         txn,
         &scope,
@@ -219,7 +218,6 @@ pub async fn propose_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         decision_reason: Set(None),
         created_at_ms: Set(now),
         decided_at_ms: Set(None),
-        expires_at_ms: Set(now.saturating_add(authoring::PROPOSAL_TTL_MS as i64)),
         revision: Set(1),
         ..Default::default()
     })
@@ -230,7 +228,7 @@ pub async fn propose_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         "skill_ref": format!("personal/{}", package.name),
         "kind": if base.is_some() { "update" } else { "create" },
         "base_version": draft.base_version, "awaiting_decision": true,
-        "message": "The AI reviewer or the owner decides this skill proposal, and this call waits for the decision. Do not report the skill as saved before it. A saved skill grants no tool permission."})
+        "message": "Submitted for a decision. This turn ends now; when the AI reviewer or the owner decides, the server continues this requirement and this result shows the decision. Do not report the skill as saved before it. A saved skill grants no tool permission."})
     .to_string();
     let envelope = desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
         parent.data_envelope.as_ref(),
@@ -278,23 +276,26 @@ fn stored_input(row: &proposal::Model) -> Result<SkillPackageInput, ScheduleStor
     serde_json::from_str(&row.content_json).map_err(|_| ScheduleStoreError::Invalid)
 }
 
-/// Marks this actor's undecided proposals past their expiry as expired and
-/// releases their pending slots.
-pub async fn expire_stale_on<C: ConnectionTrait>(
+/// Withdraws the pending proposal of `conversation_id`, when the owner
+/// stopped that conversation or resumed its queue, and releases its pending
+/// slot. It writes only proposal rows and counts; the caller owns the session
+/// write. Returns whether a proposal was withdrawn.
+pub async fn withdraw_on<C: ConnectionTrait>(
     txn: &C,
     actor_id: &str,
+    conversation_id: &str,
     now: i64,
-) -> Result<u64, SkillProposalError> {
+) -> Result<bool, SkillProposalError> {
     let changed = proposal::Entity::update_many()
-        .col_expr(proposal::Column::Status, Expr::value("expired"))
+        .col_expr(proposal::Column::Status, Expr::value("withdrawn"))
         .col_expr(proposal::Column::DecidedAtMs, Expr::value(Some(now)))
         .col_expr(
             proposal::Column::Revision,
             sea_orm::sea_query::ExprTrait::add(Expr::col(proposal::Column::Revision), 1),
         )
         .filter(proposal::Column::ActorId.eq(actor_id))
+        .filter(proposal::Column::ConversationId.eq(conversation_id))
         .filter(proposal::Column::Status.eq("pending"))
-        .filter(proposal::Column::ExpiresAtMs.lte(now))
         .exec(txn)
         .await?
         .rows_affected;
@@ -309,7 +310,7 @@ pub async fn expire_stale_on<C: ConnectionTrait>(
         )
         .await?;
     }
-    Ok(changed)
+    Ok(changed > 0)
 }
 
 /// The proposal waiting in `session`'s turn for the AI reviewer, or `None`
@@ -407,11 +408,14 @@ pub async fn decide_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     // The decision receipt writes the proposing session; take its
     // conversation lock before the proposal revision CAS.
     host.lock_conversation(txn, &row.conversation_id).await?;
+    // The proposing turn pauses only when it ends; deciding before that would
+    // leave the pause without a decision, so the caller retries.
+    if proposing_turn_running_on(host, txn, &row).await? {
+        return Err(ScheduleStoreError::Conflict.into());
+    }
     let now = authority_now(txn).await?;
     let scope = personal_scope(actor_id);
-    let (status, version) = if row.expires_at_ms <= now {
-        (SkillProposalStatus::Expired, None)
-    } else if !approve {
+    let (status, version) = if !approve {
         (SkillProposalStatus::Rejected, None)
     } else {
         approve_on(txn, &scope, &row, now).await?
@@ -424,7 +428,7 @@ pub async fn decide_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         (_, SkillDecider::Ai { reason }) => Some(reason.clone()),
         (_, SkillDecider::Owner) => None,
     };
-    let decision_source = (status != SkillProposalStatus::Expired).then_some(match decider {
+    let decision_source = Some(match decider {
         SkillDecider::Ai { .. } => "ai_review",
         SkillDecider::Owner => "owner",
     });
@@ -461,9 +465,7 @@ pub async fn decide_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         .one(txn)
         .await?
         .ok_or(ScheduleStoreError::NotFound)?;
-    if status != SkillProposalStatus::Expired {
-        write_receipt_on(host, txn, &decided, status, version, decider, now).await?;
-    }
+    write_receipt_on(host, txn, &decided, status, version, decider, now).await?;
     Ok(decided)
 }
 
@@ -517,8 +519,35 @@ async fn approve_on<C: ConnectionTrait>(
     }
 }
 
-/// Appends the decision receipt to the proposing turn only while that turn
-/// still waits for this proposal; a finished turn is not resumed.
+/// Whether the conversation that proposed `row` still runs a turn.
+async fn proposing_turn_running_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
+    host: &H,
+    txn: &C,
+    row: &proposal::Model,
+) -> Result<bool, SkillProposalError> {
+    let Some(session_row) = host
+        .find_session(
+            txn,
+            SessionKey::Conversation {
+                conversation: &row.conversation_id,
+                actor: Some(&row.actor_id),
+                device: None,
+            },
+            OrgMode::PersonalOnly,
+            false,
+        )
+        .await?
+    else {
+        return Ok(false);
+    };
+    Ok(PersistedAgentSession::decode_json(&session_row.state_json)
+        .map_err(|_| ScheduleStoreError::Invalid)?
+        .turn_state
+        .is_active())
+}
+
+/// Appends the decision receipt and records the resume only while the
+/// proposing conversation is paused on this proposal.
 async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     host: &H,
     txn: &C,
@@ -543,16 +572,9 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     else {
         return Ok(());
     };
-    let mut session = PersistedAgentSession::decode_json(&session_row.state_json)
+    let session = PersistedAgentSession::decode_json(&session_row.state_json)
         .map_err(|_| ScheduleStoreError::Invalid)?;
-    let reference = ProposalReviewRef::skill(&row.proposal_id);
-    let waiting = session.pending_proposal_review.as_ref() == Some(&reference)
-        && ProposalKind::Skill.allowed(&session)
-        && session.turn_state.is_active()
-        && session_row
-            .lease_deadline_ms
-            .is_some_and(|deadline| deadline > now);
-    if !waiting {
+    if !crate::decision_resume::paused_on(&session, DecisionKind::Skill, &row.proposal_id) {
         return Ok(());
     }
     let loaded = version.as_ref().and_then(|(skill_id, _)| {
@@ -603,34 +625,8 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             "skill_proposal_decision",
         )
         .map_err(|_| ScheduleStoreError::Invalid)?;
-    session.conversation.push(message);
-    session.version = session_row
-        .version
-        .checked_add(1)
-        .ok_or(ScheduleStoreError::Invalid)?;
-    session.updated_at = timestamp(now)?.to_rfc3339();
-    let state_json = session
-        .encode_json_for_storage()
-        .map_err(|_| ScheduleStoreError::Invalid)?;
-    let changed = host
-        .write_session(
-            txn,
-            SessionGuard {
-                id: Some(session_row.id),
-                version: Some(session_row.version),
-                ..SessionGuard::any()
-            },
-            SessionPatch {
-                state_json: Some(&state_json),
-                version: Some(session.version),
-                updated_at_ms: Some(now),
-                ..Default::default()
-            },
-        )
+    crate::decision_resume::record_decision_on(host, txn, &session_row, session, message, now)
         .await?;
-    if changed != 1 {
-        return Err(ScheduleStoreError::Conflict.into());
-    }
     Ok(())
 }
 
@@ -659,19 +655,16 @@ pub async fn decide_by_ai_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
 }
 
 /// Proposals of `actor_id`, newest first: only undecided ones, or every
-/// proposal of one conversation. Expired rows read as expired.
+/// proposal of one conversation. `awaiting_owner` is left for the host.
 pub async fn list_on<C: ConnectionTrait>(
     db: &C,
     actor_id: &str,
     conversation_id: Option<&str>,
-    now: i64,
 ) -> Result<Vec<SkillProposalView>, SkillProposalError> {
     let mut select = proposal::Entity::find().filter(proposal::Column::ActorId.eq(actor_id));
     select = match conversation_id {
         Some(conversation) => select.filter(proposal::Column::ConversationId.eq(conversation)),
-        None => select
-            .filter(proposal::Column::Status.eq("pending"))
-            .filter(proposal::Column::ExpiresAtMs.gt(now)),
+        None => select.filter(proposal::Column::Status.eq("pending")),
     };
     let rows = select
         .order_by_desc(proposal::Column::CreatedAtMs)
@@ -680,7 +673,7 @@ pub async fn list_on<C: ConnectionTrait>(
         .await?;
     let mut views = Vec::with_capacity(rows.len());
     for row in rows {
-        views.push(view_on(db, row, now).await?);
+        views.push(view_on(db, row).await?);
     }
     Ok(views)
 }
@@ -688,14 +681,10 @@ pub async fn list_on<C: ConnectionTrait>(
 pub async fn view_on<C: ConnectionTrait>(
     db: &C,
     row: proposal::Model,
-    now: i64,
 ) -> Result<SkillProposalView, SkillProposalError> {
     let input = stored_input(&row)?;
     let diff = diff_of_on(db, &row, &input).await?;
-    let mut status = parse_status(&row.status);
-    if status == SkillProposalStatus::Pending && row.expires_at_ms <= now {
-        status = SkillProposalStatus::Expired;
-    }
+    let status = parse_status(&row.status);
     Ok(SkillProposalView {
         proposal_id: row.proposal_id,
         conversation_id: row.conversation_id,
@@ -715,9 +704,9 @@ pub async fn view_on<C: ConnectionTrait>(
         files: input.files,
         diff,
         created_at_ms: row.created_at_ms,
-        expires_at_ms: row.expires_at_ms,
         decided_at_ms: row.decided_at_ms,
         revision: row.revision as u64,
+        awaiting_owner: false,
     })
 }
 

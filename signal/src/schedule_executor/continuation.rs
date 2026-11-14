@@ -179,6 +179,13 @@ impl ContinuationDispatchHost for ContinuationHost<'_> {
             .is_ok()
     }
 
+    async fn finish_paused(&self, candidate: &DispatchCandidate, lease: LeaseIds) -> bool {
+        ScheduleStore::new(self.0.db.clone())
+            .finish_paused_continuation(held(candidate, lease))
+            .await
+            .is_ok()
+    }
+
     async fn await_permission(
         &self,
         candidate: &DispatchCandidate,

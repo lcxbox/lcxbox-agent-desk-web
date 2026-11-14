@@ -281,6 +281,24 @@ pub fn prepare(
     {
         return Err(FileScopeError::WrongSubject);
     }
+    // A model request is decided only after its turn has ended paused on it;
+    // deciding earlier would leave that pause without a decision to resume.
+    if let FileScopeMutation::Decide {
+        directory_request_id,
+        ..
+    } = &update.mutation
+        && session.turn_state.is_active()
+        && session.file_scope.records().iter().any(|record| {
+            record.proposal.request_id == *directory_request_id
+                && record.proposal.source == DirectoryConsentSource::ModelProposal
+                && record.state == super::DirectoryConsentState::Pending
+                && record.review_context.as_ref().is_some_and(|context| {
+                    session.current_turn_id.as_deref() == Some(context.turn_id.as_str())
+                })
+        })
+    {
+        return Err(FileScopeError::StaleRevision);
+    }
     let mut next = session.clone();
     // The immutable ledger must have been checked by the caller first. A
     // surviving proposal with no receipt is corruption, not a fresh operation.

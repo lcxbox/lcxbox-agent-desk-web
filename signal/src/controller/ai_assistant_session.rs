@@ -604,6 +604,17 @@ pub async fn get_ai_assistant_session(
                         log::warn!("assistant snapshot retained without skill proposals");
                         Vec::new()
                     }),
+                    decision_pause: match &snapshot.decision_pause {
+                        Some(pause) => crate::decision_resume::pause_view_on(
+                            crate::db::get_db(),
+                            &session_id,
+                            &actor_id,
+                            pause,
+                        )
+                        .await
+                        .ok(),
+                        None => None,
+                    },
                     approval_delegation: approval_delegation
                         .as_ref()
                         .map(ApprovalDelegationDto::from),

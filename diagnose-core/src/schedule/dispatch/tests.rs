@@ -129,6 +129,11 @@ impl ContinuationDispatchHost for Fake {
         self.call("finish_answered");
         self.writes
     }
+    async fn finish_paused(&self, _: &DispatchCandidate, lease: LeaseIds) -> bool {
+        assert_eq!(lease, LEASE);
+        self.call("finish_paused");
+        self.writes
+    }
     async fn await_permission(
         &self,
         _: &DispatchCandidate,

@@ -167,7 +167,32 @@ async fn pending_count(db: &DatabaseConnection) -> i64 {
 }
 
 fn proposal_id(session: &PersistedAgentSession) -> String {
-    session.pending_proposal_review.clone().unwrap().id
+    let receipt = session.conversation.last().unwrap();
+    serde_json::from_str::<serde_json::Value>(&receipt.text).unwrap()["proposal_id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+/// The proposing turn ended paused on its proposal, as the loop leaves it.
+fn paused(waiting: &PersistedAgentSession) -> PersistedAgentSession {
+    let mut session = waiting.clone();
+    let call_id = session
+        .conversation
+        .last()
+        .unwrap()
+        .tool_call_id
+        .clone()
+        .unwrap();
+    let pause =
+        desk_diagnose_core::proposal_review::awaiting_proposal(&session, &call_id, "turn", 1)
+            .unwrap();
+    session.finish_turn(
+        desk_diagnose_core::session::TurnState::Idle,
+        "2026-11-14T00:00:01Z",
+    );
+    session.decision_pause = Some(pause);
+    session
 }
 
 #[tokio::test]
@@ -195,7 +220,7 @@ async fn a_proposal_is_saved_with_its_proof_and_waits_in_its_turn() {
     assert!(projected.skill_md.contains("Run df -h."));
     assert_eq!(projected.files.len(), 1);
     // The reviewer and the owner see the same content.
-    let views = list_on(&db, ACTOR, None, row.created_at_ms).await.unwrap();
+    let views = list_on(&db, ACTOR, None).await.unwrap();
     assert_eq!(views.len(), 1);
     assert_eq!(views[0].status, SkillProposalStatus::Pending);
 }
@@ -281,7 +306,7 @@ async fn decide(
     approve: bool,
     decider: SkillDecider,
 ) -> (proposal::Model, Recorder) {
-    let host = host(waiting.clone(), true);
+    let host = host(paused(waiting), true);
     let row = decide_on(
         &host,
         db,
@@ -531,11 +556,10 @@ async fn a_moved_base_conflicts_and_every_final_state_releases_its_slot() {
 }
 
 #[tokio::test]
-async fn at_most_eight_proposals_wait_and_expired_ones_free_their_slots() {
+async fn at_most_eight_proposals_wait_and_withdrawn_ones_free_their_slots() {
     let db = db().await;
-    let mut waiting = Vec::new();
     for index in 0..MAX_PENDING_PROPOSALS {
-        let (_, session) = propose(
+        propose(
             &db,
             &format!("call-{index}"),
             args(&format!("skill-{index}"), "x"),
@@ -543,34 +567,75 @@ async fn at_most_eight_proposals_wait_and_expired_ones_free_their_slots() {
         )
         .await
         .unwrap();
-        waiting.push(session);
     }
     assert!(
         rejected_with(propose(&db, "call-9", args("skill-9", "x"), true).await)
             .contains("undecided skill proposals")
     );
-    // Every proposal expires after seven days.
-    proposal::Entity::update_many()
-        .col_expr(proposal::Column::ExpiresAtMs, Expr::value(1_i64))
-        .exec(&db)
-        .await
-        .unwrap();
-    let (row, host) = decide(&db, &waiting[0], true, SkillDecider::Owner).await;
-    assert_eq!(row.status, "expired");
-    assert!(host.written_states.lock().unwrap().is_empty());
-    assert_eq!(pending_count(&db).await, MAX_PENDING_PROPOSALS - 1);
-    propose(&db, "call-10", args("skill-10", "x"), true)
-        .await
-        .unwrap();
-    assert_eq!(pending_count(&db).await, 1);
+    // Stopping the conversation withdraws its pending proposals.
+    assert!(withdraw_on(&db, ACTOR, "chat", 5).await.unwrap());
+    assert!(!withdraw_on(&db, ACTOR, "chat", 6).await.unwrap());
+    assert_eq!(pending_count(&db).await, 0);
     assert_eq!(
         proposal::Entity::find()
-            .filter(proposal::Column::Status.eq("expired"))
+            .filter(proposal::Column::Status.eq("withdrawn"))
             .all(&db)
             .await
             .unwrap()
             .len(),
         MAX_PENDING_PROPOSALS as usize
+    );
+    propose(&db, "call-10", args("skill-10", "x"), true)
+        .await
+        .unwrap();
+    assert_eq!(pending_count(&db).await, 1);
+}
+
+#[tokio::test]
+async fn a_decision_waits_until_the_proposing_turn_has_paused() {
+    let db = db().await;
+    let (_, waiting) = propose(&db, "call-1", args("disk-report", "x"), true)
+        .await
+        .unwrap();
+    // The turn is still running: deciding now would strand the pause.
+    let running = host(waiting.clone(), true);
+    assert!(
+        decide_on(
+            &running,
+            &db,
+            ACTOR,
+            &proposal_id(&waiting),
+            Some(1),
+            true,
+            &SkillDecider::Owner,
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(
+        proposal::Entity::find()
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        "pending"
+    );
+    let (row, host) = decide(&db, &waiting, false, SkillDecider::Owner).await;
+    assert_eq!(row.status, "rejected");
+    assert_eq!(host.written_states.lock().unwrap().len(), 1);
+    let resume = crate::entity::agent_decision_resume::Entity::find()
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            resume.kind.as_str(),
+            resume.request_id.as_str(),
+            resume.state.as_str()
+        ),
+        ("skill", row.proposal_id.as_str(), "pending")
     );
 }
 

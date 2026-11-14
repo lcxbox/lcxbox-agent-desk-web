@@ -88,6 +88,7 @@ pub fn goal_authority(
             session.trigger_origin,
             TriggerOrigin::User
                 | TriggerOrigin::PermissionDecision
+                | TriggerOrigin::ProposalDecision
                 | TriggerOrigin::WorkContinuation
         ) || goal.state == GoalState::Running
         {

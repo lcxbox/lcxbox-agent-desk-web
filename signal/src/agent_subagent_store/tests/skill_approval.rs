@@ -1,15 +1,15 @@
 //! AI review of a skill proposal decides only the exact waiting proposal, and
 //! the owner decides once the reviewer cannot.
-use super::schedule_approval::{reviewed_kind, saved, turn_fixture};
+use super::schedule_approval::{pause_turn, reviewed_kind, saved, turn_fixture};
 use super::*;
 use crate::agent_approval_store as approval;
 use desk_assistant_data_store::{entity::agent_skill_proposal as proposal, skill_store};
 use desk_diagnose_core::{
     approval_review::{ApprovalVerdict, PendingRequestKind},
     chat::{ChatMessage, ToolCall},
-    proposal_review::ProposalReviewRef,
+    proposal_review::{DecisionKind, DecisionPause},
 };
-use sea_orm::{ActiveModelTrait, Set, sea_query::Expr};
+use sea_orm::{ActiveModelTrait, Set};
 
 fn proof() -> String {
     let policy = desk_diagnose_core::ai_assistant::source::owner_text_policy(1, false);
@@ -69,7 +69,6 @@ async fn skill_fixture() -> (DatabaseConnection, PersistedAgentSession, String, 
         decision_reason: Set(None),
         created_at_ms: Set(now_ms),
         decided_at_ms: Set(None),
-        expires_at_ms: Set(now_ms + 7 * 24 * 3_600_000),
         revision: Set(1),
         ..Default::default()
     }
@@ -101,19 +100,15 @@ async fn skill_fixture() -> (DatabaseConnection, PersistedAgentSession, String, 
         )
         .unwrap();
     session.conversation.push(receipt);
-    session.pending_proposal_review = Some(ProposalReviewRef::skill(&id));
-    session.version += 1;
-    session_row::Entity::update_many()
-        .col_expr(
-            session_row::Column::StateJson,
-            Expr::value(session.encode_json_for_storage().unwrap()),
-        )
-        .col_expr(session_row::Column::Version, Expr::value(session.version))
-        .filter(session_row::Column::ConversationId.eq(&session.conversation_id))
-        .exec(&db)
-        .await
-        .unwrap();
-    let session = saved(&db, &session.conversation_id).await;
+    let pause = DecisionPause {
+        kind: DecisionKind::Skill,
+        id: id.clone(),
+        turn_id: session.current_turn_id.clone().unwrap(),
+        call_id: "skill-call".into(),
+        input_revision: session.input_revision,
+        requested_at_unix_ms: now_ms as u64,
+    };
+    let session = pause_turn(&db, session, pause).await;
     (db, session, id, now_ms as u64)
 }
 
@@ -158,6 +153,20 @@ async fn ai_approval_saves_the_waiting_skill_and_answers_its_turn() {
     assert_eq!(receipt["event"], "skill_proposal_decided");
     assert_eq!(receipt["status"], "approved");
     assert_eq!(receipt["decided_by"], "approval_ai");
+    // The decision resumes the paused turn exactly once.
+    let resume = desk_assistant_data_store::entity::agent_decision_resume::Entity::find()
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            resume.kind.as_str(),
+            resume.request_id.as_str(),
+            resume.state.as_str()
+        ),
+        ("skill", id.as_str(), "pending")
+    );
     // The decided proposal is no longer offered for review or to the owner.
     assert!(
         !approval::pending_permission_reviews(&db, 0, 64, now + 2)
@@ -278,4 +287,39 @@ async fn the_owner_decides_a_pending_skill_proposal_and_the_reviewer_has_nothing
         cards[0].status,
         desk_agent_protocol::ai_assistant::skill::SkillProposalStatus::Approved
     );
+}
+
+#[actix_web::test]
+async fn stopping_the_paused_conversation_withdraws_its_skill_proposal() {
+    let (db, session, id, _) = skill_fixture().await;
+    let control = desk_agent_protocol::ai_assistant::subagent::AiAssistantStopControl {
+        client_request_id: "stop-paused".into(),
+        expected_input_revision: session.input_revision,
+        expected_control_revision: session.control_revision,
+        subagent_choice: None,
+    };
+    SubAgentStore::new(db.clone())
+        .stop_for_owner(
+            &session.conversation_id,
+            &session.actor_id,
+            &session.device_id,
+            &control,
+        )
+        .await
+        .unwrap();
+    let stopped = saved(&db, &session.conversation_id).await;
+    assert!(stopped.main_stopped);
+    assert!(stopped.decision_pause.is_none());
+    let row = proposal::Entity::find().one(&db).await.unwrap().unwrap();
+    assert_eq!(
+        (row.proposal_id.as_str(), row.status.as_str()),
+        (id.as_str(), "withdrawn")
+    );
+    // The withdrawn proposal frees its pending slot.
+    let scope = desk_assistant_data_store::entity::agent_skill_scope::Entity::find()
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(scope.pending_proposal_count, 0);
 }

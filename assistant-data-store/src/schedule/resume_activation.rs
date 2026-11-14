@@ -262,8 +262,9 @@ pub async fn lock_original_requirement<C: ConnectionTrait, H: ScheduleHostStores
 }
 
 /// Persist the authoritative decision or activation receipt without creating a
-/// new user input. A proposal decision goes to its waiting proposing turn; a
-/// continuation's activation goes to its source conversation.
+/// new user input. A proposal decision goes to its proposing conversation and
+/// resumes the turn that paused on it; a continuation's activation goes to its
+/// source conversation.
 pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     host: &H,
     txn: &C,
@@ -300,16 +301,18 @@ pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     };
     let mut session = PersistedAgentSession::decode_json(&row.state_json)
         .map_err(|_| ScheduleStoreError::Invalid)?;
-    // Only the matching waiting proposal may write a receipt into a live turn.
-    let waiting = session.pending_proposal_review.as_ref()
-        == Some(
-            &desk_diagnose_core::proposal_review::ProposalReviewRef::schedule(&task.schedule_id),
-        )
-        && desk_diagnose_core::proposal_review::ProposalKind::Schedule.allowed(&session)
-        && row.lease_deadline_ms.is_some_and(|deadline| deadline > now);
-    if session.turn_state.is_active() && !waiting {
-        // Do not steal an interactive turn just to backfill a deletion notice.
-        return if rejected {
+    // A proposal's turn paused on it: the decision resumes that requirement.
+    let paused = decider.is_some()
+        && crate::decision_resume::paused_on(
+            &session,
+            desk_diagnose_core::proposal_review::DecisionKind::Schedule,
+            &task.schedule_id,
+        );
+    if session.turn_state.is_active() {
+        // A proposal's turn pauses only when it ends; deciding before that
+        // would leave the pause without a decision, so the caller retries. A
+        // creation notice never steals an interactive turn.
+        return if rejected && decider.is_none() {
             Ok(())
         } else {
             Err(ScheduleStoreError::Conflict)
@@ -342,6 +345,10 @@ pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             "schedule_activation",
         )
         .map_err(|_| ScheduleStoreError::Invalid)?;
+    if paused {
+        return crate::decision_resume::record_decision_on(host, txn, &row, session, message, now)
+            .await;
+    }
     session.conversation.push(message);
     session.version = row
         .version

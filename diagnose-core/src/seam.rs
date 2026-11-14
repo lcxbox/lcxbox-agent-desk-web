@@ -1328,18 +1328,6 @@ pub trait SessionSeam {
         Err(crate::schedule::proposal::unavailable())
     }
 
-    /// Poll one bounded review tick of the proposal awaited by this turn.
-    /// Runtimes must not hold a transaction while waiting; the exact decision
-    /// receipt is the only permitted snapshot update.
-    async fn poll_proposal_review(
-        &self,
-        _session: &mut PersistedAgentSession,
-        _reference: &crate::proposal_review::ProposalReviewRef,
-        _observation: crate::model_observability::tool::ToolObservation,
-    ) -> Result<bool, AgentError> {
-        Err(crate::schedule::proposal::unavailable())
-    }
-
     /// Save a model skill proposal and its labelled result under the current
     /// turn fence, and open its review. An error is a model-visible refusal.
     async fn propose_skill(
@@ -1390,15 +1378,6 @@ pub trait SessionSeam {
         _proposal: crate::file_scope::DirectoryProposal,
         _now_unix_ms: u64,
     ) -> Result<(), AgentError> {
-        Err(crate::directory_tools::unavailable())
-    }
-    /// Wait one bounded tick for directory consent on the held turn. Implementations
-    /// may adopt only file-scope changes; a new input, stop or lease change must fail.
-    async fn poll_directory_review(
-        &self,
-        _session: &mut PersistedAgentSession,
-        _request_id: &str,
-    ) -> Result<Option<bool>, AgentError> {
         Err(crate::directory_tools::unavailable())
     }
 

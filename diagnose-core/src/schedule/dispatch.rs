@@ -119,6 +119,9 @@ pub trait ContinuationDispatchHost {
         lease: LeaseIds,
         answer: &str,
     ) -> bool;
+    /// The conversation turn paused on a proposal or directory request; the
+    /// decision resumes the conversation, so the timer's work is done.
+    async fn finish_paused(&self, candidate: &DispatchCandidate, lease: LeaseIds) -> bool;
     async fn await_permission(
         &self,
         candidate: &DispatchCandidate,
@@ -241,6 +244,9 @@ pub async fn dispatch_continuation<H: ContinuationDispatchHost>(
         }
         Ok(LoopOutcome::PermissionRequested { request_id }) => {
             waiting_or_reconcile(host.await_permission(candidate, lease, &request_id).await)
+        }
+        Ok(LoopOutcome::DecisionRequested { .. }) => {
+            settled_or_reconcile(host.finish_paused(candidate, lease).await)
         }
         // A loop outcome or transport error alone is not completion. Settlement
         // verifies the persisted error, the exact turn and both leases.

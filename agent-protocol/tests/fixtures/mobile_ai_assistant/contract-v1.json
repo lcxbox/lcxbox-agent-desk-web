@@ -458,8 +458,8 @@
           }
         ],
         "createdAtMs": 1788086400000,
-        "expiresAtMs": 1788691200000,
-        "revision": 1
+        "revision": 1,
+        "awaitingOwner": true
       },
       {
         "proposalId": "proposal-0",
@@ -474,11 +474,17 @@
         "files": [],
         "diff": [],
         "createdAtMs": 1788086300000,
-        "expiresAtMs": 1788691100000,
         "decidedAtMs": 1788086350000,
-        "revision": 2
+        "revision": 2,
+        "awaitingOwner": false
       }
-    ]
+    ],
+    "decisionPause": {
+      "kind": "skill",
+      "requestId": "proposal-1",
+      "toolCallId": "call-skill-1",
+      "awaitingOwner": true
+    }
   },
   "session_list": {
     "sessions": [

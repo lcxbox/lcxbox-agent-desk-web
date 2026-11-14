@@ -52,6 +52,7 @@ impl SubAgentStore {
             return Err(invalid());
         }
         let now = chrono::Utc::now();
+        let before = parent.clone();
         if desk_assistant_data_store::main_request::resume_queue_control(
             &mut parent,
             expected_control_revision,
@@ -59,6 +60,8 @@ impl SubAgentStore {
         )
         .map_err(|_| invalid())?
         {
+            // A request the stopped turn paused on is withdrawn with it.
+            crate::decision_resume::withdraw_on(&txn, &before, &parent).await?;
             let resumes = resume::Entity::find()
                 .filter(resume::Column::RunId.eq(root))
                 .filter(resume::Column::ActorId.eq(actor))
@@ -497,6 +500,10 @@ async fn stop_native_parent_on(
     let mut stopped = Box::new(parent.clone());
     desk_diagnose_core::subagent::control::stop_main_session(&mut stopped, &now.to_rfc3339())
         .map_err(|_| invalid())?;
+    desk_diagnose_core::future::boxed(|| async {
+        crate::decision_resume::withdraw_on(txn, parent, &stopped).await
+    })
+    .await?;
     let row = desk_diagnose_core::future::boxed(|| async {
         session_row::Entity::find()
             .filter(session_row::Column::ConversationId.eq(root))

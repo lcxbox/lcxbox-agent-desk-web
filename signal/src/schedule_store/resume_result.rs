@@ -36,6 +36,16 @@ impl ScheduleStore {
         .await
     }
 
+    /// The conversation turn paused on a proposal or directory request; its
+    /// decision resumes the conversation, so the timer's work is done.
+    pub async fn finish_paused_continuation(
+        &self,
+        lease: ContinuationLease<'_>,
+    ) -> Result<run::Model, ScheduleStoreError> {
+        self.record_committed_continuation(lease, CommittedResult::Paused, SettlementLease::Live)
+            .await
+    }
+
     /// The exact error must already be persisted on the original failed turn.
     /// Transport loss with uncommitted session state still requires reconciliation.
     pub async fn finish_failed_continuation(

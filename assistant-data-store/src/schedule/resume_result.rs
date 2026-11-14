@@ -26,9 +26,14 @@ use sea_orm::{
 #[derive(Clone, Copy)]
 pub enum CommittedResult<'a> {
     Answer(&'a str),
+    /// The conversation turn paused on a proposal or directory request; the
+    /// timer's work is done and the decision resumes the conversation.
+    Paused,
     Failure(&'a AgentError),
     Permission(&'a str),
-    Interrupted { cancelled: bool },
+    Interrupted {
+        cancelled: bool,
+    },
 }
 
 /// Whether settlement requires a live or an expired occurrence lease.
@@ -55,6 +60,14 @@ pub fn committed_result<'a>(
     Some(match session.turn_state {
         TurnState::Idle if session.terminal_permission_request_id.is_some() => {
             CommittedResult::Permission(session.terminal_permission_request_id.as_deref().unwrap())
+        }
+        TurnState::Idle
+            if session
+                .decision_pause
+                .as_ref()
+                .is_some_and(|pause| pause.turn_id == work.turn_id) =>
+        {
+            CommittedResult::Paused
         }
         TurnState::Idle => {
             let answer = session
@@ -109,6 +122,7 @@ pub async fn record_committed_continuation_on<C: ConnectionTrait, H: ScheduleHos
             (ScheduledRunStatus::Succeeded, TurnState::Idle, None, None)
         }
         CommittedResult::Answer(_) => return Err(ScheduleStoreError::Invalid),
+        CommittedResult::Paused => (ScheduledRunStatus::Succeeded, TurnState::Idle, None, None),
         CommittedResult::Permission(_) => (
             ScheduledRunStatus::AwaitingPermission,
             TurnState::Idle,
@@ -128,6 +142,7 @@ pub async fn record_committed_continuation_on<C: ConnectionTrait, H: ScheduleHos
         ),
     };
     let waiting = matches!(result, CommittedResult::Permission(_));
+    let paused = matches!(result, CommittedResult::Paused);
     let status = match result {
         CommittedResult::Interrupted { .. } => {
             if cancelled {
@@ -136,7 +151,7 @@ pub async fn record_committed_continuation_on<C: ConnectionTrait, H: ScheduleHos
                 "failed"
             }
         }
-        CommittedResult::Answer(_) => "succeeded",
+        CommittedResult::Answer(_) | CommittedResult::Paused => "succeeded",
         CommittedResult::Failure(_) => "failed",
         CommittedResult::Permission(_) => "awaiting_permission",
     };
@@ -270,6 +285,7 @@ pub async fn record_committed_continuation_on<C: ConnectionTrait, H: ScheduleHos
         || (state == TurnState::Idle && session.handled_input_seq != session.latest_input_seq)
         || !session.pending_auto_triggers.is_empty()
         || (!waiting
+            && !paused
             && (session.permission_requests.iter().any(|request| {
                 request.input_revision == session.input_revision
                     && request.state == PermissionRequestState::Pending
@@ -311,6 +327,14 @@ pub async fn record_committed_continuation_on<C: ConnectionTrait, H: ScheduleHos
             Some(reference)
         }
         CommittedResult::Failure(_) => None,
+        CommittedResult::Paused => Some(format!(
+            "decision:{}",
+            session
+                .decision_pause
+                .as_ref()
+                .ok_or(ScheduleStoreError::Conflict)?
+                .id
+        )),
         CommittedResult::Permission(id) => {
             if matches!(settlement_lease, SettlementLease::Expired)
                 && session.terminal_permission_request_id.as_deref() != Some(id)

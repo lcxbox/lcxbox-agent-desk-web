@@ -742,12 +742,11 @@ async fn validate_review_subject_on(
             {
                 return Err(invalid());
             }
+            // The requesting turn ended paused on the request; `pending`
+            // checked that, and the token proves no turn was claimed since.
             if Some(session.lease_token) != authority.source_planning_lease_token
                 || u64::try_from(session_row.lease_token).ok()
                     != authority.source_planning_lease_token
-                || session_row
-                    .lease_deadline
-                    .is_none_or(|deadline| deadline.timestamp_millis() <= now_ms)
             {
                 return Err(invalid());
             }
@@ -768,13 +767,12 @@ async fn validate_review_subject_on(
                 .ok_or_else(|| invalid())?;
             use sha2::Digest;
             let action = proposal.action(session).map_err(|_| invalid())?;
+            // The proposing turn ended paused on the proposal; `pending`
+            // checked that, and the token proves no turn was claimed since.
             if row.action_sha256 != format!("{:x}", sha2::Sha256::digest(action.as_bytes()))
                 || Some(session.lease_token) != authority.source_planning_lease_token
                 || u64::try_from(session_row.lease_token).ok()
                     != authority.source_planning_lease_token
-                || session_row
-                    .lease_deadline
-                    .is_none_or(|deadline| deadline.timestamp_millis() <= now_ms)
             {
                 return Err(invalid());
             }

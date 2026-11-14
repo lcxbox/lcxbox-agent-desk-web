@@ -589,7 +589,9 @@ pub fn project_snapshot_message_page(
 }
 
 fn visible_snapshot_message(message: &ChatMessage) -> bool {
-    if desk_diagnose_core::permission_resume::is_permission_resume_message(message) {
+    if desk_diagnose_core::permission_resume::is_permission_resume_message(message)
+        || desk_diagnose_core::permission_resume::is_decision_resume_message(message)
+    {
         return false;
     }
     if message.role != desk_diagnose_core::chat::ChatRole::SystemEvent {
@@ -877,6 +879,45 @@ fn stale_reason_name(reason: AttachmentStaleReason) -> &'static str {
     }
 }
 
+/// The request the conversation's last turn paused on. The AI reviewer or the
+/// owner decides it, and the server then continues the requirement.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DecisionPauseDto {
+    pub kind: DecisionPauseKindDto,
+    pub request_id: String,
+    pub tool_call_id: String,
+    /// Whether the owner must decide it now rather than wait for the AI reviewer.
+    pub awaiting_owner: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DecisionPauseKindDto {
+    Schedule,
+    Skill,
+    Directory,
+}
+
+impl DecisionPauseDto {
+    pub fn new(
+        pause: &desk_diagnose_core::proposal_review::DecisionPause,
+        awaiting_owner: bool,
+    ) -> Self {
+        use desk_diagnose_core::proposal_review::DecisionKind;
+        Self {
+            kind: match pause.kind {
+                DecisionKind::Schedule => DecisionPauseKindDto::Schedule,
+                DecisionKind::Skill => DecisionPauseKindDto::Skill,
+                DecisionKind::Directory => DecisionPauseKindDto::Directory,
+            },
+            request_id: pause.id.clone(),
+            tool_call_id: pause.call_id.clone(),
+            awaiting_owner,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AiAssistantSessionSnapshotDto {
@@ -899,6 +940,9 @@ pub struct AiAssistantSessionSnapshotDto {
     /// pending one changes nothing until the AI reviewer or the owner decides.
     #[serde(default)]
     pub skill_proposals: Vec<desk_agent_protocol::ai_assistant::skill::SkillProposalView>,
+    /// The proposal or directory request the last turn paused on, if any.
+    #[schema(required = false)]
+    pub decision_pause: Option<DecisionPauseDto>,
     /// Current/latest owner delegation; it does not grant any tool authority.
     pub approval_delegation: Option<ApprovalDelegationDto>,
     pub approval_model_readiness: ApprovalModelReadinessDto,
@@ -2240,6 +2284,8 @@ pub struct AiAssistantAttentionQuery {
 pub enum AiAssistantAttentionReason {
     GoalOpenApproval,
     PermissionApproval,
+    /// A proposal or directory request the owner must decide.
+    DecisionApproval,
     GoalNeedsInput,
     GoalBudget,
     GoalStalled,
@@ -2255,6 +2301,7 @@ impl AiAssistantAttentionReason {
         match self {
             Self::GoalOpenApproval => "goal_open_approval",
             Self::PermissionApproval => "permission_approval",
+            Self::DecisionApproval => "decision_approval",
             Self::GoalNeedsInput => "goal_needs_input",
             Self::GoalBudget => "goal_budget",
             Self::GoalStalled => "goal_stalled",
@@ -2446,6 +2493,35 @@ impl AiAssistantAttentionItemDto {
             request_id: Some(request.request_id.clone()),
             reason: AiAssistantAttentionReason::PermissionApproval,
             state_version: request.input_revision,
+            updated_at_unix_ms,
+            deadline_unix_ms: None,
+            workbench: None,
+        }
+    }
+
+    /// A proposal or directory request the conversation paused on and the
+    /// owner must decide.
+    pub fn from_decision(
+        session_id: &str,
+        device_id: &str,
+        pause: &desk_diagnose_core::proposal_review::DecisionPause,
+        updated_at_unix_ms: u64,
+    ) -> Self {
+        let identity = format!(
+            "decision:{}:{}:{}",
+            pause.kind.as_str(),
+            pause.id,
+            pause.input_revision
+        );
+        Self {
+            attention_id: format!("attention-{:x}", Sha256::digest(identity.as_bytes())),
+            session_id: session_id.to_owned(),
+            client_conversation_id: None,
+            device_id: device_id.to_owned(),
+            goal_id: None,
+            request_id: Some(pause.id.clone()),
+            reason: AiAssistantAttentionReason::DecisionApproval,
+            state_version: pause.input_revision,
             updated_at_unix_ms,
             deadline_unix_ms: None,
             workbench: None,

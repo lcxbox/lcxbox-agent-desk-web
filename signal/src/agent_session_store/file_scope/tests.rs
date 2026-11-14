@@ -13,6 +13,7 @@ async fn setup() -> SignalAgentSessionStore {
     for table in [
         schema.entity_table(agent_session::Entity),
         schema.entity_table(agent_run_event::Entity),
+        schema.entity_table(crate::entity::agent_decision_resume::Entity),
     ] {
         db.execute(&table).await.unwrap();
     }
@@ -414,7 +415,7 @@ async fn terminal_history_does_not_exhaust_a_long_lived_conversation() {
 }
 
 #[tokio::test]
-async fn directory_review_observes_owner_decision_once_and_rejects_changed_turn() {
+async fn an_owner_directory_decision_records_one_resume_of_the_paused_turn() {
     for approve in [true, false] {
         let store = setup().await;
         let now = chrono::Utc::now();
@@ -451,42 +452,37 @@ async fn directory_review_observes_owner_decision_once_and_rejects_changed_turn(
             .propose_file_scope_for_turn(&mut held, "device", proposal, now)
             .await
             .unwrap();
-        let before = held.clone();
-        for change in ["input", "lease", "authority", "transcript"] {
-            let mut changed = held.clone();
-            match change {
-                "input" => changed.input_revision += 1,
-                "lease" => changed.lease_token += 1,
-                "authority" => changed.policy_revision += 1,
-                _ => changed
-                    .conversation
-                    .push(desk_diagnose_core::chat::ChatMessage::text(
-                        "new",
-                        desk_diagnose_core::chat::ChatRole::User,
-                        "new requirement",
-                    )),
-            }
-            assert!(
-                desk_diagnose_core::directory_tools::adopt_review_snapshot(
-                    &mut held,
-                    changed,
-                    &request_id
-                )
-                .is_err()
-            );
-            assert_eq!(held, before);
-        }
-
-        assert_eq!(
-            store
-                .poll_file_scope_review(&mut held, &request_id)
-                .await
-                .unwrap(),
-            None
+        // The turn ends paused on the request.
+        held.finish_turn(
+            desk_diagnose_core::session::TurnState::Idle,
+            now.to_rfc3339(),
         );
+        held.decision_pause = Some(desk_diagnose_core::proposal_review::DecisionPause {
+            kind: desk_diagnose_core::proposal_review::DecisionKind::Directory,
+            id: request_id.clone(),
+            turn_id: "directory-test-turn".into(),
+            call_id: "waiting-directory".into(),
+            input_revision: held.input_revision,
+            requested_at_unix_ms: now.timestamp_millis() as u64,
+        });
+        held.version += 1;
+        agent_session::Entity::update_many()
+            .col_expr(
+                agent_session::Column::StateJson,
+                Expr::value(held.encode_json_for_storage().unwrap()),
+            )
+            .col_expr(agent_session::Column::Version, Expr::value(held.version))
+            .col_expr(
+                agent_session::Column::LeaseDeadline,
+                Expr::value(Option::<chrono::DateTime<chrono::Utc>>::None),
+            )
+            .exec(&store.db)
+            .await
+            .unwrap();
+        let before = state(&store).await;
         let decision = FileScopeUpdate {
             client_request_id: "owner-decision".into(),
-            expected_revision: held.file_scope.revision(),
+            expected_revision: before.file_scope.revision(),
             mutation: FileScopeMutation::Decide {
                 directory_request_id: request_id.clone(),
                 approve,
@@ -494,41 +490,28 @@ async fn directory_review_observes_owner_decision_once_and_rejects_changed_turn(
             ..update()
         };
         store.update_file_scope(&decision, now).await.unwrap();
+        let settled = state(&store).await;
+        // The decision event joins the paused conversation; the pause waits
+        // for the decision-resume claim.
+        assert_eq!(settled.conversation.len(), before.conversation.len() + 1);
+        let event: serde_json::Value =
+            serde_json::from_str(&settled.conversation.last().unwrap().text).unwrap();
         assert_eq!(
-            store
-                .poll_file_scope_review(&mut held, &request_id)
-                .await
-                .unwrap(),
-            Some(approve)
+            event["state"],
+            if approve { "approved" } else { "rejected" }
         );
-        assert_eq!(held.version, before.version + 1);
-        assert_eq!(held.scope_snapshot, before.scope_snapshot);
-        assert_eq!(held.conversation, before.conversation);
-        let settled = held.clone();
-        // HTTP/signaling retries replay the receipt; there is no second turn.
+        assert_eq!(settled.decision_pause, before.decision_pause);
+        assert_eq!(settled.scope_snapshot, before.scope_snapshot);
+        // HTTP/signaling retries replay the receipt; there is no second resume.
         store.update_file_scope(&decision, now).await.unwrap();
-        assert_eq!(
-            state(&store).await,
-            PersistedAgentSession::decode_json(&settled.encode_json_for_storage().unwrap())
-                .unwrap()
-        );
-        let mut stopped = held.clone();
-        stopped.turn_state = desk_diagnose_core::session::TurnState::Idle;
-        agent_session::Entity::update_many()
-            .col_expr(
-                agent_session::Column::StateJson,
-                Expr::value(stopped.encode_json_for_storage().unwrap()),
-            )
-            .exec(&store.db)
+        assert_eq!(state(&store).await, settled);
+        let resumes = desk_assistant_data_store::entity::agent_decision_resume::Entity::find()
+            .all(&store.db)
             .await
             .unwrap();
-        assert!(
-            store
-                .poll_file_scope_review(&mut held, &request_id)
-                .await
-                .is_err()
-        );
-        assert_eq!(held, settled);
+        assert_eq!(resumes.len(), 1);
+        assert_eq!(resumes[0].kind, "directory");
+        assert_eq!(resumes[0].request_id, request_id);
     }
 }
 

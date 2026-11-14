@@ -208,8 +208,10 @@ pub fn holds_input_slot(session: &PersistedAgentSession) -> bool {
         || session.ready_subagent_wait.is_some()
         || session.ready_subagent_notification.is_some()
         // A call waiting for approval, or released to run, is still in flight:
-        // new owner input queues behind it.
+        // new owner input queues behind it, as it does behind a proposal or
+        // directory request the turn paused on.
         || session.awaiting_permission.is_some()
+        || session.decision_pause.is_some()
         || session.released_permission_call.is_some()
         || session.permission_requests.iter().any(|permission| {
             permission.input_revision == session.input_revision
@@ -268,6 +270,7 @@ pub fn resume_queue_control(
     }
     session.control_revision = next;
     session.main_stopped = false;
+    desk_diagnose_core::proposal_review::withdraw_pause(session);
     for permission in &mut session.permission_requests {
         if permission.state.can_user_decide() {
             permission.state = desk_diagnose_core::dynamic_run::PermissionRequestState::Withdrawn;

@@ -34,6 +34,7 @@ pub fn stop_main_session(
         "owner_stop_result_unavailable",
         "owner-stop",
     )?;
+    crate::proposal_review::withdraw_pause(&mut next);
     next.main_stopped = true;
     next.main_coordination = None;
     next.coordinating_work = None;
@@ -201,6 +202,10 @@ pub fn synchronize_session(
     if run.state.is_terminal() || run.state == SubAgentState::Cancelling {
         updated.pending_auto_triggers.clear();
     }
+    // A cancelled, failed or changed task no longer waits for the decision.
+    if input_changed || run.state.is_terminal() || run.state == SubAgentState::Cancelling {
+        crate::proposal_review::withdraw_pause(&mut updated);
+    }
     *session = updated;
     Ok(())
 }
@@ -273,6 +278,7 @@ pub fn admit_request(
             request.state = crate::dynamic_run::PermissionRequestState::Withdrawn;
         }
     }
+    crate::proposal_review::withdraw_pause(&mut updated);
     close_unclosed_calls(
         &mut updated,
         "not executed: the previous request ended before this call ran",

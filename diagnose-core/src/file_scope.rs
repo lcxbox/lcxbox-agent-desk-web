@@ -468,6 +468,28 @@ impl SessionFileScope {
         Ok(true)
     }
 
+    /// Rejects a pending model request the owner withdrew by stopping its
+    /// conversation, recording `decision`. Returns whether it was pending.
+    pub fn withdraw_pending(
+        &mut self,
+        request_id: &str,
+        decision: crate::directory_review::DirectoryDecision,
+    ) -> bool {
+        let Some(record) = self.records.iter_mut().find(|record| {
+            record.proposal.request_id == request_id
+                && record.state == DirectoryConsentState::Pending
+        }) else {
+            return false;
+        };
+        let Some(revision) = self.revision.checked_add(1) else {
+            return false;
+        };
+        record.state = DirectoryConsentState::Rejected;
+        record.decision = Some(decision);
+        self.revision = revision;
+        true
+    }
+
     /// Cancellation and revocation invalidate even previously frozen revisions.
     pub fn revoke(
         &mut self,

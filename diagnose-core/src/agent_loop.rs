@@ -313,6 +313,11 @@ pub enum LoopOutcome {
     /// A normalized permission batch was durably recorded for user decision.
     /// No grant was minted and no requested tool was dispatched.
     PermissionRequested { request_id: String },
+    /// A proposal or interactive directory request was saved for an AI or
+    /// owner decision. The turn ends; the decision resumes the requirement.
+    DecisionRequested {
+        pause: crate::proposal_review::DecisionPause,
+    },
     /// A model-proposed long-running goal is awaiting its owner's decision.
     /// The request alone neither starts work nor grants device authority.
     GoalOpenRequested { request_id: String },
@@ -453,7 +458,6 @@ mod call_budget;
 mod fresh_task;
 mod goal_control;
 mod issue_reply;
-mod proposal_wait;
 mod retrieval_accounting;
 pub use fresh_task::{
     resume_claimed_fresh_task_children_turn, resume_claimed_fresh_task_notification_turn,
@@ -970,6 +974,11 @@ async fn drive_claimed_inner(
         Ok(LoopOutcome::PermissionRequested { request_id }) => Some(request_id.clone()),
         _ => None,
     };
+    // Only this outcome sets the pause; the decision-resume claim, a goal wake
+    // or a withdrawal clears it.
+    if let Ok(LoopOutcome::DecisionRequested { pause }) = &result {
+        session.decision_pause = Some(pause.clone());
+    }
     session.terminal_error = settled_terminal_error(&result);
     if terminal == TurnState::Idle && !matches!(&result, Ok(LoopOutcome::Superseded { .. })) {
         session.handled_input_seq = session.latest_input_seq;
@@ -1018,6 +1027,7 @@ async fn drive_claimed_inner(
             Ok(LoopOutcome::ContentRejected(_)) => Some("delegated_content_rejected"),
             Ok(LoopOutcome::ContextWindowExceeded) => Some("delegated_context_window_exceeded"),
             Ok(LoopOutcome::PermissionRequested { .. })
+            | Ok(LoopOutcome::DecisionRequested { .. })
             | Ok(LoopOutcome::CircuitBreak(_))
             | Ok(LoopOutcome::Truncated)
             | Ok(LoopOutcome::Answered(_)) => None,
@@ -1053,6 +1063,12 @@ async fn drive_claimed_inner(
                 crate::goal::GoalSegmentEnd::Control(crate::goal::GoalControl::Wait {
                     reason: crate::goal::GoalWaitReason::Approval,
                     reference_id: request_id.clone(),
+                })
+            }
+            Ok(LoopOutcome::DecisionRequested { pause }) => {
+                crate::goal::GoalSegmentEnd::Control(crate::goal::GoalControl::Wait {
+                    reason: crate::goal::GoalWaitReason::Approval,
+                    reference_id: pause.id.clone(),
                 })
             }
             Ok(LoopOutcome::SubAgentsWaiting { wait_id }) => {
@@ -1771,6 +1787,7 @@ fn assemble_context_request(
     history.extend(view.messages.iter().cloned());
     crate::schedule::review_result::project(&mut history)?;
     crate::skills::authoring::project_review_results(&mut history)?;
+    crate::directory_tools::project_decisions(&mut history)?;
     let mut at = usize::from(
         request
             .messages

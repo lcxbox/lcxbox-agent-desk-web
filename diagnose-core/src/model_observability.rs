@@ -278,7 +278,7 @@ impl From<crate::session::TriggerOrigin> for Origin {
         match value {
             Trigger::User => Self::User,
             Trigger::IssueSubscription => Self::IssueSubscription,
-            Trigger::PermissionDecision => Self::PermissionResume,
+            Trigger::PermissionDecision | Trigger::ProposalDecision => Self::PermissionResume,
             Trigger::ScheduledContinuation | Trigger::ScheduledTask => Self::ScheduledTask,
             Trigger::GoalContinuation => Self::GoalContinuation,
             Trigger::DelegatedTask => Self::Subagent,

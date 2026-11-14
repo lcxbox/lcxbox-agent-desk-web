@@ -102,6 +102,23 @@ pub async fn list_goal_attention(
                 chrono::Utc::now().timestamp_millis(),
             )
             .await?;
+        if let Some(pause) = &session.decision_pause
+            && crate::decision_resume::awaiting_owner_on(
+                db,
+                &session,
+                pause.kind,
+                &pause.id,
+                pause.requested_at_unix_ms,
+            )
+            .await?
+        {
+            items.push(AiAssistantAttentionItemDto::from_decision(
+                &row.conversation_id,
+                &row.device_id,
+                pause,
+                u64::try_from(row.updated_at.timestamp_millis()).unwrap_or_default(),
+            ));
+        }
         for request in &session.permission_requests {
             if request.state == PermissionRequestState::Pending
                 && request.input_revision == session.input_revision

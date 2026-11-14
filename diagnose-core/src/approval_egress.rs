@@ -364,10 +364,20 @@ pub fn validate_source_review_current(
 ) -> Result<(), ApprovalReviewError> {
     candidate.validate()?;
     if session.surface != AgentSessionSurface::AiAssistant
-        || if matches!(candidate.source, ApprovalSource::GoalProposal { .. }) {
-            !session.agent_role.is_main() || !session.turn_state.can_claim() || session.main_stopped
-        } else {
-            !session.turn_state.is_active()
+        || match candidate.source {
+            ApprovalSource::GoalProposal { .. } => {
+                !session.agent_role.is_main()
+                    || !session.turn_state.can_claim()
+                    || session.main_stopped
+            }
+            // These requests end their turn and are reviewed while it is paused;
+            // the paused turn keeps its id and lease token until the resume.
+            ApprovalSource::ScheduleProposal { .. }
+            | ApprovalSource::SkillProposal { .. }
+            | ApprovalSource::DirectoryProposal { .. } => {
+                session.turn_state.is_active() || session.main_stopped
+            }
+            _ => !session.turn_state.is_active(),
         }
         || session.current_turn_id.as_deref() != Some(binding.turn_id)
         || session.lease_token != binding.lease_token

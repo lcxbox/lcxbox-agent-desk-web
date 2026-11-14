@@ -104,6 +104,7 @@ async fn admit_worker_request_on(
         desk_assistant_data_store::AssistantStoreError::Backend(error) => error,
         _ => invalid(),
     })?;
+    let before = session.clone();
     control::admit_request(
         session,
         &previous,
@@ -114,6 +115,7 @@ async fn admit_worker_request_on(
         &now.to_rfc3339(),
     )
     .map_err(|_| invalid())?;
+    crate::decision_resume::withdraw_on(txn, &before, session).await?;
     session.version = stored.version.checked_add(1).ok_or_else(|| invalid())?;
     let changed = session_row::Entity::update_many()
         .set(session_row::ActiveModel {
@@ -353,9 +355,7 @@ impl SubAgentStore {
         if session.trigger_origin == desk_diagnose_core::session::TriggerOrigin::ScheduledTask {
             return Ok(None);
         }
-        if session.main_stopped
-            || session.subagent_wait.is_some()
-            || session.terminal_permission_request_id.is_some()
+        if session.main_stopped || session.subagent_wait.is_some() || session.paused_for_decision()
         {
             return Ok(None);
         }

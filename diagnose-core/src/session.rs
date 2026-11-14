@@ -399,6 +399,11 @@ pub enum TriggerOrigin {
     /// An owner decision resumes the existing requirement. It may consume a
     /// matching grant, but does not reset the task's automation chain.
     PermissionDecision,
+    /// An AI or owner decision on a proposal or directory request the model
+    /// made resumes the existing requirement. Like `PermissionDecision` it
+    /// continues the chain and grants nothing; it has no paused device call to
+    /// replay, so no permission continuation checkpoint applies.
+    ProposalDecision,
     /// An explicitly confirmed one-shot continuation, claimed together with its
     /// durable occurrence. Preserves the input epoch; origin alone grants nothing.
     ScheduledContinuation,
@@ -453,6 +458,7 @@ impl TriggerOrigin {
             TriggerOrigin::User
                 | TriggerOrigin::IssueSubscription
                 | TriggerOrigin::PermissionDecision
+                | TriggerOrigin::ProposalDecision
                 | TriggerOrigin::WorkContinuation
                 | TriggerOrigin::ScheduledContinuation
                 | TriggerOrigin::ScheduledTask
@@ -479,6 +485,7 @@ impl TriggerOrigin {
             TriggerOrigin::User
                 | TriggerOrigin::IssueSubscription
                 | TriggerOrigin::PermissionDecision
+                | TriggerOrigin::ProposalDecision
                 | TriggerOrigin::WorkContinuation
                 | TriggerOrigin::ScheduledContinuation
                 | TriggerOrigin::ScheduledTask
@@ -728,9 +735,10 @@ pub struct PersistedAgentSession {
     /// Exact permission pause returned by this turn, never an authorization.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_permission_request_id: Option<String>,
-    /// Proposal review awaited by the current turn; not a permission grant.
+    /// Request the last turn paused on until an AI or owner decision; not a
+    /// permission grant. See [`crate::proposal_review::DecisionPause`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_proposal_review: Option<crate::proposal_review::ProposalReviewRef>,
+    pub decision_pause: Option<crate::proposal_review::DecisionPause>,
     pub execution_state: ExecutionState,
     /// The most recent manual disposition. It is not execution authority and is
     /// retained separately from the provider outcome and model-visible transcript.
@@ -1662,7 +1670,7 @@ impl PersistedAgentSession {
             turn_state: TurnState::Idle,
             terminal_error: None,
             terminal_permission_request_id: None,
-            pending_proposal_review: None,
+            decision_pause: None,
             execution_state: ExecutionState::None,
             manual_outcome_disposition: None,
             pending_auto_triggers: Vec::new(),
@@ -1963,6 +1971,13 @@ impl PersistedAgentSession {
     /// A personal input retains the account subject even when it selects devices.
     /// A turn that acts for an owner's direct request: the owner's own turn in a
     /// main conversation, or a child request the owner delegated directly.
+    /// Whether the last turn paused for a permission request or for a
+    /// proposal or directory decision. Paths that hold back interpretation or
+    /// notification while an owner or AI decision is pending use this.
+    pub fn paused_for_decision(&self) -> bool {
+        self.terminal_permission_request_id.is_some() || self.decision_pause.is_some()
+    }
+
     pub fn owner_direct_planning(&self) -> bool {
         match self.agent_role.binding() {
             None => self.trigger_origin == TriggerOrigin::User,
@@ -2613,7 +2628,6 @@ impl PersistedAgentSession {
         self.turn_state = TurnState::Running;
         self.terminal_error = None;
         self.terminal_permission_request_id = None;
-        self.pending_proposal_review = None;
         self.current_turn_id = Some(turn_id.into());
         self.current_request_id = request_id;
         self.active_control_connection_id = connection_id;
@@ -2757,7 +2771,6 @@ impl PersistedAgentSession {
         self.turn_state = terminal;
         self.terminal_error = None;
         self.terminal_permission_request_id = None;
-        self.pending_proposal_review = None;
         self.updated_at = now.into();
     }
 
@@ -2805,6 +2818,7 @@ impl PersistedAgentSession {
                 self.review_denials.clear();
             }
             TriggerOrigin::PermissionDecision
+            | TriggerOrigin::ProposalDecision
             | TriggerOrigin::ScheduledContinuation
             | TriggerOrigin::GoalContinuation => {}
             TriggerOrigin::IssueSubscription

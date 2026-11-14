@@ -227,7 +227,10 @@ pub async fn pending_permission_reviews(
                     });
                 }
             }
-            if let Some(reference) = session.pending_proposal_review.clone()
+            if let Some(reference) = session
+                .decision_pause
+                .as_ref()
+                .and_then(|pause| pause.proposal())
                 && let Some(proposal) =
                     crate::schedule_store::review_proposal_on(db, &session, &reference)
                         .await
@@ -900,11 +903,10 @@ pub async fn settle_permission_review(
             Err(_) => false,
         }
     } else if let Some(reference) = candidate.source.proposal_ref() {
+        // The proposing turn ended paused on the proposal; no new claim since.
         let lease_current = u64::try_from(session_row.lease_token).ok()
             == Some(session.lease_token)
-            && session_row
-                .lease_deadline
-                .is_some_and(|deadline| deadline.timestamp_millis() > now_unix_ms as i64);
+            && !session.turn_state.is_active();
         let proposal = crate::schedule_store::review_proposal_on(&txn, &session, &reference)
             .await
             .map_err(schedule_error)?;
@@ -917,11 +919,10 @@ pub async fn settle_permission_review(
                     .is_ok()
             })
     } else if matches!(candidate.source, ApprovalSource::DirectoryProposal { .. }) {
+        // The requesting turn ended paused on the request; no new claim since.
         let lease_current = u64::try_from(session_row.lease_token).ok()
             == Some(session.lease_token)
-            && session_row
-                .lease_deadline
-                .is_some_and(|deadline| deadline.timestamp_millis() > now_unix_ms as i64)
+            && !session.turn_state.is_active()
             && crate::agent_subagent_store::shared_approval_current_on(
                 &txn,
                 &session,
@@ -2414,6 +2415,21 @@ async fn save_directory_decision_on(
         session, request_id, approved, decision, now,
     )
     .map_err(|_| invalid())?;
+    // The paused turn sees the decision and resumes its requirement.
+    if desk_diagnose_core::directory_tools::record_paused_decision(&mut next, request_id, approved)
+        .map_err(|_| invalid())?
+    {
+        desk_assistant_data_store::decision_resume::insert_on(
+            txn,
+            &next,
+            &session_row.device_id,
+            desk_diagnose_core::proposal_review::DecisionKind::Directory,
+            request_id,
+            as_i64(now)?,
+        )
+        .await
+        .map_err(|_| invalid())?;
+    }
     let timestamp =
         DateTime::<Utc>::from_timestamp_millis(as_i64(now)?).ok_or_else(|| invalid())?;
     let timestamp = timestamp.max(session_row.updated_at);

@@ -395,6 +395,7 @@ pub fn terminal_error_for(outcome: &LoopOutcome) -> Option<AgentError> {
         | LoopOutcome::GoalControlled { .. }
         | LoopOutcome::Superseded { .. }
         | LoopOutcome::PermissionRequested { .. }
+        | LoopOutcome::DecisionRequested { .. }
         | LoopOutcome::RequestQueued { .. }
         | LoopOutcome::GoalOpenRequested { .. }
         | LoopOutcome::SubAgentsWaiting { .. }

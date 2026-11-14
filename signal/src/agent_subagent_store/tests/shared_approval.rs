@@ -496,6 +496,19 @@ async fn active_child_directory_is_claimed_once_and_fault_ends_only_directory_co
     session = transaction::prepare(&session, &update, now.timestamp_millis() as u64)
         .unwrap()
         .0;
+    // The child's turn ends paused on the request.
+    session.finish_turn(
+        desk_diagnose_core::session::TurnState::Idle,
+        now.to_rfc3339(),
+    );
+    session.decision_pause = Some(desk_diagnose_core::proposal_review::DecisionPause {
+        kind: desk_diagnose_core::proposal_review::DecisionKind::Directory,
+        id: id.clone(),
+        turn_id: session.current_turn_id.clone().unwrap(),
+        call_id: "directory-call".into(),
+        input_revision: session.input_revision,
+        requested_at_unix_ms: now.timestamp_millis() as u64,
+    });
     session_row::Entity::update_many()
         .col_expr(
             session_row::Column::StateJson,
@@ -504,7 +517,7 @@ async fn active_child_directory_is_claimed_once_and_fault_ends_only_directory_co
         .col_expr(session_row::Column::Version, Expr::value(session.version))
         .col_expr(
             session_row::Column::LeaseDeadline,
-            Expr::value(now + chrono::Duration::minutes(10)),
+            Expr::value(Option::<chrono::DateTime<chrono::Utc>>::None),
         )
         .filter(session_row::Column::ConversationId.eq(&session.conversation_id))
         .exec(&db)
@@ -593,20 +606,28 @@ async fn active_child_directory_is_claimed_once_and_fault_ends_only_directory_co
     let current = PersistedAgentSession::decode_json(&row.state_json).unwrap();
     assert!(current.scope_snapshot.granted.is_empty());
     assert_eq!(current.permission_requests, session.permission_requests);
-    let mut held = session;
     assert_eq!(
-        desk_diagnose_core::directory_tools::adopt_review_snapshot(&mut held, current, &id)
-            .unwrap(),
-        Some(false)
+        current.file_scope.records()[0].state,
+        desk_diagnose_core::file_scope::DirectoryConsentState::Rejected
     );
     assert_eq!(
-        held.file_scope.records()[0]
+        current.file_scope.records()[0]
             .decision
             .as_ref()
             .unwrap()
             .candidate_id
             .as_deref(),
         Some(candidate.candidate_id.as_str())
+    );
+    // The child's paused turn resumes with the system rejection.
+    let resume = desk_assistant_data_store::entity::agent_decision_resume::Entity::find()
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (resume.kind.as_str(), resume.request_id.as_str()),
+        ("directory", id.as_str())
     );
 }
 

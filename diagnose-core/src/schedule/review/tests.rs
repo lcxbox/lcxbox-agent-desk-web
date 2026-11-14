@@ -79,8 +79,15 @@ fn fixture() -> (
     )
     .unwrap();
     session.conversation = vec![user, assistant, receipt];
-    session.pending_proposal_review =
-        Some(crate::proposal_review::ProposalReviewRef::schedule("sc7"));
+    session.turn_state = TurnState::Idle;
+    session.decision_pause = Some(crate::proposal_review::DecisionPause {
+        kind: crate::proposal_review::DecisionKind::Schedule,
+        id: "sc7".into(),
+        turn_id: "turn-private-id".into(),
+        call_id: "call-private-id".into(),
+        input_revision: session.input_revision,
+        requested_at_unix_ms: 0,
+    });
     let proposal = ScheduleProposal {
         schedule_id: "sc7".into(),
         revision: 1,
@@ -147,8 +154,8 @@ fn only_the_waiting_turn_of_the_proposing_conversation_can_be_reviewed() {
         let mut session = session.clone();
         let mut proposal = proposal.clone();
         match case {
-            0 => session.pending_proposal_review = None,
-            1 => session.turn_state = TurnState::Idle,
+            0 => session.decision_pause = None,
+            1 => session.turn_state = TurnState::Running,
             2 => session.input_revision += 1,
             3 => proposal.proposal_conversation_id = "other".into(),
             4 => proposal.owner_id = "someone-else".into(),

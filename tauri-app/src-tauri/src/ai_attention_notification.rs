@@ -22,6 +22,7 @@ fn label(reason: AiAssistantAttentionReason, locale: &str) -> String {
     let key = match reason {
         AiAssistantAttentionReason::GoalOpenApproval => "ai_attention.goal_open",
         AiAssistantAttentionReason::PermissionApproval => "ai_attention.permission",
+        AiAssistantAttentionReason::DecisionApproval => "ai_attention.decision",
         AiAssistantAttentionReason::GoalNeedsInput => "ai_attention.needs_input",
         AiAssistantAttentionReason::GoalBudget => "ai_attention.budget",
         AiAssistantAttentionReason::GoalStalled => "ai_attention.stalled",

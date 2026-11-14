@@ -248,7 +248,16 @@ fn waiting_session_on(device: &str) -> PersistedAgentSession {
     )
     .unwrap();
     session.conversation = vec![user, assistant, receipt];
-    session.pending_proposal_review = Some(ProposalReviewRef::skill("p1"));
+    // The proposing turn ended paused on the proposal.
+    session.turn_state = TurnState::Idle;
+    session.decision_pause = Some(crate::proposal_review::DecisionPause {
+        kind: crate::proposal_review::DecisionKind::Skill,
+        id: "p1".into(),
+        turn_id: "turn-private-id".into(),
+        call_id: "call-private-id".into(),
+        input_revision: session.input_revision,
+        requested_at_unix_ms: 0,
+    });
     session
 }
 
@@ -335,21 +344,21 @@ fn a_proposal_from_a_conversation_without_a_device_is_reviewed() {
 }
 
 #[test]
-fn only_the_waiting_turn_of_the_proposing_conversation_can_be_reviewed() {
+fn only_the_paused_proposing_conversation_can_be_reviewed() {
     let session = waiting_session();
     let base = proposal("Run df -h.");
     for case in 0..7 {
         let mut session = session.clone();
         let mut proposal = base.clone();
         match case {
-            0 => session.pending_proposal_review = None,
-            1 => session.turn_state = TurnState::Idle,
+            0 => session.decision_pause = None,
+            1 => session.turn_state = TurnState::Running,
             2 => session.input_revision += 1,
             3 => proposal.conversation_id = "other".into(),
             4 => proposal.owner_id = "someone-else".into(),
             5 => {
-                session.pending_proposal_review =
-                    Some(ProposalReviewRef::schedule(&proposal.proposal_id))
+                session.decision_pause.as_mut().unwrap().kind =
+                    crate::proposal_review::DecisionKind::Schedule
             }
             6 => session.conversation.pop().map(|_| ()).unwrap(),
             _ => unreachable!(),

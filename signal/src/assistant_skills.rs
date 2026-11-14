@@ -171,50 +171,42 @@ pub async fn decide_proposal(
         }
         _ => ProposalDecisionError::Conflict,
     })?;
-    let now = decided.decided_at_ms.unwrap_or(decided.created_at_ms);
-    let view = proposals::view_on(&txn, decided, now)
+    let view = proposals::view_on(&txn, decided)
         .await
         .map_err(|_| ProposalDecisionError::Conflict)?;
     txn.commit().await.map_err(ProposalDecisionError::Backend)?;
     Ok(view)
 }
 
-/// Undecided proposals of the local account, after marking expired ones.
+/// Undecided proposals of the local account, each marked when the owner
+/// must decide it now.
 pub async fn pending_proposals(
     db: &crate::config::connection::DatabaseConnection,
 ) -> Result<Vec<desk_agent_protocol::ai_assistant::skill::SkillProposalView>, sea_orm::DbErr> {
     use desk_assistant_data_store::skill_store::proposals;
     let actor = crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string();
-    let txn = crate::db::begin_write(
-        db,
-        desk_assistant_data_store::entity::agent_skill_proposal::Entity,
-    )
-    .await?;
-    let now = chrono::Utc::now().timestamp_millis();
-    proposals::expire_stale_on(&txn, &actor, now)
+    let mut views = proposals::list_on(db, &actor, None)
         .await
         .map_err(proposal_db_error)?;
-    let views = proposals::list_on(&txn, &actor, None, now)
-        .await
-        .map_err(proposal_db_error)?;
-    txn.commit().await?;
+    crate::decision_resume::mark_skill_views_on(db, &mut views).await?;
     Ok(views)
 }
 
 /// Every proposal of one conversation, for its proposal cards.
-pub async fn conversation_proposals<C: sea_orm::ConnectionTrait>(
-    db: &C,
+pub async fn conversation_proposals(
+    db: &crate::config::connection::DatabaseConnection,
     actor_id: &str,
     conversation_id: &str,
 ) -> Result<Vec<desk_agent_protocol::ai_assistant::skill::SkillProposalView>, sea_orm::DbErr> {
-    desk_assistant_data_store::skill_store::proposals::list_on(
+    let mut views = desk_assistant_data_store::skill_store::proposals::list_on(
         db,
         actor_id,
         Some(conversation_id),
-        chrono::Utc::now().timestamp_millis(),
     )
     .await
-    .map_err(proposal_db_error)
+    .map_err(proposal_db_error)?;
+    crate::decision_resume::mark_skill_views_on(db, &mut views).await?;
+    Ok(views)
 }
 
 fn proposal_db_error(

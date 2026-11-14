@@ -129,11 +129,13 @@ fn canonical_skill_proposals_and_decision_match_the_shared_protocol() {
     let pending = &proposals[0];
     assert_eq!(pending.kind, SkillProposalKind::Update);
     assert_eq!(pending.status, SkillProposalStatus::Pending);
+    assert!(pending.awaiting_owner);
     assert_eq!(pending.decision_source, None);
     assert_eq!(pending.base_version, Some(2));
     assert_eq!(pending.diff[0].hunks[0].lines[1].op, SkillDiffOp::Remove);
     let decided = &proposals[1];
     assert_eq!(decided.status, SkillProposalStatus::Approved);
+    assert!(!decided.awaiting_owner);
     assert_eq!(decided.decision_source, Some(SkillDecisionSource::AiReview));
     assert_eq!(
         serde_json::to_value(&proposals).unwrap(),

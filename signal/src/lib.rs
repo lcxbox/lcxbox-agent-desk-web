@@ -35,6 +35,7 @@ pub mod context_management_config;
 pub mod control_authorizer;
 pub mod controller;
 pub mod db;
+pub mod decision_resume;
 pub mod device_code_config;
 mod device_code_lifecycle;
 pub mod device_code_store;
