@@ -3,6 +3,10 @@ use desk_agent_protocol::{
     ai_assistant::{
         AiAssistantAsk, AiAssistantContextUpdate, AiAssistantContextUpdated,
         AiAssistantObjectContextUpdate,
+        skill::{
+            SkillDecisionSource, SkillDiffOp, SkillProposalDecision, SkillProposalKind,
+            SkillProposalStatus, SkillProposalView,
+        },
     },
     capability_provider::CapabilityInventorySnapshot,
 };
@@ -113,4 +117,33 @@ fn canonical_feature_profile_and_mutations_keep_fail_closed_fields_explicit() {
         mutations["background_cancel"]["requestId"],
         "cancel-request-1"
     );
+}
+
+#[test]
+fn canonical_skill_proposals_and_decision_match_the_shared_protocol() {
+    let root = contract();
+    let proposals: Vec<SkillProposalView> =
+        serde_json::from_value(root["snapshot"]["skillProposals"].clone())
+            .expect("snapshot skill proposals");
+    assert_eq!(proposals.len(), 2);
+    let pending = &proposals[0];
+    assert_eq!(pending.kind, SkillProposalKind::Update);
+    assert_eq!(pending.status, SkillProposalStatus::Pending);
+    assert_eq!(pending.decision_source, None);
+    assert_eq!(pending.base_version, Some(2));
+    assert_eq!(pending.diff[0].hunks[0].lines[1].op, SkillDiffOp::Remove);
+    let decided = &proposals[1];
+    assert_eq!(decided.status, SkillProposalStatus::Approved);
+    assert_eq!(decided.decision_source, Some(SkillDecisionSource::AiReview));
+    assert_eq!(
+        serde_json::to_value(&proposals).unwrap(),
+        root["snapshot"]["skillProposals"]
+    );
+
+    let decision: SkillProposalDecision =
+        serde_json::from_value(root["mutations"]["skill_proposal_decision"].clone())
+            .expect("skill proposal decision");
+    assert_eq!(decision.proposal_id, pending.proposal_id);
+    assert_eq!(decision.expected_revision, pending.revision);
+    assert!(decision.approve);
 }

@@ -395,6 +395,89 @@
         "expiresAtUnixMs": 1788086700000,
         "state": "active"
       }
+    ],
+    "skillProposals": [
+      {
+        "proposalId": "proposal-1",
+        "conversationId": "conversation-1",
+        "kind": "update",
+        "name": "morning-check",
+        "reason": "The owner asked to keep the check list",
+        "status": "pending",
+        "baseSkillId": "skill-1",
+        "baseVersion": 2,
+        "skillMd": "---\nname: morning-check\ndescription: Morning checks\n---\nPrepare a status report.\nList failed services.",
+        "files": [
+          {
+            "path": "references/services.md",
+            "text": "sshd"
+          }
+        ],
+        "diff": [
+          {
+            "path": "SKILL.md",
+            "change": "modified",
+            "hunks": [
+              {
+                "oldStart": 4,
+                "newStart": 4,
+                "lines": [
+                  {
+                    "op": "context",
+                    "text": "Prepare a status report."
+                  },
+                  {
+                    "op": "remove",
+                    "text": "List services."
+                  },
+                  {
+                    "op": "add",
+                    "text": "List failed services."
+                  }
+                ]
+              }
+            ],
+            "truncated": false
+          },
+          {
+            "path": "references/services.md",
+            "change": "added",
+            "hunks": [
+              {
+                "oldStart": 0,
+                "newStart": 1,
+                "lines": [
+                  {
+                    "op": "add",
+                    "text": "sshd"
+                  }
+                ]
+              }
+            ],
+            "truncated": false
+          }
+        ],
+        "createdAtMs": 1788086400000,
+        "expiresAtMs": 1788691200000,
+        "revision": 1
+      },
+      {
+        "proposalId": "proposal-0",
+        "conversationId": "conversation-1",
+        "kind": "create",
+        "name": "disk-report",
+        "reason": "Repeated disk checks",
+        "status": "approved",
+        "decisionSource": "ai_review",
+        "decisionReason": "Read-only guidance",
+        "skillMd": "---\nname: disk-report\ndescription: Disk usage report\n---\nReport disk usage.",
+        "files": [],
+        "diff": [],
+        "createdAtMs": 1788086300000,
+        "expiresAtMs": 1788691100000,
+        "decidedAtMs": 1788086350000,
+        "revision": 2
+      }
     ]
   },
   "session_list": {
@@ -465,6 +548,11 @@
       "session": "session-1",
       "workId": 7,
       "executionId": "execution-1"
+    },
+    "skill_proposal_decision": {
+      "proposalId": "proposal-1",
+      "approve": true,
+      "expectedRevision": 1
     }
   }
 }
