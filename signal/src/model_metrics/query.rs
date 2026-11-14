@@ -1382,6 +1382,7 @@ impl Store {
                 "directory_proposal",
                 "goal_proposal",
                 "schedule_proposal",
+                "skill_proposal",
                 "concrete_call",
                 "oss_command",
                 "manager_command",

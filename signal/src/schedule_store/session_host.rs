@@ -741,14 +741,32 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
             .await
     }
 
-    async fn open_for_schedule_proposal(
+    async fn open_for_proposal_review(
         &self,
         txn: &DatabaseTransaction,
         row: &agent_session::Model,
         session: &mut PersistedAgentSession,
         now_ms: u64,
     ) -> Result<bool, DbErr> {
-        crate::agent_approval_store::open_for_schedule_proposal_on(txn, row, session, now_ms).await
+        crate::agent_approval_store::open_for_proposal_review_on(txn, row, session, now_ms).await
+    }
+
+    async fn skill_proposal_source(
+        &self,
+        txn: &DatabaseTransaction,
+        session: &PersistedAgentSession,
+        parent: &desk_diagnose_core::chat::ChatMessage,
+    ) -> Result<
+        Option<(
+            desk_agent_protocol::ai_assistant::source::SourceUsePolicy,
+            desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy,
+        )>,
+        ScheduleStoreError,
+    > {
+        desk_diagnose_core::future::send_phase(|| {
+            ScheduleStore::model_output_source_on(txn, session, parent)
+        })
+        .await
     }
 
     async fn check_resume_retention(

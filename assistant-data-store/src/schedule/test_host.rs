@@ -57,6 +57,13 @@ pub(crate) struct Recorder {
     pub(crate) native: super::session::NativeDisposition,
     /// Classes of the conversation's action rows, in id order.
     pub(crate) actions: Vec<super::session::ActionClass>,
+    /// The output proof a skill proposal receives.
+    pub(crate) skill_source: Option<(
+        desk_agent_protocol::ai_assistant::source::SourceUsePolicy,
+        desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy,
+    )>,
+    /// Session JSON of every write that carried one, in order.
+    pub(crate) written_states: Mutex<Vec<String>>,
 }
 
 impl Recorder {
@@ -98,6 +105,8 @@ impl Recorder {
             personal: true,
             native: super::session::NativeDisposition::Settled,
             actions: Vec::new(),
+            skill_source: None,
+            written_states: Mutex::default(),
         }
     }
 
@@ -201,6 +210,9 @@ impl SessionRows<DatabaseConnection> for Recorder {
         g: SessionGuard<'_>,
         patch: SessionPatch<'_>,
     ) -> Result<u64, DbErr> {
+        if let Some(state) = patch.state_json {
+            self.written_states.lock().unwrap().push(state.to_owned());
+        }
         self.calls.lock().unwrap().push(Call::Write(
             guard(&g),
             Patch {
@@ -543,6 +555,20 @@ impl ScheduleHostStores<DatabaseConnection> for Recorder {
     ) -> Result<(), ScheduleStoreError> {
         unreachable!()
     }
+    async fn skill_proposal_source(
+        &self,
+        _: &DatabaseConnection,
+        _: &PersistedAgentSession,
+        _: &desk_diagnose_core::chat::ChatMessage,
+    ) -> Result<
+        Option<(
+            desk_agent_protocol::ai_assistant::source::SourceUsePolicy,
+            desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy,
+        )>,
+        ScheduleStoreError,
+    > {
+        Ok(self.skill_source.clone())
+    }
     async fn validate_model_control(
         &self,
         _: &DatabaseConnection,
@@ -551,14 +577,14 @@ impl ScheduleHostStores<DatabaseConnection> for Recorder {
     ) -> Result<(), DbErr> {
         unreachable!()
     }
-    async fn open_for_schedule_proposal(
+    async fn open_for_proposal_review(
         &self,
         _: &DatabaseConnection,
         _: &(),
         _: &mut PersistedAgentSession,
         _: u64,
     ) -> Result<bool, DbErr> {
-        unreachable!()
+        Ok(false)
     }
     async fn check_resume_retention(
         &self,

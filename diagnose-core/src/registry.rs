@@ -78,6 +78,9 @@ pub enum ToolEffect {
     SubAgentReport,
     /// Loads compiled first-party instructions, without granting tool authority.
     SkillLoading,
+    /// Proposes a personal skill for review from an owner-directed turn. It
+    /// stores nothing usable until the AI reviewer or the owner approves it.
+    SkillAuthoring,
 }
 
 /// A model-facing tool, its optional device grant, and its effect. Internal data
@@ -147,7 +150,8 @@ fn mode_allows_effect(mode: ExecutionMode, effect: ToolEffect) -> bool {
         | ToolEffect::SubAgentQuery
         | ToolEffect::SubAgentWait
         | ToolEffect::SubAgentReport
-        | ToolEffect::SkillLoading => true,
+        | ToolEffect::SkillLoading
+        | ToolEffect::SkillAuthoring => true,
         ToolEffect::Mutating => matches!(
             mode,
             ExecutionMode::ConfirmEachAction
@@ -256,7 +260,10 @@ pub fn exposure_block_reason(
         ))
         .then_some("trigger_origin_has_no_assistant_data_scope");
     }
-    if tool.effect == ToolEffect::SchedulePlanning {
+    if matches!(
+        tool.effect,
+        ToolEffect::SchedulePlanning | ToolEffect::SkillAuthoring
+    ) {
         return (!matches!(origin, TriggerOrigin::User | TriggerOrigin::DelegatedTask))
             .then_some("trigger_origin_disallows_planning");
     }
@@ -379,7 +386,10 @@ fn available_to_session(
                     | ToolEffect::RunProjection
                     | ToolEffect::ConversationHistory
             ))
-        && (tool.effect != ToolEffect::SchedulePlanning || session.owner_direct_planning())
+        && (!matches!(
+            tool.effect,
+            ToolEffect::SchedulePlanning | ToolEffect::SkillAuthoring
+        ) || session.owner_direct_planning())
         && (tool.effect != ToolEffect::ScheduleQuery
             || !session.agent_role.is_main()
             || matches!(

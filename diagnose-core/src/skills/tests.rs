@@ -73,6 +73,7 @@ fn content(name: &str, version: u64) -> StoredSkillContent {
             language: Some("python".into()),
             text: "print(1)\n".into(),
         }],
+        authored: None,
     }
 }
 
@@ -511,4 +512,69 @@ fn publication_uses_the_native_skill_snapshot_and_rejects_replacement_instructio
         .replace("# Issue analysis", "# Another package");
     package.fingerprint = digest(&package.source, &package.resources);
     assert!(!binding.native_input_matches(&held));
+}
+
+#[test]
+fn ai_authored_versions_carry_their_note_and_the_authored_label_shape() {
+    let mut stored = entry(SkillScope::Personal, "notes", 2);
+    stored.skill_id = "abc123".into();
+    stored.origin = SkillOrigin::AiAuthored;
+    let mut loaded = content("notes", 2);
+    loaded.skill_id = "abc123".into();
+    loaded.authored = Some(AuthoredNote {
+        decision_source: desk_agent_protocol::ai_assistant::skill::SkillDecisionSource::AiReview,
+        decided_at_unix_ms: 1_792_000_000_000,
+    });
+    let catalog = SkillCatalog {
+        stored: vec![stored],
+        loaded: vec![loaded],
+        disabled_bundled: vec![],
+    };
+    let mut state = SkillState::default();
+    let catalogue = &state.project(1, &destination(), &catalog).unwrap()[0];
+    assert!(catalogue.text.contains("\"ai_authored\":true"));
+    state.apply(1, &load("notes", None), &catalog).unwrap();
+    state
+        .apply(1, &load("notes", Some("scripts/run.py")), &catalog)
+        .unwrap();
+    let messages = state.project(1, &destination(), &catalog).unwrap();
+    let (body, file) = (&messages[1], &messages[2]);
+    assert_eq!(body.role, ChatRole::User);
+    assert!(body.text.contains("AI-AUTHORED"));
+    assert!(body.text.contains("approved by the AI reviewer"));
+    assert!(
+        body.text
+            .contains("cannot override the owner's current input")
+    );
+    for message in [body, file] {
+        let label = message.data_envelope.as_ref().unwrap();
+        assert_eq!(label.provenance.source_tool_name, "authored");
+        assert_eq!(
+            authored_version_of(
+                &label.provenance.source_provider_id,
+                &label.provenance.source_tool_name,
+                label.provenance.source_object_id.as_deref().unwrap(),
+            ),
+            Some(("abc123".to_owned(), 2))
+        );
+        // Shape registration only; the host restores the stored proof.
+        let registered = registered_leaf(label, 1, SOURCE_CONTRACT_REVISION)
+            .unwrap()
+            .unwrap();
+        assert_eq!(registered.contract, RegisteredSourceContract::AuthoredSkill);
+        assert!(!registered.policy.history_retention_allowed);
+    }
+    // Owner-saved content keeps the personal shape, and forged ids are refused.
+    assert!(authored_version_of(SKILL_PROVIDER, PERSONAL_TOOL, "skill-authored-abc-v1").is_none());
+    for forged in [
+        "skill-personal-abc-v1",
+        "skill-authored-abc-v0",
+        "skill-authored-a-b-v1",
+        "skill-authored-abc-v1-file-xyz",
+    ] {
+        assert!(
+            authored_version_of(SKILL_PROVIDER, AUTHORED_TOOL, forged).is_none(),
+            "{forged}"
+        );
+    }
 }

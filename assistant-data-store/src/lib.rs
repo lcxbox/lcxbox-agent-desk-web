@@ -24,6 +24,7 @@ pub mod memory_write;
 pub mod output_gc;
 pub mod output_store;
 pub mod projection;
+pub mod proposal_review;
 pub mod retrieval_cache;
 pub mod schedule;
 pub mod skill_package;

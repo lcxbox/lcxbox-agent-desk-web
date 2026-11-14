@@ -107,6 +107,7 @@ pub mod permission_grant;
 pub mod permission_resume;
 pub mod permission_tools;
 pub mod prompt;
+pub mod proposal_review;
 pub mod provider_preflight;
 pub mod provider_probe;
 pub mod provider_registry;

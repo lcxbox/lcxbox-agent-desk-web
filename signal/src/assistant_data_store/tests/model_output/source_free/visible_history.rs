@@ -904,3 +904,57 @@ async fn native_inventory_save_keeps_a_closed_main_trigger_observable_without_mo
     assert_eq!(rows.len(), 1);
     assert!(!desk_diagnose_core::ai_assistant::data_access::eligible_origin(&session));
 }
+
+#[tokio::test]
+async fn skill_proposals_take_the_retained_proof_of_their_model_output() {
+    use desk_diagnose_core::skills::authoring::AuthoredSkillSource;
+    for capture_input in [true, false] {
+        let (store, session, output) = fixture("native-skill-source", capture_input).await;
+        let parent = session
+            .conversation
+            .iter()
+            .find(|message| message.data_envelope.as_ref() == Some(&output))
+            .unwrap()
+            .clone();
+        let txn = store.db.begin().await.unwrap();
+        let source =
+            crate::schedule_store::ScheduleStore::model_output_source_on(&txn, &session, &parent)
+                .await
+                .unwrap();
+        // Only a retainable output proves an AI-authored skill.
+        let accepted = source.and_then(|(policy, native)| {
+            assert_eq!(native.output_envelope_id, output.envelope_id);
+            AuthoredSkillSource::new(&session.actor_id, policy, native).ok()
+        });
+        assert_eq!(accepted.is_some(), capture_input, "capture {capture_input}");
+        // A temporary conversation has no proof.
+        let mut temporary = session.clone();
+        temporary.assistant_data.as_mut().unwrap().temporary = true;
+        assert!(
+            crate::schedule_store::ScheduleStore::model_output_source_on(
+                &txn, &temporary, &parent,
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
+        // A message without an archived output has no proof either.
+        let mut unarchived = parent.clone();
+        unarchived.text.push_str(" changed");
+        unarchived.message_id = "unarchived".into();
+        let mut label = output.clone();
+        label.envelope_id = "unarchived-output".into();
+        unarchived.data_envelope = Some(label);
+        assert!(
+            crate::schedule_store::ScheduleStore::model_output_source_on(
+                &txn,
+                &session,
+                &unarchived,
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
+        txn.rollback().await.unwrap();
+    }
+}

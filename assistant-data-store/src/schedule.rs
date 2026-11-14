@@ -44,7 +44,7 @@ pub mod session;
 mod settlement;
 mod task;
 #[cfg(test)]
-mod test_host;
+pub(crate) mod test_host;
 pub use approval_admission::{TaskApprovalReview, lock_fresh_approval_on};
 pub use approval_claim::claim_fresh_approval_on;
 pub use approval_expiry::{expire_fresh_approval_wait_on, wait_expiry_candidates};
@@ -80,6 +80,7 @@ pub use model_management::{
 };
 pub use outcome_review::{review_run_outcome_on, reviewed_at as outcome_reviewed_at};
 pub use proposal::manage_on;
+pub(crate) use proposal::{ToolReceipt, commit_tool_receipt_on, lock_tool_call_on};
 pub use proposal_review::{decide_by_ai_on, review_proposal_on};
 pub use queue::{
     BudgetPolicySource, claim_queued_on, database_now, due_candidates, enqueue_manual_on,

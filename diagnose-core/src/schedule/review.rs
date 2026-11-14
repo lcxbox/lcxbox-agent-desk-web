@@ -6,8 +6,8 @@ use crate::{
         AuthorizedApprovalReview, SourceReviewBinding, authorize_source_review_egress,
     },
     approval_review::*,
-    chat::ChatRole,
-    session::{AgentSessionSurface, PersistedAgentSession},
+    proposal_review::{ProposalReviewRef, WaitingProposal},
+    session::PersistedAgentSession,
 };
 use desk_agent_protocol::{
     capability_grant::CapabilityRiskTier, data_lineage::DestinationIdentity, schedule::ScheduleSpec,
@@ -15,8 +15,7 @@ use desk_agent_protocol::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-/// How long the AI reviewer may decide a proposal; afterwards only the owner can.
-pub const AI_REVIEW_WINDOW_MS: u64 = 10 * 60 * 1000;
+pub use crate::proposal_review::AI_REVIEW_WINDOW_MS;
 
 /// The stored proposal, projected by the host from its schedule row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,49 +40,36 @@ impl ScheduleProposal {
     }
 }
 
+impl ScheduleProposal {
+    pub fn reference(&self) -> ProposalReviewRef {
+        ProposalReviewRef::schedule(&self.schedule_id)
+    }
+}
+
 /// The proposal must still wait in its original, owner-directed turn.
 pub fn pending(
     session: &PersistedAgentSession,
     proposal: &ScheduleProposal,
     now: u64,
 ) -> Result<(), ApprovalReviewError> {
-    if session.surface != AgentSessionSurface::AiAssistant
-        || !session.owner_direct_planning()
-        || !session.turn_state.is_active()
-        || session.main_stopped
-        || session.pending_schedule_review.as_deref() != Some(proposal.schedule_id.as_str())
-        || proposal.proposal_conversation_id != session.conversation_id
-        || proposal.owner_id != session.actor_id
-        || proposal.input_revision != session.input_revision
-        || proposal.expires_at_unix_ms() <= now
-    {
-        return Err(ApprovalReviewError::InvalidContext);
-    }
-    proposal_call(session, proposal)?;
-    Ok(())
+    crate::proposal_review::pending(
+        session,
+        WaitingProposal {
+            reference: &proposal.reference(),
+            owner_id: &proposal.owner_id,
+            conversation_id: &proposal.proposal_conversation_id,
+            input_revision: proposal.input_revision,
+            review_expires_at_unix_ms: proposal.expires_at_unix_ms(),
+        },
+        now,
+    )
 }
 
-/// The proposal's original tool call, found through its receipt in this turn.
 fn proposal_call<'a>(
     session: &'a PersistedAgentSession,
     proposal: &ScheduleProposal,
 ) -> Result<&'a str, ApprovalReviewError> {
-    session
-        .conversation
-        .iter()
-        .rev()
-        .filter(|message| {
-            message.role == ChatRole::Tool
-                && message.turn_id.is_some()
-                && message.turn_id == session.current_turn_id
-                && message.message_id.starts_with("schedule-proposal:")
-        })
-        .find(|message| {
-            serde_json::from_str::<serde_json::Value>(&message.text)
-                .is_ok_and(|value| value["schedule_id"] == proposal.schedule_id)
-        })
-        .and_then(|message| message.tool_call_id.as_deref())
-        .ok_or(ApprovalReviewError::InvalidContext)
+    crate::proposal_review::proposal_call(session, &proposal.reference())
 }
 
 pub fn action(

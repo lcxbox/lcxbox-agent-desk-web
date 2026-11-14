@@ -400,6 +400,7 @@ pub(crate) async fn reserve_review_attempt_on(
             desk_diagnose_core::approval_review::ApprovalSource::ConcreteCall { .. }
                 | desk_diagnose_core::approval_review::ApprovalSource::DirectoryProposal { .. }
                 | desk_diagnose_core::approval_review::ApprovalSource::ScheduleProposal { .. }
+                | desk_diagnose_core::approval_review::ApprovalSource::SkillProposal { .. }
         )
         .then_some(session.lease_token),
         candidate_sha256: review.candidate_sha256.clone(),
@@ -751,12 +752,14 @@ async fn validate_review_subject_on(
                 return Err(invalid());
             }
         }
-        ApprovalSource::ScheduleProposal { schedule_id } => {
-            let proposal = crate::schedule_store::review_proposal_on(txn, session, schedule_id)
+        ApprovalSource::ScheduleProposal { .. } | ApprovalSource::SkillProposal { .. } => {
+            let reference = authority.source.proposal_ref().ok_or_else(invalid)?;
+            let proposal = crate::schedule_store::review_proposal_on(txn, session, &reference)
                 .await
                 .map_err(|_| invalid())?
                 .ok_or_else(|| invalid())?;
-            desk_diagnose_core::schedule::review::pending(session, &proposal, now_ms as u64)
+            proposal
+                .pending(session, now_ms as u64)
                 .map_err(|_| invalid())?;
             let row = review_row::Entity::find()
                 .filter(review_row::Column::CandidateId.eq(&authority.candidate_id))
@@ -764,8 +767,7 @@ async fn validate_review_subject_on(
                 .await?
                 .ok_or_else(|| invalid())?;
             use sha2::Digest;
-            let action = desk_diagnose_core::schedule::review::action(session, &proposal)
-                .map_err(|_| invalid())?;
+            let action = proposal.action(session).map_err(|_| invalid())?;
             if row.action_sha256 != format!("{:x}", sha2::Sha256::digest(action.as_bytes()))
                 || Some(session.lease_token) != authority.source_planning_lease_token
                 || u64::try_from(session_row.lease_token).ok()

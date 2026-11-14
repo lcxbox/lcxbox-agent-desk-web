@@ -326,6 +326,63 @@ pub struct BundledSkillSettings {
     pub disabled: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillProposalKind {
+    Create,
+    Update,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillProposalStatus {
+    Pending,
+    Approved,
+    Rejected,
+    Expired,
+    /// The skill changed, or a limit was reached, before approval.
+    Conflicted,
+}
+
+/// A model-authored skill proposal shown in the conversation and the owner's
+/// pending list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillProposalView {
+    pub proposal_id: String,
+    pub conversation_id: String,
+    pub kind: SkillProposalKind,
+    pub name: String,
+    pub reason: String,
+    pub status: SkillProposalStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_source: Option<SkillDecisionSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_skill_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_version: Option<u64>,
+    /// The proposed `SKILL.md`.
+    pub skill_md: String,
+    pub files: Vec<SkillFileInput>,
+    /// Changes from the base version; empty for a new skill.
+    pub diff: Vec<SkillFileDiff>,
+    pub created_at_ms: i64,
+    pub expires_at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided_at_ms: Option<i64>,
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SkillProposalDecision {
+    pub proposal_id: String,
+    pub approve: bool,
+    pub expected_revision: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

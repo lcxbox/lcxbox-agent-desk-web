@@ -62,6 +62,9 @@ impl Store {
             ApprovalSource::ScheduleProposal { schedule_id } => {
                 ("schedule_proposal", schedule_id.clone())
             }
+            ApprovalSource::SkillProposal { proposal_id } => {
+                ("skill_proposal", proposal_id.clone())
+            }
             ApprovalSource::PermissionItem {
                 request_id,
                 item_id,

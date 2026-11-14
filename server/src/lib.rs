@@ -330,6 +330,8 @@ pub fn configure_api_surface(
                         .service(close_ai_assistant_approval_delegation)
                         .service(control_ai_assistant_goal)
                         .service(decide_ai_assistant_goal_open)
+                        .service(desk_signal::controller::ai_assistant_session::list_ai_assistant_skill_proposals)
+                        .service(desk_signal::controller::ai_assistant_session::decide_ai_assistant_skill_proposal)
                         .service(revoke_ai_assistant_capability_grant)
                         .service(cancel_ai_assistant_background_task)
                         .service(list_ai_assistant_sessions)
@@ -1606,6 +1608,8 @@ mod tests {
             "/api/desk/signaling",
             "/api/my/ai-assistant-session",
             "/api/my/ai-assistant-session/permission-decision",
+            "/api/my/ai-assistant-session/skill-proposals",
+            "/api/my/ai-assistant-session/skill-proposal-decision",
             "/api/my/ai-assistant-session/background-task/cancel",
             "/api/my/ai-assistant-sessions",
             "/api/my/ai-assistant-session/delete",

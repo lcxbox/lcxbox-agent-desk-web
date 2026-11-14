@@ -72,12 +72,19 @@ async fn preview(
     skill_id: Option<&str>,
     request: &SkillPreviewRequest,
 ) -> Result<HttpResponse, DeskSignalError> {
-    Ok(
-        match service::preview_on(db()?, scope, skill_id, &request.package).await {
-            Ok((_, preview)) => reply(preview),
-            Err(error) => failure(error),
-        },
-    )
+    let db = db()?;
+    let (parsed, mut preview) =
+        match service::preview_on(db, scope, skill_id, &request.package).await {
+            Ok(value) => value,
+            Err(error) => return Ok(failure(error)),
+        };
+    if request.ai_scan
+        && let Err(error) =
+            crate::assistant_skill_scan::attach(db, scope, &parsed, &mut preview, now_ms()).await
+    {
+        return Ok(failure(error.into()));
+    }
+    Ok(reply(preview))
 }
 
 async fn create(scope: &str, request: &SkillCreate) -> Result<HttpResponse, DeskSignalError> {

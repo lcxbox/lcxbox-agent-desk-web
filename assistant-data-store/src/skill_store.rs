@@ -685,6 +685,7 @@ pub async fn save_manual_on<C: ConnectionTrait>(
     }
 }
 
+pub mod proposals;
 pub mod service;
 
 #[cfg(test)]

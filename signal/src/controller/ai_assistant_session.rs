@@ -33,6 +33,8 @@ pub use approval_mode::{get_ai_assistant_approval_mode, update_ai_assistant_appr
 mod command_tasks;
 pub use command_tasks::cancel_ai_assistant_command;
 mod device_roster;
+mod skill_proposals;
+pub use skill_proposals::{decide_ai_assistant_skill_proposal, list_ai_assistant_skill_proposals};
 pub(crate) mod issue_subscriptions;
 #[cfg(test)]
 pub(crate) use device_roster::update_roster;
@@ -592,6 +594,16 @@ pub async fn get_ai_assistant_session(
                     pending_goal_open_request: pending_goal_open_request
                         .as_ref()
                         .map(AiAssistantGoalOpenRequestDto::from),
+                    skill_proposals: crate::assistant_skills::conversation_proposals(
+                        crate::db::get_db(),
+                        &actor_id,
+                        &session_id,
+                    )
+                    .await
+                    .unwrap_or_else(|_| {
+                        log::warn!("assistant snapshot retained without skill proposals");
+                        Vec::new()
+                    }),
                     approval_delegation: approval_delegation
                         .as_ref()
                         .map(ApprovalDelegationDto::from),

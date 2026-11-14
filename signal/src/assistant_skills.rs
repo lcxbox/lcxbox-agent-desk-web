@@ -76,3 +76,155 @@ pub fn personal_scope() -> String {
         &crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string(),
     )
 }
+
+/// Saves a model skill proposal of the local account and its receipt under
+/// the proposing turn's fence. A refusal is returned to the model.
+pub(crate) async fn propose(
+    db: &crate::config::connection::DatabaseConnection,
+    session: &mut desk_diagnose_core::session::PersistedAgentSession,
+    call: &desk_diagnose_core::chat::ToolCall,
+    observation: &desk_diagnose_core::model_observability::tool::ToolObservation,
+) -> Result<String, desk_agent_protocol::AgentError> {
+    use desk_diagnose_core::skills::authoring;
+    if session.actor_id != crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string() {
+        return Err(authoring::unavailable());
+    }
+    let txn = crate::db::begin_write(
+        db,
+        desk_assistant_data_store::entity::agent_skill_proposal::Entity,
+    )
+    .await
+    .map_err(|_| authoring::unavailable())?;
+    let (receipt, next) = desk_diagnose_core::future::send_phase(|| {
+        desk_assistant_data_store::skill_store::proposals::propose_on(
+            &crate::schedule_store::SignalScheduleHost,
+            &txn,
+            session,
+            call,
+            observation,
+        )
+    })
+    .await
+    .map_err(proposal_error)?;
+    txn.commit().await.map_err(|_| authoring::unavailable())?;
+    *session = next;
+    observation.permission(desk_diagnose_core::model_observability::PermissionOutcome::Waiting);
+    Ok(receipt)
+}
+
+fn proposal_error(
+    error: desk_assistant_data_store::skill_store::proposals::SkillProposalError,
+) -> desk_agent_protocol::AgentError {
+    use desk_assistant_data_store::{
+        schedule::ScheduleStoreError, skill_store::proposals::SkillProposalError,
+    };
+    match error {
+        SkillProposalError::Rejected(message) => {
+            desk_diagnose_core::skills::authoring::invalid_input(message)
+        }
+        SkillProposalError::Store(ScheduleStoreError::ToolInput(message)) => {
+            desk_diagnose_core::skills::authoring::invalid_input(message)
+        }
+        SkillProposalError::Store(_) => desk_diagnose_core::skills::authoring::unavailable(),
+    }
+}
+
+#[derive(Debug)]
+pub enum ProposalDecisionError {
+    NotFound,
+    Conflict,
+    Backend(sea_orm::DbErr),
+}
+
+/// The owner's decision on one of the local account's pending proposals.
+pub async fn decide_proposal(
+    db: &crate::config::connection::DatabaseConnection,
+    decision: &desk_agent_protocol::ai_assistant::skill::SkillProposalDecision,
+) -> Result<desk_agent_protocol::ai_assistant::skill::SkillProposalView, ProposalDecisionError> {
+    use desk_assistant_data_store::{
+        schedule::ScheduleStoreError,
+        skill_store::proposals::{self, SkillDecider, SkillProposalError},
+    };
+    let actor = crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string();
+    let expected =
+        i64::try_from(decision.expected_revision).map_err(|_| ProposalDecisionError::Conflict)?;
+    let txn = crate::db::begin_write(
+        db,
+        desk_assistant_data_store::entity::agent_skill_proposal::Entity,
+    )
+    .await
+    .map_err(ProposalDecisionError::Backend)?;
+    let decided = proposals::decide_on(
+        &crate::schedule_store::SignalScheduleHost,
+        &txn,
+        &actor,
+        &decision.proposal_id,
+        Some(expected),
+        decision.approve,
+        &SkillDecider::Owner,
+    )
+    .await
+    .map_err(|error| match error {
+        SkillProposalError::Store(ScheduleStoreError::NotFound) => ProposalDecisionError::NotFound,
+        SkillProposalError::Store(ScheduleStoreError::Backend(error)) => {
+            ProposalDecisionError::Backend(error)
+        }
+        _ => ProposalDecisionError::Conflict,
+    })?;
+    let now = decided.decided_at_ms.unwrap_or(decided.created_at_ms);
+    let view = proposals::view_on(&txn, decided, now)
+        .await
+        .map_err(|_| ProposalDecisionError::Conflict)?;
+    txn.commit().await.map_err(ProposalDecisionError::Backend)?;
+    Ok(view)
+}
+
+/// Undecided proposals of the local account, after marking expired ones.
+pub async fn pending_proposals(
+    db: &crate::config::connection::DatabaseConnection,
+) -> Result<Vec<desk_agent_protocol::ai_assistant::skill::SkillProposalView>, sea_orm::DbErr> {
+    use desk_assistant_data_store::skill_store::proposals;
+    let actor = crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string();
+    let txn = crate::db::begin_write(
+        db,
+        desk_assistant_data_store::entity::agent_skill_proposal::Entity,
+    )
+    .await?;
+    let now = chrono::Utc::now().timestamp_millis();
+    proposals::expire_stale_on(&txn, &actor, now)
+        .await
+        .map_err(proposal_db_error)?;
+    let views = proposals::list_on(&txn, &actor, None, now)
+        .await
+        .map_err(proposal_db_error)?;
+    txn.commit().await?;
+    Ok(views)
+}
+
+/// Every proposal of one conversation, for its proposal cards.
+pub async fn conversation_proposals<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    actor_id: &str,
+    conversation_id: &str,
+) -> Result<Vec<desk_agent_protocol::ai_assistant::skill::SkillProposalView>, sea_orm::DbErr> {
+    desk_assistant_data_store::skill_store::proposals::list_on(
+        db,
+        actor_id,
+        Some(conversation_id),
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .await
+    .map_err(proposal_db_error)
+}
+
+fn proposal_db_error(
+    error: desk_assistant_data_store::skill_store::proposals::SkillProposalError,
+) -> sea_orm::DbErr {
+    use desk_assistant_data_store::{
+        schedule::ScheduleStoreError, skill_store::proposals::SkillProposalError,
+    };
+    match error {
+        SkillProposalError::Store(ScheduleStoreError::Backend(error)) => error,
+        _ => sea_orm::DbErr::Custom("skill proposals unavailable".into()),
+    }
+}

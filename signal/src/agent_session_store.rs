@@ -1039,7 +1039,8 @@ impl SignalAgentSessionStore {
                     request.state
                         == desk_diagnose_core::dynamic_run::PermissionRequestState::Pending
                 })
-                && session.pending_schedule_review.is_none();
+                // No proposal of any kind may still wait in the turn.
+                && session.pending_proposal_review.is_none();
             let previous = (goal.state_version, goal.lease_epoch);
             goal.apply_budget_policy(
                 &crate::goal_budget_policy::read(&txn)
@@ -2006,16 +2007,25 @@ impl SessionSeam for SignalAgentSessionStore {
             })
     }
 
-    async fn poll_schedule_review(
+    async fn poll_proposal_review(
         &self,
         session: &mut PersistedAgentSession,
-        schedule_id: &str,
+        reference: &desk_diagnose_core::proposal_review::ProposalReviewRef,
         observation: desk_diagnose_core::model_observability::tool::ToolObservation,
     ) -> Result<bool, AgentError> {
         crate::schedule_store::ScheduleStore::new(self.db.clone())
-            .poll_review_decision(session, schedule_id, &observation)
+            .poll_review_decision(session, reference, &observation)
             .await
             .map_err(|_| desk_diagnose_core::schedule::proposal::unavailable())
+    }
+
+    async fn propose_skill(
+        &self,
+        session: &mut PersistedAgentSession,
+        call: &desk_diagnose_core::chat::ToolCall,
+        observation: desk_diagnose_core::model_observability::tool::ToolObservation,
+    ) -> Result<String, AgentError> {
+        crate::assistant_skills::propose(&self.db, session, call, &observation).await
     }
 
     async fn claim_turn(
@@ -3770,7 +3780,8 @@ mod tests {
     async fn expired_lease_snapshot_does_not_keep_the_conversation_running() {
         let store = store().await;
         let mut session = store.claim_turn(claim("expired-snapshot")).await.unwrap();
-        session.pending_schedule_review = Some("pending-timer".into());
+        session.pending_proposal_review =
+            Some(desk_diagnose_core::proposal_review::ProposalReviewRef::schedule("pending-timer"));
         store.save(&mut session).await.unwrap();
         assert!(
             store
@@ -3803,8 +3814,8 @@ mod tests {
             assert!(!snapshot_from_row(row.clone()).unwrap().active);
             let stored = PersistedAgentSession::decode_json(&row.state_json).unwrap();
             assert_eq!(
-                stored.pending_schedule_review,
-                session.pending_schedule_review
+                stored.pending_proposal_review,
+                session.pending_proposal_review
             );
             assert_eq!(stored.conversation, session.conversation);
             let mut raw = row;

@@ -277,6 +277,7 @@ fn builtin_effects() -> &'static std::collections::BTreeMap<String, crate::regis
             .chain(crate::goal_tools::open_registry())
             .chain(crate::directory_tools::registry())
             .chain(crate::schedule::proposal::registry())
+            .chain(crate::skills::authoring::registry())
             .chain(crate::conversation_history::conversation_history_tool_registry())
             .chain(crate::wait_tools::wait_tool_registry())
             .chain(crate::read_tools::read_tool_registry())

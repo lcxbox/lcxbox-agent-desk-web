@@ -7,8 +7,31 @@ use desk_agent_protocol::ai_assistant::skill::{
     SkillCreate, SkillPackageInput, SkillPreview, SkillSaved, SkillUpdate,
 };
 use desk_diagnose_core::skills::{
-    SkillCatalog, SkillResource, StoredSkillContent, StoredSkillEntry,
+    AuthoredNote, SkillCatalog, SkillResource, StoredSkillContent, StoredSkillEntry,
 };
+
+/// The decision behind an AI-authored version, read through its proposal.
+async fn authored_note_on<C: ConnectionTrait>(
+    db: &C,
+    row: &version::Model,
+) -> Result<Option<AuthoredNote>, SkillStoreError> {
+    if parse_origin(&row.origin) != SkillOrigin::AiAuthored {
+        return Ok(None);
+    }
+    let Some(proposal_id) = &row.proposal_id else {
+        return Ok(None);
+    };
+    Ok(proposal::Entity::find()
+        .filter(proposal::Column::ProposalId.eq(proposal_id))
+        .one(db)
+        .await?
+        .and_then(|p| {
+            Some(AuthoredNote {
+                decision_source: p.decision_source.as_deref().and_then(parse_decision)?,
+                decided_at_unix_ms: p.decided_at_ms?,
+            })
+        }))
+}
 
 /// Lines of changed text returned by one preview.
 pub const MAX_PREVIEW_DIFF_BYTES: usize = 128 * 1024;
@@ -216,6 +239,7 @@ pub async fn host_catalog_on<C: ConnectionTrait>(
             continue;
         };
         let package = package_of(&row.name, &stored_version)?;
+        let authored = authored_note_on(db, &stored_version).await?;
         contents.push(StoredSkillContent {
             skill_id: skill_id.clone(),
             version: *number,
@@ -231,6 +255,7 @@ pub async fn host_catalog_on<C: ConnectionTrait>(
                     text: r.text,
                 })
                 .collect(),
+            authored,
         });
     }
     Ok(SkillCatalog {

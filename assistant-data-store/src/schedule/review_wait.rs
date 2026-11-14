@@ -1,4 +1,4 @@
-//! One check of a waiting schedule-proposal turn for the owner's decision.
+//! One check of a turn waiting for the decision on its proposal.
 use super::{
     ScheduleStoreError,
     queue::database_now,
@@ -6,6 +6,7 @@ use super::{
 };
 use desk_diagnose_core::{
     model_observability::{PermissionOutcome, tool::ToolObservation},
+    proposal_review::ProposalReviewRef,
     session::PersistedAgentSession,
 };
 use sea_orm::ConnectionTrait;
@@ -24,10 +25,10 @@ pub async fn poll_review_decision_on<C: ConnectionTrait, H: SessionRows<C>>(
     host: &H,
     db: &C,
     session: &mut PersistedAgentSession,
-    schedule_id: &str,
+    reference: &ProposalReviewRef,
     observation: &ToolObservation,
 ) -> Result<ReviewPoll, ScheduleStoreError> {
-    if session.pending_schedule_review.as_deref() != Some(schedule_id)
+    if session.pending_proposal_review.as_ref() != Some(reference)
         || !session.turn_state.is_active()
     {
         return Err(ScheduleStoreError::Conflict);
@@ -68,13 +69,10 @@ pub async fn poll_review_decision_on<C: ConnectionTrait, H: SessionRows<C>>(
         .ok_or(ScheduleStoreError::Conflict)?;
     let decision: serde_json::Value =
         serde_json::from_str(&event.text).map_err(|_| ScheduleStoreError::Conflict)?;
-    if event.role != desk_diagnose_core::chat::ChatRole::SystemEvent
-        || decision["schedule_id"].as_str() != Some(schedule_id)
-        || !matches!(
-            decision["event"].as_str(),
-            Some("scheduled_task_activated" | "scheduled_task_rejected")
-        )
-    {
+    let Some(approved) = reference.kind.decision(&decision, &reference.id) else {
+        return Err(ScheduleStoreError::Conflict);
+    };
+    if event.role != desk_diagnose_core::chat::ChatRole::SystemEvent {
         return Err(ScheduleStoreError::Conflict);
     }
     // Only the exact approval receipt may advance this waiting snapshot.
@@ -89,7 +87,6 @@ pub async fn poll_review_decision_on<C: ConnectionTrait, H: SessionRows<C>>(
     if expected != current || current.version != row.version {
         return Err(ScheduleStoreError::Conflict);
     }
-    let approved = decision["event"].as_str() == Some("scheduled_task_activated");
     *session = current;
     observation.permission(if approved {
         PermissionOutcome::Approved

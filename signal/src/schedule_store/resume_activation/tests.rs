@@ -387,7 +387,7 @@ async fn exercise_live_review(selectable: bool) {
         let proposal: serde_json::Value =
             serde_json::from_str(&session.conversation.last().unwrap().text).unwrap();
         assert_eq!(proposal["awaiting_decision"], true);
-        let id = session.pending_schedule_review.clone().unwrap();
+        let id = session.pending_proposal_review.clone().unwrap().id;
         assert_eq!(proposal["schedule_id"], id);
         let task = store.read(1, &id).await.unwrap();
         assert_eq!(task.status, "pending_review");
@@ -396,7 +396,9 @@ async fn exercise_live_review(selectable: bool) {
             !store
                 .poll_review_decision(
                     &mut session,
-                    &task.schedule_id,
+                    &desk_diagnose_core::proposal_review::ProposalReviewRef::schedule(
+                        &task.schedule_id
+                    ),
                     &desk_diagnose_core::model_observability::tool::ToolObservation::default()
                 )
                 .await
@@ -419,7 +421,9 @@ async fn exercise_live_review(selectable: bool) {
             store
                 .poll_review_decision(
                     &mut session,
-                    &task.schedule_id,
+                    &desk_diagnose_core::proposal_review::ProposalReviewRef::schedule(
+                        &task.schedule_id
+                    ),
                     &desk_diagnose_core::model_observability::tool::ToolObservation::default()
                 )
                 .await
@@ -527,7 +531,7 @@ async fn an_ai_conversation_timer_is_enabled_without_waiting() {
         .await
         .unwrap();
     // The tool result is the receipt; the turn keeps running and is not paused.
-    assert!(session.pending_schedule_review.is_none());
+    assert!(session.pending_proposal_review.is_none());
     assert_eq!(session.conversation.len(), before + 1);
     let receipt: serde_json::Value =
         serde_json::from_str(&session.conversation.last().unwrap().text).unwrap();
@@ -574,7 +578,9 @@ async fn live_review_cannot_adopt_new_input_or_a_changed_lease() {
                 "2026-09-09T00:00:00Z",
             )
             .unwrap();
-        session.pending_schedule_review = Some(task.schedule_id.clone());
+        session.pending_proposal_review = Some(
+            desk_diagnose_core::proposal_review::ProposalReviewRef::schedule(&task.schedule_id),
+        );
         let before = session.clone();
         let mut updated = session.clone();
         if change_lease {
@@ -592,7 +598,9 @@ async fn live_review_cannot_adopt_new_input_or_a_changed_lease() {
             store
                 .poll_review_decision(
                     &mut session,
-                    &task.schedule_id,
+                    &desk_diagnose_core::proposal_review::ProposalReviewRef::schedule(
+                        &task.schedule_id
+                    ),
                     &desk_diagnose_core::model_observability::tool::ToolObservation::default()
                 )
                 .await,

@@ -461,15 +461,30 @@ pub trait ScheduleHostStores<C: ConnectionTrait>: SessionRows<C> + ScheduleLocks
         session: &PersistedAgentSession,
         call: &desk_diagnose_core::chat::ToolCall,
     ) -> Result<(), DbErr>;
-    /// Opens the approval review of a fresh-task proposal; `true` when it
-    /// wrote an audit event that advanced the session row.
-    async fn open_for_schedule_proposal(
+    /// Opens the default AI review of a proposal waiting in the owner's turn;
+    /// `true` when it wrote an audit event that advanced the session row.
+    async fn open_for_proposal_review(
         &self,
         txn: &C,
         row: &Self::Row,
         session: &mut PersistedAgentSession,
         now_ms: u64,
     ) -> Result<bool, DbErr>;
+    /// The retained policy and native output proof of the model output whose
+    /// call proposes a skill; `None` when the output has no such proof,
+    /// including every temporary or otherwise ineligible conversation.
+    async fn skill_proposal_source(
+        &self,
+        txn: &C,
+        session: &PersistedAgentSession,
+        parent: &desk_diagnose_core::chat::ChatMessage,
+    ) -> Result<
+        Option<(
+            desk_agent_protocol::ai_assistant::source::SourceUsePolicy,
+            desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy,
+        )>,
+        ScheduleStoreError,
+    >;
     /// Unfinished device actions on the conversation, locked for the caller.
     async fn has_open_actions(&self, txn: &C, conversation: &str) -> Result<bool, DbErr>;
     /// Closes the owner's pending permission decision for a cancelled wait.

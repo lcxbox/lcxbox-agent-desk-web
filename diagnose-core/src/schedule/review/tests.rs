@@ -1,6 +1,6 @@
 use super::*;
 use crate::chat::{ChatMessage, ToolCallRef};
-use crate::session::TurnState;
+use crate::session::{AgentSessionSurface, TurnState};
 use desk_agent_protocol::{AgentScope, ExecutionMode};
 
 const NOW: u64 = 1792049770485;
@@ -79,7 +79,8 @@ fn fixture() -> (
     )
     .unwrap();
     session.conversation = vec![user, assistant, receipt];
-    session.pending_schedule_review = Some("sc7".into());
+    session.pending_proposal_review =
+        Some(crate::proposal_review::ProposalReviewRef::schedule("sc7"));
     let proposal = ScheduleProposal {
         schedule_id: "sc7".into(),
         revision: 1,
@@ -146,7 +147,7 @@ fn only_the_waiting_turn_of_the_proposing_conversation_can_be_reviewed() {
         let mut session = session.clone();
         let mut proposal = proposal.clone();
         match case {
-            0 => session.pending_schedule_review = None,
+            0 => session.pending_proposal_review = None,
             1 => session.turn_state = TurnState::Idle,
             2 => session.input_revision += 1,
             3 => proposal.proposal_conversation_id = "other".into(),

@@ -20,6 +20,7 @@ fn built_in_specs() -> impl Iterator<Item = ToolSpec> {
         .chain(crate::goal_tools::open_registry())
         .chain(crate::directory_tools::registry())
         .chain(crate::schedule::proposal::registry())
+        .chain(crate::skills::authoring::registry())
         .chain(crate::conversation_history::conversation_history_tool_registry())
         .chain(crate::wait_tools::wait_tool_registry())
         .map(|tool| tool.spec)

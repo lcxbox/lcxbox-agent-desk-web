@@ -1,22 +1,23 @@
-//! Wait one bounded tick for the owner decision without holding a DB transaction.
+//! Wait one bounded tick for a proposal decision without holding a DB transaction.
 use super::{ScheduleStore, ScheduleStoreError};
 use desk_assistant_data_store::schedule::ReviewPoll;
 use desk_diagnose_core::{
-    model_observability::tool::ToolObservation, session::PersistedAgentSession,
+    model_observability::tool::ToolObservation, proposal_review::ProposalReviewRef,
+    session::PersistedAgentSession,
 };
 
 impl ScheduleStore {
     pub(crate) async fn poll_review_decision(
         &self,
         session: &mut PersistedAgentSession,
-        schedule_id: &str,
+        reference: &ProposalReviewRef,
         observation: &ToolObservation,
     ) -> Result<bool, ScheduleStoreError> {
         match desk_assistant_data_store::schedule::poll_review_decision_on(
             &super::session_host::SignalScheduleHost,
             &self.db,
             session,
-            schedule_id,
+            reference,
             observation,
         )
         .await?

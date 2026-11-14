@@ -125,6 +125,20 @@ pub(crate) fn resolve_policy_on<'a>(
                     return Ok(None);
                 };
                 policies.insert(policy);
+            } else if leaf.contract == RegisteredSourceContract::AuthoredSkill {
+                // The label shape alone is not authority; restore the stored
+                // proof of the AI-authored version it names.
+                let Some(policy) =
+                    desk_assistant_data_store::skill_store::proposals::authored_policy_on(
+                        db,
+                        &root.source_set.actor_id,
+                        source,
+                    )
+                    .await?
+                else {
+                    return Ok(None);
+                };
+                policies.insert(policy);
             } else if leaf.contract == RegisteredSourceContract::PublishedTaskInput {
                 let Some(policy) = inputs::published_on(db, root, source, now).await? else {
                     return Ok(None);

@@ -174,11 +174,11 @@ async fn has_active_delegation(
         .is_some())
 }
 
-/// Open the default AI review for a fresh-task proposal that waits in the
-/// owner's own turn. The caller holds the session's version/lease fence in
-/// `txn`; the audit event is saved into `session` before the proposal receipt.
+/// Open the default AI review for a proposal that waits in the owner's own
+/// turn. The caller holds the session's version/lease fence in `txn`; the
+/// audit event is saved into `session` before the proposal receipt.
 /// Returns whether the session row changed.
-pub(crate) async fn open_for_schedule_proposal_on(
+pub(crate) async fn open_for_proposal_review_on(
     txn: &DatabaseTransaction,
     row: &agent_session::Model,
     session: &mut PersistedAgentSession,

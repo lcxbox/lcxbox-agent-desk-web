@@ -1328,15 +1328,27 @@ pub trait SessionSeam {
         Err(crate::schedule::proposal::unavailable())
     }
 
-    /// Poll one bounded review tick. Runtimes must not hold a transaction while
-    /// waiting; a matching owner receipt is the only permitted snapshot update.
-    async fn poll_schedule_review(
+    /// Poll one bounded review tick of the proposal awaited by this turn.
+    /// Runtimes must not hold a transaction while waiting; the exact decision
+    /// receipt is the only permitted snapshot update.
+    async fn poll_proposal_review(
         &self,
         _session: &mut PersistedAgentSession,
-        _schedule_id: &str,
+        _reference: &crate::proposal_review::ProposalReviewRef,
         _observation: crate::model_observability::tool::ToolObservation,
     ) -> Result<bool, AgentError> {
         Err(crate::schedule::proposal::unavailable())
+    }
+
+    /// Save a model skill proposal and its labelled result under the current
+    /// turn fence, and open its review. An error is a model-visible refusal.
+    async fn propose_skill(
+        &self,
+        _session: &mut PersistedAgentSession,
+        _call: &crate::chat::ToolCall,
+        _observation: crate::model_observability::tool::ToolObservation,
+    ) -> Result<String, AgentError> {
+        Err(crate::skills::authoring::unavailable())
     }
 
     /// Persist an AI-proposed goal and its run event with the held conversation

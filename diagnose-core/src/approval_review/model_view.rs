@@ -149,6 +149,7 @@ impl<'a> ReviewModelView<'a> {
             ApprovalSource::DirectoryProposal { .. } => "directory_proposal",
             ApprovalSource::GoalProposal { .. } => "goal_proposal",
             ApprovalSource::ScheduleProposal { .. } => "schedule_proposal",
+            ApprovalSource::SkillProposal { .. } => "skill_proposal",
             ApprovalSource::OssCommand { .. } | ApprovalSource::ManagerCommand { .. } => "command",
             ApprovalSource::ManagerAction { .. } => "action",
             ApprovalSource::ConcreteCall { .. } => "concrete_call",
@@ -172,6 +173,14 @@ impl<'a> ReviewModelView<'a> {
                 let proposal = &action["schedule_proposal"];
                 action = json!({"operation":"enable_scheduled_task","title":proposal["title"],
                     "prompt":proposal["prompt"],"spec":proposal["spec"],"device_actions_authorized":false});
+            }
+            ApprovalSource::SkillProposal { .. } => {
+                let proposal = &action["skill_proposal"];
+                action = json!({"operation":if proposal["base_version"].is_null(){"create_personal_skill"}else{"update_personal_skill"},
+                    "skill_ref":proposal["skill_ref"],"base_version":proposal["base_version"],
+                    "skill_md":proposal["skill_md"],"files":proposal["files"],"changes":proposal["changes"],
+                    "reason":proposal["reason"],"third_party_source_kinds":proposal["third_party_source_kinds"],
+                    "device_actions_authorized":false});
             }
             ApprovalSource::PermissionItem { .. } => permission_action(&mut action),
             ApprovalSource::DirectoryProposal { .. } => {

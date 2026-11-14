@@ -213,6 +213,7 @@ pub fn resolve_session_call_with_context(
             crate::schedule::proposal::REQUEST_SCHEDULE
                 | crate::schedule::management_tools::LIST
                 | crate::schedule::management_tools::CANCEL
+                | crate::skills::authoring::PROPOSE_TOOL
         )
     {
         return Ok(call.clone());

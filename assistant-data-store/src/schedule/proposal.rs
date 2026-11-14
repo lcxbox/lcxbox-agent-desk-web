@@ -5,12 +5,14 @@ use super::{
     model_management::{cancel, list, lock_target},
     resume_activation::activate_on,
     session::{
-        OrgMode, ScheduleHostStores, SessionGuard, SessionKey, SessionPatch, TouchColumn, timestamp,
+        OrgMode, ScheduleHostStores, SessionGuard, SessionKey, SessionPatch, SessionRow,
+        TouchColumn, timestamp,
     },
 };
 use desk_diagnose_core::{
     chat::{ChatMessage, ChatRole, ToolCall},
     model_observability::{InputIssue, Stage, StageOutcome, tool::ToolObservation},
+    proposal_review::{ProposalKind, ProposalReviewRef},
     schedule::management_tools::Action,
     session::PersistedAgentSession,
 };
@@ -29,6 +31,110 @@ pub async fn manage_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     observation: &ToolObservation,
 ) -> Result<(String, PersistedAgentSession), ScheduleStoreError> {
     let target = lock_target(txn, owner, session, &action).await?;
+    let (row, parent_index, now) = lock_tool_call_on(host, txn, session, call).await?;
+    let parent = session.conversation[parent_index]
+        .data_envelope
+        .as_ref()
+        .ok_or(ScheduleStoreError::Invalid)?;
+    let mut awaiting_review = None;
+    let (content, source) = match action {
+        Action::Create(draft) => {
+            desk_diagnose_core::schedule::validate_publication(
+                &draft.spec,
+                now,
+                draft.kind == desk_agent_protocol::schedule::ScheduledTaskKind::ConversationResume,
+            )
+            .map_err(|_| {
+                observation.reject(Stage::Preflight, InputIssue::Precondition);
+                ScheduleStoreError::ToolInput(
+                    desk_diagnose_core::schedule::proposal::NO_FUTURE_OCCURRENCE,
+                )
+            })?;
+            if draft.kind == desk_agent_protocol::schedule::ScheduledTaskKind::ConversationResume {
+                host.check_resume_retention(txn, &draft.spec, now)
+                    .await
+                    .inspect_err(|error| {
+                        if matches!(error, ScheduleStoreError::ExceedsSessionRetention { .. }) {
+                            observation.reject(Stage::Preflight, InputIssue::Precondition);
+                        }
+                    })?;
+            }
+            observation.stage(Stage::Preflight, StageOutcome::Passed);
+            let mut task = desk_diagnose_core::future::send_phase(|| {
+                super::create_task_on(host, txn, owner, &draft, now, Some(session))
+            })
+            .await?;
+            desk_diagnose_core::future::send_phase(|| {
+                host.record_prompt_retention(
+                    txn,
+                    &mut task,
+                    session,
+                    &session.conversation[parent_index],
+                )
+            })
+            .await?;
+            let message = if task.kind == "conversation_resume" {
+                // A continuation needs no approval: enable it in this turn's
+                // transaction without writing to the running session.
+                task = activate_on(host, txn, owner, &task, false).await?;
+                "The conversation timer is enabled. It grants no tool permissions; its run approves device actions one at a time."
+            } else {
+                awaiting_review = Some(task.schedule_id.clone());
+                "The AI reviewer or the owner decides this proposal in the application review dialog, and this turn waits for that decision. Do not report success before it. No extra chat confirmation is needed. No tool permission is granted; every run approves device actions one at a time."
+            };
+            (serde_json::json!({"schedule_id":task.schedule_id,"kind":task.kind,"state":task.status,
+                "next_run_at_utc_ms":task.next_run_at,"awaiting_decision":awaiting_review.is_some(),
+                "message":message}).to_string(), "schedule_proposal")
+        }
+        Action::List { after, limit } => {
+            observation.stage(Stage::Preflight, StageOutcome::Passed);
+            (
+                list(txn, owner, session, after, limit, now).await?,
+                "schedule_query",
+            )
+        }
+        Action::Cancel {
+            expected_revision, ..
+        } => (
+            cancel(txn, target, expected_revision, now, observation).await?,
+            "schedule_cancellation",
+        ),
+    };
+    let envelope = desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
+        Some(parent),
+        &call.id,
+        &content,
+        source,
+    )
+    .map_err(|_| ScheduleStoreError::Invalid)?;
+    let receipt_id = format!("{}{}", ProposalKind::Schedule.receipt_prefix(), call.id);
+    let next = commit_tool_receipt_on(
+        host,
+        txn,
+        row,
+        session,
+        ToolReceipt {
+            message_id: &receipt_id,
+            call_id: &call.id,
+            content,
+            envelope,
+            awaiting: awaiting_review.map(ProposalReviewRef::schedule),
+            now,
+        },
+    )
+    .await?;
+    Ok((receipt_id, next))
+}
+
+/// Locks the session row of a model tool call under its exact version and
+/// lease, and checks that the call is the open call of one assistant message.
+/// Returns the row, the index of that message and the database clock.
+pub(crate) async fn lock_tool_call_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
+    host: &H,
+    txn: &C,
+    session: &PersistedAgentSession,
+    call: &ToolCall,
+) -> Result<(SessionRow<H::Row>, usize, i64), ScheduleStoreError> {
     let locked = host
         .touch_session(
             txn,
@@ -71,10 +177,11 @@ pub async fn manage_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     {
         return Err(ScheduleStoreError::Conflict);
     }
-    let parents: Vec<_> = session
+    let parents: Vec<usize> = session
         .conversation
         .iter()
-        .filter(|message| {
+        .enumerate()
+        .filter(|(_, message)| {
             message.role == ChatRole::Assistant
                 && message.tool_calls.iter().any(|tool| {
                     tool.id == call.id
@@ -82,6 +189,7 @@ pub async fn manage_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
                         && tool.arguments_json == call.arguments_json
                 })
         })
+        .map(|(index, _)| index)
         .collect();
     if parents.len() != 1 || !session.unclosed_tool_call_ids().contains(&call.id) {
         return Err(ScheduleStoreError::Conflict);
@@ -91,81 +199,37 @@ pub async fn manage_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             .await
             .map_err(|_| ScheduleStoreError::Conflict)?;
     }
-    let parent = parents[0]
-        .data_envelope
-        .as_ref()
-        .ok_or(ScheduleStoreError::Invalid)?;
-    let mut awaiting_review = None;
-    let (content, source) = match action {
-        Action::Create(draft) => {
-            desk_diagnose_core::schedule::validate_publication(
-                &draft.spec,
-                now,
-                draft.kind == desk_agent_protocol::schedule::ScheduledTaskKind::ConversationResume,
-            )
-            .map_err(|_| {
-                observation.reject(Stage::Preflight, InputIssue::Precondition);
-                ScheduleStoreError::ToolInput(
-                    desk_diagnose_core::schedule::proposal::NO_FUTURE_OCCURRENCE,
-                )
-            })?;
-            if draft.kind == desk_agent_protocol::schedule::ScheduledTaskKind::ConversationResume {
-                host.check_resume_retention(txn, &draft.spec, now)
-                    .await
-                    .inspect_err(|error| {
-                        if matches!(error, ScheduleStoreError::ExceedsSessionRetention { .. }) {
-                            observation.reject(Stage::Preflight, InputIssue::Precondition);
-                        }
-                    })?;
-            }
-            observation.stage(Stage::Preflight, StageOutcome::Passed);
-            let mut task = desk_diagnose_core::future::send_phase(|| {
-                super::create_task_on(host, txn, owner, &draft, now, Some(session))
-            })
-            .await?;
-            desk_diagnose_core::future::send_phase(|| {
-                host.record_prompt_retention(txn, &mut task, session, parents[0])
-            })
-            .await?;
-            let message = if task.kind == "conversation_resume" {
-                // A continuation needs no approval: enable it in this turn's
-                // transaction without writing to the running session.
-                task = activate_on(host, txn, owner, &task, false).await?;
-                "The conversation timer is enabled. It grants no tool permissions; its run approves device actions one at a time."
-            } else {
-                awaiting_review = Some(task.schedule_id.clone());
-                "The AI reviewer or the owner decides this proposal in the application review dialog, and this turn waits for that decision. Do not report success before it. No extra chat confirmation is needed. No tool permission is granted; every run approves device actions one at a time."
-            };
-            (serde_json::json!({"schedule_id":task.schedule_id,"kind":task.kind,"state":task.status,
-                "next_run_at_utc_ms":task.next_run_at,"awaiting_decision":awaiting_review.is_some(),
-                "message":message}).to_string(), "schedule_proposal")
-        }
-        Action::List { after, limit } => {
-            observation.stage(Stage::Preflight, StageOutcome::Passed);
-            (
-                list(txn, owner, session, after, limit, now).await?,
-                "schedule_query",
-            )
-        }
-        Action::Cancel {
-            expected_revision, ..
-        } => (
-            cancel(txn, target, expected_revision, now, observation).await?,
-            "schedule_cancellation",
-        ),
-    };
-    let envelope = desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-        Some(parent),
-        &call.id,
-        &content,
-        source,
-    )
-    .map_err(|_| ScheduleStoreError::Invalid)?;
+    if session.conversation[parents[0]].data_envelope.is_none() {
+        return Err(ScheduleStoreError::Invalid);
+    }
+    Ok((row, parents[0], now))
+}
+
+/// The labelled tool result a proposal or management transaction stores.
+pub(crate) struct ToolReceipt<'a> {
+    pub message_id: &'a str,
+    pub call_id: &'a str,
+    pub content: String,
+    pub envelope: Option<desk_agent_protocol::data_lineage::DataEnvelope>,
+    /// The proposal this turn now waits for; its review opens first.
+    pub awaiting: Option<ProposalReviewRef>,
+    pub now: i64,
+}
+
+/// Appends the receipt to `session` and writes it under the locked row's
+/// version and lease. A waiting proposal opens its default AI review first.
+pub(crate) async fn commit_tool_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
+    host: &H,
+    txn: &C,
+    mut row: SessionRow<H::Row>,
+    session: &PersistedAgentSession,
+    receipt: ToolReceipt<'_>,
+) -> Result<PersistedAgentSession, ScheduleStoreError> {
+    let now = receipt.now;
     let mut next = session.clone();
-    let mut row = row;
-    if awaiting_review.is_some()
+    if receipt.awaiting.is_some()
         && host
-            .open_for_schedule_proposal(
+            .open_for_proposal_review(
                 txn,
                 &row.raw,
                 &mut next,
@@ -179,11 +243,11 @@ pub async fn manage_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             .await?
             .ok_or(ScheduleStoreError::NotFound)?;
     }
-    next.pending_schedule_review = awaiting_review;
+    next.pending_proposal_review = receipt.awaiting;
     let mut message =
-        ChatMessage::tool_result(format!("schedule-proposal:{}", call.id), &call.id, content);
+        ChatMessage::tool_result(receipt.message_id, receipt.call_id, receipt.content);
     message.turn_id = next.current_turn_id.clone();
-    message.data_envelope = envelope;
+    message.data_envelope = receipt.envelope;
     next.conversation.push(message);
     next.version = next
         .version
@@ -214,5 +278,5 @@ pub async fn manage_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     if changed != 1 {
         return Err(ScheduleStoreError::Conflict);
     }
-    Ok((format!("schedule-proposal:{}", call.id), next))
+    Ok(next)
 }

@@ -2436,6 +2436,7 @@ async fn prepare_composed_turn(
                             registry.extend(desk_diagnose_core::goal_tools::open_registry());
                             registry.extend(desk_diagnose_core::directory_tools::registry());
                             registry.extend(desk_diagnose_core::schedule::proposal::registry());
+                            registry.extend(desk_diagnose_core::skills::authoring::registry());
                             registry
         .extend(desk_diagnose_core::capability_disclosure::capability_discovery_tool_registry());
                             registry.extend(desk_diagnose_core::conversation_history::conversation_history_tool_registry());

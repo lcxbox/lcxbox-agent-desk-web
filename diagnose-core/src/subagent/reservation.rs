@@ -314,6 +314,7 @@ impl ReviewCallAuthority {
                     crate::approval_review::ApprovalSource::ConcreteCall { .. }
                         | crate::approval_review::ApprovalSource::DirectoryProposal { .. }
                         | crate::approval_review::ApprovalSource::ScheduleProposal { .. }
+                        | crate::approval_review::ApprovalSource::SkillProposal { .. }
                 )
             || self
                 .source_planning_lease_token

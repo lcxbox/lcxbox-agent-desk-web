@@ -41,7 +41,7 @@ impl ScheduleStore {
         .await?;
         txn.commit().await?;
         *session = next;
-        if session.pending_schedule_review.is_some() {
+        if session.pending_proposal_review.is_some() {
             observation.permission(PermissionOutcome::Waiting);
         }
         Ok(receipt)

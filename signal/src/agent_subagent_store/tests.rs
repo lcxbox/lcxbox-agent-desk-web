@@ -29,6 +29,7 @@ mod role_recovery;
 mod schedule_approval;
 pub(super) mod scheduled;
 mod shared_approval;
+mod skill_approval;
 mod ui_read;
 mod validated_session;
 

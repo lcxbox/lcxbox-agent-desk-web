@@ -453,6 +453,7 @@ mod call_budget;
 mod fresh_task;
 mod goal_control;
 mod issue_reply;
+mod proposal_wait;
 mod retrieval_accounting;
 pub use fresh_task::{
     resume_claimed_fresh_task_children_turn, resume_claimed_fresh_task_notification_turn,
@@ -1769,6 +1770,7 @@ fn assemble_context_request(
     }
     history.extend(view.messages.iter().cloned());
     crate::schedule::review_result::project(&mut history)?;
+    crate::skills::authoring::project_review_results(&mut history)?;
     let mut at = usize::from(
         request
             .messages

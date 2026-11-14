@@ -1170,8 +1170,8 @@ async fn personal_worker_web_request_scenario() {
         Some(child.conversation_id.as_str())
     );
     assert_eq!(
-        child.pending_schedule_review.as_deref(),
-        Some(task.schedule_id.as_str())
+        child.pending_proposal_review,
+        Some(desk_diagnose_core::proposal_review::ProposalReviewRef::schedule(&task.schedule_id))
     );
     let request = desk_diagnose_core::permission_tools::build_permission_request(
         &desk_diagnose_core::chat::ToolCall {

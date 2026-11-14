@@ -42,10 +42,7 @@ async fn current_device_context(
     subject: &PendingPermissionReview,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Option<ReviewDeviceContext> {
-    if matches!(
-        subject.kind,
-        PendingRequestKind::Goal | PendingRequestKind::Schedule
-    ) {
+    if subject.kind == PendingRequestKind::Goal || subject.kind.is_turn_proposal() {
         return Some(ReviewDeviceContext {
             connection_id: String::new(),
             registry: ai_assistant_provider_registry(),
@@ -302,7 +299,7 @@ pub async fn process_pending_permission_review(
                     return false;
                 }
                 // An unavailable reviewer leaves the proposal to the owner.
-                if subject.kind == PendingRequestKind::Schedule {
+                if subject.kind.is_turn_proposal() {
                     return true;
                 }
                 if subject.kind == PendingRequestKind::Goal {
@@ -377,10 +374,7 @@ pub async fn process_pending_permission_review(
     if retry_required {
         return false;
     }
-    if matches!(
-        subject.kind,
-        PendingRequestKind::Goal | PendingRequestKind::Schedule
-    ) {
+    if subject.kind == PendingRequestKind::Goal || subject.kind.is_turn_proposal() {
         return true;
     }
     if subject.kind == PendingRequestKind::Directory {

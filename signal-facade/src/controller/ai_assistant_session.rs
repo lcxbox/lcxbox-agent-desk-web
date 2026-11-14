@@ -895,6 +895,10 @@ pub struct AiAssistantSessionSnapshotDto {
     pub goal: Option<AiAssistantGoalDto>,
     /// An AI proposal remains inert until the owner decides this exact request.
     pub pending_goal_open_request: Option<AiAssistantGoalOpenRequestDto>,
+    /// AI-proposed personal skills of this conversation, newest first. A
+    /// pending one changes nothing until the AI reviewer or the owner decides.
+    #[serde(default)]
+    pub skill_proposals: Vec<desk_agent_protocol::ai_assistant::skill::SkillProposalView>,
     /// Current/latest owner delegation; it does not grant any tool authority.
     pub approval_delegation: Option<ApprovalDelegationDto>,
     pub approval_model_readiness: ApprovalModelReadinessDto,

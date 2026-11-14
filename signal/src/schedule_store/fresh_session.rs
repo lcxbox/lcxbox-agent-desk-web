@@ -32,6 +32,57 @@ impl ScheduleStore {
         super::json(&proof)
     }
 
+    /// The retained policy and native proof of the model output `parent`
+    /// whose tool call the caller fenced. `None` when it has no proof.
+    pub(crate) async fn model_output_source_on(
+        db: &DatabaseTransaction,
+        session: &PersistedAgentSession,
+        parent: &desk_diagnose_core::chat::ChatMessage,
+    ) -> Result<
+        Option<(
+            desk_agent_protocol::ai_assistant::source::SourceUsePolicy,
+            desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy,
+        )>,
+        ScheduleStoreError,
+    > {
+        // Temporary and ineligible conversations keep no retained output.
+        if !desk_diagnose_core::ai_assistant::data_access::eligible_origin(session) {
+            return Ok(None);
+        }
+        use crate::assistant_data_store as data;
+        let result: Result<_, data::AssistantStoreError> = async {
+            let Some(label) = &parent.data_envelope else {
+                return Ok(None);
+            };
+            let Some(archive) = data::find_output_on(db, &session.conversation_id, label).await?
+            else {
+                return Ok(None);
+            };
+            if archive.proof.source_set.actor_id != session.actor_id
+                || session.assistant_data.as_ref().is_none_or(|state| {
+                    archive.proof.source_set.source_device_ref != state.source_device_ref
+                })
+            {
+                return Err(data::AssistantStoreError::Inaccessible);
+            }
+            archive
+                .proof
+                .bind_visible_message(parent)
+                .map_err(data::AssistantStoreError::Invalid)?;
+            let Some(retained) = data::retained_native_sources(&archive.proof) else {
+                return Ok(None);
+            };
+            let source = desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy::from_archive(&archive.proof)
+                .map_err(data::AssistantStoreError::Invalid)?;
+            Ok(Some((retained.policy, source)))
+        }
+        .await;
+        result.map_err(|error| match error {
+            data::AssistantStoreError::Backend(error) => ScheduleStoreError::Backend(error),
+            _ => ScheduleStoreError::Conflict,
+        })
+    }
+
     /// The original proposal has already passed its owner/session/tool fence.
     /// Persist its complete original copy restrictions before publishing a task.
     pub(crate) async fn record_prompt_retention_on(

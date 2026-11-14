@@ -29,6 +29,9 @@ pub enum RegisteredSourceContract {
     FrozenPersonalization,
     /// Owner-saved skill text on the owner-text label shape.
     PersonalSkill,
+    /// AI-authored skill text on the owner-text label shape. Requires the
+    /// host to restore the version's stored source proof.
+    AuthoredSkill,
     /// Administrator skill text sent only to the current model.
     PlatformSkill,
     PublicSystem,
@@ -129,7 +132,8 @@ fn registration(
             (SourcePolicyClass::UserText, false, false, true)
         }
         RegisteredSourceContract::FrozenPersonalization
-        | RegisteredSourceContract::PersonalSkill => {
+        | RegisteredSourceContract::PersonalSkill
+        | RegisteredSourceContract::AuthoredSkill => {
             (SourcePolicyClass::UserText, false, false, true)
         }
         RegisteredSourceContract::PlatformSkill => {
@@ -192,6 +196,11 @@ fn registration(
     })
 }
 
+/// The compiled contract a native label is registered under.
+pub(crate) fn source_contract(envelope: &DataEnvelope) -> RegisteredSourceContract {
+    classify(envelope)
+}
+
 fn classify(envelope: &DataEnvelope) -> RegisteredSourceContract {
     if envelope.sensitivity == Sensitivity::Secret {
         return RegisteredSourceContract::Secret;
@@ -230,6 +239,16 @@ fn classify(envelope: &DataEnvelope) -> RegisteredSourceContract {
             }
             (provider, tool) if crate::skills::is_personal_skill_provenance(provider, tool) => {
                 return RegisteredSourceContract::PersonalSkill;
+            }
+            (provider, tool)
+                if envelope
+                    .provenance
+                    .source_object_id
+                    .as_deref()
+                    .and_then(|id| crate::skills::authored_version_of(provider, tool, id))
+                    .is_some() =>
+            {
+                return RegisteredSourceContract::AuthoredSkill;
             }
             _ => {}
         }

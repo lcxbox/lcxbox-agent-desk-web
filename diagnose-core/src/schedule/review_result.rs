@@ -7,7 +7,7 @@ use crate::{
 use desk_agent_protocol::{AgentError, data_lineage::DataEnvelope};
 use serde_json::Value;
 
-fn labelled(message: &ChatMessage, role: ChatRole, source: &str) -> bool {
+pub(crate) fn labelled(message: &ChatMessage, role: ChatRole, source: &str) -> bool {
     message.role == role
         && message.data_envelope.as_ref().is_some_and(|label| {
             label.provenance.source_provider_id == RUN_CONTROL_PROVIDER_ID

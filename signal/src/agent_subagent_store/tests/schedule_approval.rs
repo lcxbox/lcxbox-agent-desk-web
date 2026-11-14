@@ -19,6 +19,36 @@ async fn proposal_fixture() -> (DatabaseConnection, PersistedAgentSession, Strin
 async fn proposal_fixture_with(
     owner_switch: bool,
 ) -> (DatabaseConnection, PersistedAgentSession, String, u64) {
+    let call = ToolCall {
+        id: "schedule-call".into(),
+        name: desk_diagnose_core::schedule::proposal::REQUEST_SCHEDULE.into(),
+        arguments_json: serde_json::json!({"kind":"fresh_task","title":"Morning check",
+            "prompt":"Prepare a read-only status report",
+            "rule":{"kind":"daily","utc_time":"06:00:00"}})
+        .to_string(),
+    };
+    let (db, mut session, now) = turn_fixture(owner_switch, &call).await;
+    crate::schedule_store::ScheduleStore::new(db.clone())
+        .manage_from_session(
+            &mut session,
+            &call,
+            &desk_diagnose_core::model_observability::tool::ToolObservation::default(),
+        )
+        .await
+        .unwrap();
+    let schedule_id = session.pending_proposal_review.clone().unwrap().id;
+    (db, session, schedule_id, now.timestamp_millis() as u64)
+}
+
+/// A running owner turn whose last assistant message makes `call`.
+pub(super) async fn turn_fixture(
+    owner_switch: bool,
+    call: &ToolCall,
+) -> (
+    DatabaseConnection,
+    PersistedAgentSession,
+    chrono::DateTime<chrono::Utc>,
+) {
     let db = database().await;
     let schema = Schema::new(db.get_database_backend());
     for mut table in [
@@ -64,14 +94,6 @@ async fn proposal_fixture_with(
     }
     session.file_scope = Default::default();
     session.permission_requests.clear();
-    let call = ToolCall {
-        id: "schedule-call".into(),
-        name: desk_diagnose_core::schedule::proposal::REQUEST_SCHEDULE.into(),
-        arguments_json: serde_json::json!({"kind":"fresh_task","title":"Morning check",
-            "prompt":"Prepare a read-only status report",
-            "rule":{"kind":"daily","utc_time":"06:00:00"}})
-        .to_string(),
-    };
     let mut assistant = ChatMessage::assistant_tool_calls(
         "schedule-assistant",
         "",
@@ -131,16 +153,7 @@ async fn proposal_fixture_with(
         .unwrap()
         .unwrap();
     session = PersistedAgentSession::decode_json(&row.state_json).unwrap();
-    crate::schedule_store::ScheduleStore::new(db.clone())
-        .manage_from_session(
-            &mut session,
-            &call,
-            &desk_diagnose_core::model_observability::tool::ToolObservation::default(),
-        )
-        .await
-        .unwrap();
-    let schedule_id = session.pending_schedule_review.clone().unwrap();
-    (db, session, schedule_id, now.timestamp_millis() as u64)
+    (db, session, now)
 }
 
 async fn reviewed(
@@ -150,13 +163,34 @@ async fn reviewed(
     verdict: ApprovalVerdict,
     now: u64,
 ) -> String {
+    reviewed_kind(
+        db,
+        session,
+        schedule_id,
+        PendingRequestKind::Schedule,
+        verdict,
+        now,
+    )
+    .await
+}
+
+pub(super) async fn reviewed_kind(
+    db: &DatabaseConnection,
+    session: &PersistedAgentSession,
+    schedule_id: &str,
+    kind: PendingRequestKind,
+    verdict: ApprovalVerdict,
+    now: u64,
+) -> String {
     let pending = approval::pending_permission_reviews(db, 0, 64, now)
         .await
         .unwrap()
         .0;
-    assert!(pending.iter().any(
-        |item| item.kind == PendingRequestKind::Schedule && item.request_id == schedule_id
-    ));
+    assert!(
+        pending
+            .iter()
+            .any(|item| item.kind == kind && item.request_id == schedule_id)
+    );
     let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
     let surface = desk_agent_protocol::capability_provider::ProductSurface::OssPersonalOwner;
     let candidate = approval::prepare_permission_review_batch(
@@ -165,7 +199,7 @@ async fn reviewed(
         "1",
         &session.device_id,
         schedule_id,
-        PendingRequestKind::Schedule,
+        kind,
         &registry,
         surface,
         0,
@@ -215,7 +249,7 @@ async fn reviewed(
     .unwrap()
 }
 
-async fn saved(db: &DatabaseConnection, conversation: &str) -> PersistedAgentSession {
+pub(super) async fn saved(db: &DatabaseConnection, conversation: &str) -> PersistedAgentSession {
     let row = session_row::Entity::find()
         .filter(session_row::Column::ConversationId.eq(conversation))
         .one(db)

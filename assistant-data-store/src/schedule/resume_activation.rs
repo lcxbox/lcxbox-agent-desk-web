@@ -301,8 +301,11 @@ pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     let mut session = PersistedAgentSession::decode_json(&row.state_json)
         .map_err(|_| ScheduleStoreError::Invalid)?;
     // Only the matching waiting proposal may write a receipt into a live turn.
-    let waiting = session.pending_schedule_review.as_deref() == Some(task.schedule_id.as_str())
-        && session.owner_direct_planning()
+    let waiting = session.pending_proposal_review.as_ref()
+        == Some(
+            &desk_diagnose_core::proposal_review::ProposalReviewRef::schedule(&task.schedule_id),
+        )
+        && desk_diagnose_core::proposal_review::ProposalKind::Schedule.allowed(&session)
         && row.lease_deadline_ms.is_some_and(|deadline| deadline > now);
     if session.turn_state.is_active() && !waiting {
         // Do not steal an interactive turn just to backfill a deletion notice.

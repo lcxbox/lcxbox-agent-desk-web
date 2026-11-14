@@ -103,6 +103,7 @@ pub fn tool_category(key: &str) -> CorrectionCategory {
         crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
         crate::directory_tools::REQUEST_DIRECTORY,
         crate::goal_tools::REQUEST_GOAL_TOOL_NAME,
+        crate::skills::authoring::PROPOSE_TOOL,
     ]
     .contains(&key)
     {

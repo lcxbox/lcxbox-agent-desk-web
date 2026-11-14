@@ -4090,7 +4090,8 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             })
                                         }
                                         ToolEffect::SchedulePlanning
-                                        | ToolEffect::ScheduleQuery => {
+                                        | ToolEffect::ScheduleQuery
+                                        | ToolEffect::SkillAuthoring => {
                                             crate::future::phase(|| async {
                                                 sink.on_tool_started(
                                                     &call.name,
@@ -4100,15 +4101,26 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 // Persist the model call before a separate transaction
                                                 // compares the exact version and lease and records its result.
                                                 deps.session_seam.save(session).await?;
-                                                if let Err(error) = deps
-                                                    .session_seam
-                                                    .manage_schedule_tool(
-                                                        session,
-                                                        call,
-                                                        tool_observation.clone(),
-                                                    )
-                                                    .await
-                                                {
+                                                let skill =
+                                                    tool.effect == ToolEffect::SkillAuthoring;
+                                                let result = if skill {
+                                                    deps.session_seam
+                                                        .propose_skill(
+                                                            session,
+                                                            call,
+                                                            tool_observation.clone(),
+                                                        )
+                                                        .await
+                                                } else {
+                                                    deps.session_seam
+                                                        .manage_schedule_tool(
+                                                            session,
+                                                            call,
+                                                            tool_observation.clone(),
+                                                        )
+                                                        .await
+                                                };
+                                                if let Err(error) = result {
                                                     append_internal_tool_result(
                                                         session,
                                                         turn.provider_meta.data_envelope.as_ref(),
@@ -4118,49 +4130,28 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                             &call.name,
                                                             &error.message,
                                                         ),
-                                                        "schedule_proposal_failed",
+                                                        if skill {
+                                                            "skill_proposal_failed"
+                                                        } else {
+                                                            "schedule_proposal_failed"
+                                                        },
                                                     )?;
                                                     deps.session_seam.save(session).await?;
                                                     finish_tool(session, &call.id, false, sink);
                                                 } else {
-                                                    // The schedule transaction already stored a labelled
+                                                    // The proposal transaction already stored a labelled
                                                     // result. Do not append a second success message.
                                                     finish_tool(session, &call.id, true, sink);
-                                                    if let Some(schedule_id) =
-                                                        session.pending_schedule_review.clone()
-                                                    {
-                                                        // Persist the finished-tool mark so the
-                                                        // decision receipt is appended to this
-                                                        // exact snapshot.
-                                                        deps.session_seam.save(session).await?;
-                                                        loop {
-                                                            ensure_lease_healthy(deps).await?;
-                                                            if deps
-                                                                .session_seam
-                                                                .poll_schedule_review(
-                                                                    session,
-                                                                    &schedule_id,
-                                                                    tool_observation.clone(),
-                                                                )
-                                                                .await?
-                                                            {
-                                                                break;
-                                                            }
-                                                        }
-                                                        ensure_lease_healthy(deps).await?;
-                                                        session.pending_schedule_review = None;
-                                                        deps.session_seam.save(session).await?;
-                                                        if let Some(receipt) =
-                                                            session.conversation.last()
-                                                        {
-                                                            sink.on_tool_finished(
-                                                                &call.id,
-                                                                true,
-                                                                &receipt.text,
-                                                                None,
-                                                            );
-                                                        }
-                                                    }
+                                                    crate::future::phase(|| {
+                                                        super::proposal_wait::run(
+                                                            deps,
+                                                            session,
+                                                            &call.id,
+                                                            &tool_observation,
+                                                            sink,
+                                                        )
+                                                    })
+                                                    .await?;
                                                 }
 
                                                 Ok(None)

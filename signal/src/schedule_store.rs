@@ -13,7 +13,7 @@ mod history;
 mod model_management;
 mod proposal;
 mod proposal_review;
-pub(crate) use desk_assistant_data_store::schedule::review_proposal_on;
+pub(crate) use desk_assistant_data_store::proposal_review::review_proposal_on;
 pub(crate) use proposal_review::decide_by_ai_on;
 mod review_wait;
 mod search;

@@ -32,6 +32,7 @@ pub fn is_targetless_web_tool(tool: &crate::registry::RegisteredTool) -> bool {
                 | crate::registry::ToolEffect::SkillLoading
                 | crate::registry::ToolEffect::SchedulePlanning
                 | crate::registry::ToolEffect::ScheduleQuery
+                | crate::registry::ToolEffect::SkillAuthoring
                 | crate::registry::ToolEffect::GoalControl
                 | crate::registry::ToolEffect::GoalOpenPlanning
         )
@@ -41,6 +42,7 @@ pub fn targetless_web_internal_tools() -> Vec<crate::registry::RegisteredTool> {
     let mut tools = crate::capability_disclosure::capability_discovery_tool_registry();
     tools.extend(crate::subagent::tools::registry());
     tools.extend(crate::schedule::proposal::registry());
+    tools.extend(crate::skills::authoring::registry());
     tools.extend(crate::goal_tools::registry());
     tools.extend(crate::goal_tools::open_registry());
     tools.extend(

@@ -54,7 +54,10 @@ pub struct ScanBatch {
 
 impl ScanBatch {
     fn bytes(&self) -> usize {
-        self.segments.iter().map(|s| s.text.len() + s.path.len()).sum()
+        self.segments
+            .iter()
+            .map(|s| s.text.len() + s.path.len())
+            .sum()
     }
 }
 
@@ -145,6 +148,10 @@ pub fn request(
     ))
 }
 
+/// The reviewer's answer for a batch was missing, malformed or out of bounds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnusableAnswer;
+
 #[derive(Deserialize)]
 struct Answer {
     findings: Vec<RawFinding>,
@@ -159,16 +166,16 @@ struct RawFinding {
 }
 
 /// Findings of one batch; an unusable answer is an error, never a clean result.
-pub fn parse(text: &str, batch: &ScanBatch) -> Result<Vec<SkillScanFinding>, ()> {
+pub fn parse(text: &str, batch: &ScanBatch) -> Result<Vec<SkillScanFinding>, UnusableAnswer> {
     let trimmed = text
         .trim()
         .trim_start_matches("```json")
         .trim_start_matches("```")
         .trim_end_matches("```")
         .trim();
-    let answer: Answer = serde_json::from_str(trimmed).map_err(|_| ())?;
+    let answer: Answer = serde_json::from_str(trimmed).map_err(|_| UnusableAnswer)?;
     if answer.findings.len() > MAX_FINDINGS_PER_BATCH {
-        return Err(());
+        return Err(UnusableAnswer);
     }
     answer
         .findings
@@ -178,7 +185,7 @@ pub fn parse(text: &str, batch: &ScanBatch) -> Result<Vec<SkillScanFinding>, ()>
                 || !CATEGORIES.contains(&finding.category.as_str())
                 || finding.reason.trim().is_empty()
             {
-                return Err(());
+                return Err(UnusableAnswer);
             }
             Ok(SkillScanFinding {
                 path: finding.path,
@@ -193,7 +200,7 @@ pub fn parse(text: &str, batch: &ScanBatch) -> Result<Vec<SkillScanFinding>, ()>
 /// Merges batch outcomes. Any failed batch makes the whole scan failed, even
 /// when other batches produced findings.
 pub fn summarize(
-    outcomes: Vec<Result<Vec<SkillScanFinding>, ()>>,
+    outcomes: Vec<Result<Vec<SkillScanFinding>, UnusableAnswer>>,
     unscanned: Vec<String>,
 ) -> SkillScanResult {
     let mut findings = Vec::new();
@@ -201,7 +208,7 @@ pub fn summarize(
     for outcome in outcomes {
         match outcome {
             Ok(found) => findings.extend(found),
-            Err(()) => failed = true,
+            Err(UnusableAnswer) => failed = true,
         }
     }
     let verdict = if failed {
@@ -252,7 +259,11 @@ mod tests {
         assert_eq!(segments[0].first_line, 1);
         let lines_before = segments[0].text.matches('\n').count() as u32;
         assert_eq!(segments[1].first_line, lines_before + 1);
-        assert!(segments[1].text.starts_with(&format!("line {lines_before}\n")));
+        assert!(
+            segments[1]
+                .text
+                .starts_with(&format!("line {lines_before}\n"))
+        );
     }
 
     #[test]
@@ -301,7 +312,7 @@ mod tests {
             SkillScanVerdict::Clean
         );
         assert_eq!(
-            summarize(vec![Ok(ok), Err(())], vec![]).verdict,
+            summarize(vec![Ok(ok), Err(UnusableAnswer)], vec![]).verdict,
             SkillScanVerdict::Failed
         );
     }
@@ -322,7 +333,7 @@ mod tests {
         for message in &request.messages {
             assert_eq!(
                 message.data_envelope.as_ref().unwrap().allowed_destinations,
-                [destination.clone()]
+                std::slice::from_ref(&destination)
             );
         }
     }
