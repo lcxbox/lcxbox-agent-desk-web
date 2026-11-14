@@ -193,8 +193,13 @@ fn proposal(body: &str) -> SkillProposal {
 
 /// A turn whose proposal receipt waits for the reviewer.
 fn waiting_session() -> PersistedAgentSession {
+    waiting_session_on("device")
+}
+
+/// `device` is empty for a personal conversation bound to no device.
+fn waiting_session_on(device: &str) -> PersistedAgentSession {
     let mut session =
-        PersistedAgentSession::new("run", "owner", "device", 1, scope(), "2026-10-15T07:36:10Z");
+        PersistedAgentSession::new("run", "owner", device, 1, scope(), "2026-10-15T07:36:10Z");
     session.adopt_client_metadata(
         Some("client"),
         crate::session::AgentSessionSurface::AiAssistant,
@@ -248,11 +253,15 @@ fn waiting_session() -> PersistedAgentSession {
 }
 
 fn delegation() -> ApprovalDelegation {
+    delegation_on("device")
+}
+
+fn delegation_on(device: &str) -> ApprovalDelegation {
     ApprovalDelegation::new_usage_only(
         "delegation-private-id".into(),
         "run".into(),
         "owner".into(),
-        "device".into(),
+        device.into(),
         "switch-private-id".into(),
         NOW,
     )
@@ -299,6 +308,30 @@ fn a_waiting_skill_proposal_is_reviewed_with_its_full_content() {
     }
     assert!(APPROVAL_REVIEW_SYSTEM_PROMPT.contains("For skill_proposal"));
     assert!(APPROVAL_REVIEW_SYSTEM_PROMPT.contains("relayed from a web page"));
+}
+
+#[test]
+fn a_proposal_from_a_conversation_without_a_device_is_reviewed() {
+    let session = waiting_session_on("");
+    let delegation = delegation_on("");
+    let proposal = proposal("Run df -h and summarize the result.");
+    let candidate = candidate(&session, &proposal, &delegation, NOW).unwrap();
+    assert!(candidate.device_id.is_empty());
+    let mut scoped = candidate.clone();
+    scoped.input_kind = crate::approval_review::ApprovalInputKind::Scope;
+    assert_eq!(
+        scoped.validate(),
+        Err(ApprovalReviewError::InvalidCandidate)
+    );
+    authorize(
+        &candidate,
+        &session,
+        &proposal,
+        &delegation,
+        &destination(),
+        NOW,
+    )
+    .unwrap();
 }
 
 #[test]

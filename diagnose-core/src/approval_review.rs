@@ -1007,6 +1007,19 @@ impl ApprovalReviewCandidate {
                 return Err(ApprovalReviewError::InvalidCandidate);
             }
         } else if self.device_id.is_empty()
+            && matches!(
+                self.source,
+                ApprovalSource::GoalProposal { .. }
+                    | ApprovalSource::ScheduleProposal { .. }
+                    | ApprovalSource::SkillProposal { .. }
+            )
+        {
+            // A proposal in a personal conversation bound to no device grants
+            // no device authority; it is reviewed as one exact proposal.
+            if self.input_kind != ApprovalInputKind::ExactCall {
+                return Err(ApprovalReviewError::InvalidCandidate);
+            }
+        } else if self.device_id.is_empty()
             && crate::web_research::is_web_tool(&self.tool_name)
             && action
                 .get("selected_device_target")
