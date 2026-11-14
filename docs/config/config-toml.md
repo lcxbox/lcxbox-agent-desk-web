@@ -208,6 +208,7 @@ OSS saves AI gateways, search and global policies in the same `config.toml` as h
 | `[ai_gateway]` | `wire_protocol`, `base_url`, `model`, `api_key`, `supports_image_input`; `profile_schema_version`, `reasoning_contract`, `anthropic_prefix_binding`, `request_options_json`, `output_limit_field`, `runtime_max_output_tokens`, `max_context_bytes`; `response_format`, `execution_mode`, `max_steps_per_turn`, `max_same_tool_calls_per_turn`, `exec_approval_timeout_secs` (seconds) |
 | `[approval_gateway]` | `enabled`; its independent model settings are in `[approval_gateway.gateway]`, with the same fields as the main gateway. OSS has no price, currency or accounting settings |
 | `[web_search]` | `schema_version`, `provider` (`duck_duck_go`, `brave`, `tavily`), optional `api_key` |
+| `[assistant_bundled_skills]` | `revision`, `disabled`: names of bundled skills turned off for this server, for example `["issue-analysis"]`; default empty. Unknown names reject loading. Editable on **Settings → Platform skills** |
 | `[context_management]` | `schema_version`, `strategy` (`window`, `checkpoint_summary`) |
 | `[subagent_policy.limits]` | `maxUnfinishedPerRoot` limits unfinished tasks per main conversation. `maxTaskDurationMinutes` sets the maximum duration for new tasks and accepts positive whole minutes, default 120 |
 | `[automation_policy]` | `schemaVersion`, `revision`, `maxAutoTurnsPerChain` (automatic continuations per request, `1–50`, default 20). Editable under **Settings → Automatic continuation limit** |
@@ -245,7 +246,7 @@ agent_session_days = 30
 
 The file contains API keys. Public settings responses still return only whether a key is set. Complete-document saves and the existing worker initialization retain all sections. Context policy stays pinned when each model seam first uses it; goals apply current budgets at their existing checkpoints without resetting counters; retention changes apply on the next cleanup cycle.
 
-`desk_signal.db` retains sessions, tasks, permissions, probes and usage; `model-metrics.sqlite` retains metric records and runtime watermarks. During development, stop the service and manually rebuild incompatible runtime databases. The new format does not read, convert or migrate old configuration tables. Settings already saved in `config.toml` survive a database rebuild.
+`desk_signal.db` retains sessions, tasks, permissions, probes and usage; `model-metrics.sqlite` retains metric records and runtime watermarks. During development, stop the service and manually rebuild incompatible runtime databases. The new format does not read, convert or migrate old configuration tables. Settings already saved in `config.toml` survive a database rebuild. Imported skills (platform and personal) are stored in `desk_signal.db` because packages can be large; after a rebuild, import them again.
 
 
 ## Recommended Development Config

@@ -42,11 +42,27 @@ Markdown and plain-text previews are generated on the source device. While a pre
 
 See [Long-term Memory](/features/assistant-memory) for personalization, memory and history search. This page covers chat, device actions and diagnostics; see [MCP](/features/mcp-server) for the read-only MCP tools.
 
-## Built-in issue analysis guidance
+## Skills
 
-The assistant can load the bundled issue analysis skill when useful. It helps organize reproduction conditions, select suitable authorized devices, distinguish reports from observations, and prepare a supported reply. For example: “Analyze this issue, reproduce it on a suitable macOS device, and check for a regression on Linux.”
+A skill is reusable guidance the assistant loads when a task calls for it, such as issue analysis steps or a deployment checklist. Skills grant no permission: the actions they ask for follow the conversation's approvals, and they never override your current request.
 
-The skill provides steps and a reference checklist. Operations use the current request's tools and approvals. Resumed work retains its loaded guidance; private investigation evidence remains subject to the original issue's publication scope.
+| Source | Where to manage | Used for |
+|---|---|---|
+| Bundled, for example issue analysis | **Settings → Platform skills**, view and enable or disable | All work |
+| Platform | **Settings → Platform skills** | All work, including issue subscriptions |
+| Personal | **+ → Manage → My skills** in the assistant, or written by the assistant with approval | Work you assign directly |
+
+The standalone server has one local account, which manages both platform and personal skills.
+
+To import, click **Import**, choose a zip package or paste `SKILL.md` ([Agent Skills open standard](https://agentskills.io/specification)), keep **Scan with AI for security issues** on and click **Check**, then **Save** (or **Save anyway** after reviewing findings). Text files up to 64 KiB each are saved, including scripts; binary files are not; packages with credentials are rejected. The scan uses the approval model in `[approval_gateway]` and is unavailable when that model is disabled. Each save creates a new version; the latest 10 can be viewed with their changes.
+
+You can ask the assistant to save what it learned as a personal skill. Its proposal shows as a card in the conversation and is decided by the conversation's approval mode: AI review by default, otherwise you approve or reject on the card. Only your own messages and subagents you delegate directly can propose, and temporary conversations cannot. Misleading text in pages, issues, files, or logs could be written into a skill, so review AI-written skills in **My skills**.
+
+The issue analysis skill helps organize reproduction conditions, select suitable authorized devices, distinguish reports from observations, and prepare a supported reply. For example: “Analyze this issue, reproduce it on a suitable macOS device, and check for a regression on Linux.” Automatic issue replies use only bundled skills.
+
+Scripts are saved as readable material. To run one, the assistant writes it unchanged into an approved directory and runs it, each step with its normal approval; only single scripts without other skill files are supported. After a skill update, the current message keeps the version it loaded and your next message uses the new version. The **Skills** row in context usage shows the context share; loaded skill content is limited to 192 KiB per request.
+
+Imported skills are stored in `desk_signal.db`; after rebuilding that database, import them again. Disabled bundled skills are kept in [`[assistant_bundled_skills]`](/config/config-toml#oss-global-configuration).
 
 ## Read Gitea or GitHub issues
 

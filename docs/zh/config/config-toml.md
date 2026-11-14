@@ -154,6 +154,7 @@ OSS 的 AI 网关、审批网关、搜索和策略配置与主机设置保存在
 | `[ai_gateway]` | `wire_protocol`、`base_url`、`model`、`api_key`、`supports_image_input`；`profile_schema_version`、`reasoning_contract`、`anthropic_prefix_binding`、`request_options_json`、`output_limit_field`、`runtime_max_output_tokens`、`max_context_bytes`；`response_format`、`execution_mode`、`max_steps_per_turn`、`max_same_tool_calls_per_turn`、`exec_approval_timeout_secs`（秒） |
 | `[approval_gateway]` | `enabled`；独立模型配置位于 `[approval_gateway.gateway]`，字段沿用主网关。OSS 不包含价格、货币或记账配置 |
 | `[web_search]` | `schema_version`、`provider`（`duck_duck_go` / `brave` / `tavily`）、可选 `api_key` |
+| `[assistant_bundled_skills]` | `revision`、`disabled`：本服务停用的随产品 Skill 名称，例如 `["issue-analysis"]`，默认为空；名称未知时拒绝加载。可在 **设置 → 平台 Skill** 修改 |
 | `[context_management]` | `schema_version`、`strategy`（`window` / `checkpoint_summary`） |
 | `[subagent_policy.limits]` | `maxUnfinishedPerRoot` 为每个主会话未结束子任务数上限。 `maxTaskDurationMinutes` 为新任务的最长时长，默认 120 分钟，接受正整数 |
 | `[automation_policy]` | `schemaVersion`、`revision`、`maxAutoTurnsPerChain`（一次请求最多自动继续的次数，`1–50`，默认 20）。可在 **设置 → 自动续跑上限** 修改 |
@@ -191,7 +192,7 @@ agent_session_days = 30
 
 API 密钥保存在这份文件中，公开设置响应继续只返回“是否已设置”。现有整文件保存及 worker 初始化保留全部配置段。上下文策略继续在模型 seam 首次使用时固定；长期目标在原有检查点应用最新预算，既有计数不重置；保留期限在下一清理周期生效。
 
-`desk_signal.db` 只保存会话、任务、授权、探测、用量等运行数据，`model-metrics.sqlite` 只保存指标记录和运行水位。开发阶段遇到不兼容数据库结构时，停服并手工重建运行数据库；新格式不提供旧配置表的读取、转换或迁移，已保存在 `config.toml` 的配置会保留。
+`desk_signal.db` 只保存会话、任务、授权、探测、用量等运行数据，`model-metrics.sqlite` 只保存指标记录和运行水位。开发阶段遇到不兼容数据库结构时，停服并手工重建运行数据库；新格式不提供旧配置表的读取、转换或迁移，已保存在 `config.toml` 的配置会保留。导入的 Skill（平台和个人）因包体积较大保存在 `desk_signal.db`，重建运行数据库后需重新导入。
 
 
 ## 推荐的开发配置
