@@ -1128,6 +1128,11 @@ export type MainRequestReceipt = {
     */
     inputRevision?: number | null;
     /**
+     * @description The owner\'s own text while the request has not reached the conversation.
+     * @type string,null
+    */
+    question?: string | null;
+    /**
      * @type string
     */
     requestId: string;
@@ -14587,6 +14592,11 @@ export type RestResponseMainRequestReceipt = {
          * @type integer,null, int64
         */
         inputRevision?: number | null;
+        /**
+         * @description The owner\'s own text while the request has not reached the conversation.
+         * @type string,null
+        */
+        question?: string | null;
         /**
          * @type string
         */

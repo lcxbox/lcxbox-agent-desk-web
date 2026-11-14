@@ -3,7 +3,7 @@ import { projectGoalReviewReceipt } from './assistant-goal-review-receipt';
 import { decisionPauseResuming, decisionRequestOf, decisionResolver, type AssistantDecisionReceipt } from './assistant-decision-receipt';
 import type { AssistantContextUsage } from './assistant-context-meter';
 import type { AssistantFileScopeView, AssistantDirectoryOperation } from './assistant-file-scope';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { agentErrorMessage } from '@/lib/agent-error-i18n';
 import { v4 } from 'uuid';
@@ -66,6 +66,31 @@ export type AiAssistantMessage = {
     text: string;
     reasoning?: string | null;
 };
+
+/** An owner input waiting outside the saved conversation. */
+export type AiAssistantQueuedMessage = {
+    id: string;
+    text: string;
+    requestId: string | null;
+    state: 'queued' | 'activated' | null;
+};
+
+/**
+ * Input sent from this page until the saved conversation contains it.
+ * `busy` places it after running work instead of at the end of the
+ * conversation; `confirmedOrder` is the snapshot order at acknowledgement.
+ */
+type SentInput = {
+    id: string;
+    question: string;
+    conversation: string;
+    streamId: string;
+    busy: boolean;
+    requestId?: string;
+    confirmedOrder?: number;
+};
+
+const isWaitingReceipt = (state: string) => state === 'queued' || state === 'activated';
 
 export type AiAssistantToolActivity = {
     permissionReason?: string;
@@ -469,15 +494,29 @@ export function useAiAssistantChat({
     const deliveryFailure = useRef<string | null>(null);
     const [deliveryState, setDeliveryState] = useState<'sending' | 'unconfirmed' | null>(null);
     const [acceptedInput, setAcceptedInput] = useState<{ id: string; question: string } | null>(null);
+    const sentInputs = useRef<SentInput[]>([]);
+    const [sentInputView, setSentInputView] = useState<SentInput[]>([]);
+    const updateSentInputs = useCallback((update: (items: SentInput[]) => SentInput[]) => {
+        const next = update(sentInputs.current);
+        if (next.length === sentInputs.current.length && next.every((item, index) => item === sentInputs.current[index])) return;
+        sentInputs.current = next;
+        setSentInputView(next);
+    }, []);
+    const patchSentInput = useCallback((matches: (item: SentInput) => boolean, patch: (item: SentInput) => Partial<SentInput>) =>
+        updateSentInputs(items => items.map(item => matches(item) ? { ...item, ...patch(item) } : item)), [updateSentInputs]);
+    const removeSentInputs = useCallback((matches: (item: SentInput) => boolean) =>
+        updateSentInputs(items => items.filter(item => !matches(item))), [updateSentInputs]);
     const acknowledgeDelivery = useCallback(() => {
         const pending = pendingDelivery.current;
         if (!pending) return;
         console.info('[assistant-input] accepted', { messageId: pending.id, requestId: pending.requestId });
+        const order = snapshotRequestOrder.current;
+        patchSentInput(item => item.id === pending.id && item.confirmedOrder === undefined, () => ({ confirmedOrder: order }));
         setAcceptedInput({ id: pending.id, question: pending.question });
         pendingDelivery.current = null;
         deliveryFailure.current = null;
         setDeliveryState(null);
-    }, []);
+    }, [patchSentInput]);
     useEffect(() => {
         if (deliveryState !== 'sending') return;
         const timer = window.setInterval(() => {
@@ -531,6 +570,9 @@ export function useAiAssistantChat({
     const [pendingInputCount, setPendingInputCount] = useState(0);
     const [requestQueue, setRequestQueue] = useState<(AiAssistantMainRequestsDto & { conversation: string }) | null>(null);
     const [resumingQueue, setResumingQueue] = useState(false);
+    // Sending reads the latest rendered state, not the one its callback captured.
+    const visibleWork = useRef({ remoteActive, mainStopped, decisionPause, permissionRequests, requestQueue });
+    visibleWork.current = { remoteActive, mainStopped, decisionPause, permissionRequests, requestQueue };
     const queueReadOrder = useRef(0);
     const queuedSession = useRef<{ conversation: string; sessionId: string } | null>(null);
     const queueStreamIds = useRef(new Set<string>());
@@ -614,11 +656,26 @@ export function useAiAssistantChat({
     const lastSeq = useRef(-1);
     const sessionTargetRequest = useRef<string | null>(null);
 
-    const observeQueue = useCallback((conversation: string, queue: AiAssistantMainRequestsDto) => {
+    /**
+     * A snapshot (`snapshotOrder` set) replaces the queue view as a whole; a
+     * separate list read only adds or updates receipts, because it can
+     * return after a newer snapshot already settled some of them.
+     */
+    const observeQueue = useCallback((conversation: string, queue: AiAssistantMainRequestsDto, snapshotOrder?: number) => {
         queuedSession.current = { conversation, sessionId: queue.sessionId };
-        setRequestQueue({ ...queue, conversation });
+        setRequestQueue(current => {
+            if (snapshotOrder !== undefined || current?.conversation !== conversation
+                || current.sessionId !== queue.sessionId) return { ...queue, conversation };
+            const items = [...current.items];
+            for (const item of queue.items) {
+                const index = items.findIndex(existing => existing.requestId === item.requestId);
+                if (index === -1) items.push(item);
+                else items[index] = item;
+            }
+            return { ...current, items: items.sort((left, right) => left.acceptedAtMs - right.acceptedAtMs) };
+        });
         for (const item of queue.items) {
-            if (item.state === 'queued' || item.state === 'activated') rememberQueueStream(item.requestId);
+            if (isWaitingReceipt(item.state)) rememberQueueStream(item.requestId);
             else queueStreamIds.current.delete(item.requestId);
         }
         const pending = pendingDelivery.current;
@@ -627,7 +684,14 @@ export function useAiAssistantChat({
             && !pending.payload.start_goal) {
             acknowledgeDelivery();
         }
-    }, [acknowledgeDelivery, rememberQueueStream]);
+        const failed = new Set(queue.items.filter(item => item.state === 'failed').map(item => item.clientMessageId));
+        // Server reads receipts before messages, so a snapshot requested after
+        // the acknowledgement without this input's text has already saved it.
+        const waiting = new Set(queue.items.filter(item => item.question != null).map(item => item.clientMessageId));
+        removeSentInputs(item => item.conversation === conversation && (failed.has(item.id)
+            || (snapshotOrder !== undefined && item.confirmedOrder !== undefined
+                && snapshotOrder > item.confirmedOrder && !waiting.has(item.id))));
+    }, [acknowledgeDelivery, rememberQueueStream, removeSentInputs]);
 
     const loadRequestQueue = useCallback(async (expectedConversation: string) => {
         const order = ++queueReadOrder.current;
@@ -666,12 +730,21 @@ export function useAiAssistantChat({
             if (body?.success !== true) {
                 setError(agentErrorMessage(translate.current, body?.code, body?.message,
                     'The AI Assistant request could not be cancelled.'));
+            } else {
+                // Snapshots and list reads already in flight predate the cancel.
+                queueReadOrder.current += 1;
+                const clientMessageId = visibleWork.current.requestQueue?.items
+                    .find(item => item.requestId === requestId)?.clientMessageId;
+                setRequestQueue(current => current && { ...current,
+                    items: current.items.filter(item => item.requestId !== requestId) });
+                queueStreamIds.current.delete(requestId);
+                removeSentInputs(item => item.requestId === requestId || item.id === clientMessageId);
             }
         } catch {
             if (conversationId.current === saved.conversation) setError('The AI Assistant request could not be cancelled.');
         }
         if (conversationId.current === saved.conversation) await loadRequestQueue(saved.conversation);
-    }, [loadRequestQueue]);
+    }, [loadRequestQueue, removeSentInputs]);
 
     const selectSessionTarget = useCallback((targetId?: string) => {
         if (!targetSelectionEnabled || !connected || sessionTargetRequest.current) return false;
@@ -824,7 +897,7 @@ export function useAiAssistantChat({
             };
             if (expectedQueueOrder === queueReadOrder.current && Array.isArray(snapshot.mainRequests)) {
                 queueReadOrder.current += 1;
-                observeQueue(expectedConversationId, { sessionId: snapshot.sessionId, items: snapshot.mainRequests });
+                observeQueue(expectedConversationId, { sessionId: snapshot.sessionId, items: snapshot.mainRequests }, expectedRequestOrder);
             }
             setHistoryRestoreFailed(false);
             setStopConfirmation(current => current && (current.session !== snapshot.sessionId
@@ -895,11 +968,9 @@ export function useAiAssistantChat({
             }));
             // The stream can preview text, but only the snapshot orders
             // committed reasoning, tool calls, and results.
-            const optimisticInput = pendingDelivery.current;
-            setMessages(optimisticInput?.conversation === expectedConversationId
-                && !windowMessages.some(message => message.id === optimisticInput.id)
-                ? [...windowMessages, { id: optimisticInput.id, role: 'user', text: optimisticInput.question }]
-                : windowMessages);
+            setMessages(windowMessages);
+            removeSentInputs(item => item.conversation === expectedConversationId
+                && windowMessages.some(message => message.id === item.id));
             setTools(windowTools);
             setDraft(projected.draft);
             if (activeRequest.current) {
@@ -972,7 +1043,7 @@ export function useAiAssistantChat({
                 setHydrating(false);
             }
         }
-    }, [acknowledgeDelivery, deskId, observeQueue, queueOnly]);
+    }, [acknowledgeDelivery, deskId, observeQueue, queueOnly, removeSentInputs]);
 
     const timelineRead = useRef<{ conversation: string; epoch: number; invalidated: boolean } | null>(null);
     const refreshTimeline = useCallback((invalidated = false) => {
@@ -1085,6 +1156,7 @@ export function useAiAssistantChat({
         deliveryFailure.current = null;
         setDeliveryState(null);
         setAcceptedInput(null);
+        removeSentInputs(() => true);
         conversationId.current = stored;
         temporaryConversationRef.current = false;
         setTemporaryConversation(false);
@@ -1139,7 +1211,7 @@ export function useAiAssistantChat({
         void loadSnapshot(stored, true).then(outcome => {
             if (outcome === 'missing') return loadRequestQueue(stored);
         });
-    }, [conversationStorageScope, initialConversationId, loadRequestQueue, loadSnapshot]);
+    }, [conversationStorageScope, initialConversationId, loadRequestQueue, loadSnapshot, removeSentInputs]);
 
     useEffect(() => {
         const interval = window.setInterval(refreshTimeline, 2_000);
@@ -1316,6 +1388,15 @@ export function useAiAssistantChat({
         if (!event || message.request_id !== event.request_id) return;
         const pending = pendingDelivery.current;
         const currentSubmission = pending?.requestId === event.request_id;
+        if (event.kind === 'status' && event.status === 'queued') {
+            // The server's view of whether this input waits decides where it
+            // shows; without it, the guess made at sending stays.
+            const waiting = event.main_request_waiting;
+            patchSentInput(item => item.streamId === event.request_id, item => ({
+                requestId: event.main_request_id ?? item.requestId,
+                busy: typeof waiting === 'boolean' ? waiting : item.busy,
+            }));
+        }
         if (event.kind === 'status' && event.status === 'queued' && currentSubmission
             && event.main_request_id && event.main_request_session_id && conversationId.current) {
             const selected = conversationId.current;
@@ -1340,7 +1421,7 @@ export function useAiAssistantChat({
             deliveryFailure.current = failure;
             pendingDelivery.current = null;
             setDeliveryState(null);
-            setMessages(current => current.filter(message => message.id !== pending.id));
+            removeSentInputs(item => item.id === pending.id);
             setError(failure);
             if (!activeRequest.current && !snapshotActiveRequest.current) setStatus('error');
             if (conversationId.current) void loadSnapshot(conversationId.current);
@@ -1378,7 +1459,7 @@ export function useAiAssistantChat({
             const rejectedId = pending.id;
             pendingDelivery.current = null;
             setDeliveryState(null);
-            setMessages(current => current.filter(message => message.id !== rejectedId));
+            removeSentInputs(item => item.id === rejectedId);
         }
         if ((event.kind === 'error' || event.kind === 'retracted') && currentSubmission && pendingDelivery.current) setDeliveryState('unconfirmed');
         setContextCompressing(event.kind === 'status' && event.status === 'context_compressing');
@@ -1444,7 +1525,7 @@ export function useAiAssistantChat({
                 if (conversationId.current) void loadSnapshot(conversationId.current);
                 break;
         }
-    }), [acknowledgeDelivery, loadRequestQueue, loadSnapshot, refreshTimeline, rememberQueueStream, subscribe]);
+    }), [acknowledgeDelivery, loadRequestQueue, loadSnapshot, patchSentInput, refreshTimeline, rememberQueueStream, removeSentInputs, subscribe]);
 
     const ensureConversation = useCallback(() => {
         if (!conversationId.current) {
@@ -1649,13 +1730,20 @@ export function useAiAssistantChat({
         setStopConfirmation(null);
         snapshotEpoch.current += 1;
         clearStopping(true);
-        ensureConversation();
+        const conversation = ensureConversation();
         const clientMessageId = assistantMessageId();
-        setMessages((current) => [...current, {
-            id: clientMessageId,
-            role: 'user',
-            text: trimmed,
-        }]);
+        const requestId = v4();
+        if (!queueOnly) {
+            // Placement guess until the server reports whether the input waits.
+            const view = visibleWork.current;
+            const busy = !nativeTurn && (Boolean(activeRequest.current || snapshotActiveRequest.current)
+                || view.remoteActive || view.mainStopped || Boolean(view.decisionPause)
+                || view.permissionRequests.some(request => request.state === 'pending')
+                || (view.requestQueue?.conversation === conversation
+                    && view.requestQueue.items.some(item => isWaitingReceipt(item.state)))
+                || sentInputs.current.some(item => item.conversation === conversation));
+            updateSentInputs(items => [...items, { id: clientMessageId, question: trimmed, conversation, streamId: requestId, busy }]);
+        }
         if (nativeTurn) {
             setDraft(null);
             setPartial('');
@@ -1665,7 +1753,6 @@ export function useAiAssistantChat({
         setError(null);
         if (nativeTurn || (!activeRequest.current && !snapshotActiveRequest.current)) setStatus('starting');
         if (nativeTurn) lastSeq.current = -1;
-        const requestId = v4();
         const payload = {
                 question: trimmed,
                 temporary_conversation: temporaryConversationRef.current,
@@ -1690,11 +1777,13 @@ export function useAiAssistantChat({
             const sent = sendMessage(SIGNALING_TYPE_CODE_ASK_AI_ASSISTANT, payload, deskId || undefined, requestId);
             if (nativeTurn) activeRequest.current = sent;
             if (pendingDelivery.current) pendingDelivery.current.requestId = sent;
+            if (sent !== requestId) patchSentInput(item => item.id === clientMessageId, () => ({ streamId: sent }));
         } catch {
             setDeliveryState('unconfirmed');
         }
         return true;
-    }, [attachments, deskId, targetRefs, ensureConversation, sendMessage, sessionTargetReady, hydrating, historyRestoreFailed, approvalInitializing, remoteActive]);
+    }, [attachments, deskId, targetRefs, ensureConversation, sendMessage, sessionTargetReady, hydrating, historyRestoreFailed,
+        approvalInitializing, remoteActive, queueOnly, updateSentInputs, patchSentInput]);
 
     const retryDelivery = useCallback(async () => {
         const pending = pendingDelivery.current;
@@ -2072,6 +2161,7 @@ export function useAiAssistantChat({
         deliveryFailure.current = null;
         setDeliveryState(null);
         setAcceptedInput(null);
+        removeSentInputs(() => true);
         activeRequest.current = null;
         snapshotActiveRequest.current = null;
         clearStopping(true);
@@ -2134,7 +2224,7 @@ export function useAiAssistantChat({
         } catch {
             // Nothing else to clear.
         }
-    }, [conversationStorageScope, deskId, sendMessage]);
+    }, [conversationStorageScope, deskId, removeSentInputs, sendMessage]);
 
     const forgetConversation = useCallback((id: string | null) => {
         if (!id || conversationId.current !== id) return false;
@@ -2189,6 +2279,39 @@ export function useAiAssistantChat({
         }
     }, [loadSnapshot, resumingQueue]);
 
+    // Each input shows once: saved messages first, then this page's sends,
+    // then receipts that carry the text of inputs sent elsewhere.
+    const currentConversation = conversationId.current;
+    const { conversationMessages, queuedMessages } = useMemo(() => {
+        // A workbench root has no conversation of its own to place inputs in.
+        if (queueOnly) return { conversationMessages: messages, queuedMessages: [] };
+        const visibleQueue = requestQueue?.conversation === currentConversation ? requestQueue.items : [];
+        const unsavedInputs = sentInputView.filter(item => item.conversation === currentConversation
+            && !messages.some(message => message.id === item.id));
+        const idle = unsavedInputs.filter(item => !item.busy);
+        const queued = [
+            ...unsavedInputs.filter(item => item.busy).flatMap(item => {
+                const receipt = visibleQueue.find(receipt => receipt.clientMessageId === item.id);
+                if (receipt && !isWaitingReceipt(receipt.state)) return [];
+                const message: AiAssistantQueuedMessage = { id: item.id, text: item.question,
+                    requestId: receipt?.requestId ?? item.requestId ?? null,
+                    state: receipt ? receipt.state as 'queued' | 'activated' : item.requestId ? 'queued' : null };
+                // An input without a receipt yet was accepted after every shown one.
+                return [{ message, order: receipt?.acceptedAtMs ?? Number.MAX_SAFE_INTEGER }];
+            }),
+            ...visibleQueue.filter(receipt => receipt.question != null && isWaitingReceipt(receipt.state)
+                && !sentInputView.some(item => item.id === receipt.clientMessageId)
+                && !messages.some(message => message.id === receipt.clientMessageId))
+                .map(receipt => ({ order: receipt.acceptedAtMs, message: { id: receipt.clientMessageId, text: receipt.question!,
+                    requestId: receipt.requestId, state: receipt.state as 'queued' | 'activated' } satisfies AiAssistantQueuedMessage })),
+        ].sort((left, right) => left.order - right.order).map(entry => entry.message);
+        return {
+            conversationMessages: idle.length ? [...messages, ...idle.map((item): AiAssistantMessage =>
+                ({ id: item.id, role: 'user', text: item.question }))] : messages,
+            queuedMessages: queued,
+        };
+    }, [currentConversation, messages, queueOnly, requestQueue, sentInputView]);
+
     return {
         temporaryConversation,
         conversationId: conversationId.current,
@@ -2200,7 +2323,8 @@ export function useAiAssistantChat({
         forgetConversation,
         contextUsage,
         contextNotices,
-        messages,
+        messages: conversationMessages,
+        queuedMessages,
         tools,
         draft,
         partial,
@@ -2244,7 +2368,6 @@ export function useAiAssistantChat({
         grantRevoking,
         pendingInputCount: pendingInputCount
             + (requestQueue?.conversation === conversationId.current ? requestQueue.items.filter(item => item.state === 'queued').length : 0),
-        queuedRequests: requestQueue?.conversation === conversationId.current ? requestQueue.items.filter(item => item.state === 'queued') : [],
         failedRequests: requestQueue?.conversation === conversationId.current
             ? requestQueue.items.filter(item => item.state === 'failed') : [],
         cancelQueuedRequest,

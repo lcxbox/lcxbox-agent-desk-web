@@ -5,6 +5,7 @@ import { ApprovalReviews, useOwnApprovalAccess } from '@/features/approval/revie
 import { AssistantGoalPanel, goalPlanningAction } from './assistant-goal-panel';
 import { AssistantConversationMessages } from './assistant-conversation-messages';
 import { AssistantConversationHistory } from './assistant-conversation-history';
+import { AssistantQueuedMessages } from './assistant-queued-messages';
 import { permissionToolLabel, permissionResourceLabel, permissionOperationLabel, isReusableWebHost } from './assistant-permission-labels';
 import { AssistantAttachments } from './assistant-attachments';
 import { requireRecoveryZip } from '@/lib/file-recovery-error';
@@ -1076,6 +1077,7 @@ export function AiAssistantWorkspace({
                             </div>
                         );
                     })}
+                    <AssistantQueuedMessages items={chat.queuedMessages} onCancel={chat.cancelQueuedRequest} />
                     {chat.error && (
                         <Alert variant="destructive">
                             <AlertTitle>{t(chat.error === 'history_restore_failed'
@@ -1126,21 +1128,6 @@ export function AiAssistantWorkspace({
                             disabled={chat.resumingQueue} onClick={() => void chat.resumeQueue()}>
                             {t('pages.aiAssistant.resumeQueue')}
                         </Button>}
-                        {chat.queuedRequests.length > 0 && (
-                            <details className="text-sm text-muted-foreground">
-                                <summary className="cursor-pointer">{t('pages.aiAssistant.pendingInputs', { count: chat.queuedRequests.length })}</summary>
-                                <ol className="space-y-1 px-2">
-                                    {chat.queuedRequests.map((request, index) => (
-                                        <li key={request.requestId} className="flex items-center justify-between gap-2">
-                                            <span>{t('pages.aiAssistant.queuedRequest', { position: index + 1 })}</span>
-                                            <Button type="button" variant="ghost" size="sm" onClick={() => void chat.cancelQueuedRequest(request.requestId)}>
-                                                {t('pages.aiAssistant.cancelQueuedRequest')}
-                                            </Button>
-                                        </li>
-                                    ))}
-                                </ol>
-                            </details>
-                        )}
                         {chat.failedRequests.length > 0 && (
                             <details className="text-sm text-muted-foreground">
                                 <summary className="cursor-pointer">{t('pages.aiAssistant.failedQueuedRequests', { count: chat.failedRequests.length })}</summary>

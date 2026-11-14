@@ -2181,7 +2181,8 @@ describe('useAiAssistantChat', () => {
             finished = true;
             await act(async () => deliver('request-a', { seq: 3, kind: 'answer', answer: 'A done' }));
             expect(result.current.deliveryState).toBe('sending');
-            expect(result.current.messages.map(message => message.text)).toEqual(['A', 'A done', 'B']);
+            expect(result.current.messages.map(message => message.text)).toEqual(['A', 'A done']);
+            expect(result.current.queuedMessages).toEqual([{ id: expect.any(String), text: 'B', requestId: null, state: null }]);
             act(() => receipt(sendMessage.mock.calls[1][3]!, 'request-b'));
             act(() => {
                 deliver('request-a', { seq: 4, kind: 'partial', partial_summary: 'late' });
@@ -2200,7 +2201,7 @@ describe('useAiAssistantChat', () => {
             ok: true, json: async () => ({ success: true, data: url.includes('/requests?')
                 ? { sessionId: 'root', items: [] }
                 : { ...snapshotFields, sessionId: 'root', seq: finished ? 2 : 1, active: false,
-                    requestId: finished ? 'resume' : undefined,
+                    requestId: finished ? 'resume' : undefined, mainRequests: [],
                     messages: finished ? [{ id: 'saved-report', role: 'assistant', text: 'Disk report ready' }] : [] } }),
         }));
         vi.stubGlobal('fetch', fetchMock);
@@ -2450,13 +2451,13 @@ describe('useAiAssistantChat', () => {
                 signaling_data: { request_id: requestId!, seq: 1, kind: 'status', status: 'queued',
                     main_request_id: question, main_request_session_id: 'original-session' },
             }));
-            await waitFor(() => expect(result.current.queuedRequests.map(item => item.requestId))
-                .toEqual(items.map(item => item.requestId)));
+            await waitFor(() => expect(result.current.queuedMessages.map(item => [item.requestId, item.text, item.state]))
+                .toEqual(items.map(item => [item.requestId, item.requestId, 'queued'])));
             expect(result.current.deliveryState).toBeNull();
             expect(result.current.turnRunning).toBe(true);
         }
         await act(async () => { await result.current.cancelQueuedRequest('B'); });
-        expect(result.current.queuedRequests.map(item => item.requestId)).toEqual(['C']);
+        expect(result.current.queuedMessages.map(item => item.requestId)).toEqual(['C']);
         expect(result.current.messages.map(message => message.text)).toEqual(['A']);
         expect(result.current.turnRunning).toBe(true);
     });
@@ -2472,7 +2473,7 @@ describe('useAiAssistantChat', () => {
             return { ok: true, json: async () => ({ success: true, data: {
                 ...snapshotFields, sessionId: 'original-session', seq: stopped ? 5 : 6,
                 controlRevision: stopped ? 2 : 3, mainStopped: stopped, active: false, messages: [],
-                mainRequests: [{ requestId: 'b', clientMessageId: 'message-b', state: 'queued', acceptedAtMs: 1 }],
+                mainRequests: [{ requestId: 'b', clientMessageId: 'message-b', state: 'queued', acceptedAtMs: 1, question: 'B' }],
             } }) };
         });
         vi.stubGlobal('fetch', fetchMock);
@@ -2482,7 +2483,7 @@ describe('useAiAssistantChat', () => {
         await waitFor(() => expect(result.current.mainStopped).toBe(true));
         await act(async () => { await result.current.resumeQueue(); });
         expect(result.current.mainStopped).toBe(false);
-        expect(result.current.queuedRequests.map(item => item.requestId)).toEqual(['b']);
+        expect(result.current.queuedMessages).toEqual([{ id: 'message-b', text: 'B', requestId: 'b', state: 'queued' }]);
         expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/requests/resume'))).toHaveLength(1);
         expect(sendMessage).not.toHaveBeenCalled();
     });

@@ -23,6 +23,8 @@ export type AiAssistantEvent = {
     status?: string | null;
     main_request_id?: string | null;
     main_request_session_id?: string | null;
+    /** Whether a newly queued input waits behind other work; omitted on replay. */
+    main_request_waiting?: boolean | null;
     partial_summary?: string | null;
     error?: { message?: string | null; error_code?: number | null } | null;
     tool_name?: string | null;
