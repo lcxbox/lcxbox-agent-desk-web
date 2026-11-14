@@ -22,6 +22,7 @@ pub mod memory;
 pub mod owner_history;
 pub mod policy;
 pub mod processing;
+pub mod skill;
 pub mod source;
 pub mod source_ref;
 pub mod subagent;

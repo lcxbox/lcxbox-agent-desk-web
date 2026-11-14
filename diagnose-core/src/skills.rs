@@ -12,6 +12,11 @@ use sha2::{Digest, Sha256};
 
 pub const LOAD_TOOL: &str = "load_skill";
 const NAME: &str = "issue-analysis";
+
+/// Names of skills compiled into the product; imports cannot reuse them.
+pub fn bundled_names() -> &'static [&'static str] {
+    &[NAME]
+}
 const SOURCE: &str = include_str!("../skills/issue-analysis/SKILL.md");
 const CHECKLIST: &str = include_str!("../skills/issue-analysis/references/checklist.md");
 const CHECKLIST_PATH: &str = "references/checklist.md";

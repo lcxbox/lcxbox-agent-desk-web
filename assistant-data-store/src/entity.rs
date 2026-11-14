@@ -33,6 +33,11 @@ pub mod agent_memory_tombstone;
 pub mod agent_memory_use;
 pub mod agent_schedule;
 pub mod agent_schedule_run;
+pub mod agent_skill;
+pub mod agent_skill_proposal;
+pub mod agent_skill_scan;
+pub mod agent_skill_scope;
+pub mod agent_skill_version;
 pub mod agent_subagent_inbox;
 pub mod agent_subagent_run;
 pub mod agent_task_budget_reservation;
@@ -77,4 +82,9 @@ pub fn register_schema(schema: sea_orm::SchemaBuilder) -> sea_orm::SchemaBuilder
         .register(agent_schedule::Entity)
         .register(agent_schedule_run::Entity)
         .register(agent_task_budget_reservation::Entity)
+        .register(agent_skill::Entity)
+        .register(agent_skill_version::Entity)
+        .register(agent_skill_scope::Entity)
+        .register(agent_skill_proposal::Entity)
+        .register(agent_skill_scan::Entity)
 }

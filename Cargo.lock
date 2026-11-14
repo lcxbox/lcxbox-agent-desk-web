@@ -2793,6 +2793,7 @@ name = "desk-assistant-data-store"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "desk-agent-protocol",
  "desk-diagnose-core",
@@ -2803,6 +2804,8 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+ "yaml-rust2",
+ "zip",
 ]
 
 [[package]]
