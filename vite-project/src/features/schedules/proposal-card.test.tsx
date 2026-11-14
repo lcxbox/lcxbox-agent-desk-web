@@ -28,11 +28,24 @@ it('ignores enabled conversation timers, malformed and unsuccessful tool results
     expect(screen.queryByTestId('review')).toBeNull();
 });
 
-it('reports only proposals whose current state still needs a decision', async () => {
+it('reports a proposal as pending only while the owner must decide it', async () => {
     const changed = vi.fn();
-    render(<ScheduleProposalCards {...base} tools={[tool]} onPendingCountChange={changed} />);
+    const { rerender } = render(<ScheduleProposalCards {...base} tools={[tool]} onPendingCountChange={changed} />);
+    await screen.findByTestId('review');
+    expect(changed).toHaveBeenLastCalledWith(0);
+    expect(document.querySelector('[data-assistant-pending]')).toBeNull();
+    rerender(<ScheduleProposalCards {...base} tools={[tool]} awaitingOwnerId={id} onPendingCountChange={changed} />);
     await waitFor(() => expect(changed).toHaveBeenLastCalledWith(1));
     expect(document.querySelectorAll('[data-assistant-pending]')).toHaveLength(1);
+    expect(document.getElementById(`assistant-schedule-proposal-${id}`)).toHaveAttribute('data-assistant-pending');
+});
+
+it('stops counting the awaited proposal once it is decided', async () => {
+    status.value = 'active';
+    const changed = vi.fn();
+    render(<ScheduleProposalCards {...base} tools={[tool]} awaitingOwnerId={id} onPendingCountChange={changed} />);
+    expect(await screen.findByText('schedules.proposal.approved')).toBeTruthy();
+    expect(changed).toHaveBeenLastCalledWith(0);
 });
 
 it('shows the decision once the proposal was approved elsewhere', async () => {

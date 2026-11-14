@@ -18,6 +18,7 @@ import {
 } from './constants';
 import type { SignalingSubscriber } from './use-desk-signaling';
 import { projectPersistedSnapshot, useAiAssistantChat } from './use-ai-assistant-chat';
+import { ownerPendingDirectories } from './assistant-decision-receipt';
 import { deskErrorCodeEnum } from '@/services/types';
 
 vi.mock('react-i18next', () => import('@/test-utils/i18n-mock').then(m => m.reactI18nextMock()));
@@ -607,6 +608,31 @@ describe('useAiAssistantChat', () => {
         expect(result.current.error).toBeNull();
         expect(result.current.fileScope.revision).toBe(1);
         unmount();
+    });
+    it('shows a turn paused on a proposal as awaiting approval, then continuing once decided', async () => {
+        localStorage.setItem('ai-assistant-conversation:decision-pause', 'paused-conversation');
+        const receipt = { id: 'receipt', role: 'tool', toolCallId: 'call-1', toolOk: true,
+            text: JSON.stringify({ proposal_id: 'p1', status: 'pending', awaiting_decision: true }) };
+        const paused = { ...snapshotFields, sessionId: 'paused-conversation', seq: 10, active: false,
+            decisionPause: { kind: 'skill', requestId: 'p1', toolCallId: 'call-1', awaitingOwner: true },
+            messages: [{ id: 'user-1', role: 'user', text: 'save this as a skill' },
+                { id: 'assistant-1', role: 'assistant', text: '', toolCalls: [{ id: 'call-1', name: 'propose_skill', argumentsJson: '{}' }] },
+                receipt] };
+        let snapshot: Record<string, unknown> = paused;
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ data: snapshot }) })));
+        const { result, unmount } = renderHook(() => useAiAssistantChat({ deskId: 'decision-pause', connected: true,
+            subscribe: () => () => undefined, sendMessage: () => 'select' }));
+        await waitFor(() => expect(result.current.status).toBe('decision_required'));
+        expect(result.current.error).toBeNull();
+        expect(result.current.decisionPause).toMatchObject({ requestId: 'p1', awaitingOwner: true });
+        expect(result.current.tools[0].decision).toEqual({ kind: 'skill', requestId: 'p1', state: 'pending', awaitingOwner: true });
+        snapshot = { ...paused, seq: 11, messages: [...paused.messages, { id: 'skill-decision:p1:2', role: 'system_event',
+            text: JSON.stringify({ event: 'skill_proposal_decided', proposal_id: 'p1', status: 'approved', decided_by: 'approval_ai', reason: 'Useful' }) }] };
+        await act(async () => { await result.current.refreshSnapshot(); });
+        await waitFor(() => expect(result.current.status).toBe('resuming'));
+        expect(result.current.tools[0].decision).toMatchObject({ state: 'approved', decidedBy: 'approval_ai', reason: 'Useful' });
+        unmount();
+        localStorage.removeItem('ai-assistant-conversation:decision-pause');
     });
     it('routes a selectable directory decision to the live connection of the device recorded in the snapshot', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: {
@@ -2789,4 +2815,65 @@ it('shows a direct call waiting for approval as pending, then its real result', 
     } as never);
     expect(done.tools[0].status).toBe('ok');
     expect(done.tools[0].permissionReview).toBeUndefined();
+});
+
+describe('decision receipts in the persisted snapshot', () => {
+    const call = (id: string, name: string) => ({ id: `assistant-${id}`, role: 'assistant', text: '', toolCalls: [{ id, name, argumentsJson: '{}' }] });
+    const tool = (id: string, receipt: object) => ({ id: `tool-${id}`, role: 'tool', toolCallId: id, toolOk: true, text: JSON.stringify(receipt) });
+    const directory = (requestId: string, state: string, decisionActor?: string, decisionReason?: string) => ({ requestId,
+        canonicalPath: '/work', purpose: 'report', state, source: 'model_proposal', referenceExpiresAt: '', decisionActor, decisionReason });
+
+    it('derives skill, schedule and directory decisions from their sources', () => {
+        const projected = projectPersistedSnapshot({
+            messages: [
+                call('skill', 'propose_skill'), tool('skill', { proposal_id: 'p1', status: 'pending', awaiting_decision: true }),
+                call('schedule', 'request_scheduled_task'), tool('schedule', { schedule_id: 's1', kind: 'fresh_task', state: 'pending_review', awaiting_decision: true }),
+                call('directory', 'request_directory'), tool('directory', { directory_request_id: 'd1', state: 'pending', awaiting_decision: true }),
+                call('stopped', 'request_directory'), tool('stopped', { directory_request_id: 'd2', state: 'pending', awaiting_decision: true }),
+                call('withdrawn', 'propose_skill'), tool('withdrawn', { proposal_id: 'p2', status: 'pending', awaiting_decision: true }),
+                { id: 'skill-decision', role: 'system_event', text: JSON.stringify({ event: 'skill_proposal_decided', proposal_id: 'p1', status: 'conflicted', decided_by: 'owner', reason: null }) },
+                { id: 'schedule-decision', role: 'system_event', text: JSON.stringify({ event: 'scheduled_task_rejected', schedule_id: 's1', decided_by: 'approval_ai', reason: 'Too frequent' }) },
+            ],
+            skillProposals: [{ proposalId: 'p2', status: 'withdrawn' }],
+            fileScope: { revision: 3, directories: [directory('d1', 'approved', 'ai_approval', 'Needed'), directory('d2', 'rejected', 'system', 'The owner stopped the conversation before the decision.')] },
+        } as never);
+        const decision = (id: string) => projected.tools.find(item => item.callId === id)?.decision;
+        expect(decision('skill')).toMatchObject({ kind: 'skill', state: 'conflicted', decidedBy: 'owner' });
+        expect(decision('schedule')).toMatchObject({ kind: 'schedule', state: 'rejected', decidedBy: 'approval_ai', reason: 'Too frequent' });
+        expect(decision('directory')).toMatchObject({ kind: 'directory', state: 'approved', decidedBy: 'approval_ai', reason: 'Needed' });
+        expect(decision('stopped')).toMatchObject({ state: 'rejected', decidedBy: 'system', reason: 'The owner stopped the conversation before the decision.' });
+        expect(decision('withdrawn')).toMatchObject({ state: 'withdrawn', decidedBy: 'system' });
+        // Receipts are never shown as command results.
+        expect(projected.messages.some(message => message.role === 'tool_result')).toBe(false);
+        expect(projected.decisionResuming).toBe(false);
+    });
+
+    it('falls back to submitted when no decision source is in the snapshot', () => {
+        const projected = projectPersistedSnapshot({
+            messages: [call('schedule', 'request_scheduled_task'),
+                tool('schedule', { schedule_id: 's1', kind: 'fresh_task', state: 'pending_review', awaiting_decision: true })],
+        } as never);
+        expect(projected.tools[0].decision).toEqual({ kind: 'schedule', requestId: 's1', state: 'submitted' });
+    });
+
+    it('marks the paused request pending and reports resuming once a decision exists', () => {
+        const messages = [call('schedule', 'request_scheduled_task'),
+            tool('schedule', { schedule_id: 's1', kind: 'fresh_task', state: 'pending_review', awaiting_decision: true })];
+        const decisionPause = { kind: 'schedule', requestId: 's1', toolCallId: 'schedule', awaitingOwner: false };
+        const waiting = projectPersistedSnapshot({ messages, decisionPause } as never);
+        expect(waiting.tools[0].decision).toEqual({ kind: 'schedule', requestId: 's1', state: 'pending', awaitingOwner: false });
+        expect(waiting.decisionResuming).toBe(false);
+        const decided = projectPersistedSnapshot({ decisionPause, messages: [...messages, { id: 'decision', role: 'system_event',
+            text: JSON.stringify({ event: 'scheduled_task_activated', schedule_id: 's1', decided_by: 'owner' }) }] } as never);
+        expect(decided.tools[0].decision).toMatchObject({ state: 'approved', decidedBy: 'owner' });
+        expect(decided.decisionResuming).toBe(true);
+    });
+
+    it('counts the paused directory request for the owner only when the server says so', () => {
+        const pending = [directory('d1', 'pending'), directory('d2', 'pending'), directory('d3', 'approved')];
+        const pause = (awaitingOwner: boolean) => ({ kind: 'directory' as const, requestId: 'd1', toolCallId: 'call', awaitingOwner });
+        expect(ownerPendingDirectories(pending, pause(false), false).map(item => item.requestId)).toEqual(['d2']);
+        expect(ownerPendingDirectories(pending, pause(true), true).map(item => item.requestId)).toEqual(['d1']);
+        expect(ownerPendingDirectories(pending, null, false).map(item => item.requestId)).toEqual(['d1', 'd2']);
+    });
 });

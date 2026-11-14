@@ -26,6 +26,7 @@ import { useAssistantApprovalMode } from './assistant-approval-mode';
 import { useAiAssistantSubagents } from './use-ai-assistant-subagents';
 import { ScheduleProposalCards } from '@/features/schedules/proposal-card';
 import { pendingSkillProposalCount, SkillProposalCards } from './assistant-skill-proposal-card';
+import { ownerPendingDirectories } from './assistant-decision-receipt';
 import { AssistantContextMeter } from './assistant-context-meter';
 import { AssistantDirectoryApproval } from './assistant-directory-approval';
 import { AssistantFileScope, type AssistantDirectoryOperation } from './assistant-file-scope';
@@ -362,12 +363,12 @@ export function AiAssistantWorkspace({
     const approvalMode = useAssistantApprovalMode(chat.sessionId, approvalSettingsAvailable);
     const noReview = approvalMode.data?.mode === 'no_review';
     const automaticApproval = approvalMode.data?.mode !== 'manual' && chat.approvalDelegation?.status === 'active';
-    const pendingDirectories = chat.fileScope.directories.filter(directory => directory.state === 'pending'
-        && !(automaticApproval && directory.source === 'model_proposal'));
+    const pause = chat.decisionPause;
+    const pendingDirectories = ownerPendingDirectories(chat.fileScope.directories, pause, automaticApproval);
     const pendingPermissionCount = chat.permissionRequests.filter(request => ['pending', 'needs_revalidation'].includes(request.state)
         && !permissionIsAutomaticallyReviewed(request, automaticApproval)).length;
     const pendingCount = pendingDirectories.length + pendingPermissionCount + pendingScheduleCount + Number(Boolean(chat.pendingGoalOpenRequest))
-        + pendingSkillProposalCount(chat.skillProposals, !automaticApproval);
+        + pendingSkillProposalCount(chat.skillProposals);
     const runningTaskCount = [...chat.commandTasks, ...chat.backgroundTasks]
         .filter(task => ['running', 'cancel_requested'].includes(task.state)).length;
     const jumpToPending = (id?: string) => {
@@ -936,8 +937,9 @@ export function AiAssistantWorkspace({
                         onOlder={() => void chat.loadOlderMessages()}
                         before={<AssistantDocumentPreviews previews={chat.documentPreviews} requestPage={chat.requestDocumentPreviewPage} />}>
                         <ScheduleProposalCards key={permissionHistoryKey} tools={chat.tools} running={chat.running}
+                            awaitingOwnerId={pause?.kind === 'schedule' && pause.awaitingOwner ? pause.requestId : null}
                             deviceId={stableDeviceId} connectionId={deskId} onPendingCountChange={setPendingScheduleCount} />
-                        <SkillProposalCards proposals={chat.skillProposals} awaitingOwner={!automaticApproval}
+                        <SkillProposalCards proposals={chat.skillProposals}
                             onRefresh={chat.refreshSnapshot} onDecided={chat.refreshSnapshot} />
                         {chat.contextCompressing && <p role="status" data-testid="assistant-context-compressing"
                             className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -1025,7 +1027,7 @@ export function AiAssistantWorkspace({
                         commands={chat.commandTasks} providers={chat.backgroundTasks} tools={chat.tools}
                         connected={isConnected} canCancelProvider={featureProfile.background_task_cancel}
                         cancelling={chat.taskCancelling} onCancel={chat.cancelTask} />
-                    {(hasDevice || personalScope) && <AssistantFileScope key={`directories:${permissionHistoryKey}`} scope={chat.fileScope} automaticApproval={automaticApproval}
+                    {(hasDevice || personalScope) && <AssistantFileScope key={`directories:${permissionHistoryKey}`} scope={chat.fileScope} automaticApproval={automaticApproval} decisionPause={pause}
                         deskId={deskId} sessionTargetId={hasDevice && chat.sessionTargetReady ? (chat.sessionTarget?.target_id ?? null) : undefined}
                         devices={hasDevice ? undefined : requestDevices.selected}
                         open={directorySession === permissionHistoryKey} onOpenChange={open => setDirectorySession(open ? permissionHistoryKey : null)}

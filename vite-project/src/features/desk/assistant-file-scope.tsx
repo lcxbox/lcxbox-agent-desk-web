@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { RemoteDirectoryPicker } from '@/features/file-manager/remote-directory-picker';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import type { DecisionPauseDto } from '@/services/types';
 
 export type AssistantFileScopeView = {
     revision: number;
@@ -27,7 +28,7 @@ export type AssistantDirectoryOperation =
     | { kind: 'revoke_directory'; directory_request_id: string; expected_revision: number };
 
 export function AssistantFileScope({ scope, open, onOpenChange, disabled, onUpdate, deskId, sessionTargetId, devices,
-    showPendingActions = true, onPendingJump, selectionDisabled = false, automaticApproval = false }: {
+    showPendingActions = true, onPendingJump, selectionDisabled = false, automaticApproval = false, decisionPause }: {
     deskId?: string;
     devices?: readonly { id: string; name: string }[];
     // undefined: unresolved; null: selected anonymous in-process worker.
@@ -40,6 +41,8 @@ export function AssistantFileScope({ scope, open, onOpenChange, disabled, onUpda
     onUpdate: (operation: AssistantDirectoryOperation, timeoutMessage: string, deviceRef?: string) => boolean;
     showPendingActions?: boolean;
     automaticApproval?: boolean;
+    /** The request the conversation paused on; it is the owner's when `awaitingOwner` is set. */
+    decisionPause?: DecisionPauseDto | null;
     onPendingJump?: (requestId: string) => void;
 }) {
     const { t } = useTranslation();
@@ -81,18 +84,23 @@ export function AssistantFileScope({ scope, open, onOpenChange, disabled, onUpda
             </div>
             <div className="space-y-3 px-4 pb-4">
                 {!scope.directories.length && <p className="text-sm text-muted-foreground">{t('pages.aiAssistant.directories.empty')}</p>}
-                {scope.directories.map(directory => <div key={directory.requestId} className="space-y-2 rounded-md border p-3">
+                {scope.directories.map(directory => {
+                    const awaitingOwner = directory.state === 'pending' && decisionPause?.kind === 'directory'
+                        && decisionPause.requestId === directory.requestId && decisionPause.awaitingOwner;
+                    const aiReview = !awaitingOwner && automaticApproval && directory.source === 'model_proposal';
+                    return <div key={directory.requestId} className="space-y-2 rounded-md border p-3">
                     {!deskId && directory.deviceRef && <p className="text-xs text-muted-foreground">{name(directory.deviceRef)}</p>}
                     <p className="break-all font-mono text-sm">{directory.canonicalPath}</p>
                     <p className="break-words text-xs text-muted-foreground">{directory.purpose}</p>
-                    <p className="text-xs">{directory.state === 'pending' ? t(automaticApproval && directory.source === 'model_proposal' ? 'pages.aiAssistant.directories.pendingAi' : 'pages.aiAssistant.directories.pending')
+                    <p className="text-xs">{directory.state === 'pending' ? t(awaitingOwner ? 'pages.aiAssistant.decision.review'
+                        : aiReview ? 'pages.aiAssistant.directories.pendingAi' : 'pages.aiAssistant.directories.pending')
                         : directory.state === 'approved' ? t('pages.aiAssistant.directories.approved')
                             : directory.state === 'rejected' ? t('pages.aiAssistant.directories.rejected')
                                 : directory.state === 'revoked' ? t('pages.aiAssistant.directories.revoked') : directory.state}</p>
                     {directory.decisionActor && <p className="text-xs text-muted-foreground">{t(`pages.aiAssistant.directories.actor.${directory.decisionActor}`)}</p>}
                     {directory.decisionReason && <p className="whitespace-pre-wrap text-xs">{directory.decisionReason}</p>}
                     <div className="flex gap-2">
-                        {directory.state === 'pending' && automaticApproval && directory.source === 'model_proposal' ? null : directory.state === 'pending' && showPendingActions ? <>
+                        {directory.state === 'pending' && aiReview ? null : directory.state === 'pending' && (showPendingActions || awaitingOwner) ? <>
                             <Button type="button" size="sm" disabled={disabled} onClick={() => {
                                 submit({ kind: 'decide_directory', directory_request_id: directory.requestId, approve: true, expected_revision: scope.revision });
                             }}>{t('pages.aiAssistant.directories.approve')}</Button>
@@ -102,7 +110,8 @@ export function AssistantFileScope({ scope, open, onOpenChange, disabled, onUpda
                             {t('pages.aiAssistant.directories.returnToReview')}
                         </Button> : directory.state === 'approved' && <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => submit({ kind: 'revoke_directory', directory_request_id: directory.requestId, expected_revision: scope.revision })}>{t('pages.aiAssistant.directories.remove')}</Button>}
                     </div>
-                </div>)}
+                </div>;
+                })}
             </div>
         </SheetContent>
     </Sheet>;

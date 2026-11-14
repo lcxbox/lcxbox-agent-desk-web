@@ -11,7 +11,7 @@ import { assistantConnections } from '@/features/schedules/assistant-paths';
 import { AiAssistantHubLayout } from './ai-assistant-hub-layout';
 
 type AttentionReason =
-    | 'goal_open_approval' | 'permission_approval' | 'goal_needs_input'
+    | 'goal_open_approval' | 'permission_approval' | 'decision_approval' | 'goal_needs_input'
     | 'goal_budget' | 'goal_stalled' | 'goal_blocked' | 'goal_deadline_soon' | 'subagent_result' | 'worker_question' | 'issue_reply_needs_attention';
 
 type AttentionItem = {

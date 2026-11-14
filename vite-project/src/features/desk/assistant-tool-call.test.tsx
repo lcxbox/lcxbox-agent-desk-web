@@ -168,4 +168,55 @@ describe('tool call transcript', () => {
         expect(screen.queryByText(/pages.aiAssistant.toolCall.batchFailed/)).toBeNull();
     });
 
+
+    describe('decision receipts', () => {
+        const receipt = JSON.stringify({ proposal_id: 'p1', status: 'pending', awaiting_decision: true });
+        const proposal: AiAssistantToolActivity = { ...tool, name: 'propose_skill', status: 'ok', output: receipt };
+
+        it('shows a pending request as awaiting approval without the receipt JSON', () => {
+            render(<AssistantToolCall running={false} tool={{ ...proposal,
+                decision: { kind: 'skill', requestId: 'p1', state: 'pending', awaitingOwner: false } }} />);
+            expect(screen.getByRole('img', { name: 'pages.aiAssistant.decision.state.pending' })).toBeTruthy();
+            expect(screen.queryByRole('img', { name: 'pages.aiAssistant.toolCall.returned' })).toBeNull();
+            expect(screen.queryByRole('button', { name: 'pages.aiAssistant.decision.review' })).toBeNull();
+            fireEvent.click(screen.getByText(/propose_skill/));
+            expect(screen.getByText('pages.aiAssistant.decision.notReturned')).toBeTruthy();
+            expect(screen.queryByText(/awaiting_decision/)).toBeNull();
+            expect(screen.queryByText('pages.aiAssistant.toolCall.output')).toBeNull();
+        });
+
+        it('links a request the owner must decide to its decision card', () => {
+            const card = document.createElement('article');
+            card.id = 'assistant-directory-d1';
+            card.tabIndex = -1;
+            document.body.append(card);
+            try {
+                render(<AssistantToolCall running={false} tool={{ ...proposal, name: 'request_directory',
+                    output: JSON.stringify({ directory_request_id: 'd1', state: 'pending', awaiting_decision: true }),
+                    decision: { kind: 'directory', requestId: 'd1', state: 'pending', awaitingOwner: true } }} />);
+                fireEvent.click(screen.getByRole('button', { name: 'pages.aiAssistant.decision.review' }));
+                expect(document.activeElement).toBe(card);
+            } finally { card.remove(); }
+        });
+
+        it('shows the decision, who made it and the reason handed to the assistant', () => {
+            render(<AssistantToolCall running={false} tool={{ ...proposal,
+                decision: { kind: 'skill', requestId: 'p1', state: 'rejected', decidedBy: 'approval_ai', reason: 'Too broad' } }} />);
+            const label = 'pages.aiAssistant.decision.state.rejected · pages.aiAssistant.decision.by.approval_ai';
+            expect(screen.getByRole('img', { name: label })).toBeTruthy();
+            fireEvent.click(screen.getByText(/propose_skill/));
+            expect(screen.getByText('Too broad')).toBeTruthy();
+            expect(screen.queryByText('pages.aiAssistant.decision.notReturned')).toBeNull();
+            expect(screen.queryByText(/awaiting_decision/)).toBeNull();
+        });
+
+        it('falls back to a submitted label when the snapshot has no decision source', () => {
+            render(<AssistantToolCall running={false} tool={{ ...proposal,
+                decision: { kind: 'schedule', requestId: 's1', state: 'submitted' } }} />);
+            expect(screen.getByRole('img', { name: 'pages.aiAssistant.decision.state.submitted' })).toBeTruthy();
+            fireEvent.click(screen.getByText(/propose_skill/));
+            expect(screen.getByText('pages.aiAssistant.decision.notReturned')).toBeTruthy();
+            expect(screen.queryByText(/awaiting_decision/)).toBeNull();
+        });
+    });
 });

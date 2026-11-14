@@ -8,6 +8,7 @@ import type { SkillProposalView } from '@/services/types';
 import { deskErrorCodeEnum } from '@/services/types';
 import { SkillDiffList } from '@/features/settings/assistant-skill-review';
 import { ProposalDecisionActions } from './proposal-decision-actions';
+import { decisionCardId } from './assistant-decision-receipt';
 
 const prefix = 'pages.assistantSkills.proposal.';
 
@@ -18,8 +19,8 @@ const stale: number[] = [deskErrorCodeEnum.REVISION_CONFLICT, deskErrorCodeEnum.
  * One AI-proposed personal skill. A pending proposal can be decided by the
  * owner at any time; `awaitingOwner` marks it as the owner's pending item.
  */
-export function SkillProposalCard({ proposal, awaitingOwner, onRefresh, onDecided }: {
-    proposal: SkillProposalView; awaitingOwner: boolean; onRefresh(): void; onDecided?(proposal: SkillProposalView): void;
+export function SkillProposalCard({ proposal, onRefresh, onDecided }: {
+    proposal: SkillProposalView; onRefresh(): void; onDecided?(proposal: SkillProposalView): void;
 }) {
     const { t } = useTranslation();
     const [decided, setDecided] = useState<SkillProposalView | null>(null);
@@ -43,7 +44,7 @@ export function SkillProposalCard({ proposal, awaitingOwner, onRefresh, onDecide
         } finally { setBusy(false); }
     };
 
-    return <article data-assistant-pending={pending && awaitingOwner ? '' : undefined} tabIndex={-1}
+    return <article id={decisionCardId('skill', view.proposalId)} data-assistant-pending={pending && view.awaitingOwner ? '' : undefined} tabIndex={-1}
         aria-label={view.name} className="min-w-0 space-y-3 rounded-md border border-amber-500/40 p-3">
         <div className="flex flex-wrap items-center gap-2">
             <h3 className="min-w-0 break-all font-mono text-sm font-medium">{view.name}</h3>
@@ -70,16 +71,16 @@ export function SkillProposalCard({ proposal, awaitingOwner, onRefresh, onDecide
     </article>;
 }
 
-export function SkillProposalCards({ proposals, awaitingOwner, onRefresh, onDecided }: {
-    proposals: SkillProposalView[]; awaitingOwner: boolean; onRefresh(): void; onDecided?(proposal: SkillProposalView): void;
+export function SkillProposalCards({ proposals, onRefresh, onDecided }: {
+    proposals: SkillProposalView[]; onRefresh(): void; onDecided?(proposal: SkillProposalView): void;
 }) {
     return <>
         {proposals.map(proposal => <SkillProposalCard key={proposal.proposalId} proposal={proposal}
-            awaitingOwner={awaitingOwner} onRefresh={onRefresh} onDecided={onDecided} />)}
+            onRefresh={onRefresh} onDecided={onDecided} />)}
     </>;
 }
 
 /** Proposals that wait for the owner in the conversation's pending list. */
-export function pendingSkillProposalCount(proposals: SkillProposalView[], awaitingOwner: boolean): number {
-    return awaitingOwner ? proposals.filter(proposal => proposal.status === 'pending').length : 0;
+export function pendingSkillProposalCount(proposals: SkillProposalView[]): number {
+    return proposals.filter(proposal => proposal.status === 'pending' && proposal.awaitingOwner).length;
 }

@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AiAssistantToolActivity } from '@/features/desk/use-ai-assistant-chat';
+import { decisionCardId } from '@/features/desk/assistant-decision-receipt';
 import { useDeskSignaling } from '@/features/desk/use-desk-signaling';
 import { ScheduleClient } from './client';
 import { ProposalReview } from './proposal-review';
 
-/** Inline decisions for fresh-task proposals that wait in the assistant turn. */
-export function ScheduleProposalCards({ tools, onPendingCountChange }: { tools: AiAssistantToolActivity[]; running?: boolean; deviceId?: string; connectionId?: string; onPendingCountChange?: (count: number) => void }) {
+/**
+ * Inline decisions for fresh-task proposals the conversation paused on.
+ * `awaitingOwnerId` is the proposal the owner must decide now.
+ */
+export function ScheduleProposalCards({ tools, awaitingOwnerId, onPendingCountChange }: { tools: AiAssistantToolActivity[]; awaitingOwnerId?: string | null; running?: boolean; deviceId?: string; connectionId?: string; onPendingCountChange?: (count: number) => void }) {
     const { t } = useTranslation();
     const { isConnected, subscribe, sendTracked, cancelQueued } = useDeskSignaling();
     const client = useMemo(() => new ScheduleClient(sendTracked, cancelQueued), [sendTracked, cancelQueued]);
@@ -32,9 +36,11 @@ export function ScheduleProposalCards({ tools, onPendingCountChange }: { tools: 
         }
         if (added.length) setIds(previous => [...previous, ...added]);
     }, [tools]);
+    const awaitingOwner = (id: string) => id === awaitingOwnerId && decisions[id] === 'pending_review';
+    const pendingCount = ids.filter(awaitingOwner).length;
     useEffect(() => {
-        onPendingCountChange?.(ids.filter(id => decisions[id] === 'pending_review').length);
-    }, [decisions, ids, onPendingCountChange]);
+        onPendingCountChange?.(pendingCount);
+    }, [pendingCount, onPendingCountChange]);
     const decided = (status: string) => {
         if (status === 'active') return 'schedules.proposal.approved';
         if (status === 'deleted') return 'schedules.proposal.rejected';
@@ -43,7 +49,7 @@ export function ScheduleProposalCards({ tools, onPendingCountChange }: { tools: 
     return <>
         {ids.map(id => {
             const outcome = decisions[id] ? decided(decisions[id]) : null;
-            return <article key={id} data-assistant-pending={decisions[id] === 'pending_review' ? '' : undefined} tabIndex={-1}
+            return <article key={id} id={decisionCardId('schedule', id)} data-assistant-pending={awaitingOwner(id) ? '' : undefined} tabIndex={-1}
                 className="space-y-2 rounded-md border border-amber-500/40 p-3 empty:hidden">
                 {outcome ? <p className="text-sm font-medium">{t(outcome)}</p>
                     : <ProposalReview client={client} scheduleId={id} connected={isConnected}

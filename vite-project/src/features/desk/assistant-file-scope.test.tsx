@@ -23,6 +23,26 @@ describe('conversation directories', () => {
         expect(screen.getByText('pages.aiAssistant.directories.actor.system')).toBeInTheDocument();
         expect(screen.getByText('Reviewer timed out')).toBeInTheDocument();
     });
+    it('offers the owner the decision on the paused request the AI reviewer handed over', () => {
+        const directory = { requestId: 'paused', canonicalPath: '/work', purpose: 'report', state: 'pending',
+            source: 'model_proposal', referenceExpiresAt: '2030-01-01T00:00:00Z' };
+        const scope: AssistantFileScopeView = { revision: 4, directories: [directory, { ...directory, requestId: 'other', canonicalPath: '/other' }] };
+        const update = vi.fn((..._args: unknown[]) => true);
+        const pause = { kind: 'directory' as const, requestId: 'paused', toolCallId: 'call', awaitingOwner: true };
+        const props = { scope, open: true, onOpenChange: vi.fn(), disabled: false, onUpdate: update, automaticApproval: true,
+            showPendingActions: false, onPendingJump: vi.fn() };
+        const view = render(<AssistantFileScope {...props} decisionPause={pause} />);
+        expect(screen.getByText('pages.aiAssistant.decision.review')).toBeInTheDocument();
+        expect(screen.getAllByText('pages.aiAssistant.directories.pendingAi')).toHaveLength(1);
+        expect(screen.getAllByRole('button', { name: 'pages.aiAssistant.directories.approve' })).toHaveLength(1);
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAssistant.directories.reject' }));
+        expect(update).toHaveBeenCalledWith({ kind: 'decide_directory', directory_request_id: 'paused', approve: false, expected_revision: 4 },
+            'pages.aiAssistant.directories.timeout', undefined);
+        view.rerender(<AssistantFileScope {...props} decisionPause={{ ...pause, awaitingOwner: false }} />);
+        expect(screen.queryByText('pages.aiAssistant.decision.review')).toBeNull();
+        expect(screen.getAllByText('pages.aiAssistant.directories.pendingAi')).toHaveLength(2);
+        expect(screen.queryByRole('button', { name: 'pages.aiAssistant.directories.approve' })).toBeNull();
+    });
     it.each(['target', null])('adds a directory for selected target %s with the observed revision', (target) => {
         const update = vi.fn((..._args: unknown[]) => true);
         render(<AssistantFileScope deskId="device" sessionTargetId={target} scope={{ revision: 7, directories: [] }} open onOpenChange={() => {}} disabled={false} onUpdate={update} />);

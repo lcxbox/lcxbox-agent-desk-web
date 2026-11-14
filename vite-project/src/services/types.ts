@@ -226,6 +226,7 @@ export type AiAssistantAsk = {
 export const aiAssistantAttentionReasonEnum = {
     goal_open_approval: "goal_open_approval",
     permission_approval: "permission_approval",
+    decision_approval: "decision_approval",
     goal_needs_input: "goal_needs_input",
     goal_budget: "goal_budget",
     goal_stalled: "goal_stalled",
@@ -1628,6 +1629,39 @@ export type ContextUsageDto = {
     usedBytes: number;
 };
 
+export const decisionPauseKindDtoEnum = {
+    schedule: "schedule",
+    skill: "skill",
+    directory: "directory"
+} as const;
+
+export type DecisionPauseKindDtoEnumKey = (typeof decisionPauseKindDtoEnum)[keyof typeof decisionPauseKindDtoEnum];
+
+export type DecisionPauseKindDto = DecisionPauseKindDtoEnumKey;
+
+/**
+ * @description The request the conversation\'s last turn paused on. The AI reviewer or the\nowner decides it, and the server then continues the requirement.
+*/
+export type DecisionPauseDto = {
+    /**
+     * @description Whether the owner must decide it now rather than wait for the AI reviewer.
+     * @type boolean
+    */
+    awaitingOwner: boolean;
+    /**
+     * @type string
+    */
+    kind: DecisionPauseKindDto;
+    /**
+     * @type string
+    */
+    requestId: string;
+    /**
+     * @type string
+    */
+    toolCallId: string;
+};
+
 export type EvidenceArtifactDto = {
     /**
      * @type string
@@ -2895,7 +2929,7 @@ export const skillProposalStatusEnum = {
     pending: "pending",
     approved: "approved",
     rejected: "rejected",
-    expired: "expired",
+    withdrawn: "withdrawn",
     conflicted: "conflicted"
 } as const;
 
@@ -2907,6 +2941,11 @@ export type SkillProposalStatus = SkillProposalStatusEnumKey;
  * @description A model-authored skill proposal shown in the conversation and the owner\'s\npending list.
 */
 export type SkillProposalView = {
+    /**
+     * @description Whether the owner must decide this pending proposal now: manual\napproval, the AI review window ended or produced no verdict, or the\napproval model is unavailable. Computed by the host.
+     * @type boolean | undefined
+    */
+    awaitingOwner?: boolean;
     /**
      * @type string,null
     */
@@ -2938,10 +2977,6 @@ export type SkillProposalView = {
      * @type array
     */
     diff: SkillFileDiff[];
-    /**
-     * @type integer, int64
-    */
-    expiresAtMs: number;
     /**
      * @type array
     */
@@ -3381,6 +3416,7 @@ export type AiAssistantSessionSnapshotDto = {
      * @type integer, int64
     */
     controlRevision: number;
+    decisionPause?: (null | DecisionPauseDto);
     /**
      * @description Bounded metadata-only lineage graph. It contains no message bodies,\ncredentials, cookies, tokens, browser storage or native paths.
      * @type object
@@ -11863,6 +11899,7 @@ export type RestResponseAiAssistantSessionSnapshotDto = {
          * @type integer, int64
         */
         controlRevision: number;
+        decisionPause?: (null | DecisionPauseDto);
         /**
          * @description Bounded metadata-only lineage graph. It contains no message bodies,\ncredentials, cookies, tokens, browser storage or native paths.
          * @type object
@@ -16073,6 +16110,11 @@ export type RestResponseSkillProposalView = {
     */
     data?: {
         /**
+         * @description Whether the owner must decide this pending proposal now: manual\napproval, the AI review window ended or produced no verdict, or the\napproval model is unavailable. Computed by the host.
+         * @type boolean | undefined
+        */
+        awaitingOwner?: boolean;
+        /**
          * @type string,null
         */
         baseSkillId?: string | null;
@@ -16103,10 +16145,6 @@ export type RestResponseSkillProposalView = {
          * @type array
         */
         diff: SkillFileDiff[];
-        /**
-         * @type integer, int64
-        */
-        expiresAtMs: number;
         /**
          * @type array
         */
@@ -17236,6 +17274,11 @@ export type RestResponseVecSkillProposalView = {
     */
     data?: {
         /**
+         * @description Whether the owner must decide this pending proposal now: manual\napproval, the AI review window ended or produced no verdict, or the\napproval model is unavailable. Computed by the host.
+         * @type boolean | undefined
+        */
+        awaitingOwner?: boolean;
+        /**
          * @type string,null
         */
         baseSkillId?: string | null;
@@ -17266,10 +17309,6 @@ export type RestResponseVecSkillProposalView = {
          * @type array
         */
         diff: SkillFileDiff[];
-        /**
-         * @type integer, int64
-        */
-        expiresAtMs: number;
         /**
          * @type array
         */

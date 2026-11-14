@@ -5,6 +5,7 @@ import { Disclosure } from '@/components/ui/disclosure';
 import type { AiAssistantMessage, AiAssistantToolActivity } from './use-ai-assistant-chat';
 import { hasUnknownActionResult } from './action-result-status';
 import { isConfirmedNotSent } from './ai-assistant-external-send';
+import { useDecisionLabel } from './assistant-tool-call';
 
 function failureMessage(output: string | null): string | null {
     if (!output) return null;
@@ -30,11 +31,15 @@ export function AssistantToolGroup({ messages, tools, renderMessage, displayName
     displayNameForTool?: (name: string) => string; focused?: boolean;
 }) {
     const { t } = useTranslation();
+    const decisionLabel = useDecisionLabel();
     const callIds = [...new Set(messages.map(message => message.toolCallId).filter((id): id is string => Boolean(id)))];
     const entries = callIds.map(id => tools.find(tool => tool.callId === id)).filter((tool): tool is AiAssistantToolActivity => Boolean(tool));
     const uncertain = entries.filter(tool => hasUnknownActionResult(tool.output, tool.callId));
-    const known = entries.filter(tool => !uncertain.includes(tool) && !tool.permissionReview);
-    const reviews = [...new Set(entries.flatMap(tool => tool.permissionReview ? [tool.permissionReview.state] : []))];
+    const known = entries.filter(tool => !uncertain.includes(tool) && !tool.permissionReview && !tool.decision);
+    const reviews = [...new Set(entries.flatMap(tool => [
+        ...tool.permissionReview ? [t(`pages.aiAssistant.permissionState.${tool.permissionReview.state}`)] : [],
+        ...tool.decision ? [decisionLabel(tool.decision)] : [],
+    ]))];
     const failed = known.filter(tool => tool.status === 'failed');
     const firstFailureMessage = failureMessage(failed[0]?.output ?? null);
     const succeeded = known.filter(tool => tool.status === 'ok' && !isConfirmedNotSent(tool.name, tool.output)).length;
@@ -43,7 +48,7 @@ export function AssistantToolGroup({ messages, tools, renderMessage, displayName
         summaryClassName="cursor-pointer text-sm" title={<span className="space-y-1">
             <span className="block font-medium">{t('pages.aiAssistant.workspace.toolGroup', { count: callIds.length })}</span>
             {reviews.length > 0 && <span className="block text-xs text-muted-foreground">
-                {reviews.map(state => t(`pages.aiAssistant.permissionState.${state}`)).join(' · ')}
+                {reviews.join(' · ')}
             </span>}
             {(succeeded > 0 || returned > 0) && <span className="block text-xs text-muted-foreground">
                 {[

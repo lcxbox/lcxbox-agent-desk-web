@@ -286,7 +286,7 @@ export function AssistantSkillsSettings({ scope }: { scope: SkillScopeKind }) {
         </div>}
         {!!proposals.length && <section aria-label={t(`${prefix}proposal.pendingTitle`)} className="space-y-2">
             <h2 className="text-sm font-medium">{t(`${prefix}proposal.pendingTitle`)}</h2>
-            <SkillProposalCards proposals={proposals} awaitingOwner onRefresh={reload} onDecided={reload} />
+            <SkillProposalCards proposals={proposals} onRefresh={reload} onDecided={reload} />
         </section>}
         {(skills?.length || bundled?.skills.length) ? <Card><CardContent className="py-0">
             <ul className="divide-y">

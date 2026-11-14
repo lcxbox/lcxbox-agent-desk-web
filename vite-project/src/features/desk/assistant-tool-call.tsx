@@ -1,8 +1,10 @@
 import { AssistantCodeBlock } from './assistant-code-block';
 import { Disclosure } from '@/components/ui/disclosure';
 import { useState } from 'react';
-import { CheckCircle2, CircleDot, CircleHelp, Loader2, XCircle } from 'lucide-react';
+import { Ban, CheckCircle2, CircleDot, CircleHelp, Clock, Loader2, TriangleAlert, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
+import { decisionCardId, type AssistantDecisionReceipt } from './assistant-decision-receipt';
 import type { AiAssistantToolActivity } from './use-ai-assistant-chat';
 import { hasUnknownActionResult } from './action-result-status';
 import { isConfirmedNotSent } from './ai-assistant-external-send';
@@ -47,10 +49,60 @@ function batchResult(tool: AiAssistantToolActivity) {
     return null;
 }
 
+const decisionIcons = {
+    pending: [Clock, 'text-amber-700 dark:text-amber-300'],
+    submitted: [CircleDot, 'text-muted-foreground'],
+    approved: [CheckCircle2, 'text-green-600 dark:text-green-400'],
+    rejected: [XCircle, 'text-destructive'],
+    conflicted: [TriangleAlert, 'text-amber-700 dark:text-amber-300'],
+    withdrawn: [Ban, 'text-muted-foreground'],
+} as const;
+
+/** Label of a submitted request: its state and, once decided, who decided it. */
+export function useDecisionLabel() {
+    const { t } = useTranslation();
+    return (decision: AssistantDecisionReceipt) => [
+        t(`pages.aiAssistant.decision.state.${decision.state}`),
+        decision.decidedBy && t(`pages.aiAssistant.decision.by.${decision.decidedBy}`),
+    ].filter(Boolean).join(' · ');
+}
+
+/** A request whose result reaches the assistant only after the AI reviewer or the owner decides it. */
+function DecisionToolCall({ tool, decision, displayName, initialOpen }: {
+    tool: AiAssistantToolActivity; decision: AssistantDecisionReceipt; displayName?: string; initialOpen: boolean;
+}) {
+    const { t } = useTranslation();
+    const [open, setOpen] = useState(initialOpen);
+    const label = useDecisionLabel()(decision);
+    const [Icon, iconClass] = decisionIcons[decision.state];
+    const locate = () => {
+        const card = document.getElementById(decisionCardId(decision.kind, decision.requestId));
+        card?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+        card?.focus({ preventScroll: true });
+    };
+    return <div className="min-w-0 rounded-md border bg-muted/30 px-3 py-2"><Disclosure open={open} onOpenChange={setOpen} title={<>
+            <span role="img" aria-label={label} title={label} className={`mr-2 inline-flex align-middle ${iconClass}`}>
+                <Icon aria-hidden="true" className="size-4 shrink-0" />
+            </span>
+            {t('pages.aiAssistant.toolCall.title')} · {displayName ?? tool.name} · {label}
+        </>} summaryClassName="cursor-pointer select-none break-words text-sm [overflow-wrap:anywhere]">
+        {open && <div className="mt-3 min-w-0 space-y-3 text-xs">
+            <AssistantCodeBlock label={t('pages.aiAssistant.toolCall.input')} text={tool.argumentsJson} />
+            {decision.state === 'pending' || decision.state === 'submitted'
+                ? <p className="text-muted-foreground">{t('pages.aiAssistant.decision.notReturned')}</p>
+                : decision.reason && <p className="whitespace-pre-wrap break-words">{decision.reason}</p>}
+        </div>}
+    </Disclosure>
+        {decision.state === 'pending' && decision.awaitingOwner && <Button type="button" size="sm" variant="outline"
+            className="mt-2 border-amber-500/50" onClick={locate}>{t('pages.aiAssistant.decision.review')}</Button>}
+    </div>;
+}
+
 export function AssistantToolCall({ tool, running, displayName, initialOpen = false }: { tool?: AiAssistantToolActivity; running: boolean; displayName?: string; initialOpen?: boolean }) {
     const { t } = useTranslation();
     const [open, setOpen] = useState(initialOpen);
     if (!tool) return null;
+    if (tool.decision) return <DecisionToolCall tool={tool} decision={tool.decision} displayName={displayName} initialOpen={initialOpen} />;
     const prefix = 'pages.aiAssistant.toolCall.';
     const batch = batchResult(tool);
     const permissionSkip = isHistoricalPermissionSkip(tool.output);

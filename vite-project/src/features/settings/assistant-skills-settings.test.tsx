@@ -230,7 +230,7 @@ describe('assistant skill management', () => {
 
     it('lists pending AI skill proposals on the personal page and reloads after a decision', async () => {
         const proposal = { proposalId: 'p1', conversationId: 'c1', kind: 'create', name: 'disk-cleanup', reason: 'Repeated task',
-            status: 'pending', skillMd: '---', files: [], diff: [], createdAtMs: 0, expiresAtMs: 1, revision: 2 };
+            status: 'pending', skillMd: '---', files: [], diff: [], createdAtMs: 0, revision: 2, awaitingOwner: true };
         api.listAiAssistantSkillProposals.mockResolvedValue(ok([proposal, { ...proposal, proposalId: 'p0', name: 'old', status: 'rejected' }]));
         render(<AssistantSkillsSettings scope="personal" />);
         const section = await screen.findByRole('region', { name: 'Skill proposals awaiting your decision' });

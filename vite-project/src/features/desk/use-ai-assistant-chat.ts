@@ -1,5 +1,6 @@
 import { matchesAssistantMessage, mergeAssistantMessages } from './assistant-message-history';
 import { projectGoalReviewReceipt } from './assistant-goal-review-receipt';
+import { decisionPauseResuming, decisionRequestOf, decisionResolver, type AssistantDecisionReceipt } from './assistant-decision-receipt';
 import type { AssistantContextUsage } from './assistant-context-meter';
 import type { AssistantFileScopeView, AssistantDirectoryOperation } from './assistant-file-scope';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -18,6 +19,7 @@ import type {
     CommandTaskDto,
     CapabilityGrantDto,
     ContextNoticeDto,
+    DecisionPauseDto,
     PermissionDecisionBody,
     PermissionRequestDto,
     AiAssistantMainRequestsDto,
@@ -68,6 +70,8 @@ export type AiAssistantMessage = {
 export type AiAssistantToolActivity = {
     permissionReason?: string;
     permissionReview?: { state: PermissionRequestDto['state']; source?: NonNullable<PermissionRequestDto['decision']>['source'] };
+    /** A submitted request whose result reaches the assistant only after a decision. */
+    decision?: AssistantDecisionReceipt;
     callId: string;
     name: string;
     status: 'running' | 'ok' | 'failed' | 'returned';
@@ -283,6 +287,7 @@ export type PersistedSnapshot = {
     approvalDelegation?: AiAssistantApprovalDelegation | null;
     approvalModelReadiness?: AiAssistantApprovalModelReadiness | null;
     skillProposals?: SkillProposalView[];
+    decisionPause?: DecisionPauseDto | null;
     contextNotices?: ContextNoticeDto[];
     contextUsage?: AssistantContextUsage | null;
     sessionId: string;
@@ -307,8 +312,9 @@ export type PersistedSnapshot = {
     visualEvidence?: AiAssistantVisualEvidence[];
 };
 
-export function projectPersistedSnapshot(snapshot: Pick<PersistedSnapshot, 'messages' | 'actionPermissionReasons' | 'contextAttachments' | 'taskStatusProjection' | 'permissionRequests' | 'backgroundTasks' | 'capabilityGrants' | 'latestInputSeq' | 'handledInputSeq'>) {
+export function projectPersistedSnapshot(snapshot: Pick<PersistedSnapshot, 'messages' | 'actionPermissionReasons' | 'contextAttachments' | 'taskStatusProjection' | 'permissionRequests' | 'backgroundTasks' | 'capabilityGrants' | 'latestInputSeq' | 'handledInputSeq' | 'skillProposals' | 'fileScope' | 'decisionPause'>) {
     const messages: AiAssistantMessage[] = [];
+    const resolveDecision = decisionResolver(snapshot);
     let tools: AiAssistantToolActivity[] = [];
     let draft: ComputerActionDraftPreview | null = null;
     const permissions = new Map(snapshot.permissionRequests?.map(request => [request.requestId, request]));
@@ -358,6 +364,7 @@ export function projectPersistedSnapshot(snapshot: Pick<PersistedSnapshot, 'mess
             let nativeFileResult = false;
             let permissionReview: AiAssistantToolActivity['permissionReview'];
             let approvalReceipt = false;
+            let decision: AssistantDecisionReceipt | undefined;
             try {
                 const native = JSON.parse(message.text);
                 permissionReason = snapshot.actionPermissionReasons?.[String(native.work_id)];
@@ -366,6 +373,10 @@ export function projectPersistedSnapshot(snapshot: Pick<PersistedSnapshot, 'mess
                     const request = permissions.get(native.request_id);
                     if (request) permissionReview = { state: request.state, source: request.decision?.source };
                 }
+                // A decision receipt is not the tool result: the assistant
+                // receives the decision when the server resumes the turn.
+                const submitted = native && typeof native === 'object' ? decisionRequestOf(native) : null;
+                if (submitted) decision = resolveDecision(submitted.kind, submitted.requestId);
                 nativeFailed = ['definitely_not_started', 'failed'].includes(native.result)
                     || ['failed', 'error'].includes(native.status)
                     || native.ok === false || native.success === false
@@ -378,6 +389,7 @@ export function projectPersistedSnapshot(snapshot: Pick<PersistedSnapshot, 'mess
                 callId: message.toolCallId,
                 permissionReason,
                 ...(permissionReview && { permissionReview }),
+                ...(decision && { decision }),
                 name: existing?.name ?? 'unknown',
                 status: backgroundRunning ? 'running'
                     : typeof message.toolOk === 'boolean' ? (message.toolOk ? 'ok' : 'failed')
@@ -421,6 +433,7 @@ export function projectPersistedSnapshot(snapshot: Pick<PersistedSnapshot, 'mess
             0,
             (snapshot.latestInputSeq ?? 0) - (snapshot.handledInputSeq ?? 0),
         ),
+        decisionResuming: decisionPauseResuming(snapshot),
     };
 }
 
@@ -496,6 +509,7 @@ export function useAiAssistantChat({
     const [approvalDelegation, setApprovalDelegation] = useState<AiAssistantApprovalDelegation | null>(null);
     const [approvalModelReadiness, setApprovalModelReadiness] = useState<AiAssistantApprovalModelReadiness | null>(null);
     const [skillProposals, setSkillProposals] = useState<SkillProposalView[]>([]);
+    const [decisionPause, setDecisionPause] = useState<DecisionPauseDto | null>(null);
     const [approvalUpdating, setApprovalUpdating] = useState(false);
     const [permissionRequests, setPermissionRequests] = useState<PermissionRequestDto[]>([]);
     const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTaskDto[]>([]);
@@ -860,6 +874,7 @@ export function useAiAssistantChat({
             setApprovalDelegation(snapshot.approvalDelegation ?? null);
             setApprovalModelReadiness(snapshot.approvalModelReadiness ?? null);
             setSkillProposals(snapshot.skillProposals ?? []);
+            setDecisionPause(snapshot.decisionPause ?? null);
             if (typeof snapshot.approvalModelReadiness?.available === 'boolean') setApprovalInitializationFailed(false);
             setPermissionRequests(projected.permissionRequests);
             setBackgroundTasks(projected.backgroundTasks);
@@ -912,6 +927,10 @@ export function useAiAssistantChat({
 
                 } else if (snapshot.mainStopped) {
                     setStatus('cancelled');
+                    setError(null);
+                } else if (snapshot.decisionPause) {
+                    // The turn ended on a request; a decided one waits for the server to resume.
+                    setStatus(projected.decisionResuming ? 'resuming' : 'decision_required');
                     setError(null);
                 } else if (snapshot.goal && !['completed', 'failed', 'cancelled'].includes(snapshot.goal.state)) {
                     setStatus(snapshot.goal.state === 'waiting_approval' ? 'permission_required' : 'done');
@@ -1096,6 +1115,7 @@ export function useAiAssistantChat({
         setApprovalDelegation(null);
         setApprovalModelReadiness(null);
         setSkillProposals([]);
+        setDecisionPause(null);
         setApprovalInitializing(false);
         setApprovalInitializationFailed(false);
         approvalInitializationAttempt.current = null;
@@ -1150,6 +1170,7 @@ export function useAiAssistantChat({
             setApprovalDelegation(null);
             setApprovalModelReadiness(null);
             setSkillProposals([]);
+            setDecisionPause(null);
             setApprovalInitializing(false);
             setApprovalInitializationFailed(false);
             approvalInitializationAttempt.current = null;
@@ -2090,6 +2111,7 @@ export function useAiAssistantChat({
         setApprovalDelegation(null);
         setApprovalModelReadiness(null);
         setSkillProposals([]);
+        setDecisionPause(null);
         setApprovalInitializing(false);
         setApprovalInitializationFailed(false);
         approvalInitializationAttempt.current = null;
@@ -2206,6 +2228,7 @@ export function useAiAssistantChat({
         approvalDelegation,
         approvalModelReadiness,
         skillProposals,
+        decisionPause,
         approvalUpdating,
         setAutomaticApproval,
         permissionRequests,

@@ -12,7 +12,7 @@ const created: SkillProposalView = {
     proposalId: 'p1', conversationId: 'c1', kind: 'create', name: 'disk-cleanup', reason: 'You asked for it twice',
     status: 'pending', skillMd: '---\nname: disk-cleanup\n---\nFree space safely.',
     files: [{ path: 'scripts/clean.sh', text: 'du -sh /tmp' }], diff: [],
-    createdAtMs: 0, expiresAtMs: 1, revision: 3,
+    createdAtMs: 0, revision: 3, awaitingOwner: true,
 };
 const updated: SkillProposalView = {
     ...created, proposalId: 'p2', kind: 'update', baseSkillId: 's1', baseVersion: 2, skillMd: '', files: [],
@@ -26,7 +26,7 @@ beforeEach(() => vi.resetAllMocks());
 describe('skill proposal card', () => {
     it('shows a new skill in full and approves it with the shown revision', async () => {
         const onDecided = vi.fn();
-        render(<SkillProposalCard proposal={created} awaitingOwner onRefresh={vi.fn()} onDecided={onDecided} />);
+        render(<SkillProposalCard proposal={created} onRefresh={vi.fn()} onDecided={onDecided} />);
         const card = screen.getByRole('article', { name: 'disk-cleanup' });
         expect(card).toHaveAttribute('data-assistant-pending');
         expect(within(card).getByText('New skill')).toBeInTheDocument();
@@ -45,7 +45,7 @@ describe('skill proposal card', () => {
     });
 
     it('renders an update as the diff to its base version and rejects it', async () => {
-        render(<SkillProposalCard proposal={updated} awaitingOwner onRefresh={vi.fn()} />);
+        render(<SkillProposalCard proposal={updated} onRefresh={vi.fn()} />);
         const card = screen.getByRole('article', { name: 'disk-cleanup' });
         expect(within(card).getByText('New version')).toBeInTheDocument();
         const diff = within(card).getByRole('group', { name: 'SKILL.md' });
@@ -60,25 +60,34 @@ describe('skill proposal card', () => {
     it('refreshes a stale proposal after a revision conflict', async () => {
         const onRefresh = vi.fn();
         api.decideAiAssistantSkillProposal.mockRejectedValue(new RestResponseError('changed', deskErrorCodeEnum.REVISION_CONFLICT, null));
-        render(<SkillProposalCard proposal={created} awaitingOwner onRefresh={onRefresh} />);
+        render(<SkillProposalCard proposal={created} onRefresh={onRefresh} />);
         fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
         expect(await screen.findByRole('alert')).toHaveTextContent('The proposal changed and has been reloaded.');
         expect(onRefresh).toHaveBeenCalledTimes(1);
     });
 
     it('explains a conflicted proposal and offers no decision', () => {
-        render(<SkillProposalCard proposal={{ ...updated, status: 'conflicted', decisionSource: 'ai_review' }} awaitingOwner onRefresh={vi.fn()} />);
+        render(<SkillProposalCard proposal={{ ...updated, status: 'conflicted', decisionSource: 'ai_review' }} onRefresh={vi.fn()} />);
         expect(screen.getByText(/propose again based on the new version/)).toBeInTheDocument();
         expect(screen.getByText('AI review')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
     });
 
-    it('counts pending proposals only while the owner is the reviewer', () => {
-        const proposals = [created, { ...updated, status: 'approved' as const }];
-        expect(pendingSkillProposalCount(proposals, true)).toBe(1);
-        expect(pendingSkillProposalCount(proposals, false)).toBe(0);
-        render(<SkillProposalCard proposal={created} awaitingOwner={false} onRefresh={vi.fn()} />);
-        expect(screen.getByRole('article')).not.toHaveAttribute('data-assistant-pending');
+    it('counts and marks only pending proposals the owner must decide now', () => {
+        const reviewing = { ...updated, proposalId: 'p3', awaitingOwner: false };
+        const proposals = [created, reviewing, { ...updated, status: 'approved' as const }];
+        expect(pendingSkillProposalCount(proposals)).toBe(1);
+        render(<SkillProposalCard proposal={reviewing} onRefresh={vi.fn()} />);
+        const card = screen.getByRole('article');
+        expect(card).not.toHaveAttribute('data-assistant-pending');
+        expect(card).toHaveAttribute('id', 'assistant-skill-proposal-p3');
         expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+    });
+
+    it('shows a proposal withdrawn by stopping the conversation without a decision', () => {
+        render(<SkillProposalCard proposal={{ ...created, status: 'withdrawn' }} onRefresh={vi.fn()} />);
+        expect(screen.getByText('Withdrawn')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+        expect(screen.getByRole('article')).not.toHaveAttribute('data-assistant-pending');
     });
 });

@@ -14,6 +14,7 @@ import { MarkdownContent } from '@/components/markdown-content';
 import { formatLocalTime } from '@/lib/local-time';
 import { AssistantPermissionRequest } from './assistant-permission-request';
 import { AssistantDirectoryApproval } from './assistant-directory-approval';
+import { ownerPendingDirectories } from './assistant-decision-receipt';
 import { AssistantAttachments } from './assistant-attachments';
 import { AssistantPermissionRecords, permissionIsAutomaticallyReviewed } from './assistant-permission-records';
 import { AssistantFileScope } from './assistant-file-scope';
@@ -112,8 +113,7 @@ export function AssistantSubagents({ agents, connected, canDecide, interactive, 
     }, [child?.sessionId, child?.permissionRequests, contentRef, focusPermissionId]);
     if (!task) return null;
     const automaticApproval = child?.approvalDelegation?.status === 'active';
-    const pendingDirectories = child?.fileScope?.directories.filter(directory => directory.state === 'pending'
-        && !(automaticApproval && directory.source === 'model_proposal')) ?? [];
+    const pendingDirectories = ownerPendingDirectories(child?.fileScope?.directories ?? [], child?.decisionPause, automaticApproval);
     const pendingPermissions = child?.permissionRequests?.filter(request => ['pending', 'needs_revalidation'].includes(request.state)
         && !permissionIsAutomaticallyReviewed(request, automaticApproval)) ?? [];
     const runningTaskCount = [...(child?.commandTasks ?? []), ...(child?.backgroundTasks ?? [])]
@@ -293,7 +293,7 @@ export function AssistantSubagents({ agents, connected, canDecide, interactive, 
         {child && <>
             <AssistantAttachments key={`attachments:${child.sessionId}`} sessionId={child.sessionId} open={panel === 'attachments'}
                 onOpenChange={open => setPanel(open ? 'attachments' : null)} showTrigger={false} />
-            <AssistantFileScope key={`directories:${child.sessionId}`} scope={child.fileScope ?? { revision: 0, directories: [] }} automaticApproval={automaticApproval}
+            <AssistantFileScope key={`directories:${child.sessionId}`} scope={child.fileScope ?? { revision: 0, directories: [] }} automaticApproval={automaticApproval} decisionPause={child.decisionPause}
                 deskId={deskId} sessionTargetId={sessionTargetId} open={panel === 'directories'}
                 onOpenChange={open => setPanel(open ? 'directories' : null)}
                 disabled={!canDecide || !connected || agents.updating} selectionDisabled={child.active || subagentIsTerminal(task)}

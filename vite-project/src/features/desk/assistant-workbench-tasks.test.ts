@@ -22,4 +22,14 @@ describe('workbench links', () => {
             .toBe('/ai-assistant/workbench?workbench=root&task=request-a&worker=worker-a');
         expect(assistantAttentionPath({ ...item, workbench: null, deviceId: 'offline' }, false)).toBeUndefined();
     });
+
+    it('opens the paused conversation of a proposal or directory request awaiting a decision', () => {
+        const item = { attentionId: 'decision', sessionId: 'session', clientConversationId: 'conversation-1',
+            deviceId: 'device-1', reason: 'decision_approval' as const, requestId: 'proposal-1', updatedAtUnixMs: 1,
+            deadlineUnixMs: null, workbench: null };
+        expect(assistantAttentionPath(item, true)).toBe('/desk/device/device-1/assistant?conversation=conversation-1');
+        expect(assistantAttentionPath({ ...item, deviceId: '' }, false)).toBe('/ai-assistant/conversation?conversation=conversation-1');
+        expect(assistantAttentionPath({ ...item, workbench: { workbenchId: 'root', requestId: 'request-a' } }, false))
+            .toBe('/ai-assistant/workbench?workbench=root&task=request-a');
+    });
 });

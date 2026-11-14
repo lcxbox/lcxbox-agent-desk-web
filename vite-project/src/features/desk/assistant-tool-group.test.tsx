@@ -53,4 +53,16 @@ describe('assistant tool activity summary', () => {
         expect(screen.queryByText(/7bca7a6b/)).toBeNull();
         expect(container.querySelector('[data-slot="disclosure"]')?.getAttribute('data-state')).toBe('closed');
     });
+
+    it('summarizes a decision receipt by its decision instead of a returned result', () => {
+        render(<AssistantToolGroup
+            messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}
+            tools={[{ callId: 'call-1', name: 'propose_skill', status: 'ok', argumentsJson: '{}',
+                output: '{"proposal_id":"p1","status":"pending","awaiting_decision":true}',
+                decision: { kind: 'skill', requestId: 'p1', state: 'approved', decidedBy: 'owner' } }]}
+            renderMessage={() => <div>Details</div>} />);
+        expect(screen.getByText('pages.aiAssistant.decision.state.approved · pages.aiAssistant.decision.by.owner')).toBeTruthy();
+        expect(screen.queryByText('pages.aiAssistant.workspace.toolGroupReturned')).toBeNull();
+        expect(screen.queryByText('pages.aiAssistant.workspace.toolGroupSucceeded')).toBeNull();
+    });
 });
