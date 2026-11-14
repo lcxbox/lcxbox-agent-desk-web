@@ -1,0 +1,1 @@
+{"type":"object","required":["proposalId","approve","expectedRevision"],"properties":{"approve":{"type":"boolean"},"expectedRevision":{"type":"integer","format":"int64","minimum":0},"proposalId":{"type":"string"}},"additionalProperties":false,"x-readme-ref-name":"SkillProposalDecision"}

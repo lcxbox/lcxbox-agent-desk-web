@@ -6,10 +6,13 @@ import type { ContextUsageDto } from '@/services/types';
 export type AssistantContextUsage = ContextUsageDto;
 
 export function contextRequestBudget(usage: AssistantContextUsage | null) {
-    const budget = usage?.requestBudget;
-    if (!budget || !usage || ![budget.totalBytes, budget.systemPromptBytes, budget.toolDefinitionsBytes, budget.otherOverheadBytes]
+    const reported = usage?.requestBudget;
+    if (!reported || !usage) return null;
+    // Older servers omit the skill row; their skill cost is inside the other rows.
+    const budget = { ...reported, skillBytes: reported.skillBytes ?? 0 };
+    if (![budget.totalBytes, budget.systemPromptBytes, budget.toolDefinitionsBytes, budget.skillBytes, budget.otherOverheadBytes]
         .every(value => Number.isSafeInteger(value) && value >= 0) || budget.totalBytes <= 0) return null;
-    const overhead = budget.systemPromptBytes + budget.toolDefinitionsBytes + budget.otherOverheadBytes;
+    const overhead = budget.systemPromptBytes + budget.toolDefinitionsBytes + budget.skillBytes + budget.otherOverheadBytes;
     return Number.isSafeInteger(overhead) && budget.totalBytes - overhead === usage.limitBytes && usage.limitBytes > 0 ? budget : null;
 }
 
@@ -75,7 +78,7 @@ export function AssistantContextMeter({ usage, draft }: { usage: AssistantContex
                 <p className="text-sm font-medium">{t('pages.aiAssistant.contextMeter.requestTitle')}</p>
                 <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 text-sm">
                     <dt>{t('pages.aiAssistant.contextMeter.total')}</dt><dd className="text-right tabular-nums">{budget ? bytes(budget.totalBytes) : '—'}</dd>
-                    {(['systemPromptBytes', 'toolDefinitionsBytes', 'otherOverheadBytes'] as const).map(key => <div key={key} className="contents">
+                    {(['systemPromptBytes', 'toolDefinitionsBytes', 'skillBytes', 'otherOverheadBytes'] as const).map(key => <div key={key} className="contents">
                         <dt>{t(`pages.aiAssistant.contextMeter.request.${key}`)}</dt>
                         <dd className="text-right tabular-nums">{budget ? <>{bytes(budget[key])}<span className="block text-xs text-muted-foreground">{share(budget[key], budget.totalBytes)}</span></> : '—'}</dd>
                     </div>)}

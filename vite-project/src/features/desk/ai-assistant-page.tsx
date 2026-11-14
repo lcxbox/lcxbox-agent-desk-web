@@ -25,6 +25,7 @@ import { AssistantAutomaticApproval } from './assistant-automatic-approval';
 import { useAssistantApprovalMode } from './assistant-approval-mode';
 import { useAiAssistantSubagents } from './use-ai-assistant-subagents';
 import { ScheduleProposalCards } from '@/features/schedules/proposal-card';
+import { pendingSkillProposalCount, SkillProposalCards } from './assistant-skill-proposal-card';
 import { AssistantContextMeter } from './assistant-context-meter';
 import { AssistantDirectoryApproval } from './assistant-directory-approval';
 import { AssistantFileScope, type AssistantDirectoryOperation } from './assistant-file-scope';
@@ -41,7 +42,7 @@ import { capabilityDescriptionKey } from './assistant-capability-copy';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Bot, Check, AlertTriangle, ArrowDown, ArrowLeft, CalendarClock, Eye, FolderKey, ListTodo, ListTree, LoaderCircle, Monitor, Paperclip, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, X } from 'lucide-react';
+import { BookOpen, Bot, Check, AlertTriangle, ArrowDown, ArrowLeft, CalendarClock, Eye, FolderKey, ListTodo, ListTree, LoaderCircle, Monitor, Paperclip, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, X } from 'lucide-react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -365,7 +366,8 @@ export function AiAssistantWorkspace({
         && !(automaticApproval && directory.source === 'model_proposal'));
     const pendingPermissionCount = chat.permissionRequests.filter(request => ['pending', 'needs_revalidation'].includes(request.state)
         && !permissionIsAutomaticallyReviewed(request, automaticApproval)).length;
-    const pendingCount = pendingDirectories.length + pendingPermissionCount + pendingScheduleCount + Number(Boolean(chat.pendingGoalOpenRequest));
+    const pendingCount = pendingDirectories.length + pendingPermissionCount + pendingScheduleCount + Number(Boolean(chat.pendingGoalOpenRequest))
+        + pendingSkillProposalCount(chat.skillProposals, !automaticApproval);
     const runningTaskCount = [...chat.commandTasks, ...chat.backgroundTasks]
         .filter(task => ['running', 'cancel_requested'].includes(task.state)).length;
     const jumpToPending = (id?: string) => {
@@ -665,6 +667,8 @@ export function AiAssistantWorkspace({
                 onSelect: () => setApprovalSettingsOpen(true) }] : []),
             { label: t('pages.aiAssistant.personalization.title'), icon: SlidersHorizontal,
                 onSelect: () => navigate('/ai-assistant/personalization') },
+            { label: t('pages.assistantSkills.personal.title'), icon: BookOpen,
+                onSelect: () => navigate('/ai-assistant/skills') },
             ...(hasDevice ? [{ label: t('pages.aiAssistant.workspace.deviceSettings'), icon: Settings2,
                 onSelect: () => setDeviceSettingsOpen(true) }] : []),
         ] },
@@ -933,6 +937,8 @@ export function AiAssistantWorkspace({
                         before={<AssistantDocumentPreviews previews={chat.documentPreviews} requestPage={chat.requestDocumentPreviewPage} />}>
                         <ScheduleProposalCards key={permissionHistoryKey} tools={chat.tools} running={chat.running}
                             deviceId={stableDeviceId} connectionId={deskId} onPendingCountChange={setPendingScheduleCount} />
+                        <SkillProposalCards proposals={chat.skillProposals} awaitingOwner={!automaticApproval}
+                            onRefresh={chat.refreshSnapshot} onDecided={chat.refreshSnapshot} />
                         {chat.contextCompressing && <p role="status" data-testid="assistant-context-compressing"
                             className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                             <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />

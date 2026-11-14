@@ -1,0 +1,1 @@
+{"type":"object","required":["path","reason"],"properties":{"path":{"type":"string"},"reason":{"type":"string","enum":["binary","too_large","invalid_path","too_many_files"],"x-readme-ref-name":"SkillSkipReason"}},"x-readme-ref-name":"SkillSkippedFile"}

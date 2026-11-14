@@ -22,6 +22,7 @@ import type {
     PermissionRequestDto,
     AiAssistantMainRequestsDto,
 } from '@/services/types';
+import type { SkillProposalView } from '@/services/types';
 import { deskErrorCodeEnum } from '@/services/types';
 import type { AiAssistantDocumentPreview, AiAssistantDocumentPreviewPageResponse, AiAssistantEvent, AiAssistantVisualEvidence } from './ai-assistant-event';
 import {
@@ -281,6 +282,7 @@ export type PersistedSnapshot = {
     pendingGoalOpenRequest?: AiAssistantGoalOpenRequest | null;
     approvalDelegation?: AiAssistantApprovalDelegation | null;
     approvalModelReadiness?: AiAssistantApprovalModelReadiness | null;
+    skillProposals?: SkillProposalView[];
     contextNotices?: ContextNoticeDto[];
     contextUsage?: AssistantContextUsage | null;
     sessionId: string;
@@ -493,6 +495,7 @@ export function useAiAssistantChat({
     const [goalOpenUpdating, setGoalOpenUpdating] = useState(false);
     const [approvalDelegation, setApprovalDelegation] = useState<AiAssistantApprovalDelegation | null>(null);
     const [approvalModelReadiness, setApprovalModelReadiness] = useState<AiAssistantApprovalModelReadiness | null>(null);
+    const [skillProposals, setSkillProposals] = useState<SkillProposalView[]>([]);
     const [approvalUpdating, setApprovalUpdating] = useState(false);
     const [permissionRequests, setPermissionRequests] = useState<PermissionRequestDto[]>([]);
     const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTaskDto[]>([]);
@@ -856,6 +859,7 @@ export function useAiAssistantChat({
             setPendingGoalOpenRequest(snapshot.pendingGoalOpenRequest ?? null);
             setApprovalDelegation(snapshot.approvalDelegation ?? null);
             setApprovalModelReadiness(snapshot.approvalModelReadiness ?? null);
+            setSkillProposals(snapshot.skillProposals ?? []);
             if (typeof snapshot.approvalModelReadiness?.available === 'boolean') setApprovalInitializationFailed(false);
             setPermissionRequests(projected.permissionRequests);
             setBackgroundTasks(projected.backgroundTasks);
@@ -1091,6 +1095,7 @@ export function useAiAssistantChat({
         setPendingGoalOpenRequest(null);
         setApprovalDelegation(null);
         setApprovalModelReadiness(null);
+        setSkillProposals([]);
         setApprovalInitializing(false);
         setApprovalInitializationFailed(false);
         approvalInitializationAttempt.current = null;
@@ -1144,6 +1149,7 @@ export function useAiAssistantChat({
             setPendingGoalOpenRequest(null);
             setApprovalDelegation(null);
             setApprovalModelReadiness(null);
+            setSkillProposals([]);
             setApprovalInitializing(false);
             setApprovalInitializationFailed(false);
             approvalInitializationAttempt.current = null;
@@ -2083,6 +2089,7 @@ export function useAiAssistantChat({
         setPendingGoalOpenRequest(null);
         setApprovalDelegation(null);
         setApprovalModelReadiness(null);
+        setSkillProposals([]);
         setApprovalInitializing(false);
         setApprovalInitializationFailed(false);
         approvalInitializationAttempt.current = null;
@@ -2198,6 +2205,7 @@ export function useAiAssistantChat({
         decideGoalOpen,
         approvalDelegation,
         approvalModelReadiness,
+        skillProposals,
         approvalUpdating,
         setAutomaticApproval,
         permissionRequests,

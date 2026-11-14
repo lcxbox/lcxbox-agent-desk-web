@@ -1,0 +1,1 @@
+{"type":"string","enum":["binary","too_large","invalid_path","too_many_files"],"x-readme-ref-name":"SkillSkipReason"}

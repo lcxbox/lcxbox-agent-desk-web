@@ -33,6 +33,19 @@ export const APPROVAL_MODEL_ERROR_KEYS: ErrorCodeKeyMap = {
     [deskErrorCodeEnum.AI_APPROVAL_PROBE_OUTPUT_TRUNCATED]: 'pages.approvalModel.testOutputTruncated',
 };
 
+/** Skill management; other codes (such as a rejected package) show the backend reason. */
+export const SKILL_ERROR_KEYS: ErrorCodeKeyMap = {
+    [deskErrorCodeEnum.REVISION_CONFLICT]: 'pages.assistantSkills.conflict',
+    [deskErrorCodeEnum.SYSTEM_ERROR]: 'pages.assistantSkills.failed',
+};
+
+/** Deciding an AI skill proposal; a stale proposal is read again by the caller. */
+export const SKILL_PROPOSAL_ERROR_KEYS: ErrorCodeKeyMap = {
+    [deskErrorCodeEnum.REVISION_CONFLICT]: 'pages.assistantSkills.proposal.changed',
+    [deskErrorCodeEnum.PRECONDITION_FAILED]: 'pages.assistantSkills.proposal.changed',
+    [deskErrorCodeEnum.SYSTEM_ERROR]: 'pages.assistantSkills.failed',
+};
+
 /**
  * The `DeskErrorCode` an error carries, or `undefined` when it carries none.
  *

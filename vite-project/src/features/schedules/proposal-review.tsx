@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { ProposalDecisionActions } from '@/features/desk/proposal-decision-actions';
 import type { ScheduleView } from '@/services/types';
 import { ScheduleClient, ScheduleRequestError, scheduleErrorMessage } from './client';
 import { formatTime, ruleTimes, validTimezone } from './time';
@@ -70,10 +70,8 @@ export function ProposalReview({ client, scheduleId, connected, zone, onChanged,
                 </div>
             </div>
             <p className="text-xs text-muted-foreground">{t('schedules.proposal.freshNote')}</p>
-            {task.status === 'pending_review' && <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" disabled={!connected || busy || activationDisabled} onClick={() => void decide(true)}><Check className="mr-2 h-4 w-4" />{t('schedules.proposal.approve')}</Button>
-                <Button type="button" size="sm" variant="outline" disabled={!connected || busy || activationDisabled} onClick={() => void decide(false)}><X className="mr-2 h-4 w-4" />{t('schedules.proposal.reject')}</Button>
-            </div>}
+            {task.status === 'pending_review' && <ProposalDecisionActions disabled={!connected || busy || activationDisabled}
+                approveLabel={t('schedules.proposal.approve')} rejectLabel={t('schedules.proposal.reject')} onDecide={approve => void decide(approve)} />}
         </div>}
     </div>;
 }

@@ -1,0 +1,1 @@
+{"type":"string","description":"Who manages a stored skill and which work may see it.","enum":["platform","personal"],"x-readme-ref-name":"SkillScope"}

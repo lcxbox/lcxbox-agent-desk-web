@@ -1,0 +1,1 @@
+{"type":"string","enum":["pending","approved","rejected","expired","conflicted"],"x-readme-ref-name":"SkillProposalStatus"}

@@ -35,6 +35,28 @@ describe('compression headroom meter', () => {
         expect(within(panel).getByText('pages.aiAssistant.contextMeter.used').nextElementSibling).toHaveTextContent('bytes360');
         expect(within(panel).getByText('pages.aiAssistant.contextMeter.remaining').nextElementSibling).toHaveTextContent('bytes360');
     });
+    it('lists skill cost as its own request row and includes it in the budget sum', async () => {
+        const usage = { usedBytes: 100, limitBytes: 650, strategy: 'window',
+            requestBudget: { totalBytes: 1000, systemPromptBytes: 80, toolDefinitionsBytes: 160, skillBytes: 70, otherOverheadBytes: 40 } };
+        expect(contextRequestBudget(usage)).toEqual(usage.requestBudget);
+        expect(contextRequestBudget({ ...usage, limitBytes: 720 })).toBeNull();
+        expect(contextRequestBudget({ ...usage, requestBudget: { ...usage.requestBudget, skillBytes: -1 } })).toBeNull();
+        render(<AssistantContextMeter usage={usage} draft="" />);
+        fireEvent.click(screen.getByRole('button'));
+        const panel = await screen.findByRole('dialog');
+        const request = within(within(panel).getByRole('region', { name: 'pages.aiAssistant.contextMeter.requestTitle' }));
+        expect(request.getByText('pages.aiAssistant.contextMeter.request.skillBytes').nextElementSibling).toHaveTextContent('bytes70');
+        expect(request.getByText('pages.aiAssistant.contextMeter.request.skillBytes').nextElementSibling).toHaveTextContent('share7');
+    });
+    it('treats a missing skill row as zero for servers that do not report it', async () => {
+        const usage = { usedBytes: 100, limitBytes: 720, strategy: 'window',
+            requestBudget: { totalBytes: 1000, systemPromptBytes: 80, toolDefinitionsBytes: 160, otherOverheadBytes: 40 } };
+        expect(contextRequestBudget(usage)).toEqual({ ...usage.requestBudget, skillBytes: 0 });
+        render(<AssistantContextMeter usage={usage} draft="" />);
+        fireEvent.click(screen.getByRole('button'));
+        const panel = await screen.findByRole('dialog');
+        expect(within(panel).getByText('pages.aiAssistant.contextMeter.request.skillBytes').nextElementSibling).toHaveTextContent('bytes0');
+    });
     it('shows unmeasured request costs as unknown while keeping the valid history meter', async () => {
         render(<AssistantContextMeter usage={{ usedBytes: 250, limitBytes: 1000, strategy: 'window', requestBudget: null }} draft="" />);
         fireEvent.click(screen.getByRole('button'));
@@ -47,7 +69,7 @@ describe('compression headroom meter', () => {
     it('rejects inconsistent or unsafe request metadata without invalidating history usage', () => {
         const usage = { usedBytes: 100, limitBytes: 720, strategy: 'window',
             requestBudget: { totalBytes: 1000, systemPromptBytes: 80, toolDefinitionsBytes: 160, otherOverheadBytes: 40 } };
-        expect(contextRequestBudget(usage)).toEqual(usage.requestBudget);
+        expect(contextRequestBudget(usage)).toEqual({ ...usage.requestBudget, skillBytes: 0 });
         for (const requestBudget of [
             { ...usage.requestBudget, otherOverheadBytes: 39 },
             { ...usage.requestBudget, systemPromptBytes: -1 },

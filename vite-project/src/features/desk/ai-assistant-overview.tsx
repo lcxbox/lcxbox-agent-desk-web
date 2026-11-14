@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Activity, Bell, Brain, CalendarClock, ListTodo, MessagesSquare, Search, SlidersHorizontal } from 'lucide-react';
+import { Activity, Bell, BookOpen, Brain, CalendarClock, ListTodo, MessagesSquare, Search, SlidersHorizontal } from 'lucide-react';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { AiAssistantIcon } from '@/components/ai-assistant-icon';
 
@@ -76,6 +76,17 @@ export function AiAssistantOverview({ showPersonalConversation = true, showWorkb
                             <CardTitle className="text-lg">{t('pages.aiAssistant.personalization.title')}</CardTitle>
                         </div>
                         <CardDescription className="mt-2 line-clamp-2">{t('pages.aiAssistant.personalization.description')}</CardDescription>
+                    </CardHeader>
+                </Card>
+            </Link>
+            <Link to="/ai-assistant/skills" className="block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                <Card className="h-full cursor-pointer transition-colors hover:bg-muted/50">
+                    <CardHeader>
+                        <div className="flex items-center gap-2">
+                            <BookOpen className="h-5 w-5 text-primary" aria-hidden="true" />
+                            <CardTitle className="text-lg">{t('pages.assistantSkills.personal.title')}</CardTitle>
+                        </div>
+                        <CardDescription className="mt-2 line-clamp-2">{t('pages.assistantSkills.personal.scope')}</CardDescription>
                     </CardHeader>
                 </Card>
             </Link>

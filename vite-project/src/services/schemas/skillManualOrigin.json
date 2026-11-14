@@ -1,0 +1,1 @@
+{"type":"string","description":"A manual save of a new version.","enum":["imported","edited"],"x-readme-ref-name":"SkillManualOrigin"}

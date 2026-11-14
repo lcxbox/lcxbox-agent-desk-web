@@ -1,0 +1,1 @@
+{"type":"string","description":"Display classification of a package file, from its top-level directory.","enum":["script","reference","asset","other"],"x-readme-ref-name":"SkillResourceKind"}

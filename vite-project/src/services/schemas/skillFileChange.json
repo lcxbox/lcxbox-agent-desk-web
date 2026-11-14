@@ -1,0 +1,1 @@
+{"type":"string","enum":["added","removed","modified"],"x-readme-ref-name":"SkillFileChange"}

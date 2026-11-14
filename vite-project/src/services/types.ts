@@ -1569,6 +1569,12 @@ export type ContextRequestBudgetDto = {
     */
     otherOverheadBytes: number;
     /**
+     * @description Skill catalogue, instructions and files; not part of the other parts.
+     * @minLength 0
+     * @type integer, int64
+    */
+    skillBytes: number;
+    /**
      * @minLength 0
      * @type integer, int64
     */
@@ -2786,6 +2792,192 @@ export type PermissionRequestDto = {
     state: PermissionRequestStateDto;
 };
 
+export const skillDecisionSourceEnum = {
+    ai_review: "ai_review",
+    owner: "owner"
+} as const;
+
+export type SkillDecisionSourceEnumKey = (typeof skillDecisionSourceEnum)[keyof typeof skillDecisionSourceEnum];
+
+export type SkillDecisionSource = SkillDecisionSourceEnumKey;
+
+export const skillFileChangeEnum = {
+    added: "added",
+    removed: "removed",
+    modified: "modified"
+} as const;
+
+export type SkillFileChangeEnumKey = (typeof skillFileChangeEnum)[keyof typeof skillFileChangeEnum];
+
+export type SkillFileChange = SkillFileChangeEnumKey;
+
+export const skillDiffOpEnum = {
+    context: "context",
+    add: "add",
+    remove: "remove"
+} as const;
+
+export type SkillDiffOpEnumKey = (typeof skillDiffOpEnum)[keyof typeof skillDiffOpEnum];
+
+export type SkillDiffOp = SkillDiffOpEnumKey;
+
+export type SkillDiffLine = {
+    /**
+     * @type string
+    */
+    op: SkillDiffOp;
+    /**
+     * @type string
+    */
+    text: string;
+};
+
+export type SkillDiffHunk = {
+    /**
+     * @type array
+    */
+    lines: SkillDiffLine[];
+    /**
+     * @description 1-based first line in the new text; 0 when the file is removed.
+     * @minLength 0
+     * @type integer, int32
+    */
+    newStart: number;
+    /**
+     * @description 1-based first line in the old text; 0 when the file is new.
+     * @minLength 0
+     * @type integer, int32
+    */
+    oldStart: number;
+};
+
+export type SkillFileDiff = {
+    /**
+     * @type string
+    */
+    change: SkillFileChange;
+    /**
+     * @type array
+    */
+    hunks: SkillDiffHunk[];
+    /**
+     * @type string
+    */
+    path: string;
+    /**
+     * @description Hunks were cut at the output limit.
+     * @type boolean
+    */
+    truncated: boolean;
+};
+
+export type SkillFileInput = {
+    /**
+     * @type string
+    */
+    path: string;
+    /**
+     * @type string
+    */
+    text: string;
+};
+
+export const skillProposalKindEnum = {
+    create: "create",
+    update: "update"
+} as const;
+
+export type SkillProposalKindEnumKey = (typeof skillProposalKindEnum)[keyof typeof skillProposalKindEnum];
+
+export type SkillProposalKind = SkillProposalKindEnumKey;
+
+export const skillProposalStatusEnum = {
+    pending: "pending",
+    approved: "approved",
+    rejected: "rejected",
+    expired: "expired",
+    conflicted: "conflicted"
+} as const;
+
+export type SkillProposalStatusEnumKey = (typeof skillProposalStatusEnum)[keyof typeof skillProposalStatusEnum];
+
+export type SkillProposalStatus = SkillProposalStatusEnumKey;
+
+/**
+ * @description A model-authored skill proposal shown in the conversation and the owner\'s\npending list.
+*/
+export type SkillProposalView = {
+    /**
+     * @type string,null
+    */
+    baseSkillId?: string | null;
+    /**
+     * @minLength 0
+     * @type integer,null, int64
+    */
+    baseVersion?: number | null;
+    /**
+     * @type string
+    */
+    conversationId: string;
+    /**
+     * @type integer, int64
+    */
+    createdAtMs: number;
+    /**
+     * @type integer,null, int64
+    */
+    decidedAtMs?: number | null;
+    /**
+     * @type string,null
+    */
+    decisionReason?: string | null;
+    decisionSource?: (null | SkillDecisionSource);
+    /**
+     * @description Changes from the base version; empty for a new skill.
+     * @type array
+    */
+    diff: SkillFileDiff[];
+    /**
+     * @type integer, int64
+    */
+    expiresAtMs: number;
+    /**
+     * @type array
+    */
+    files: SkillFileInput[];
+    /**
+     * @type string
+    */
+    kind: SkillProposalKind;
+    /**
+     * @type string
+    */
+    name: string;
+    /**
+     * @type string
+    */
+    proposalId: string;
+    /**
+     * @type string
+    */
+    reason: string;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    revision: number;
+    /**
+     * @description The proposed `SKILL.md`.
+     * @type string
+    */
+    skillMd: string;
+    /**
+     * @type string
+    */
+    status: SkillProposalStatus;
+};
+
 export const taskStatusDtoEnum = {
     todo: "todo",
     in_progress: "in_progress",
@@ -3255,6 +3447,11 @@ export type AiAssistantSessionSnapshotDto = {
      * @type string
     */
     sessionId: string;
+    /**
+     * @description AI-proposed personal skills of this conversation, newest first. A\npending one changes nothing until the AI reviewer or the owner decides.
+     * @type array | undefined
+    */
+    skillProposals?: SkillProposalView[];
     /**
      * @type object
     */
@@ -5975,6 +6172,96 @@ export type BrowserExtensionPairing = {
      * @type string
     */
     pairing_code: string;
+};
+
+export const skillResourceKindEnum = {
+    script: "script",
+    reference: "reference",
+    asset: "asset",
+    other: "other"
+} as const;
+
+export type SkillResourceKindEnumKey = (typeof skillResourceKindEnum)[keyof typeof skillResourceKindEnum];
+
+/**
+ * @description Display classification of a package file, from its top-level directory.
+*/
+export type SkillResourceKind = SkillResourceKindEnumKey;
+
+export type SkillFileMeta = {
+    /**
+     * @description Display classification of a package file, from its top-level directory.
+     * @type string
+    */
+    kind: SkillResourceKind;
+    /**
+     * @type string,null
+    */
+    language?: string | null;
+    /**
+     * @type string
+    */
+    path: string;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    sizeBytes: number;
+};
+
+export type SkillFileView = (SkillFileMeta & {
+    /**
+     * @type string
+    */
+    text: string;
+});
+
+export type BundledSkillView = {
+    /**
+     * @type string
+    */
+    description: string;
+    /**
+     * @type boolean
+    */
+    enabled: boolean;
+    /**
+     * @type array
+    */
+    files: SkillFileView[];
+    /**
+     * @type string
+    */
+    name: string;
+    /**
+     * @type string
+    */
+    skillMd: string;
+};
+
+export type BundledSkillList = {
+    /**
+     * @description Revision of the platform\'s disabled list.
+     * @minLength 0
+     * @type integer, int64
+    */
+    revision: number;
+    /**
+     * @type array
+    */
+    skills: BundledSkillView[];
+};
+
+export type BundledSkillToggle = {
+    /**
+     * @type boolean
+    */
+    enabled: boolean;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    expectedRevision: number;
 };
 
 export type CancelWaylandRequest = {
@@ -11643,6 +11930,11 @@ export type RestResponseAiAssistantSessionSnapshotDto = {
         */
         sessionId: string;
         /**
+         * @description AI-proposed personal skills of this conversation, newest first. A\npending one changes nothing until the AI reviewer or the owner decides.
+         * @type array | undefined
+        */
+        skillProposals?: SkillProposalView[];
+        /**
          * @type object
         */
         subagents: AiAssistantDelegationSnapshot;
@@ -13104,6 +13396,36 @@ export type RestResponseBrowserExtensionPairing = {
          * @type string
         */
         pairing_code: string;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseBundledSkillList = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @description Revision of the platform\'s disabled list.
+         * @minLength 0
+         * @type integer, int64
+        */
+        revision: number;
+        /**
+         * @type array
+        */
+        skills: BundledSkillView[];
     };
     /**
      * @type string,null
@@ -15469,6 +15791,485 @@ export type RestResponseServiceOperationStatus = {
     success: boolean;
 };
 
+export const skillOriginEnum = {
+    imported: "imported",
+    edited: "edited",
+    ai_authored: "ai_authored"
+} as const;
+
+export type SkillOriginEnumKey = (typeof skillOriginEnum)[keyof typeof skillOriginEnum];
+
+/**
+ * @description How a stored version was produced.
+*/
+export type SkillOrigin = SkillOriginEnumKey;
+
+export const skillScopeEnum = {
+    platform: "platform",
+    personal: "personal"
+} as const;
+
+export type SkillScopeEnumKey = (typeof skillScopeEnum)[keyof typeof skillScopeEnum];
+
+/**
+ * @description Who manages a stored skill and which work may see it.
+*/
+export type SkillScope = SkillScopeEnumKey;
+
+export type SkillSummary = {
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    currentVersion: number;
+    decisionSource?: (null | SkillDecisionSource);
+    /**
+     * @type string
+    */
+    description: string;
+    /**
+     * @type boolean
+    */
+    enabled: boolean;
+    /**
+     * @type string
+    */
+    name: string;
+    /**
+     * @description How a stored version was produced.
+     * @type string
+    */
+    origin: SkillOrigin;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    revision: number;
+    /**
+     * @description Who manages a stored skill and which work may see it.
+     * @type string
+    */
+    scope: SkillScope;
+    /**
+     * @type string
+    */
+    skillId: string;
+    /**
+     * @type integer, int64
+    */
+    updatedAtMs: number;
+};
+
+export type SkillScanFinding = {
+    /**
+     * @type string
+    */
+    category: string;
+    /**
+     * @minLength 0
+     * @type integer,null, int32
+    */
+    line?: number | null;
+    /**
+     * @type string
+    */
+    path: string;
+    /**
+     * @type string
+    */
+    reason: string;
+};
+
+export const skillScanVerdictEnum = {
+    clean: "clean",
+    suspicious: "suspicious",
+    failed: "failed",
+    unavailable: "unavailable"
+} as const;
+
+export type SkillScanVerdictEnumKey = (typeof skillScanVerdictEnum)[keyof typeof skillScanVerdictEnum];
+
+export type SkillScanVerdict = SkillScanVerdictEnumKey;
+
+export type SkillScanResult = {
+    /**
+     * @type array
+    */
+    findings: SkillScanFinding[];
+    /**
+     * @description Files that could not be scanned within the batch limit.
+     * @type array | undefined
+    */
+    unscanned?: string[];
+    /**
+     * @type string
+    */
+    verdict: SkillScanVerdict;
+};
+
+export type SkillVersionInfo = {
+    /**
+     * @type integer, int64
+    */
+    createdAtMs: number;
+    /**
+     * @description How a stored version was produced.
+     * @type string
+    */
+    origin: SkillOrigin;
+    scan?: (null | SkillScanResult);
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    sizeBytes: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    version: number;
+};
+
+export type RestResponseSkillDetail = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type string,null
+        */
+        allowedTools?: string | null;
+        /**
+         * @type string,null
+        */
+        compatibility?: string | null;
+        /**
+         * @type array
+        */
+        files: SkillFileView[];
+        /**
+         * @type string,null
+        */
+        license?: string | null;
+        /**
+         * @type object | undefined
+        */
+        metadata?: {
+            [key: string]: string;
+        };
+        /**
+         * @description The canonical `SKILL.md` of the current version, as edited online.
+         * @type string
+        */
+        skillMd: string;
+        /**
+         * @type object
+        */
+        summary: SkillSummary;
+        /**
+         * @type array
+        */
+        versions: SkillVersionInfo[];
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export const skillSkipReasonEnum = {
+    binary: "binary",
+    too_large: "too_large",
+    invalid_path: "invalid_path",
+    too_many_files: "too_many_files"
+} as const;
+
+export type SkillSkipReasonEnumKey = (typeof skillSkipReasonEnum)[keyof typeof skillSkipReasonEnum];
+
+export type SkillSkipReason = SkillSkipReasonEnumKey;
+
+export type SkillSkippedFile = {
+    /**
+     * @type string
+    */
+    path: string;
+    /**
+     * @type string
+    */
+    reason: SkillSkipReason;
+};
+
+export const skillWarningEnum = {
+    long_body: "long_body"
+} as const;
+
+export type SkillWarningEnumKey = (typeof skillWarningEnum)[keyof typeof skillWarningEnum];
+
+export type SkillWarning = SkillWarningEnumKey;
+
+export type RestResponseSkillPreview = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @description Validation result and changes of a package that was not saved.
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type array
+        */
+        diff: SkillFileDiff[];
+        /**
+         * @type array
+        */
+        files: SkillFileMeta[];
+        /**
+         * @type string
+        */
+        name: string;
+        scan?: (null | SkillScanResult);
+        /**
+         * @description Pass back on save to record the scan on the new version.
+         * @type string,null
+        */
+        scanId?: string | null;
+        /**
+         * @type array
+        */
+        skipped: SkillSkippedFile[];
+        /**
+         * @type array
+        */
+        warnings: SkillWarning[];
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseSkillProposalView = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @description A model-authored skill proposal shown in the conversation and the owner\'s\npending list.
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type string,null
+        */
+        baseSkillId?: string | null;
+        /**
+         * @minLength 0
+         * @type integer,null, int64
+        */
+        baseVersion?: number | null;
+        /**
+         * @type string
+        */
+        conversationId: string;
+        /**
+         * @type integer, int64
+        */
+        createdAtMs: number;
+        /**
+         * @type integer,null, int64
+        */
+        decidedAtMs?: number | null;
+        /**
+         * @type string,null
+        */
+        decisionReason?: string | null;
+        decisionSource?: (null | SkillDecisionSource);
+        /**
+         * @description Changes from the base version; empty for a new skill.
+         * @type array
+        */
+        diff: SkillFileDiff[];
+        /**
+         * @type integer, int64
+        */
+        expiresAtMs: number;
+        /**
+         * @type array
+        */
+        files: SkillFileInput[];
+        /**
+         * @type string
+        */
+        kind: SkillProposalKind;
+        /**
+         * @type string
+        */
+        name: string;
+        /**
+         * @type string
+        */
+        proposalId: string;
+        /**
+         * @type string
+        */
+        reason: string;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        revision: number;
+        /**
+         * @description The proposed `SKILL.md`.
+         * @type string
+        */
+        skillMd: string;
+        /**
+         * @type string
+        */
+        status: SkillProposalStatus;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseSkillSaved = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type array
+        */
+        files: SkillFileMeta[];
+        /**
+         * @type object
+        */
+        skill: SkillSummary;
+        /**
+         * @type array
+        */
+        skipped: SkillSkippedFile[];
+        /**
+         * @type array
+        */
+        warnings: SkillWarning[];
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseSkillScanAvailability = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @description Whether uploads can be scanned now: an approval model is configured and ready.
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type boolean
+        */
+        available: boolean;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseSkillVersionView = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @description The content of one retained version and its changes to the current version.
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @description Changes from this version to the current version.
+         * @type array
+        */
+        diffToCurrent: SkillFileDiff[];
+        /**
+         * @type array
+        */
+        files: SkillFileView[];
+        /**
+         * @type object
+        */
+        info: SkillVersionInfo;
+        /**
+         * @type string
+        */
+        skillMd: string;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseString = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type string | undefined
+    */
+    data?: string;
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
 export type SubAgentLimits = {
     /**
      * @description Maximum elapsed time for a new task, including time spent waiting.
@@ -16414,6 +17215,156 @@ export type RestResponseVecIssueSubscriptionView = {
          * @type string
         */
         workbenchId: string;
+    }[];
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseVecSkillProposalView = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type array | undefined
+    */
+    data?: {
+        /**
+         * @type string,null
+        */
+        baseSkillId?: string | null;
+        /**
+         * @minLength 0
+         * @type integer,null, int64
+        */
+        baseVersion?: number | null;
+        /**
+         * @type string
+        */
+        conversationId: string;
+        /**
+         * @type integer, int64
+        */
+        createdAtMs: number;
+        /**
+         * @type integer,null, int64
+        */
+        decidedAtMs?: number | null;
+        /**
+         * @type string,null
+        */
+        decisionReason?: string | null;
+        decisionSource?: (null | SkillDecisionSource);
+        /**
+         * @description Changes from the base version; empty for a new skill.
+         * @type array
+        */
+        diff: SkillFileDiff[];
+        /**
+         * @type integer, int64
+        */
+        expiresAtMs: number;
+        /**
+         * @type array
+        */
+        files: SkillFileInput[];
+        /**
+         * @type string
+        */
+        kind: SkillProposalKind;
+        /**
+         * @type string
+        */
+        name: string;
+        /**
+         * @type string
+        */
+        proposalId: string;
+        /**
+         * @type string
+        */
+        reason: string;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        revision: number;
+        /**
+         * @description The proposed `SKILL.md`.
+         * @type string
+        */
+        skillMd: string;
+        /**
+         * @type string
+        */
+        status: SkillProposalStatus;
+    }[];
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseVecSkillSummary = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type array | undefined
+    */
+    data?: {
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        currentVersion: number;
+        decisionSource?: (null | SkillDecisionSource);
+        /**
+         * @type string
+        */
+        description: string;
+        /**
+         * @type boolean
+        */
+        enabled: boolean;
+        /**
+         * @type string
+        */
+        name: string;
+        /**
+         * @description How a stored version was produced.
+         * @type string
+        */
+        origin: SkillOrigin;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        revision: number;
+        /**
+         * @description Who manages a stored skill and which work may see it.
+         * @type string
+        */
+        scope: SkillScope;
+        /**
+         * @type string
+        */
+        skillId: string;
+        /**
+         * @type integer, int64
+        */
+        updatedAtMs: number;
     }[];
     /**
      * @type string,null
@@ -18144,6 +19095,223 @@ export type SignalingModel = {
     to_connection_id?: string | null;
 };
 
+/**
+ * @description One package upload: exactly one of `zip_base64` or `skill_md`.
+*/
+export type SkillPackageInput = {
+    /**
+     * @type array | undefined
+    */
+    files?: SkillFileInput[];
+    /**
+     * @type string,null
+    */
+    skillMd?: string | null;
+    /**
+     * @type string,null
+    */
+    zipBase64?: string | null;
+};
+
+export type SkillCreate = {
+    /**
+     * @description One package upload: exactly one of `zip_base64` or `skill_md`.
+     * @type object
+    */
+    package: SkillPackageInput;
+    /**
+     * @description The AI security scan shown before saving; recorded on the new version.
+     * @type string,null
+    */
+    scanId?: string | null;
+};
+
+export type SkillDetail = {
+    /**
+     * @type string,null
+    */
+    allowedTools?: string | null;
+    /**
+     * @type string,null
+    */
+    compatibility?: string | null;
+    /**
+     * @type array
+    */
+    files: SkillFileView[];
+    /**
+     * @type string,null
+    */
+    license?: string | null;
+    /**
+     * @type object | undefined
+    */
+    metadata?: {
+        [key: string]: string;
+    };
+    /**
+     * @description The canonical `SKILL.md` of the current version, as edited online.
+     * @type string
+    */
+    skillMd: string;
+    /**
+     * @type object
+    */
+    summary: SkillSummary;
+    /**
+     * @type array
+    */
+    versions: SkillVersionInfo[];
+};
+
+export const skillManualOriginEnum = {
+    imported: "imported",
+    edited: "edited"
+} as const;
+
+export type SkillManualOriginEnumKey = (typeof skillManualOriginEnum)[keyof typeof skillManualOriginEnum];
+
+/**
+ * @description A manual save of a new version.
+*/
+export type SkillManualOrigin = SkillManualOriginEnumKey;
+
+/**
+ * @description Validation result and changes of a package that was not saved.
+*/
+export type SkillPreview = {
+    /**
+     * @type array
+    */
+    diff: SkillFileDiff[];
+    /**
+     * @type array
+    */
+    files: SkillFileMeta[];
+    /**
+     * @type string
+    */
+    name: string;
+    scan?: (null | SkillScanResult);
+    /**
+     * @description Pass back on save to record the scan on the new version.
+     * @type string,null
+    */
+    scanId?: string | null;
+    /**
+     * @type array
+    */
+    skipped: SkillSkippedFile[];
+    /**
+     * @type array
+    */
+    warnings: SkillWarning[];
+};
+
+/**
+ * @description Validates an upload without saving it; optionally runs the AI security scan.
+*/
+export type SkillPreviewRequest = {
+    /**
+     * @type boolean | undefined
+    */
+    aiScan?: boolean;
+    /**
+     * @description One package upload: exactly one of `zip_base64` or `skill_md`.
+     * @type object
+    */
+    package: SkillPackageInput;
+};
+
+export type SkillProposalDecision = {
+    /**
+     * @type boolean
+    */
+    approve: boolean;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    expectedRevision: number;
+    /**
+     * @type string
+    */
+    proposalId: string;
+};
+
+export type SkillSaved = {
+    /**
+     * @type array
+    */
+    files: SkillFileMeta[];
+    /**
+     * @type object
+    */
+    skill: SkillSummary;
+    /**
+     * @type array
+    */
+    skipped: SkillSkippedFile[];
+    /**
+     * @type array
+    */
+    warnings: SkillWarning[];
+};
+
+/**
+ * @description Whether uploads can be scanned now: an approval model is configured and ready.
+*/
+export type SkillScanAvailability = {
+    /**
+     * @type boolean
+    */
+    available: boolean;
+};
+
+/**
+ * @description Saves a new version, changes `enabled`, or both.
+*/
+export type SkillUpdate = {
+    /**
+     * @type boolean,null
+    */
+    enabled?: boolean | null;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    expectedRevision: number;
+    origin?: (null | SkillManualOrigin);
+    package?: (null | SkillPackageInput);
+    /**
+     * @type string,null
+    */
+    scanId?: string | null;
+};
+
+/**
+ * @description The content of one retained version and its changes to the current version.
+*/
+export type SkillVersionView = {
+    /**
+     * @description Changes from this version to the current version.
+     * @type array
+    */
+    diffToCurrent: SkillFileDiff[];
+    /**
+     * @type array
+    */
+    files: SkillFileView[];
+    /**
+     * @type object
+    */
+    info: SkillVersionInfo;
+    /**
+     * @type string
+    */
+    skillMd: string;
+};
+
 export type SubAgentPolicy = {
     /**
      * @type object
@@ -19014,6 +20182,182 @@ export type UpdateContextManagementMutationResponse = UpdateContextManagement200
 export type UpdateContextManagementMutation = {
     Response: UpdateContextManagement200;
     Request: UpdateContextManagementMutationRequest;
+    Errors: any;
+};
+
+export type ListBundledSkills200 = RestResponseBundledSkillList;
+
+export type ListBundledSkillsQueryResponse = ListBundledSkills200;
+
+export type ListBundledSkillsQuery = {
+    Response: ListBundledSkills200;
+    Errors: any;
+};
+
+export type SetBundledSkillPathParams = {
+    /**
+     * @type string
+    */
+    name: string;
+};
+
+export type SetBundledSkill200 = RestResponseBundledSkillList;
+
+export type SetBundledSkillMutationRequest = BundledSkillToggle;
+
+export type SetBundledSkillMutationResponse = SetBundledSkill200;
+
+export type SetBundledSkillMutation = {
+    Response: SetBundledSkill200;
+    Request: SetBundledSkillMutationRequest;
+    PathParams: SetBundledSkillPathParams;
+    Errors: any;
+};
+
+export type GetPlatformSkillScan200 = RestResponseSkillScanAvailability;
+
+export type GetPlatformSkillScanQueryResponse = GetPlatformSkillScan200;
+
+export type GetPlatformSkillScanQuery = {
+    Response: GetPlatformSkillScan200;
+    Errors: any;
+};
+
+export type ListPlatformSkills200 = RestResponseVecSkillSummary;
+
+export type ListPlatformSkillsQueryResponse = ListPlatformSkills200;
+
+export type ListPlatformSkillsQuery = {
+    Response: ListPlatformSkills200;
+    Errors: any;
+};
+
+export type CreatePlatformSkill200 = RestResponseSkillSaved;
+
+export type CreatePlatformSkillMutationRequest = SkillCreate;
+
+export type CreatePlatformSkillMutationResponse = CreatePlatformSkill200;
+
+export type CreatePlatformSkillMutation = {
+    Response: CreatePlatformSkill200;
+    Request: CreatePlatformSkillMutationRequest;
+    Errors: any;
+};
+
+export type PreviewPlatformSkill200 = RestResponseSkillPreview;
+
+export type PreviewPlatformSkillMutationRequest = SkillPreviewRequest;
+
+export type PreviewPlatformSkillMutationResponse = PreviewPlatformSkill200;
+
+export type PreviewPlatformSkillMutation = {
+    Response: PreviewPlatformSkill200;
+    Request: PreviewPlatformSkillMutationRequest;
+    Errors: any;
+};
+
+export type GetPlatformSkillPathParams = {
+    /**
+     * @type string
+    */
+    skill_id: string;
+};
+
+export type GetPlatformSkill200 = RestResponseSkillDetail;
+
+export type GetPlatformSkillQueryResponse = GetPlatformSkill200;
+
+export type GetPlatformSkillQuery = {
+    Response: GetPlatformSkill200;
+    PathParams: GetPlatformSkillPathParams;
+    Errors: any;
+};
+
+export type UpdatePlatformSkillPathParams = {
+    /**
+     * @type string
+    */
+    skill_id: string;
+};
+
+export type UpdatePlatformSkill200 = RestResponseSkillSaved;
+
+export type UpdatePlatformSkillMutationRequest = SkillUpdate;
+
+export type UpdatePlatformSkillMutationResponse = UpdatePlatformSkill200;
+
+export type UpdatePlatformSkillMutation = {
+    Response: UpdatePlatformSkill200;
+    Request: UpdatePlatformSkillMutationRequest;
+    PathParams: UpdatePlatformSkillPathParams;
+    Errors: any;
+};
+
+export type DeletePlatformSkillPathParams = {
+    /**
+     * @type string
+    */
+    skill_id: string;
+};
+
+export type DeletePlatformSkillQueryParams = {
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    expectedRevision: number;
+};
+
+export type DeletePlatformSkill200 = RestResponseString;
+
+export type DeletePlatformSkillMutationResponse = DeletePlatformSkill200;
+
+export type DeletePlatformSkillMutation = {
+    Response: DeletePlatformSkill200;
+    PathParams: DeletePlatformSkillPathParams;
+    QueryParams: DeletePlatformSkillQueryParams;
+    Errors: any;
+};
+
+export type PreviewPlatformSkillVersionPathParams = {
+    /**
+     * @type string
+    */
+    skill_id: string;
+};
+
+export type PreviewPlatformSkillVersion200 = RestResponseSkillPreview;
+
+export type PreviewPlatformSkillVersionMutationRequest = SkillPreviewRequest;
+
+export type PreviewPlatformSkillVersionMutationResponse = PreviewPlatformSkillVersion200;
+
+export type PreviewPlatformSkillVersionMutation = {
+    Response: PreviewPlatformSkillVersion200;
+    Request: PreviewPlatformSkillVersionMutationRequest;
+    PathParams: PreviewPlatformSkillVersionPathParams;
+    Errors: any;
+};
+
+export type GetPlatformSkillVersionPathParams = {
+    /**
+     * @type string
+    */
+    skill_id: string;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    version: number;
+};
+
+export type GetPlatformSkillVersion200 = RestResponseSkillVersionView;
+
+export type GetPlatformSkillVersionQueryResponse = GetPlatformSkillVersion200;
+
+export type GetPlatformSkillVersionQuery = {
+    Response: GetPlatformSkillVersion200;
+    PathParams: GetPlatformSkillVersionPathParams;
     Errors: any;
 };
 
@@ -22020,6 +23364,27 @@ export type ResumeAiAssistantMainRequestsMutation = {
     Errors: any;
 };
 
+export type DecideAiAssistantSkillProposal200 = RestResponseSkillProposalView;
+
+export type DecideAiAssistantSkillProposalMutationRequest = SkillProposalDecision;
+
+export type DecideAiAssistantSkillProposalMutationResponse = DecideAiAssistantSkillProposal200;
+
+export type DecideAiAssistantSkillProposalMutation = {
+    Response: DecideAiAssistantSkillProposal200;
+    Request: DecideAiAssistantSkillProposalMutationRequest;
+    Errors: any;
+};
+
+export type ListAiAssistantSkillProposals200 = RestResponseVecSkillProposalView;
+
+export type ListAiAssistantSkillProposalsQueryResponse = ListAiAssistantSkillProposals200;
+
+export type ListAiAssistantSkillProposalsQuery = {
+    Response: ListAiAssistantSkillProposals200;
+    Errors: any;
+};
+
 export type StopAiAssistantSession200 = RestResponseAiAssistantStopResult;
 
 export type StopAiAssistantSessionMutationRequest = AiAssistantStopBody;
@@ -22212,6 +23577,153 @@ export type UpdateAssistantDataSettingsMutationResponse = UpdateAssistantDataSet
 export type UpdateAssistantDataSettingsMutation = {
     Response: UpdateAssistantDataSettings200;
     Request: UpdateAssistantDataSettingsMutationRequest;
+    Errors: any;
+};
+
+export type GetMySkillScan200 = RestResponseSkillScanAvailability;
+
+export type GetMySkillScanQueryResponse = GetMySkillScan200;
+
+export type GetMySkillScanQuery = {
+    Response: GetMySkillScan200;
+    Errors: any;
+};
+
+export type ListMySkills200 = RestResponseVecSkillSummary;
+
+export type ListMySkillsQueryResponse = ListMySkills200;
+
+export type ListMySkillsQuery = {
+    Response: ListMySkills200;
+    Errors: any;
+};
+
+export type CreateMySkill200 = RestResponseSkillSaved;
+
+export type CreateMySkillMutationRequest = SkillCreate;
+
+export type CreateMySkillMutationResponse = CreateMySkill200;
+
+export type CreateMySkillMutation = {
+    Response: CreateMySkill200;
+    Request: CreateMySkillMutationRequest;
+    Errors: any;
+};
+
+export type PreviewMySkill200 = RestResponseSkillPreview;
+
+export type PreviewMySkillMutationRequest = SkillPreviewRequest;
+
+export type PreviewMySkillMutationResponse = PreviewMySkill200;
+
+export type PreviewMySkillMutation = {
+    Response: PreviewMySkill200;
+    Request: PreviewMySkillMutationRequest;
+    Errors: any;
+};
+
+export type GetMySkillPathParams = {
+    /**
+     * @type string
+    */
+    skill_id: string;
+};
+
+export type GetMySkill200 = RestResponseSkillDetail;
+
+export type GetMySkillQueryResponse = GetMySkill200;
+
+export type GetMySkillQuery = {
+    Response: GetMySkill200;
+    PathParams: GetMySkillPathParams;
+    Errors: any;
+};
+
+export type UpdateMySkillPathParams = {
+    /**
+     * @type string
+    */
+    skill_id: string;
+};
+
+export type UpdateMySkill200 = RestResponseSkillSaved;
+
+export type UpdateMySkillMutationRequest = SkillUpdate;
+
+export type UpdateMySkillMutationResponse = UpdateMySkill200;
+
+export type UpdateMySkillMutation = {
+    Response: UpdateMySkill200;
+    Request: UpdateMySkillMutationRequest;
+    PathParams: UpdateMySkillPathParams;
+    Errors: any;
+};
+
+export type DeleteMySkillPathParams = {
+    /**
+     * @type string
+    */
+    skill_id: string;
+};
+
+export type DeleteMySkillQueryParams = {
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    expectedRevision: number;
+};
+
+export type DeleteMySkill200 = RestResponseString;
+
+export type DeleteMySkillMutationResponse = DeleteMySkill200;
+
+export type DeleteMySkillMutation = {
+    Response: DeleteMySkill200;
+    PathParams: DeleteMySkillPathParams;
+    QueryParams: DeleteMySkillQueryParams;
+    Errors: any;
+};
+
+export type PreviewMySkillVersionPathParams = {
+    /**
+     * @type string
+    */
+    skill_id: string;
+};
+
+export type PreviewMySkillVersion200 = RestResponseSkillPreview;
+
+export type PreviewMySkillVersionMutationRequest = SkillPreviewRequest;
+
+export type PreviewMySkillVersionMutationResponse = PreviewMySkillVersion200;
+
+export type PreviewMySkillVersionMutation = {
+    Response: PreviewMySkillVersion200;
+    Request: PreviewMySkillVersionMutationRequest;
+    PathParams: PreviewMySkillVersionPathParams;
+    Errors: any;
+};
+
+export type GetMySkillVersionPathParams = {
+    /**
+     * @type string
+    */
+    skill_id: string;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    version: number;
+};
+
+export type GetMySkillVersion200 = RestResponseSkillVersionView;
+
+export type GetMySkillVersionQueryResponse = GetMySkillVersion200;
+
+export type GetMySkillVersionQuery = {
+    Response: GetMySkillVersion200;
+    PathParams: GetMySkillVersionPathParams;
     Errors: any;
 };
 

@@ -1,0 +1,1 @@
+{"type":"string","description":"How a stored version was produced.","enum":["imported","edited","ai_authored"],"x-readme-ref-name":"SkillOrigin"}

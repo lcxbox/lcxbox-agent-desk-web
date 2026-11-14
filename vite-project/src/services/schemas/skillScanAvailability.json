@@ -1,0 +1,1 @@
+{"type":"object","description":"Whether uploads can be scanned now: an approval model is configured and ready.","required":["available"],"properties":{"available":{"type":"boolean"}},"x-readme-ref-name":"SkillScanAvailability"}

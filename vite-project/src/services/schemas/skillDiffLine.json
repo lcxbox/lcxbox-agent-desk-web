@@ -1,0 +1,1 @@
+{"type":"object","required":["op","text"],"properties":{"op":{"type":"string","enum":["context","add","remove"],"x-readme-ref-name":"SkillDiffOp"},"text":{"type":"string"}},"x-readme-ref-name":"SkillDiffLine"}

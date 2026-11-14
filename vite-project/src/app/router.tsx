@@ -95,6 +95,10 @@ export const router = createBrowserRouter([
                 lazy: async () => ({ Component: (await import('@/features/desk/ai-assistant-personalization')).default }),
             },
             {
+                path: 'ai-assistant/skills',
+                lazy: async () => ({ Component: (await import('@/features/desk/ai-assistant-skills')).default }),
+            },
+            {
                 path: 'desk/list',
                 lazy: async () => ({
                     Component: (await import('@/features/desk/desk-list')).default,
@@ -207,6 +211,10 @@ export const router = createBrowserRouter([
                     {
                         path: 'issue-connections',
                         lazy: async () => ({ Component: (await import('@/features/settings/issue-connections-settings')).IssueConnectionsSettings }),
+                    },
+                    {
+                        path: 'assistant-skills',
+                        lazy: async () => ({ Component: (await import('@/features/settings/assistant-skills-settings')).PlatformAssistantSkills }),
                     },
                     {
                         path: 'schedule-budget',

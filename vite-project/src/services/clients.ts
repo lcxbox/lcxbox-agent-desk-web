@@ -4,7 +4,7 @@
 */
 
 import fetch from "@/lib/kubb-client";
-import type { AckSecurityApprovalMutationRequest, AckSecurityApprovalMutationResponse, BatchDeleteDeviceCodesMutationRequest, BatchDeleteDeviceCodesMutationResponse, ChangePasswordMutationRequest, ChangePasswordMutationResponse, ChangePassword401, ChangePassword403, GetAccessCodeProtectionQueryResponse, GetApprovalRuntimeSettingsQueryResponse, UpdateApprovalRuntimeSettingsMutationRequest, UpdateApprovalRuntimeSettingsMutationResponse, GetApprovalTraceSettingsQueryResponse, UpdateApprovalTraceSettingsMutationRequest, UpdateApprovalTraceSettingsMutationResponse, UpdateAccessCodeProtectionMutationRequest, UpdateAccessCodeProtectionMutationResponse, GetAssistantDataPolicyQueryResponse, UpdateAssistantDataPolicyMutationRequest, UpdateAssistantDataPolicyMutationResponse, GetContextManagementQueryResponse, UpdateContextManagementMutationRequest, UpdateContextManagementMutationResponse, GetAutomationPolicyQueryResponse, UpdateAutomationPolicyMutationRequest, UpdateAutomationPolicyMutationResponse, GetDeviceCodeSettingsQueryResponse, UpdateDeviceCodeSettingsMutationRequest, UpdateDeviceCodeSettingsMutationResponse, GetGoalBudgetPolicyQueryResponse, UpdateGoalBudgetPolicyMutationRequest, UpdateGoalBudgetPolicyMutationResponse, GetIssueConnectionsQueryResponse, UpdateIssueConnectionsMutationRequest, UpdateIssueConnectionsMutationResponse, TestIssueConnectionMutationResponse, TestIssueConnectionPathParams, GetScheduleBudgetPolicyQueryResponse, UpdateScheduleBudgetPolicyMutationRequest, UpdateScheduleBudgetPolicyMutationResponse, GetSubagentPolicyQueryResponse, UpdateSubagentPolicyMutationRequest, UpdateSubagentPolicyMutationResponse, GetTerminalCompletionQueryResponse, UpdateTerminalCompletionMutationRequest, UpdateTerminalCompletionMutationResponse, GetWebResearchPolicyQueryResponse, UpdateWebResearchPolicyMutationRequest, UpdateWebResearchPolicyMutationResponse, GetWebSearchQueryResponse, UpdateWebSearchMutationRequest, UpdateWebSearchMutationResponse, TestWebSearchMutationRequest, TestWebSearchMutationResponse, LoginAccountMutationRequest, LoginAccountMutationResponse, LogoutAccountMutationResponse, GetCurrentUserQueryResponse, GetCurrentUser401, LoginTauriMutationResponse, LoginTauriQueryParams, VerifyConnectionMutationRequest, VerifyConnectionMutationResponse, QueryBackendInfoQueryResponse, CreateBrowserExtensionPairingMutationRequest, CreateBrowserExtensionPairingMutationResponse, CreateBrowserExtensionPairing500, ListConnectionsQueryResponse, ListDeviceCodesQueryResponse, ListDeviceCodesQueryParams, CreateDeviceCodeMutationRequest, CreateDeviceCodeMutationResponse, UpdateDeviceCodeMutationRequest, UpdateDeviceCodeMutationResponse, UpdateDeviceCodePathParams, DeleteDeviceCodeMutationResponse, DeleteDeviceCodePathParams, GetDeviceConnectionQueryResponse, GetDeviceConnectionPathParams, GetDeviceConnectionQueryParams, OpenExecPtyCarrierQueryResponse, RetryLocalFileRecoveryCleanupMutationResponse, ConfirmLocalFileRecoveryClockMutationRequest, ConfirmLocalFileRecoveryClockMutationResponse, DiscardLocalFileRecoveryMutationRequest, DiscardLocalFileRecoveryMutationResponse, ExportLocalFileRecoveryMutationRequest, ExportLocalFileRecoveryMutationResponse, UpdateLocalFileRecoveryPolicyMutationRequest, UpdateLocalFileRecoveryPolicyMutationResponse, QueryLocalFileRecoveryMutationRequest, QueryLocalFileRecoveryMutationResponse, QueryMacosAutologinQueryResponse, RetryManagerLinkMutationResponse, QueryManagerLinkStatusQueryResponse, RedeemCodeMutationRequest, RedeemCodeMutationResponse, QuerySecuritySettingsQueryResponse, UpdateSecuritySettingsMutationRequest, UpdateSecuritySettingsMutationResponse, SubmitSecurityApprovalMutationRequest, SubmitSecurityApprovalMutationResponse, QuerySettingsQueryResponse, UpdateSettingsMutationRequest, UpdateSettingsMutationResponse, QueryAiAssistantSettingsQueryResponse, UpdateAiAssistantSettingsMutationRequest, UpdateAiAssistantSettingsMutationResponse, QueryAiPolicySettingsQueryResponse, UpdateAiPolicySettingsMutationRequest, UpdateAiPolicySettingsMutationResponse, QueryCollectionPolicySettingsQueryResponse, UpdateCollectionPolicySettingsMutationRequest, UpdateCollectionPolicySettingsMutationResponse, UpdateComputerUseApplicationPolicyMutationRequest, UpdateComputerUseApplicationPolicyMutationResponse, QueryComputerUseApplicationPolicyMutationResponse, UpdateComputerUseCommunicationPolicyMutationRequest, UpdateComputerUseCommunicationPolicyMutationResponse, QueryComputerUseCommunicationPolicyMutationResponse, QueryLogSettingsQueryResponse, UpdateLogSettingsMutationRequest, UpdateLogSettingsMutationResponse, QueryTurnSettingsQueryResponse, UpdateTurnSettingsMutationRequest, UpdateTurnSettingsMutationResponse, QueryTurnClientSettingsQueryResponse, UpdateTurnClientSettingsMutationRequest, UpdateTurnClientSettingsMutationResponse, RegenerateTurnSecretMutationResponse, QueryVirtualDisplaySettingsQueryResponse, UpdateVirtualDisplaySettingsMutationRequest, UpdateVirtualDisplaySettingsMutationResponse, OpenSignalingHandleQueryResponse, OpenSignalingHandleQueryParams, StartSupportMutationResponse, SupportStatusQueryResponse, StopSupportMutationResponse, QuerySysinfoQueryResponse, UpdateTelemetryConsentMutationRequest, UpdateTelemetryConsentMutationResponse, QueryTelemetryStatusQueryResponse, OpenTerminalSessionQueryResponse, OpenTerminalSessionPathParams, OpenTerminalSessionQueryParams, ListTerminalQueryResponse, ListTerminalPathParams, ListTerminalQueryParams, RequestMacosPermissionsMutationResponse, AuthorizeWaylandMutationRequest, AuthorizeWaylandMutationResponse, CancelWaylandMutationRequest, CancelWaylandMutationResponse, InitSystemMutationRequest, InitSystemMutationResponse, InitSystem403, InitRequirementsQueryResponse, GetApprovalModelProviderQueryResponse, UpdateApprovalModelProviderMutationRequest, UpdateApprovalModelProviderMutationResponse, ReuseAiGatewayForApprovalMutationRequest, ReuseAiGatewayForApprovalMutationResponse, TestApprovalModelProviderMutationRequest, TestApprovalModelProviderMutationResponse, GetApprovalMetricsOverviewQueryResponse, GetApprovalMetricsOverviewQueryParams, GetModelMetricsCallsQueryResponse, GetModelMetricsCallsQueryParams, GetModelMetricsCallQueryResponse, GetModelMetricsCallPathParams, GetModelMetricsModelsQueryResponse, GetModelMetricsModelsQueryParams, GetModelMetricsOverviewQueryResponse, GetModelMetricsOverviewQueryParams, GetModelMetricsRuntimeQueryResponse, GetModelMetricsRuntimeQueryParams, GetModelMetricsSeriesQueryResponse, GetModelMetricsSeriesQueryParams, GetModelMetricsSettingsQueryResponse, UpdateModelMetricsSettingsMutationRequest, UpdateModelMetricsSettingsMutationResponse, GetModelMetricsStatusQueryResponse, GetModelMetricsToolsQueryResponse, GetModelMetricsToolsQueryParams, GetModelMetricsUnassociatedQueryResponse, GetModelMetricsUnassociatedQueryParams, GetModelProviderQueryResponse, UpdateModelProviderMutationRequest, UpdateModelProviderMutationResponse, TestModelProviderMutationRequest, TestModelProviderMutationResponse, GetModelUsageQueryResponse, GetModelUsageQueryParams, ListAiAssistantAttentionQueryResponse, ListAiAssistantAttentionQueryParams, ListRetainedAssistantConversationsQueryResponse, ListRetainedAssistantConversationsQueryParams, SearchAssistantHistoryMutationRequest, SearchAssistantHistoryMutationResponse, GetAssistantHistoryWindowQueryResponse, GetAssistantHistoryWindowQueryParams, GetAssistantMemoriesQueryResponse, GetAssistantMemoriesQueryParams, ClearAssistantMemoriesMutationRequest, ClearAssistantMemoriesMutationResponse, DeleteAssistantMemoryMutationRequest, DeleteAssistantMemoryMutationResponse, GetAssistantProcessingQueryResponse, GetAiAssistantSessionQueryResponse, GetAiAssistantSessionQueryParams, CloseAiAssistantApprovalDelegationMutationRequest, CloseAiAssistantApprovalDelegationMutationResponse, OpenAiAssistantApprovalDelegationMutationRequest, OpenAiAssistantApprovalDelegationMutationResponse, GetAiAssistantApprovalModeQueryResponse, GetAiAssistantApprovalModeQueryParams, UpdateAiAssistantApprovalModeMutationRequest, UpdateAiAssistantApprovalModeMutationResponse, GetApprovalReviewQueryResponse, GetApprovalReviewQueryParams, GetApprovalReviewPartsQueryResponse, GetApprovalReviewPartsQueryParams, ListApprovalReviewsQueryResponse, ListApprovalReviewsQueryParams, GetAssistantAttachmentQueryResponse, GetAssistantAttachmentQueryParams, ReadAssistantAttachmentMutationRequest, ReadAssistantAttachmentMutationResponse, ListAssistantAttachmentsQueryResponse, ListAssistantAttachmentsQueryParams, DeleteAssistantAttachmentsMutationRequest, DeleteAssistantAttachmentsMutationResponse, CancelAiAssistantBackgroundTaskMutationRequest, CancelAiAssistantBackgroundTaskMutationResponse, RevokeAiAssistantCapabilityGrantMutationRequest, RevokeAiAssistantCapabilityGrantMutationResponse, CancelAiAssistantCommandMutationRequest, CancelAiAssistantCommandMutationResponse, GetAiAssistantContextSummaryQueryResponse, GetAiAssistantContextSummaryQueryParams, DeleteAiAssistantSessionMutationRequest, DeleteAiAssistantSessionMutationResponse, GetAiAssistantDeviceRosterQueryResponse, GetAiAssistantDeviceRosterQueryParams, UpdateAiAssistantDeviceRosterMutationRequest, UpdateAiAssistantDeviceRosterMutationResponse, ControlAiAssistantDirectoryMutationRequest, ControlAiAssistantDirectoryMutationResponse, GetMyGoalBudgetPolicyQueryResponse, ControlAiAssistantGoalMutationRequest, ControlAiAssistantGoalMutationResponse, DecideAiAssistantGoalOpenMutationRequest, DecideAiAssistantGoalOpenMutationResponse, GetAssistantImageQueryResponse, GetAssistantImageQueryParams, GetAssistantImage404, DeleteAssistantImageMutationResponse, DeleteAssistantImageQueryParams, ListAssistantImagesQueryResponse, ListAssistantImagesQueryParams, GetMyIssueConnectionsQueryResponse, ListAiAssistantIssueSubscriptionsQueryResponse, ListAiAssistantIssueSubscriptionsQueryParams, SaveAiAssistantIssueSubscriptionMutationRequest, SaveAiAssistantIssueSubscriptionMutationResponse, GetAiAssistantIssueSubscriptionAccountsQueryResponse, GetAiAssistantIssueSubscriptionAccountsQueryParams, SetAiAssistantIssueSubscriptionEnabledMutationRequest, SetAiAssistantIssueSubscriptionEnabledMutationResponse, SetAiAssistantIssueSubscriptionEnabledPathParams, DecideAiAssistantPermissionMutationRequest, DecideAiAssistantPermissionMutationResponse, ListAiAssistantMainRequestsQueryResponse, ListAiAssistantMainRequestsQueryParams, CancelAiAssistantMainRequestMutationRequest, CancelAiAssistantMainRequestMutationResponse, ResumeAiAssistantMainRequestsMutationRequest, ResumeAiAssistantMainRequestsMutationResponse, StopAiAssistantSessionMutationRequest, StopAiAssistantSessionMutationResponse, GetMySubagentPolicyQueryResponse, ListAiAssistantSubagentsQueryResponse, ListAiAssistantSubagentsQueryParams, ControlAiAssistantSubagentMutationRequest, ControlAiAssistantSubagentMutationResponse, MarkAiAssistantSubagentReadMutationRequest, MarkAiAssistantSubagentReadMutationResponse, ReadAiAssistantSubagentResultQueryResponse, ReadAiAssistantSubagentResultQueryParams, GetAiAssistantSubagentStatusQueryResponse, GetAiAssistantSubagentStatusQueryParams, ListAiAssistantSessionsQueryResponse, ListAiAssistantSessionsQueryParams, GetAssistantDataSettingsQueryResponse, UpdateAssistantDataSettingsMutationRequest, UpdateAssistantDataSettingsMutationResponse, GetAssistantSourceQueryResponse, GetAssistantSourceQueryParams, GetAssistantUserInstructionsQueryResponse, UpdateAssistantUserInstructionsMutationRequest, UpdateAssistantUserInstructionsMutationResponse, ListAiAssistantWorkbenchesQueryResponse, CreateAiAssistantWorkbenchMutationRequest, CreateAiAssistantWorkbenchMutationResponse, ListAiAssistantWorkbenchTasksQueryResponse, ListAiAssistantWorkbenchTasksPathParams, ListAiAssistantWorkbenchTasksQueryParams, RetryFileRecoveryCleanupMutationRequest, RetryFileRecoveryCleanupMutationResponse, ListFileRecoveryCleanupQueryResponse, ListFileRecoveryCleanupQueryParams, ExportDeviceFileRecoveryMutationRequest, ExportDeviceFileRecoveryMutationResponse, ManageDeviceFileRecoveryMutationRequest, ManageDeviceFileRecoveryMutationResponse, QueryServerInfoQueryResponse, InstallServiceMutationRequest, InstallServiceMutationResponse, InstallService503, QueryServiceOperationQueryResponse, QueryServiceOperationPathParams, QueryServiceOperation404, UninstallServiceMutationResponse, UninstallService503, CreateTokenMutationRequest, CreateTokenMutationResponse, GetTurnInfoQueryResponse, GetTurnMetricsQueryResponse, GetTurnMetrics503, GetTurnSessionStatisticsQueryResponse, GetTurnSessionStatisticsQueryParams, GetTurnUsageQueryResponse, GetTurnUsageQueryParams, GetUsageRetentionQueryResponse, UpdateUsageRetentionMutationRequest, UpdateUsageRetentionMutationResponse, InstallDriverMutationResponse, QueryDriverStatusQueryResponse, UninstallDriverMutationResponse } from "./types.ts";
+import type { AckSecurityApprovalMutationRequest, AckSecurityApprovalMutationResponse, BatchDeleteDeviceCodesMutationRequest, BatchDeleteDeviceCodesMutationResponse, ChangePasswordMutationRequest, ChangePasswordMutationResponse, ChangePassword401, ChangePassword403, CreatePlatformSkillMutationRequest, CreatePlatformSkillMutationResponse, GetAccessCodeProtectionQueryResponse, GetApprovalRuntimeSettingsQueryResponse, UpdateApprovalRuntimeSettingsMutationRequest, UpdateApprovalRuntimeSettingsMutationResponse, GetApprovalTraceSettingsQueryResponse, UpdateApprovalTraceSettingsMutationRequest, UpdateApprovalTraceSettingsMutationResponse, UpdateAccessCodeProtectionMutationRequest, UpdateAccessCodeProtectionMutationResponse, GetAssistantDataPolicyQueryResponse, UpdateAssistantDataPolicyMutationRequest, UpdateAssistantDataPolicyMutationResponse, GetContextManagementQueryResponse, UpdateContextManagementMutationRequest, UpdateContextManagementMutationResponse, ListBundledSkillsQueryResponse, SetBundledSkillMutationRequest, SetBundledSkillMutationResponse, SetBundledSkillPathParams, GetPlatformSkillScanQueryResponse, ListPlatformSkillsQueryResponse, PreviewPlatformSkillMutationRequest, PreviewPlatformSkillMutationResponse, GetPlatformSkillQueryResponse, GetPlatformSkillPathParams, UpdatePlatformSkillMutationRequest, UpdatePlatformSkillMutationResponse, UpdatePlatformSkillPathParams, DeletePlatformSkillMutationResponse, DeletePlatformSkillPathParams, DeletePlatformSkillQueryParams, PreviewPlatformSkillVersionMutationRequest, PreviewPlatformSkillVersionMutationResponse, PreviewPlatformSkillVersionPathParams, GetPlatformSkillVersionQueryResponse, GetPlatformSkillVersionPathParams, GetAutomationPolicyQueryResponse, UpdateAutomationPolicyMutationRequest, UpdateAutomationPolicyMutationResponse, GetDeviceCodeSettingsQueryResponse, UpdateDeviceCodeSettingsMutationRequest, UpdateDeviceCodeSettingsMutationResponse, GetGoalBudgetPolicyQueryResponse, UpdateGoalBudgetPolicyMutationRequest, UpdateGoalBudgetPolicyMutationResponse, GetIssueConnectionsQueryResponse, UpdateIssueConnectionsMutationRequest, UpdateIssueConnectionsMutationResponse, TestIssueConnectionMutationResponse, TestIssueConnectionPathParams, GetScheduleBudgetPolicyQueryResponse, UpdateScheduleBudgetPolicyMutationRequest, UpdateScheduleBudgetPolicyMutationResponse, GetSubagentPolicyQueryResponse, UpdateSubagentPolicyMutationRequest, UpdateSubagentPolicyMutationResponse, GetTerminalCompletionQueryResponse, UpdateTerminalCompletionMutationRequest, UpdateTerminalCompletionMutationResponse, GetWebResearchPolicyQueryResponse, UpdateWebResearchPolicyMutationRequest, UpdateWebResearchPolicyMutationResponse, GetWebSearchQueryResponse, UpdateWebSearchMutationRequest, UpdateWebSearchMutationResponse, TestWebSearchMutationRequest, TestWebSearchMutationResponse, LoginAccountMutationRequest, LoginAccountMutationResponse, LogoutAccountMutationResponse, GetCurrentUserQueryResponse, GetCurrentUser401, LoginTauriMutationResponse, LoginTauriQueryParams, VerifyConnectionMutationRequest, VerifyConnectionMutationResponse, QueryBackendInfoQueryResponse, CreateBrowserExtensionPairingMutationRequest, CreateBrowserExtensionPairingMutationResponse, CreateBrowserExtensionPairing500, ListConnectionsQueryResponse, ListDeviceCodesQueryResponse, ListDeviceCodesQueryParams, CreateDeviceCodeMutationRequest, CreateDeviceCodeMutationResponse, UpdateDeviceCodeMutationRequest, UpdateDeviceCodeMutationResponse, UpdateDeviceCodePathParams, DeleteDeviceCodeMutationResponse, DeleteDeviceCodePathParams, GetDeviceConnectionQueryResponse, GetDeviceConnectionPathParams, GetDeviceConnectionQueryParams, OpenExecPtyCarrierQueryResponse, RetryLocalFileRecoveryCleanupMutationResponse, ConfirmLocalFileRecoveryClockMutationRequest, ConfirmLocalFileRecoveryClockMutationResponse, DiscardLocalFileRecoveryMutationRequest, DiscardLocalFileRecoveryMutationResponse, ExportLocalFileRecoveryMutationRequest, ExportLocalFileRecoveryMutationResponse, UpdateLocalFileRecoveryPolicyMutationRequest, UpdateLocalFileRecoveryPolicyMutationResponse, QueryLocalFileRecoveryMutationRequest, QueryLocalFileRecoveryMutationResponse, QueryMacosAutologinQueryResponse, RetryManagerLinkMutationResponse, QueryManagerLinkStatusQueryResponse, RedeemCodeMutationRequest, RedeemCodeMutationResponse, QuerySecuritySettingsQueryResponse, UpdateSecuritySettingsMutationRequest, UpdateSecuritySettingsMutationResponse, SubmitSecurityApprovalMutationRequest, SubmitSecurityApprovalMutationResponse, QuerySettingsQueryResponse, UpdateSettingsMutationRequest, UpdateSettingsMutationResponse, QueryAiAssistantSettingsQueryResponse, UpdateAiAssistantSettingsMutationRequest, UpdateAiAssistantSettingsMutationResponse, QueryAiPolicySettingsQueryResponse, UpdateAiPolicySettingsMutationRequest, UpdateAiPolicySettingsMutationResponse, QueryCollectionPolicySettingsQueryResponse, UpdateCollectionPolicySettingsMutationRequest, UpdateCollectionPolicySettingsMutationResponse, UpdateComputerUseApplicationPolicyMutationRequest, UpdateComputerUseApplicationPolicyMutationResponse, QueryComputerUseApplicationPolicyMutationResponse, UpdateComputerUseCommunicationPolicyMutationRequest, UpdateComputerUseCommunicationPolicyMutationResponse, QueryComputerUseCommunicationPolicyMutationResponse, QueryLogSettingsQueryResponse, UpdateLogSettingsMutationRequest, UpdateLogSettingsMutationResponse, QueryTurnSettingsQueryResponse, UpdateTurnSettingsMutationRequest, UpdateTurnSettingsMutationResponse, QueryTurnClientSettingsQueryResponse, UpdateTurnClientSettingsMutationRequest, UpdateTurnClientSettingsMutationResponse, RegenerateTurnSecretMutationResponse, QueryVirtualDisplaySettingsQueryResponse, UpdateVirtualDisplaySettingsMutationRequest, UpdateVirtualDisplaySettingsMutationResponse, OpenSignalingHandleQueryResponse, OpenSignalingHandleQueryParams, StartSupportMutationResponse, SupportStatusQueryResponse, StopSupportMutationResponse, QuerySysinfoQueryResponse, UpdateTelemetryConsentMutationRequest, UpdateTelemetryConsentMutationResponse, QueryTelemetryStatusQueryResponse, OpenTerminalSessionQueryResponse, OpenTerminalSessionPathParams, OpenTerminalSessionQueryParams, ListTerminalQueryResponse, ListTerminalPathParams, ListTerminalQueryParams, RequestMacosPermissionsMutationResponse, AuthorizeWaylandMutationRequest, AuthorizeWaylandMutationResponse, CancelWaylandMutationRequest, CancelWaylandMutationResponse, InitSystemMutationRequest, InitSystemMutationResponse, InitSystem403, InitRequirementsQueryResponse, GetApprovalModelProviderQueryResponse, UpdateApprovalModelProviderMutationRequest, UpdateApprovalModelProviderMutationResponse, ReuseAiGatewayForApprovalMutationRequest, ReuseAiGatewayForApprovalMutationResponse, TestApprovalModelProviderMutationRequest, TestApprovalModelProviderMutationResponse, GetApprovalMetricsOverviewQueryResponse, GetApprovalMetricsOverviewQueryParams, GetModelMetricsCallsQueryResponse, GetModelMetricsCallsQueryParams, GetModelMetricsCallQueryResponse, GetModelMetricsCallPathParams, GetModelMetricsModelsQueryResponse, GetModelMetricsModelsQueryParams, GetModelMetricsOverviewQueryResponse, GetModelMetricsOverviewQueryParams, GetModelMetricsRuntimeQueryResponse, GetModelMetricsRuntimeQueryParams, GetModelMetricsSeriesQueryResponse, GetModelMetricsSeriesQueryParams, GetModelMetricsSettingsQueryResponse, UpdateModelMetricsSettingsMutationRequest, UpdateModelMetricsSettingsMutationResponse, GetModelMetricsStatusQueryResponse, GetModelMetricsToolsQueryResponse, GetModelMetricsToolsQueryParams, GetModelMetricsUnassociatedQueryResponse, GetModelMetricsUnassociatedQueryParams, GetModelProviderQueryResponse, UpdateModelProviderMutationRequest, UpdateModelProviderMutationResponse, TestModelProviderMutationRequest, TestModelProviderMutationResponse, GetModelUsageQueryResponse, GetModelUsageQueryParams, ListAiAssistantAttentionQueryResponse, ListAiAssistantAttentionQueryParams, ListRetainedAssistantConversationsQueryResponse, ListRetainedAssistantConversationsQueryParams, SearchAssistantHistoryMutationRequest, SearchAssistantHistoryMutationResponse, GetAssistantHistoryWindowQueryResponse, GetAssistantHistoryWindowQueryParams, GetAssistantMemoriesQueryResponse, GetAssistantMemoriesQueryParams, ClearAssistantMemoriesMutationRequest, ClearAssistantMemoriesMutationResponse, DeleteAssistantMemoryMutationRequest, DeleteAssistantMemoryMutationResponse, GetAssistantProcessingQueryResponse, GetAiAssistantSessionQueryResponse, GetAiAssistantSessionQueryParams, CloseAiAssistantApprovalDelegationMutationRequest, CloseAiAssistantApprovalDelegationMutationResponse, OpenAiAssistantApprovalDelegationMutationRequest, OpenAiAssistantApprovalDelegationMutationResponse, GetAiAssistantApprovalModeQueryResponse, GetAiAssistantApprovalModeQueryParams, UpdateAiAssistantApprovalModeMutationRequest, UpdateAiAssistantApprovalModeMutationResponse, GetApprovalReviewQueryResponse, GetApprovalReviewQueryParams, GetApprovalReviewPartsQueryResponse, GetApprovalReviewPartsQueryParams, ListApprovalReviewsQueryResponse, ListApprovalReviewsQueryParams, GetAssistantAttachmentQueryResponse, GetAssistantAttachmentQueryParams, ReadAssistantAttachmentMutationRequest, ReadAssistantAttachmentMutationResponse, ListAssistantAttachmentsQueryResponse, ListAssistantAttachmentsQueryParams, DeleteAssistantAttachmentsMutationRequest, DeleteAssistantAttachmentsMutationResponse, CancelAiAssistantBackgroundTaskMutationRequest, CancelAiAssistantBackgroundTaskMutationResponse, RevokeAiAssistantCapabilityGrantMutationRequest, RevokeAiAssistantCapabilityGrantMutationResponse, CancelAiAssistantCommandMutationRequest, CancelAiAssistantCommandMutationResponse, GetAiAssistantContextSummaryQueryResponse, GetAiAssistantContextSummaryQueryParams, DeleteAiAssistantSessionMutationRequest, DeleteAiAssistantSessionMutationResponse, GetAiAssistantDeviceRosterQueryResponse, GetAiAssistantDeviceRosterQueryParams, UpdateAiAssistantDeviceRosterMutationRequest, UpdateAiAssistantDeviceRosterMutationResponse, ControlAiAssistantDirectoryMutationRequest, ControlAiAssistantDirectoryMutationResponse, GetMyGoalBudgetPolicyQueryResponse, ControlAiAssistantGoalMutationRequest, ControlAiAssistantGoalMutationResponse, DecideAiAssistantGoalOpenMutationRequest, DecideAiAssistantGoalOpenMutationResponse, GetAssistantImageQueryResponse, GetAssistantImageQueryParams, GetAssistantImage404, DeleteAssistantImageMutationResponse, DeleteAssistantImageQueryParams, ListAssistantImagesQueryResponse, ListAssistantImagesQueryParams, GetMyIssueConnectionsQueryResponse, ListAiAssistantIssueSubscriptionsQueryResponse, ListAiAssistantIssueSubscriptionsQueryParams, SaveAiAssistantIssueSubscriptionMutationRequest, SaveAiAssistantIssueSubscriptionMutationResponse, GetAiAssistantIssueSubscriptionAccountsQueryResponse, GetAiAssistantIssueSubscriptionAccountsQueryParams, SetAiAssistantIssueSubscriptionEnabledMutationRequest, SetAiAssistantIssueSubscriptionEnabledMutationResponse, SetAiAssistantIssueSubscriptionEnabledPathParams, DecideAiAssistantPermissionMutationRequest, DecideAiAssistantPermissionMutationResponse, ListAiAssistantMainRequestsQueryResponse, ListAiAssistantMainRequestsQueryParams, CancelAiAssistantMainRequestMutationRequest, CancelAiAssistantMainRequestMutationResponse, ResumeAiAssistantMainRequestsMutationRequest, ResumeAiAssistantMainRequestsMutationResponse, DecideAiAssistantSkillProposalMutationRequest, DecideAiAssistantSkillProposalMutationResponse, ListAiAssistantSkillProposalsQueryResponse, StopAiAssistantSessionMutationRequest, StopAiAssistantSessionMutationResponse, GetMySubagentPolicyQueryResponse, ListAiAssistantSubagentsQueryResponse, ListAiAssistantSubagentsQueryParams, ControlAiAssistantSubagentMutationRequest, ControlAiAssistantSubagentMutationResponse, MarkAiAssistantSubagentReadMutationRequest, MarkAiAssistantSubagentReadMutationResponse, ReadAiAssistantSubagentResultQueryResponse, ReadAiAssistantSubagentResultQueryParams, GetAiAssistantSubagentStatusQueryResponse, GetAiAssistantSubagentStatusQueryParams, ListAiAssistantSessionsQueryResponse, ListAiAssistantSessionsQueryParams, GetAssistantDataSettingsQueryResponse, UpdateAssistantDataSettingsMutationRequest, UpdateAssistantDataSettingsMutationResponse, GetMySkillScanQueryResponse, ListMySkillsQueryResponse, CreateMySkillMutationRequest, CreateMySkillMutationResponse, PreviewMySkillMutationRequest, PreviewMySkillMutationResponse, GetMySkillQueryResponse, GetMySkillPathParams, UpdateMySkillMutationRequest, UpdateMySkillMutationResponse, UpdateMySkillPathParams, DeleteMySkillMutationResponse, DeleteMySkillPathParams, DeleteMySkillQueryParams, PreviewMySkillVersionMutationRequest, PreviewMySkillVersionMutationResponse, PreviewMySkillVersionPathParams, GetMySkillVersionQueryResponse, GetMySkillVersionPathParams, GetAssistantSourceQueryResponse, GetAssistantSourceQueryParams, GetAssistantUserInstructionsQueryResponse, UpdateAssistantUserInstructionsMutationRequest, UpdateAssistantUserInstructionsMutationResponse, ListAiAssistantWorkbenchesQueryResponse, CreateAiAssistantWorkbenchMutationRequest, CreateAiAssistantWorkbenchMutationResponse, ListAiAssistantWorkbenchTasksQueryResponse, ListAiAssistantWorkbenchTasksPathParams, ListAiAssistantWorkbenchTasksQueryParams, RetryFileRecoveryCleanupMutationRequest, RetryFileRecoveryCleanupMutationResponse, ListFileRecoveryCleanupQueryResponse, ListFileRecoveryCleanupQueryParams, ExportDeviceFileRecoveryMutationRequest, ExportDeviceFileRecoveryMutationResponse, ManageDeviceFileRecoveryMutationRequest, ManageDeviceFileRecoveryMutationResponse, QueryServerInfoQueryResponse, InstallServiceMutationRequest, InstallServiceMutationResponse, InstallService503, QueryServiceOperationQueryResponse, QueryServiceOperationPathParams, QueryServiceOperation404, UninstallServiceMutationResponse, UninstallService503, CreateTokenMutationRequest, CreateTokenMutationResponse, GetTurnInfoQueryResponse, GetTurnMetricsQueryResponse, GetTurnMetrics503, GetTurnSessionStatisticsQueryResponse, GetTurnSessionStatisticsQueryParams, GetTurnUsageQueryResponse, GetTurnUsageQueryParams, GetUsageRetentionQueryResponse, UpdateUsageRetentionMutationRequest, UpdateUsageRetentionMutationResponse, InstallDriverMutationResponse, QueryDriverStatusQueryResponse, UninstallDriverMutationResponse } from "./types.ts";
 import type { Client, RequestConfig, ResponseErrorConfig } from "@/lib/kubb-client";
 
 function getGetApprovalRuntimeSettingsUrl() {
@@ -178,6 +178,193 @@ export async function updateContextManagement(data: UpdateContextManagementMutat
   const requestData = data
 
   const res = await request<UpdateContextManagementMutationResponse, ResponseErrorConfig<Error>, UpdateContextManagementMutationRequest>({ method : "PUT", url : getUpdateContextManagementUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getListBundledSkillsUrl() {
+  const res = { method: 'GET', url: `/api/admin/system/assistant-bundled-skills` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/assistant-bundled-skills}
+ */
+export async function listBundledSkills(config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<ListBundledSkillsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListBundledSkillsUrl().url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getSetBundledSkillUrl(name: SetBundledSkillPathParams["name"]) {
+  const res = { method: 'PUT', url: `/api/admin/system/assistant-bundled-skills/${name}` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/assistant-bundled-skills/:name}
+ */
+export async function setBundledSkill(name: SetBundledSkillPathParams["name"], data: SetBundledSkillMutationRequest, config: Partial<RequestConfig<SetBundledSkillMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<SetBundledSkillMutationResponse, ResponseErrorConfig<Error>, SetBundledSkillMutationRequest>({ method : "PUT", url : getSetBundledSkillUrl(name).url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getGetPlatformSkillScanUrl() {
+  const res = { method: 'GET', url: `/api/admin/system/assistant-skill-scan` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/assistant-skill-scan}
+ */
+export async function getPlatformSkillScan(config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetPlatformSkillScanQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetPlatformSkillScanUrl().url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getListPlatformSkillsUrl() {
+  const res = { method: 'GET', url: `/api/admin/system/assistant-skills` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/assistant-skills}
+ */
+export async function listPlatformSkills(config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<ListPlatformSkillsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListPlatformSkillsUrl().url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getCreatePlatformSkillUrl() {
+  const res = { method: 'POST', url: `/api/admin/system/assistant-skills` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/assistant-skills}
+ */
+export async function createPlatformSkill(data: CreatePlatformSkillMutationRequest, config: Partial<RequestConfig<CreatePlatformSkillMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<CreatePlatformSkillMutationResponse, ResponseErrorConfig<Error>, CreatePlatformSkillMutationRequest>({ method : "POST", url : getCreatePlatformSkillUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getPreviewPlatformSkillUrl() {
+  const res = { method: 'POST', url: `/api/admin/system/assistant-skills/preview` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/assistant-skills/preview}
+ */
+export async function previewPlatformSkill(data: PreviewPlatformSkillMutationRequest, config: Partial<RequestConfig<PreviewPlatformSkillMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<PreviewPlatformSkillMutationResponse, ResponseErrorConfig<Error>, PreviewPlatformSkillMutationRequest>({ method : "POST", url : getPreviewPlatformSkillUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getGetPlatformSkillUrl(skill_id: GetPlatformSkillPathParams["skill_id"]) {
+  const res = { method: 'GET', url: `/api/admin/system/assistant-skills/${skill_id}` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/assistant-skills/:skill_id}
+ */
+export async function getPlatformSkill(skill_id: GetPlatformSkillPathParams["skill_id"], config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetPlatformSkillQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetPlatformSkillUrl(skill_id).url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getUpdatePlatformSkillUrl(skill_id: UpdatePlatformSkillPathParams["skill_id"]) {
+  const res = { method: 'PUT', url: `/api/admin/system/assistant-skills/${skill_id}` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/assistant-skills/:skill_id}
+ */
+export async function updatePlatformSkill(skill_id: UpdatePlatformSkillPathParams["skill_id"], data: UpdatePlatformSkillMutationRequest, config: Partial<RequestConfig<UpdatePlatformSkillMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<UpdatePlatformSkillMutationResponse, ResponseErrorConfig<Error>, UpdatePlatformSkillMutationRequest>({ method : "PUT", url : getUpdatePlatformSkillUrl(skill_id).url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getDeletePlatformSkillUrl(skill_id: DeletePlatformSkillPathParams["skill_id"]) {
+  const res = { method: 'DELETE', url: `/api/admin/system/assistant-skills/${skill_id}` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/assistant-skills/:skill_id}
+ */
+export async function deletePlatformSkill(skill_id: DeletePlatformSkillPathParams["skill_id"], params: DeletePlatformSkillQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<DeletePlatformSkillMutationResponse, ResponseErrorConfig<Error>, unknown>({ method : "DELETE", url : getDeletePlatformSkillUrl(skill_id).url.toString(), params, ... requestConfig })
+  return res.data
+}
+
+function getPreviewPlatformSkillVersionUrl(skill_id: PreviewPlatformSkillVersionPathParams["skill_id"]) {
+  const res = { method: 'POST', url: `/api/admin/system/assistant-skills/${skill_id}/preview` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/assistant-skills/:skill_id/preview}
+ */
+export async function previewPlatformSkillVersion(skill_id: PreviewPlatformSkillVersionPathParams["skill_id"], data: PreviewPlatformSkillVersionMutationRequest, config: Partial<RequestConfig<PreviewPlatformSkillVersionMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<PreviewPlatformSkillVersionMutationResponse, ResponseErrorConfig<Error>, PreviewPlatformSkillVersionMutationRequest>({ method : "POST", url : getPreviewPlatformSkillVersionUrl(skill_id).url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getGetPlatformSkillVersionUrl(skill_id: GetPlatformSkillVersionPathParams["skill_id"], version: GetPlatformSkillVersionPathParams["version"]) {
+  const res = { method: 'GET', url: `/api/admin/system/assistant-skills/${skill_id}/versions/${version}` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/assistant-skills/:skill_id/versions/:version}
+ */
+export async function getPlatformSkillVersion(skill_id: GetPlatformSkillVersionPathParams["skill_id"], version: GetPlatformSkillVersionPathParams["version"], config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetPlatformSkillVersionQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetPlatformSkillVersionUrl(skill_id, version).url.toString(), ... requestConfig })
   return res.data
 }
 
@@ -2811,6 +2998,42 @@ export async function resumeAiAssistantMainRequests(data: ResumeAiAssistantMainR
   return res.data
 }
 
+function getDecideAiAssistantSkillProposalUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-assistant-session/skill-proposal-decision` as const }
+  return res
+}
+
+/**
+ * @summary Approve or reject an AI-proposed personal skill
+ * {@link /api/my/ai-assistant-session/skill-proposal-decision}
+ */
+export async function decideAiAssistantSkillProposal(data: DecideAiAssistantSkillProposalMutationRequest, config: Partial<RequestConfig<DecideAiAssistantSkillProposalMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<DecideAiAssistantSkillProposalMutationResponse, ResponseErrorConfig<Error>, DecideAiAssistantSkillProposalMutationRequest>({ method : "POST", url : getDecideAiAssistantSkillProposalUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getListAiAssistantSkillProposalsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-assistant-session/skill-proposals` as const }
+  return res
+}
+
+/**
+ * @summary List undecided AI-proposed personal skills
+ * {@link /api/my/ai-assistant-session/skill-proposals}
+ */
+export async function listAiAssistantSkillProposals(config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<ListAiAssistantSkillProposalsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAssistantSkillProposalsUrl().url.toString(), ... requestConfig })
+  return res.data
+}
+
 function getStopAiAssistantSessionUrl() {
   const res = { method: 'POST', url: `/api/my/ai-assistant-session/stop` as const }
   return res
@@ -2985,6 +3208,159 @@ export async function updateAssistantDataSettings(data: UpdateAssistantDataSetti
   const requestData = data
 
   const res = await request<UpdateAssistantDataSettingsMutationResponse, ResponseErrorConfig<Error>, UpdateAssistantDataSettingsMutationRequest>({ method : "POST", url : getUpdateAssistantDataSettingsUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getGetMySkillScanUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-assistant-skill-scan` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-assistant-skill-scan}
+ */
+export async function getMySkillScan(config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetMySkillScanQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetMySkillScanUrl().url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getListMySkillsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-assistant-skills` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-assistant-skills}
+ */
+export async function listMySkills(config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<ListMySkillsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListMySkillsUrl().url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getCreateMySkillUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-assistant-skills` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-assistant-skills}
+ */
+export async function createMySkill(data: CreateMySkillMutationRequest, config: Partial<RequestConfig<CreateMySkillMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<CreateMySkillMutationResponse, ResponseErrorConfig<Error>, CreateMySkillMutationRequest>({ method : "POST", url : getCreateMySkillUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getPreviewMySkillUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-assistant-skills/preview` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-assistant-skills/preview}
+ */
+export async function previewMySkill(data: PreviewMySkillMutationRequest, config: Partial<RequestConfig<PreviewMySkillMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<PreviewMySkillMutationResponse, ResponseErrorConfig<Error>, PreviewMySkillMutationRequest>({ method : "POST", url : getPreviewMySkillUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getGetMySkillUrl(skill_id: GetMySkillPathParams["skill_id"]) {
+  const res = { method: 'GET', url: `/api/my/ai-assistant-skills/${skill_id}` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-assistant-skills/:skill_id}
+ */
+export async function getMySkill(skill_id: GetMySkillPathParams["skill_id"], config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetMySkillQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetMySkillUrl(skill_id).url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getUpdateMySkillUrl(skill_id: UpdateMySkillPathParams["skill_id"]) {
+  const res = { method: 'PUT', url: `/api/my/ai-assistant-skills/${skill_id}` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-assistant-skills/:skill_id}
+ */
+export async function updateMySkill(skill_id: UpdateMySkillPathParams["skill_id"], data: UpdateMySkillMutationRequest, config: Partial<RequestConfig<UpdateMySkillMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<UpdateMySkillMutationResponse, ResponseErrorConfig<Error>, UpdateMySkillMutationRequest>({ method : "PUT", url : getUpdateMySkillUrl(skill_id).url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getDeleteMySkillUrl(skill_id: DeleteMySkillPathParams["skill_id"]) {
+  const res = { method: 'DELETE', url: `/api/my/ai-assistant-skills/${skill_id}` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-assistant-skills/:skill_id}
+ */
+export async function deleteMySkill(skill_id: DeleteMySkillPathParams["skill_id"], params: DeleteMySkillQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<DeleteMySkillMutationResponse, ResponseErrorConfig<Error>, unknown>({ method : "DELETE", url : getDeleteMySkillUrl(skill_id).url.toString(), params, ... requestConfig })
+  return res.data
+}
+
+function getPreviewMySkillVersionUrl(skill_id: PreviewMySkillVersionPathParams["skill_id"]) {
+  const res = { method: 'POST', url: `/api/my/ai-assistant-skills/${skill_id}/preview` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-assistant-skills/:skill_id/preview}
+ */
+export async function previewMySkillVersion(skill_id: PreviewMySkillVersionPathParams["skill_id"], data: PreviewMySkillVersionMutationRequest, config: Partial<RequestConfig<PreviewMySkillVersionMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<PreviewMySkillVersionMutationResponse, ResponseErrorConfig<Error>, PreviewMySkillVersionMutationRequest>({ method : "POST", url : getPreviewMySkillVersionUrl(skill_id).url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getGetMySkillVersionUrl(skill_id: GetMySkillVersionPathParams["skill_id"], version: GetMySkillVersionPathParams["version"]) {
+  const res = { method: 'GET', url: `/api/my/ai-assistant-skills/${skill_id}/versions/${version}` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-assistant-skills/:skill_id/versions/:version}
+ */
+export async function getMySkillVersion(skill_id: GetMySkillVersionPathParams["skill_id"], version: GetMySkillVersionPathParams["version"], config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetMySkillVersionQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetMySkillVersionUrl(skill_id, version).url.toString(), ... requestConfig })
   return res.data
 }
 
