@@ -352,6 +352,10 @@ pub struct BundledSkillSettings {
 pub enum SkillProposalKind {
     Create,
     Update,
+    /// Disables an AI-authored personal skill; the owner can enable it again.
+    Disable,
+    /// Deletes an AI-authored personal skill with its retained versions.
+    Delete,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]

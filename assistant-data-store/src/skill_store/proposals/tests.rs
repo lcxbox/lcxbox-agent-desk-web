@@ -673,3 +673,241 @@ async fn a_proposal_saved_by_one_instance_is_decided_by_another() {
         Err(SkillProposalError::Store(ScheduleStoreError::Conflict))
     ));
 }
+
+fn removal_args(name: &str, version: u64, action: &str) -> serde_json::Value {
+    serde_json::json!({"skill_ref":format!("personal/{name}"),"version":version,
+        "action":action,"reason":"The owner no longer needs it"})
+}
+
+async fn propose_removal(
+    db: &DatabaseConnection,
+    call_id: &str,
+    arguments: serde_json::Value,
+    proof: bool,
+) -> Result<(String, PersistedAgentSession), SkillProposalError> {
+    let mut session = session(call_id, &arguments);
+    session.conversation[1].tool_calls[0].name = authoring::REMOVE_TOOL.into();
+    let host = host(session.clone(), proof);
+    let call = ToolCall {
+        id: call_id.into(),
+        name: authoring::REMOVE_TOOL.into(),
+        arguments_json: arguments.to_string(),
+    };
+    propose_on(&host, db, &session, &call, &Default::default()).await
+}
+
+/// An approved AI-authored skill named `name` at version 1.
+async fn authored(db: &DatabaseConnection, call_id: &str, name: &str) -> skill::Model {
+    let (_, waiting) = propose(db, call_id, args(name, "Run df -h."), true)
+        .await
+        .unwrap();
+    decide(db, &waiting, true, SkillDecider::Owner).await;
+    current_skill(db, name).await.unwrap()
+}
+
+async fn current_skill(db: &DatabaseConnection, name: &str) -> Option<skill::Model> {
+    find_by_name_on(db, &personal_scope(ACTOR), name)
+        .await
+        .unwrap()
+}
+
+fn decision_receipt(host: &Recorder) -> serde_json::Value {
+    let written = host.written_states.lock().unwrap().clone();
+    let turn = PersistedAgentSession::decode_json(written.last().unwrap()).unwrap();
+    serde_json::from_str(&turn.conversation.last().unwrap().text).unwrap()
+}
+
+#[tokio::test]
+async fn an_assistant_written_skill_is_disabled_then_deleted_after_approval() {
+    let db = db().await;
+    let skill = authored(&db, "call-1", "disk-report").await;
+    let (_, waiting) = propose_removal(
+        &db,
+        "call-2",
+        removal_args("disk-report", 1, "disable"),
+        true,
+    )
+    .await
+    .unwrap();
+    let submitted: serde_json::Value =
+        serde_json::from_str(&waiting.conversation.last().unwrap().text).unwrap();
+    assert_eq!(submitted["kind"], "disable");
+    assert!(
+        submitted["message"]
+            .as_str()
+            .unwrap()
+            .contains("disabled or deleted")
+    );
+    // The decider sees the version it acts on, not a change.
+    let views = list_on(&db, ACTOR, None).await.unwrap();
+    assert_eq!(views[0].kind, SkillProposalKind::Disable);
+    assert!(views[0].skill_md.contains("Run df -h."));
+    assert!(views[0].diff.is_empty());
+    assert_eq!(
+        views[0].base_skill_id.as_deref(),
+        Some(skill.skill_id.as_str())
+    );
+    let review = review_proposal_on(&db, &paused(&waiting), &proposal_id(&waiting))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(review.kind, SkillProposalKind::Disable);
+    let (row, host) = decide(
+        &db,
+        &waiting,
+        true,
+        SkillDecider::Ai {
+            reason: "The owner asked".into(),
+        },
+    )
+    .await;
+    assert_eq!(row.status, "approved");
+    assert_eq!(pending_count(&db).await, 0);
+    let disabled = current_skill(&db, "disk-report").await.unwrap();
+    assert!(!disabled.enabled);
+    assert_eq!(disabled.current_version, 1);
+    let receipt = decision_receipt(&host);
+    assert_eq!(receipt["kind"], "disable");
+    assert!(receipt["version"].is_null() && receipt["note"].is_null());
+    assert_eq!(
+        rejected_with(
+            propose_removal(
+                &db,
+                "call-3",
+                removal_args("disk-report", 1, "disable"),
+                true
+            )
+            .await
+        ),
+        authoring::ALREADY_DISABLED
+    );
+    // A disabled assistant-written skill can still be deleted.
+    let (_, waiting) = propose_removal(
+        &db,
+        "call-4",
+        removal_args("disk-report", 1, "delete"),
+        true,
+    )
+    .await
+    .unwrap();
+    let (row, host) = decide(&db, &waiting, true, SkillDecider::Owner).await;
+    assert_eq!(row.status, "approved");
+    assert!(current_skill(&db, "disk-report").await.is_none());
+    assert!(version_on(&db, &skill.skill_id, 1).await.unwrap().is_none());
+    assert_eq!(decision_receipt(&host)["kind"], "delete");
+}
+
+#[tokio::test]
+async fn only_assistant_written_versions_can_be_removed() {
+    let db = db().await;
+    assert_eq!(
+        rejected_with(
+            propose_removal(&db, "call-0", removal_args("missing", 1, "disable"), true).await
+        ),
+        authoring::BASE_CHANGED
+    );
+    // An imported skill updated by the assistant: disabling looks at the
+    // current version, deleting at every retained version.
+    let package = parse_input(
+        &SkillPackageInput {
+            zip_base64: None,
+            skill_md: Some("---\nname: imported\ndescription: Imported\n---\nby owner".into()),
+            files: vec![],
+        },
+        Some("imported"),
+    )
+    .unwrap()
+    .package;
+    create_on(
+        &db,
+        &personal_scope(ACTOR),
+        &package,
+        &VersionSource::manual(SkillOrigin::Imported, None),
+        1,
+    )
+    .await
+    .unwrap();
+    let mut update = args("imported", "Assistant version");
+    update["base"] = serde_json::json!({"skill_ref":"personal/imported","version":1});
+    let (_, waiting) = propose(&db, "call-1", update, true).await.unwrap();
+    decide(&db, &waiting, true, SkillDecider::Owner).await;
+    assert_eq!(
+        rejected_with(
+            propose_removal(&db, "call-2", removal_args("imported", 2, "delete"), true).await
+        ),
+        authoring::NOT_AI_AUTHORED
+    );
+    assert!(
+        propose_removal(&db, "call-3", removal_args("imported", 2, "disable"), true)
+            .await
+            .is_ok()
+    );
+    // An owner edit makes the current version owner content again.
+    let skill = authored(&db, "call-4", "edited").await;
+    update_from_manual(&db, "edited", &skill.skill_id, skill.revision as u64).await;
+    for action in ["disable", "delete"] {
+        assert_eq!(
+            rejected_with(
+                propose_removal(&db, "call-5", removal_args("edited", 2, action), true).await
+            ),
+            authoring::NOT_AI_AUTHORED
+        );
+    }
+    assert_eq!(
+        rejected_with(
+            propose_removal(&db, "call-6", removal_args("edited", 1, "disable"), true).await
+        ),
+        authoring::BASE_CHANGED
+    );
+    // The stored reason needs the same retainable proof as new content.
+    authored(&db, "call-7", "unproven").await;
+    assert_eq!(
+        rejected_with(
+            propose_removal(&db, "call-8", removal_args("unproven", 1, "delete"), false).await
+        ),
+        authoring::REMOVAL_NOT_RETAINABLE
+    );
+}
+
+#[tokio::test]
+async fn a_changed_skill_conflicts_its_removal_and_a_rejection_keeps_it() {
+    let db = db().await;
+    let skill = authored(&db, "call-1", "disk-report").await;
+    let (_, rejected) = propose_removal(
+        &db,
+        "call-2",
+        removal_args("disk-report", 1, "delete"),
+        true,
+    )
+    .await
+    .unwrap();
+    let (row, _) = decide(&db, &rejected, false, SkillDecider::Owner).await;
+    assert_eq!(row.status, "rejected");
+    assert!(current_skill(&db, "disk-report").await.unwrap().enabled);
+    let (_, waiting) = propose_removal(
+        &db,
+        "call-3",
+        removal_args("disk-report", 1, "delete"),
+        true,
+    )
+    .await
+    .unwrap();
+    update_from_manual(&db, "disk-report", &skill.skill_id, skill.revision as u64).await;
+    let (row, host) = decide(&db, &waiting, true, SkillDecider::Owner).await;
+    assert_eq!(row.status, "conflicted");
+    assert!(
+        row.decision_reason
+            .as_deref()
+            .unwrap()
+            .contains("no longer assistant-written")
+    );
+    assert_eq!(
+        current_skill(&db, "disk-report")
+            .await
+            .unwrap()
+            .current_version,
+        2
+    );
+    assert_eq!(decision_receipt(&host)["status"], "conflicted");
+    assert_eq!(pending_count(&db).await, 0);
+}

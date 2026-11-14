@@ -176,7 +176,13 @@ impl<'a> ReviewModelView<'a> {
             }
             ApprovalSource::SkillProposal { .. } => {
                 let proposal = &action["skill_proposal"];
-                action = json!({"operation":if proposal["base_version"].is_null(){"create_personal_skill"}else{"update_personal_skill"},
+                let operation = match proposal["kind"].as_str() {
+                    Some("disable") => "disable_personal_skill",
+                    Some("delete") => "delete_personal_skill",
+                    _ if proposal["base_version"].is_null() => "create_personal_skill",
+                    _ => "update_personal_skill",
+                };
+                action = json!({"operation":operation,
                     "skill_ref":proposal["skill_ref"],"base_version":proposal["base_version"],
                     "skill_md":proposal["skill_md"],"files":proposal["files"],"changes":proposal["changes"],
                     "reason":proposal["reason"],"third_party_source_kinds":proposal["third_party_source_kinds"],

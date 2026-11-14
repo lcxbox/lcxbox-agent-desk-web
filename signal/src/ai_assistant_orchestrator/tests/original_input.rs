@@ -3484,7 +3484,13 @@ async fn run_selected_device_reads(scenario: SelectedReadScenario) {
                         .await
                         .unwrap()
                         .unwrap();
-                    if let Some(record) = snapshot.file_scope.records().first() {
+                    // The owner decides once the requesting turn paused on it.
+                    if let Some(record) = snapshot
+                        .file_scope
+                        .records()
+                        .first()
+                        .filter(|_| snapshot.decision_pause.is_some())
+                    {
                         assert_eq!(record.device_id, target);
                         assert_eq!(
                             record.proposal.source,
@@ -4115,6 +4121,7 @@ fn assert_targetless_web_tools(request: &serde_json::Value, approved: bool) {
                 | desk_diagnose_core::schedule::management_tools::LIST
                 | desk_diagnose_core::schedule::management_tools::CANCEL
                 | desk_diagnose_core::skills::authoring::PROPOSE_TOOL
+                | desk_diagnose_core::skills::authoring::REMOVE_TOOL
         ) || tools::effect(name).is_some()),
         "{names:?}"
     );

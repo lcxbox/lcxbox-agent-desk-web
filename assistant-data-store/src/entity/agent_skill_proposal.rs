@@ -16,7 +16,7 @@ pub struct Model {
     #[sea_orm(indexed)]
     pub conversation_id: String,
     pub input_revision: i64,
-    /// `create` or `update`.
+    /// `create`, `update`, `disable` or `delete`.
     pub kind: String,
     pub name: String,
     pub base_skill_id: Option<String>,

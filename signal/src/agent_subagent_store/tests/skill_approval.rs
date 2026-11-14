@@ -47,7 +47,64 @@ async fn skill_fixture() -> (DatabaseConnection, PersistedAgentSession, String, 
             "body":"Prepare a read-only status report.","reason":"The owner asked to keep it"})
         .to_string(),
     };
-    let (db, mut session, now) = turn_fixture(true, &call).await;
+    proposal_fixture(&call, "create").await
+}
+
+/// A paused proposal to disable or delete the assistant-written
+/// `morning-check` skill at version 1.
+async fn removal_fixture(action: &str) -> (DatabaseConnection, PersistedAgentSession, String, u64) {
+    let call = ToolCall {
+        id: "skill-call".into(),
+        name: desk_diagnose_core::skills::authoring::REMOVE_TOOL.into(),
+        arguments_json: serde_json::json!({"skill_ref":"personal/morning-check","version":1,
+            "action":action,"reason":"The owner asked to remove it"})
+        .to_string(),
+    };
+    let (db, session, id, now) = proposal_fixture(&call, action).await;
+    let package = desk_assistant_data_store::skill_package::parse_input(
+        &desk_agent_protocol::ai_assistant::skill::SkillPackageInput {
+            zip_base64: None,
+            skill_md: Some(
+                "---\nname: morning-check\ndescription: Morning checks\n---\nPrepare a read-only status report."
+                    .into(),
+            ),
+            files: vec![],
+        },
+        Some("morning-check"),
+    )
+    .unwrap()
+    .package;
+    let summary = skill_store::create_on(
+        &db,
+        &crate::assistant_skills::personal_scope(),
+        &package,
+        &skill_store::VersionSource {
+            origin: desk_agent_protocol::ai_assistant::skill::SkillOrigin::AiAuthored,
+            proposal_id: Some("earlier".into()),
+            source_policy_json: Some(proof()),
+            scan_summary_json: None,
+        },
+        now as i64,
+    )
+    .await
+    .unwrap();
+    let mut row: proposal::ActiveModel = proposal::Entity::find()
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap()
+        .into();
+    row.base_skill_id = Set(Some(summary.skill_id));
+    row.base_version = Set(Some(1));
+    row.update(&db).await.unwrap();
+    (db, session, id, now)
+}
+
+async fn proposal_fixture(
+    call: &ToolCall,
+    kind: &str,
+) -> (DatabaseConnection, PersistedAgentSession, String, u64) {
+    let (db, mut session, now) = turn_fixture(true, call).await;
     let now_ms = now.timestamp_millis();
     let id = "proposal1".to_owned();
     proposal::ActiveModel {
@@ -55,7 +112,7 @@ async fn skill_fixture() -> (DatabaseConnection, PersistedAgentSession, String, 
         actor_id: Set("1".into()),
         conversation_id: Set(session.conversation_id.clone()),
         input_revision: Set(session.input_revision as i64),
-        kind: Set("create".into()),
+        kind: Set(kind.into()),
         name: Set("morning-check".into()),
         base_skill_id: Set(None),
         base_version: Set(None),
@@ -326,4 +383,91 @@ async fn stopping_the_paused_conversation_withdraws_its_skill_proposal() {
         .unwrap()
         .unwrap();
     assert_eq!(scope.pending_proposal_count, 0);
+}
+
+#[actix_web::test]
+async fn ai_approval_disables_the_assistant_written_skill() {
+    let (db, session, id, now) = removal_fixture("disable").await;
+    let status = reviewed_kind(
+        &db,
+        &session,
+        &id,
+        PendingRequestKind::Skill,
+        ApprovalVerdict::Approve,
+        now,
+    )
+    .await;
+    assert_eq!(status, "approved");
+    let skill = skill_store::find_by_name_on(
+        &db,
+        &crate::assistant_skills::personal_scope(),
+        "morning-check",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!skill.enabled);
+    let review = crate::entity::agent_approval_review::Entity::find()
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    // The review bound the removal tool's call; a mismatch fails authorization.
+    assert_eq!(
+        (review.source_kind.as_str(), review.source_id.as_str()),
+        ("skill_proposal", id.as_str())
+    );
+    let receipt: serde_json::Value = serde_json::from_str(
+        &saved(&db, &session.conversation_id)
+            .await
+            .conversation
+            .last()
+            .unwrap()
+            .text,
+    )
+    .unwrap();
+    assert_eq!(
+        (receipt["kind"].as_str(), receipt["status"].as_str()),
+        (Some("disable"), Some("approved"))
+    );
+}
+
+#[actix_web::test]
+async fn the_owner_approves_deleting_the_assistant_written_skill() {
+    let (db, session, id, _) = removal_fixture("delete").await;
+    let view = crate::assistant_skills::decide_proposal(
+        &db,
+        &desk_agent_protocol::ai_assistant::skill::SkillProposalDecision {
+            proposal_id: id,
+            approve: true,
+            expected_revision: 1,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        view.kind,
+        desk_agent_protocol::ai_assistant::skill::SkillProposalKind::Delete
+    );
+    assert_eq!(
+        view.status,
+        desk_agent_protocol::ai_assistant::skill::SkillProposalStatus::Approved
+    );
+    assert!(
+        skill_store::find_by_name_on(
+            &db,
+            &crate::assistant_skills::personal_scope(),
+            "morning-check",
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+    let current = saved(&db, &session.conversation_id).await;
+    let receipt: serde_json::Value =
+        serde_json::from_str(&current.conversation.last().unwrap().text).unwrap();
+    assert_eq!(
+        (receipt["kind"].as_str(), receipt["decided_by"].as_str()),
+        (Some("delete"), Some("owner"))
+    );
 }

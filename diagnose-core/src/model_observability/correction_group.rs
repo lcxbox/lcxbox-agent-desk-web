@@ -104,6 +104,7 @@ pub fn tool_category(key: &str) -> CorrectionCategory {
         crate::directory_tools::REQUEST_DIRECTORY,
         crate::goal_tools::REQUEST_GOAL_TOOL_NAME,
         crate::skills::authoring::PROPOSE_TOOL,
+        crate::skills::authoring::REMOVE_TOOL,
     ]
     .contains(&key)
     {
@@ -168,6 +169,10 @@ mod tests {
         );
         assert_eq!(
             tool_category(crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME),
+            CorrectionCategory::Approval
+        );
+        assert_eq!(
+            tool_category(crate::skills::authoring::REMOVE_TOOL),
             CorrectionCategory::Approval
         );
         assert_eq!(

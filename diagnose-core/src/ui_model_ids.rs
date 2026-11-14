@@ -214,6 +214,7 @@ pub fn resolve_session_call_with_context(
                 | crate::schedule::management_tools::LIST
                 | crate::schedule::management_tools::CANCEL
                 | crate::skills::authoring::PROPOSE_TOOL
+                | crate::skills::authoring::REMOVE_TOOL
         )
     {
         return Ok(call.clone());
@@ -1335,6 +1336,10 @@ mod tests {
             (
                 crate::schedule::proposal::REQUEST_SCHEDULE,
                 r#"{ "kind": "fresh_task", "title": "每日任务", "prompt": "Report", "rule": { "kind": "daily", "utc_time": "08:30:00" } }"#,
+            ),
+            (
+                crate::skills::authoring::REMOVE_TOOL,
+                r#"{ "skill_ref": "personal/demo", "version": 2, "action": "disable", "reason": "不再需要" }"#,
             ),
         ] {
             serde_json::from_str::<Value>(arguments).unwrap();

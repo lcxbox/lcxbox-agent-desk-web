@@ -182,6 +182,7 @@ fn proposal(body: &str) -> SkillProposal {
         conversation_id: "run".into(),
         input_revision: 1,
         created_at_unix_ms: NOW,
+        kind: SkillProposalKind::Create,
         name: "disk-report".into(),
         base_version: None,
         skill_md: format!("---\nname: disk-report\ndescription: Report disks\n---\n{body}"),
@@ -473,4 +474,122 @@ fn a_decision_is_projected_onto_the_original_call_for_the_model() {
             .text
             .contains("\"awaiting_decision\":true")
     );
+}
+
+fn removal_call(arguments: serde_json::Value) -> ToolCall {
+    ToolCall {
+        id: "call-private-id".into(),
+        name: REMOVE_TOOL.into(),
+        arguments_json: arguments.to_string(),
+    }
+}
+
+#[test]
+fn the_removal_tool_follows_the_proposal_exposure_and_parses_strictly() {
+    let session = main_session(TriggerOrigin::User);
+    assert!(crate::registry::lookup_for_session(&registry(), REMOVE_TOOL, &session).is_some());
+    let continuation = main_session(TriggerOrigin::ProposalDecision);
+    assert!(crate::registry::lookup_for_session(&registry(), REMOVE_TOOL, &continuation).is_none());
+    let draft = parse_removal(
+        &session,
+        &removal_call(json!({"skill_ref":"personal/disk-report","version":3,"action":"delete","reason":"Owner asked"})),
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(draft.name, "disk-report");
+    assert_eq!(draft.version, 3);
+    assert_eq!(draft.kind, SkillProposalKind::Delete);
+    for arguments in [
+        json!({"skill_ref":"platform/disk-report","version":1,"action":"disable","reason":"x"}),
+        json!({"skill_ref":"bundled/issue-analysis","version":1,"action":"disable","reason":"x"}),
+        json!({"skill_ref":"personal/disk-report","version":0,"action":"disable","reason":"x"}),
+        json!({"skill_ref":"personal/disk-report","version":1,"action":"enable","reason":"x"}),
+        json!({"skill_ref":"personal/disk-report","version":1,"action":"disable","reason":" "}),
+        json!({"skill_ref":"personal/disk-report","version":1,"action":"disable","reason":"x","body":"y"}),
+    ] {
+        assert!(
+            parse_removal(
+                &session,
+                &removal_call(arguments.clone()),
+                &Default::default()
+            )
+            .is_err(),
+            "{arguments}"
+        );
+    }
+    let arguments =
+        json!({"skill_ref":"personal/disk-report","version":1,"action":"disable","reason":"x"});
+    assert_eq!(
+        parse_removal(
+            &continuation,
+            &removal_call(arguments.clone()),
+            &Default::default()
+        )
+        .unwrap_err(),
+        UNAVAILABLE
+    );
+    // Each parser accepts only its own tool.
+    assert!(parse(&session, &removal_call(arguments), &Default::default()).is_err());
+}
+
+#[test]
+fn a_removal_is_reviewed_as_its_own_operation() {
+    let session = waiting_session();
+    for (kind, operation) in [
+        (SkillProposalKind::Disable, "disable_personal_skill"),
+        (SkillProposalKind::Delete, "delete_personal_skill"),
+    ] {
+        let mut proposal = proposal("Run df -h and summarize the result.");
+        proposal.kind = kind;
+        proposal.base_version = Some(2);
+        let candidate = candidate(&session, &proposal, &delegation(), NOW).unwrap();
+        assert_eq!(candidate.tool_name, REMOVE_TOOL);
+        assert!(candidate.descriptor_json.contains(REMOVE_TOOL));
+        let view = crate::approval_review::ReviewModelView::from_candidate(&candidate).unwrap();
+        let value = serde_json::to_value(&view).unwrap();
+        let action: serde_json::Value =
+            serde_json::from_str(value["action_json"].as_str().unwrap()).unwrap();
+        assert_eq!(action["operation"], operation);
+        assert_eq!(action["skill_ref"], "personal/disk-report");
+    }
+    let mut update = proposal("body");
+    update.kind = SkillProposalKind::Update;
+    update.base_version = Some(2);
+    assert_eq!(
+        candidate(&session, &update, &delegation(), NOW)
+            .unwrap()
+            .tool_name,
+        PROPOSE_TOOL
+    );
+    assert!(APPROVAL_REVIEW_SYSTEM_PROMPT.contains("delete_personal_skill"));
+}
+
+#[test]
+fn a_removal_decision_tells_the_model_what_happened() {
+    for (kind, status, expected) in [
+        ("disable", "approved", "was disabled"),
+        ("delete", "approved", "were deleted"),
+        ("delete", "conflicted", "nothing was changed"),
+        ("disable", "rejected", "was not changed"),
+    ] {
+        let mut session = waiting_session();
+        let text = json!({"event":crate::proposal_review::SKILL_DECIDED_EVENT,"proposal_id":"p1",
+            "status":status,"kind":kind})
+        .to_string();
+        let mut receipt = ChatMessage::system_event("decision", &text);
+        receipt.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+            session.conversation.last().unwrap().data_envelope.as_ref(),
+            "decision",
+            &text,
+            "skill_proposal_decision",
+        )
+        .unwrap();
+        session.conversation.push(receipt);
+        let mut messages = session.conversation.clone();
+        project_review_results(&mut messages).unwrap();
+        let projected: serde_json::Value = serde_json::from_str(&messages[2].text).unwrap();
+        let message = projected["message"].as_str().unwrap();
+        assert!(message.contains(expected), "{kind} {status}: {message}");
+        assert!(!message.contains("saved as a personal skill"));
+    }
 }

@@ -77,6 +77,52 @@ fn status_name(status: SkillProposalStatus) -> &'static str {
     }
 }
 
+fn kind_name(kind: SkillProposalKind) -> &'static str {
+    match kind {
+        SkillProposalKind::Create => "create",
+        SkillProposalKind::Update => "update",
+        SkillProposalKind::Disable => "disable",
+        SkillProposalKind::Delete => "delete",
+    }
+}
+
+fn parse_kind(value: &str) -> SkillProposalKind {
+    match value {
+        "update" => SkillProposalKind::Update,
+        "disable" => SkillProposalKind::Disable,
+        "delete" => SkillProposalKind::Delete,
+        _ => SkillProposalKind::Create,
+    }
+}
+
+fn is_removal(kind: SkillProposalKind) -> bool {
+    matches!(kind, SkillProposalKind::Disable | SkillProposalKind::Delete)
+}
+
+/// Whether the assistant may remove `skill`: disabling needs an
+/// assistant-written current version, deleting needs every retained version
+/// to be assistant-written. Versions past the retention limit no longer count.
+async fn assistant_written_on<C: ConnectionTrait>(
+    db: &C,
+    skill: &skill::Model,
+    kind: SkillProposalKind,
+) -> Result<bool, DbErr> {
+    let mut select = version::Entity::find().filter(version::Column::SkillId.eq(&skill.skill_id));
+    if kind == SkillProposalKind::Disable {
+        select = select.filter(version::Column::Version.eq(skill.current_version));
+    }
+    let origins: Vec<String> = select
+        .select_only()
+        .column(version::Column::Origin)
+        .into_tuple()
+        .all(db)
+        .await?;
+    Ok(!origins.is_empty()
+        && origins
+            .iter()
+            .all(|origin| parse_origin(origin) == SkillOrigin::AiAuthored))
+}
+
 fn parse_status(value: &str) -> SkillProposalStatus {
     match value {
         "approved" => SkillProposalStatus::Approved,
@@ -97,7 +143,10 @@ pub async fn propose_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     call: &ToolCall,
     observation: &ToolObservation,
 ) -> Result<(String, PersistedAgentSession), SkillProposalError> {
-    use desk_diagnose_core::model_observability::{InputIssue, Stage, StageOutcome};
+    use desk_diagnose_core::model_observability::{InputIssue, Stage};
+    if call.name == authoring::REMOVE_TOOL {
+        return propose_removal_on(host, txn, session, call, observation).await;
+    }
     let draft = authoring::parse(session, call, observation).map_err(rejected)?;
     let (row, parent_index, now) = lock_tool_call_on(host, txn, session, call).await?;
     let parent = &session.conversation[parent_index];
@@ -165,7 +214,62 @@ pub async fn propose_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         .as_ref()
         .map(|(_, old)| diff_packages(Some(old), &package, PROPOSAL_DIFF_BYTES))
         .unwrap_or_default();
+    let kind = if base.is_some() {
+        SkillProposalKind::Update
+    } else {
+        SkillProposalKind::Create
+    };
+    save_on(
+        host,
+        txn,
+        session,
+        call,
+        (row, parent_index, now),
+        NewProposal {
+            kind,
+            name: package.name.clone(),
+            base: base
+                .as_ref()
+                .map(|(row, _)| (row.skill_id.clone(), row.current_version)),
+            content,
+            changes,
+            source,
+            reason: draft.reason,
+        },
+        observation,
+    )
+    .await
+}
+
+/// A validated proposal about to be saved.
+struct NewProposal {
+    kind: SkillProposalKind,
+    name: String,
+    /// The skill and version a non-create proposal acts on.
+    base: Option<(String, i64)>,
+    content: SkillPackageInput,
+    changes: Vec<desk_agent_protocol::ai_assistant::skill::SkillFileDiff>,
+    source: AuthoredSkillSource,
+    reason: String,
+}
+
+/// Saves `new` with its pending slot and writes the submission receipt into
+/// the proposing turn.
+async fn save_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
+    host: &H,
+    txn: &C,
+    session: &PersistedAgentSession,
+    call: &ToolCall,
+    (row, parent_index, now): (crate::schedule::session::SessionRow<H::Row>, usize, i64),
+    new: NewProposal,
+    observation: &ToolObservation,
+) -> Result<(String, PersistedAgentSession), SkillProposalError> {
+    use desk_diagnose_core::model_observability::{InputIssue, Stage, StageOutcome};
+    let parent = &session.conversation[parent_index];
+    let scope = personal_scope(&session.actor_id);
+    let removal = is_removal(new.kind);
     let proposal_id = new_id();
+    let base_version = new.base.as_ref().map(|(_, version)| *version as u64);
     let proposal = SkillProposal {
         proposal_id: proposal_id.clone(),
         revision: 1,
@@ -173,16 +277,21 @@ pub async fn propose_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         conversation_id: session.conversation_id.clone(),
         input_revision: session.input_revision,
         created_at_unix_ms: u64::try_from(now).map_err(|_| ScheduleStoreError::Invalid)?,
-        name: package.name.clone(),
-        base_version: draft.base_version,
-        skill_md: content.skill_md.clone().unwrap_or_default(),
-        files: content.files.clone(),
-        changes,
-        reason: draft.reason.clone(),
+        kind: new.kind,
+        name: new.name.clone(),
+        base_version,
+        skill_md: new.content.skill_md.clone().unwrap_or_default(),
+        files: new.content.files.clone(),
+        changes: new.changes,
+        reason: new.reason.clone(),
     };
     if !authoring::fits_review(session, &proposal, &call.id) {
         observation.reject(Stage::Preflight, InputIssue::Length);
-        return Err(rejected(authoring::TOO_LARGE));
+        return Err(rejected(if removal {
+            authoring::REMOVAL_TOO_LARGE
+        } else {
+            authoring::TOO_LARGE
+        }));
     }
     adjust_scope_on(
         txn,
@@ -206,13 +315,13 @@ pub async fn propose_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         actor_id: Set(session.actor_id.clone()),
         conversation_id: Set(session.conversation_id.clone()),
         input_revision: Set(input_revision),
-        kind: Set(if base.is_some() { "update" } else { "create" }.into()),
-        name: Set(package.name.clone()),
-        base_skill_id: Set(base.as_ref().map(|(row, _)| row.skill_id.clone())),
-        base_version: Set(base.as_ref().map(|(row, _)| row.current_version)),
-        content_json: Set(json(&content)),
-        source_policy_json: Set(json(&source)),
-        reason: Set(draft.reason.clone()),
+        kind: Set(kind_name(new.kind).into()),
+        name: Set(new.name.clone()),
+        base_skill_id: Set(new.base.as_ref().map(|(id, _)| id.clone())),
+        base_version: Set(new.base.as_ref().map(|(_, version)| *version)),
+        content_json: Set(json(&new.content)),
+        source_policy_json: Set(json(&new.source)),
+        reason: Set(new.reason),
         status: Set("pending".into()),
         decision_source: Set(None),
         decision_reason: Set(None),
@@ -224,11 +333,16 @@ pub async fn propose_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     .exec_without_returning(txn)
     .await?;
     observation.stage(Stage::Preflight, StageOutcome::Passed);
+    let message = if removal {
+        "Submitted for a decision. This turn ends now; when the AI reviewer or the owner decides, the server continues this requirement and this result shows the decision. Do not report the skill as disabled or deleted before it."
+    } else {
+        "Submitted for a decision. This turn ends now; when the AI reviewer or the owner decides, the server continues this requirement and this result shows the decision. Do not report the skill as saved before it. A saved skill grants no tool permission."
+    };
     let text = serde_json::json!({"proposal_id": proposal_id, "status": "pending",
-        "skill_ref": format!("personal/{}", package.name),
-        "kind": if base.is_some() { "update" } else { "create" },
-        "base_version": draft.base_version, "awaiting_decision": true,
-        "message": "Submitted for a decision. This turn ends now; when the AI reviewer or the owner decides, the server continues this requirement and this result shows the decision. Do not report the skill as saved before it. A saved skill grants no tool permission."})
+        "skill_ref": format!("personal/{}", new.name),
+        "kind": kind_name(new.kind),
+        "base_version": base_version, "awaiting_decision": true,
+        "message": message})
     .to_string();
     let envelope = desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
         parent.data_envelope.as_ref(),
@@ -254,6 +368,65 @@ pub async fn propose_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     )
     .await?;
     Ok((receipt_id, next))
+}
+
+/// Saves a proposal to disable or delete an assistant-written personal skill.
+/// Its stored content is the current version, shown to the decider.
+async fn propose_removal_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
+    host: &H,
+    txn: &C,
+    session: &PersistedAgentSession,
+    call: &ToolCall,
+    observation: &ToolObservation,
+) -> Result<(String, PersistedAgentSession), SkillProposalError> {
+    use desk_diagnose_core::model_observability::{InputIssue, Stage};
+    let draft = authoring::parse_removal(session, call, observation).map_err(rejected)?;
+    let (row, parent_index, now) = lock_tool_call_on(host, txn, session, call).await?;
+    let parent = &session.conversation[parent_index];
+    // The proposal keeps the model's reason, so it needs the same proof.
+    let Some((policy, model_source)) = host.skill_proposal_source(txn, session, parent).await?
+    else {
+        observation.reject(Stage::Preflight, InputIssue::Precondition);
+        return Err(rejected(authoring::REMOVAL_NOT_RETAINABLE));
+    };
+    let source =
+        AuthoredSkillSource::new(&session.actor_id, policy, model_source).map_err(|_| {
+            observation.reject(Stage::Preflight, InputIssue::Precondition);
+            rejected(authoring::REMOVAL_NOT_RETAINABLE)
+        })?;
+    let scope = personal_scope(&session.actor_id);
+    let skill = find_by_name_on(txn, &scope, &draft.name)
+        .await?
+        .filter(|skill| skill.current_version as u64 == draft.version)
+        .ok_or_else(|| rejected(authoring::BASE_CHANGED))?;
+    if !assistant_written_on(txn, &skill, draft.kind).await? {
+        observation.reject(Stage::Preflight, InputIssue::Precondition);
+        return Err(rejected(authoring::NOT_AI_AUTHORED));
+    }
+    if draft.kind == SkillProposalKind::Disable && !skill.enabled {
+        observation.reject(Stage::Preflight, InputIssue::Precondition);
+        return Err(rejected(authoring::ALREADY_DISABLED));
+    }
+    let current = current_of(txn, &skill).await?;
+    let package = package_of(&skill.name, &current)?;
+    save_on(
+        host,
+        txn,
+        session,
+        call,
+        (row, parent_index, now),
+        NewProposal {
+            kind: draft.kind,
+            name: skill.name.clone(),
+            base: Some((skill.skill_id.clone(), skill.current_version)),
+            content: canonical_input(&package),
+            changes: Vec::new(),
+            source,
+            reason: draft.reason,
+        },
+        observation,
+    )
+    .await
 }
 
 /// The stored form of a proposed package: the same input as an import.
@@ -341,6 +514,7 @@ pub async fn review_proposal_on<C: ConnectionTrait>(
             .map_err(|_| ScheduleStoreError::Invalid)?,
         created_at_unix_ms: u64::try_from(row.created_at_ms)
             .map_err(|_| ScheduleStoreError::Invalid)?,
+        kind: parse_kind(&row.kind),
         name: row.name,
         base_version: row.base_version.map(|v| v as u64),
         skill_md: input.skill_md.unwrap_or_default(),
@@ -360,6 +534,10 @@ async fn diff_of_on<C: ConnectionTrait>(
     let (Some(skill_id), Some(base_version)) = (&row.base_skill_id, row.base_version) else {
         return Ok(Vec::new());
     };
+    // A removal shows the version it acts on, not a change.
+    if is_removal(parse_kind(&row.kind)) {
+        return Ok(Vec::new());
+    }
     let new = parse_input(input, Some(&row.name)).map_err(|_| ScheduleStoreError::Invalid)?;
     let old = match version_on(db, skill_id, base_version).await {
         Ok(Some(version)) => Some(package_of(&row.name, &version).map_err(store_error)?),
@@ -421,6 +599,10 @@ pub async fn decide_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         approve_on(txn, &scope, &row, now).await?
     };
     let reason = match (status, decider) {
+        (SkillProposalStatus::Conflicted, _) if is_removal(parse_kind(&row.kind)) => Some(
+            "The skill changed, was deleted, or is no longer assistant-written; nothing was changed."
+                .to_owned(),
+        ),
         (SkillProposalStatus::Conflicted, _) => Some(
             "The skill changed, its name is taken, or the skill limit is reached; propose again based on the current version."
                 .to_owned(),
@@ -476,6 +658,10 @@ async fn approve_on<C: ConnectionTrait>(
     row: &proposal::Model,
     now: i64,
 ) -> Result<(SkillProposalStatus, Option<(String, u64)>), SkillProposalError> {
+    let kind = parse_kind(&row.kind);
+    if is_removal(kind) {
+        return Ok((approve_removal_on(txn, scope, row, kind, now).await?, None));
+    }
     let input = stored_input(row)?;
     let package = parse_input(&input, Some(&row.name))
         .map_err(|_| ScheduleStoreError::Invalid)?
@@ -514,6 +700,47 @@ async fn approve_on<C: ConnectionTrait>(
         )),
         Err(SkillStoreError::NameTaken | SkillStoreError::Limit(_)) => {
             Ok((SkillProposalStatus::Conflicted, None))
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Disables or deletes the proposed skill when it is still the reviewed,
+/// assistant-written version; otherwise the proposal conflicts.
+async fn approve_removal_on<C: ConnectionTrait>(
+    txn: &C,
+    scope: &str,
+    row: &proposal::Model,
+    kind: SkillProposalKind,
+    now: i64,
+) -> Result<SkillProposalStatus, SkillProposalError> {
+    let (Some(skill_id), Some(base_version)) = (&row.base_skill_id, row.base_version) else {
+        return Ok(SkillProposalStatus::Conflicted);
+    };
+    let current = match skill_on(txn, scope, skill_id).await {
+        Ok(current) => current,
+        Err(SkillStoreError::NotFound) => return Ok(SkillProposalStatus::Conflicted),
+        Err(error) => return Err(error.into()),
+    };
+    if current.current_version != base_version
+        || (kind == SkillProposalKind::Disable && !current.enabled)
+        || !assistant_written_on(txn, &current, kind).await?
+    {
+        return Ok(SkillProposalStatus::Conflicted);
+    }
+    let revision = current.revision as u64;
+    let changed = match kind {
+        SkillProposalKind::Disable => {
+            update_on(txn, scope, skill_id, revision, Some(false), None, now)
+                .await
+                .map(drop)
+        }
+        _ => delete_on(txn, scope, skill_id, revision).await,
+    };
+    match changed {
+        Ok(()) => Ok(SkillProposalStatus::Approved),
+        Err(SkillStoreError::Conflict | SkillStoreError::NotFound) => {
+            Ok(SkillProposalStatus::Conflicted)
         }
         Err(error) => Err(error.into()),
     }
@@ -599,6 +826,7 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         "event": SKILL_DECIDED_EVENT,
         "proposal_id": row.proposal_id,
         "status": status_name(status),
+        "kind": row.kind,
         "skill_ref": format!("personal/{}", row.name),
         "version": version.as_ref().map(|(_, version)| version),
         "decided_by": match decider {
@@ -608,7 +836,11 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         "reason": row.decision_reason,
         "note": note,
         "authority": "guidance_only_no_tool_permissions",
-        "instruction": "This server receipt is the final decision. A saved skill is guidance only; every action it asks for still needs its normal approval.",
+        "instruction": if is_removal(parse_kind(&row.kind)) {
+            "This server receipt is the final decision."
+        } else {
+            "This server receipt is the final decision. A saved skill is guidance only; every action it asks for still needs its normal approval."
+        },
     })
     .to_string();
     let parent = session
@@ -688,11 +920,7 @@ pub async fn view_on<C: ConnectionTrait>(
     Ok(SkillProposalView {
         proposal_id: row.proposal_id,
         conversation_id: row.conversation_id,
-        kind: if row.kind == "update" {
-            SkillProposalKind::Update
-        } else {
-            SkillProposalKind::Create
-        },
+        kind: parse_kind(&row.kind),
         name: row.name,
         reason: row.reason,
         status,
