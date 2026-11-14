@@ -407,6 +407,7 @@ async fn seed_native_publication(
                         serde_json::json!({"skill_ref":"issue-analysis","resource":resource})
                             .to_string(),
                 },
+                &Default::default(),
             )
             .unwrap();
     }

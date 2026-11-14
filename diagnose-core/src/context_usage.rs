@@ -45,6 +45,9 @@ pub struct ContextRequestBudget {
     pub system_prompt_bytes: usize,
     pub tool_definitions_bytes: usize,
     pub other_overhead_bytes: usize,
+    /// Skill catalogue, instructions and files, excluded from the other parts.
+    #[serde(default)]
+    pub skill_bytes: usize,
 }
 
 impl ContextRequestBudget {
@@ -52,6 +55,7 @@ impl ContextRequestBudget {
         self.system_prompt_bytes
             .checked_add(self.tool_definitions_bytes)
             .and_then(|overhead| overhead.checked_add(self.other_overhead_bytes))
+            .and_then(|overhead| overhead.checked_add(self.skill_bytes))
             .and_then(|overhead| self.total_bytes.checked_sub(overhead))
             .is_some_and(|remaining| remaining > 0 && remaining == limit_bytes)
     }
@@ -293,9 +297,10 @@ mod tests {
         let policy = policy();
         let budget = ContextRequestBudget {
             total_bytes: policy.max_context_bytes,
-            system_prompt_bytes: 256,
+            system_prompt_bytes: 192,
             tool_definitions_bytes: 512,
             other_overhead_bytes: 256,
+            skill_bytes: 64,
         };
         let message = ChatMessage::text("u", ChatRole::User, "private conversation body");
         let mut history = vec![message.clone()];
@@ -328,8 +333,13 @@ mod tests {
             system_prompt_bytes: 256,
             tool_definitions_bytes: 512,
             other_overhead_bytes: 256,
+            skill_bytes: 0,
         };
         let invalid_budgets = [
+            ContextRequestBudget {
+                skill_bytes: 1,
+                ..valid.clone()
+            },
             ContextRequestBudget {
                 other_overhead_bytes: 255,
                 ..valid.clone()

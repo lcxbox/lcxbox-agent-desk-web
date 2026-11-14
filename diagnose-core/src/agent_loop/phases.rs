@@ -301,12 +301,19 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
     if let Some(tool) = crate::issue_reply::tool(&deps.tools.issue_reply_access(session).await?)? {
         callable_registry.push(tool);
     }
-    if session.surface == AgentSessionSurface::AiAssistant
+    let skill_catalog: Box<crate::skills::SkillCatalog> = if session.surface
+        == AgentSessionSurface::AiAssistant
         && deps.model.command_completion_event_id().is_none()
     {
         session.skills.reset_for_input(session.input_revision);
-        callable_registry.push(session.skills.tool(session.input_revision));
-    }
+        let request = crate::skills::catalog_request(session);
+        let catalog =
+            crate::future::phase(|| deps.session_seam.skill_catalog(session, &request)).await?;
+        callable_registry.push(session.skills.tool(session.input_revision, &catalog));
+        Box::new(catalog)
+    } else {
+        Box::default()
+    };
     let mut exposed = exposed_for_session(&callable_registry, session);
     if deps.session_seam.subagents(session).is_none() {
         exposed.retain(|tool| crate::subagent::tools::effect(tool.name()).is_none());
@@ -985,11 +992,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             && deps.model.command_completion_event_id().is_none()
             && let Some(policy) = deps.model.model_egress_policy()?
         {
-            messages.extend(
-                session
-                    .skills
-                    .project(session.input_revision, &policy.destination)?,
-            );
+            messages.extend(session.skills.project(
+                session.input_revision,
+                &policy.destination,
+                &skill_catalog,
+            )?);
         }
         if session.surface == AgentSessionSurface::AiAssistant
             && let Some(data) = &session.assistant_data
@@ -1386,14 +1393,24 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 })?
                 .len();
             let mut system_prompt_bytes = Some(0usize);
+            // Skill projections are reported separately from the system
+            // prompt and other overhead; the parts still sum to the same total.
+            let (mut skill_system_bytes, mut skill_other_bytes) = (0usize, 0usize);
             let message_overhead_bytes = overhead_request
                 .messages
                 .iter()
                 .try_fold(0usize, |total, message| {
                     let cost = crate::trim::model_context_cost(message);
+                    let skill = crate::skills::is_projection(message);
                     if message.role == ChatRole::System {
-                        system_prompt_bytes =
-                            system_prompt_bytes.and_then(|bytes| bytes.checked_add(cost));
+                        if skill {
+                            skill_system_bytes = skill_system_bytes.saturating_add(cost);
+                        } else {
+                            system_prompt_bytes =
+                                system_prompt_bytes.and_then(|bytes| bytes.checked_add(cost));
+                        }
+                    } else if skill {
+                        skill_other_bytes = skill_other_bytes.saturating_add(cost);
                     }
                     total.checked_add(cost)
                 })
@@ -1421,7 +1438,10 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     tool_definitions_bytes: tool_spec_bytes,
                     other_overhead_bytes: message_overhead_bytes
                         .checked_sub(system_prompt_bytes)?
+                        .checked_sub(skill_system_bytes)?
+                        .checked_sub(skill_other_bytes)?
                         .checked_add(REQUEST_FRAMING_RESERVE_BYTES)?,
+                    skill_bytes: skill_system_bytes + skill_other_bytes,
                 })
             });
             if let Some(observation) = &mut session.latest_model_context {
@@ -1466,8 +1486,19 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             let mut messages = Vec::with_capacity(runtime_messages.len() + 1);
             if split_runtime {
                 messages.push(*stable_system);
+                // Skills and personalization lead the conversation history
+                // (`assemble_context_request` skips them), so owner guidance is
+                // never read as the newest input at the request tail.
+                let (leading, rest): (Vec<_>, Vec<_>) =
+                    runtime_messages.into_iter().partition(|message| {
+                        crate::skills::is_projection(message)
+                            || crate::ai_assistant::settings::is_personalization_projection(message)
+                    });
+                messages.extend(leading);
+                messages.extend(rest);
+            } else {
+                messages.extend(runtime_messages);
             }
-            messages.extend(runtime_messages);
             if session.agent_role.issue_source().is_some()
                 && deps.model.command_completion_event_id().is_none()
             {
@@ -1760,8 +1791,15 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     if let Some(prepared) = &preparation {
                         let overhead = usage_policy.request_overhead_bytes;
                         let base = base_preparation.as_ref().unwrap_or(prepared);
-                        let system_bytes = base.system_prompt_bytes;
                         let tool_bytes = base.tool_definitions_bytes;
+                        // Wire bytes have no per-message split; move the measured
+                        // skill share out of the system and other parts.
+                        let system_bytes =
+                            base.system_prompt_bytes.saturating_sub(skill_system_bytes);
+                        let other_bytes = overhead
+                            .saturating_sub(base.system_prompt_bytes)
+                            .saturating_sub(tool_bytes);
+                        let other_without_skills = other_bytes.saturating_sub(skill_other_bytes);
                         basis = basis
                             .with_wire_projection(prepared, overhead)
                             .with_request_budget(Some(
@@ -1769,9 +1807,9 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     total_bytes: pinned_context.max_context_bytes,
                                     system_prompt_bytes: system_bytes,
                                     tool_definitions_bytes: tool_bytes,
-                                    other_overhead_bytes: overhead
-                                        .saturating_sub(system_bytes)
-                                        .saturating_sub(tool_bytes),
+                                    other_overhead_bytes: other_without_skills,
+                                    skill_bytes: (base.system_prompt_bytes - system_bytes)
+                                        + (other_bytes - other_without_skills),
                                 },
                             ));
                     } else {
@@ -4340,9 +4378,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     &call.id,
                                                     &call.arguments_json,
                                                 );
-                                                let result = session
-                                                    .skills
-                                                    .apply(session.input_revision, call);
+                                                let result = session.skills.apply(
+                                                    session.input_revision,
+                                                    call,
+                                                    &skill_catalog,
+                                                );
                                                 tool_observation.preflight_result(&result);
                                                 let (content, ok) = match result {
                                                     Ok(content) => (content, true),

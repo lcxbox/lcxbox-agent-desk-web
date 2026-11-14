@@ -60,6 +60,8 @@ pub struct Batch {
     items: Vec<Item>,
     reports: Vec<ReportCandidate>,
     workbench: bool,
+    /// Bundled skills the platform disabled, read by the host before the batch.
+    disabled_bundled_skills: Vec<String>,
     input_revision: u64,
     control_revision: u64,
     lease_token: u64,
@@ -188,6 +190,7 @@ pub async fn reserve(
     head: &request::Model,
     now_ms: i64,
     report_candidates: Vec<ReportCandidate>,
+    disabled_bundled_skills: &[String],
 ) -> Result<Option<(Batch, ModelRequest)>, AssistantStoreError> {
     if session.actor_id != head.actor_id
         || session.conversation_id != head.conversation_id
@@ -416,13 +419,19 @@ pub async fn reserve(
     }
     if workbench {
         use desk_diagnose_core::subagent::tools;
+        // Coordination only routes work; it sees bundled skills, and Workers
+        // load platform and personal skills under their own visibility.
         let skills = desk_diagnose_core::skills::SkillState::default();
+        let catalog = desk_diagnose_core::skills::SkillCatalog {
+            disabled_bundled: disabled_bundled_skills.to_vec(),
+            ..Default::default()
+        };
         input.messages.extend(
             skills
-                .project(0, &destination)
+                .project(0, &destination, &catalog)
                 .map_err(|_| AssistantStoreError::Inaccessible)?,
         );
-        input.tools.push(skills.tool(0).spec);
+        input.tools.push(skills.tool(0, &catalog).spec);
         input.tools.push(tools::worker_list_tool());
         input.tools.push(tools::worker_status_tool(false));
     }
@@ -440,6 +449,7 @@ pub async fn reserve(
             items,
             reports,
             workbench,
+            disabled_bundled_skills: disabled_bundled_skills.to_vec(),
             lease_token,
             input_revision: session.input_revision,
             control_revision: session.control_revision,

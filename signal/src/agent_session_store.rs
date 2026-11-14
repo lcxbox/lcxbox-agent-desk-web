@@ -3398,6 +3398,7 @@ mod tests {
             system_prompt_bytes: 256,
             tool_definitions_bytes: 512,
             other_overhead_bytes: 256,
+            skill_bytes: 0,
         };
         session.context_usage_basis = Some(
             ContextUsageBasis::observe(&session.conversation, &session.conversation, &policy)

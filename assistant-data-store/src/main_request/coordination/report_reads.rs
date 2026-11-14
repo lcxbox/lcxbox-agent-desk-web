@@ -293,15 +293,19 @@ impl Batch {
         let mut remaining = MAX_INPUT_BYTES;
         let mut reads = ReadChecks::default();
         let mut skills = desk_diagnose_core::skills::SkillState::default();
+        let catalog = desk_diagnose_core::skills::SkillCatalog {
+            disabled_bundled: self.disabled_bundled_skills.clone(),
+            ..Default::default()
+        };
         let mut skill_bytes = 0;
         for (index, call) in turn.tool_calls.iter().enumerate() {
             let mut labels = vec![label.clone()];
             let body = if self.workbench && call.name == desk_diagnose_core::skills::LOAD_TOOL {
                 let mut next = skills.clone();
-                match next.apply(0, call) {
+                match next.apply(0, call, &catalog) {
                     Ok(receipt) => {
                         let projected = next
-                            .project(0, &self.destination)
+                            .project(0, &self.destination, &catalog)
                             .map_err(|_| AssistantStoreError::Inaccessible)?;
                         let bytes = projected
                             .iter()
@@ -462,7 +466,7 @@ impl Batch {
         }
         request.messages.extend(
             skills
-                .project(0, &self.destination)
+                .project(0, &self.destination, &catalog)
                 .map_err(|_| AssistantStoreError::Inaccessible)?
                 .into_iter()
                 .skip(1),

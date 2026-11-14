@@ -358,6 +358,7 @@ async fn setup_with_subscription(
         &first.unwrap(),
         now.timestamp_millis(),
         vec![],
+        &[],
     )
     .await
     .unwrap()

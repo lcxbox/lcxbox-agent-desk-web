@@ -1778,6 +1778,7 @@ fn assemble_context_request(
     while request.messages.get(at).is_some_and(|message| {
         crate::ai_assistant::settings::is_personalization_projection(message)
             || crate::ai_assistant::current_memory::is_projection(message)
+            || crate::skills::is_projection(message)
     }) {
         at += 1;
     }

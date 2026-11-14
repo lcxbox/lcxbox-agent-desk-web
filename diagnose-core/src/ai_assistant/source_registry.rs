@@ -27,6 +27,10 @@ pub enum RegisteredSourceContract {
     /// Requires the original occurrence's native prompt retention proof.
     PublishedTaskInput,
     FrozenPersonalization,
+    /// Owner-saved skill text on the owner-text label shape.
+    PersonalSkill,
+    /// Administrator skill text sent only to the current model.
+    PlatformSkill,
     PublicSystem,
     PublicResearchResult,
     ExternalIssueResult,
@@ -124,8 +128,12 @@ fn registration(
         RegisteredSourceContract::PublishedTaskInput => {
             (SourcePolicyClass::UserText, false, false, true)
         }
-        RegisteredSourceContract::FrozenPersonalization => {
+        RegisteredSourceContract::FrozenPersonalization
+        | RegisteredSourceContract::PersonalSkill => {
             (SourcePolicyClass::UserText, false, false, true)
+        }
+        RegisteredSourceContract::PlatformSkill => {
+            (SourcePolicyClass::StructuredObservation, false, false, true)
         }
         RegisteredSourceContract::PublicSystem => {
             (SourcePolicyClass::StructuredObservation, false, false, true)
@@ -194,6 +202,9 @@ fn classify(envelope: &DataEnvelope) -> RegisteredSourceContract {
     if canonical_interactive_home(envelope) {
         return RegisteredSourceContract::InteractiveUserHome;
     }
+    if crate::skills::is_platform_skill_label(envelope) {
+        return RegisteredSourceContract::PlatformSkill;
+    }
     if envelope.provenance.source_provider_id == "assistant-conversation-snapshot"
         && envelope
             .provenance
@@ -216,6 +227,9 @@ fn classify(envelope: &DataEnvelope) -> RegisteredSourceContract {
             ("ai-assistant-user", "send-message") => return RegisteredSourceContract::OwnerText,
             ("ai-assistant-personalization", "frozen-user-instructions") => {
                 return RegisteredSourceContract::FrozenPersonalization;
+            }
+            (provider, tool) if crate::skills::is_personal_skill_provenance(provider, tool) => {
+                return RegisteredSourceContract::PersonalSkill;
             }
             _ => {}
         }

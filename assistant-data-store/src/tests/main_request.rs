@@ -229,10 +229,11 @@ async fn coordination_preserves_native_fences_and_defers_omissions_independently
     let d = queue::enqueue(&txn, "owner", "root", &other, None, 4, now)
         .await
         .unwrap();
-    let (batch, projection) = queue::coordination::reserve(&txn, &mut session, &b, now, Vec::new())
-        .await
-        .unwrap()
-        .unwrap();
+    let (batch, projection) =
+        queue::coordination::reserve(&txn, &mut session, &b, now, Vec::new(), &[])
+            .await
+            .unwrap()
+            .unwrap();
     assert!(batch.is_current(&session, now));
     assert_eq!(session.input_revision, 4);
     assert_eq!(session.focus_epoch.input_revision, 4);
@@ -257,7 +258,7 @@ async fn coordination_preserves_native_fences_and_defers_omissions_independently
         .unwrap();
     assert!(!batch.is_current(&rival, now + 61_000));
     assert!(
-        queue::coordination::reserve(&txn, &mut session, &b, now + 1, Vec::new())
+        queue::coordination::reserve(&txn, &mut session, &b, now + 1, Vec::new(), &[])
             .await
             .unwrap()
             .is_none()
@@ -398,7 +399,7 @@ async fn coordination_attempts_survive_a_lost_lease() {
     for attempt in 1..=3 {
         let txn = db.begin().await.unwrap();
         let time = now + i64::from(attempt) * 61_000;
-        queue::coordination::reserve(&txn, &mut session, &head, time, Vec::new())
+        queue::coordination::reserve(&txn, &mut session, &head, time, Vec::new(), &[])
             .await
             .unwrap()
             .unwrap();
@@ -412,7 +413,7 @@ async fn coordination_attempts_survive_a_lost_lease() {
     assert!(queue::coordination::exhausted(&head));
     let txn = db.begin().await.unwrap();
     assert!(
-        queue::coordination::reserve(&txn, &mut session, &head, now + 244_000, Vec::new())
+        queue::coordination::reserve(&txn, &mut session, &head, now + 244_000, Vec::new(), &[])
             .await
             .unwrap()
             .is_none()
@@ -674,7 +675,7 @@ async fn workbench_dispatch_proposals_are_scoped_and_activation_is_atomic() {
     let c = queue::enqueue(&txn, "owner", "root", &input("c", "Work C"), None, 4, ms)
         .await
         .unwrap();
-    let (batch, request) = queue::coordination::reserve(&txn, &mut root, &b, ms, Vec::new())
+    let (batch, request) = queue::coordination::reserve(&txn, &mut root, &b, ms, Vec::new(), &[])
         .await
         .unwrap()
         .unwrap();

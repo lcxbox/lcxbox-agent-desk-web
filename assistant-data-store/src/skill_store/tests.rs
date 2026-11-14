@@ -88,7 +88,12 @@ async fn create_update_and_delete_keep_versions_and_counters_consistent() {
     let disabled = update_on(&db, &scope, &created.skill_id, 2, Some(false), None, 5)
         .await
         .unwrap();
-    assert!(catalog_on(&db, std::slice::from_ref(&scope)).await.unwrap().is_empty());
+    assert!(
+        catalog_on(&db, std::slice::from_ref(&scope))
+            .await
+            .unwrap()
+            .is_empty()
+    );
     delete_on(&db, &scope, &created.skill_id, disabled.revision)
         .await
         .unwrap();

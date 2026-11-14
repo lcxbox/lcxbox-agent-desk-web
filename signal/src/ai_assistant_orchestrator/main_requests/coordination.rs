@@ -184,9 +184,11 @@ impl SignalMainRequestExecutor {
         }
         let now_ms = chrono::Utc::now().timestamp_millis();
         let reports = report_candidates_on(&txn, &session, head, now_ms).await?;
-        let Some(batch) = coordination::reserve(&txn, &mut session, head, now_ms, reports)
-            .await
-            .map_err(|error| error.into_agent_error())?
+        let disabled_skills = crate::assistant_skills::disabled_bundled(&txn).await;
+        let Some(batch) =
+            coordination::reserve(&txn, &mut session, head, now_ms, reports, &disabled_skills)
+                .await
+                .map_err(|error| error.into_agent_error())?
         else {
             return Ok(None);
         };

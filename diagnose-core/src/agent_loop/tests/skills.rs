@@ -91,7 +91,7 @@ async fn native_skill_load_persists_first_party_text_and_only_projects_requested
         requests[0]
             .messages
             .iter()
-            .any(|message| message.text.contains("BUNDLED SKILL CATALOGUE"))
+            .any(|message| message.text.contains("SKILL CATALOGUE"))
     );
     assert!(
         !requests[0]
@@ -102,6 +102,28 @@ async fn native_skill_load_persists_first_party_text_and_only_projects_requested
     assert!(requests[1].messages.iter().any(
         |message| message.role == ChatRole::System && message.text.contains("# Issue analysis")
     ));
+    // Skill projections stay ahead of the conversation history and the latest input.
+    for request in &requests[1..] {
+        let last_skill = request
+            .messages
+            .iter()
+            .rposition(crate::skills::is_projection)
+            .unwrap();
+        let first_history = request
+            .messages
+            .iter()
+            .position(|message| matches!(message.role, ChatRole::User | ChatRole::Tool))
+            .unwrap();
+        assert!(
+            last_skill < first_history,
+            "{:?}",
+            request
+                .messages
+                .iter()
+                .map(|m| (m.role, m.message_id.clone()))
+                .collect::<Vec<_>>()
+        );
+    }
     assert!(
         !requests[1]
             .messages
@@ -118,7 +140,7 @@ async fn native_skill_load_persists_first_party_text_and_only_projects_requested
     );
     let saved = sessions.inner.borrow();
     let saved = saved.as_ref().unwrap();
-    assert!(saved.skills.snapshot(saved.input_revision).is_some());
+    assert!(!saved.skills.uses(saved.input_revision).is_empty());
     assert!(
         !saved
             .conversation

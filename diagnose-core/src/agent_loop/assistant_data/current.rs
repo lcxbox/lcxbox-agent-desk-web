@@ -124,11 +124,10 @@ pub(in crate::agent_loop) async fn prepare(
                 .first()
                 .is_some_and(|message| message.role == ChatRole::System),
         );
-        while candidate
-            .messages
-            .get(at)
-            .is_some_and(crate::ai_assistant::settings::is_personalization_projection)
-        {
+        while candidate.messages.get(at).is_some_and(|message| {
+            crate::ai_assistant::settings::is_personalization_projection(message)
+                || crate::skills::is_projection(message)
+        }) {
             at += 1;
         }
         candidate.messages.insert(at, message.clone());

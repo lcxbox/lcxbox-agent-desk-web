@@ -1163,6 +1163,16 @@ pub trait SessionSeam {
         Ok(None)
     }
 
+    /// Platform and personal skills visible to this request, the content of
+    /// versions already loaded in its input, and disabled bundled skills.
+    async fn skill_catalog(
+        &self,
+        _session: &PersistedAgentSession,
+        _request: &crate::skills::SkillCatalogRequest,
+    ) -> Result<crate::skills::SkillCatalog, AgentError> {
+        Ok(crate::skills::SkillCatalog::default())
+    }
+
     /// Fresh settings and generations for new reads. Saved snapshots retain
     /// their conversation ownership.
     async fn assistant_data_access(

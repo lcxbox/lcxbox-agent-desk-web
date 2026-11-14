@@ -71,7 +71,7 @@ async fn scheduled_result_rest_owner_guard_and_original_subject() {
         requirement_revision: Some(1),
         creation_source: ScheduleCreationSource::Manual,
     };
-    let task = schedules.create_pending_task(1, &draft, ms).await.unwrap();
+    let task = schedules.create_task(1, &draft).await.unwrap();
     let run_id = "schedule-run-rest-test";
     let turn_id = format!("{run_id}-turn");
     let mut session = PersistedAgentSession::new(

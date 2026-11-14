@@ -28,7 +28,7 @@ use crate::{
     usage_retention::UsageRetentionConfig,
 };
 
-pub const SECTION_NAMES: [&str; 21] = [
+pub const SECTION_NAMES: [&str; 22] = [
     "ai_gateway",
     "approval_gateway",
     "approval_trace",
@@ -39,6 +39,7 @@ pub const SECTION_NAMES: [&str; 21] = [
     "assistant_data_policy",
     "assistant_data_settings",
     "assistant_user_instructions",
+    "assistant_bundled_skills",
     "terminal_completion",
     "device_codes",
     "access_code_protection",
@@ -78,6 +79,8 @@ pub struct GlobalConfig {
         desk_agent_protocol::ai_assistant::user_instructions::AssistantDataSettings,
     pub assistant_user_instructions:
         desk_agent_protocol::ai_assistant::user_instructions::UserInstructions,
+    /// Bundled skills disabled for this deployment.
+    pub assistant_bundled_skills: desk_agent_protocol::ai_assistant::skill::BundledSkillSettings,
     pub terminal_completion:
         desk_diagnose_core::terminal_completion_policy::TerminalCompletionPolicy,
     pub subagent_policy: SubAgentPolicy,
@@ -109,6 +112,7 @@ impl Default for GlobalConfig {
                 desk_agent_protocol::ai_assistant::user_instructions::AssistantDataSettings::default(
                 ),
             assistant_user_instructions: Default::default(),
+            assistant_bundled_skills: Default::default(),
             terminal_completion: Default::default(),
             subagent_policy: desk_diagnose_core::subagent::policy::initial(),
             automation_policy: AutomationPolicy::default(),
@@ -154,6 +158,14 @@ impl GlobalConfig {
         self.issue_connections
             .validate()
             .map_err(|_| invalid("issue_connections"))?;
+        if self
+            .assistant_bundled_skills
+            .disabled
+            .iter()
+            .any(|name| !desk_diagnose_core::skills::bundled_names().contains(&name.as_str()))
+        {
+            return Err(invalid("assistant_bundled_skills"));
+        }
         self.context_management
             .validate()
             .map_err(|_| invalid("context_management"))?;

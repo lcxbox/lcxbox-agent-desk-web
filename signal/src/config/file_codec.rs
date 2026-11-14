@@ -42,6 +42,10 @@ fn raw(config: &GlobalConfig) -> Result<Map<String, Value>, DbErr> {
             "assistant_user_instructions".into(),
             value(&config.assistant_user_instructions)?,
         ),
+        (
+            "assistant_bundled_skills".into(),
+            value(&config.assistant_bundled_skills)?,
+        ),
         ("subagent_policy".into(), value(&config.subagent_policy)?),
         (
             "automation_policy".into(),
@@ -232,6 +236,11 @@ impl<'de> Deserialize<'de> for GlobalConfig {
                 "assistant_user_instructions",
             )
             .map_err(serde::de::Error::custom)?,
+            assistant_bundled_skills: decode(
+                take("assistant_bundled_skills"),
+                "assistant_bundled_skills",
+            )
+            .map_err(serde::de::Error::custom)?,
             context_management: decode(take("context_management"), "context_management")
                 .map_err(serde::de::Error::custom)?,
             terminal_completion: decode(take("terminal_completion"), "terminal_completion")
@@ -371,6 +380,7 @@ pub(super) fn revision(config: &GlobalConfig, key: &str) -> String {
         "assistant_data_policy" => config.assistant_data_policy.revision.to_string(),
         "assistant_data_settings" => config.assistant_data_settings.revision.to_string(),
         "assistant_user_instructions" => config.assistant_user_instructions.revision.to_string(),
+        "assistant_bundled_skills" => config.assistant_bundled_skills.revision.to_string(),
         "device_codes" => config.device_codes.revision.to_string(),
         "access_code_protection" => config.access_code_protection.revision.to_string(),
         "terminal_completion" => config.terminal_completion.revision.to_string(),
@@ -443,6 +453,7 @@ pub(super) fn advance_revision(
             "assistant_data_policy" => config.assistant_data_policy.revision = next,
             "assistant_data_settings" => config.assistant_data_settings.revision = next,
             "assistant_user_instructions" => config.assistant_user_instructions.revision = next,
+            "assistant_bundled_skills" => config.assistant_bundled_skills.revision = next,
             "device_codes" => config.device_codes.revision = next,
             "access_code_protection" => config.access_code_protection.revision = next,
             "terminal_completion" => config.terminal_completion.revision = next,

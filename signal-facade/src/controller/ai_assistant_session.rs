@@ -1242,6 +1242,8 @@ pub struct ContextRequestBudgetDto {
     pub system_prompt_bytes: u64,
     pub tool_definitions_bytes: u64,
     pub other_overhead_bytes: u64,
+    /// Skill catalogue, instructions and files; not part of the other parts.
+    pub skill_bytes: u64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1286,6 +1288,7 @@ impl From<desk_diagnose_core::context_usage::ContextUsage> for ContextUsageDto {
                 system_prompt_bytes: budget.system_prompt_bytes as u64,
                 tool_definitions_bytes: budget.tool_definitions_bytes as u64,
                 other_overhead_bytes: budget.other_overhead_bytes as u64,
+                skill_bytes: budget.skill_bytes as u64,
             }),
         }
     }
@@ -2660,7 +2663,8 @@ mod tests {
                 total_bytes: 256,
                 system_prompt_bytes: 64,
                 tool_definitions_bytes: 32,
-                other_overhead_bytes: 32,
+                other_overhead_bytes: 24,
+                skill_bytes: 8,
             }),
         });
         assert_eq!(
@@ -2670,7 +2674,7 @@ mod tests {
                 "preparedRequestBytes": null, "preparedContextBytes": null,
                 "historyIsEstimated": true, "latestModelCall": null,
                 "breakdown": {"messagesBytes": 12, "toolsBytes": 10, "replayBytes": 20, "projectedBytes": 0, "protocolBytes": 0},
-                "requestBudget": {"totalBytes": 256, "systemPromptBytes": 64, "toolDefinitionsBytes": 32, "otherOverheadBytes": 32}
+                "requestBudget": {"totalBytes": 256, "systemPromptBytes": 64, "toolDefinitionsBytes": 32, "otherOverheadBytes": 24, "skillBytes": 8}
             })
         );
     }

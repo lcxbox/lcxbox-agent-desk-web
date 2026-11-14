@@ -143,6 +143,7 @@ async fn check_completion_usage(with_usage: bool, invalid_count: usize) {
                 system_prompt_bytes: 256,
                 tool_definitions_bytes: 512,
                 other_overhead_bytes: 256,
+                skill_bytes: 0,
             })),
         );
     }
