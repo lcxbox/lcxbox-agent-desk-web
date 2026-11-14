@@ -73,7 +73,7 @@ sudo apt install -y build-essential pkg-config libssl-dev libasound2-dev \
 | `tauri-app/` | Tauri 壳程序，用于在被控机本地渲染防窥屏/白板功能 |
 | `agent-protocol/` | 设备能力协议（`desk-agent-protocol`）：AI 调用的 wire 类型 + `DeviceAgent` trait + 审计 / 诊断 / exec 协议。纯协议、无平台实现；**服务端是所有受信字段的唯一可信源** |
 | `mcp-server/` | 只读 MCP 服务（`desk-mcp-server`）：基于官方 `rmcp` SDK + stdio，暴露只读工具静态白名单（无 exec/write/control 工具）。具体读 agent 与诊断编排器由 `server` 注入 |
-| `assistant-data-store/` | 个人 AI 助手共用的 SeaORM 实体、快照、检索和存储规则；宿主保留事务、配置、权限和计费 |
+| `assistant-data-store/` | 个人 AI 助手共用的 SeaORM 实体、快照、检索、存储规则与 Skill 包导入校验；宿主保留事务、配置、权限和计费 |
 | `signal-facade/` | 共享的信令协议模型 (供 `signal` 和 `manager` 使用) |
 | `capture-engine/`| 屏幕/音频捕获与编码逻辑 |
 | `input-injection/`| 鼠标/键盘输入注入与剪贴板控制 |
@@ -137,7 +137,7 @@ sudo apt install -y build-essential pkg-config libssl-dev libasound2-dev \
 
 ## 代码规范与规则
 
-**OSS 全局配置存储（强制）**：OSS 中全局配置类数据必须保存到实际 `--config-file-path` 指向的 `config.toml`，包括全局服务连接与凭据、功能开关、平台策略、预算上限、保留期限和指标设置。网页/API 修改必须写回同一文件并复用现有设置提交与原子保存机制，不得仅保存在 SQLite，也不得以文件作为初始种子后仅更新数据库。同表混存配置和运行状态时须拆分：会话、用户任务、授权/撤销、探测、审计、已用预算、计数和清理水位等运行数据仍留在数据库。设计与评审须验证重建运行库后无需重新填写全局配置。此规则仅适用于 OSS，不改变 Manager 的共享存储和多实例要求。
+**OSS 全局配置存储（强制）**：OSS 中全局配置类数据必须保存到实际 `--config-file-path` 指向的 `config.toml`，包括全局服务连接与凭据、功能开关、平台策略、预算上限、保留期限和指标设置。网页/API 修改必须写回同一文件并复用现有设置提交与原子保存机制，不得仅保存在 SQLite，也不得以文件作为初始种子后仅更新数据库。同表混存配置和运行状态时须拆分：会话、用户任务、授权/撤销、探测、审计、已用预算、计数和清理水位等运行数据仍留在数据库。设计与评审须验证重建运行库后无需重新填写全局配置。唯一例外是 Skill 包（平台和个人）：包体积大，存放在运行库，重建运行库后需重新导入；随产品 Skill 的启停仍写入 `config.toml`。此规则仅适用于 OSS，不改变 Manager 的共享存储和多实例要求。
 
 1. **工作语言规则：所有回复及任务清单，均须使用中文。**
 2. **Rust:** 使用 `rustfmt` 格式化（工具链由 `rust-toolchain.toml` 钉死 1.90.0、`rustfmt.toml` 设 `edition = "2024"`，全仓已建立基线且 `cargo fmt --all --check` 全绿；提交前 `cargo fmt --all` 即可，无版本漂移，裸 `rustfmt <file>` 也无需 `--edition`）。函数/模块名使用 `snake_case`，类型名使用 `PascalCase`，常量使用 `SCREAMING_SNAKE_CASE`。
