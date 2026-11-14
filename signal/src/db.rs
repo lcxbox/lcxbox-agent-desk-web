@@ -237,7 +237,7 @@ pub async fn init_db(
         .await
 }
 
-const SIGNAL_SCHEMA_VERSION: i32 = 66;
+const SIGNAL_SCHEMA_VERSION: i32 = 67;
 const SCHEMA_LOCK_TABLE: &str = "signal_schema_init_lock";
 const LEGACY_SCHEMA_LOCK_TABLE: &str = "signal_schema_migration_lock";
 
@@ -351,6 +351,11 @@ async fn create_latest_schema<C: ConnectionTrait + crate::config::ConfigConnecti
     create_entity(db, &schema, crate::entity::agent_issue_admission::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_issue_event::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_issue_source::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_skill::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_skill_version::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_skill_scope::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_skill_proposal::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_skill_scan::Entity).await?;
     create_entity(
         db,
         &schema,
@@ -765,6 +770,11 @@ async fn validate_latest_schema<C: ConnectionTrait + crate::config::ConfigConnec
     check_entity!(agent_issue_admission);
     check_entity!(agent_issue_event);
     check_entity!(agent_issue_source);
+    check_entity!(agent_skill);
+    check_entity!(agent_skill_version);
+    check_entity!(agent_skill_scope);
+    check_entity!(agent_skill_proposal);
+    check_entity!(agent_skill_scan);
     check_entity!(agent_assistant_retrieval_query);
     check_entity!(agent_assistant_read_projection);
     check_entity!(agent_assistant_data_authorization);

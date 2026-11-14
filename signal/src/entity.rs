@@ -21,6 +21,10 @@ pub mod turn_usage;
 
 pub use desk_assistant_data_store::entity::agent_task_budget_reservation;
 
+pub use desk_assistant_data_store::entity::{
+    agent_skill, agent_skill_proposal, agent_skill_scan, agent_skill_scope, agent_skill_version,
+};
+
 pub mod agent_file_recovery_cleanup;
 pub mod agent_file_recovery_scope;
 

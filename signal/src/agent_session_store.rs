@@ -1733,6 +1733,22 @@ impl SessionSeam for SignalAgentSessionStore {
         .map_err(crate::assistant_data_store::AssistantStoreError::into_agent_error)
     }
 
+    async fn skill_catalog(
+        &self,
+        session: &PersistedAgentSession,
+        request: &desk_diagnose_core::skills::SkillCatalogRequest,
+    ) -> Result<desk_diagnose_core::skills::SkillCatalog, AgentError> {
+        crate::assistant_skills::catalog(&self.db, &session.actor_id, request)
+            .await
+            .map_err(|_| AgentError {
+                kind: desk_agent_protocol::AgentErrorKind::Internal,
+                message: "Skill catalog is unavailable".into(),
+                retryable: true,
+                safe_for_model: false,
+                error_code: None,
+            })
+    }
+
     async fn assistant_data_access(
         &self,
         session: &PersistedAgentSession,

@@ -65,6 +65,9 @@ pub enum SkillManualOrigin {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SkillCreate {
     pub package: SkillPackageInput,
+    /// The AI security scan shown before saving; recorded on the new version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan_id: Option<String>,
 }
 
 /// Saves a new version, changes `enabled`, or both.
@@ -78,6 +81,48 @@ pub struct SkillUpdate {
     pub package: Option<SkillPackageInput>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<SkillManualOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan_id: Option<String>,
+}
+
+/// Validates an upload without saving it; optionally runs the AI security scan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SkillPreviewRequest {
+    pub package: SkillPackageInput,
+    #[serde(default)]
+    pub ai_scan: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillScanVerdict {
+    Clean,
+    Suspicious,
+    /// The scan did not finish or returned an unusable answer; not a safe result.
+    Failed,
+    /// No approval model is configured or available.
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillScanFinding {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    pub category: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillScanResult {
+    pub verdict: SkillScanVerdict,
+    pub findings: Vec<SkillScanFinding>,
+    /// Files that could not be scanned within the batch limit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unscanned: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -223,6 +268,11 @@ pub struct SkillPreview {
     pub skipped: Vec<SkillSkippedFile>,
     pub warnings: Vec<SkillWarning>,
     pub diff: Vec<SkillFileDiff>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan: Option<SkillScanResult>,
+    /// Pass back on save to record the scan on the new version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -257,6 +307,13 @@ pub struct BundledSkillList {
 pub struct BundledSkillToggle {
     pub expected_revision: u64,
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query)]
+pub struct SkillDeleteQuery {
+    pub expected_revision: u64,
 }
 
 /// Platform setting: names of bundled skills disabled for every user.

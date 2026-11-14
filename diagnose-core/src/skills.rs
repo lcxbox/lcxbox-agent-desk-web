@@ -42,6 +42,12 @@ pub fn bundled_names() -> &'static [&'static str] {
     &[NAME]
 }
 
+/// Description of a bundled skill, from its compiled frontmatter.
+pub fn bundled_description(name: &str) -> Option<&'static str> {
+    let (source, _) = bundled_package(name)?;
+    metadata(source).ok().map(|info| info.description)
+}
+
 /// Source text and reference files of a bundled skill.
 pub fn bundled_package(name: &str) -> Option<(&'static str, Vec<(&'static str, &'static str)>)> {
     (name == NAME).then(|| (SOURCE, vec![(CHECKLIST_PATH, CHECKLIST)]))

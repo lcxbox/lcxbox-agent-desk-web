@@ -265,3 +265,103 @@ async fn saves_attach_a_live_scan_of_the_same_scope_only() {
         Some("{\"verdict\":\"clean\"}")
     );
 }
+
+mod service_tests {
+    use super::*;
+    use crate::skill_store::service::*;
+    use desk_agent_protocol::ai_assistant::skill::{
+        SkillCreate, SkillFileChange, SkillManualOrigin, SkillUpdate,
+    };
+
+    fn input(body: &str) -> SkillPackageInput {
+        SkillPackageInput {
+            zip_base64: None,
+            skill_md: Some(format!("---\nname: notes\ndescription: d\n---\n{body}")),
+            files: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn uploads_preview_save_and_feed_the_request_catalog() {
+        let db = db().await;
+        let scope = personal_scope("5");
+        let (_, preview) = preview_on(&db, &scope, None, &input("one\n"))
+            .await
+            .unwrap();
+        assert_eq!(preview.diff[0].change, SkillFileChange::Added);
+        let created = create_from_input_on(
+            &db,
+            &scope,
+            &SkillCreate {
+                package: input("one\n"),
+                scan_id: None,
+            },
+            1,
+        )
+        .await
+        .unwrap();
+        let id = created.skill.skill_id.clone();
+        let (_, preview) = preview_on(&db, &scope, Some(&id), &input("two\n"))
+            .await
+            .unwrap();
+        assert_eq!(preview.diff[0].change, SkillFileChange::Modified);
+        let renamed = SkillPackageInput {
+            skill_md: Some("---\nname: other\ndescription: d\n---\nx".into()),
+            ..input("")
+        };
+        let error = preview_on(&db, &scope, Some(&id), &renamed)
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), SkillErrorKind::Invalid);
+        let edited = update_from_input_on(
+            &db,
+            &scope,
+            &id,
+            &SkillUpdate {
+                expected_revision: 1,
+                enabled: None,
+                package: Some(input("two\n")),
+                origin: Some(SkillManualOrigin::Edited),
+                scan_id: None,
+            },
+            2,
+        )
+        .await
+        .unwrap();
+        assert_eq!(edited.skill.origin, SkillOrigin::Edited);
+        let stale = update_from_input_on(
+            &db,
+            &scope,
+            &id,
+            &SkillUpdate {
+                expected_revision: 1,
+                enabled: Some(false),
+                package: None,
+                origin: None,
+                scan_id: None,
+            },
+            3,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(stale.kind(), SkillErrorKind::Conflict);
+
+        // The catalog shows the current version and returns pinned content.
+        let catalog = host_catalog_on(
+            &db,
+            &visible_scopes("5", true),
+            &[(id.clone(), 1)],
+            vec!["x".into()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(catalog.stored[0].version, 2);
+        assert_eq!(catalog.loaded[0].body, "one\n");
+        assert_eq!(catalog.disabled_bundled, ["x"]);
+        // Without personal visibility neither the entry nor its content is returned.
+        let external = host_catalog_on(&db, &visible_scopes("5", false), &[(id, 1)], vec![])
+            .await
+            .unwrap();
+        assert!(external.stored.is_empty() && external.loaded.is_empty());
+    }
+}
