@@ -231,6 +231,14 @@ async fn the_owner_decides_a_pending_skill_proposal_and_the_reviewer_has_nothing
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].proposal_id, id);
     assert!(pending[0].skill_md.contains("read-only status report"));
+    let cards = crate::assistant_skills::conversation_proposals(&db, "1", &session.conversation_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        cards.len(),
+        1,
+        "the conversation shows the proposal awaiting a decision"
+    );
     let stale = desk_agent_protocol::ai_assistant::skill::SkillProposalDecision {
         proposal_id: id.clone(),
         approve: true,
@@ -278,15 +286,11 @@ async fn the_owner_decides_a_pending_skill_proposal_and_the_reviewer_has_nothing
         .await
         .is_err()
     );
-    // The conversation snapshot lists the decided proposal for its card.
+    // The decided proposal leaves the conversation; its tool call shows the outcome.
     let cards = crate::assistant_skills::conversation_proposals(&db, "1", &session.conversation_id)
         .await
         .unwrap();
-    assert_eq!(cards.len(), 1);
-    assert_eq!(
-        cards[0].status,
-        desk_agent_protocol::ai_assistant::skill::SkillProposalStatus::Approved
-    );
+    assert!(cards.is_empty());
 }
 
 #[actix_web::test]

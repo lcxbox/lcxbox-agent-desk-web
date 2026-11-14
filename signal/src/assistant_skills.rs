@@ -205,6 +205,11 @@ pub async fn conversation_proposals(
     )
     .await
     .map_err(proposal_db_error)?;
+    // Decided proposals show their outcome on the proposing tool call; the
+    // conversation lists only the proposals still awaiting a decision.
+    views.retain(|view| {
+        view.status == desk_agent_protocol::ai_assistant::skill::SkillProposalStatus::Pending
+    });
     crate::decision_resume::mark_skill_views_on(db, &mut views).await?;
     Ok(views)
 }

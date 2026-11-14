@@ -366,6 +366,7 @@ fn native_control(source: &DataEnvelope) -> bool {
         let prefix = match provenance.source_tool_name.as_str() {
             "scheduled-continuation" => "scheduled-resume",
             "permission-decision-resume" => "permission-resume",
+            "proposal-decision-resume" => "decision-resume",
             _ => return false,
         };
         source.envelope_id == format!("{prefix}-message-{id}")

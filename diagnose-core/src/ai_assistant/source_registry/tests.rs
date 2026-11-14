@@ -631,6 +631,12 @@ fn native_control_chains_and_real_resume_and_delegation_producers_keep_parent_co
             &owner_message,
         )
         .unwrap(),
+        crate::permission_resume::authorized_decision_resume_message(
+            "decision".into(),
+            &policy,
+            &owner_message,
+        )
+        .unwrap(),
         crate::subagent::projection::runtime_message(
             "delegation",
             &serde_json::json!({"tasks":[]}),
@@ -650,7 +656,10 @@ fn native_control_chains_and_real_resume_and_delegation_producers_keep_parent_co
         matches!(&labels[2].content, ContentRef::Message { message_id, .. } if message_id == "permission")
     );
     assert!(
-        matches!(&labels[3].content, ContentRef::Projection { projection, .. } if projection == "delegation")
+        matches!(&labels[3].content, ContentRef::Message { message_id, .. } if message_id == "decision")
+    );
+    assert!(
+        matches!(&labels[4].content, ContentRef::Projection { projection, .. } if projection == "delegation")
     );
     // A label naming another message or projection kind is not a native control.
     for (index, forge) in [
@@ -672,9 +681,17 @@ fn native_control_chains_and_real_resume_and_delegation_producers_keep_parent_co
         ),
         (
             3,
+            ContentRef::Message {
+                message_id: "other".into(),
+                size_bytes: labels[3].content.size_bytes(),
+                media_type: "text/plain;charset=utf-8".into(),
+            },
+        ),
+        (
+            4,
             ContentRef::Projection {
                 projection: "status-result".into(),
-                size_bytes: labels[3].content.size_bytes(),
+                size_bytes: labels[4].content.size_bytes(),
                 media_type: "application/json".into(),
             },
         ),
