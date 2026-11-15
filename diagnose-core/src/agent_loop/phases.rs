@@ -1132,7 +1132,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 marker_text.push_str(&format!(" Original user input recorded_at_unix_ms={} statement_timezone={} local_anchor={}. Interpret relative dates in that input from this accepted-input anchor; later processing time does not change it. Recording time alone does not prove when an external action occurred.",
                     data.current_input_recorded_at_unix_ms, data.current_input_timezone, anchor.with_timezone(&timezone).to_rfc3339()));
             } else if let Some(data) = &session.assistant_data {
-                marker_text.push_str(&format!(" The original task has no accepted owner-input timestamp. Its frozen statement_timezone is {}. Do not invent an original owner input date; native supplement anchors and external action times remain distinct.", data.current_input_timezone));
+                // Only a timezone the server recognizes is repeated, so the
+                // marker stays server text.
+                let timezone =
+                    crate::ai_assistant::recognized_timezone(&data.current_input_timezone);
+                marker_text.push_str(&format!(" The original task has no accepted owner-input timestamp. Its frozen statement_timezone is {timezone}. Do not invent an original owner input date; native supplement anchors and external action times remain distinct."));
             }
             let latest_user =
                 crate::permission_resume::latest_user_requirement(&session.conversation).cloned();
