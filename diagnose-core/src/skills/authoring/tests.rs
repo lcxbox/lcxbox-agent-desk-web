@@ -459,15 +459,19 @@ fn a_decision_is_projected_onto_the_original_call_for_the_model() {
     assert_eq!(projected["review_complete"], true);
     assert_eq!(projected["awaiting_decision"], false);
     assert!(projected["note"].as_str().unwrap().contains("version 2"));
-    assert_eq!(
-        messages[2]
-            .data_envelope
-            .as_ref()
-            .unwrap()
-            .provenance
-            .source_tool_name,
-        "skill_review_result"
-    );
+    // Both labels derive from the proposing output, which stays an input
+    // once the projection replaces the draft label.
+    let parent = &session.conversation[2]
+        .data_envelope
+        .as_ref()
+        .unwrap()
+        .provenance
+        .source_envelope_ids;
+    for label in [&messages[2], &messages[3]].map(|m| m.data_envelope.as_ref().unwrap()) {
+        assert_eq!(&label.provenance.source_envelope_ids, parent);
+        assert_eq!(label.provenance.source_tool_name, "skill_proposal_decision");
+    }
+    assert_eq!(messages[3].text, session.conversation[3].text);
     // The stored receipt is unchanged.
     assert!(
         session.conversation[2]

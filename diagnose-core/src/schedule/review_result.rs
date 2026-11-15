@@ -58,21 +58,25 @@ pub fn project(messages: &mut [ChatMessage]) -> Result<(), AgentError> {
         let Some(id) = proposal["schedule_id"].as_str().filter(|id| !id.is_empty()) else {
             continue;
         };
-        let Some(call_id) = draft.tool_call_id.as_deref() else {
+        if draft.tool_call_id.is_none() {
             continue;
-        };
-        let decision = messages[index + 1..].iter().find_map(|message| {
-            if !labelled(message, ChatRole::SystemEvent, "schedule_activation") {
-                return None;
-            }
-            let value = serde_json::from_str::<Value>(&message.text).ok()?;
-            let approved =
-                value["event"] == "scheduled_task_activated" && value["state"] == "active";
-            let rejected =
-                value["event"] == "scheduled_task_rejected" && value["state"] == "deleted";
-            (value["schedule_id"].as_str() == Some(id) && (approved || rejected))
-                .then_some((message, value))
-        });
+        }
+        let decision = messages
+            .iter()
+            .enumerate()
+            .skip(index + 1)
+            .find_map(|(at, message)| {
+                if !labelled(message, ChatRole::SystemEvent, "schedule_activation") {
+                    return None;
+                }
+                let value = serde_json::from_str::<Value>(&message.text).ok()?;
+                let approved =
+                    value["event"] == "scheduled_task_activated" && value["state"] == "active";
+                let rejected =
+                    value["event"] == "scheduled_task_rejected" && value["state"] == "deleted";
+                (value["schedule_id"].as_str() == Some(id) && (approved || rejected))
+                    .then_some((at, value))
+            });
         let Some((receipt, mut value)) = decision else {
             continue;
         };
@@ -85,21 +89,54 @@ pub fn project(messages: &mut [ChatMessage]) -> Result<(), AgentError> {
         } else {
             "This proposal was rejected. It is not scheduled. Report the rejection; do not ask for confirmation again or recreate it without a new user request."
         }.into());
-        let text = value.to_string();
-        // Both original records must authorize the destination. Never gain a
-        // destination or extend retention by projecting the later decision.
-        let mut envelope = crate::model_message_labels::conversation_history_result_envelope(
-            draft.data_envelope.as_ref(),
-            std::slice::from_ref(receipt),
-            call_id,
-            &text,
-        )?;
-        if let Some(label) = envelope.as_mut() {
-            label.provenance.source_tool_name = "schedule_review_result".into();
-        }
-        messages[index].text = text;
-        messages[index].data_envelope = envelope;
+        label_decided(messages, index, receipt, value.to_string())?;
     }
+    Ok(())
+}
+
+/// Replaces the pending draft at `draft` with the decided `text` for one
+/// model request and relabels both records for it. The projection removes
+/// the draft's own label from the model input, so the result and the decision
+/// receipt both derive from the draft's parent, which stays an input of the
+/// same request. Labels never gain a destination or extend retention: each
+/// takes the draft parent's, which the stored draft and receipt inherit.
+pub(crate) fn label_decided(
+    messages: &mut [ChatMessage],
+    draft: usize,
+    receipt: usize,
+    text: String,
+) -> Result<(), AgentError> {
+    use crate::model_message_labels::{invalid_label, request_projection_envelope};
+    let parent = messages[draft].data_envelope.as_ref().and_then(|label| {
+        let [id] = label.provenance.source_envelope_ids.as_slice() else {
+            return None;
+        };
+        messages[..draft].iter().rev().find_map(|message| {
+            message
+                .data_envelope
+                .as_ref()
+                .filter(|p| &p.envelope_id == id)
+        })
+    });
+    let parent = parent.or(messages[draft].data_envelope.as_ref()).cloned();
+    let decision = &messages[receipt];
+    let tool = decision
+        .data_envelope
+        .as_ref()
+        .ok_or_else(invalid_label)?
+        .provenance
+        .source_tool_name
+        .clone();
+    let receipt_label =
+        request_projection_envelope(parent.as_ref(), &decision.message_id, &decision.text, &tool)?;
+    let call_id = messages[draft]
+        .tool_call_id
+        .clone()
+        .ok_or_else(invalid_label)?;
+    let draft_label = request_projection_envelope(parent.as_ref(), &call_id, &text, &tool)?;
+    messages[receipt].data_envelope = receipt_label;
+    messages[draft].text = text;
+    messages[draft].data_envelope = draft_label;
     Ok(())
 }
 
@@ -141,7 +178,7 @@ mod tests {
             "schedule_activation",
         )
         .unwrap();
-        vec![draft, receipt]
+        vec![user, draft, receipt]
     }
     #[test]
     fn projects_final_decision_onto_tool_without_modifying_original_records() {
@@ -149,27 +186,32 @@ mod tests {
             let original = records(approved);
             let mut projected = original.clone();
             project(&mut projected).unwrap();
-            let result: Value = serde_json::from_str(&projected[0].text).unwrap();
+            let result: Value = serde_json::from_str(&projected[1].text).unwrap();
             assert_eq!(result["state"], if approved { "active" } else { "deleted" });
             assert_eq!(result["awaiting_decision"], false);
             assert_eq!(result["decided_by"], "approval_ai");
             assert_eq!(result["next_run_at_utc_ms"], 12345);
-            assert_eq!(projected[0].tool_call_id, original[0].tool_call_id);
-            assert_eq!(projected[1], original[1]);
+            assert_eq!(projected[0], original[0]);
+            assert_eq!(projected[1].tool_call_id, original[1].tool_call_id);
+            assert_eq!(projected[2].text, original[2].text);
             assert_eq!(
-                serde_json::from_str::<Value>(&original[0].text).unwrap()["state"],
+                serde_json::from_str::<Value>(&original[1].text).unwrap()["state"],
                 "pending_review"
             );
-            let label = projected[0].data_envelope.as_ref().unwrap();
-            assert_eq!(label.provenance.source_envelope_ids.len(), 2);
-            assert_eq!(
-                label.allowed_destinations,
-                original[0]
-                    .data_envelope
-                    .as_ref()
-                    .unwrap()
-                    .allowed_destinations
-            );
+            // Both labels derive from the draft's parent, never gaining a
+            // destination or retention over the stored records.
+            let draft = original[1].data_envelope.as_ref().unwrap();
+            for label in projected[1..]
+                .iter()
+                .map(|m| m.data_envelope.as_ref().unwrap())
+            {
+                assert_eq!(
+                    label.provenance.source_envelope_ids,
+                    draft.provenance.source_envelope_ids
+                );
+                assert_eq!(label.allowed_destinations, draft.allowed_destinations);
+                assert_eq!(label.retention, draft.retention);
+            }
             let once = projected.clone();
             project(&mut projected).unwrap();
             assert_eq!(projected, once);
@@ -183,9 +225,9 @@ mod tests {
                 0 => {
                     messages.pop();
                 }
-                1 => messages[1].role = ChatRole::User,
-                2 => messages[1].data_envelope = None,
-                _ => messages[1].text = messages[1].text.replace("timer", "other"),
+                1 => messages[2].role = ChatRole::User,
+                2 => messages[2].data_envelope = None,
+                _ => messages[2].text = messages[2].text.replace("timer", "other"),
             }
             let original = messages.clone();
             project(&mut messages).unwrap();
@@ -199,7 +241,7 @@ mod tests {
             activation_envelope(std::slice::from_ref(&receipt), "timer"),
             receipt.data_envelope.as_ref()
         );
-        let mut timer = records(true).remove(0);
+        let mut timer = records(true).remove(1);
         timer.text =
             r#"{"schedule_id":"timer","kind":"conversation_resume","state":"active"}"#.into();
         assert_eq!(
@@ -210,7 +252,7 @@ mod tests {
         rejected.text = rejected
             .text
             .replace("scheduled_task_activated", "scheduled_task_rejected");
-        let pending = records(true).remove(0);
+        let pending = records(true).remove(1);
         let mut unlabelled = timer.clone();
         unlabelled.data_envelope = None;
         let mut user = timer.clone();

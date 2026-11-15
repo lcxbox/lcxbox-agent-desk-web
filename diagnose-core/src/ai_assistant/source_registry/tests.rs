@@ -911,3 +911,67 @@ fn native_control_registration_fits_small_stacks() {
         );
     }
 }
+
+#[test]
+fn decided_review_projections_remain_registered_controls() {
+    use crate::model_message_labels::internal_tool_result_envelope;
+    let owner =
+        model_bound_user_message("owner".into(), "Keep this".into(), destination()).unwrap();
+    for (draft_tool, draft_text, receipt_tool, receipt_text) in [
+        (
+            "skill_proposal",
+            serde_json::json!({"proposal_id":"p1","status":"pending","awaiting_decision":true}),
+            "skill_proposal_decision",
+            serde_json::json!({"event":crate::proposal_review::SKILL_DECIDED_EVENT,"proposal_id":"p1","status":"approved"}),
+        ),
+        (
+            "schedule_proposal",
+            serde_json::json!({"schedule_id":"t","kind":"fresh_task","state":"pending_review"}),
+            "schedule_activation",
+            serde_json::json!({"schedule_id":"t","event":"scheduled_task_activated","state":"active"}),
+        ),
+    ] {
+        let mut draft = ChatMessage::tool_result("draft", "call", draft_text.to_string());
+        draft.data_envelope = internal_tool_result_envelope(
+            owner.data_envelope.as_ref(),
+            "call",
+            &draft.text,
+            draft_tool,
+        )
+        .unwrap();
+        let mut receipt = ChatMessage::system_event("receipt", receipt_text.to_string());
+        receipt.data_envelope = internal_tool_result_envelope(
+            draft.data_envelope.as_ref(),
+            "receipt",
+            &receipt.text,
+            receipt_tool,
+        )
+        .unwrap();
+        let mut messages = vec![owner.clone(), draft, receipt];
+        crate::schedule::review_result::project(&mut messages).unwrap();
+        crate::skills::authoring::project_review_results(&mut messages).unwrap();
+        assert!(
+            messages[1].text.contains("\"awaiting_decision\":false"),
+            "{draft_tool}"
+        );
+        // The projected draft and the decision receipt stay registered, so the
+        // answer that follows a decision keeps its retention proof.
+        let original = snapshot(
+            messages
+                .iter()
+                .map(|message| message.data_envelope.clone().unwrap())
+                .collect(),
+        );
+        let registration =
+            NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1).unwrap();
+        assert!(
+            registration.leaves.iter().all(Option::is_some),
+            "{draft_tool}"
+        );
+        let policy = registration
+            .complete_leaf_text_policy(&original)
+            .unwrap()
+            .unwrap();
+        assert!(policy.history_retention_allowed, "{draft_tool}");
+    }
+}

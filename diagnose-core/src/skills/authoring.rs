@@ -646,18 +646,22 @@ pub fn project_review_results(messages: &mut [crate::chat::ChatMessage]) -> Resu
         let Some(id) = proposal["proposal_id"].as_str().filter(|id| !id.is_empty()) else {
             continue;
         };
-        let Some(call_id) = draft.tool_call_id.as_deref() else {
+        if draft.tool_call_id.is_none() {
             continue;
-        };
-        let outcome = messages[index + 1..].iter().find_map(|message| {
-            if !labelled(message, ChatRole::SystemEvent, "skill_proposal_decision") {
-                return None;
-            }
-            let value = serde_json::from_str::<Value>(&message.text).ok()?;
-            (value["proposal_id"].as_str() == Some(id)
-                && value["event"] == crate::proposal_review::SKILL_DECIDED_EVENT)
-                .then_some((message, value))
-        });
+        }
+        let outcome = messages
+            .iter()
+            .enumerate()
+            .skip(index + 1)
+            .find_map(|(at, message)| {
+                if !labelled(message, ChatRole::SystemEvent, "skill_proposal_decision") {
+                    return None;
+                }
+                let value = serde_json::from_str::<Value>(&message.text).ok()?;
+                (value["proposal_id"].as_str() == Some(id)
+                    && value["event"] == crate::proposal_review::SKILL_DECIDED_EVENT)
+                    .then_some((at, value))
+            });
         let Some((receipt, mut value)) = outcome else {
             continue;
         };
@@ -676,18 +680,7 @@ pub fn project_review_results(messages: &mut [crate::chat::ChatMessage]) -> Resu
             }
             .into(),
         );
-        let text = value.to_string();
-        let mut envelope = crate::model_message_labels::conversation_history_result_envelope(
-            draft.data_envelope.as_ref(),
-            std::slice::from_ref(receipt),
-            call_id,
-            &text,
-        )?;
-        if let Some(label) = envelope.as_mut() {
-            label.provenance.source_tool_name = "skill_review_result".into();
-        }
-        messages[index].text = text;
-        messages[index].data_envelope = envelope;
+        crate::schedule::review_result::label_decided(messages, index, receipt, value.to_string())?;
     }
     Ok(())
 }

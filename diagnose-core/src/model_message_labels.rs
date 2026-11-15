@@ -123,7 +123,7 @@ pub fn read_result_envelope(
     Ok(envelope)
 }
 
-fn invalid_label() -> AgentError {
+pub(crate) fn invalid_label() -> AgentError {
     AgentError {
         kind: AgentErrorKind::Internal,
         message: "Provider result cannot be labeled safely".into(),
