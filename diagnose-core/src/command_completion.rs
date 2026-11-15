@@ -347,7 +347,7 @@ mod tests {
         )
         .unwrap();
         let mut result = ChatMessage::text("event", ChatRole::UntrustedOutput, "du completed");
-        result.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        result.data_envelope = crate::model_message_labels::data_result_envelope(
             user.data_envelope.as_ref(),
             "call",
             &result.text,

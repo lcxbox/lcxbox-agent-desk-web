@@ -24,6 +24,21 @@ fn snapshot(inputs: Vec<DataEnvelope>) -> crate::model_egress::NativeModelInputS
     crate::model_egress::NativeModelInputSnapshot::capture(&audit, &inputs).unwrap()
 }
 
+/// A server-authored control result under a registered source name.
+fn control_envelope(
+    parent: Option<&DataEnvelope>,
+    call_id: &str,
+    content: &str,
+    name: &str,
+) -> Result<Option<DataEnvelope>, desk_agent_protocol::AgentError> {
+    crate::model_message_labels::server_result_envelope(
+        parent,
+        call_id,
+        content,
+        crate::model_message_labels::ServerResultSource::parse(name).unwrap(),
+    )
+}
+
 fn destination() -> DestinationIdentity {
     DestinationIdentity::Model {
         connection_id: "gateway".into(),
@@ -503,8 +518,6 @@ fn native_snapshot_cannot_replace_a_restrictive_policy_or_rebind_a_full_input_la
 #[test]
 fn native_controls_require_their_actual_parents_and_never_become_independent_facts() {
     for tool in [
-        "owner_context_time",
-        "context_review",
         "runtime_context",
         "input_watermark",
         "latest_input_projection",
@@ -522,14 +535,9 @@ fn native_controls_require_their_actual_parents_and_never_become_independent_fac
         crate::skills::LOAD_TOOL,
     ] {
         let owner = user();
-        let control = crate::model_message_labels::internal_tool_result_envelope(
-            Some(&owner),
-            "control",
-            "native observation",
-            tool,
-        )
-        .unwrap()
-        .unwrap();
+        let control = control_envelope(Some(&owner), "control", "native observation", tool)
+            .unwrap()
+            .unwrap();
         assert!(
             registered_leaf(&control, 1, SOURCE_CONTRACT_REVISION)
                 .unwrap()
@@ -580,23 +588,13 @@ fn native_controls_require_their_actual_parents_and_never_become_independent_fac
 fn native_control_chains_and_real_resume_and_delegation_producers_keep_parent_constraints() {
     let mut owner = user();
     owner.retention.expires_at_unix_ms = Some(1000);
-    let mut first = crate::model_message_labels::internal_tool_result_envelope(
-        Some(&owner),
-        "first",
-        "accepted",
-        "owner_context_time",
-    )
-    .unwrap()
-    .unwrap();
+    let mut first = control_envelope(Some(&owner), "first", "accepted", "input_watermark")
+        .unwrap()
+        .unwrap();
     first.retention.expires_at_unix_ms = Some(500);
-    let second = crate::model_message_labels::internal_tool_result_envelope(
-        Some(&first),
-        "second",
-        "ready",
-        "context_review",
-    )
-    .unwrap()
-    .unwrap();
+    let second = control_envelope(Some(&first), "second", "ready", "runtime_context")
+        .unwrap()
+        .unwrap();
     let original = snapshot(vec![second, first, owner.clone()]);
     let registration =
         NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1).unwrap();
@@ -748,14 +746,9 @@ fn a_native_control_cannot_launder_unknown_private_or_secret_parent_content() {
             crate::issue_reply::PREPARE_TOOL_NAME,
             crate::skills::LOAD_TOOL,
         ] {
-            let control = crate::model_message_labels::internal_tool_result_envelope(
-                Some(&parent),
-                "control",
-                "native result",
-                tool,
-            )
-            .unwrap()
-            .unwrap();
+            let control = control_envelope(Some(&parent), "control", "native result", tool)
+                .unwrap()
+                .unwrap();
             let original = snapshot(vec![control, parent.clone()]);
             let registration =
                 NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1)
@@ -773,11 +766,11 @@ fn a_native_control_cannot_launder_unknown_private_or_secret_parent_content() {
         }
     }
     let owner = user();
-    let mut control = crate::model_message_labels::internal_tool_result_envelope(
+    let mut control = crate::model_message_labels::server_result_envelope(
         Some(&owner),
         "secret-control",
         "private control",
-        "runtime_context",
+        crate::model_message_labels::ServerResultSource::RuntimeContext,
     )
     .unwrap()
     .unwrap();
@@ -799,11 +792,11 @@ fn renamed_malformed_weakened_and_cyclic_controls_remain_unresolved() {
     let mut owner = user();
     owner.retention.expires_at_unix_ms = Some(1000);
     owner.retention.delete_with_run = true;
-    let control = crate::model_message_labels::internal_tool_result_envelope(
+    let control = crate::model_message_labels::server_result_envelope(
         Some(&owner),
         "control",
         "native observation",
-        "runtime_context",
+        crate::model_message_labels::ServerResultSource::RuntimeContext,
     )
     .unwrap()
     .unwrap();
@@ -855,11 +848,11 @@ fn renamed_malformed_weakened_and_cyclic_controls_remain_unresolved() {
         );
     }
     let mut first = control;
-    let mut second = crate::model_message_labels::internal_tool_result_envelope(
+    let mut second = control_envelope(
         Some(&first),
         "second",
         "native observation",
-        "context_review",
+        "runtime_context",
     )
     .unwrap()
     .unwrap();
@@ -914,25 +907,25 @@ fn native_control_registration_fits_small_stacks() {
 
 #[test]
 fn decided_review_projections_remain_registered_controls() {
-    use crate::model_message_labels::internal_tool_result_envelope;
+    use crate::model_message_labels::{ServerResultSource as Source, server_result_envelope};
     let owner =
         model_bound_user_message("owner".into(), "Keep this".into(), destination()).unwrap();
     for (draft_tool, draft_text, receipt_tool, receipt_text) in [
         (
-            "skill_proposal",
+            Source::SkillProposal,
             serde_json::json!({"proposal_id":"p1","status":"pending","awaiting_decision":true}),
-            "skill_proposal_decision",
+            Source::SkillProposalDecision,
             serde_json::json!({"event":crate::proposal_review::SKILL_DECIDED_EVENT,"proposal_id":"p1","status":"approved"}),
         ),
         (
-            "schedule_proposal",
+            Source::ScheduleProposal,
             serde_json::json!({"schedule_id":"t","kind":"fresh_task","state":"pending_review"}),
-            "schedule_activation",
+            Source::ScheduleActivation,
             serde_json::json!({"schedule_id":"t","event":"scheduled_task_activated","state":"active"}),
         ),
     ] {
         let mut draft = ChatMessage::tool_result("draft", "call", draft_text.to_string());
-        draft.data_envelope = internal_tool_result_envelope(
+        draft.data_envelope = server_result_envelope(
             owner.data_envelope.as_ref(),
             "call",
             &draft.text,
@@ -940,7 +933,7 @@ fn decided_review_projections_remain_registered_controls() {
         )
         .unwrap();
         let mut receipt = ChatMessage::system_event("receipt", receipt_text.to_string());
-        receipt.data_envelope = internal_tool_result_envelope(
+        receipt.data_envelope = server_result_envelope(
             draft.data_envelope.as_ref(),
             "receipt",
             &receipt.text,
@@ -952,7 +945,7 @@ fn decided_review_projections_remain_registered_controls() {
         crate::skills::authoring::project_review_results(&mut messages).unwrap();
         assert!(
             messages[1].text.contains("\"awaiting_decision\":false"),
-            "{draft_tool}"
+            "{draft_tool:?}"
         );
         // The projected draft and the decision receipt stay registered, so the
         // answer that follows a decision keeps its retention proof.
@@ -966,61 +959,70 @@ fn decided_review_projections_remain_registered_controls() {
             NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1).unwrap();
         assert!(
             registration.leaves.iter().all(Option::is_some),
-            "{draft_tool}"
+            "{draft_tool:?}"
         );
         let policy = registration
             .complete_leaf_text_policy(&original)
             .unwrap()
             .unwrap();
-        assert!(policy.history_retention_allowed, "{draft_tool}");
+        assert!(policy.history_retention_allowed, "{draft_tool:?}");
     }
 }
 
 #[test]
-fn every_server_tool_result_is_a_registered_control() {
+fn every_server_result_source_registers_in_both_label_forms() {
+    use crate::model_message_labels::{
+        ServerResultSource, server_projection_envelope, server_result_envelope,
+    };
     let owner = user();
-    for name in crate::agent_loop::SERVER_RESULT_SOURCES {
-        let result = crate::agent_loop::derive_internal_tool_result_envelope(
-            Some(&owner),
-            "call",
-            "tool_not_advertised: tool `x` is not advertised in this request.",
-            name,
-        )
-        .unwrap()
-        .unwrap();
-        let original = snapshot(vec![owner.clone(), result]);
-        let registration =
-            NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1).unwrap();
-        assert_eq!(
-            registration.leaves[1].as_ref().map(|leaf| leaf.contract),
-            Some(RegisteredSourceContract::NativeControl),
-            "{name}"
-        );
-        assert!(
-            registration
-                .complete_leaf_text_policy(&original)
-                .unwrap()
-                .unwrap()
-                .history_retention_allowed,
-            "{name}"
-        );
+    for source in ServerResultSource::ALL {
+        for result in [
+            server_result_envelope(Some(&owner), "call", "notice", *source),
+            server_projection_envelope(Some(&owner), "call", "notice", *source),
+        ] {
+            let original = snapshot(vec![owner.clone(), result.unwrap().unwrap()]);
+            let registration =
+                NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1)
+                    .unwrap();
+            assert_eq!(
+                registration.leaves[1].as_ref().map(|leaf| leaf.contract),
+                Some(RegisteredSourceContract::NativeControl),
+                "{source:?}"
+            );
+        }
     }
 }
 
 #[test]
-fn provider_execution_output_is_never_a_control() {
-    // Device output is labelled with this name; it keeps its own read policy.
+fn data_results_never_register_whatever_their_name() {
+    use crate::model_message_labels::{data_projection_envelope, data_result_envelope, sources};
     let owner = user();
-    let result = crate::model_message_labels::internal_tool_result_envelope(
-        Some(&owner),
-        "call",
-        "device output",
-        "provider_execution_status",
-    )
-    .unwrap()
-    .unwrap();
-    let original = snapshot(vec![owner, result]);
-    let registration =
-        NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1).unwrap();
-    assert!(registration.leaves[1].is_none());
+    let names = [
+        sources::PROVIDER_EXECUTION_STATUS,
+        sources::REQUESTED_ARTIFACT_REGISTRY_PROJECTION,
+        sources::REUSABLE_PROVIDER_RESULT_PROJECTION,
+        sources::FREEZE_ACTION_RESULT_ORIGIN,
+        sources::DIRECTORY_RESOLUTION_FAILED,
+        sources::DIRECTORY_DECISION,
+        sources::GOAL_ORIGINAL_PROJECTION,
+        sources::GOAL_CLARIFICATION_PROJECTION,
+        sources::GOAL_STATE_PROJECTION,
+        sources::GOAL_PROPOSAL_DECISION,
+        // Tool names shared with registered receipts, for their error results.
+        crate::ai_assistant::data_tools::MANAGE_MEMORIES,
+        crate::goal_tools::CONTROL_GOAL_TOOL_NAME,
+        crate::skills::LOAD_TOOL,
+    ];
+    for name in names {
+        for result in [
+            data_result_envelope(Some(&owner), "call", "device output", name),
+            data_projection_envelope(Some(&owner), "call", "device output", name),
+        ] {
+            let original = snapshot(vec![owner.clone(), result.unwrap().unwrap()]);
+            let registration =
+                NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1)
+                    .unwrap();
+            assert!(registration.leaves[1].is_none(), "{name}");
+        }
+    }
 }

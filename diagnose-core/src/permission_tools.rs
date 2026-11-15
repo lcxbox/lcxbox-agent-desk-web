@@ -1728,9 +1728,6 @@ fn synthesized_reason(conversation: &[crate::chat::ChatMessage], call_id: &str) 
     text[..end].into()
 }
 
-/// Source label of a direct call's permission control result.
-pub(crate) const CALL_PERMISSION_RESULT_SOURCE: &str = "provider_execution_status";
-
 /// Whether `request` is the proposal a direct `call` produces: its first item
 /// is this call (exact input, application scope or reusable read scope) and any
 /// further items are the fixed desktop observations added for UI actions.

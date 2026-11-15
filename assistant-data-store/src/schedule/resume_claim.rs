@@ -140,14 +140,13 @@ pub async fn claim_continuation_on<C: ConnectionTrait, H: ScheduleHostStores<C>>
             &task.schedule_id,
         );
         let mut message = desk_diagnose_core::chat::ChatMessage::system_event(&id, &task.prompt);
-        message.data_envelope =
-            desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-                parent,
-                &id,
-                &task.prompt,
-                "scheduled_task_input",
-            )
-            .map_err(|_| ScheduleStoreError::Invalid)?;
+        message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+            parent,
+            &id,
+            &task.prompt,
+            desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledTaskInput,
+        )
+        .map_err(|_| ScheduleStoreError::Invalid)?;
         message.turn_id = Some(turn_id.clone());
         session.conversation.push(message);
     }

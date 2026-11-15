@@ -41,7 +41,7 @@ async fn conversation_alias_filters_real_history_without_rewriting_native_produc
         serde_json::json!({"conversation_id":"past-A"}).to_string(),
     );
     observation.data_envelope =
-        desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
+        desk_diagnose_core::model_message_labels::data_result_envelope(
             frame
                 .session
                 .conversation

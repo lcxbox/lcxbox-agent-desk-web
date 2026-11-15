@@ -56,7 +56,7 @@ pub fn request() -> ModelRequest {
         let mut message = ChatMessage::tool_result(format!("result-{i}"), &call, value.to_string());
         message.tool_ok = Some(true);
         message.data_envelope =
-            desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
+            desk_diagnose_core::model_message_labels::data_result_envelope(
                 owner.data_envelope.as_ref(),
                 &call,
                 &message.text,

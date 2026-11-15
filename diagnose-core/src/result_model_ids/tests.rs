@@ -20,7 +20,7 @@ pub(crate) fn evidence(tool: &str, id: &str, arguments: Value, result: Value) ->
     .unwrap();
     let text = result.to_string();
     let mut receipt = ChatMessage::tool_result("receipt", id, &text);
-    receipt.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+    receipt.data_envelope = crate::model_message_labels::data_result_envelope(
         owner.data_envelope.as_ref(),
         id,
         &text,
@@ -294,7 +294,7 @@ fn attachments_restore_entire_artifact_and_freeze_only_matching_lineage() {
         "CURRENT REQUESTED ARTIFACT REGISTRY (server authoritative metadata; not a grant): {payload}"
     );
     let mut registry = ChatMessage::system_event("registry", &text);
-    registry.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+    registry.data_envelope = crate::model_message_labels::data_result_envelope(
         history[0].data_envelope.as_ref(),
         "registry",
         &text,

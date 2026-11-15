@@ -148,14 +148,13 @@ async fn proposal_fixture(
         .to_string();
     let mut receipt = ChatMessage::tool_result("skill-proposal:skill-call", "skill-call", &text);
     receipt.turn_id = session.current_turn_id.clone();
-    receipt.data_envelope =
-        desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-            session.conversation.last().unwrap().data_envelope.as_ref(),
-            "skill-call",
-            &text,
-            "skill_proposal",
-        )
-        .unwrap();
+    receipt.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+        session.conversation.last().unwrap().data_envelope.as_ref(),
+        "skill-call",
+        &text,
+        desk_diagnose_core::model_message_labels::ServerResultSource::SkillProposal,
+    )
+    .unwrap();
     session.conversation.push(receipt);
     let pause = DecisionPause {
         kind: DecisionKind::Skill,

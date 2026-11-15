@@ -344,11 +344,11 @@ async fn save_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         "base_version": base_version, "awaiting_decision": true,
         "message": message})
     .to_string();
-    let envelope = desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
+    let envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
         parent.data_envelope.as_ref(),
         &call.id,
         &text,
-        "skill_proposal",
+        desk_diagnose_core::model_message_labels::ServerResultSource::SkillProposal,
     )
     .map_err(|_| ScheduleStoreError::Invalid)?;
     let receipt_id = format!("{}{}", ProposalKind::Skill.receipt_prefix(), call.id);
@@ -849,14 +849,13 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         .rev()
         .find_map(|message| message.data_envelope.as_ref());
     let mut message = ChatMessage::system_event(&id, &text);
-    message.data_envelope =
-        desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-            parent,
-            &id,
-            &text,
-            "skill_proposal_decision",
-        )
-        .map_err(|_| ScheduleStoreError::Invalid)?;
+    message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+        parent,
+        &id,
+        &text,
+        desk_diagnose_core::model_message_labels::ServerResultSource::SkillProposalDecision,
+    )
+    .map_err(|_| ScheduleStoreError::Invalid)?;
     crate::decision_resume::record_decision_on(host, txn, &session_row, session, message, now)
         .await?;
     Ok(())

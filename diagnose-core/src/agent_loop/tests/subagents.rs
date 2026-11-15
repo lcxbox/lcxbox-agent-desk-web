@@ -81,7 +81,7 @@ impl ToolSeam for AuditedChildTools {
         call: &ToolCall,
         output: &ToolRunOutput,
     ) -> Result<Option<DataEnvelope>, AgentError> {
-        crate::model_message_labels::internal_tool_result_envelope(
+        crate::model_message_labels::data_result_envelope(
             Some(&self.label),
             &call.id,
             &output.content,
@@ -264,7 +264,7 @@ impl SubAgentSeam for ChildSessions {
         let payload = serde_json::json!({"report_id":"terminal", "seq":1});
         let text = payload.to_string();
         let mut receipt = ChatMessage::tool_result(result_message_id, &call.id, &text);
-        receipt.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        receipt.data_envelope = crate::model_message_labels::data_result_envelope(
             session.conversation[0].data_envelope.as_ref(),
             &call.id,
             &text,

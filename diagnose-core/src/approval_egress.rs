@@ -727,16 +727,26 @@ mod tests {
             },
             projection_version: 1,
             body_bytes: "current-ui-evidence".len(),
-            original_envelope: Some(original_envelope),
+            original_envelope: Some(original_envelope.clone()),
             consumed: true,
             released: false,
         }));
         let mut released = page.clone();
         released.message_id = "released-page".into();
-        crate::conversation_attachment::model_read::release_consumed(std::slice::from_mut(
-            &mut released,
-        ))
-        .unwrap();
+        // A released receipt derives from the model output that made the read.
+        let mut issuing = ChatMessage::assistant_tool_calls(
+            "read-call",
+            "",
+            vec![crate::chat::ToolCallRef {
+                id: "read".into(),
+                name: crate::conversation_attachment::READ_ATTACHMENT_TOOL.into(),
+                arguments_json: "{}".into(),
+            }],
+        );
+        issuing.data_envelope = Some(original_envelope.clone());
+        let mut conversation = vec![issuing, released];
+        crate::conversation_attachment::model_read::release_consumed(&mut conversation).unwrap();
+        let released = conversation.pop().unwrap();
         vec![reference, page, released]
     }
 

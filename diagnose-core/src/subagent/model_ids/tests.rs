@@ -139,7 +139,7 @@ fn runtime_state_reuses_aliases_and_recorded_calls_keep_them() {
     let state =
         json!({"runtime_delegation_state":{"tasks":[{"task_id":runtime_only}]}}).to_string();
     let mut runtime = ChatMessage::system_event("runtime", state.clone());
-    runtime.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+    runtime.data_envelope = crate::model_message_labels::data_result_envelope(
         owner.data_envelope.as_ref(),
         "runtime",
         &state,

@@ -271,11 +271,13 @@ fn native_read(source: &DataEnvelope) -> Option<RegisteredSourceContract> {
     .then_some(contract)
 }
 
-/// A persisted status projection, or a request-only content-addressed status
-/// blob, derived from exactly one parent.
+/// The registered shape of a `server_*` label: a persisted status projection,
+/// or a request-only content-addressed status blob, derived from exactly one
+/// parent. `data_*` labels use another shape and never match.
 fn status_result_shape(source: &DataEnvelope, blob: Option<(&String, &String, &String)>) -> bool {
+    use crate::model_message_labels::{STATUS_CONTENT_PREFIX, STATUS_RESULT_PREFIX};
     use sha2::{Digest, Sha256};
-    let Some(id) = source.envelope_id.strip_prefix("status-result-") else {
+    let Some(id) = source.envelope_id.strip_prefix(STATUS_RESULT_PREFIX) else {
         return false;
     };
     id.len() == 64
@@ -295,7 +297,11 @@ fn status_result_shape(source: &DataEnvelope, blob: Option<(&String, &String, &S
             }
             (_, Some((blob_id, sha256, media_type))) => {
                 media_type == "text/plain"
-                    && *blob_id == format!("status-content-{:x}", Sha256::digest(sha256.as_bytes()))
+                    && *blob_id
+                        == format!(
+                            "{STATUS_CONTENT_PREFIX}{:x}",
+                            Sha256::digest(sha256.as_bytes())
+                        )
             }
             _ => false,
         }
@@ -328,20 +334,9 @@ fn native_control(source: &DataEnvelope) -> bool {
             return false;
         }
         match provenance.source_tool_name.as_str() {
-            name if crate::agent_loop::SERVER_RESULT_SOURCES.contains(&name) => {
+            name if crate::model_message_labels::ServerResultSource::parse(name).is_some() => {
                 status_result_shape(source, blob)
             }
-            "owner_context_time"
-            | "context_review"
-            | "runtime_context"
-            | "input_watermark"
-            | "latest_input_projection"
-            | "schedule_activation"
-            | "scheduled_task_input"
-            | "manage_memories"
-            | "schedule_query"
-            | "schedule_cancellation"
-            | "skill_proposal_decision" => status_result_shape(source, blob),
             "delegation_state" => {
                 source
                     .envelope_id

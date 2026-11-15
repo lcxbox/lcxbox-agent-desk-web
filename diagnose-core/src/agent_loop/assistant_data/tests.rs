@@ -440,13 +440,14 @@ async fn a_skipped_write_uses_original_scope_without_rewriting_generations_or_re
     .await
     .unwrap();
     assert!(result.ok && !result.replayed);
+    // A write acknowledgement is a registered server receipt.
     assert_eq!(
         result.message.data_envelope,
-        crate::model_message_labels::internal_tool_result_envelope(
+        crate::model_message_labels::server_result_envelope(
             Some(&parent),
             &call.id,
             &result.message.text,
-            &call.name,
+            crate::model_message_labels::ServerResultSource::ManageMemories,
         )
         .unwrap()
     );

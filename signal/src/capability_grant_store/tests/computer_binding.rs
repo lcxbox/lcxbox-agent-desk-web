@@ -173,14 +173,13 @@ impl Fixture {
                 arguments_json: call.arguments_json.clone(),
             }],
         );
-        proposal.data_envelope =
-            desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-                user.data_envelope.as_ref(),
-                &call.id,
-                &proposal.text,
-                "test_model_output",
-            )
-            .unwrap();
+        proposal.data_envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+            user.data_envelope.as_ref(),
+            &call.id,
+            &proposal.text,
+            "test_model_output",
+        )
+        .unwrap();
         proposal.turn_id = Some("turn-1".into());
         if personal {
             session.conversation.push(proposal);

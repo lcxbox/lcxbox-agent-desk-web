@@ -38,10 +38,17 @@ pub(super) async fn propose<F: FnMut() -> String>(
         parent_envelope,
     } = context;
     let synthesized = shown.name != crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME;
-    let source_name = if synthesized {
-        crate::permission_tools::CALL_PERMISSION_RESULT_SOURCE
+    // Request states are server-authored; a planning error keeps a data label.
+    let (status_source, error_source) = if synthesized {
+        (
+            ServerResultSource::PermissionRequestStatus,
+            crate::model_message_labels::sources::PROVIDER_EXECUTION_STATUS,
+        )
     } else {
-        crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME
+        (
+            ServerResultSource::RequestPermissions,
+            crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
+        )
     };
     sink.on_tool_started(&shown.name, &shown.id, &shown.arguments_json);
     let created_at = (deps.clock)();
@@ -268,11 +275,11 @@ pub(super) async fn propose<F: FnMut() -> String>(
                     decision_state,
                 )
                 .to_string();
-                let envelope = derive_internal_tool_result_envelope(
+                let envelope = crate::model_message_labels::server_result_envelope(
                     parent_envelope,
                     &call.id,
                     &content,
-                    source_name,
+                    status_source,
                 )?;
                 let mut message = ChatMessage::tool_result(mint(), &call.id, content);
                 message.data_envelope = envelope;
@@ -285,7 +292,7 @@ pub(super) async fn propose<F: FnMut() -> String>(
                         parent_envelope,
                         &mut *mint,
                         "not executed: waiting for the existing user permission decision",
-                        "permission_pause_tool_call",
+                        ServerResultSource::PermissionPauseToolCall,
                     )?;
                     deps.session_seam.save(session).await?;
                     sink.on_permission_requested(&existing.request_id, existing.items.len());
@@ -308,11 +315,11 @@ pub(super) async fn propose<F: FnMut() -> String>(
             let result_envelope = if synthesized {
                 None
             } else {
-                derive_internal_tool_result_envelope(
+                crate::model_message_labels::server_result_envelope(
                     parent_envelope,
                     &call.id,
                     &content,
-                    source_name,
+                    status_source,
                 )?
             };
             let event_seq = session
@@ -367,7 +374,7 @@ pub(super) async fn propose<F: FnMut() -> String>(
                 parent_envelope,
                 &mut *mint,
                 "not executed: waiting for user permission decision",
-                "permission_pause_tool_call",
+                ServerResultSource::PermissionPauseToolCall,
             )?;
             if synthesized {
                 session.pause_for_permission(&call.id, &request.request_id);
@@ -400,11 +407,11 @@ pub(super) async fn propose<F: FnMut() -> String>(
         }
         Err(error) => {
             let content = crate::model_input::describe_error(&call.name, &error.message);
-            let envelope = derive_internal_tool_result_envelope(
+            let envelope = crate::model_message_labels::data_result_envelope(
                 parent_envelope,
                 &call.id,
                 &content,
-                source_name,
+                error_source,
             )?;
             let mut message = ChatMessage::tool_result(mint(), &call.id, content);
             message.data_envelope = envelope;
@@ -416,7 +423,7 @@ pub(super) async fn propose<F: FnMut() -> String>(
                     parent_envelope,
                     &mut *mint,
                     "not executed: task permission request was rejected",
-                    "task_permission_denied",
+                    ServerResultSource::TaskPermissionDenied,
                 )?;
                 finish_tool(session, &call.id, false, sink);
                 return Err(error);
@@ -455,7 +462,7 @@ pub(super) async fn propose_call<F: FnMut() -> String>(
             mint(),
             &call.id,
             "permission_denied: the owner refused this tool for the current request. No action was dispatched. Do not retry it; explain the blocker or ask the owner.".into(),
-            "permission_denied",
+            ServerResultSource::PermissionDenied,
         )?;
         finish_tool(session, &call.id, false, sink);
         return Ok(None);
@@ -493,7 +500,7 @@ pub(super) async fn propose_call<F: FnMut() -> String>(
                 mint(),
                 &call.id,
                 crate::model_input::describe_error(&call.name, &error.message),
-                "permission_proposal_rejected",
+                ServerResultSource::PermissionProposalRejected,
             )?;
             finish_tool(session, &call.id, false, sink);
             return Ok(None);
@@ -545,7 +552,7 @@ pub(super) async fn grant_required<F: FnMut() -> String>(
             mint(),
             &call.id,
             crate::capability_grant::APPROVED_INPUT_MISMATCH_MESSAGE.into(),
-            "approved_input_mismatch",
+            ServerResultSource::ApprovedInputMismatch,
         )?;
         finish_tool(session, &call.id, false, sink);
         return Ok(None);

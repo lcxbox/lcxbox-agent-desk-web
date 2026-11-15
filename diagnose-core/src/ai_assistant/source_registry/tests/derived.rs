@@ -304,11 +304,11 @@ fn a_native_chain_keeps_only_direct_parent_references_and_preserves_the_original
 pub(super) fn a_native_control_still_requires_the_actual_parent_archive() {
     let first = native_archive("first-control-parent", vec![owner_message()], &[]);
     let mut control = ChatMessage::system_event("control", "ready");
-    control.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+    control.data_envelope = super::control_envelope(
         Some(&first.output),
         "review",
         &control.text,
-        "context_review",
+        "runtime_context",
     )
     .unwrap();
     let second = native_archive(

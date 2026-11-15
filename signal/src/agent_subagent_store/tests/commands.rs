@@ -138,14 +138,13 @@ async fn approved_child_with_source_on(
         }],
     );
     proposal.turn_id = child.current_turn_id.clone();
-    proposal.data_envelope =
-        desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-            child.conversation.last().unwrap().data_envelope.as_ref(),
-            &call.id,
-            &proposal.text,
-            "test_model_output",
-        )
-        .unwrap();
+    proposal.data_envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+        child.conversation.last().unwrap().data_envelope.as_ref(),
+        &call.id,
+        &proposal.text,
+        "test_model_output",
+    )
+    .unwrap();
     child.conversation.push(proposal);
     let policy = CommandPolicyContext {
         actor_id: child.actor_id.clone(),

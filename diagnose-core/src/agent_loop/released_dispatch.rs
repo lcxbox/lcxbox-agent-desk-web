@@ -223,7 +223,7 @@ fn close<F: FnMut() -> String>(
         mint(),
         &call.id,
         text.into(),
-        "permission_resume_not_executed",
+        ServerResultSource::PermissionResumeNotExecuted,
     )?;
     finish_tool(session, &call.id, false, sink);
     Ok(())

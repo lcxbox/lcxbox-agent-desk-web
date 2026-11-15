@@ -45,7 +45,7 @@ impl ToolSeam for AuditedGrantTools {
         call: &ToolCall,
         output: &ToolRunOutput,
     ) -> Result<Option<desk_agent_protocol::data_lineage::DataEnvelope>, AgentError> {
-        crate::model_message_labels::internal_tool_result_envelope(
+        crate::model_message_labels::data_result_envelope(
             Some(&self.label),
             &call.id,
             &output.content,

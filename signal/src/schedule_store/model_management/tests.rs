@@ -171,14 +171,13 @@ async fn fresh_task_is_bound_by_server_receipt_and_queries_are_paginated() {
     .unwrap();
     let mut receipt =
         desk_diagnose_core::chat::ChatMessage::tool_result("receipt", "call", text.clone());
-    receipt.data_envelope =
-        desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-            parent.data_envelope.as_ref(),
-            "call",
-            &text,
-            "schedule_proposal",
-        )
-        .unwrap();
+    receipt.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+        parent.data_envelope.as_ref(),
+        "call",
+        &text,
+        desk_diagnose_core::model_message_labels::ServerResultSource::ScheduleProposal,
+    )
+    .unwrap();
     session.conversation.push(receipt);
     let txn = store.db.begin().await.unwrap();
     let first: Value =
@@ -247,14 +246,13 @@ async fn tool_turn_commits_cancellation_and_receipt_together_and_rejects_stale_s
             "query-call",
             &query_text,
         );
-        query.data_envelope =
-            desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-                parent.data_envelope.as_ref(),
-                "schedule-query",
-                &query_text,
-                "schedule_query",
-            )
-            .unwrap();
+        query.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+            parent.data_envelope.as_ref(),
+            "schedule-query",
+            &query_text,
+            desk_diagnose_core::model_message_labels::ServerResultSource::ScheduleQuery,
+        )
+        .unwrap();
         let input = query.data_envelope.clone().unwrap();
         let policy = desk_diagnose_core::model_egress::ModelEgressPolicy {
             destination: input.allowed_destinations[0].clone(),

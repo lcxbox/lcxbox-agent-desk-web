@@ -2060,11 +2060,11 @@ mod tests {
         );
         let text = "background task completed; its original result is recorded in the conversation";
         let mut status = ChatMessage::tool_result("wait-status", "wait-id", text);
-        status.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        status.data_envelope = crate::model_message_labels::server_result_envelope(
             Some(&original),
             "wait-id",
             text,
-            "wait_for_task",
+            crate::model_message_labels::ServerResultSource::WaitForTask,
         )
         .unwrap();
         let audit = |messages| {
@@ -2077,11 +2077,11 @@ mod tests {
         ] {
             let mut receipt = status.clone();
             receipt.text = text.into();
-            receipt.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+            receipt.data_envelope = crate::model_message_labels::server_result_envelope(
                 Some(&original),
                 "wait-id",
                 text,
-                "wait_for_task",
+                crate::model_message_labels::ServerResultSource::WaitForTask,
             )
             .unwrap();
             assert!(

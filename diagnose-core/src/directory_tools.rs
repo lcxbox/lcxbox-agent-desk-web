@@ -233,11 +233,11 @@ pub fn decision_event(
         .rev()
         .find_map(|message| message.data_envelope.as_ref());
     let mut message = crate::chat::ChatMessage::system_event(&id, &text);
-    message.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+    message.data_envelope = crate::model_message_labels::data_result_envelope(
         parent,
         &id,
         &text,
-        "directory_decision",
+        crate::model_message_labels::sources::DIRECTORY_DECISION,
     )?;
     Ok(message)
 }

@@ -243,14 +243,13 @@ async fn reconcile_inner_on(
         .find(|m| m.role == ChatRole::Assistant && m.tool_calls.iter().any(|c| c.id == call.id))
         .and_then(|m| m.data_envelope.as_ref())
         .ok_or_else(invalid)?;
-    message.data_envelope =
-        desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-            Some(parent),
-            &call.id,
-            &message.text,
-            "scheduled_command_status",
-        )
-        .map_err(|_| invalid())?;
+    message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+        Some(parent),
+        &call.id,
+        &message.text,
+        desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledCommandStatus,
+    )
+    .map_err(|_| invalid())?;
     let indexes: Vec<_> = session
         .conversation
         .iter()

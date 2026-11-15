@@ -323,11 +323,11 @@ async fn reconcile_inner_on(
                 .and_then(|message| message.data_envelope.as_ref())
                 .ok_or_else(invalid)?;
             message.data_envelope =
-                desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
+                desk_diagnose_core::model_message_labels::server_result_envelope(
                     Some(parent),
                     &call.id,
                     &message.text,
-                    "scheduled_action_status",
+                    desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledActionStatus,
                 )
                 .map_err(|_| invalid())?;
             let mut indexes = session

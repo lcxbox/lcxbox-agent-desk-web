@@ -106,7 +106,9 @@ pub(crate) fn label_decided(
     receipt: usize,
     text: String,
 ) -> Result<(), AgentError> {
-    use crate::model_message_labels::{invalid_label, request_projection_envelope};
+    use crate::model_message_labels::{
+        ServerResultSource, invalid_label, server_projection_envelope,
+    };
     let parent = messages[draft].data_envelope.as_ref().and_then(|label| {
         let [id] = label.provenance.source_envelope_ids.as_slice() else {
             return None;
@@ -120,20 +122,22 @@ pub(crate) fn label_decided(
     });
     let parent = parent.or(messages[draft].data_envelope.as_ref()).cloned();
     let decision = &messages[receipt];
-    let tool = decision
+    let source = decision
         .data_envelope
         .as_ref()
-        .ok_or_else(invalid_label)?
-        .provenance
-        .source_tool_name
-        .clone();
-    let receipt_label =
-        request_projection_envelope(parent.as_ref(), &decision.message_id, &decision.text, &tool)?;
+        .and_then(|label| ServerResultSource::parse(&label.provenance.source_tool_name))
+        .ok_or_else(invalid_label)?;
+    let receipt_label = server_projection_envelope(
+        parent.as_ref(),
+        &decision.message_id,
+        &decision.text,
+        source,
+    )?;
     let call_id = messages[draft]
         .tool_call_id
         .clone()
         .ok_or_else(invalid_label)?;
-    let draft_label = request_projection_envelope(parent.as_ref(), &call_id, &text, &tool)?;
+    let draft_label = server_projection_envelope(parent.as_ref(), &call_id, &text, source)?;
     messages[receipt].data_envelope = receipt_label;
     messages[draft].text = text;
     messages[draft].data_envelope = draft_label;
@@ -143,7 +147,7 @@ pub(crate) fn label_decided(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model_message_labels::{internal_tool_result_envelope, model_bound_user_message};
+    use crate::model_message_labels::{model_bound_user_message, server_result_envelope};
     use desk_agent_protocol::data_lineage::DestinationIdentity;
     fn records(approved: bool) -> Vec<ChatMessage> {
         let user = model_bound_user_message(
@@ -162,20 +166,20 @@ mod tests {
             "call",
             r#"{"schedule_id":"timer","kind":"fresh_task","state":"pending_review","awaiting_decision":true}"#,
         );
-        draft.data_envelope = internal_tool_result_envelope(
+        draft.data_envelope = server_result_envelope(
             user.data_envelope.as_ref(),
             "call",
             &draft.text,
-            "schedule_proposal",
+            crate::model_message_labels::ServerResultSource::ScheduleProposal,
         )
         .unwrap();
         let text = serde_json::json!({"schedule_id":"timer", "event":if approved {"scheduled_task_activated"} else {"scheduled_task_rejected"}, "decided_by":"approval_ai", "state":if approved {"active"} else {"deleted"}, "next_run_at_utc_ms":12345}).to_string();
         let mut receipt = ChatMessage::system_event("receipt", &text);
-        receipt.data_envelope = internal_tool_result_envelope(
+        receipt.data_envelope = server_result_envelope(
             draft.data_envelope.as_ref(),
             "receipt",
             &text,
-            "schedule_activation",
+            crate::model_message_labels::ServerResultSource::ScheduleActivation,
         )
         .unwrap();
         vec![user, draft, receipt]

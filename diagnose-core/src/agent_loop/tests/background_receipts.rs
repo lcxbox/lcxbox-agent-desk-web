@@ -643,14 +643,36 @@ fn background_status_inherits_proposal_boundary_without_requesting_a_native_rece
     call.arguments_json =
         serde_json::json!({"target_ref":"a","directory_request_id":"approved-directory"})
             .to_string();
-    for text in ["still running", "outcome unknown", "wait error"] {
+    // Placeholders are server text and register; reasons and errors stay data.
+    for (text, source, prefix) in [
+        (
+            "still running",
+            Some(crate::model_message_labels::ServerResultSource::ExecutionPlaceholder),
+            "status-result-",
+        ),
+        ("outcome unknown", None, "data-status-"),
+        ("wait error", None, "data-status-"),
+    ] {
         append_mutating_result(
             &deps,
             &mut session,
             &call,
             ChatMessage::tool_result(text, "wait", text),
+            source,
         )
         .unwrap();
+        assert!(
+            session
+                .conversation
+                .last()
+                .unwrap()
+                .data_envelope
+                .as_ref()
+                .unwrap()
+                .envelope_id
+                .starts_with(prefix),
+            "{text}"
+        );
         let label = session
             .conversation
             .last()

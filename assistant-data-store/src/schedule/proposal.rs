@@ -9,6 +9,7 @@ use super::{
         TouchColumn, timestamp,
     },
 };
+use desk_diagnose_core::model_message_labels::ServerResultSource;
 use desk_diagnose_core::{
     chat::{ChatMessage, ChatRole, ToolCall},
     model_observability::{InputIssue, Stage, StageOutcome, tool::ToolObservation},
@@ -84,23 +85,23 @@ pub async fn manage_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             };
             (serde_json::json!({"schedule_id":task.schedule_id,"kind":task.kind,"state":task.status,
                 "next_run_at_utc_ms":task.next_run_at,"awaiting_decision":awaiting_review.is_some(),
-                "message":message}).to_string(), "schedule_proposal")
+                "message":message}).to_string(), ServerResultSource::ScheduleProposal)
         }
         Action::List { after, limit } => {
             observation.stage(Stage::Preflight, StageOutcome::Passed);
             (
                 list(txn, owner, session, after, limit, now).await?,
-                "schedule_query",
+                ServerResultSource::ScheduleQuery,
             )
         }
         Action::Cancel {
             expected_revision, ..
         } => (
             cancel(txn, target, expected_revision, now, observation).await?,
-            "schedule_cancellation",
+            ServerResultSource::ScheduleCancellation,
         ),
     };
-    let envelope = desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
+    let envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
         Some(parent),
         &call.id,
         &content,

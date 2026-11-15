@@ -303,8 +303,11 @@ pub fn mark_consumed(messages: &mut [ChatMessage], sent_ids: &std::collections::
 }
 
 /// Caller invokes only after a successfully answered turn, never for a pause/error.
+/// `messages` is the whole conversation: each receipt is labelled from the
+/// model output that made its read call.
 pub fn release_consumed(messages: &mut [ChatMessage]) -> Result<(), AgentError> {
-    for message in messages {
+    for index in 0..messages.len() {
+        let message = &messages[index];
         let Some(receipt) = &message.attachment_read else {
             continue;
         };
@@ -312,17 +315,18 @@ pub fn release_consumed(messages: &mut [ChatMessage]) -> Result<(), AgentError> 
             continue;
         }
         let content = receipt_content(receipt);
-        message.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
-            message.data_envelope.as_ref(),
-            message
-                .tool_call_id
-                .as_deref()
-                .unwrap_or(&message.message_id),
+        let call_id = message
+            .tool_call_id
+            .clone()
+            .unwrap_or_else(|| message.message_id.clone());
+        crate::model_message_labels::server_rewrite(
+            messages,
+            index,
+            &call_id,
             &content,
-            "attachment_read_receipt",
+            crate::model_message_labels::ServerResultSource::AttachmentReadReceipt,
         )?;
-        message.text = content;
-        message.attachment_read.as_mut().unwrap().released = true;
+        messages[index].attachment_read.as_mut().unwrap().released = true;
     }
     Ok(())
 }

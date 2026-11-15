@@ -227,7 +227,7 @@ mod tests {
                 arguments_json: "{}".into(),
             }],
         );
-        call.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        call.data_envelope = crate::model_message_labels::data_result_envelope(
             Some(&input),
             "proposal",
             &call.text,
@@ -235,7 +235,7 @@ mod tests {
         )
         .unwrap();
         let mut result = ChatMessage::tool_result("done", "original-call", "native receipt");
-        result.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        result.data_envelope = crate::model_message_labels::data_result_envelope(
             Some(&input),
             "receipt",
             &result.text,
@@ -329,7 +329,7 @@ mod tests {
                 arguments_json: "{}".into(),
             }],
         );
-        call.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        call.data_envelope = crate::model_message_labels::data_result_envelope(
             Some(&input),
             "proposal",
             &call.text,
@@ -337,7 +337,7 @@ mod tests {
         )
         .unwrap();
         let mut result = ChatMessage::tool_result("done", "original-call", "native receipt");
-        result.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        result.data_envelope = crate::model_message_labels::data_result_envelope(
             Some(&input),
             "receipt",
             &result.text,

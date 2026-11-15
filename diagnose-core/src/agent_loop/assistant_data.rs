@@ -108,7 +108,7 @@ pub(super) async fn dispatch_forget(
                 ),
                 &call.id,
                 "newer owner input superseded this control batch".into(),
-                "superseded_tool_call",
+                ServerResultSource::SupersededToolCall,
             )?;
         }
         return Ok(Some(LoopOutcome::Superseded {
@@ -176,7 +176,7 @@ pub(super) async fn dispatch_forget(
                     ),
                     &call.id,
                     "memory control did not return a committed receipt".into(),
-                    "memory_control_rejected",
+                    ServerResultSource::MemoryControlRejected,
                 )?;
             }
             deps.session_seam.save(session).await?;
@@ -314,11 +314,12 @@ pub(super) async fn dispatch(
             ));
             message.data_envelope =
                 if mutation && data_tools::is_memory_write_acknowledgement(&message.text) {
-                    crate::model_message_labels::internal_tool_result_envelope(
+                    crate::model_message_labels::tool_receipt_envelope(
                         parent,
                         &call.id,
                         &message.text,
                         &call.name,
+                        crate::model_message_labels::ServerResultSource::ManageMemories,
                     )?
                 } else {
                     crate::model_message_labels::assistant_data_result_envelope(
@@ -566,7 +567,7 @@ fn error_result(
     let content = crate::model_input::describe_error(&call.name, error);
     let mut message = ChatMessage::tool_result(message_id, &call.id, content);
     message.tool_ok = Some(false);
-    message.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+    message.data_envelope = crate::model_message_labels::data_result_envelope(
         parent,
         &call.id,
         &message.text,

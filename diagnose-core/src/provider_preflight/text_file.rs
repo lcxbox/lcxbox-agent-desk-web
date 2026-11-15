@@ -1935,7 +1935,7 @@ mod tests {
             }],
         );
         let mut receipt = ChatMessage::tool_result("receipt", &source.id, text.clone());
-        receipt.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        receipt.data_envelope = crate::model_message_labels::data_result_envelope(
             owner.data_envelope.as_ref(),
             &source.id,
             &text,
@@ -2100,7 +2100,7 @@ mod tests {
         externalized.conversation[1].tool_calls[0].arguments_json =
             r#"{"directory_request_id":"directory"}"#.into();
         let mut large_receipt = ChatMessage::tool_result("receipt", &source.id, &large_text);
-        large_receipt.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        large_receipt.data_envelope = crate::model_message_labels::data_result_envelope(
             externalized.conversation[0].data_envelope.as_ref(),
             &source.id,
             &large_text,
@@ -2478,7 +2478,7 @@ mod tests {
         };
         let text = serde_json::to_string(&completed).unwrap();
         let mut receipt = ChatMessage::tool_result("receipt", "read-call", text.clone());
-        receipt.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        receipt.data_envelope = crate::model_message_labels::data_result_envelope(
             owner.data_envelope.as_ref(),
             "read-call",
             &text,
@@ -2601,7 +2601,7 @@ mod tests {
                 arguments_json: call.arguments_json.clone(),
             }],
         );
-        proposal.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        proposal.data_envelope = crate::model_message_labels::data_result_envelope(
             session.conversation.last().unwrap().data_envelope.as_ref(),
             &call.id,
             &proposal.text,

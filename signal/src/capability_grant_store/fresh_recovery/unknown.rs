@@ -86,14 +86,13 @@ pub(super) async fn restore(
     );
     message.turn_id = Some(work.turn_id.clone());
     message.background_task_id = Some(action.action_request_id.clone());
-    message.data_envelope =
-        desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-            proposal.data_envelope.as_ref(),
-            &call.id,
-            &message.text,
-            "task_unknown_action",
-        )
-        .map_err(|_| invalid())?;
+    message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+        proposal.data_envelope.as_ref(),
+        &call.id,
+        &message.text,
+        desk_diagnose_core::model_message_labels::ServerResultSource::TaskUnknownAction,
+    )
+    .map_err(|_| invalid())?;
     let indexes: Vec<_> = session
         .conversation
         .iter()

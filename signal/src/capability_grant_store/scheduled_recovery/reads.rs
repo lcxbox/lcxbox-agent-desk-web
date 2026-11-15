@@ -99,14 +99,14 @@ pub(super) async fn close_untracked_on(
         );
         result.turn_id = Some(turn.clone());
         result.data_envelope =
-            desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
+            desk_diagnose_core::model_message_labels::server_result_envelope(
                 parent.as_ref(),
                 &call.id,
                 &result.text,
                 if unavailable_mutation {
-                    "child_mutation_result_unavailable"
+                    desk_diagnose_core::model_message_labels::ServerResultSource::ChildMutationResultUnavailable
                 } else {
-                    "scheduled_read_unavailable"
+                    desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledReadUnavailable
                 },
             )
             .map_err(|_| invalid())?;

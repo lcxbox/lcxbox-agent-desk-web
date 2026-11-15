@@ -22,11 +22,11 @@ fn store_receipt(
     message_id: &str,
     call_id: &str,
     text: &str,
-    source: &str,
+    source: crate::model_message_labels::ServerResultSource,
 ) -> Result<(), AgentError> {
     append_internal_tool_result(
         session,
-        gateway_parent(source).as_ref(),
+        gateway_parent(source.as_str()).as_ref(),
         message_id.into(),
         call_id,
         text.into(),
@@ -67,7 +67,7 @@ impl SessionSeam for ProposalStore<'_> {
             &id,
             &call.id,
             r#"{"schedule_id":"timer","state":"pending_review","kind":"fresh_task","awaiting_decision":true}"#,
-            "schedule_proposal",
+            crate::model_message_labels::ServerResultSource::ScheduleProposal,
         )?;
         self.mem.save(session).await?;
         Ok(id)
@@ -84,7 +84,7 @@ impl SessionSeam for ProposalStore<'_> {
             &id,
             &call.id,
             r#"{"proposal_id":"p1","status":"pending","awaiting_decision":true}"#,
-            "skill_proposal",
+            crate::model_message_labels::ServerResultSource::SkillProposal,
         )?;
         self.mem.save(session).await?;
         Ok(id)
@@ -102,10 +102,9 @@ fn decide(mem: &MemSession, text: &str, source: &str) {
         .iter()
         .rev()
         .find_map(|message| message.data_envelope.as_ref());
-    message.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
-        parent, "decision", text, source,
-    )
-    .unwrap();
+    message.data_envelope =
+        crate::model_message_labels::data_result_envelope(parent, "decision", text, source)
+            .unwrap();
     session.conversation.push(message);
     session.decision_pause = None;
 }

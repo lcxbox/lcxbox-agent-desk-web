@@ -168,11 +168,11 @@ impl ActionResultOrigin {
             })
             .and_then(|message| message.data_envelope.as_ref())
             .ok_or_else(invalid)?;
-        let mut source = crate::model_message_labels::internal_tool_result_envelope(
+        let mut source = crate::model_message_labels::data_result_envelope(
             Some(parent),
             &call.id,
             "action result origin",
-            "freeze_action_result_origin",
+            crate::model_message_labels::sources::FREEZE_ACTION_RESULT_ORIGIN,
         )?;
         crate::agent_loop::bind_tool_input_envelopes(session, call, &mut source)?;
         let source = source.ok_or_else(invalid)?;
@@ -463,7 +463,7 @@ mod tests {
                 arguments_json: call.arguments_json.clone(),
             }],
         );
-        let mut parent = crate::model_message_labels::internal_tool_result_envelope(
+        let mut parent = crate::model_message_labels::data_result_envelope(
             user.data_envelope.as_ref(),
             &call.id,
             &proposal.text,

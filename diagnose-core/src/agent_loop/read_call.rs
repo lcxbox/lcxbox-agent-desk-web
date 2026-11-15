@@ -60,11 +60,13 @@ pub(super) async fn run<F: FnMut() -> String>(
     let completion = if pure_preview {
         crate::seam::ReadCompletion {
             outcome: crate::ai_assistant::validate_preview_call(call).and_then(|content| {
-                let data_envelope = derive_internal_tool_result_envelope(
+                // The preview is the model's own validated arguments.
+                let data_envelope = crate::model_message_labels::tool_receipt_envelope(
                     context.parent_envelope,
                     &call.id,
                     &content,
                     &call.name,
+                    crate::model_message_labels::ServerResultSource::PreviewComputerAction,
                 )?;
                 Ok(crate::seam::ReadOutcome::Completed {
                     output: crate::seam::ToolRunOutput {
@@ -183,6 +185,7 @@ pub(super) async fn run<F: FnMut() -> String>(
             session,
             call,
             ChatMessage::background_task_running(mint(), &call.id, &action.action_request_id),
+            Some(ServerResultSource::ExecutionPlaceholder),
         )?;
         session
             .execution_state
@@ -204,7 +207,7 @@ pub(super) async fn run<F: FnMut() -> String>(
             envelope.validate().map_err(|_| invalid_original_result())?;
             Some(envelope)
         }
-        None if selected_device_read && !ok => derive_internal_tool_result_envelope(
+        None if selected_device_read && !ok => crate::model_message_labels::data_result_envelope(
             context.parent_envelope,
             &call.id,
             &out.content,

@@ -16,7 +16,7 @@ pub(crate) fn history(tool: &str, value: Value) -> Vec<ChatMessage> {
     .unwrap();
     let mut result = ChatMessage::tool_result("result", "call", value.to_string());
     result.tool_ok = Some(true);
-    result.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+    result.data_envelope = crate::model_message_labels::data_result_envelope(
         owner.data_envelope.as_ref(),
         "call",
         &result.text,

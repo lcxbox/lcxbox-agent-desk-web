@@ -967,11 +967,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 crate::permission_resume::latest_user_requirement(&session.conversation)
                     .and_then(|message| message.data_envelope.as_ref())
             });
-            system_prompt.data_envelope = crate::model_message_labels::request_projection_envelope(
+            system_prompt.data_envelope = crate::model_message_labels::server_projection_envelope(
                 parent,
                 crate::runtime_context::MESSAGE_ID,
                 &system_prompt.text,
-                "runtime_context",
+                crate::model_message_labels::ServerResultSource::RuntimeContext,
             )?;
         }
         let home_projection = match (
@@ -1098,11 +1098,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     .and_then(|message| message.data_envelope.as_ref())
             });
             let mut marker = ChatMessage::system_event(&marker_id, &marker_text);
-            marker.data_envelope = crate::model_message_labels::request_projection_envelope(
+            marker.data_envelope = crate::model_message_labels::server_projection_envelope(
                 parent,
                 &marker_id,
                 &marker_text,
-                "input_watermark",
+                crate::model_message_labels::ServerResultSource::InputWatermark,
             )?;
             messages.push(marker);
             if let Some(artifact_projection) = requested_artifact_registry_projection(
@@ -1158,11 +1158,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 let projection_id =
                     format!("runtime-latest-input-{turn_id}-{}", session.input_revision);
                 latest_user.data_envelope =
-                    crate::model_message_labels::request_projection_envelope(
+                    crate::model_message_labels::server_projection_envelope(
                         latest_user.data_envelope.as_ref(),
                         &projection_id,
                         &latest_user.text,
-                        "latest_input_projection",
+                        crate::model_message_labels::ServerResultSource::LatestInputProjection,
                     )?;
                 latest_user.message_id = projection_id;
                 messages.push(latest_user);
@@ -1225,11 +1225,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                         .and_then(|message| message.data_envelope.as_ref())
                 });
                 let mut marker = ChatMessage::system_event(&marker_id, &marker_text);
-                marker.data_envelope = crate::model_message_labels::request_projection_envelope(
+                marker.data_envelope = crate::model_message_labels::server_projection_envelope(
                     parent,
                     &marker_id,
                     &marker_text,
-                    "permission_continuation_checkpoint",
+                    crate::model_message_labels::ServerResultSource::PermissionContinuationCheckpoint,
                 )?;
                 messages.push(marker);
             }
@@ -1248,11 +1248,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                         .and_then(|message| message.data_envelope.as_ref())
                 });
                 let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-                marker.data_envelope = crate::model_message_labels::request_projection_envelope(
+                marker.data_envelope = crate::model_message_labels::server_projection_envelope(
                     parent,
                     &marker_id,
                     marker_text,
-                    "permission_protocol_retry",
+                    crate::model_message_labels::ServerResultSource::PermissionProtocolRetry,
                 )?;
                 messages.push(marker);
             }
@@ -1274,11 +1274,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     .and_then(|message| message.data_envelope.as_ref())
             });
             let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-            marker.data_envelope = crate::model_message_labels::request_projection_envelope(
+            marker.data_envelope = crate::model_message_labels::server_projection_envelope(
                 parent,
                 &marker_id,
                 marker_text,
-                "empty_end_turn_retry",
+                crate::model_message_labels::ServerResultSource::EmptyEndTurnRetry,
             )?;
             messages.push(marker);
         }
@@ -1298,11 +1298,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     .and_then(|message| message.data_envelope.as_ref())
             });
             let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-            marker.data_envelope = crate::model_message_labels::request_projection_envelope(
+            marker.data_envelope = crate::model_message_labels::server_projection_envelope(
                 parent,
                 &marker_id,
                 marker_text,
-                "truncated_turn_retry",
+                crate::model_message_labels::ServerResultSource::TruncatedTurnRetry,
             )?;
             messages.push(marker);
         }
@@ -1326,11 +1326,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     .and_then(|message| message.data_envelope.as_ref())
             });
             let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-            marker.data_envelope = crate::model_message_labels::request_projection_envelope(
+            marker.data_envelope = crate::model_message_labels::server_projection_envelope(
                 parent,
                 &marker_id,
                 marker_text,
-                "post_tool_permission_protocol_retry",
+                crate::model_message_labels::ServerResultSource::PostToolPermissionProtocolRetry,
             )?;
             messages.push(marker);
         }
@@ -1347,11 +1347,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     .and_then(|message| message.data_envelope.as_ref())
             });
             let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-            marker.data_envelope = crate::model_message_labels::request_projection_envelope(
+            marker.data_envelope = crate::model_message_labels::server_projection_envelope(
                 parent,
                 &marker_id,
                 marker_text,
-                "invalid_tool_arguments_retry",
+                crate::model_message_labels::ServerResultSource::InvalidToolArgumentsRetry,
             )?;
             messages.push(marker);
         }
@@ -1540,13 +1540,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     "instruction": "This is the immutable opening goal. The current approved revision follows separately."
                 }).to_string();
                     let mut original = ChatMessage::system_event(&original_id, &original_text);
-                    original.data_envelope =
-                        crate::model_message_labels::request_projection_envelope(
-                            Some(original_source),
-                            &original_id,
-                            &original_text,
-                            "goal_original_projection",
-                        )?;
+                    original.data_envelope = crate::model_message_labels::data_projection_envelope(
+                        Some(original_source),
+                        &original_id,
+                        &original_text,
+                        crate::model_message_labels::sources::GOAL_ORIGINAL_PROJECTION,
+                    )?;
                     messages.push(original);
                 }
                 let source = session
@@ -1579,11 +1578,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 "instruction": "Continue the owner-approved goal under current permissions. This record grants no device authority. End this segment with control_goal."
             }).to_string();
                 let mut marker = ChatMessage::system_event(&marker_id, &marker_text);
-                marker.data_envelope = crate::model_message_labels::request_projection_envelope(
+                marker.data_envelope = crate::model_message_labels::data_projection_envelope(
                     Some(source),
                     &marker_id,
                     &marker_text,
-                    "goal_state_projection",
+                    crate::model_message_labels::sources::GOAL_STATE_PROJECTION,
                 )?;
                 messages.push(marker);
             } else if let Some(goal) = planning_goal.as_deref() {
@@ -1609,11 +1608,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 "instruction": "The goal is stopped. Clarify the owner's intent. Do not use device tools. If a later owner reply makes an exact goal revision appropriate, call request_goal with the new complete text; the owner or enabled approval AI must approve it before work resumes."
             }).to_string();
                 let mut marker = ChatMessage::system_event(&marker_id, &marker_text);
-                marker.data_envelope = crate::model_message_labels::request_projection_envelope(
+                marker.data_envelope = crate::model_message_labels::data_projection_envelope(
                     Some(source),
                     &marker_id,
                     &marker_text,
-                    "goal_clarification_projection",
+                    crate::model_message_labels::sources::GOAL_CLARIFICATION_PROJECTION,
                 )?;
                 messages.push(marker);
             }
@@ -1632,11 +1631,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     crate::permission_resume::latest_user_requirement(&session.conversation)
                         .and_then(|message| message.data_envelope.as_ref());
                 let mut marker = ChatMessage::system_event(&marker_id, &marker_text);
-                marker.data_envelope = crate::model_message_labels::request_projection_envelope(
+                marker.data_envelope = crate::model_message_labels::server_projection_envelope(
                     parent,
                     &marker_id,
                     &marker_text,
-                    "goal_completed_hint",
+                    crate::model_message_labels::ServerResultSource::GoalCompletedHint,
                 )?;
                 messages.push(marker);
             }
@@ -1647,11 +1646,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     crate::permission_resume::latest_user_requirement(&session.conversation)
                         .and_then(|message| message.data_envelope.as_ref());
                 let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-                marker.data_envelope = crate::model_message_labels::request_projection_envelope(
+                marker.data_envelope = crate::model_message_labels::server_projection_envelope(
                     parent,
                     &marker_id,
                     marker_text,
-                    "goal_control_correction",
+                    crate::model_message_labels::ServerResultSource::GoalControlCorrection,
                 )?;
                 messages.push(marker);
             }
@@ -2667,7 +2666,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                 (state.mint)(),
                                 &call.id,
                                 "not executed: call budget admission failed before dispatch".into(),
-                                "tool_budget_admission_failed",
+                                ServerResultSource::ToolBudgetAdmissionFailed,
                             )?;
                                     }
                                     deps.session_seam.save(session).await?;
@@ -2694,7 +2693,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     (state.mint)(),
                                                     &call.id,
                                                     error.message.clone(),
-                                                    "memory_batch_rejected",
+                                                    ServerResultSource::MemoryBatchRejected,
                                                 )?;
                                             }
                                             deps.session_seam.save(session).await?;
@@ -2752,7 +2751,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                             (state.mint)(),
                             &call.id,
                             "not executed: goal control or goal opening must be the only tool in its model response".into(),
-                            "goal_control_batch_rejected",
+                            ServerResultSource::GoalControlBatchRejected,
                         )?;
                                     }
                                     deps.session_seam.save(session).await?;
@@ -2776,7 +2775,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 &skipped.id,
                                                 "not executed: the delegated task source is paused"
                                                     .into(),
-                                                "delegation_source_paused",
+                                                ServerResultSource::DelegationSourcePaused,
                                             )?;
                                         }
                                         return Ok(Some(LoopOutcome::DelegationSourcePaused));
@@ -2788,7 +2787,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             (state.mint)(),
                                             &call.id,
                                             note.clone(),
-                                            "halted_tool_call",
+                                            ServerResultSource::HaltedToolCall,
                                         )?;
                                         continue;
                                     }
@@ -2817,7 +2816,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     &skipped.id,
                                     "tool was not run because the turn lease is no longer healthy"
                                         .into(),
-                                    "lease_lost_tool_call",
+                                    ServerResultSource::LeaseLostToolCall,
                                 )?;
                                         }
                                         deps.session_seam.save(session).await?;
@@ -2843,7 +2842,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     "tool `{}` was not run because the per-turn repeat limit was reached",
                                                     skipped.name
                                                 ),
-                                                "repeat_limit_tool_call",
+                                                ServerResultSource::RepeatLimitToolCall,
                                             )?;
                                         }
                                         deps.session_seam.save(session).await?;
@@ -2860,7 +2859,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                             (state.mint)(),
                             &call.id,
                             "Screenshot and targeting cannot run in the same assistant batch. Read the screenshot result, then submit the action in the next model step; no additional screenshot is required.".into(),
-                            "fresh_visual_verification_required",
+                            ServerResultSource::FreshVisualVerificationRequired,
                         )?;
                                         continue;
                                     }
@@ -2894,7 +2893,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     .collect::<Vec<_>>()
                                                     .join(", ")
                                             ),
-                                            "unloaded_tool_call",
+                                            ServerResultSource::UnloadedToolCall,
                                         )?;
                                         continue;
                                     }
@@ -2939,7 +2938,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     call.name
                                                 )
                                             },
-                                            "unavailable_tool_call",
+                                            ServerResultSource::UnavailableToolCall,
                                         )?;
                                         continue;
                                     };
@@ -3010,7 +3009,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 (state.mint)(),
                                                 &call.id,
                                                 error.message,
-                                                "invalid_tool_arguments",
+                                                ServerResultSource::InvalidToolArguments,
                                             )?;
                                             deps.session_seam.save(session).await?;
                                             finish_tool(session, &call.id, false, sink);
@@ -3063,7 +3062,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         &call.name,
                                                         &error.message,
                                                     ),
-                                                    "invalid_desktop_id",
+                                                    ServerResultSource::InvalidDesktopId,
                                                 )?;
                                                 deps.session_seam.save(session).await?;
                                                 finish_tool(session, &call.id, false, sink);
@@ -3186,7 +3185,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 format!(
                                                     "{reason}: this invocation is not currently eligible. Read the latest authorization and readiness state; no action was dispatched. Never retry the same denied action."
                                                 ),
-                                                reason,
+                                                ServerResultSource::InactiveGrantToolCall,
                                             )?;
                                             continue;
                                         }
@@ -3213,7 +3212,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             (state.mint)(),
                                             &call.id,
                                             validation_error,
-                                            "invalid_server_bound_web_evidence",
+                                            ServerResultSource::InvalidServerBoundWebEvidence,
                                         )?;
                                         continue;
                                     }
@@ -3257,14 +3256,30 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     ),
                                                     Err(error) => return Err(error),
                                                 };
-                                                append_internal_tool_result(
-                                                    session,
-                                                    turn.provider_meta.data_envelope.as_ref(),
-                                                    (state.mint)(),
-                                                    &call.id,
-                                                    content,
-                                                    &call.name,
-                                                )?;
+                                                let parent =
+                                                    turn.provider_meta.data_envelope.as_ref();
+                                                if ok
+                                                    && call.name
+                                                        == crate::issue_reply::PREPARE_TOOL_NAME
+                                                {
+                                                    append_internal_tool_result(
+                                                        session,
+                                                        parent,
+                                                        (state.mint)(),
+                                                        &call.id,
+                                                        content,
+                                                        ServerResultSource::PrepareIssueReply,
+                                                    )?;
+                                                } else {
+                                                    append_data_tool_result(
+                                                        session,
+                                                        parent,
+                                                        (state.mint)(),
+                                                        &call.id,
+                                                        content,
+                                                        &call.name,
+                                                    )?;
+                                                }
                                                 deps.session_seam.save(session).await?;
                                                 finish_tool(session, &call.id, ok, sink);
                                                 Ok(None)
@@ -3306,7 +3321,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         let mut message = ChatMessage::tool_result(
                                                             result_id, &call.id, content,
                                                         );
-                                                        message.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+                                                        message.data_envelope = crate::model_message_labels::data_result_envelope(
                                                             turn.provider_meta.data_envelope.as_ref(), &call.id, &message.text, &call.name)?;
                                                         (message, false, false)
                                                     }
@@ -3431,7 +3446,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         }
                                                     }
                                                     Err(error) => {
-                                                        append_internal_tool_result(
+                                                        append_data_tool_result(
                                                             session,
                                                             turn.provider_meta
                                                                 .data_envelope
@@ -3573,7 +3588,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 {
                                                     append_internal_tool_result(session, turn.provider_meta.data_envelope.as_ref(), (state.mint)(), &call.id,
                                             "goal_dependencies_pending: background work, a permission decision, or another tool result is still pending. Use continue for independent work or wait for native background results. Do not claim completion.".into(),
-                                            crate::goal_tools::CONTROL_GOAL_TOOL_NAME)?;
+                                            ServerResultSource::ControlGoal)?;
                                                     deps.session_seam.save(session).await?;
                                                     finish_tool(session, &call.id, false, sink);
                                                     return Ok(None);
@@ -3592,7 +3607,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                         );
                                                         append_internal_tool_result(session, turn.provider_meta.data_envelope.as_ref(), (state.mint)(), &call.id,
                                             "required_subagents_incomplete: read_subagent_reports for each required request, page through to its current terminal report and assess it against the goal. Finished means the child returned, not that the goal was achieved. Use wait_subagent_reports for unfinished dependencies. A failed or cancelled required dependency cannot be claimed as complete.".into(),
-                                            crate::goal_tools::CONTROL_GOAL_TOOL_NAME)?;
+                                            ServerResultSource::ControlGoal)?;
                                                         deps.session_seam.save(session).await?;
                                                         finish_tool(session, &call.id, false, sink);
                                                         return Ok(None);
@@ -3629,7 +3644,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         else {
                                                             append_internal_tool_result(session, turn.provider_meta.data_envelope.as_ref(), (state.mint)(), &call.id,
                                                 "no_goal_background_tasks: no normal background task of this goal is available to wait for. Inspect saved results and choose continue, ask_user, complete, or blocked. Use wait_subagent_reports for child dependencies.".into(),
-                                                crate::goal_tools::CONTROL_GOAL_TOOL_NAME)?;
+                                                ServerResultSource::ControlGoal)?;
                                                             deps.session_seam.save(session).await?;
                                                             finish_tool(
                                                                 session, &call.id, false, sink,
@@ -3661,7 +3676,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         "goal_id": claimed_goal.goal_id,
                                                     })
                                                     .to_string(),
-                                                    crate::goal_tools::CONTROL_GOAL_TOOL_NAME,
+                                                    ServerResultSource::ControlGoal,
                                                 )?;
                                                     let summary = match &control {
                                                         crate::goal::GoalControl::WaitForWork {
@@ -3695,11 +3710,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                             .clone()
                                                             .unwrap_or_default(),
                                                     );
-                                                    message.data_envelope = derive_internal_tool_result_envelope(
+                                                    message.data_envelope = crate::model_message_labels::server_result_envelope(
                                                         turn.provider_meta.data_envelope.as_ref(),
                                                         &message.message_id,
                                                         &message.text,
-                                                        crate::goal_tools::CONTROL_GOAL_TOOL_NAME,
+                                                        crate::model_message_labels::ServerResultSource::ControlGoal,
                                                     )?;
                                                     session.conversation.push(message);
                                                     if matches!(
@@ -3721,7 +3736,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 }
                                                 Err(error) => {
                                                     tool_observation.input_error(&error);
-                                                    append_internal_tool_result(
+                                                    append_data_tool_result(
                                                         session,
                                                         turn.provider_meta.data_envelope.as_ref(),
                                                         (state.mint)(),
@@ -3769,11 +3784,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                             "item_count": projection.items.len(),
                                                         })
                                                         .to_string();
-                                                        let result_envelope = derive_internal_tool_result_envelope(
+                                                        let result_envelope = crate::model_message_labels::server_result_envelope(
                                             turn.provider_meta.data_envelope.as_ref(),
                                             &call.id,
                                             &content,
-                                            crate::task_status_tools::UPDATE_TASK_STATUS_TOOL_NAME,
+                                            crate::model_message_labels::ServerResultSource::UpdateTaskStatus,
                                         )?;
                                                         let event_seq = session
                                                             .last_event_seq
@@ -3848,7 +3863,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                                 &call.name,
                                                                 &error.message,
                                                             );
-                                                        let envelope = derive_internal_tool_result_envelope(
+                                                        let envelope = crate::model_message_labels::data_result_envelope(
                                             turn.provider_meta.data_envelope.as_ref(),
                                             &call.id,
                                             &content,
@@ -4015,7 +4030,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                             (state.mint)(),
                                                             &call.id,
                                                             content,
-                                                            "goal_open_pending",
+                                                            ServerResultSource::GoalOpenPending,
                                                         )?;
                                                         session.last_event_seq =
                                                             event.event.event_seq;
@@ -4056,7 +4071,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                                     &call.name,
                                                                     &error.message,
                                                                 ),
-                                                                "goal_open_failed",
+                                                                ServerResultSource::GoalOpenFailed,
                                                             )?;
                                                                 deps.session_seam
                                                                     .save(session)
@@ -4079,7 +4094,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                                 &call.name,
                                                                 &error.message,
                                                             ),
-                                                            "goal_open_failed",
+                                                            ServerResultSource::GoalOpenFailed,
                                                         )?;
                                                         deps.session_seam.save(session).await?;
                                                         finish_tool(session, &call.id, false, sink);
@@ -4131,9 +4146,9 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                             &error.message,
                                                         ),
                                                         if skill {
-                                                            "skill_proposal_failed"
+                                                            ServerResultSource::SkillProposalFailed
                                                         } else {
-                                                            "schedule_proposal_failed"
+                                                            ServerResultSource::ScheduleProposalFailed
                                                         },
                                                     )?;
                                                     deps.session_seam.save(session).await?;
@@ -4162,7 +4177,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                                 .as_ref(),
                                                             &mut (state.mint),
                                                             "not executed: waiting for the proposal decision",
-                                                            "proposal_pause_tool_call",
+                                                            ServerResultSource::ProposalPauseToolCall,
                                                         )?;
                                                         deps.session_seam.save(session).await?;
                                                         sink.on_permission_requested(&pause.id, 1);
@@ -4219,7 +4234,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 let (device, input, resolved) = match resolved {
                                                     Ok(value) => value,
                                                     Err(error) => {
-                                                        append_internal_tool_result(
+                                                        append_data_tool_result(
                                                             session,
                                                             turn.provider_meta
                                                                 .data_envelope
@@ -4230,7 +4245,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                                 &call.name,
                                                                 &error.message,
                                                             ),
-                                                            "directory_resolution_failed",
+                                                            crate::model_message_labels::sources::DIRECTORY_RESOLUTION_FAILED,
                                                         )?;
                                                         deps.session_seam.save(session).await?;
                                                         finish_tool(session, &call.id, false, sink);
@@ -4271,7 +4286,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                             &call.name, &error,
                                                         )
                                                         .content,
-                                                        "directory_proposal_failed",
+                                                        ServerResultSource::DirectoryProposalFailed,
                                                     )?;
                                                     deps.session_seam.save(session).await?;
                                                     finish_tool(session, &call.id, false, sink);
@@ -4297,7 +4312,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         &request_id,
                                                     )
                                                     .to_string(),
-                                                    "directory_proposal_pending",
+                                                    ServerResultSource::DirectoryProposalPending,
                                                 )?;
                                                 append_unstarted_tool_results(
                                                     session,
@@ -4305,7 +4320,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     turn.provider_meta.data_envelope.as_ref(),
                                                     &mut (state.mint),
                                                     "not executed: waiting for directory confirmation",
-                                                    "directory_pause_tool_call",
+                                                    ServerResultSource::DirectoryPauseToolCall,
                                                 )?;
                                                 deps.session_seam.save(session).await?;
                                                 finish_tool(session, &call.id, true, sink);
@@ -4384,14 +4399,27 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         false,
                                                     ),
                                                 };
-                                                append_internal_tool_result(
-                                                    session,
-                                                    turn.provider_meta.data_envelope.as_ref(),
-                                                    (state.mint)(),
-                                                    &call.id,
-                                                    content,
-                                                    crate::skills::LOAD_TOOL,
-                                                )?;
+                                                let parent =
+                                                    turn.provider_meta.data_envelope.as_ref();
+                                                if ok {
+                                                    append_internal_tool_result(
+                                                        session,
+                                                        parent,
+                                                        (state.mint)(),
+                                                        &call.id,
+                                                        content,
+                                                        ServerResultSource::LoadSkill,
+                                                    )?;
+                                                } else {
+                                                    append_data_tool_result(
+                                                        session,
+                                                        parent,
+                                                        (state.mint)(),
+                                                        &call.id,
+                                                        content,
+                                                        crate::skills::LOAD_TOOL,
+                                                    )?;
+                                                }
                                                 deps.session_seam.save(session).await?;
                                                 finish_tool(session, &call.id, ok, sink);
                                                 Ok(None)
@@ -4451,12 +4479,23 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         false,
                                                     ),
                                                 };
-                                                let envelope = derive_internal_tool_result_envelope(
-                                    turn.provider_meta.data_envelope.as_ref(),
-                                    &call.id,
-                                    &content,
-                                    crate::capability_disclosure::LOAD_CAPABILITY_DETAILS_TOOL_NAME,
-                                )?;
+                                                let parent =
+                                                    turn.provider_meta.data_envelope.as_ref();
+                                                let envelope = if ok {
+                                                    crate::model_message_labels::server_result_envelope(
+                                                        parent,
+                                                        &call.id,
+                                                        &content,
+                                                        ServerResultSource::DescribeTools,
+                                                    )
+                                                } else {
+                                                    crate::model_message_labels::data_result_envelope(
+                                                        parent,
+                                                        &call.id,
+                                                        &content,
+                                                        crate::capability_disclosure::LOAD_CAPABILITY_DETAILS_TOOL_NAME,
+                                                    )
+                                                }?;
                                                 let mut message = ChatMessage::tool_result(
                                                     (state.mint)(),
                                                     &call.id,

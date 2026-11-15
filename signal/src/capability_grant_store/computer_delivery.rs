@@ -42,13 +42,25 @@ fn refresh_control_label(session: &mut PersistedAgentSession, call: &str) -> Res
         return Err(invalid());
     }
     let message = &mut session.conversation[indexes[0]];
+    // Only a recovery placeholder is server text; anything else keeps a data
+    // label, so a real output left here never registers as a control.
+    use desk_diagnose_core::model_message_labels::{self as labels, ServerResultSource};
     message.data_envelope =
-        desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-            Some(&parent),
-            call,
-            &message.text,
-            "provider_execution_status",
-        )
+        if desk_diagnose_core::session::is_recovery_placeholder(&message.text) {
+            labels::server_result_envelope(
+                Some(&parent),
+                call,
+                &message.text,
+                ServerResultSource::ExecutionPlaceholder,
+            )
+        } else {
+            labels::data_result_envelope(
+                Some(&parent),
+                call,
+                &message.text,
+                labels::sources::PROVIDER_EXECUTION_STATUS,
+            )
+        }
         .map_err(|_| invalid())?;
     Ok(())
 }
@@ -593,5 +605,63 @@ impl SignalCapabilityGrantStore {
                 Err(error)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_recovery_placeholder_is_relabelled_as_a_control() {
+        let mut session = PersistedAgentSession::new(
+            "conversation",
+            "1",
+            "device",
+            1,
+            desk_agent_protocol::AgentScope {
+                granted: Vec::new(),
+                mode: desk_agent_protocol::ExecutionMode::ReadOnly,
+                expires_at: None,
+                policy_name: None,
+            },
+            "2026-11-14T00:00:00Z",
+        );
+        let mut call = desk_diagnose_core::chat::ChatMessage::assistant_tool_calls(
+            "assistant",
+            "",
+            vec![desk_diagnose_core::chat::ToolCallRef {
+                id: "call".into(),
+                name: "exec_command".into(),
+                arguments_json: "{}".into(),
+            }],
+        );
+        call.data_envelope = desk_diagnose_core::model_message_labels::model_bound_user_message(
+            "owner".into(),
+            "run it".into(),
+            desk_agent_protocol::data_lineage::DestinationIdentity::Model {
+                connection_id: "gateway".into(),
+                connection_revision: 1,
+                model_id: "model".into(),
+                profile_revision: 1,
+            },
+        )
+        .unwrap()
+        .data_envelope;
+        session.conversation.push(call);
+        session.recover_session(RecoveryVerdict::NotExecuted, "2026-11-14T00:00:01Z");
+        refresh_control_label(&mut session, "call").unwrap();
+        let label = |session: &PersistedAgentSession| {
+            session.conversation[1]
+                .data_envelope
+                .clone()
+                .unwrap()
+                .envelope_id
+        };
+        assert!(label(&session).starts_with("status-result-"));
+        // A real output left on the call keeps a data label.
+        session.conversation[1].text = "device output".into();
+        refresh_control_label(&mut session, "call").unwrap();
+        assert!(label(&session).starts_with("data-status-"));
     }
 }

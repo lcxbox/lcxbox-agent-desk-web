@@ -3219,36 +3219,18 @@ fn superseded_tool_result(
         call_id,
         CONTENT,
     );
-    let Some(parent) = parent else {
-        return Ok(message);
-    };
-    let digest = format!("{:x}", Sha256::digest(CONTENT.as_bytes()));
-    let envelope = desk_agent_protocol::data_lineage::DataEnvelope {
-        schema_version: desk_agent_protocol::data_lineage::DATA_ENVELOPE_SCHEMA_VERSION,
-        envelope_id: stable_event_id(
-            "superseded-result",
-            &format!("{}:{call_id}:{digest}", parent.envelope_id),
-        ),
-        content: desk_agent_protocol::data_lineage::ContentRef::ImmutableBlob {
-            blob_id: stable_event_id("superseded-content", &digest),
-            sha256: digest.clone(),
-            size_bytes: CONTENT.len() as u64,
-            media_type: "text/plain".into(),
-        },
-        provenance: desk_agent_protocol::data_lineage::DataProvenance {
-            source_provider_id: "assistant.run_control".into(),
-            source_tool_name: "supersede_tool_call".into(),
-            source_object_id: None,
-            source_envelope_ids: vec![parent.envelope_id.clone()],
-        },
-        sensitivity: parent.sensitivity,
-        allowed_destinations: parent.allowed_destinations.clone(),
-        retention: parent.retention,
-    };
-    envelope
-        .validate()
-        .map_err(|error| internal(format!("invalid superseded result envelope: {error}")))?;
-    message.data_envelope = Some(envelope);
+    message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+        parent,
+        call_id,
+        CONTENT,
+        desk_diagnose_core::model_message_labels::ServerResultSource::SupersedeToolCall,
+    )
+    .map_err(|error| {
+        internal(format!(
+            "invalid superseded result envelope: {}",
+            error.message
+        ))
+    })?;
     Ok(message)
 }
 

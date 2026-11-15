@@ -31,7 +31,7 @@ pub fn stop_main_session(
     close_unclosed_calls(
         &mut next,
         "tool result unavailable after the owner stopped generation; do not infer success, nonexecution, or permission to retry",
-        "owner_stop_result_unavailable",
+        crate::model_message_labels::ServerResultSource::OwnerStopResultUnavailable,
         "owner-stop",
     )?;
     crate::proposal_review::withdraw_pause(&mut next);
@@ -62,7 +62,7 @@ pub fn stop_main_session(
 fn close_unclosed_calls(
     next: &mut PersistedAgentSession,
     content: &str,
-    reason_code: &str,
+    source: crate::model_message_labels::ServerResultSource,
     id_prefix: &str,
 ) -> Result<(), &'static str> {
     for call_id in next.unclosed_tool_call_ids() {
@@ -74,13 +74,9 @@ fn close_unclosed_calls(
                     && message.tool_calls.iter().any(|call| call.id == call_id)
             })
             .and_then(|message| message.data_envelope.as_ref());
-        let envelope = crate::model_message_labels::internal_tool_result_envelope(
-            label,
-            &call_id,
-            content,
-            reason_code,
-        )
-        .map_err(|_| "invalid unavailable tool result label")?;
+        let envelope =
+            crate::model_message_labels::server_result_envelope(label, &call_id, content, source)
+                .map_err(|_| "invalid unavailable tool result label")?;
         let mut message = crate::chat::ChatMessage::tool_result(
             format!(
                 "{id_prefix}-{:x}",
@@ -282,7 +278,7 @@ pub fn admit_request(
     close_unclosed_calls(
         &mut updated,
         "not executed: the previous request ended before this call ran",
-        "previous_request_ended",
+        crate::model_message_labels::ServerResultSource::PreviousRequestEnded,
         "request-ended",
     )?;
     updated.agent_role = AgentRole::SubAgent {

@@ -68,6 +68,7 @@ pub(super) async fn pause<F: FnMut() -> String>(
         session,
         call,
         ChatMessage::tool_result(mint(), &call.id, content),
+        Some(ServerResultSource::ExecutionPlaceholder),
     )?;
     let result_ids = session
         .conversation
@@ -81,7 +82,7 @@ pub(super) async fn pause<F: FnMut() -> String>(
         parent.as_ref(),
         mint,
         "not executed: waiting for user permission decision",
-        "permission_pause_tool_call",
+        ServerResultSource::PermissionPauseToolCall,
     )?;
     let event_seq = session.last_event_seq.checked_add(1).ok_or_else(invalid)?;
     let event = crate::dynamic_run::PermissionRequestedEvent {

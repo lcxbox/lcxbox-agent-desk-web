@@ -40,14 +40,13 @@ async fn parent_with_child_source(
             &call_id,
             text,
         );
-        result.data_envelope =
-            desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-                Some(&label),
-                &call_id,
-                text,
-                "fixture_control",
-            )
-            .unwrap();
+        result.data_envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+            Some(&label),
+            &call_id,
+            text,
+            "fixture_control",
+        )
+        .unwrap();
         parent.conversation.push(result);
     }
     (parent, task.task_id)

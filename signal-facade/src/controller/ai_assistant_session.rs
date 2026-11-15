@@ -589,19 +589,8 @@ pub fn project_snapshot_message_page(
 }
 
 fn visible_snapshot_message(message: &ChatMessage) -> bool {
-    if desk_diagnose_core::permission_resume::is_permission_resume_message(message)
-        || desk_diagnose_core::permission_resume::is_decision_resume_message(message)
-    {
-        return false;
-    }
-    if message.role != desk_diagnose_core::chat::ChatRole::SystemEvent {
-        return true;
-    }
-    !message.data_envelope.as_ref().is_some_and(|envelope| {
-        envelope.provenance.source_provider_id
-            == desk_diagnose_core::dynamic_run::RUN_CONTROL_PROVIDER_ID
-            && envelope.provenance.source_tool_name == "owner_context_time"
-    })
+    !desk_diagnose_core::permission_resume::is_permission_resume_message(message)
+        && !desk_diagnose_core::permission_resume::is_decision_resume_message(message)
 }
 
 fn snapshot_message_groups(visible: &[ChatMessage]) -> Vec<(usize, usize)> {
@@ -2661,65 +2650,6 @@ mod tests {
         assert_eq!(soon[0].reason, AiAssistantAttentionReason::GoalDeadlineSoon);
         let serialized = serde_json::to_string(&soon).unwrap();
         assert!(!serialized.contains("Private target details"));
-    }
-
-    #[test]
-    fn owner_context_time_is_model_metadata_and_does_not_hide_owner_text_or_other_events() {
-        use desk_diagnose_core::chat::ChatMessage;
-        let destination = desk_agent_protocol::data_lineage::DestinationIdentity::Model {
-            connection_id: "gateway".into(),
-            connection_revision: 1,
-            model_id: "model".into(),
-            profile_revision: 1,
-        };
-        let owner = desk_diagnose_core::model_message_labels::model_bound_user_message(
-            "owner-context".into(),
-            "The August report".into(),
-            destination.clone(),
-        )
-        .unwrap();
-        let mut native = ChatMessage::system_event(
-            "owner-time",
-            r#"{"native_control":"owner_context_supplied","recorded_at_unix_ms":1792713602000}"#,
-        );
-        native.data_envelope =
-            desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-                owner.data_envelope.as_ref(),
-                "owner-time",
-                &native.text,
-                "owner_context_time",
-            )
-            .unwrap();
-        let literal = desk_diagnose_core::model_message_labels::model_bound_user_message(
-            "literal-json".into(),
-            native.text.clone(),
-            destination,
-        )
-        .unwrap();
-        let page = project_snapshot_message_page(
-            vec![owner.clone(), native.clone(), literal.clone()],
-            None,
-            Some(100),
-            PAGE_BYTES,
-        )
-        .unwrap();
-        assert_eq!(
-            page.messages
-                .iter()
-                .map(|message| message.id.as_str())
-                .collect::<Vec<_>>(),
-            ["owner-context", "literal-json"]
-        );
-        assert!(!page.page.has_more);
-        assert!(
-            project_snapshot_message_page(
-                vec![owner, native, literal],
-                Some("owner-time"),
-                Some(100),
-                PAGE_BYTES
-            )
-            .is_err()
-        );
     }
 
     #[test]

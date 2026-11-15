@@ -2953,7 +2953,8 @@ impl PersistedAgentSession {
         let [index] = anchors.as_slice() else {
             return false;
         };
-        let message = &mut self.conversation[*index];
+        let index = *index;
+        let message = &mut self.conversation[index];
         if !matches!(
             message.role,
             crate::chat::ChatRole::Tool | crate::chat::ChatRole::UntrustedOutput
@@ -2969,17 +2970,18 @@ impl PersistedAgentSession {
         // Derive a new identity/digest while preserving the original authority
         // and lineage. Never leave the old envelope attached to changed bytes.
         let call_id = message.tool_call_id.clone().unwrap();
-        if crate::model_message_labels::rewrite_message_content(
-            message,
+        if crate::model_message_labels::server_rewrite(
+            &mut self.conversation,
+            index,
             &call_id,
             MANUALLY_DISPOSED_OUTCOME_UNKNOWN,
-            "manual_outcome_disposition",
+            crate::model_message_labels::ServerResultSource::ManualOutcomeDisposition,
         )
         .is_err()
         {
             return false;
         }
-        message.image_data_url = None;
+        self.conversation[index].image_data_url = None;
         let now = now.into();
         self.manual_outcome_disposition = Some(ManualOutcomeDisposition {
             action,
@@ -3034,27 +3036,27 @@ impl PersistedAgentSession {
         };
         // Anchor on the running-task tool result closing this call. Absent it there
         // is nothing to reconcile a late result against, so leave the state as-is.
-        let placeholder_id = match self
+        let Some(index) = self
             .conversation
-            .iter_mut()
-            .find(|m| m.tool_call_id.as_deref() == Some(tool_call_id))
-        {
-            Some(msg) => {
-                if crate::model_message_labels::rewrite_message_content(
-                    msg,
-                    tool_call_id,
-                    RECOVER_OUTCOME_UNKNOWN,
-                    "execution_outcome_unknown",
-                )
-                .is_err()
-                {
-                    msg.text = RECOVER_OUTCOME_UNKNOWN.to_string();
-                    msg.data_envelope = None;
-                }
-                msg.message_id.clone()
-            }
-            None => return false,
+            .iter()
+            .position(|m| m.tool_call_id.as_deref() == Some(tool_call_id))
+        else {
+            return false;
         };
+        if crate::model_message_labels::server_rewrite(
+            &mut self.conversation,
+            index,
+            tool_call_id,
+            RECOVER_OUTCOME_UNKNOWN,
+            crate::model_message_labels::ServerResultSource::ExecutionOutcomeUnknown,
+        )
+        .is_err()
+        {
+            let msg = &mut self.conversation[index];
+            msg.text = RECOVER_OUTCOME_UNKNOWN.to_string();
+            msg.data_envelope = None;
+        }
+        let placeholder_id = self.conversation[index].message_id.clone();
         let now = now.into();
         self.execution_state = ExecutionState::OutcomeUnknown {
             action,
@@ -3359,11 +3361,11 @@ impl PersistedAgentSession {
         let mut message =
             crate::chat::ChatMessage::tool_result(message_id, &waiting.tool_call_id, text);
         message.turn_id = self.conversation[end - 1].turn_id.clone();
-        message.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        message.data_envelope = crate::model_message_labels::server_result_envelope(
             parent.as_ref(),
             &waiting.tool_call_id,
             text,
-            "permission_pause_closed",
+            crate::model_message_labels::ServerResultSource::PermissionPauseClosed,
         )?;
         self.conversation.insert(end, message);
         Ok(())
@@ -3545,11 +3547,11 @@ impl PersistedAgentSession {
                         && parent.tool_calls.iter().any(|call| call.id == call_id)
                 })
                 .and_then(|parent| parent.data_envelope.as_ref());
-            let label = crate::model_message_labels::internal_tool_result_envelope(
+            let label = crate::model_message_labels::server_result_envelope(
                 parent,
                 call_id,
                 &message.text,
-                "interrupted_call_recovery",
+                crate::model_message_labels::ServerResultSource::InterruptedCallRecovery,
             )?;
             if label.is_some() {
                 self.conversation[index].data_envelope = label;
@@ -3562,6 +3564,17 @@ impl PersistedAgentSession {
 
 /// The placeholder tool-result text written when recovery proves a mutating call
 /// never ran.
+/// Whether `text` is a recovery placeholder written for an interrupted or
+/// uncertain call; such a body is server-authored.
+pub fn is_recovery_placeholder(text: &str) -> bool {
+    [
+        RECOVER_NOT_EXECUTED,
+        RECOVER_OUTCOME_UNKNOWN,
+        RECOVER_INTERRUPTED,
+    ]
+    .contains(&text)
+}
+
 const RECOVER_NOT_EXECUTED: &str = "not executed: the turn was interrupted before this command ran";
 /// The placeholder text for a recovered call whose outcome is unknown but
 /// reconcilable; a late real result replaces it in place.
@@ -4756,6 +4769,21 @@ mod tests {
         assert_eq!(s.conversation.len(), base);
     }
 
+    /// The assistant message that made `call_id`, under `label`.
+    fn issuing_call(call_id: &str, label: DataEnvelope) -> crate::chat::ChatMessage {
+        let mut message = crate::chat::ChatMessage::assistant_tool_calls(
+            "assistant",
+            "",
+            vec![crate::chat::ToolCallRef {
+                id: call_id.into(),
+                name: "exec_command".into(),
+                arguments_json: "{}".into(),
+            }],
+        );
+        message.data_envelope = Some(label);
+        message
+    }
+
     /// Recovering a dispatched item with no result transitions `Executing` to
     /// `OutcomeUnknown`, repurposing the running-task result as the reconcile anchor
     /// (its text is rewritten to the unknown-outcome placeholder) and letting a late
@@ -4783,13 +4811,15 @@ mod tests {
             if !valid {
                 label.envelope_id.clear();
             }
-            running.data_envelope = Some(label.clone());
+            // The new label derives from the issuing call, never the replaced body.
+            running.data_envelope = Some(owner.clone());
+            s.conversation.push(issuing_call("call-1", label.clone()));
             s.conversation.push(running);
             s.execution_state = ExecutionState::Executing {
                 action: ActionIdentity::agent_exec(8, "exec_t9", "e9"),
             };
             assert!(s.mark_execution_unknown("e9", "call-1", "2026-06-20T00:00:00Z"));
-            let anchor = &s.conversation[0];
+            let anchor = &s.conversation[1];
             assert_eq!(anchor.text, RECOVER_OUTCOME_UNKNOWN);
             match &anchor.data_envelope {
                 Some(new) if valid => {
@@ -4891,6 +4921,7 @@ mod tests {
         .data_envelope
         .unwrap();
         message.data_envelope = Some(parent.clone());
+        s.conversation.push(issuing_call("call-1", parent.clone()));
         s.conversation.push(message);
         s.execution_state = ExecutionState::OutcomeUnknown {
             action: ActionIdentity::agent_exec(8, "exec_t9", "e9"),
@@ -4898,7 +4929,7 @@ mod tests {
             since: "t0".into(),
         };
         assert!(s.manually_dispose_unknown(8, "e9", "t1"));
-        let message = &s.conversation[0];
+        let message = &s.conversation[1];
         let envelope = message.data_envelope.as_ref().unwrap();
         assert_ne!(envelope.envelope_id, parent.envelope_id);
         assert_eq!(

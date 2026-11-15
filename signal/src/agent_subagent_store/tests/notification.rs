@@ -20,14 +20,13 @@ pub(super) async fn release_parent(db: &DatabaseConnection, parent: &mut Persist
     for call in parent.unclosed_tool_call_ids() {
         let text = "This proposal's durable creation facts are available through task status; no further device action was dispatched.";
         let mut message = ChatMessage::tool_result(format!("closed-{call}"), &call, text);
-        message.data_envelope =
-            desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-                Some(&label),
-                &call,
-                text,
-                "closed_proposal",
-            )
-            .unwrap();
+        message.data_envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+            Some(&label),
+            &call,
+            text,
+            "closed_proposal",
+        )
+        .unwrap();
         parent.conversation.push(message);
     }
     parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());

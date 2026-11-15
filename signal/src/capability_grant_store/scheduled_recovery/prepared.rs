@@ -109,14 +109,13 @@ pub(in crate::capability_grant_store) async fn close_on(
         "The original prepared action was not dispatched. Its unused reservation was released; do not automatically retry this interrupted turn.",
     );
     message.turn_id = Some(work.turn_id.clone());
-    message.data_envelope =
-        desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-            Some(proposal.data_envelope.as_ref().ok_or_else(invalid)?),
-            &call_id,
-            &message.text,
-            "scheduled_unissued_action",
-        )
-        .map_err(|_| invalid())?;
+    message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+        Some(proposal.data_envelope.as_ref().ok_or_else(invalid)?),
+        &call_id,
+        &message.text,
+        desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledUnissuedAction,
+    )
+    .map_err(|_| invalid())?;
     let results: Vec<_> = session
         .conversation
         .iter()

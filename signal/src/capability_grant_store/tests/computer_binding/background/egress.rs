@@ -304,14 +304,13 @@ async fn exercise(stack_bytes: Option<usize>) {
                 &f.plan.action_request_id,
             );
             running.turn_id = Some("turn-1".into());
-            running.data_envelope =
-                desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-                    session.conversation[1].data_envelope.as_ref(),
-                    &f.call.id,
-                    &running.text,
-                    "provider_execution_status",
-                )
-                .unwrap();
+            running.data_envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+                session.conversation[1].data_envelope.as_ref(),
+                &f.call.id,
+                &running.text,
+                "provider_execution_status",
+            )
+            .unwrap();
             session.conversation.push(running);
             session.execution_state = ExecutionState::Executing {
                 action: ActionIdentity::new(

@@ -166,14 +166,13 @@ mod tests {
         )
         .unwrap();
         let mut receipt = ChatMessage::tool_result("receipt", "read-call", text.clone());
-        receipt.data_envelope =
-            desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-                owner.data_envelope.as_ref(),
-                "read-call",
-                &text,
-                "read_text_file",
-            )
-            .unwrap();
+        receipt.data_envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+            owner.data_envelope.as_ref(),
+            "read-call",
+            &text,
+            "read_text_file",
+        )
+        .unwrap();
         receipt
             .data_envelope
             .as_mut()

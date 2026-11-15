@@ -49,11 +49,12 @@ pub fn record_stale_memory_forget(
         let mut result = ChatMessage::tool_result(id, &call.id, &text)
             .with_turn_id(session.current_turn_id.as_ref().unwrap());
         result.tool_ok = Some(false);
-        result.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        result.data_envelope = crate::model_message_labels::tool_receipt_envelope(
             producer.data_envelope.as_ref(),
             &call.id,
             &text,
             &call.name,
+            crate::model_message_labels::ServerResultSource::ManageMemories,
         )
         .map_err(|_| "invalid native stale-control result")?;
         results.push(result);
@@ -172,11 +173,11 @@ pub fn commit_memory_forget_group(
             ChatMessage::tool_result(result_id(session, receipt, &call.id), &call.id, &text)
                 .with_turn_id(session.current_turn_id.as_ref().unwrap());
         result.tool_ok = Some(true);
-        result.data_envelope = crate::model_message_labels::internal_tool_result_envelope(
+        result.data_envelope = crate::model_message_labels::server_result_envelope(
             producer.data_envelope.as_ref(),
             &call.id,
             &text,
-            "memory_forget_receipt",
+            crate::model_message_labels::ServerResultSource::MemoryForgetReceipt,
         )
         .map_err(|_| "invalid original memory control result label")?;
         results.push(result);

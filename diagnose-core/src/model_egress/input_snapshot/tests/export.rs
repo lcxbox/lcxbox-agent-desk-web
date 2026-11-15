@@ -160,11 +160,11 @@ fn policy_registration_uses_the_exact_original_provider_label_and_preserves_its_
 #[test]
 fn controls_keep_the_original_policy_across_an_actual_native_export_alias() {
     let (_, authorized, original) = authorized(false);
-    let control = crate::model_message_labels::internal_tool_result_envelope(
+    let control = crate::model_message_labels::server_result_envelope(
         Some(&authorized.input_envelopes[0]),
         "control",
         "observed",
-        "runtime_context",
+        crate::model_message_labels::ServerResultSource::RuntimeContext,
     )
     .unwrap()
     .unwrap();

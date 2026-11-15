@@ -54,11 +54,11 @@ pub fn append_receipt(
     let user = session
         .authorization_requirement()
         .ok_or(ApprovalReviewError::InvalidContext)?;
-    let envelope = crate::model_message_labels::internal_tool_result_envelope(
+    let envelope = crate::model_message_labels::data_result_envelope(
         user.data_envelope.as_ref(),
         event_id,
         &text,
-        "goal_proposal_decision",
+        crate::model_message_labels::sources::GOAL_PROPOSAL_DECISION,
     )
     .map_err(|_| ApprovalReviewError::InvalidContext)?;
     let mut receipt = crate::chat::ChatMessage::system_event(&message_id, text);

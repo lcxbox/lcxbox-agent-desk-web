@@ -41,14 +41,13 @@ async fn fixture(db: DatabaseConnection) -> (ScheduleStore, String, String) {
         }],
     );
     proposal.turn_id = Some("turn-1".into());
-    proposal.data_envelope =
-        desk_diagnose_core::model_message_labels::internal_tool_result_envelope(
-            user.data_envelope.as_ref(),
-            &call.id,
-            &proposal.text,
-            "test_model_output",
-        )
-        .unwrap();
+    proposal.data_envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+        user.data_envelope.as_ref(),
+        &call.id,
+        &proposal.text,
+        "test_model_output",
+    )
+    .unwrap();
     session.conversation.push(proposal);
     let row = agent_session::Entity::find()
         .one(&db)

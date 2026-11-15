@@ -15,6 +15,9 @@ use desk_agent_protocol::{
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
+pub mod sources;
+pub use sources::ServerResultSource;
+
 pub const STATUS_RESULT_PROJECTION: &str = "status-result";
 pub const SOURCE_RESULT_PROJECTION: &str = "source-result";
 
@@ -133,38 +136,97 @@ pub(crate) fn invalid_label() -> AgentError {
     }
 }
 
-/// Runtime-authored tool closure inherits its parent authority and retention.
+/// Runtime-authored labels inherit their parent's authority and retention.
 /// A missing label remains missing; this never grants export to a new sink.
-/// Label a persisted runtime status result. Host recovery paths can rewrite
-/// one call's status body under the same parent and tool, so the id binds a
-/// digest of the short status body; the label stores no digest and no reader
-/// recomputes it.
-pub fn internal_tool_result_envelope(
+///
+/// Label a persisted server-authored result. Its shape is the only status
+/// shape the source registry accepts as a native control. Host recovery paths
+/// can rewrite one call's status body under the same parent and source, so
+/// the id binds a digest of the short body; the label stores no digest and no
+/// reader recomputes it.
+pub fn server_result_envelope(
     parent: Option<&DataEnvelope>,
     call_id: &str,
     content: &str,
-    source_tool_name: &str,
+    source: ServerResultSource,
 ) -> Result<Option<DataEnvelope>, AgentError> {
-    status_envelope(parent, call_id, content, source_tool_name, false)
+    status_envelope(parent, call_id, content, source.as_str(), REGISTERED, false)
 }
 
-/// Label a runtime projection that exists only in one model request. Its body
-/// is regenerated per request under a fixed call id, so the id names the
-/// body revision by digest.
-pub fn request_projection_envelope(
+/// Label a server-authored projection that exists only in one model request.
+/// Its body is regenerated per request under a fixed call id, so the id names
+/// the body revision by digest.
+pub fn server_projection_envelope(
+    parent: Option<&DataEnvelope>,
+    call_id: &str,
+    content: &str,
+    source: ServerResultSource,
+) -> Result<Option<DataEnvelope>, AgentError> {
+    status_envelope(parent, call_id, content, source.as_str(), REGISTERED, true)
+}
+
+/// Label a persisted result whose body carries data, or whose name is a tool
+/// name for a result that must not register. Its shape never registers as a
+/// native control, whatever its name, so it keeps only its own read policy.
+pub fn data_result_envelope(
     parent: Option<&DataEnvelope>,
     call_id: &str,
     content: &str,
     source_tool_name: &str,
 ) -> Result<Option<DataEnvelope>, AgentError> {
-    status_envelope(parent, call_id, content, source_tool_name, true)
+    status_envelope(parent, call_id, content, source_tool_name, DATA, false)
 }
+
+/// The request-only form of [`data_result_envelope`].
+pub fn data_projection_envelope(
+    parent: Option<&DataEnvelope>,
+    call_id: &str,
+    content: &str,
+    source_tool_name: &str,
+) -> Result<Option<DataEnvelope>, AgentError> {
+    status_envelope(parent, call_id, content, source_tool_name, DATA, true)
+}
+
+/// Label a tool's own result under its name. It registers only when the tool
+/// is `source`, whose receipts are server-authored; any other tool's result
+/// keeps a data label.
+pub fn tool_receipt_envelope(
+    parent: Option<&DataEnvelope>,
+    call_id: &str,
+    content: &str,
+    tool_name: &str,
+    source: ServerResultSource,
+) -> Result<Option<DataEnvelope>, AgentError> {
+    if tool_name == source.as_str() {
+        server_result_envelope(parent, call_id, content, source)
+    } else {
+        data_result_envelope(parent, call_id, content, tool_name)
+    }
+}
+
+/// Envelope id and blob id prefixes of one status label shape.
+struct StatusShape {
+    envelope: &'static str,
+    blob: &'static str,
+}
+
+pub(crate) const STATUS_RESULT_PREFIX: &str = "status-result-";
+pub(crate) const STATUS_CONTENT_PREFIX: &str = "status-content-";
+const REGISTERED: StatusShape = StatusShape {
+    envelope: STATUS_RESULT_PREFIX,
+    blob: STATUS_CONTENT_PREFIX,
+};
+const DATA: StatusShape = StatusShape {
+    envelope: "data-status-",
+    blob: "data-status-content-",
+};
 
 fn status_envelope(
     parent: Option<&DataEnvelope>,
     call_id: &str,
     content: &str,
     source_tool_name: &str,
+    shape: StatusShape,
     content_addressed: bool,
 ) -> Result<Option<DataEnvelope>, AgentError> {
     let Some(parent) = parent else {
@@ -186,7 +248,7 @@ fn status_envelope(
         (
             format!("{}:{call_id}:{digest}", parent.envelope_id),
             ContentRef::ImmutableBlob {
-                blob_id: format!("status-content-{:x}", Sha256::digest(digest.as_bytes())),
+                blob_id: format!("{}{:x}", shape.blob, Sha256::digest(digest.as_bytes())),
                 sha256: digest,
                 size_bytes: content.len() as u64,
                 media_type: "text/plain".into(),
@@ -210,7 +272,11 @@ fn status_envelope(
     };
     let envelope = DataEnvelope {
         schema_version: DATA_ENVELOPE_SCHEMA_VERSION,
-        envelope_id: format!("status-result-{:x}", Sha256::digest(identity.as_bytes())),
+        envelope_id: format!(
+            "{}{:x}",
+            shape.envelope,
+            Sha256::digest(identity.as_bytes())
+        ),
         content,
         provenance: DataProvenance {
             source_provider_id: crate::dynamic_run::RUN_CONTROL_PROVIDER_ID.into(),
@@ -226,18 +292,36 @@ fn status_envelope(
     Ok(Some(envelope))
 }
 
-/// Replace a persisted message body in place. The new label derives from the
-/// current label and the rewrite kind, so one envelope id never names two
-/// bodies, including when rewrites return to an earlier body. On error the
-/// message is left unchanged.
-pub(crate) fn rewrite_message_content(
-    message: &mut ChatMessage,
+/// Replace the body of the result at `index` with a server-authored `text`.
+/// The new label derives from the nearest earlier assistant message that made
+/// call `call_id`: call ids can repeat across turns, and the replaced body's
+/// own label leaves the model input with it. An unlabelled call leaves the
+/// result unlabelled; a labelled result without its call is an error. The id
+/// binds the parent, call, source and body, so two results of one call never
+/// share a source and body. On error the message is left unchanged.
+pub(crate) fn server_rewrite(
+    messages: &mut [ChatMessage],
+    index: usize,
     call_id: &str,
     text: &str,
-    rewrite_kind: &str,
+    source: ServerResultSource,
 ) -> Result<(), AgentError> {
-    let envelope =
-        internal_tool_result_envelope(message.data_envelope.as_ref(), call_id, text, rewrite_kind)?;
+    let issuing = messages
+        .get(..index)
+        .ok_or_else(invalid_label)?
+        .iter()
+        .rev()
+        .find(|message| {
+            message.role == ChatRole::Assistant
+                && message.tool_calls.iter().any(|call| call.id == call_id)
+        });
+    let parent = match issuing {
+        Some(message) => message.data_envelope.clone(),
+        None if messages[index].data_envelope.is_none() => None,
+        None => return Err(invalid_label()),
+    };
+    let envelope = server_result_envelope(parent.as_ref(), call_id, text, source)?;
+    let message = &mut messages[index];
     message.text = text.into();
     message.data_envelope = envelope;
     Ok(())
@@ -463,61 +547,124 @@ mod tests {
     fn status_and_request_labels_name_one_body_per_id() {
         let parent = source("owner");
         // Host recovery can relabel one call's status under the same parent and tool.
-        let running = internal_tool_result_envelope(Some(&parent), "call", "running", "status")
+        let running = data_result_envelope(Some(&parent), "call", "running", "status")
             .unwrap()
             .unwrap();
-        let unknown = internal_tool_result_envelope(Some(&parent), "call", "unknown", "status")
+        let unknown = data_result_envelope(Some(&parent), "call", "unknown", "status")
             .unwrap()
             .unwrap();
         assert_ne!(running.envelope_id, unknown.envelope_id);
         assert!(matches!(running.content, ContentRef::Projection { .. }));
         assert_eq!(
             running,
-            internal_tool_result_envelope(Some(&parent), "call", "running", "status")
+            data_result_envelope(Some(&parent), "call", "running", "status")
                 .unwrap()
                 .unwrap()
         );
         // Request projections reuse one call id while their body changes per request.
-        let first = request_projection_envelope(Some(&parent), "marker", "one", "runtime_context")
+        let projection = |body: &str| {
+            server_projection_envelope(
+                Some(&parent),
+                "marker",
+                body,
+                ServerResultSource::RuntimeContext,
+            )
             .unwrap()
-            .unwrap();
-        let second = request_projection_envelope(Some(&parent), "marker", "two", "runtime_context")
             .unwrap()
-            .unwrap();
+        };
+        let (first, second) = (projection("one"), projection("two"));
         assert_ne!(first.envelope_id, second.envelope_id);
         assert!(first.content_sha256().is_some());
     }
 
     #[test]
-    fn rewrites_never_reuse_an_envelope_id_for_another_body() {
-        let mut message = ChatMessage::tool_result("result", "call", "original");
-        message.data_envelope = Some(source("owner"));
-        let mut seen = std::collections::BTreeSet::new();
-        seen.insert(message.data_envelope.clone().unwrap().envelope_id);
-        // A -> B -> A still yields a fresh label at every step.
-        for (text, kind) in [
-            ("unknown", "execution_outcome_unknown"),
-            ("disposed", "manual_outcome_disposition"),
-            ("unknown", "execution_outcome_unknown"),
-        ] {
-            rewrite_message_content(&mut message, "call", text, kind).unwrap();
-            assert_eq!(message.text, text);
-            assert!(seen.insert(message.data_envelope.clone().unwrap().envelope_id));
-        }
-        let mut invalid = message.clone();
-        invalid
-            .data_envelope
-            .as_mut()
+    fn server_and_data_labels_have_distinct_shapes_whatever_the_name() {
+        let parent = source("owner");
+        let name = ServerResultSource::ManageMemories;
+        let server = server_result_envelope(Some(&parent), "call", "ok", name)
             .unwrap()
-            .allowed_destinations
-            .clear();
-        invalid.data_envelope.as_mut().unwrap().envelope_id.clear();
-        let before = invalid.clone();
-        assert!(rewrite_message_content(&mut invalid, "call", "other", "kind").is_err());
-        assert_eq!(
-            invalid, before,
-            "a failed rewrite leaves the message unchanged"
+            .unwrap();
+        let data = data_result_envelope(Some(&parent), "call", "ok", name.as_str())
+            .unwrap()
+            .unwrap();
+        assert!(server.envelope_id.starts_with(STATUS_RESULT_PREFIX));
+        assert!(data.envelope_id.starts_with("data-status-"));
+        assert_eq!(server.provenance, data.provenance);
+        let ContentRef::ImmutableBlob { blob_id, .. } =
+            data_projection_envelope(Some(&parent), "call", "ok", name.as_str())
+                .unwrap()
+                .unwrap()
+                .content
+        else {
+            panic!("request projections are content addressed");
+        };
+        assert!(blob_id.starts_with("data-status-content-"));
+        // A tool receipt registers only for the tool its source names.
+        let receipt = |tool: &str| {
+            tool_receipt_envelope(Some(&parent), "call", "ok", tool, name)
+                .unwrap()
+                .unwrap()
+                .envelope_id
+        };
+        assert_eq!(receipt(name.as_str()), server.envelope_id);
+        assert!(receipt("search_memories").starts_with("data-status-"));
+    }
+
+    #[test]
+    fn rewrites_derive_from_the_nearest_call_and_name_one_body_per_id() {
+        let call = |id: &str, label: &str| {
+            let mut message = ChatMessage::assistant_tool_calls(
+                "assistant",
+                "",
+                vec![crate::chat::ToolCallRef {
+                    id: id.into(),
+                    name: "exec_command".into(),
+                    arguments_json: "{}".into(),
+                }],
+            );
+            message.data_envelope = Some(source(label));
+            message
+        };
+        let mut result = ChatMessage::tool_result("result", "call", "original");
+        result.data_envelope = Some(source("provider"));
+        // The call id repeats across turns; the nearest earlier call is the parent.
+        let mut messages = vec![
+            call("call", "old"),
+            call("call", "issuing"),
+            result,
+            call("call", "later"),
+        ];
+        let issuing = messages[1].data_envelope.clone().unwrap().envelope_id;
+        let mut seen = std::collections::BTreeMap::new();
+        for (text, source) in [
+            ("unknown", ServerResultSource::ExecutionOutcomeUnknown),
+            ("disposed", ServerResultSource::ManualOutcomeDisposition),
+            ("unknown", ServerResultSource::ExecutionOutcomeUnknown),
+        ] {
+            server_rewrite(&mut messages, 2, "call", text, source).unwrap();
+            let label = messages[2].data_envelope.clone().unwrap();
+            assert_eq!(messages[2].text, text);
+            assert_eq!(label.provenance.source_envelope_ids, std::slice::from_ref(&issuing));
+            assert!(label.envelope_id.starts_with(STATUS_RESULT_PREFIX));
+            // One id never names two bodies.
+            let body = seen.entry(label.envelope_id).or_insert(text);
+            assert_eq!(*body, text);
+        }
+        assert_eq!(seen.len(), 2);
+        // Without its issuing call the message is left unchanged.
+        let mut orphan = vec![messages[2].clone()];
+        let before = orphan.clone();
+        assert!(
+            server_rewrite(
+                &mut orphan,
+                0,
+                "call",
+                "other",
+                ServerResultSource::ExecutionOutcomeUnknown
+            )
+            .is_err()
         );
+        assert_eq!(orphan, before);
     }
 
     #[test]
@@ -686,9 +833,14 @@ mod tests {
     #[test]
     fn internal_result_never_renews_ephemeral_parent_or_mints_missing_authority() {
         assert!(
-            internal_tool_result_envelope(None, "call", "unavailable", "supersede_tool_call")
-                .unwrap()
-                .is_none()
+            server_result_envelope(
+                None,
+                "call",
+                "unavailable",
+                ServerResultSource::SupersedeToolCall
+            )
+            .unwrap()
+            .is_none()
         );
         let mut parent = model_bound_user_message(
             "source".into(),
@@ -708,11 +860,11 @@ mod tests {
             size_bytes: 5,
             expires_at_unix_ms: 100,
         };
-        let result = internal_tool_result_envelope(
+        let result = server_result_envelope(
             Some(&parent),
             "call",
             "unavailable",
-            "supersede_tool_call",
+            ServerResultSource::SupersedeToolCall,
         )
         .unwrap()
         .unwrap();
@@ -725,11 +877,11 @@ mod tests {
         );
         parent.envelope_id.clear();
         assert!(
-            internal_tool_result_envelope(
+            server_result_envelope(
                 Some(&parent),
                 "call",
                 "unavailable",
-                "supersede_tool_call"
+                ServerResultSource::SupersedeToolCall
             )
             .is_err()
         );
