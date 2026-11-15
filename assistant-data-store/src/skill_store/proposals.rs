@@ -361,6 +361,7 @@ async fn save_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             call_id: &call.id,
             content: text,
             envelope,
+            stored_roots: Vec::new(),
             awaiting: Some(ProposalReviewRef::skill(&proposal_id)),
             now,
         },

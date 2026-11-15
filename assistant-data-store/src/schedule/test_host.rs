@@ -597,10 +597,14 @@ impl ScheduleHostStores<DatabaseConnection> for Recorder {
     async fn owner_prompt_retention(
         &self,
         _: &DatabaseConnection,
-        _: &str,
-        _: &str,
+        actor: &str,
+        device: &str,
     ) -> Result<String, ScheduleStoreError> {
-        unreachable!()
+        super::json(
+            &desk_diagnose_core::schedule::published_input::TaskPromptRetention::owner(
+                actor, device, 1,
+            ),
+        )
     }
 }
 
@@ -662,6 +666,7 @@ pub(crate) async fn continuation_rows(
         requirement_revision: Some(3),
         retrieval_consent_json: Some(consent.encode().unwrap()),
         prompt_retention_json: None,
+        field_sources_json: None,
         proposal_conversation_id: None,
         failure_state_json: serde_json::to_string(
             &desk_diagnose_core::schedule::lifecycle::FailureState::default(),

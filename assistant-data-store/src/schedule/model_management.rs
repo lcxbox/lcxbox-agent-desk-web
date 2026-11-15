@@ -1,6 +1,8 @@
 //! Model management is confined to the current conversation and server origin.
 use super::ScheduleStoreError;
 use crate::entity::{agent_schedule as entity, agent_schedule_run as run};
+use desk_agent_protocol::data_lineage::DestinationIdentity;
+use desk_diagnose_core::model_content::{ModelContent, ServerId, Stored};
 use desk_diagnose_core::{
     model_observability::{
         InputIssue, PermissionOutcome, Stage, StageOutcome, tool::ToolObservation,
@@ -11,7 +13,7 @@ use desk_diagnose_core::{
 use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 
 fn scope(owner: i32, session: &PersistedAgentSession) -> Condition {
     let ids = proposed_ids(session);
@@ -68,13 +70,105 @@ pub async fn lock_target<C: ConnectionTrait>(
     Ok(task)
 }
 
-/// The task fields a model turn sees in management replies.
-pub fn view(task: &entity::Model) -> Value {
-    json!({"schedule_id":task.schedule_id,"title":task.title,"kind":task.kind,"state":task.status,
-        "revision":task.revision,"creation_source":task.creation_source,
-        "can_cancel":task.creation_source == "ai_proposal" && !matches!(task.status.as_str(),"deleted"|"completed"|"expired"),
-        "next_run_at_utc_ms":task.next_run_at,"active_run_id":task.active_run_id,
-        "rule":serde_json::from_str::<Value>(&task.spec_json).ok().map(|spec| spec["rule"].clone())})
+desk_diagnose_core::model_receipt! {
+    /// The task fields a model turn sees in management replies. The title and
+    /// rule keep the proofs of whoever wrote them.
+    pub struct TaskView {
+        schedule_id: ServerId,
+        title: Stored<String>,
+        kind: ServerId,
+        state: ServerId,
+        revision: i64,
+        creation_source: ServerId,
+        can_cancel: bool,
+        next_run_at_utc_ms: Option<i64>,
+        active_run_id: Option<ServerId>,
+        rule: Option<Stored<Value>>,
+    }
+}
+
+/// The view of `task`, its stored text bound to `destinations`.
+pub fn view(
+    task: &entity::Model,
+    destinations: &[DestinationIdentity],
+) -> Result<TaskView, ScheduleStoreError> {
+    use super::field_sources::{RULE, TITLE, root};
+    let rule = serde_json::from_str::<Value>(&task.spec_json)
+        .ok()
+        .map(|spec| spec["rule"].clone());
+    Ok(TaskView {
+        schedule_id: ServerId::new(&task.schedule_id),
+        title: Stored::new(
+            task.title.clone(),
+            root(task, TITLE, &task.title, destinations.to_vec())?,
+        ),
+        kind: ServerId::new(&task.kind),
+        state: ServerId::new(&task.status),
+        revision: task.revision,
+        creation_source: ServerId::new(&task.creation_source),
+        can_cancel: task.creation_source == "ai_proposal"
+            && !matches!(task.status.as_str(), "deleted" | "completed" | "expired"),
+        next_run_at_utc_ms: task.next_run_at,
+        active_run_id: task.active_run_id.as_deref().map(ServerId::new),
+        rule: rule
+            .map(|rule| {
+                let text = rule.to_string();
+                root(task, RULE, &text, destinations.to_vec()).map(|root| Stored::new(rule, root))
+            })
+            .transpose()?,
+    })
+}
+
+desk_diagnose_core::model_receipt! {
+    struct TaskList {
+        ok: bool,
+        tasks: Vec<TaskView>,
+        next_after: Option<i64>,
+        observed_at_utc_ms: i64,
+    }
+}
+
+desk_diagnose_core::model_receipt! {
+    struct CancelOutcome {
+        ok: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<&'static str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        state: Option<&'static str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        task: Option<TaskView>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<&'static str>,
+    }
+}
+
+desk_diagnose_core::model_receipt! {
+    struct Cancelled {
+        ok: bool,
+        schedule_id: ServerId,
+        revision: i64,
+        state: &'static str,
+        future_scheduling_stopped: bool,
+        effects_undone: bool,
+        run_id: Option<ServerId>,
+        run_state: Option<ServerId>,
+        message: &'static str,
+    }
+}
+
+fn refused(
+    reason: &'static str,
+    task: Option<TaskView>,
+    message: Option<&'static str>,
+) -> Result<ModelContent, ScheduleStoreError> {
+    ModelContent::json(&CancelOutcome {
+        ok: false,
+        reason: Some(reason),
+        state: None,
+        task,
+        message,
+    })
+    .map_err(|_| ScheduleStoreError::Invalid)
 }
 
 pub async fn list<C: ConnectionTrait>(
@@ -84,7 +178,8 @@ pub async fn list<C: ConnectionTrait>(
     after: i64,
     limit: u64,
     now: i64,
-) -> Result<String, ScheduleStoreError> {
+    destinations: &[DestinationIdentity],
+) -> Result<ModelContent, ScheduleStoreError> {
     let mut rows = entity::Entity::find()
         .filter(scope(owner, session))
         .filter(entity::Column::Id.gt(after))
@@ -97,7 +192,16 @@ pub async fn list<C: ConnectionTrait>(
         rows.pop();
     }
     let next = more.then(|| rows.last().map(|row| row.id)).flatten();
-    Ok(json!({"ok":true,"tasks":rows.iter().map(view).collect::<Vec<_>>(),"next_after":next,"observed_at_utc_ms":now}).to_string())
+    ModelContent::json(&TaskList {
+        ok: true,
+        tasks: rows
+            .iter()
+            .map(|row| view(row, destinations))
+            .collect::<Result<_, _>>()?,
+        next_after: next,
+        observed_at_utc_ms: now,
+    })
+    .map_err(|_| ScheduleStoreError::Invalid)
 }
 
 pub async fn cancel<C: ConnectionTrait>(
@@ -106,39 +210,57 @@ pub async fn cancel<C: ConnectionTrait>(
     expected: i64,
     now: i64,
     observation: &ToolObservation,
-) -> Result<String, ScheduleStoreError> {
+    destinations: &[DestinationIdentity],
+) -> Result<ModelContent, ScheduleStoreError> {
     let Some(task) = task else {
         observation.reject(Stage::Reference, InputIssue::UnknownReference);
-        return Ok(json!({"ok":false,"reason":"task_not_in_current_conversation"}).to_string());
+        return refused("task_not_in_current_conversation", None, None);
     };
     if task.creation_source != "ai_proposal" {
         observation.stage(Stage::Reference, StageOutcome::Passed);
         observation.permission(PermissionOutcome::PolicyRejected);
-        return Ok(json!({"ok":false,"reason":"manual_task_cannot_be_cancelled_by_ai","task":view(&task),"message":"Only the user can cancel this manually created task in the task manager. Do not request permission to bypass this restriction."}).to_string());
+        return refused(
+            "manual_task_cannot_be_cancelled_by_ai",
+            Some(view(&task, destinations)?),
+            Some(
+                "Only the user can cancel this manually created task in the task manager. Do not request permission to bypass this restriction.",
+            ),
+        );
     }
     if task.status == "deleted" {
         observation.stage(Stage::Reference, StageOutcome::Passed);
         observation.stage(Stage::Preflight, StageOutcome::Passed);
-        return Ok(json!({"ok":true,"state":"already_cancelled","task":view(&task)}).to_string());
+        return ModelContent::json(&CancelOutcome {
+            ok: true,
+            reason: None,
+            state: Some("already_cancelled"),
+            task: Some(view(&task, destinations)?),
+            message: None,
+        })
+        .map_err(|_| ScheduleStoreError::Invalid);
     }
     if task.status == "completed" {
         observation.reject(Stage::Reference, InputIssue::ReferenceUnavailable);
-        return Ok(
-            json!({"ok":false,"reason":"task_already_completed","task":view(&task)}).to_string(),
+        return refused(
+            "task_already_completed",
+            Some(view(&task, destinations)?),
+            None,
         );
     }
     if task.status == "expired" {
         observation.reject(Stage::Reference, InputIssue::ReferenceExpired);
-        return Ok(
-            json!({"ok":false,"reason":"task_expired_with_source_conversation","task":view(&task)})
-                .to_string(),
+        return refused(
+            "task_expired_with_source_conversation",
+            Some(view(&task, destinations)?),
+            None,
         );
     }
     if task.revision != expected {
         observation.reject(Stage::Reference, InputIssue::ReferenceExpired);
-        return Ok(
-            json!({"ok":false,"reason":"revision_changed_query_again","task":view(&task)})
-                .to_string(),
+        return refused(
+            "revision_changed_query_again",
+            Some(view(&task, destinations)?),
+            None,
         );
     }
     observation.stage(Stage::Reference, StageOutcome::Passed);
@@ -187,9 +309,26 @@ pub async fn cancel<C: ConnectionTrait>(
     if changed.rows_affected != 1 {
         return Err(ScheduleStoreError::Conflict);
     }
-    Ok(json!({"ok":true,"schedule_id":task.schedule_id,"revision":expected+1,
-        "state":if in_flight {"cancellation_requested"} else {"cancelled"},
-        "future_scheduling_stopped":true,"effects_undone":false,
-        "run_id":work.as_ref().map(|work| &work.run_id),
-        "run_state":work.as_ref().map(|work| if unstarted { "cancelled" } else { work.status.as_str() }),"message":"No additional approval was required. Completed external effects are not undone."}).to_string())
+    ModelContent::json(&Cancelled {
+        ok: true,
+        schedule_id: ServerId::new(&task.schedule_id),
+        revision: expected + 1,
+        state: if in_flight {
+            "cancellation_requested"
+        } else {
+            "cancelled"
+        },
+        future_scheduling_stopped: true,
+        effects_undone: false,
+        run_id: work.as_ref().map(|work| ServerId::new(&work.run_id)),
+        run_state: work.as_ref().map(|work| {
+            ServerId::new(if unstarted {
+                "cancelled"
+            } else {
+                work.status.as_str()
+            })
+        }),
+        message: "No additional approval was required. Completed external effects are not undone.",
+    })
+    .map_err(|_| ScheduleStoreError::Invalid)
 }

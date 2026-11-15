@@ -139,12 +139,38 @@ pub async fn claim_continuation_on<C: ConnectionTrait, H: ScheduleHostStores<C>>
             &session.conversation,
             &task.schedule_id,
         );
-        let mut message = desk_diagnose_core::chat::ChatMessage::system_event(&id, &task.prompt);
-        message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
-            parent,
+        // The prompt keeps the proof of whoever wrote it, which an owner's
+        // edit may have changed since activation.
+        let content = match parent {
+            Some(parent) => desk_diagnose_core::model_content::ModelContent::builder()
+                .stored(&desk_diagnose_core::model_content::Stored::new(
+                    task.prompt.clone(),
+                    super::field_sources::root(
+                        task,
+                        super::field_sources::PROMPT,
+                        &task.prompt,
+                        parent.allowed_destinations.clone(),
+                    )?,
+                ))
+                .build(),
+            // An unlabelled conversation keeps an unlabelled input.
+            None => desk_diagnose_core::model_content::ModelContent::builder()
+                .unverified(&desk_diagnose_core::model_content::Unverified::new(
+                    task.prompt.clone(),
+                ))
+                .build(),
+        };
+        let mut message = desk_diagnose_core::chat::ChatMessage::from_content(
+            desk_diagnose_core::chat::ChatRole::SystemEvent,
             &id,
-            &task.prompt,
-            desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledTaskInput,
+            &content,
+            desk_diagnose_core::model_content::Labelling {
+                issuing: parent,
+                call_id: &id,
+                source:
+                    desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledTaskInput,
+                request_only: false,
+            },
         )
         .map_err(|_| ScheduleStoreError::Invalid)?;
         message.turn_id = Some(turn_id.clone());

@@ -300,6 +300,25 @@ pub async fn edit_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             patch.recurrence_cursor_at = Set(Some(now));
         }
     }
+    // The owner's edit makes the edited fields the owner's own text; the
+    // other fields keep where they came from.
+    if prompt.is_some() || new_spec.is_some() {
+        let mut sources = super::field_sources::ScheduleFieldSources::of(&row);
+        let owner_source = super::field_sources::owner_source(
+            host,
+            txn,
+            &owner.to_string(),
+            &row.target_device_id,
+        )
+        .await?;
+        if prompt.is_some() {
+            sources.prompt = Some(owner_source.clone());
+        }
+        if new_spec.is_some() {
+            sources.rule = Some(owner_source);
+        }
+        patch.field_sources_json = Set(Some(sources.encode()?));
+    }
     let changed = entity::Entity::update_many()
         .set(patch)
         .filter(entity::Column::Id.eq(row.id))

@@ -38,6 +38,8 @@ pub struct Model {
     pub retrieval_consent_json: Option<String>,
     /// Native prompt copy policy, frozen into each occurrence's task snapshot.
     pub prompt_retention_json: Option<String>,
+    /// Source proofs of the title, rule and prompt (`ScheduleFieldSources`).
+    pub field_sources_json: Option<String>,
     /// The conversation whose AI proposal awaits a decision; used only to write
     /// the decision back. Continuations use `source_conversation_id` instead.
     pub proposal_conversation_id: Option<String>,

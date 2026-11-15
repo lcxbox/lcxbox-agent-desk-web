@@ -20,6 +20,7 @@ mod create;
 mod device_wait;
 mod directory_receipt;
 mod edit;
+mod field_sources;
 mod fresh_children;
 mod fresh_children_settlement;
 mod fresh_recovery;

@@ -46,11 +46,11 @@ async fn request(
         expected_revision: revision,
     };
     let task = lock_target(&txn, owner, session, &action).await.unwrap();
-    let reply = cancel(&txn, task, revision, now, &ToolObservation::default())
+    let reply = cancel(&txn, task, revision, now, &ToolObservation::default(), &[])
         .await
         .unwrap();
     txn.commit().await.unwrap();
-    serde_json::from_str(&reply).unwrap()
+    serde_json::from_str(reply.text()).unwrap()
 }
 
 #[tokio::test]
@@ -59,7 +59,7 @@ async fn manual_tasks_are_readable_but_cannot_be_cancelled() {
     let before = store.read(1, &work.schedule_id).await.unwrap();
     let txn = store.db.begin().await.unwrap();
     let page: Value =
-        serde_json::from_str(&list(&txn, 1, &session, 0, 10, 1).await.unwrap()).unwrap();
+        serde_json::from_str(list(&txn, 1, &session, 0, 10, 1, &[]).await.unwrap().text()).unwrap();
     txn.commit().await.unwrap();
     assert_eq!(page["tasks"][0]["creation_source"], "manual");
     assert_eq!(page["tasks"][0]["can_cancel"], false);
@@ -181,11 +181,16 @@ async fn fresh_task_is_bound_by_server_receipt_and_queries_are_paginated() {
     session.conversation.push(receipt);
     let txn = store.db.begin().await.unwrap();
     let first: Value =
-        serde_json::from_str(&list(&txn, 1, &session, 0, 1, 1).await.unwrap()).unwrap();
+        serde_json::from_str(list(&txn, 1, &session, 0, 1, 1, &[]).await.unwrap().text()).unwrap();
     assert_eq!(first["tasks"].as_array().unwrap().len(), 1);
     let next = first["next_after"].as_i64().unwrap();
-    let page: Value =
-        serde_json::from_str(&list(&txn, 1, &session, next, 1, 1).await.unwrap()).unwrap();
+    let page: Value = serde_json::from_str(
+        list(&txn, 1, &session, next, 1, 1, &[])
+            .await
+            .unwrap()
+            .text(),
+    )
+    .unwrap();
     assert_eq!(page["tasks"][0]["schedule_id"], task.schedule_id);
     assert_eq!(page["tasks"][0]["can_cancel"], true);
     txn.commit().await.unwrap();
@@ -240,7 +245,7 @@ async fn tool_turn_commits_cancellation_and_receipt_together_and_rejects_stale_s
                 arguments_json: call.arguments_json.clone(),
             });
         parent.turn_id = session.current_turn_id.clone();
-        let query_text = json!({"ok":true,"tasks":[view(&task)]}).to_string();
+        let query_text = json!({"ok":true,"tasks":[view(&task, &[]).unwrap()]}).to_string();
         let mut query = desk_diagnose_core::chat::ChatMessage::tool_result(
             "schedule-query",
             "query-call",
@@ -377,5 +382,44 @@ async fn tool_turn_commits_cancellation_and_receipt_together_and_rejects_stale_s
                 .unwrap();
             assert_eq!(row.state_json, session.encode_json_for_storage().unwrap());
         }
+    }
+}
+
+/// A listed task's title and rule repeat stored text, so the reply carries
+/// their roots with the proofs of whoever wrote them: here, the owner.
+#[tokio::test]
+async fn listed_task_text_carries_its_writer_proof() {
+    use desk_diagnose_core::model_content::StoredOrigin;
+    let (store, _work, session) = fixture(false).await;
+    let destination = desk_agent_protocol::data_lineage::DestinationIdentity::Model {
+        connection_id: "gateway".into(),
+        connection_revision: 1,
+        model_id: "model".into(),
+        profile_revision: 1,
+    };
+    let txn = store.db.begin().await.unwrap();
+    let content = list(
+        &txn,
+        1,
+        &session,
+        0,
+        10,
+        1,
+        std::slice::from_ref(&destination),
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+    let roots = content.stored_roots();
+    assert_eq!(roots.len(), 2, "title and rule");
+    for root in &roots {
+        assert_eq!(
+            root.label.allowed_destinations,
+            std::slice::from_ref(&destination)
+        );
+        assert!(matches!(
+            root.proof.as_ref().unwrap().origin,
+            StoredOrigin::Owner
+        ));
     }
 }

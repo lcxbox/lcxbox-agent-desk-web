@@ -74,6 +74,25 @@ pub async fn manage_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
                 )
             })
             .await?;
+            // The proposed title, rule and prompt are the proposing output's
+            // text; an output that was not retained leaves them unproven.
+            let source = desk_diagnose_core::future::send_phase(|| {
+                host.skill_proposal_source(txn, session, &session.conversation[parent_index])
+            })
+            .await?
+            .and_then(|(_, model_source)| {
+                desk_diagnose_core::model_content::StoredTextSource::model_output(
+                    &session.actor_id,
+                    model_source,
+                    Vec::new(),
+                )
+            });
+            task = super::field_sources::record_on(
+                txn,
+                task,
+                &super::field_sources::ScheduleFieldSources::all(source),
+            )
+            .await?;
             let message = if task.kind == "conversation_resume" {
                 // A continuation needs no approval: enable it in this turn's
                 // transaction without writing to the running session.
@@ -83,29 +102,58 @@ pub async fn manage_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
                 awaiting_review = Some(task.schedule_id.clone());
                 "Submitted for a decision. This turn ends now; when the AI reviewer or the owner decides in the application, the server continues this requirement and this result shows the decision. Do not report success before it. No extra chat confirmation is needed. No tool permission is granted; every run approves device actions one at a time."
             };
-            (serde_json::json!({"schedule_id":task.schedule_id,"kind":task.kind,"state":task.status,
+            // Ids, states and fixed text answering this call.
+            let text = serde_json::json!({"schedule_id":task.schedule_id,"kind":task.kind,"state":task.status,
                 "next_run_at_utc_ms":task.next_run_at,"awaiting_decision":awaiting_review.is_some(),
-                "message":message}).to_string(), ServerResultSource::ScheduleProposal)
+                "message":message}).to_string();
+            (
+                desk_diagnose_core::model_content::ModelContent::builder()
+                    .arg(&desk_diagnose_core::model_content::ModelArg::of_call(
+                        call,
+                        Some(parent),
+                        text,
+                    ))
+                    .build(),
+                ServerResultSource::ScheduleProposal,
+            )
         }
         Action::List { after, limit } => {
             observation.stage(Stage::Preflight, StageOutcome::Passed);
             (
-                list(txn, owner, session, after, limit, now).await?,
+                list(
+                    txn,
+                    owner,
+                    session,
+                    after,
+                    limit,
+                    now,
+                    &parent.allowed_destinations,
+                )
+                .await?,
                 ServerResultSource::ScheduleQuery,
             )
         }
         Action::Cancel {
             expected_revision, ..
         } => (
-            cancel(txn, target, expected_revision, now, observation).await?,
+            cancel(
+                txn,
+                target,
+                expected_revision,
+                now,
+                observation,
+                &parent.allowed_destinations,
+            )
+            .await?,
             ServerResultSource::ScheduleCancellation,
         ),
     };
-    let envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+    let envelope = desk_diagnose_core::model_message_labels::composed_envelope(
+        &content,
         Some(parent),
         &call.id,
-        &content,
         source,
+        false,
     )
     .map_err(|_| ScheduleStoreError::Invalid)?;
     let receipt_id = format!("{}{}", ProposalKind::Schedule.receipt_prefix(), call.id);
@@ -117,8 +165,9 @@ pub async fn manage_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         ToolReceipt {
             message_id: &receipt_id,
             call_id: &call.id,
-            content,
+            content: content.text().into(),
             envelope,
+            stored_roots: content.stored_roots(),
             awaiting: awaiting_review.map(ProposalReviewRef::schedule),
             now,
         },
@@ -212,6 +261,8 @@ pub(crate) struct ToolReceipt<'a> {
     pub call_id: &'a str,
     pub content: String,
     pub envelope: Option<desk_agent_protocol::data_lineage::DataEnvelope>,
+    /// Roots of stored text the content repeats.
+    pub stored_roots: Vec<desk_diagnose_core::model_content::StoredRoot>,
     /// The proposal this turn now waits for; its review opens first.
     pub awaiting: Option<ProposalReviewRef>,
     pub now: i64,
@@ -248,6 +299,7 @@ pub(crate) async fn commit_tool_receipt_on<C: ConnectionTrait, H: ScheduleHostSt
         ChatMessage::tool_result(receipt.message_id, receipt.call_id, receipt.content);
     message.turn_id = next.current_turn_id.clone();
     message.data_envelope = receipt.envelope;
+    message.stored_roots = receipt.stored_roots;
     next.conversation.push(message);
     next.version = next
         .version

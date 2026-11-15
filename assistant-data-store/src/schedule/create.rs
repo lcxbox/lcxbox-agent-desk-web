@@ -73,6 +73,18 @@ pub async fn create_task_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     } else {
         None
     };
+    // An owner's task text is the owner's own; an AI proposal records the
+    // proposing output's proof once the call is fenced.
+    let field_sources = if request.creation_source
+        == desk_agent_protocol::schedule::ScheduleCreationSource::Manual
+    {
+        let source =
+            super::field_sources::owner_source(host, db, &prompt_actor, &request.target_device_id)
+                .await?;
+        Some(super::field_sources::ScheduleFieldSources::all(Some(source)).encode()?)
+    } else {
+        None
+    };
     let model = entity::ActiveModel {
         schedule_id: Set(schedule_id),
         owner_user_id: Set(owner),
@@ -101,6 +113,7 @@ pub async fn create_task_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         requirement_revision: Set(request.requirement_revision.map(|r| r as i64)),
         retrieval_consent_json: Set(retrieval_consent),
         prompt_retention_json: Set(prompt_retention),
+        field_sources_json: Set(field_sources),
         proposal_conversation_id: Set(proposal_conversation_id),
         failure_state_json: Set(json(&FailureState::default())?),
         active_run_id: Set(None),

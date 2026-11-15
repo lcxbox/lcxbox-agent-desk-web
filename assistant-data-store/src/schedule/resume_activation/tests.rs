@@ -51,6 +51,7 @@ fn task(kind: &str, status: &str) -> entity::Model {
         requirement_revision: Some(3),
         retrieval_consent_json: None,
         prompt_retention_json: None,
+        field_sources_json: None,
         proposal_conversation_id: None,
         failure_state_json: "{}".into(),
         active_run_id: None,
