@@ -122,6 +122,8 @@ pub struct CapabilityCatalogMetrics {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapabilityAuthorizationPrompt {
     pub text: String,
+    /// The requested inputs and scopes `text` repeats, with their proofs.
+    pub cites: Vec<crate::model_content::StoredSpec>,
     /// Earliest expiry among exact inputs included in `text`. The caller uses
     /// this to put the whole prompt behind the same model-egress boundary.
     pub approved_exact_input_expires_at_unix_ms: Option<u64>,
@@ -204,6 +206,7 @@ pub fn capability_authorization_prompt(
 ) -> CapabilityAuthorizationPrompt {
     let mut approved_exact_input_expires_at_unix_ms: Option<u64> = None;
     let mut entries = Vec::with_capacity(grants.len());
+    let mut cites = Vec::new();
     // Approved scope remains valid across ordinary conversation inputs.
     for grant in grants {
         let mut state = if grant.issued_at_unix_ms > now_unix_ms {
@@ -244,6 +247,7 @@ pub fn capability_authorization_prompt(
             }
             continue;
         }
+        cite_grant_sources(grant, permission_requests, &mut cites);
         let mut entry = json!({
             "provider_id": grant.provider_id,
             "capability_id": grant.capability_id,
@@ -375,7 +379,81 @@ pub fn capability_authorization_prompt(
             "The following JSON authorization snapshot is server-authored for this run and supersedes any older assistant statement that a permission request is still pending. It does not widen the current tool list and does not itself dispatch anything. When a tool is present in the current tool list and has state=active here, do not refuse it based on stale permission text in conversation history; call it when the user requested it and let the server authorizer perform the final match. For any active grant bound to an exact input, approved_exact_input is the model-facing projection of the approved input: copy its displayed arguments without adding, removing, or changing any visible field. Fixed protocol metadata such as schema_version is supplied by the server and must not be added. The server restores that metadata before checking the complete canonical input against the grant. Never repeat approved_exact_input in prose or reuse it beyond remaining_uses. For an active use_policy=until_expiry grant, choose any public HTTP or HTTPS URL on its exact external_web_host scope until expiry; this grant has no call-count limit and does not authorize another host or subdomain. Exact input is deliberately omitted for every non-active or non-exact grant. For an active application_scope, use its application_id in the approved UI or background-input tool, use current observed target IDs and an approved action; do not request another exact permission for each control within that scope. A state=denied_item entry identifies one denied item, not every use of that tool; any other active grant remains independently valid. Do not retry an unchanged denied action. A narrower action after an AI approval denial requires a new permission request, while an owner denial requires new owner input. A legacy state=denied entry reports an entire refused request. Never invent or reveal a grant id.\n<capability_authorization>{}</capability_authorization>",
             serde_json::to_string(&entries).expect("authorization projection is serializable")
         ),
+        cites,
         approved_exact_input_expires_at_unix_ms,
+    }
+}
+
+impl CapabilityAuthorizationPrompt {
+    /// The prompt as model content: server text that cites the requested
+    /// inputs and scopes it repeats.
+    pub fn content(&self) -> crate::model_content::ModelContent {
+        self.cites
+            .iter()
+            .cloned()
+            .fold(
+                crate::model_content::ModelContent::builder().server(
+                    &crate::model_content::ServerText::generated(self.text.clone()),
+                ),
+                |builder, spec| builder.cite(spec),
+            )
+            .build()
+    }
+}
+
+/// Cites the approved requests an active grant's inputs and scopes came from.
+/// A scoped grant no request explains cites its scope without a proof.
+fn cite_grant_sources(
+    grant: &CapabilityGrant,
+    permission_requests: &[PermissionRequest],
+    cites: &mut Vec<crate::model_content::StoredSpec>,
+) {
+    use crate::model_content::StoredSpec;
+    let mut matched = false;
+    for request in permission_requests.iter().filter(|request| {
+        matches!(
+            request.state,
+            PermissionRequestState::Approved | PermissionRequestState::PartiallyApproved
+        )
+    }) {
+        let items = request
+            .items
+            .iter()
+            .filter(|item| {
+                item.provider_id == grant.provider_id
+                    && item.tool_name == grant.tool_name
+                    && (item.resource_scope == grant.resource_scope
+                        || (grant.canonical_input_digest_sha256.is_some()
+                            && item.canonical_input_digest_sha256
+                                == grant.canonical_input_digest_sha256))
+            })
+            .collect::<Vec<_>>();
+        if items.is_empty() {
+            continue;
+        }
+        matched = true;
+        let spec = StoredSpec::proven(
+            "permission_request",
+            request.request_id.clone(),
+            "items",
+            serde_json::to_string(&items).unwrap_or_default(),
+            request.input_source.as_deref().cloned(),
+        );
+        if !cites.contains(&spec) {
+            cites.push(spec);
+        }
+    }
+    if !matched && !grant.resource_scope.is_empty() {
+        let spec = StoredSpec::proven(
+            "capability_grant",
+            grant.grant_id.clone(),
+            "resource_scope",
+            serde_json::to_string(&grant.resource_scope).unwrap_or_default(),
+            None,
+        );
+        if !cites.contains(&spec) {
+            cites.push(spec);
+        }
     }
 }
 

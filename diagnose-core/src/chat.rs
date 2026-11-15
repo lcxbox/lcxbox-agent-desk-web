@@ -248,6 +248,10 @@ pub struct ChatMessage {
     /// input snapshot as leaves whenever this message is sent.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stored_roots: Vec<crate::model_content::StoredRoot>,
+    /// Request-only sources of text appended piece by piece, such as the
+    /// runtime context; they label the message when it is finished.
+    #[serde(skip)]
+    pub content_sources: crate::model_content::Sources,
     /// Server-owned control observations bound to this exact model response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_controls: Option<Box<crate::model_controls::FrozenModelControls>>,
@@ -294,6 +298,7 @@ impl ChatMessage {
             replay_disposition: None,
             data_envelope: None,
             stored_roots: Vec::new(),
+            content_sources: Default::default(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -352,6 +357,7 @@ impl ChatMessage {
             replay_disposition: Some(replay_disposition),
             data_envelope: None,
             stored_roots: Vec::new(),
+            content_sources: Default::default(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -400,6 +406,7 @@ impl ChatMessage {
             replay_disposition: None,
             data_envelope: None,
             stored_roots: Vec::new(),
+            content_sources: Default::default(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -431,6 +438,7 @@ impl ChatMessage {
             replay_disposition: None,
             data_envelope: None,
             stored_roots: Vec::new(),
+            content_sources: Default::default(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -466,6 +474,7 @@ impl ChatMessage {
             replay_disposition: None,
             data_envelope: None,
             stored_roots: Vec::new(),
+            content_sources: Default::default(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,

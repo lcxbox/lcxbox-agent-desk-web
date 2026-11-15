@@ -45,7 +45,7 @@ pub struct Sources {
 }
 
 impl Sources {
-    fn merge(&mut self, other: &Sources) {
+    pub(crate) fn merge(&mut self, other: &Sources) {
         self.args.extend(other.args.iter().cloned());
         for (id, label) in &other.parents {
             self.parents
@@ -127,6 +127,28 @@ impl Display for ServerId {
 }
 
 const_piece!(ServerId);
+
+/// Text the server built only from its own constants, clock, registries and
+/// state, such as the current time or the capability index. Never wrap text
+/// a model, device or owner supplied; cite such text with
+/// [`ContentBuilder::cite`] instead.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct ServerText(String);
+
+impl ServerText {
+    pub fn generated(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+}
+
+impl Display for ServerText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+const_piece!(ServerText);
 
 /// Server text assembled only from literals and constant values, such as a
 /// note with version numbers.
@@ -377,6 +399,20 @@ impl ModelContent {
         self.sources.unverified
     }
 
+    /// Assembles content from text and the sources gathered for it, such as
+    /// runtime instructions appended piece by piece.
+    pub(crate) fn from_parts(text: String, sources: Sources) -> Self {
+        Self { text, sources }
+    }
+
+    /// Server-built text alone; see [`ServerText`].
+    pub fn server_text(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            sources: Sources::default(),
+        }
+    }
+
     /// Binds the roots of stored text gathered without a destination to
     /// `destinations`, the model the content is sent to.
     pub fn bind(&mut self, destinations: &[DestinationIdentity]) -> Result<(), AgentError> {
@@ -426,6 +462,21 @@ impl ContentBuilder {
         use std::fmt::Write;
         let _ = write!(self.text, "{}", piece.get());
         piece.collect(&mut self.sources);
+        self
+    }
+
+    /// Server-built text; see [`ServerText`].
+    pub fn server(mut self, text: &ServerText) -> Self {
+        self.text.push_str(&text.0);
+        self
+    }
+
+    /// Records that text appended through [`Self::server`] repeats `spec`'s
+    /// stored text, so its root becomes a parent once bound.
+    pub fn cite(mut self, spec: StoredSpec) -> Self {
+        if !self.sources.unbound.contains(&spec) {
+            self.sources.unbound.push(spec);
+        }
         self
     }
 

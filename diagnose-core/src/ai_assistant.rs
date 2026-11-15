@@ -4151,23 +4151,32 @@ pub fn interactive_user_home_prompt(home: Option<&str>) -> String {
 }
 
 pub fn build_ai_assistant_system_message(locale: Option<&str>) -> ChatMessage {
-    build_ai_assistant_system_message_with_catalog(locale, "")
+    build_ai_assistant_system_message_with_catalog(
+        locale,
+        &crate::model_content::ModelContent::constant(""),
+    )
 }
 
 pub fn build_ai_assistant_system_message_with_catalog(
     locale: Option<&str>,
-    catalog: &str,
+    catalog: &crate::model_content::ModelContent,
 ) -> ChatMessage {
     let mut message = ChatMessage::text(
         AGENTIC_SYSTEM_MESSAGE_ID,
         ChatRole::System,
         system_text(|_| true),
     );
-    let mut runtime = ChatMessage::system_event(crate::runtime_context::MESSAGE_ID, catalog);
-    if let Some(locale) = locale {
-        runtime.text.push_str(&format!(
-            "\nWrite natural-language answers in BCP-47 locale {locale}."
-        ));
+    let mut runtime = ChatMessage::system_event(crate::runtime_context::MESSAGE_ID, "");
+    crate::runtime_context::append(&mut runtime, catalog);
+    if let Some(tag) = locale.and_then(crate::runtime_context::locale_tag) {
+        crate::runtime_context::append(
+            &mut runtime,
+            &crate::model_content::ModelContent::builder()
+                .text("\nWrite natural-language answers in BCP-47 locale ")
+                .server(&tag)
+                .text(".")
+                .build(),
+        );
     }
     message.runtime_context = Some(Box::new(runtime));
     message

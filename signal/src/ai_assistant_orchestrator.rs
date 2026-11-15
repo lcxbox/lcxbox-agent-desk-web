@@ -2872,7 +2872,7 @@ async fn prepare_composed_turn(
                                     let mut system_prompt =
                                         build_ai_assistant_system_message_with_catalog(
                                             ask.locale.as_deref(),
-                                            &capability_authorization.text,
+                                            &capability_authorization.content(),
                                         );
                                     if scheduled
                                         .as_ref()
@@ -2880,7 +2880,9 @@ async fn prepare_composed_turn(
                                     {
                                         desk_diagnose_core::runtime_context::append_instruction(
             &mut system_prompt,
-            desk_diagnose_core::schedule::task_prompt::FRESH_TASK_INSTRUCTIONS,
+            &desk_diagnose_core::model_content::ModelContent::constant(
+                desk_diagnose_core::schedule::task_prompt::FRESH_TASK_INSTRUCTIONS,
+            ),
         );
                                     }
                                     let goal_approval_request_id = goal_resume
@@ -2906,7 +2908,7 @@ async fn prepare_composed_turn(
                                     {
                                         desk_diagnose_core::runtime_context::append_instruction(
                                             &mut system_prompt,
-                                            "\n\nPERMISSION DECISION RESUME (server authoritative): a decision was recorded for the pending permission request. Re-read CURRENT AUTHORIZED GRANTS above. Do not request or ask for the same permission again. If a matching active grant exists, continue the existing user requirement now and call the authorized tool. If the item was denied or narrowed so the call no longer matches, adapt the plan or explain the remaining blocker. This trigger adds no new user requirement and does not change the original tool inputs.",
+                                            &desk_diagnose_core::model_content::ModelContent::constant("\n\nPERMISSION DECISION RESUME (server authoritative): a decision was recorded for the pending permission request. Re-read CURRENT AUTHORIZED GRANTS above. Do not request or ask for the same permission again. If a matching active grant exists, continue the existing user requirement now and call the authorized tool. If the item was denied or narrowed so the call no longer matches, adapt the plan or explain the remaining blocker. This trigger adds no new user requirement and does not change the original tool inputs."),
                                         );
                                     }
                                     let mut projection_expiry = capability_authorization
@@ -2936,7 +2938,7 @@ async fn prepare_composed_turn(
         {
             desk_diagnose_core::runtime_context::append_instruction(
                 &mut system_prompt,
-                &notice.text,
+                &notice.content,
             );
             projection_expiry = Some(
                 projection_expiry.map_or(notice.expires_at_unix_ms, |expiry| {

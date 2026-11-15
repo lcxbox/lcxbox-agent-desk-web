@@ -785,6 +785,9 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 &mut system_prompt.text,
                 &fresh.text,
             )?;
+            system_prompt
+                .content_sources
+                .merge(fresh.content().sources());
             if system_prompt
                 .data_envelope
                 .as_ref()
@@ -818,46 +821,76 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             }
         }
         if !policy_read_names.is_empty() {
-            system_prompt.text.push_str(&format!("\nPOLICY-ELIGIBLE READS: {}. These existing read policies can issue authority at invocation. Load missing parameter details and call them directly; sensitive arguments can still require approval, which the call itself requests.", policy_read_names.join(", ")));
+            // Registry tool names only.
+            crate::runtime_context::append(
+                &mut system_prompt,
+                &crate::model_content::ModelContent::server_text(format!(
+                    "\nPOLICY-ELIGIBLE READS: {}. These existing read policies can issue authority at invocation. Load missing parameter details and call them directly; sensitive arguments can still require approval, which the call itself requests.",
+                    policy_read_names.join(", ")
+                )),
+            );
         }
         if session.surface == crate::session::AgentSessionSurface::AiAssistant {
-            system_prompt
-                .text
-                .push_str(&crate::ai_assistant::current_time_prompt(current_unix_ms(
-                    deps.clock,
-                )?));
-            system_prompt
-                .text
-                .push_str(&crate::directory_tools::scope_prompt(
-                    session,
-                    current_unix_ms(deps.clock)?,
-                ));
+            crate::runtime_context::append(
+                &mut system_prompt,
+                &crate::model_content::ModelContent::server_text(
+                    crate::ai_assistant::current_time_prompt(current_unix_ms(deps.clock)?),
+                ),
+            );
+            crate::runtime_context::append(
+                &mut system_prompt,
+                &crate::directory_tools::scope_prompt(session, current_unix_ms(deps.clock)?),
+            );
         }
         if deps
             .registry
             .iter()
             .any(|tool| tool.name() == crate::schedule::proposal::REQUEST_SCHEDULE)
         {
-            system_prompt
-                .text
-                .push_str(&crate::schedule::proposal::clock_prompt(
-                    session,
-                    current_unix_ms(deps.clock)?,
-                ));
+            crate::runtime_context::append(
+                &mut system_prompt,
+                &crate::model_content::ModelContent::server_text(
+                    crate::schedule::proposal::clock_prompt(session, current_unix_ms(deps.clock)?),
+                ),
+            );
         }
         if deps.model.command_completion_event_id().is_some() {
-            system_prompt
-                .text
-                .push_str(crate::command_completion::INTERPRETATION_INSTRUCTION);
+            crate::runtime_context::append(
+                &mut system_prompt,
+                &crate::model_content::ModelContent::constant(
+                    crate::command_completion::INTERPRETATION_INSTRUCTION,
+                ),
+            );
             if state.completion_protocol_retries > 0 {
-                system_prompt.text.push_str("\nYour previous response was discarded for emitting a tool invocation. Return only a natural-language interpretation; no additional operation has been executed.");
+                crate::runtime_context::append(
+                    &mut system_prompt,
+                    &crate::model_content::ModelContent::constant(
+                        "\nYour previous response was discarded for emitting a tool invocation. Return only a natural-language interpretation; no additional operation has been executed.",
+                    ),
+                );
             }
         }
         if session.agent_role.workbench_id().is_some() {
-            system_prompt.text.push_str("\n\nWORKBENCH COORDINATION: Use the available reads to understand the work and its selected targets. Delegate work that changes a device or writes to an external system. Use the original request and report references for follow-up.");
+            crate::runtime_context::append(
+                &mut system_prompt,
+                &crate::model_content::ModelContent::constant(
+                    "\n\nWORKBENCH COORDINATION: Use the available reads to understand the work and its selected targets. Delegate work that changes a device or writes to an external system. Use the original request and report references for follow-up.",
+                ),
+            );
         }
-        if let Some(locale) = session.response_locale.as_deref() {
-            system_prompt.text.push_str(&format!("\n\nWrite natural-language answers and progress explanations in BCP-47 locale {locale}. Tool names, commands, and JSON fields remain unchanged."));
+        if let Some(tag) = session
+            .response_locale
+            .as_deref()
+            .and_then(crate::runtime_context::locale_tag)
+        {
+            crate::runtime_context::append(
+                &mut system_prompt,
+                &crate::model_content::ModelContent::builder()
+                    .text("\n\nWrite natural-language answers and progress explanations in BCP-47 locale ")
+                    .server(&tag)
+                    .text(". Tool names, commands, and JSON fields remain unchanged.")
+                    .build(),
+            );
         }
         let mut disclosure_projection = None;
         if disclosure_enabled {
@@ -914,38 +947,48 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 safe_for_model: true,
                 error_code: None,
             })?;
-            system_prompt.text.push_str("\n\n");
             let advertised = exposed.iter().map(|tool| tool.name()).collect();
-            system_prompt.text.push_str(
-                &crate::capability_disclosure::capability_name_index_prompt(
-                    providers,
-                    inventory,
-                    &raw_provider_exposed,
-                    permission_candidates,
-                    &advertised,
-                )
-                .map_err(|error| AgentError {
-                    kind: AgentErrorKind::InvalidInput,
-                    message: format!("capability state exceeds budget: {error:?}"),
-                    retryable: false,
-                    safe_for_model: true,
-                    error_code: None,
-                })?,
+            // The index and details come from the server's registry and
+            // readiness state.
+            let index = crate::capability_disclosure::capability_name_index_prompt(
+                providers,
+                inventory,
+                &raw_provider_exposed,
+                permission_candidates,
+                &advertised,
+            )
+            .map_err(|error| AgentError {
+                kind: AgentErrorKind::InvalidInput,
+                message: format!("capability state exceeds budget: {error:?}"),
+                retryable: false,
+                safe_for_model: true,
+                error_code: None,
+            })?;
+            crate::runtime_context::append(
+                &mut system_prompt,
+                &crate::model_content::ModelContent::server_text(format!("\n\n{index}")),
             );
             if !projection.detail_prompt.is_empty() {
-                system_prompt.text.push_str("\n\n");
-                system_prompt.text.push_str(&projection.detail_prompt);
+                crate::runtime_context::append(
+                    &mut system_prompt,
+                    &crate::model_content::ModelContent::server_text(format!(
+                        "\n\n{}",
+                        projection.detail_prompt
+                    )),
+                );
             }
             disclosure_projection = Some(projection);
         }
         if !request_devices.is_empty() {
-            crate::request_devices::append_catalogue(
-                &mut system_prompt.text,
-                session,
-                &request_devices,
-                &selected_reads,
-                deps.tools.original_read_context(),
-                can_request_selected_command,
+            crate::runtime_context::append(
+                &mut system_prompt,
+                &crate::request_devices::catalogue(
+                    session,
+                    &request_devices,
+                    &selected_reads,
+                    deps.tools.original_read_context(),
+                    can_request_selected_command,
+                ),
             );
         }
         if system_prompt
@@ -969,12 +1012,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 crate::permission_resume::latest_user_requirement(&session.conversation)
                     .and_then(|message| message.data_envelope.as_ref())
             });
-            system_prompt.data_envelope = crate::model_message_labels::server_projection_envelope(
-                parent,
-                crate::runtime_context::MESSAGE_ID,
-                &system_prompt.text,
-                crate::model_message_labels::ServerResultSource::RuntimeContext,
-            )?;
+            let destination = deps
+                .model
+                .model_egress_policy()?
+                .map(|policy| policy.destination);
+            crate::runtime_context::label(&mut system_prompt, parent, destination.as_ref())?;
         }
         let home_projection = match (
             deps.interactive_user_home,

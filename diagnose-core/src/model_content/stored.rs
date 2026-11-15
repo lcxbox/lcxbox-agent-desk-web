@@ -32,7 +32,7 @@ const STORED_TEXT_PREFIX: &str = "stored-text-";
 const DEVICE_REPORTED_PREFIX: &str = "device-reported-";
 const ROOT_PROJECTION: &str = "stored-root";
 /// Device-reported text is short metadata, never a device output channel.
-pub const MAX_DEVICE_REPORTED_BYTES: usize = 512;
+pub const MAX_DEVICE_REPORTED_BYTES: usize = 4096;
 
 /// Where stored text came from, decided when it was written.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -256,19 +256,68 @@ pub struct StoredSpec {
     pub record_id: String,
     pub field: &'static str,
     pub text: String,
-    pub proof: Option<StoredTextSource>,
+    pub origin: SpecOrigin,
+}
+
+/// How a spec's root is attributed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpecOrigin {
+    /// Stored text with its write-time proof, if any.
+    Proof(Option<StoredTextSource>),
+    /// Short metadata a device reported.
+    DeviceReported,
 }
 
 impl StoredSpec {
+    pub fn proven(
+        kind: &'static str,
+        record_id: impl Into<String>,
+        field: &'static str,
+        text: impl Into<String>,
+        proof: Option<StoredTextSource>,
+    ) -> Self {
+        Self {
+            kind,
+            record_id: record_id.into(),
+            field,
+            text: text.into(),
+            origin: SpecOrigin::Proof(proof),
+        }
+    }
+
+    pub fn device_reported(
+        kind: &'static str,
+        record_id: impl Into<String>,
+        field: &'static str,
+        text: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            record_id: record_id.into(),
+            field,
+            text: text.into(),
+            origin: SpecOrigin::DeviceReported,
+        }
+    }
+
     pub fn root(&self, destinations: Vec<DestinationIdentity>) -> Result<StoredRoot, AgentError> {
-        StoredRoot::text(
-            self.kind,
-            &self.record_id,
-            self.field,
-            &self.text,
-            self.proof.clone(),
-            destinations,
-        )
+        match &self.origin {
+            SpecOrigin::Proof(proof) => StoredRoot::text(
+                self.kind,
+                &self.record_id,
+                self.field,
+                &self.text,
+                proof.clone(),
+                destinations,
+            ),
+            SpecOrigin::DeviceReported => StoredRoot::device_reported(
+                self.kind,
+                &self.record_id,
+                self.field,
+                &self.text,
+                destinations,
+            ),
+        }
     }
 }
 
