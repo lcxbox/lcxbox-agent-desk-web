@@ -338,12 +338,14 @@ pub(super) async fn dispatch(
                 };
             (message, true)
         }
+        // Argument checks, or store errors whose model-safe forms are fixed
+        // text (`AssistantStoreError::into_agent_error`).
         Err(error) if error.safe_for_model => (
             Box::new(error_result(
                 parent,
                 call,
                 &result_message_id,
-                &error.message,
+                &crate::model_content::ToolError::validation(&error),
             )?),
             false,
         ),
@@ -356,7 +358,9 @@ pub(super) async fn dispatch(
                 parent,
                 call,
                 &result_message_id,
-                "Response exceeds the framed byte limit; narrow the source window. No source content was returned.",
+                &crate::model_content::ToolError::server(
+                    "Response exceeds the framed byte limit; narrow the source window. No source content was returned.",
+                ),
             )?);
             message.turn_id = session.current_turn_id.clone();
             message.tool_ok = Some(false);
@@ -562,17 +566,10 @@ fn error_result(
     parent: Option<&DataEnvelope>,
     call: &ToolCall,
     message_id: &str,
-    error: &str,
+    error: &crate::model_content::ToolError,
 ) -> Result<ChatMessage, AgentError> {
-    let content = crate::model_input::describe_error(&call.name, error);
-    let mut message = ChatMessage::tool_result(message_id, &call.id, content);
+    let mut message = error.result_message(message_id, call, parent)?;
     message.tool_ok = Some(false);
-    message.data_envelope = crate::model_message_labels::data_result_envelope(
-        parent,
-        &call.id,
-        &message.text,
-        &call.name,
-    )?;
     Ok(message)
 }
 

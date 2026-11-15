@@ -3238,50 +3238,57 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     issue_reply::run(deps, session, call)
                                                 })
                                                 .await;
-                                                let (content, ok) = match result {
-                                                    Ok(receipt) => (
-                                                        serde_json::to_string(&receipt).map_err(
-                                                            |_| {
-                                                                crate::subagent::invalid(
-                                                                    "Invalid publication receipt",
-                                                                )
-                                                            },
-                                                        )?,
-                                                        true,
-                                                    ),
-                                                    Err(error) if error.safe_for_model => (
-                                                        crate::model_input::describe_error(
-                                                            &call.name,
-                                                            &error.message,
-                                                        ),
-                                                        false,
-                                                    ),
-                                                    Err(error) => return Err(error),
-                                                };
                                                 let parent =
                                                     turn.provider_meta.data_envelope.as_ref();
-                                                if ok
-                                                    && call.name
-                                                        == crate::issue_reply::PREPARE_TOOL_NAME
-                                                {
-                                                    append_internal_tool_result(
-                                                        session,
-                                                        parent,
-                                                        (state.mint)(),
-                                                        &call.id,
-                                                        content,
-                                                        ServerResultSource::PrepareIssueReply,
-                                                    )?;
-                                                } else {
-                                                    append_data_tool_result(
-                                                        session,
-                                                        parent,
-                                                        (state.mint)(),
-                                                        &call.id,
-                                                        content,
-                                                        &call.name,
-                                                    )?;
-                                                }
+                                                let ok = match result {
+                                                    Ok(receipt) => {
+                                                        let content = serde_json::to_string(
+                                                            &receipt,
+                                                        )
+                                                        .map_err(|_| {
+                                                            crate::subagent::invalid(
+                                                                "Invalid publication receipt",
+                                                            )
+                                                        })?;
+                                                        if call.name
+                                                            == crate::issue_reply::PREPARE_TOOL_NAME
+                                                        {
+                                                            append_internal_tool_result(
+                                                                session,
+                                                                parent,
+                                                                (state.mint)(),
+                                                                &call.id,
+                                                                content,
+                                                                ServerResultSource::PrepareIssueReply,
+                                                            )?;
+                                                        } else {
+                                                            append_data_tool_result(
+                                                                session,
+                                                                parent,
+                                                                (state.mint)(),
+                                                                &call.id,
+                                                                content,
+                                                                &call.name,
+                                                            )?;
+                                                        }
+                                                        true
+                                                    }
+                                                    // Drafting runs a model whose upstream
+                                                    // error text is unverified.
+                                                    Err(error) if error.safe_for_model => {
+                                                        append_tool_error(
+                                                            session,
+                                                            parent,
+                                                            (state.mint)(),
+                                                            call,
+                                                            &crate::model_content::ToolError::host(
+                                                                &error,
+                                                            ),
+                                                        )?;
+                                                        false
+                                                    }
+                                                    Err(error) => return Err(error),
+                                                };
                                                 deps.session_seam.save(session).await?;
                                                 finish_tool(session, &call.id, ok, sink);
                                                 Ok(None)
@@ -3314,17 +3321,16 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         result.ok,
                                                         result.replayed,
                                                     ),
+                                                    // Argument checks, or store errors whose
+                                                    // model-safe forms are fixed text
+                                                    // (`AssistantStoreError::into_agent_error`).
                                                     Err(error) if error.safe_for_model => {
-                                                        let content =
-                                                            crate::model_input::describe_error(
-                                                                &call.name,
-                                                                &error.message,
-                                                            );
-                                                        let mut message = ChatMessage::tool_result(
-                                                            result_id, &call.id, content,
-                                                        );
-                                                        message.data_envelope = crate::model_message_labels::data_result_envelope(
-                                                            turn.provider_meta.data_envelope.as_ref(), &call.id, &message.text, &call.name)?;
+                                                        let message = crate::model_content::ToolError::validation(&error)
+                                                            .result_message(
+                                                                result_id,
+                                                                call,
+                                                                turn.provider_meta.data_envelope.as_ref(),
+                                                            )?;
                                                         (message, false, false)
                                                     }
                                                     Err(error) => return Err(error),
@@ -3447,19 +3453,20 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                             ));
                                                         }
                                                     }
+                                                    // Delegation errors are argument checks or
+                                                    // fixed host text (`delegation_storage` maps
+                                                    // every storage error to a constant).
                                                     Err(error) => {
-                                                        append_data_tool_result(
+                                                        append_tool_error(
                                                             session,
                                                             turn.provider_meta
                                                                 .data_envelope
                                                                 .as_ref(),
                                                             (state.mint)(),
-                                                            &call.id,
-                                                            crate::model_input::describe_error(
-                                                                &call.name,
-                                                                &error.message,
+                                                            call,
+                                                            &crate::model_content::ToolError::validation(
+                                                                &error,
                                                             ),
-                                                            &call.name,
                                                         )?;
                                                         deps.session_seam.save(session).await?;
                                                         finish_tool(session, &call.id, false, sink);
@@ -3738,16 +3745,16 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 }
                                                 Err(error) => {
                                                     tool_observation.input_error(&error);
-                                                    append_data_tool_result(
+                                                    // Only argument parsing fails here; host
+                                                    // errors propagate.
+                                                    append_tool_error(
                                                         session,
                                                         turn.provider_meta.data_envelope.as_ref(),
                                                         (state.mint)(),
-                                                        &call.id,
-                                                        crate::model_input::describe_error(
-                                                            &call.name,
-                                                            &error.message,
+                                                        call,
+                                                        &crate::model_content::ToolError::validation(
+                                                            &error,
                                                         ),
-                                                        crate::goal_tools::CONTROL_GOAL_TOOL_NAME,
                                                     )?;
                                                     deps.session_seam.save(session).await?;
                                                     finish_tool(session, &call.id, false, sink);
@@ -3859,25 +3866,17 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                             .await?;
                                                         finish_tool(session, &call.id, true, sink);
                                                     }
+                                                    // The task list is built from the call alone.
                                                     Err(error) => {
-                                                        let content =
-                                                            crate::model_input::describe_error(
-                                                                &call.name,
-                                                                &error.message,
-                                                            );
-                                                        let envelope = crate::model_message_labels::data_result_envelope(
-                                            turn.provider_meta.data_envelope.as_ref(),
-                                            &call.id,
-                                            &content,
-                                            crate::task_status_tools::UPDATE_TASK_STATUS_TOOL_NAME,
-                                        )?;
-                                                        let mut message = ChatMessage::tool_result(
+                                                        append_tool_error(
+                                                            session,
+                                                            turn.provider_meta.data_envelope.as_ref(),
                                                             (state.mint)(),
-                                                            &call.id,
-                                                            content,
-                                                        );
-                                                        message.data_envelope = envelope;
-                                                        session.conversation.push(message);
+                                                            call,
+                                                            &crate::model_content::ToolError::validation(
+                                                                &error,
+                                                            ),
+                                                        )?;
                                                         deps.session_seam.save(session).await?;
                                                         finish_tool(session, &call.id, false, sink);
                                                     }
@@ -4216,7 +4215,10 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                             .await
                                                             .map(|(device, resolved)| {
                                                                 (device, input, resolved)
-                                                            }),
+                                                            })
+                                                            // The device resolves the path; its
+                                                            // errors are unverified text.
+                                                            .map_err(|error| (error, true)),
                                                         Ok((None, input)) => deps
                                                             .tools
                                                             .resolve_directory_candidate(
@@ -4229,25 +4231,35 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                                     input,
                                                                     resolved,
                                                                 )
-                                                            }),
-                                                        Err(error) => Err(error),
+                                                            })
+                                                            .map_err(|error| (error, true)),
+                                                        // Parsing reads only the call.
+                                                        Err(error) => Err((error, false)),
                                                     };
-                                                tool_observation.preflight_result(&resolved);
+                                                tool_observation.preflight_result(
+                                                    &resolved
+                                                        .as_ref()
+                                                        .map(|_| ())
+                                                        .map_err(|(error, _)| error.clone()),
+                                                );
                                                 let (device, input, resolved) = match resolved {
                                                     Ok(value) => value,
-                                                    Err(error) => {
-                                                        append_data_tool_result(
+                                                    Err((error, from_device)) => {
+                                                        let error = if from_device {
+                                                            crate::model_content::ToolError::host(
+                                                                &error,
+                                                            )
+                                                        } else {
+                                                            crate::model_content::ToolError::validation(&error)
+                                                        };
+                                                        append_tool_error(
                                                             session,
                                                             turn.provider_meta
                                                                 .data_envelope
                                                                 .as_ref(),
                                                             (state.mint)(),
-                                                            &call.id,
-                                                            crate::model_input::describe_error(
-                                                                &call.name,
-                                                                &error.message,
-                                                            ),
-                                                            crate::model_message_labels::sources::DIRECTORY_RESOLUTION_FAILED,
+                                                            call,
+                                                            &error,
                                                         )?;
                                                         deps.session_seam.save(session).await?;
                                                         finish_tool(session, &call.id, false, sink);
@@ -4391,36 +4403,26 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     &skill_catalog,
                                                 );
                                                 tool_observation.preflight_result(&result);
-                                                let (content, ok) = match result {
-                                                    Ok(content) => (content, true),
-                                                    Err(error) => (
-                                                        crate::model_input::describe_error(
-                                                            &call.name,
-                                                            &error.message,
-                                                        ),
-                                                        false,
-                                                    ),
-                                                };
+                                                let ok = result.is_ok();
                                                 let parent =
                                                     turn.provider_meta.data_envelope.as_ref();
-                                                if ok {
-                                                    append_internal_tool_result(
+                                                match result {
+                                                    Ok(content) => append_internal_tool_result(
                                                         session,
                                                         parent,
                                                         (state.mint)(),
                                                         &call.id,
                                                         content,
                                                         ServerResultSource::LoadSkill,
-                                                    )?;
-                                                } else {
-                                                    append_data_tool_result(
+                                                    )?,
+                                                    // Skill loading reads only the call and the frozen catalogue.
+                                                    Err(error) => append_tool_error(
                                                         session,
                                                         parent,
                                                         (state.mint)(),
-                                                        &call.id,
-                                                        content,
-                                                        crate::skills::LOAD_TOOL,
-                                                    )?;
+                                                        call,
+                                                        &crate::model_content::ToolError::validation(&error),
+                                                    )?,
                                                 }
                                                 deps.session_seam.save(session).await?;
                                                 finish_tool(session, &call.id, ok, sink);
@@ -4471,40 +4473,31 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             },
                                         );
                                                 tool_observation.preflight_result(&result);
-                                                let (content, ok) = match result {
-                                                    Ok(content) => (content, true),
-                                                    Err(error) => (
-                                                        crate::model_input::describe_error(
-                                                            &call.name,
-                                                            &error.message,
-                                                        ),
-                                                        false,
-                                                    ),
-                                                };
+                                                let ok = result.is_ok();
                                                 let parent =
                                                     turn.provider_meta.data_envelope.as_ref();
-                                                let envelope = if ok {
-                                                    crate::model_message_labels::server_result_envelope(
+                                                match result {
+                                                    Ok(content) => {
+                                                        let envelope = crate::model_message_labels::server_result_envelope(
+                                                            parent,
+                                                            &call.id,
+                                                            &content,
+                                                            ServerResultSource::DescribeTools,
+                                                        )?;
+                                                        let mut message =
+                                                            ChatMessage::tool_result((state.mint)(), &call.id, content);
+                                                        message.data_envelope = envelope;
+                                                        session.conversation.push(message);
+                                                    }
+                                                    // Loading reads only the call and the server's tool registry.
+                                                    Err(error) => append_tool_error(
+                                                        session,
                                                         parent,
-                                                        &call.id,
-                                                        &content,
-                                                        ServerResultSource::DescribeTools,
-                                                    )
-                                                } else {
-                                                    crate::model_message_labels::data_result_envelope(
-                                                        parent,
-                                                        &call.id,
-                                                        &content,
-                                                        crate::capability_disclosure::LOAD_CAPABILITY_DETAILS_TOOL_NAME,
-                                                    )
-                                                }?;
-                                                let mut message = ChatMessage::tool_result(
-                                                    (state.mint)(),
-                                                    &call.id,
-                                                    content,
-                                                );
-                                                message.data_envelope = envelope;
-                                                session.conversation.push(message);
+                                                        (state.mint)(),
+                                                        call,
+                                                        &crate::model_content::ToolError::validation(&error),
+                                                    )?,
+                                                }
                                                 deps.session_seam.save(session).await?;
                                                 finish_tool(session, &call.id, ok, sink);
 

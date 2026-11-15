@@ -2452,6 +2452,19 @@ fn append_internal_tool_result(
     Ok(())
 }
 
+/// Records the error result of `call`, labelled from where its text came from.
+fn append_tool_error(
+    session: &mut crate::session::PersistedAgentSession,
+    issuing: Option<&DataEnvelope>,
+    message_id: String,
+    call: &crate::chat::ToolCall,
+    error: &crate::model_content::ToolError,
+) -> Result<(), AgentError> {
+    let message = error.result_message(message_id, call, issuing)?;
+    session.conversation.push(message);
+    Ok(())
+}
+
 /// Records a tool call's result whose body is host error text or other data;
 /// it keeps the tool's name for history export and never registers.
 fn append_data_tool_result(
@@ -3890,13 +3903,18 @@ async fn run_mutating<F: FnMut() -> String>(
             Err(error) => {
                 observation
                     .permission(crate::model_observability::PermissionOutcome::PolicyRejected);
-                let text = crate::model_input::describe_error(&call.name, &error.message);
+                // The recheck compares the call with the stored approval and
+                // the host's current policy; every model-safe error is fixed text.
+                let text = crate::model_input::describe_error(
+                    &call.name,
+                    crate::model_content::ToolError::validation(&error).reason(),
+                );
                 append_mutating_result(
                     deps,
                     session,
                     call,
                     ChatMessage::tool_result(mint(), &call.id, text),
-                    None,
+                    Some(ServerResultSource::ToolCallError),
                 )?;
                 finish_tool(session, &call.id, false, sink);
                 *halted = Some("not executed: the approved command target or input changed".into());
@@ -4247,6 +4265,7 @@ async fn run_wait<F: FnMut() -> String>(
     // A model-safe argument error becomes an error tool result; the turn continues.
     let task_id = match crate::wait_tools::parse_wait_task_id(call) {
         Ok(id) => id,
+        // Parsing reads only the call, so the error registers under it.
         Err(e) => {
             observation.input_error(&e);
             append_mutating_result(
@@ -4254,7 +4273,7 @@ async fn run_wait<F: FnMut() -> String>(
                 session,
                 call,
                 ChatMessage::tool_result(mint(), &call.id, format!("wait error: {}", e.message)),
-                None,
+                Some(ServerResultSource::ToolCallError),
             )?;
             return Ok(None);
         }

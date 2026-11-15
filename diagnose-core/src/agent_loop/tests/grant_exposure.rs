@@ -1009,3 +1009,100 @@ async fn a_host_input_mismatch_is_explained_once_before_a_new_proposal() {
     };
     assert_eq!(request.items[0].item_id, "second");
 }
+
+/// Loading a built-in tool by mistake fails with server text only, so its
+/// error result registers under the issuing output and later answers stay
+/// retainable.
+#[tokio::test]
+async fn a_capability_loading_error_registers_under_the_issuing_output() {
+    use crate::ai_assistant::source_registry::{
+        NativeInputPolicyRegistration, RegisteredSourceContract, SOURCE_CONTRACT_REVISION,
+    };
+    let (session, providers, _snapshot, inventory, target, scope) = call_time_case(true);
+    let issuing = crate::model_message_labels::model_bound_user_message(
+        "issuing".into(),
+        "stand-in issuing output".into(),
+        desk_agent_protocol::data_lineage::DestinationIdentity::Model {
+            connection_id: "gateway".into(),
+            connection_revision: 1,
+            model_id: "model".into(),
+            profile_revision: 1,
+        },
+    )
+    .unwrap()
+    .data_envelope
+    .unwrap();
+    let mut load = load_read();
+    load.tool_calls[0].arguments_json =
+        serde_json::json!({"tool_names":[crate::skills::authoring::REMOVE_TOOL]}).to_string();
+    load.provider_meta.data_envelope = Some(issuing.clone());
+    let model = ScriptModel {
+        turns: RefCell::new([load, answer("done")].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(_snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let mut registry = vec![target];
+    registry.extend(crate::capability_disclosure::capability_discovery_tool_registry());
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    run_agent_turn(
+        &deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope,
+            ..claim()
+        },
+        ChatMessage::text("u", ChatRole::User, "disable the skill"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    let stored = session.inner.borrow();
+    let result = stored
+        .as_ref()
+        .unwrap()
+        .conversation
+        .iter()
+        .find(|message| message.tool_call_id.as_deref() == Some("load"))
+        .unwrap()
+        .clone();
+    assert!(
+        result.text.contains("built-in conversation tool"),
+        "{}",
+        result.text
+    );
+    let label = result.data_envelope.unwrap();
+    assert!(
+        label
+            .envelope_id
+            .starts_with(crate::model_message_labels::COMPOSED_RESULT_PREFIX)
+    );
+    assert_eq!(
+        label.provenance.source_tool_name,
+        ServerResultSource::ToolCallError.as_str()
+    );
+    assert_eq!(
+        label.provenance.source_envelope_ids,
+        std::slice::from_ref(&issuing.envelope_id)
+    );
+    let inputs = vec![issuing, label];
+    let audit = crate::sink_authorizer::SinkProjectionAudit {
+        destination: inputs[0].allowed_destinations[0].clone(),
+        envelope_ids: inputs
+            .iter()
+            .map(|input| input.envelope_id.clone())
+            .collect(),
+        total_bytes: 32,
+    };
+    let snapshot = crate::model_egress::NativeModelInputSnapshot::capture(&audit, &inputs).unwrap();
+    let registration =
+        NativeInputPolicyRegistration::capture(&snapshot, SOURCE_CONTRACT_REVISION, 1).unwrap();
+    assert_eq!(
+        registration.leaves[1].as_ref().map(|leaf| leaf.contract),
+        Some(RegisteredSourceContract::NativeControl)
+    );
+}
