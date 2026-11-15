@@ -243,6 +243,11 @@ pub struct ChatMessage {
     /// projector authorizes it and then serializes only the message payload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_envelope: Option<desk_agent_protocol::data_lineage::DataEnvelope>,
+    /// Roots of the stored text this message repeats, each with the source
+    /// proof computed when the text was written. They join the request's
+    /// input snapshot as leaves whenever this message is sent.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stored_roots: Vec<crate::model_content::StoredRoot>,
     /// Server-owned control observations bound to this exact model response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_controls: Option<Box<crate::model_controls::FrozenModelControls>>,
@@ -288,6 +293,7 @@ impl ChatMessage {
             background_task_id: None,
             replay_disposition: None,
             data_envelope: None,
+            stored_roots: Vec::new(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -345,6 +351,7 @@ impl ChatMessage {
             background_task_id: None,
             replay_disposition: Some(replay_disposition),
             data_envelope: None,
+            stored_roots: Vec::new(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -392,6 +399,7 @@ impl ChatMessage {
             background_task_id: Some(background_task_id.into()),
             replay_disposition: None,
             data_envelope: None,
+            stored_roots: Vec::new(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -422,6 +430,7 @@ impl ChatMessage {
             background_task_id: None,
             replay_disposition: None,
             data_envelope: None,
+            stored_roots: Vec::new(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -456,6 +465,7 @@ impl ChatMessage {
             background_task_id: Some(background_task_id),
             replay_disposition: None,
             data_envelope: None,
+            stored_roots: Vec::new(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,

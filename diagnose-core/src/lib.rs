@@ -91,6 +91,7 @@ pub mod live_context;
 mod model_actions;
 pub mod model_capability;
 mod model_constraints;
+pub mod model_content;
 pub mod model_context;
 pub mod model_controls;
 pub mod model_egress;

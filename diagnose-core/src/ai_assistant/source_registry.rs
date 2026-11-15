@@ -50,6 +50,13 @@ pub enum RegisteredSourceContract {
     /// Worker-authored path guidance has a live-use deadline, not a deadline
     /// for the visible answer derived from its immutable text snapshot.
     InteractiveUserHome,
+    /// Stored text read back into a request. Its compiled policy is the
+    /// strictest; only the source proof embedded with the root, checked when
+    /// policies are merged, can make an answer derived from it retainable.
+    StoredText,
+    /// Short metadata a device reported, such as its name or a path it
+    /// resolved, read back from storage.
+    DeviceReported,
 }
 
 /// A registered leaf policy grants no source lookup, copy, or send by itself.
@@ -156,13 +163,17 @@ fn registration(
         | RegisteredSourceContract::ExternalIssueResult => {
             (SourcePolicyClass::VisibleProviderText, false, false, true)
         }
-        RegisteredSourceContract::DeviceObservation | RegisteredSourceContract::UiObservation => {
+        RegisteredSourceContract::DeviceObservation
+        | RegisteredSourceContract::UiObservation
+        | RegisteredSourceContract::DeviceReported => {
             (SourcePolicyClass::StructuredObservation, false, false, true)
         }
         RegisteredSourceContract::MediaObservation => {
             (SourcePolicyClass::Media, false, false, true)
         }
-        RegisteredSourceContract::ProviderPrivate | RegisteredSourceContract::Secret => {
+        RegisteredSourceContract::ProviderPrivate
+        | RegisteredSourceContract::Secret
+        | RegisteredSourceContract::StoredText => {
             (SourcePolicyClass::ProviderPrivate, false, false, false)
         }
         RegisteredSourceContract::Unknown => (SourcePolicyClass::Unknown, false, false, false),
@@ -228,6 +239,12 @@ fn classify(envelope: &DataEnvelope) -> RegisteredSourceContract {
     }
     if crate::schedule::published_input::is_published_input_label(envelope) {
         return RegisteredSourceContract::PublishedTaskInput;
+    }
+    if crate::model_content::stored::is_stored_text_label(envelope) {
+        return RegisteredSourceContract::StoredText;
+    }
+    if crate::model_content::stored::is_device_reported_label(envelope) {
+        return RegisteredSourceContract::DeviceReported;
     }
     if canonical_user_blob(envelope) {
         match (

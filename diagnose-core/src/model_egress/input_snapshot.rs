@@ -16,6 +16,11 @@ pub struct NativeModelInputSnapshot {
     pub total_bytes: u64,
     pub envelopes: Vec<DataEnvelope>,
     pub exports: Vec<NativeModelInputExport>,
+    /// Roots of stored text the inputs repeat, each referenced by at least one
+    /// input label. They are leaves for retention only: never sent, audited or
+    /// exported themselves.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stored_roots: Vec<crate::model_content::StoredRoot>,
 }
 
 impl NativeModelInputSnapshot {
@@ -30,6 +35,15 @@ impl NativeModelInputSnapshot {
         audit: &SinkProjectionAudit,
         envelopes: &[DataEnvelope],
         exports: &[NativeModelInputExport],
+    ) -> Result<Self, &'static str> {
+        Self::capture_with_roots(audit, envelopes, exports, &[])
+    }
+
+    pub fn capture_with_roots(
+        audit: &SinkProjectionAudit,
+        envelopes: &[DataEnvelope],
+        exports: &[NativeModelInputExport],
+        stored_roots: &[crate::model_content::StoredRoot],
     ) -> Result<Self, &'static str> {
         if envelopes.is_empty() || envelopes.len() > MAX_SINK_BYTES {
             return Err("invalid native input snapshot count");
@@ -52,9 +66,35 @@ impl NativeModelInputSnapshot {
             total_bytes: audit.total_bytes as u64,
             envelopes: envelopes.to_vec(),
             exports: unique.into_values().cloned().collect(),
+            stored_roots: stored_roots.to_vec(),
         };
         value.validate_exports()?;
+        value.validate_stored_roots()?;
         Ok(value)
+    }
+
+    /// Every stored root is a valid root of a stored-text or device-reported
+    /// shape, appears once, and is a parent of at least one input.
+    fn validate_stored_roots(&self) -> Result<(), &'static str> {
+        use crate::model_content::stored::{is_device_reported_label, is_stored_text_label};
+        let referenced = self
+            .policy_sources()
+            .into_iter()
+            .flat_map(|input| &input.provenance.source_envelope_ids)
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut seen = std::collections::BTreeSet::new();
+        for root in &self.stored_roots {
+            root.label
+                .validate()
+                .map_err(|_| "invalid stored root label")?;
+            if !(is_stored_text_label(&root.label) || is_device_reported_label(&root.label))
+                || !seen.insert(&root.label.envelope_id)
+                || !referenced.contains(&root.label.envelope_id)
+            {
+                return Err("stored root is not a referenced stored-text root");
+            }
+        }
+        Ok(())
     }
 
     pub fn audit(&self) -> Result<SinkProjectionAudit, &'static str> {
@@ -82,6 +122,7 @@ impl NativeModelInputSnapshot {
                 .map_err(|_| "invalid native input snapshot label")?;
         }
         self.validate_exports()?;
+        self.validate_stored_roots()?;
         Ok((
             SinkProjectionAudit {
                 destination: self.destination.clone(),

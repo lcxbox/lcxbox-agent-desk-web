@@ -260,6 +260,124 @@ pub fn server_review_envelope(
     Ok(envelope)
 }
 
+pub(crate) const COMPOSED_RESULT_PREFIX: &str = "composed-result-";
+pub(crate) const COMPOSED_CONTENT_PREFIX: &str = "composed-content-";
+pub(crate) const COMPOSED_RESULT_PROJECTION: &str = "composed-result";
+pub(crate) const UNVERIFIED_RESULT_PREFIX: &str = "unverified-result-";
+const UNVERIFIED_CONTENT_PREFIX: &str = "unverified-content-";
+const UNVERIFIED_RESULT_PROJECTION: &str = "unverified-result";
+
+/// Label model-visible `content` from its pieces' sources.
+///
+/// The parents are the issuing model output (when given) followed by every
+/// in-request label the content repeats, in id order; the issuing output stays
+/// first so readers can find it. Sensitivity, retention and destinations are
+/// the strictest of all parents. Content holding unverified text gets a shape
+/// the registry never accepts; any other content gets the composed shape,
+/// which registers only with every parent present in the same input.
+///
+/// A persisted result (`request_only == false`) binds the source, call, parents
+/// and body digest in its id; a request-only projection is content-addressed.
+/// Without any parent the content stays unlabelled, as in unlabelled sessions.
+/// Every argument piece must come from `call_id` issued by `issuing`.
+pub fn composed_envelope(
+    content: &crate::model_content::ModelContent,
+    issuing: Option<&DataEnvelope>,
+    call_id: &str,
+    source: ServerResultSource,
+    request_only: bool,
+) -> Result<Option<DataEnvelope>, AgentError> {
+    let sources = content.sources();
+    let issuing_id = issuing.map(|label| label.envelope_id.as_str());
+    if sources
+        .args
+        .iter()
+        .any(|(call, output)| call != call_id || output.as_deref() != issuing_id)
+    {
+        return Err(invalid_label());
+    }
+    let mut parents = Vec::with_capacity(sources.parents.len() + 1);
+    if let Some(issuing) = issuing {
+        parents.push(issuing);
+    }
+    parents.extend(
+        sources
+            .parents
+            .values()
+            .chain(sources.stored.values().map(|root| &root.label))
+            .filter(|label| Some(label.envelope_id.as_str()) != issuing_id),
+    );
+    if parents.is_empty() {
+        return Ok(None);
+    }
+    for parent in &parents {
+        parent.validate().map_err(|_| invalid_label())?;
+    }
+    let MergedInputs {
+        sensitivity,
+        retention,
+        allowed,
+        ..
+    } = merge_inputs(&parents)?;
+    let source_envelope_ids = parents
+        .iter()
+        .map(|parent| parent.envelope_id.clone())
+        .collect::<Vec<_>>();
+    let text = content.text();
+    let digest = format!("{:x}", Sha256::digest(text.as_bytes()));
+    let (envelope_prefix, blob_prefix, projection) = if content.is_unverified() {
+        (
+            UNVERIFIED_RESULT_PREFIX,
+            UNVERIFIED_CONTENT_PREFIX,
+            UNVERIFIED_RESULT_PROJECTION,
+        )
+    } else {
+        (
+            COMPOSED_RESULT_PREFIX,
+            COMPOSED_CONTENT_PREFIX,
+            COMPOSED_RESULT_PROJECTION,
+        )
+    };
+    let identity = serde_json::to_vec(&(
+        source.as_str(),
+        call_id,
+        &source_envelope_ids,
+        &digest,
+        request_only,
+    ))
+    .map_err(|_| invalid_label())?;
+    let content_ref = if request_only {
+        ContentRef::ImmutableBlob {
+            blob_id: format!("{blob_prefix}{:x}", Sha256::digest(digest.as_bytes())),
+            sha256: digest,
+            size_bytes: text.len() as u64,
+            media_type: "text/plain".into(),
+        }
+    } else {
+        ContentRef::Projection {
+            projection: projection.into(),
+            size_bytes: text.len() as u64,
+            media_type: "text/plain".into(),
+        }
+    };
+    let envelope = DataEnvelope {
+        schema_version: DATA_ENVELOPE_SCHEMA_VERSION,
+        envelope_id: format!("{envelope_prefix}{:x}", Sha256::digest(identity)),
+        content: content_ref,
+        provenance: DataProvenance {
+            source_provider_id: crate::dynamic_run::RUN_CONTROL_PROVIDER_ID.into(),
+            source_tool_name: source.as_str().into(),
+            source_object_id: None,
+            source_envelope_ids,
+        },
+        sensitivity,
+        allowed_destinations: allowed.into_iter().collect(),
+        retention,
+    };
+    envelope.validate().map_err(|_| invalid_label())?;
+    Ok(Some(envelope))
+}
+
 /// Envelope id and blob id prefixes of one status label shape.
 struct StatusShape {
     envelope: &'static str,

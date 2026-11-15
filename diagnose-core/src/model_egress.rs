@@ -65,16 +65,42 @@ pub struct AuthorizedModelRequest {
     /// Exact projected inputs used to preserve output sensitivity and provenance.
     pub input_envelopes: Vec<DataEnvelope>,
     pub input_exports: Vec<NativeModelInputExport>,
+    /// Roots of stored text the admitted messages repeat.
+    pub stored_roots: Vec<crate::model_content::StoredRoot>,
 }
 
 impl AuthorizedModelRequest {
     pub fn input_snapshot(&self) -> Result<NativeModelInputSnapshot, &'static str> {
-        NativeModelInputSnapshot::capture_with_exports(
+        NativeModelInputSnapshot::capture_with_roots(
             &self.audit,
             &self.input_envelopes,
             &self.input_exports,
+            &self.stored_roots,
         )
     }
+}
+
+/// Stored roots of the admitted messages that their own labels cite, once
+/// each. A root a message carries but its label does not cite is dropped.
+fn admitted_stored_roots(messages: &[ChatMessage]) -> Vec<crate::model_content::StoredRoot> {
+    let mut roots = std::collections::BTreeMap::new();
+    for message in messages {
+        let Some(label) = &message.data_envelope else {
+            continue;
+        };
+        for root in &message.stored_roots {
+            if label
+                .provenance
+                .source_envelope_ids
+                .contains(&root.label.envelope_id)
+            {
+                roots
+                    .entry(root.label.envelope_id.clone())
+                    .or_insert_with(|| root.clone());
+            }
+        }
+    }
+    roots.into_values().collect()
 }
 
 /// Whether two model destinations use the same authorized gateway connection.
@@ -318,11 +344,13 @@ impl ModelEgressPolicy {
         )
         .map_err(ModelEgressError::Sink)?;
 
+        let stored_roots = admitted_stored_roots(&request.messages);
         Ok(AuthorizedModelRequest {
             request,
             audit: projection.audit,
             input_envelopes: projected_envelopes,
             input_exports,
+            stored_roots,
         })
     }
 

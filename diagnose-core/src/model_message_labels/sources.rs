@@ -76,6 +76,8 @@ server_result_sources! {
     InterruptedCallRecovery => "interrupted_call_recovery",
     ManualOutcomeDisposition => "manual_outcome_disposition",
     PermissionPauseClosed => "permission_pause_closed",
+    // A failed call's error built from its typed origin (`ToolError`).
+    ToolCallError => "tool_call_error",
     // Successful receipts of tools whose body is ids, states or the call's
     // own arguments.
     ControlGoal => crate::goal_tools::CONTROL_GOAL_TOOL_NAME,

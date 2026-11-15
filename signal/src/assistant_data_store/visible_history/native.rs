@@ -151,6 +151,26 @@ pub(crate) fn resolve_policy_on<'a>(
                 policies.insert(policy.clone());
             }
         }
+        // Stored text repeated by the inputs counts with its embedded proof;
+        // a missing, foreign or expired proof leaves the answer unretained.
+        let snapshot = &root.sources.input_snapshot;
+        for (index, stored) in snapshot.stored_roots.iter().enumerate() {
+            let Some(policy) = registration.stored_root_policy(
+                snapshot,
+                index,
+                &root.source_set.actor_id,
+                Some(now),
+            ) else {
+                return Ok(None);
+            };
+            policies.insert(policy.clone());
+            for source in stored.proof.iter().flat_map(|proof| proof.retained_roots()) {
+                roots.insert(
+                    (source.source_id.clone(), source.source_revision),
+                    source.clone(),
+                );
+            }
+        }
         if policies.is_empty() {
             return Ok(None);
         }

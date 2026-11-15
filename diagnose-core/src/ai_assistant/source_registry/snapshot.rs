@@ -24,6 +24,11 @@ pub struct NativeInputPolicyRegistration {
     /// Distinct policies in first-use order, so a leaf keeps its index across
     /// later calls that only append inputs.
     pub policies: Vec<SourceUsePolicy>,
+    /// Ordered one-to-one with the snapshot's stored roots. Stored-text
+    /// leaves hold the strictest compiled policy; their embedded proofs apply
+    /// only when policies are merged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stored_leaves: Vec<Option<NativeInputLeafPolicy>>,
 }
 
 impl NativeInputPolicyRegistration {
@@ -41,8 +46,17 @@ impl NativeInputPolicyRegistration {
         }
         let mut policies: Vec<SourceUsePolicy> = Vec::new();
         let mut leaves = Vec::with_capacity(snapshot.envelopes.len());
-        for registration in registered_inputs(snapshot, source_contract_revision, policy_revision)?
+        let mut stored_leaves = Vec::with_capacity(snapshot.stored_roots.len());
+        for (index, registration) in
+            registered_inputs(snapshot, source_contract_revision, policy_revision)?
+                .into_iter()
+                .enumerate()
         {
+            let leaves = if index < snapshot.envelopes.len() {
+                &mut leaves
+            } else {
+                &mut stored_leaves
+            };
             leaves.push(match registration {
                 Some(entry) => {
                     let index = match policies.iter().position(|policy| *policy == entry.policy) {
@@ -66,6 +80,7 @@ impl NativeInputPolicyRegistration {
             policy_revision,
             leaves,
             policies,
+            stored_leaves,
         };
         value.validate_metadata(snapshot, source_contract_revision, policy_revision)?;
         Ok(value)
@@ -84,13 +99,14 @@ impl NativeInputPolicyRegistration {
             || self.source_contract_revision != original_contract_revision
             || self.policy_revision != original_policy_revision
             || self.leaves.len() != snapshot.envelopes.len()
+            || self.stored_leaves.len() != snapshot.stored_roots.len()
         {
             return Err("native policy registration changed its original snapshot");
         }
         // Leaves reference policies in first-use order, which makes the
         // encoding unique: no gaps, no duplicates and no unused entries.
         let mut next = 0u32;
-        for entry in self.leaves.iter().flatten() {
+        for entry in self.leaves.iter().chain(&self.stored_leaves).flatten() {
             if entry.policy_index > next {
                 return Err("native leaf policy dictionary is not in first-use order");
             }
@@ -125,11 +141,16 @@ impl NativeInputPolicyRegistration {
         if self.source_contract_revision != SOURCE_CONTRACT_REVISION {
             return Err("original source contract revision is unavailable");
         }
-        for (entry, expected) in self.leaves.iter().zip(registered_inputs(
-            snapshot,
-            self.source_contract_revision,
-            self.policy_revision,
-        )?) {
+        for (entry, expected) in
+            self.leaves
+                .iter()
+                .chain(&self.stored_leaves)
+                .zip(registered_inputs(
+                    snapshot,
+                    self.source_contract_revision,
+                    self.policy_revision,
+                )?)
+        {
             match (entry, expected) {
                 (None, None) => {}
                 // A missing historical control registration grants nothing.
@@ -145,9 +166,34 @@ impl NativeInputPolicyRegistration {
         Ok(())
     }
 
+    /// The policy stored root `index` of `snapshot` gives an answer derived
+    /// from it: a device-reported root's compiled policy, or a stored-text
+    /// root's embedded proof when it belongs to `actor` and may be copied at
+    /// `now`. `None` leaves the answer unretained.
+    pub fn stored_root_policy<'a>(
+        &'a self,
+        snapshot: &'a NativeModelInputSnapshot,
+        index: usize,
+        actor: &str,
+        now: Option<u64>,
+    ) -> Option<&'a SourceUsePolicy> {
+        let leaf = self.stored_leaves.get(index)?.as_ref()?;
+        match leaf.contract {
+            RegisteredSourceContract::DeviceReported => self.policy(leaf),
+            RegisteredSourceContract::StoredText => snapshot
+                .stored_roots
+                .get(index)?
+                .proof
+                .as_ref()?
+                .usable_policy(actor, now),
+            _ => None,
+        }
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     /// This is a historical policy result, never a live read/send grant. A
     /// single unresolved actual input prevents claiming a complete derivation.
+    /// Stored roots use their embedded proofs under each proof's own actor.
     pub fn complete_leaf_text_policy(
         &self,
         snapshot: &NativeModelInputSnapshot,
@@ -156,20 +202,41 @@ impl NativeInputPolicyRegistration {
         if self.leaves.iter().any(Option::is_none) {
             return Ok(None);
         }
-        super::super::source::derive_visible_text_policy(&self.policies, self.policy_revision)
-            .map(Some)
+        let mut policies = self
+            .leaves
+            .iter()
+            .flatten()
+            .filter_map(|leaf| self.policy(leaf))
+            .cloned()
+            .collect::<Vec<_>>();
+        for (index, root) in snapshot.stored_roots.iter().enumerate() {
+            let actor = root
+                .proof
+                .as_ref()
+                .map(|proof| proof.actor_id.as_str())
+                .unwrap_or_default();
+            match self.stored_root_policy(snapshot, index, actor, None) {
+                Some(policy) => policies.push(policy.clone()),
+                None => return Ok(None),
+            }
+        }
+        super::super::source::derive_visible_text_policy(&policies, self.policy_revision).map(Some)
     }
 }
 
 /// Controls and derived reads are not independent roots. Every parent is an actual
-/// input in this immutable snapshot, where its own native/read policy remains
-/// mandatory. No ancestor labels, bodies or permissions are invented here.
+/// input in this immutable snapshot, or a stored-text root carried with one,
+/// where its own native/read policy remains mandatory. No ancestor labels,
+/// bodies or permissions are invented here. Entries follow the snapshot's
+/// inputs, then its stored roots.
 fn registered_inputs(
     snapshot: &NativeModelInputSnapshot,
     source_contract_revision: u64,
     policy_revision: u64,
 ) -> Result<Vec<Option<RegisteredSourcePolicy>>, &'static str> {
-    let sources = snapshot.policy_sources();
+    let mut sources = snapshot.policy_sources();
+    let inputs = sources.len();
+    sources.extend(snapshot.stored_roots.iter().map(|root| &root.label));
     if source_contract_revision != SOURCE_CONTRACT_REVISION {
         return Ok(vec![None; sources.len()]);
     }
@@ -188,8 +255,13 @@ fn registered_inputs(
         })
         .collect::<Vec<_>>();
     let mut labels = BTreeMap::new();
-    for (index, (original, projected)) in sources.iter().zip(&snapshot.envelopes).enumerate() {
-        for label in [*original, projected] {
+    let projected = snapshot
+        .envelopes
+        .iter()
+        .map(Some)
+        .chain(std::iter::repeat_n(None, sources.len() - inputs));
+    for (index, (original, projected)) in sources.iter().zip(projected).enumerate() {
+        for label in std::iter::once(*original).chain(projected) {
             if labels
                 .insert(label.envelope_id.as_str(), (index, label))
                 .is_some_and(|(_, old)| old != label)
@@ -306,6 +378,41 @@ fn review_result_shape(source: &DataEnvelope) -> bool {
             if projection == REVIEW_RESULT_PROJECTION && media_type == "text/plain")
 }
 
+/// The registered shape of a composed label: a persisted projection, or a
+/// request-only content-addressed blob, derived from one or more parents that
+/// must all be inputs of the same request. Unverified content uses another
+/// shape and never matches.
+fn composed_result_shape(source: &DataEnvelope, blob: Option<(&String, &String, &String)>) -> bool {
+    use crate::model_message_labels::{
+        COMPOSED_CONTENT_PREFIX, COMPOSED_RESULT_PREFIX, COMPOSED_RESULT_PROJECTION,
+    };
+    use sha2::{Digest, Sha256};
+    source
+        .envelope_id
+        .strip_prefix(COMPOSED_RESULT_PREFIX)
+        .is_some_and(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        && !source.provenance.source_envelope_ids.is_empty()
+        && match (&source.content, blob) {
+            (
+                ContentRef::Projection {
+                    projection,
+                    media_type,
+                    ..
+                },
+                _,
+            ) => projection == COMPOSED_RESULT_PROJECTION && media_type == "text/plain",
+            (_, Some((blob_id, sha256, media_type))) => {
+                media_type == "text/plain"
+                    && *blob_id
+                        == format!(
+                            "{COMPOSED_CONTENT_PREFIX}{:x}",
+                            Sha256::digest(sha256.as_bytes())
+                        )
+            }
+            _ => false,
+        }
+}
+
 /// The registered shape of a `server_*` label: a persisted status projection,
 /// or a request-only content-addressed status blob, derived from exactly one
 /// parent. `data_*` labels use another shape and never match.
@@ -369,6 +476,11 @@ fn native_control(source: &DataEnvelope) -> bool {
             return false;
         }
         match provenance.source_tool_name.as_str() {
+            name if crate::model_message_labels::ServerResultSource::parse(name).is_some()
+                && composed_result_shape(source, blob) =>
+            {
+                true
+            }
             name if crate::model_message_labels::ServerResultSource::parse(name)
                 .is_some_and(|registered| registered.reviewed())
                 && review_result_shape(source) =>

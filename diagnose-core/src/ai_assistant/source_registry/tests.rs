@@ -1082,3 +1082,274 @@ fn review_receipts_register_only_with_every_parent_present_and_keep_their_polici
             .is_none_or(|policy| !policy.history_retention_allowed)
     );
 }
+
+#[test]
+fn composed_results_register_only_with_every_parent_and_keep_the_strictest_policy() {
+    use crate::model_content::{ModelContent, Sourced, Unverified};
+    use crate::model_message_labels::{ServerResultSource, composed_envelope};
+    let owner = user();
+    let capture = |inputs: Vec<DataEnvelope>| {
+        let original = snapshot(inputs);
+        let registration =
+            NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1).unwrap();
+        (original, registration)
+    };
+    // Constant content registers in both persisted and request-only forms.
+    for source in ServerResultSource::ALL {
+        for request_only in [false, true] {
+            let label = composed_envelope(
+                &ModelContent::constant("notice"),
+                Some(&owner),
+                "call",
+                *source,
+                request_only,
+            )
+            .unwrap()
+            .unwrap();
+            let (_, registration) = capture(vec![owner.clone(), label]);
+            assert_eq!(
+                registration.leaves[1].as_ref().map(|leaf| leaf.contract),
+                Some(RegisteredSourceContract::NativeControl),
+                "{source:?}"
+            );
+        }
+    }
+    // Content repeating private device output registers only with that output
+    // present, and the answer keeps the output's restrictions.
+    let mut private = provider_result(SYSTEM_LOG_CAPABILITY_ID);
+    private.allowed_destinations.push(destination());
+    let content = ModelContent::builder()
+        .text("log: ")
+        .sourced(&Sourced::new("line".to_string(), private.clone()))
+        .build();
+    let label = composed_envelope(
+        &content,
+        Some(&owner),
+        "call",
+        ServerResultSource::SkillProposal,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    let (_, registration) = capture(vec![owner.clone(), label.clone()]);
+    assert!(registration.leaves[1].is_none());
+    let (original, registration) = capture(vec![owner.clone(), private, label]);
+    assert_eq!(
+        registration.leaves[2].as_ref().map(|leaf| leaf.contract),
+        Some(RegisteredSourceContract::NativeControl)
+    );
+    assert!(
+        registration
+            .complete_leaf_text_policy(&original)
+            .unwrap()
+            .is_none_or(|policy| !policy.history_retention_allowed)
+    );
+    // Unverified text never registers.
+    let content = ModelContent::builder()
+        .unverified(&Unverified::new("raw host error"))
+        .build();
+    let label = composed_envelope(
+        &content,
+        Some(&owner),
+        "call",
+        ServerResultSource::SkillProposal,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    let (_, registration) = capture(vec![owner, label]);
+    assert!(registration.leaves[1].is_none());
+}
+
+mod stored_roots {
+    use super::*;
+    use crate::model_content::{ModelContent, Stored, StoredRoot, StoredTextSource};
+    use crate::model_message_labels::{ServerResultSource, composed_envelope};
+
+    fn model_source(retained: bool) -> NativeDerivedInputPolicy {
+        NativeDerivedInputPolicy {
+            actor_id: "owner".into(),
+            conversation_id: "conversation".into(),
+            physical_call_id: "call".into(),
+            output_envelope_id: "model-output-1".into(),
+            output_digest_sha256: "a".repeat(64),
+            output_label_sha256: "b".repeat(64),
+            actor_input_seq: 1,
+            input_revision: 1,
+            source_contract_revision: SOURCE_CONTRACT_REVISION,
+            policy_revision: 1,
+            // An output that was not retained keeps no policy.
+            text_policy: retained.then(|| crate::ai_assistant::source::owner_text_policy(1, false)),
+        }
+    }
+
+    /// A schedule-query receipt repeating a stored title, its snapshot with
+    /// the root, and the registration.
+    fn capture(
+        root: StoredRoot,
+    ) -> (
+        crate::model_egress::NativeModelInputSnapshot,
+        NativeInputPolicyRegistration,
+    ) {
+        let owner = user();
+        let content = ModelContent::builder()
+            .text("title: ")
+            .stored(&Stored::new("Disk check".to_string(), root.clone()))
+            .build();
+        let label = composed_envelope(
+            &content,
+            Some(&owner),
+            "call",
+            ServerResultSource::ScheduleQuery,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            label
+                .provenance
+                .source_envelope_ids
+                .contains(&root.label.envelope_id)
+        );
+        let inputs = vec![owner, label];
+        let audit = crate::sink_authorizer::SinkProjectionAudit {
+            destination: destination(),
+            envelope_ids: inputs
+                .iter()
+                .map(|input| input.envelope_id.clone())
+                .collect(),
+            total_bytes: 32,
+        };
+        let snapshot = crate::model_egress::NativeModelInputSnapshot::capture_with_roots(
+            &audit,
+            &inputs,
+            &[],
+            &[root],
+        )
+        .unwrap();
+        let registration =
+            NativeInputPolicyRegistration::capture(&snapshot, SOURCE_CONTRACT_REVISION, 1).unwrap();
+        (snapshot, registration)
+    }
+
+    fn retained(root: StoredRoot) -> bool {
+        let (snapshot, registration) = capture(root);
+        assert_eq!(
+            registration.leaves[1].as_ref().map(|leaf| leaf.contract),
+            Some(RegisteredSourceContract::NativeControl)
+        );
+        registration
+            .complete_leaf_text_policy(&snapshot)
+            .unwrap()
+            .is_some_and(|policy| policy.history_retention_allowed)
+    }
+
+    fn text_root(proof: Option<StoredTextSource>) -> StoredRoot {
+        StoredRoot::text(
+            "schedule",
+            "task-1",
+            "title",
+            "Disk check",
+            proof,
+            vec![destination()],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn stored_text_counts_only_with_a_retainable_embedded_proof() {
+        assert!(retained(text_root(Some(StoredTextSource::owner(
+            "owner", 1
+        )))));
+        assert!(retained(text_root(StoredTextSource::model_output(
+            "owner",
+            model_source(true),
+            Vec::new()
+        ))));
+        // An unretained output yields no proof; a missing proof never counts.
+        assert!(StoredTextSource::model_output("owner", model_source(false), Vec::new()).is_none());
+        assert!(!retained(text_root(None)));
+        // A proof of another actor fails the graph check of this actor.
+        let (snapshot, registration) =
+            capture(text_root(Some(StoredTextSource::owner("someone-else", 1))));
+        let graph = NativeInputPolicyGraph::empty("owner", "conversation").unwrap();
+        assert!(
+            graph
+                .complete_text_policy(&snapshot, &registration)
+                .unwrap()
+                .is_none()
+        );
+        // The compiled leaf alone is the strictest policy.
+        let leaf = registration.stored_leaves[0].as_ref().unwrap();
+        assert_eq!(leaf.contract, RegisteredSourceContract::StoredText);
+        assert!(registration.policy(leaf).unwrap().no_copy);
+    }
+
+    #[test]
+    fn device_reported_text_uses_its_compiled_policy() {
+        let root = StoredRoot::device_reported(
+            "device",
+            "device-1",
+            "name",
+            "office-mac",
+            vec![destination()],
+        )
+        .unwrap();
+        let (_, registration) = capture(root.clone());
+        assert_eq!(
+            registration.stored_leaves[0]
+                .as_ref()
+                .map(|leaf| leaf.contract),
+            Some(RegisteredSourceContract::DeviceReported)
+        );
+        assert!(retained(root));
+        assert!(
+            StoredRoot::device_reported(
+                "device",
+                "device-1",
+                "name",
+                &"x".repeat(crate::model_content::stored::MAX_DEVICE_REPORTED_BYTES + 1),
+                vec![destination()],
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn roots_are_addressed_by_content_and_must_be_cited() {
+        let proof = Some(StoredTextSource::owner("owner", 1));
+        let first = text_root(proof.clone());
+        let other_model = DestinationIdentity::Model {
+            connection_id: "gateway".into(),
+            connection_revision: 1,
+            model_id: "other".into(),
+            profile_revision: 1,
+        };
+        let moved = StoredRoot::text(
+            "schedule",
+            "task-1",
+            "title",
+            "Disk check",
+            proof,
+            vec![other_model],
+        )
+        .unwrap();
+        assert_ne!(first.label.envelope_id, moved.label.envelope_id);
+        // A root no input cites is rejected.
+        let owner = user();
+        let audit = crate::sink_authorizer::SinkProjectionAudit {
+            destination: destination(),
+            envelope_ids: vec![owner.envelope_id.clone()],
+            total_bytes: 32,
+        };
+        assert!(
+            crate::model_egress::NativeModelInputSnapshot::capture_with_roots(
+                &audit,
+                &[owner],
+                &[],
+                &[first],
+            )
+            .is_err()
+        );
+    }
+}

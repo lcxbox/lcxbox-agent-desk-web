@@ -279,6 +279,14 @@ impl NativeInputPolicyGraph {
         if used.len() != parents.len() {
             return Err("native policy contains unrelated parent references");
         }
+        for index in 0..snapshot.stored_roots.len() {
+            match registration.stored_root_policy(snapshot, index, &self.actor_id, None) {
+                Some(policy) => {
+                    policies.insert(policy.clone());
+                }
+                None => complete = false,
+            }
+        }
         if !complete {
             return Ok(None);
         }

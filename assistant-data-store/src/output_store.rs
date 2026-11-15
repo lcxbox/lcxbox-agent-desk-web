@@ -24,21 +24,31 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-/// Each kind is one list inside the serialized proof.
-const LISTS: [(i16, &[&str]); 5] = [
-    (1, &["sources", "inputs"]),
-    (2, &["sources", "input_snapshot", "envelopes"]),
-    (3, &["sources", "input_snapshot", "exports"]),
-    (4, &["input_policies", "leaves"]),
-    (5, &["input_policy_graph", "parents"]),
+/// Each kind is one list inside the serialized proof. Optional lists are
+/// omitted from the proof while empty.
+const LISTS: [(i16, &[&str], bool); 7] = [
+    (1, &["sources", "inputs"], false),
+    (2, &["sources", "input_snapshot", "envelopes"], false),
+    (3, &["sources", "input_snapshot", "exports"], false),
+    (4, &["input_policies", "leaves"], false),
+    (5, &["input_policy_graph", "parents"], false),
+    (6, &["sources", "input_snapshot", "stored_roots"], true),
+    (7, &["input_policies", "stored_leaves"], true),
 ];
 
 const INVALID: AssistantStoreError = AssistantStoreError::Invalid("invalid stored output proof");
 
-fn list_mut<'a>(value: &'a mut Value, path: &[&str]) -> Result<&'a mut Value, AssistantStoreError> {
-    path.iter()
-        .try_fold(value, |value, key| value.get_mut(key))
-        .ok_or(INVALID)
+/// The list at `path`; `None` only for an omitted optional list.
+fn list_mut<'a>(
+    value: &'a mut Value,
+    path: &[&str],
+    optional: bool,
+) -> Result<Option<&'a mut Value>, AssistantStoreError> {
+    match path.iter().try_fold(value, |value, key| value.get_mut(key)) {
+        Some(list) => Ok(Some(list)),
+        None if optional => Ok(None),
+        None => Err(INVALID),
+    }
 }
 
 /// Contiguous ordinals become one `[first, last]` pair; order is preserved.
@@ -92,8 +102,10 @@ pub async fn encode_on<C: ConnectionTrait>(
     let conversation = &proof.source_set.consumer_conversation_id;
     let mut value = serde_json::to_value(proof).map_err(|_| INVALID)?;
     let mut new_items = Vec::new();
-    for (kind, path) in LISTS {
-        let list = list_mut(&mut value, path)?;
+    for (kind, path, optional) in LISTS {
+        let Some(list) = list_mut(&mut value, path, optional)? else {
+            continue;
+        };
         let entries = list.as_array().ok_or(INVALID)?;
         let mut known: BTreeMap<String, i64> = item::Entity::find()
             .select_only()
@@ -168,8 +180,10 @@ pub async fn decode_on<C: ConnectionTrait>(
     proof_json: &str,
 ) -> Result<ArchivedAssistantOutput, AssistantStoreError> {
     let mut value: Value = serde_json::from_str(proof_json).map_err(|_| INVALID)?;
-    for (kind, path) in LISTS {
-        let list = list_mut(&mut value, path)?;
+    for (kind, path, optional) in LISTS {
+        let Some(list) = list_mut(&mut value, path, optional)? else {
+            continue;
+        };
         let ranges: Vec<(i64, i64)> = serde_json::from_value(list.take()).map_err(|_| INVALID)?;
         let mut entries = Vec::new();
         if let (Some(first), Some(last)) = (
