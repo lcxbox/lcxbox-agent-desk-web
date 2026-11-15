@@ -2473,6 +2473,7 @@ pub(crate) const SERVER_RESULT_SOURCES: &[&str] = &[
     "superseded_tool_call",
     "task_permission_denied",
     "tool_budget_admission_failed",
+    "unavailable_tool_call",
     "unloaded_tool_call",
     crate::capability_disclosure::LOAD_CAPABILITY_DETAILS_TOOL_NAME,
     crate::goal_tools::CONTROL_GOAL_TOOL_NAME,
@@ -2483,24 +2484,7 @@ pub(crate) const SERVER_RESULT_SOURCES: &[&str] = &[
     crate::task_status_tools::UPDATE_TASK_STATUS_TOOL_NAME,
 ];
 
-/// Labels a server-authored result named in [`SERVER_RESULT_SOURCES`].
-pub(crate) fn derive_internal_tool_result_envelope(
-    parent: Option<&DataEnvelope>,
-    call_id: &str,
-    content: &str,
-    source_tool_name: &str,
-) -> Result<Option<DataEnvelope>, AgentError> {
-    debug_assert!(
-        SERVER_RESULT_SOURCES.contains(&source_tool_name),
-        "unregistered server result source {source_tool_name}"
-    );
-    crate::model_message_labels::internal_tool_result_envelope(
-        parent,
-        call_id,
-        content,
-        source_tool_name,
-    )
-}
+pub(crate) use crate::model_message_labels::internal_tool_result_envelope as derive_internal_tool_result_envelope;
 
 fn append_internal_tool_result(
     session: &mut crate::session::PersistedAgentSession,
