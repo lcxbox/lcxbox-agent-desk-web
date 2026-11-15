@@ -58,6 +58,8 @@ pub(crate) struct Recorder {
     /// Classes of the conversation's action rows, in id order.
     pub(crate) actions: Vec<super::session::ActionClass>,
     /// The output proof a skill proposal receives.
+    /// Whether the recorded session may keep owner data.
+    pub(crate) data_eligible: bool,
     pub(crate) skill_source: Option<(
         desk_agent_protocol::ai_assistant::source::SourceUsePolicy,
         desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy,
@@ -105,6 +107,7 @@ impl Recorder {
             personal: true,
             native: super::session::NativeDisposition::Settled,
             actions: Vec::new(),
+            data_eligible: true,
             skill_source: None,
             written_states: Mutex::default(),
         }
@@ -555,6 +558,10 @@ impl ScheduleHostStores<DatabaseConnection> for Recorder {
     ) -> Result<(), ScheduleStoreError> {
         unreachable!()
     }
+    fn data_eligible(&self, _: &PersistedAgentSession) -> bool {
+        self.data_eligible
+    }
+
     async fn skill_proposal_source(
         &self,
         _: &DatabaseConnection,

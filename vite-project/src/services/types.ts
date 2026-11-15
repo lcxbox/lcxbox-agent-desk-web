@@ -2978,6 +2978,11 @@ export type SkillProposalView = {
      * @type string,null
     */
     decisionReason?: string | null;
+    /**
+     * @description An AI reviewer\'s closed reason code; the reviewer\'s free text stays in\nthe conversation\'s receipt.
+     * @type string,null
+    */
+    decisionReasonCode?: string | null;
     decisionSource?: (null | SkillDecisionSource);
     /**
      * @description Changes from the base version; empty for a new skill.
@@ -16151,6 +16156,11 @@ export type RestResponseSkillProposalView = {
          * @type string,null
         */
         decisionReason?: string | null;
+        /**
+         * @description An AI reviewer\'s closed reason code; the reviewer\'s free text stays in\nthe conversation\'s receipt.
+         * @type string,null
+        */
+        decisionReasonCode?: string | null;
         decisionSource?: (null | SkillDecisionSource);
         /**
          * @description Changes from the base version; empty for a new skill.
@@ -17315,6 +17325,11 @@ export type RestResponseVecSkillProposalView = {
          * @type string,null
         */
         decisionReason?: string | null;
+        /**
+         * @description An AI reviewer\'s closed reason code; the reviewer\'s free text stays in\nthe conversation\'s receipt.
+         * @type string,null
+        */
+        decisionReasonCode?: string | null;
         decisionSource?: (null | SkillDecisionSource);
         /**
          * @description Changes from the base version; empty for a new skill.

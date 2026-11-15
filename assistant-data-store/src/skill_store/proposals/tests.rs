@@ -535,7 +535,9 @@ async fn a_moved_base_conflicts_and_every_final_state_releases_its_slot() {
         .unwrap();
     let (row, _) = decide(&db, &rejected, false, ai_decider("Relays a web page")).await;
     assert_eq!(row.status, "rejected");
-    assert_eq!(row.decision_reason.as_deref(), Some("Relays a web page"));
+    // Only the reviewer's closed code is kept on the proposal.
+    assert_eq!(row.decision_reason, None);
+    assert_eq!(row.decision_reason_code.as_deref(), Some("within_scope"));
     assert_eq!(pending_count(&db).await, 0);
     assert!(
         find_by_name_on(&db, &personal_scope(ACTOR), "other")
@@ -841,13 +843,49 @@ async fn only_assistant_written_versions_can_be_removed() {
         ),
         authoring::BASE_CHANGED
     );
-    // The stored reason needs the same retainable proof as new content.
+    // A removal stores no model text, so it needs no retention proof: the
+    // model's reason is dropped and no source is kept.
     authored(&db, "call-7", "unproven").await;
+    let (_, waiting) = propose_removal(&db, "call-8", removal_args("unproven", 1, "delete"), false)
+        .await
+        .unwrap();
+    let row = proposal::Entity::find()
+        .filter(proposal::Column::ProposalId.eq(proposal_id(&waiting)))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.reason, "");
+    assert_eq!(row.source_policy_json, "null");
+    // An AI decision keeps only the reviewer's closed code; its receipt in
+    // the conversation carries the full reason.
+    let (decided, recorder) = decide(&db, &waiting, true, ai_decider("The owner named it.")).await;
+    assert_eq!(decided.decision_reason, None);
     assert_eq!(
-        rejected_with(
-            propose_removal(&db, "call-8", removal_args("unproven", 1, "delete"), false).await
-        ),
-        authoring::REMOVAL_NOT_RETAINABLE
+        decided.decision_reason_code.as_deref(),
+        Some("within_scope")
+    );
+    assert!(current_skill(&db, "unproven").await.is_none());
+    let written = recorder.written_states.lock().unwrap().clone();
+    let turn = PersistedAgentSession::decode_json(written.last().unwrap()).unwrap();
+    let receipt: serde_json::Value =
+        serde_json::from_str(&turn.conversation.last().unwrap().text).unwrap();
+    assert_eq!(receipt["reason"], "The owner named it.");
+    assert_eq!(receipt["reason_code"], "within_scope");
+    // A conversation that may not keep owner data cannot propose removals.
+    authored(&db, "call-9", "temporary").await;
+    let mut session = session("call-10", &removal_args("temporary", 1, "disable"));
+    session.conversation[1].tool_calls[0].name = authoring::REMOVE_TOOL.into();
+    let mut ineligible = host(session.clone(), true);
+    ineligible.data_eligible = false;
+    let call = ToolCall {
+        id: "call-10".into(),
+        name: authoring::REMOVE_TOOL.into(),
+        arguments_json: removal_args("temporary", 1, "disable").to_string(),
+    };
+    assert_eq!(
+        rejected_with(propose_on(&ineligible, &db, &session, &call, &Default::default()).await),
+        authoring::UNAVAILABLE
     );
 }
 

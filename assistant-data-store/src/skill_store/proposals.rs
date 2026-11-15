@@ -232,7 +232,7 @@ pub async fn propose_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
                 .map(|(row, _)| (row.skill_id.clone(), row.current_version)),
             content,
             changes,
-            source,
+            source: Some(source),
             reason: draft.reason,
         },
         observation,
@@ -248,7 +248,8 @@ struct NewProposal {
     base: Option<(String, i64)>,
     content: SkillPackageInput,
     changes: Vec<desk_agent_protocol::ai_assistant::skill::SkillFileDiff>,
-    source: AuthoredSkillSource,
+    /// `None` for a removal, which stores no model text.
+    source: Option<AuthoredSkillSource>,
     reason: String,
 }
 
@@ -382,18 +383,13 @@ async fn propose_removal_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     use desk_diagnose_core::model_observability::{InputIssue, Stage};
     let draft = authoring::parse_removal(session, call, observation).map_err(rejected)?;
     let (row, parent_index, now) = lock_tool_call_on(host, txn, session, call).await?;
-    let parent = &session.conversation[parent_index];
-    // The proposal keeps the model's reason, so it needs the same proof.
-    let Some((policy, model_source)) = host.skill_proposal_source(txn, session, parent).await?
-    else {
+    let _ = parent_index;
+    // A removal stores no model text, so it needs no retention proof; it
+    // still needs a conversation that may keep owner data.
+    if !host.data_eligible(session) {
         observation.reject(Stage::Preflight, InputIssue::Precondition);
-        return Err(rejected(authoring::REMOVAL_NOT_RETAINABLE));
-    };
-    let source =
-        AuthoredSkillSource::new(&session.actor_id, policy, model_source).map_err(|_| {
-            observation.reject(Stage::Preflight, InputIssue::Precondition);
-            rejected(authoring::REMOVAL_NOT_RETAINABLE)
-        })?;
+        return Err(rejected(authoring::UNAVAILABLE));
+    }
     let scope = personal_scope(&session.actor_id);
     let skill = find_by_name_on(txn, &scope, &draft.name)
         .await?
@@ -421,8 +417,9 @@ async fn propose_removal_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             base: Some((skill.skill_id.clone(), skill.current_version)),
             content: canonical_input(&package),
             changes: Vec::new(),
-            source,
-            reason: draft.reason,
+            source: None,
+            // The model's reason is not kept; the owner sees the skill and action.
+            reason: String::new(),
         },
         observation,
     )
@@ -598,6 +595,8 @@ pub async fn decide_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     } else {
         approve_on(txn, &scope, &row, now).await?
     };
+    // Only fixed server text is kept as a reason; an AI reviewer's free text
+    // may come from material that cannot be kept, so only its closed code is.
     let reason = match (status, decider) {
         (SkillProposalStatus::Conflicted, _) if is_removal(parse_kind(&row.kind)) => Some(
             "The skill changed, was deleted, or is no longer assistant-written; nothing was changed."
@@ -607,8 +606,11 @@ pub async fn decide_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             "The skill changed, its name is taken, or the skill limit is reached; propose again based on the current version."
                 .to_owned(),
         ),
-        (_, SkillDecider::Ai(ai)) => Some(ai.reason.clone()),
-        (_, SkillDecider::Owner) => None,
+        _ => None,
+    };
+    let reason_code = match (status, decider) {
+        (SkillProposalStatus::Conflicted, _) | (_, SkillDecider::Owner) => None,
+        (_, SkillDecider::Ai(ai)) => Some(ai.reason_code.clone()),
     };
     let decision_source = Some(match decider {
         SkillDecider::Ai(_) => "ai_review",
@@ -623,6 +625,10 @@ pub async fn decide_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         .col_expr(
             proposal::Column::DecisionReason,
             Expr::value(reason.clone()),
+        )
+        .col_expr(
+            proposal::Column::DecisionReasonCode,
+            Expr::value(reason_code),
         )
         .col_expr(proposal::Column::DecidedAtMs, Expr::value(Some(now)))
         .col_expr(proposal::Column::Revision, Expr::value(row.revision + 1))
@@ -838,7 +844,8 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             SkillDecider::Ai(_) => "approval_ai",
             SkillDecider::Owner => "owner",
         },
-        "reason": row.decision_reason,
+        // The receipt carries the reviewer's full reason for this request.
+        "reason": ai.map(|ai| ai.reason.as_str()).or(row.decision_reason.as_deref()),
         "reason_code": ai.map(|ai| &ai.reason_code),
         "note": note,
         "authority": "guidance_only_no_tool_permissions",
@@ -934,6 +941,7 @@ pub async fn view_on<C: ConnectionTrait>(
         status,
         decision_source: row.decision_source.as_deref().and_then(parse_decision),
         decision_reason: row.decision_reason,
+        decision_reason_code: row.decision_reason_code,
         base_skill_id: row.base_skill_id,
         base_version: row.base_version.map(|v| v as u64),
         skill_md: input.skill_md.unwrap_or_default(),

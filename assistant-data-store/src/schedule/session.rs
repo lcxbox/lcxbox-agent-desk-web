@@ -496,6 +496,11 @@ pub trait ScheduleHostStores<C: ConnectionTrait>: SessionRows<C> + ScheduleLocks
         request_id: &str,
         now_ms: i64,
     ) -> Result<(), ScheduleStoreError>;
+    /// Whether `session` may keep owner data, as eligible conversations do;
+    /// temporary and ineligible conversations never write durable proposals.
+    fn data_eligible(&self, session: &PersistedAgentSession) -> bool {
+        desk_diagnose_core::ai_assistant::data_access::eligible_origin(session)
+    }
     /// The owner's prompt retention record for a fresh task's requirement.
     async fn owner_prompt_retention(
         &self,

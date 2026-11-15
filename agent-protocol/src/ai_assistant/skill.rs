@@ -385,6 +385,10 @@ pub struct SkillProposalView {
     pub decision_source: Option<SkillDecisionSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_reason: Option<String>,
+    /// An AI reviewer's closed reason code; the reviewer's free text stays in
+    /// the conversation's receipt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_reason_code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_skill_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

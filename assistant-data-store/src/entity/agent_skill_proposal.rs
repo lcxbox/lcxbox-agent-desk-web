@@ -33,6 +33,8 @@ pub struct Model {
     pub decision_source: Option<String>,
     #[sea_orm(column_type = "Text")]
     pub decision_reason: Option<String>,
+    /// The AI reviewer's closed reason code; its free text is not kept.
+    pub decision_reason_code: Option<String>,
     pub created_at_ms: i64,
     pub decided_at_ms: Option<i64>,
     pub revision: i64,

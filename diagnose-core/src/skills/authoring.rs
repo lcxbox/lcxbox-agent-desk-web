@@ -313,7 +313,7 @@ pub fn parse_removal(
     })
 }
 
-const UNAVAILABLE: &str = "skill proposals are available only while handling the owner's own request in a regular conversation";
+pub const UNAVAILABLE: &str = "skill proposals are available only while handling the owner's own request in a regular conversation";
 /// Returned when the proposal does not fit the reviewer's input.
 pub const TOO_LARGE: &str = "the skill proposal is too large to review; split it into smaller skills or shorten the instructions and files";
 /// Returned when the content derives from material that cannot be kept.
@@ -328,9 +328,6 @@ pub const BASE_CHANGED: &str =
 /// The skill was not written by the assistant, so it cannot propose removing it.
 pub const NOT_AI_AUTHORED: &str = "only personal skills written by the assistant can be disabled or deleted by it, and deleting needs every retained version to be assistant-written; ask the owner to change this skill in My skills";
 pub const ALREADY_DISABLED: &str = "this personal skill is already disabled";
-/// A removal proposal stores its reason, which cannot derive from material
-/// that cannot be kept.
-pub const REMOVAL_NOT_RETAINABLE: &str = "this request read material that cannot be kept long term, so it cannot propose skill changes; ask the owner to request it in a new message";
 pub const REMOVAL_TOO_LARGE: &str = "this skill is too large to review for removal; ask the owner to disable or delete it in My skills";
 
 pub fn unavailable() -> AgentError {

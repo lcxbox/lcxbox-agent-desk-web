@@ -55,7 +55,9 @@ export function SkillProposalCard({ proposal, onRefresh, onDecided }: {
             <Badge variant={pending ? 'default' : 'outline'}>{t(`${prefix}status.${view.status}`)}</Badge>
             {view.decisionSource && <Badge variant="outline">{t(`pages.assistantSkills.decision.${view.decisionSource}`)}</Badge>}
         </div>
-        <p className="whitespace-pre-wrap break-words text-sm">{view.reason}</p>
+        {view.reason && <p className="whitespace-pre-wrap break-words text-sm">{view.reason}</p>}
+        {view.decisionReasonCode && <p className="text-xs text-muted-foreground">
+            {t(`pages.assistantSkills.reasonCode.${view.decisionReasonCode}`, { defaultValue: view.decisionReasonCode })}</p>}
         {view.decisionReason && <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">{view.decisionReason}</p>}
         {view.kind === 'update'
             ? <SkillDiffList diff={view.diff} />

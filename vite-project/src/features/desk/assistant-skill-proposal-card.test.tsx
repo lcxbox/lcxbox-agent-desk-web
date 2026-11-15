@@ -48,6 +48,16 @@ describe('skill proposal card', () => {
         expect(onDecided).toHaveBeenCalledWith(approved);
     });
 
+    it('omits an empty reason and shows an AI decision by its reason code', () => {
+        const decided: SkillProposalView = {
+            ...disabling, reason: '', status: 'rejected', decisionSource: 'ai_review', decisionReasonCode: 'owner_not_requested',
+        };
+        render(<SkillProposalCard proposal={decided} onRefresh={vi.fn()} />);
+        const card = screen.getByRole('article', { name: 'disk-cleanup' });
+        expect(card.querySelectorAll('p.text-sm.whitespace-pre-wrap')).toHaveLength(0);
+        expect(within(card).getByText('Not clearly requested by the owner')).toBeInTheDocument();
+    });
+
     it('renders an update as the diff to its base version and rejects it', async () => {
         render(<SkillProposalCard proposal={updated} onRefresh={vi.fn()} />);
         const card = screen.getByRole('article', { name: 'disk-cleanup' });
