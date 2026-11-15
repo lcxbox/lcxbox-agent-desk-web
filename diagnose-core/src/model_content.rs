@@ -650,3 +650,6 @@ fn invalid_content() -> AgentError {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod guard_tests;
