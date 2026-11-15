@@ -2478,7 +2478,6 @@ pub(crate) const SERVER_RESULT_SOURCES: &[&str] = &[
     crate::capability_disclosure::LOAD_CAPABILITY_DETAILS_TOOL_NAME,
     crate::goal_tools::CONTROL_GOAL_TOOL_NAME,
     crate::issue_reply::PREPARE_TOOL_NAME,
-    crate::permission_tools::CALL_PERMISSION_RESULT_SOURCE,
     crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
     crate::skills::LOAD_TOOL,
     crate::task_status_tools::UPDATE_TASK_STATUS_TOOL_NAME,

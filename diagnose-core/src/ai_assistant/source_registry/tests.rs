@@ -1006,3 +1006,21 @@ fn every_server_tool_result_is_a_registered_control() {
         );
     }
 }
+
+#[test]
+fn provider_execution_output_is_never_a_control() {
+    // Device output is labelled with this name; it keeps its own read policy.
+    let owner = user();
+    let result = crate::model_message_labels::internal_tool_result_envelope(
+        Some(&owner),
+        "call",
+        "device output",
+        "provider_execution_status",
+    )
+    .unwrap()
+    .unwrap();
+    let original = snapshot(vec![owner, result]);
+    let registration =
+        NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1).unwrap();
+    assert!(registration.leaves[1].is_none());
+}
