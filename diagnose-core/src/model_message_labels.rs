@@ -18,7 +18,6 @@ use std::collections::BTreeSet;
 pub mod sources;
 pub use sources::ServerResultSource;
 
-pub const STATUS_RESULT_PROJECTION: &str = "status-result";
 pub const SOURCE_RESULT_PROJECTION: &str = "source-result";
 
 pub fn model_bound_user_message(
@@ -136,45 +135,50 @@ pub(crate) fn invalid_label() -> AgentError {
     }
 }
 
-/// Runtime-authored labels inherit their parent's authority and retention.
-/// A missing label remains missing; this never grants export to a new sink.
-///
-/// Label a persisted server-authored result. Its shape is the only status
-/// shape the source registry accepts as a native control. Host recovery paths
-/// can rewrite one call's status body under the same parent and source, so
-/// the id binds a digest of the short body; the label stores no digest and no
-/// reader recomputes it.
+/// Labels server-built text that answers call `call_id` of `parent`, such as
+/// a receipt of ids, states and fixed text. It registers under `parent`; a
+/// missing parent leaves the result unlabelled.
 pub fn server_result_envelope(
     parent: Option<&DataEnvelope>,
     call_id: &str,
     content: &str,
     source: ServerResultSource,
 ) -> Result<Option<DataEnvelope>, AgentError> {
-    status_envelope(parent, call_id, content, source.as_str(), REGISTERED, false)
+    composed_envelope(
+        &crate::model_content::ModelContent::server_text(content),
+        parent,
+        call_id,
+        source,
+        false,
+    )
 }
 
-/// Label a server-authored projection that exists only in one model request.
-/// Its body is regenerated per request under a fixed call id, so the id names
-/// the body revision by digest.
+/// The request-only form of [`server_result_envelope`], for server text
+/// regenerated per request under a fixed id.
 pub fn server_projection_envelope(
     parent: Option<&DataEnvelope>,
     call_id: &str,
     content: &str,
     source: ServerResultSource,
 ) -> Result<Option<DataEnvelope>, AgentError> {
-    status_envelope(parent, call_id, content, source.as_str(), REGISTERED, true)
+    composed_envelope(
+        &crate::model_content::ModelContent::server_text(content),
+        parent,
+        call_id,
+        source,
+        true,
+    )
 }
 
-/// Label a persisted result whose body carries data, or whose name is a tool
-/// name for a result that must not register. Its shape never registers as a
-/// native control, whatever its name, so it keeps only its own read policy.
+/// Labels a result whose text no source vouches for, such as host error text
+/// or data read without its own label. It never registers, whatever its name.
 pub fn data_result_envelope(
     parent: Option<&DataEnvelope>,
     call_id: &str,
     content: &str,
     source_tool_name: &str,
 ) -> Result<Option<DataEnvelope>, AgentError> {
-    status_envelope(parent, call_id, content, source_tool_name, DATA, false)
+    unverified_envelope(parent, call_id, content, source_tool_name, false)
 }
 
 /// The request-only form of [`data_result_envelope`].
@@ -184,12 +188,25 @@ pub fn data_projection_envelope(
     content: &str,
     source_tool_name: &str,
 ) -> Result<Option<DataEnvelope>, AgentError> {
-    status_envelope(parent, call_id, content, source_tool_name, DATA, true)
+    unverified_envelope(parent, call_id, content, source_tool_name, true)
+}
+
+fn unverified_envelope(
+    parent: Option<&DataEnvelope>,
+    call_id: &str,
+    content: &str,
+    name: &str,
+    request_only: bool,
+) -> Result<Option<DataEnvelope>, AgentError> {
+    let content = crate::model_content::ModelContent::builder()
+        .unverified(&crate::model_content::Unverified::new(content))
+        .build();
+    compose_named(&content, parent, call_id, name, request_only)
 }
 
 /// Label a tool's own result under its name. It registers only when the tool
 /// is `source`, whose receipts are server-authored; any other tool's result
-/// keeps a data label.
+/// is unverified.
 pub fn tool_receipt_envelope(
     parent: Option<&DataEnvelope>,
     call_id: &str,
@@ -204,60 +221,36 @@ pub fn tool_receipt_envelope(
     }
 }
 
-pub(crate) const REVIEW_RESULT_PREFIX: &str = "review-result-";
-pub(crate) const REVIEW_RESULT_PROJECTION: &str = "review-result";
-
 /// Label a decision receipt, or its request projection, whose body carries
-/// an AI reviewer's reason. Its parents are the proposing model output and
-/// every evidence the reviewer saw, so the reason keeps all of their
-/// constraints; the registry accepts it only with every parent in the same
-/// input. The id binds the source, call, parents and body.
+/// an AI reviewer's reason. The first parent is the proposing model output;
+/// the others are every evidence the reviewer saw, so the reason keeps all of
+/// their constraints and registers only with every parent in the same input.
 pub fn server_review_envelope(
     parents: &[&DataEnvelope],
     call_id: &str,
     content: &str,
     source: ServerResultSource,
 ) -> Result<DataEnvelope, AgentError> {
-    if !source.reviewed() || parents.is_empty() {
+    let Some((proposing, evidence)) = parents.split_first() else {
+        return Err(invalid_label());
+    };
+    if !source.reviewed() {
         return Err(invalid_label());
     }
-    for parent in parents {
-        parent.validate().map_err(|_| invalid_label())?;
-    }
-    let MergedInputs {
-        source_envelope_ids,
-        sensitivity,
-        retention,
-        allowed,
-        ..
-    } = merge_inputs(parents)?;
-    let identity = serde_json::to_vec(&(
-        source.as_str(),
-        call_id,
-        &source_envelope_ids,
-        format!("{:x}", Sha256::digest(content.as_bytes())),
-    ))
-    .map_err(|_| invalid_label())?;
-    let envelope = DataEnvelope {
-        schema_version: DATA_ENVELOPE_SCHEMA_VERSION,
-        envelope_id: format!("{REVIEW_RESULT_PREFIX}{:x}", Sha256::digest(identity)),
-        content: ContentRef::Projection {
-            projection: REVIEW_RESULT_PROJECTION.into(),
-            size_bytes: content.len() as u64,
-            media_type: "text/plain".into(),
-        },
-        provenance: DataProvenance {
-            source_provider_id: crate::dynamic_run::RUN_CONTROL_PROVIDER_ID.into(),
-            source_tool_name: source.as_str().into(),
-            source_object_id: None,
-            source_envelope_ids,
-        },
-        sensitivity,
-        allowed_destinations: allowed.into_iter().collect(),
-        retention,
-    };
-    envelope.validate().map_err(|_| invalid_label())?;
-    Ok(envelope)
+    let content = evidence
+        .iter()
+        .fold(
+            crate::model_content::ModelContent::builder()
+                .server(&crate::model_content::ServerText::generated(content)),
+            |builder, label| {
+                builder.sourced(&crate::model_content::Sourced::new(
+                    String::new(),
+                    (*label).clone(),
+                ))
+            },
+        )
+        .build();
+    composed_envelope(&content, Some(proposing), call_id, source, false)?.ok_or_else(invalid_label)
 }
 
 pub(crate) const COMPOSED_RESULT_PREFIX: &str = "composed-result-";
@@ -285,6 +278,16 @@ pub fn composed_envelope(
     issuing: Option<&DataEnvelope>,
     call_id: &str,
     source: ServerResultSource,
+    request_only: bool,
+) -> Result<Option<DataEnvelope>, AgentError> {
+    compose_named(content, issuing, call_id, source.as_str(), request_only)
+}
+
+fn compose_named(
+    content: &crate::model_content::ModelContent,
+    issuing: Option<&DataEnvelope>,
+    call_id: &str,
+    name: &str,
     request_only: bool,
 ) -> Result<Option<DataEnvelope>, AgentError> {
     let sources = content.sources();
@@ -342,14 +345,9 @@ pub fn composed_envelope(
             COMPOSED_RESULT_PROJECTION,
         )
     };
-    let identity = serde_json::to_vec(&(
-        source.as_str(),
-        call_id,
-        &source_envelope_ids,
-        &digest,
-        request_only,
-    ))
-    .map_err(|_| invalid_label())?;
+    let identity =
+        serde_json::to_vec(&(name, call_id, &source_envelope_ids, &digest, request_only))
+            .map_err(|_| invalid_label())?;
     let content_ref = if request_only {
         ContentRef::ImmutableBlob {
             blob_id: format!("{blob_prefix}{:x}", Sha256::digest(digest.as_bytes())),
@@ -370,100 +368,12 @@ pub fn composed_envelope(
         content: content_ref,
         provenance: DataProvenance {
             source_provider_id: crate::dynamic_run::RUN_CONTROL_PROVIDER_ID.into(),
-            source_tool_name: source.as_str().into(),
+            source_tool_name: name.into(),
             source_object_id: None,
             source_envelope_ids,
         },
         sensitivity,
         allowed_destinations: allowed.into_iter().collect(),
-        retention,
-    };
-    envelope.validate().map_err(|_| invalid_label())?;
-    Ok(Some(envelope))
-}
-
-/// Envelope id and blob id prefixes of one status label shape.
-struct StatusShape {
-    envelope: &'static str,
-    blob: &'static str,
-}
-
-pub(crate) const STATUS_RESULT_PREFIX: &str = "status-result-";
-pub(crate) const STATUS_CONTENT_PREFIX: &str = "status-content-";
-const REGISTERED: StatusShape = StatusShape {
-    envelope: STATUS_RESULT_PREFIX,
-    blob: STATUS_CONTENT_PREFIX,
-};
-const DATA: StatusShape = StatusShape {
-    envelope: "data-status-",
-    blob: "data-status-content-",
-};
-
-fn status_envelope(
-    parent: Option<&DataEnvelope>,
-    call_id: &str,
-    content: &str,
-    source_tool_name: &str,
-    shape: StatusShape,
-    content_addressed: bool,
-) -> Result<Option<DataEnvelope>, AgentError> {
-    let Some(parent) = parent else {
-        return Ok(None);
-    };
-    parent.validate().map_err(|_| invalid_label())?;
-    let mut retention = parent.retention;
-    if let ContentRef::EphemeralObservation {
-        expires_at_unix_ms, ..
-    } = parent.content
-    {
-        retention = retention.most_restrictive(RetentionBoundary {
-            expires_at_unix_ms: Some(expires_at_unix_ms),
-            delete_with_run: true,
-        });
-    }
-    let (identity, content) = if content_addressed {
-        let digest = format!("{:x}", Sha256::digest(content.as_bytes()));
-        (
-            format!("{}:{call_id}:{digest}", parent.envelope_id),
-            ContentRef::ImmutableBlob {
-                blob_id: format!("{}{:x}", shape.blob, Sha256::digest(digest.as_bytes())),
-                sha256: digest,
-                size_bytes: content.len() as u64,
-                media_type: "text/plain".into(),
-            },
-        )
-    } else {
-        (
-            serde_json::to_string(&(
-                &parent.envelope_id,
-                call_id,
-                source_tool_name,
-                format!("{:x}", Sha256::digest(content.as_bytes())),
-            ))
-            .map_err(|_| invalid_label())?,
-            ContentRef::Projection {
-                projection: STATUS_RESULT_PROJECTION.into(),
-                size_bytes: content.len() as u64,
-                media_type: "text/plain".into(),
-            },
-        )
-    };
-    let envelope = DataEnvelope {
-        schema_version: DATA_ENVELOPE_SCHEMA_VERSION,
-        envelope_id: format!(
-            "{}{:x}",
-            shape.envelope,
-            Sha256::digest(identity.as_bytes())
-        ),
-        content,
-        provenance: DataProvenance {
-            source_provider_id: crate::dynamic_run::RUN_CONTROL_PROVIDER_ID.into(),
-            source_tool_name: source_tool_name.into(),
-            source_object_id: None,
-            source_envelope_ids: vec![parent.envelope_id.clone()],
-        },
-        sensitivity: parent.sensitivity,
-        allowed_destinations: parent.allowed_destinations.clone(),
         retention,
     };
     envelope.validate().map_err(|_| invalid_label())?;
@@ -793,8 +703,8 @@ mod tests {
         let data = data_result_envelope(Some(&parent), "call", "ok", name.as_str())
             .unwrap()
             .unwrap();
-        assert!(server.envelope_id.starts_with(STATUS_RESULT_PREFIX));
-        assert!(data.envelope_id.starts_with("data-status-"));
+        assert!(server.envelope_id.starts_with(COMPOSED_RESULT_PREFIX));
+        assert!(data.envelope_id.starts_with("unverified-result-"));
         assert_eq!(server.provenance, data.provenance);
         let ContentRef::ImmutableBlob { blob_id, .. } =
             data_projection_envelope(Some(&parent), "call", "ok", name.as_str())
@@ -804,7 +714,7 @@ mod tests {
         else {
             panic!("request projections are content addressed");
         };
-        assert!(blob_id.starts_with("data-status-content-"));
+        assert!(blob_id.starts_with("unverified-content-"));
         // A tool receipt registers only for the tool its source names.
         let receipt = |tool: &str| {
             tool_receipt_envelope(Some(&parent), "call", "ok", tool, name)
@@ -813,7 +723,7 @@ mod tests {
                 .envelope_id
         };
         assert_eq!(receipt(name.as_str()), server.envelope_id);
-        assert!(receipt("search_memories").starts_with("data-status-"));
+        assert!(receipt("search_memories").starts_with("unverified-result-"));
     }
 
     #[test]
@@ -854,7 +764,7 @@ mod tests {
                 label.provenance.source_envelope_ids,
                 std::slice::from_ref(&issuing)
             );
-            assert!(label.envelope_id.starts_with(STATUS_RESULT_PREFIX));
+            assert!(label.envelope_id.starts_with(COMPOSED_RESULT_PREFIX));
             // One id never names two bodies.
             let body = seen.entry(label.envelope_id).or_insert(text);
             assert_eq!(*body, text);

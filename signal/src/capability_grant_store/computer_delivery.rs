@@ -658,10 +658,10 @@ mod tests {
                 .unwrap()
                 .envelope_id
         };
-        assert!(label(&session).starts_with("status-result-"));
+        assert!(label(&session).starts_with("composed-result-"));
         // A real output left on the call keeps a data label.
         session.conversation[1].text = "device output".into();
         refresh_control_label(&mut session, "call").unwrap();
-        assert!(label(&session).starts_with("data-status-"));
+        assert!(label(&session).starts_with("unverified-result-"));
     }
 }

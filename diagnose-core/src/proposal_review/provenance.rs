@@ -126,7 +126,14 @@ pub fn review_reason_parents(
     if shared.is_empty() || shared.len() != proposing.allowed_destinations.len() {
         return None;
     }
-    Some(parents.into_values().collect())
+    // The proposing output comes first, as the receipt's issuing parent.
+    let mut ordered = vec![proposing.clone()];
+    ordered.extend(
+        parents
+            .into_values()
+            .filter(|parent| parent.envelope_id != proposing.envelope_id),
+    );
+    Some(ordered)
 }
 
 /// An AI reviewer's verdict reason as a decision receipt needs it.
@@ -368,7 +375,7 @@ pub(crate) mod tests {
 
     #[test]
     fn receipts_use_the_review_shape_only_for_a_verified_ai_reason() {
-        use crate::model_message_labels::{REVIEW_RESULT_PREFIX, STATUS_RESULT_PREFIX};
+        use crate::model_message_labels::COMPOSED_RESULT_PREFIX;
         let session = paused_session();
         let proposing = proposing_output(&session);
         let ai = |verifiable| AiDecisionReason {
@@ -395,15 +402,15 @@ pub(crate) mod tests {
         assert!(
             shape(Some(&ai(true)))
                 .envelope_id
-                .starts_with(REVIEW_RESULT_PREFIX)
+                .starts_with(COMPOSED_RESULT_PREFIX)
         );
         assert!(
             shape(Some(&ai(false)))
                 .envelope_id
-                .starts_with("data-status-")
+                .starts_with("unverified-result-")
         );
         let owner = shape(None);
-        assert!(owner.envelope_id.starts_with(STATUS_RESULT_PREFIX));
+        assert!(owner.envelope_id.starts_with(COMPOSED_RESULT_PREFIX));
         assert_eq!(
             owner.provenance.source_envelope_ids,
             [proposing.unwrap().envelope_id.clone()]

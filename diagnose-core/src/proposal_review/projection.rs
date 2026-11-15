@@ -12,8 +12,8 @@ use crate::{
     approval_review::ApprovalReasonCode,
     chat::ChatMessage,
     model_message_labels::{
-        REVIEW_RESULT_PREFIX, STATUS_RESULT_PREFIX, ServerResultSource, invalid_label,
-        server_projection_envelope, server_review_envelope,
+        COMPOSED_RESULT_PREFIX, ServerResultSource, invalid_label, server_projection_envelope,
+        server_review_envelope,
     },
 };
 use desk_agent_protocol::{AgentError, data_lineage::DataEnvelope};
@@ -95,7 +95,9 @@ fn project_decided(messages: &mut [ChatMessage], pair: &DecidedPair) -> Result<(
         .or_else(|| label.provenance.source_envelope_ids.first())
         .and_then(|id| label_in(&messages[..pair.draft], id))
         .cloned();
-    if label.envelope_id.starts_with(REVIEW_RESULT_PREFIX) {
+    // A registered receipt keeps its reason when every parent it was
+    // decided from is an input of this request.
+    if label.envelope_id.starts_with(COMPOSED_RESULT_PREFIX) {
         let parents = label
             .provenance
             .source_envelope_ids
@@ -115,19 +117,6 @@ fn project_decided(messages: &mut [ChatMessage], pair: &DecidedPair) -> Result<(
             messages[pair.draft].data_envelope = Some(envelope);
             return Ok(());
         }
-    } else if label.envelope_id.starts_with(STATUS_RESULT_PREFIX) {
-        let parent = label
-            .provenance
-            .source_envelope_ids
-            .first()
-            .and_then(|id| label_in(earlier, id))
-            .cloned();
-        (pair.finish)(&mut value);
-        let text = value.to_string();
-        messages[pair.draft].data_envelope =
-            server_projection_envelope(parent.as_ref(), &call_id, &text, source)?;
-        messages[pair.draft].text = text;
-        return Ok(());
     }
     // An unverifiable reason, or one whose parents this request lacks.
     without_reason(&mut value);
@@ -149,7 +138,7 @@ mod tests {
     use super::*;
     use crate::{
         chat::ChatRole,
-        model_message_labels::{STATUS_RESULT_PREFIX, server_result_envelope},
+        model_message_labels::{COMPOSED_RESULT_PREFIX, server_result_envelope},
         proposal_review::provenance::{
             AiDecisionReason, decision_receipt_envelope, proposing_output,
             tests::{paused_session, provenance},
@@ -210,7 +199,7 @@ mod tests {
         let (draft, receipt) = (&messages[2], &messages[4]);
         assert!(reason_visible(draft) && reason_visible(receipt));
         for label in [draft, receipt].map(|message| message.data_envelope.as_ref().unwrap()) {
-            assert!(label.envelope_id.starts_with(REVIEW_RESULT_PREFIX));
+            assert!(label.envelope_id.starts_with(COMPOSED_RESULT_PREFIX));
             assert_eq!(label.provenance.source_envelope_ids.len(), 3);
         }
         assert!(draft.text.contains("\"awaiting_decision\":false"));
@@ -228,7 +217,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .envelope_id
-                .starts_with("data-status-")
+                .starts_with("unverified-result-")
         );
         for (messages, draft, receipt) in [(&mut trimmed, 1, 3), (&mut unverifiable, 2, 4)] {
             project_decisions(messages).unwrap();
@@ -242,7 +231,7 @@ mod tests {
                 );
                 assert_eq!(value["reason_note"], REASON_NOTE);
                 let label = message.data_envelope.as_ref().unwrap();
-                assert!(label.envelope_id.starts_with(STATUS_RESULT_PREFIX));
+                assert!(label.envelope_id.starts_with(COMPOSED_RESULT_PREFIX));
                 assert_eq!(
                     label.provenance.source_envelope_ids,
                     ["user-message-proposing"]

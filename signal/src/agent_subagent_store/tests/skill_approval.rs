@@ -218,7 +218,10 @@ async fn ai_approval_saves_the_waiting_skill_and_answers_its_turn() {
         .data_envelope
         .clone()
         .unwrap();
-    assert!(label.envelope_id.starts_with("review-result-"), "{label:?}");
+    assert!(
+        label.envelope_id.starts_with("composed-result-"),
+        "{label:?}"
+    );
     // The decision resumes the paused turn exactly once.
     let resume = desk_assistant_data_store::entity::agent_decision_resume::Entity::find()
         .one(&db)
@@ -443,7 +446,7 @@ async fn ai_approval_disables_the_assistant_written_skill() {
         last.data_envelope
             .unwrap()
             .envelope_id
-            .starts_with("data-status-")
+            .starts_with("unverified-result-")
     );
 }
 

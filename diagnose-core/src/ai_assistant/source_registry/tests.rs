@@ -805,7 +805,7 @@ fn renamed_malformed_weakened_and_cyclic_controls_remain_unresolved() {
             .unwrap()
             .data_envelope
             .unwrap();
-    for case in 0..9 {
+    for case in 0..8 {
         let mut changed = control.clone();
         match case {
             0 => changed.provenance.source_tool_name = "model-claimed-runtime".into(),
@@ -831,10 +831,9 @@ fn renamed_malformed_weakened_and_cyclic_controls_remain_unresolved() {
                 }
                 _ => unreachable!(),
             },
-            _ => changed
-                .provenance
-                .source_envelope_ids
-                .push(another.envelope_id.clone()),
+            // A further present parent is a valid composed label: it only
+            // adds that parent's constraints.
+            _ => unreachable!(),
         }
         let original = snapshot(vec![changed, owner.clone(), another.clone()]);
         let registration =
@@ -1055,9 +1054,9 @@ fn review_receipts_register_only_with_every_parent_present_and_keep_their_polici
     // A missing parent leaves the receipt unregistered.
     let (_, registration) = capture(vec![owner.clone(), receipt.clone()]);
     assert!(registration.leaves[1].is_none());
-    // Only decision sources may use this shape.
+    // An unregistered source name is never resolved.
     let mut renamed = receipt.clone();
-    renamed.provenance.source_tool_name = Source::SkillProposal.as_str().into();
+    renamed.provenance.source_tool_name = "model-claimed-review".into();
     let (_, registration) = capture(vec![owner.clone(), other.clone(), renamed]);
     assert!(registration.leaves[2].is_none());
     assert!(server_review_envelope(&[&owner], "receipt", "x", Source::SkillProposal).is_err());

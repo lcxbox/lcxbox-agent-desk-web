@@ -648,10 +648,10 @@ fn background_status_inherits_proposal_boundary_without_requesting_a_native_rece
         (
             "still running",
             Some(crate::model_message_labels::ServerResultSource::ExecutionPlaceholder),
-            "status-result-",
+            "composed-result-",
         ),
-        ("outcome unknown", None, "data-status-"),
-        ("wait error", None, "data-status-"),
+        ("outcome unknown", None, "unverified-result-"),
+        ("wait error", None, "unverified-result-"),
     ] {
         append_mutating_result(
             &deps,

@@ -438,9 +438,9 @@ async fn exercise_live_review(selectable: bool) {
         let receipt = session.conversation.last().unwrap();
         let label = receipt.data_envelope.as_ref().unwrap();
         if approve {
-            assert!(label.envelope_id.starts_with("status-result-"));
+            assert!(label.envelope_id.starts_with("composed-result-"));
         } else {
-            assert!(label.envelope_id.starts_with("data-status-"));
+            assert!(label.envelope_id.starts_with("unverified-result-"));
             assert!(
                 receipt
                     .text

@@ -2034,7 +2034,7 @@ mod tests {
             vec![destination.clone()],
         ));
         let mut result_envelope = envelope(
-            "status-result-envelope",
+            "composed-result-envelope",
             "update_task_status",
             b"status updated",
             Sensitivity::UserContent,

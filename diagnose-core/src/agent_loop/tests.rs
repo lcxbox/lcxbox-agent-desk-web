@@ -2248,7 +2248,7 @@ async fn ai_assistant_followup_batch_repeats_exact_latest_input_at_recency_edge(
     let projected_ids: std::collections::BTreeSet<_> = messages
         .iter()
         .filter_map(|message| message.data_envelope.as_ref())
-        .filter(|label| label.envelope_id.starts_with("status-result-"))
+        .filter(|label| label.envelope_id.starts_with("composed-result-"))
         .map(|label| label.envelope_id.clone())
         .collect();
     assert!(!projected_ids.is_empty());
