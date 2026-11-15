@@ -80,6 +80,10 @@ server_result_sources! {
     ToolCallError => "tool_call_error",
     // The skill catalogue, labelled by its stored skills.
     SkillCatalogue => "skill_catalogue",
+    // Goal records rebuilt for each continuation request.
+    GoalOriginalProjection => "goal_original_projection",
+    GoalStateProjection => "goal_state_projection",
+    GoalClarificationProjection => "goal_clarification_projection",
     // Successful receipts of tools whose body is ids, states or the call's
     // own arguments.
     ControlGoal => crate::goal_tools::CONTROL_GOAL_TOOL_NAME,
@@ -156,10 +160,6 @@ pub const REUSABLE_PROVIDER_RESULT_PROJECTION: &str = "reusable_provider_result_
 pub const FREEZE_ACTION_RESULT_ORIGIN: &str = "freeze_action_result_origin";
 /// Device-side directory resolution errors.
 pub const DIRECTORY_RESOLUTION_FAILED: &str = "directory_resolution_failed";
-/// Goal text written by the model, labelled under the owner's message.
-pub const GOAL_ORIGINAL_PROJECTION: &str = "goal_original_projection";
-pub const GOAL_CLARIFICATION_PROJECTION: &str = "goal_clarification_projection";
-pub const GOAL_STATE_PROJECTION: &str = "goal_state_projection";
 pub const GOAL_PROPOSAL_DECISION: &str = "goal_proposal_decision";
 
 // Other system source names; their own contracts decide registration.
@@ -205,9 +205,6 @@ mod tests {
             REUSABLE_PROVIDER_RESULT_PROJECTION,
             FREEZE_ACTION_RESULT_ORIGIN,
             DIRECTORY_RESOLUTION_FAILED,
-            GOAL_ORIGINAL_PROJECTION,
-            GOAL_CLARIFICATION_PROJECTION,
-            GOAL_STATE_PROJECTION,
             GOAL_PROPOSAL_DECISION,
             "unknown",
         ] {

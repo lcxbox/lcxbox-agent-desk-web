@@ -814,6 +814,13 @@ async fn prepare_input_goals_on(
                 .map_err(|error| internal(format!("read goal budget policy: {error}")))?,
         )
         .map_err(|error| internal(format!("apply goal budget policy: {error:?}")))?;
+        // The owner's own message is the goal text.
+        let owner_source = desk_diagnose_core::model_content::StoredTextSource::owner(
+            &params.actor_id,
+            std::cmp::Ord::max(u64::try_from(session.policy_revision).unwrap_or(1), 1),
+        );
+        goal.text_sources.goal_text = Some(owner_source.clone());
+        goal.text_sources.original_goal_text = Some(owner_source);
         if let Some(previous_id) = &start.previous_completed_goal_id {
             let previous = crate::agent_goal_store::load_completed_on(
                 db,

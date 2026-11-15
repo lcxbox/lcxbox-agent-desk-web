@@ -162,6 +162,25 @@ pub async fn save_model_request(
         ));
     }
     let mut stored_event = event.clone();
+    // The goal text is the proposing output's request_goal arguments; an
+    // output that was not retained leaves it unproven.
+    if let Some(output) = desk_diagnose_core::goal::latest_call_output(
+        &session.conversation,
+        desk_diagnose_core::goal_tools::REQUEST_GOAL_TOOL_NAME,
+    ) {
+        stored_event.request.text_source =
+            crate::schedule_store::ScheduleStore::model_output_source_on(&txn, session, output)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|(_, model_source)| {
+                    desk_diagnose_core::model_content::StoredTextSource::model_output(
+                        &session.actor_id,
+                        model_source,
+                        Vec::new(),
+                    )
+                });
+    }
     if stored_event.request.target_goal_id.is_none() {
         let policy = crate::goal_budget_policy::read(&txn)
             .await
@@ -231,6 +250,12 @@ fn project(request: &GoalOpenRequest) -> Result<request_row::ActiveModel, DbErr>
         decided_at: Set(request.decided_at_unix_ms.map(as_i64).transpose()?),
         decision_event_id: Set(request.decision_event_id.clone()),
         resulting_goal_id: Set(request.resulting_goal_id.clone()),
+        text_source_json: Set(request
+            .text_source
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|_| invalid())?),
         created_at: Set(as_i64(request.created_at_unix_ms)?),
         ..Default::default()
     })
@@ -266,6 +291,12 @@ pub(crate) fn decode(row: &request_row::Model) -> Result<GoalOpenRequest, DbErr>
             .transpose()?,
         decision_event_id: row.decision_event_id.clone(),
         resulting_goal_id: row.resulting_goal_id.clone(),
+        text_source: row
+            .text_source_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|_| invalid())?,
     };
     request.validate().map_err(|_| invalid())?;
     Ok(request)

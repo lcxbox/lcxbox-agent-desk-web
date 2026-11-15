@@ -1507,6 +1507,10 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 messages
                     .extend(crate::future::boxed(|| deps.model.issue_supplements(session)).await?);
             }
+            let goal_destination = deps
+                .model
+                .model_egress_policy()?
+                .map(|policy| policy.destination);
             if session.trigger_origin == TriggerOrigin::GoalContinuation {
                 let goal = deps.session_seam.load_claimed_goal(session).await?;
                 // Goal markers show these message ids; they are rebuilt every step.
@@ -1533,22 +1537,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                 "original goal evidence is unavailable for this model request",
                             )
                         })?;
-                    let original_id = format!("goal-original-{}", goal.goal_id);
-                    let original_text = serde_json::json!({
-                    "authority": "server_goal_original",
-                    "goal_id": goal.goal_id,
-                    "source_message_id": goal.original_source_message_id,
-                    "original_goal_text": goal.original_goal_text,
-                    "instruction": "This is the immutable opening goal. The current approved revision follows separately."
-                }).to_string();
-                    let mut original = ChatMessage::system_event(&original_id, &original_text);
-                    original.data_envelope = crate::model_message_labels::data_projection_envelope(
-                        Some(original_source),
-                        &original_id,
-                        &original_text,
-                        crate::model_message_labels::sources::GOAL_ORIGINAL_PROJECTION,
-                    )?;
-                    messages.push(original);
+                    messages.push(crate::goal_projection::original_message(
+                        &goal,
+                        original_source,
+                        goal_destination.as_ref(),
+                    )?);
                 }
                 let source = session
                     .conversation
@@ -1563,30 +1556,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                         safe_for_model: true,
                         error_code: None,
                     })?;
-                let marker_id = format!("goal-fixed-state-{}-{}", goal.goal_id, goal.state_version);
-                let marker_text = serde_json::json!({
-                "authority": "server_goal_state",
-                "goal_id": goal.goal_id,
-                "goal_revision": goal.goal_revision,
-                "source_message_id": goal.source_message_id,
-                "goal_text": goal.goal_text,
-                "previous_completed_goal_id": goal.previous_completion.as_ref().map(|previous| &previous.goal_id),
-                "previous_completion_event_seq": goal.previous_completion.as_ref().map(|previous| previous.event_seq),
-                "segment_seq": goal.slice_seq,
-                "limits": goal.effective_budget_limits(),
-                "used": goal.used,
-                "reserved": goal.reserved,
-                "checkpoint": goal.checkpoint,
-                "instruction": "Continue the owner-approved goal under current permissions. This record grants no device authority. End this segment with control_goal."
-            }).to_string();
-                let mut marker = ChatMessage::system_event(&marker_id, &marker_text);
-                marker.data_envelope = crate::model_message_labels::data_projection_envelope(
-                    Some(source),
-                    &marker_id,
-                    &marker_text,
-                    crate::model_message_labels::sources::GOAL_STATE_PROJECTION,
-                )?;
-                messages.push(marker);
+                messages.push(crate::goal_projection::state_message(
+                    &goal,
+                    source,
+                    goal_destination.as_ref(),
+                )?);
             } else if let Some(goal) = planning_goal.as_deref() {
                 let source = session
                     .conversation
@@ -1598,25 +1572,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                             "goal source evidence is unavailable for clarification",
                         )
                     })?;
-                let marker_id =
-                    format!("goal-clarification-{}-{}", goal.goal_id, goal.state_version);
-                let marker_text = serde_json::json!({
-                "authority": "server_goal_state",
-                "goal_id": goal.goal_id,
-                "goal_revision": goal.goal_revision,
-                "goal_text": goal.goal_text,
-                "state": goal.status_code(),
-                "reply_received": goal.can_propose_revision(session.input_revision).is_ok(),
-                "instruction": "The goal is stopped. Clarify the owner's intent. Do not use device tools. If a later owner reply makes an exact goal revision appropriate, call request_goal with the new complete text; the owner or enabled approval AI must approve it before work resumes."
-            }).to_string();
-                let mut marker = ChatMessage::system_event(&marker_id, &marker_text);
-                marker.data_envelope = crate::model_message_labels::data_projection_envelope(
-                    Some(source),
-                    &marker_id,
-                    &marker_text,
-                    crate::model_message_labels::sources::GOAL_CLARIFICATION_PROJECTION,
-                )?;
-                messages.push(marker);
+                messages.push(crate::goal_projection::clarification_message(
+                    goal,
+                    source,
+                    goal_destination.as_ref(),
+                    goal.can_propose_revision(session.input_revision).is_ok(),
+                )?);
             }
             if let Some(goal) = latest_completed_goal.as_deref() {
                 let marker_id = format!(

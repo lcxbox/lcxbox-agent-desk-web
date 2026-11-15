@@ -1002,9 +1002,6 @@ fn data_results_never_register_whatever_their_name() {
         sources::REUSABLE_PROVIDER_RESULT_PROJECTION,
         sources::FREEZE_ACTION_RESULT_ORIGIN,
         sources::DIRECTORY_RESOLUTION_FAILED,
-        sources::GOAL_ORIGINAL_PROJECTION,
-        sources::GOAL_CLARIFICATION_PROJECTION,
-        sources::GOAL_STATE_PROJECTION,
         sources::GOAL_PROPOSAL_DECISION,
         // Tool names shared with registered receipts, for their error results.
         crate::ai_assistant::data_tools::MANAGE_MEMORIES,

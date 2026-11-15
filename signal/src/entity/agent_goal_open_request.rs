@@ -27,6 +27,8 @@ pub struct Model {
     pub decided_at: Option<i64>,
     pub decision_event_id: Option<String>,
     pub resulting_goal_id: Option<String>,
+    /// Source proof of the proposed goal text (`StoredTextSource`).
+    pub text_source_json: Option<String>,
     pub created_at: i64,
 }
 

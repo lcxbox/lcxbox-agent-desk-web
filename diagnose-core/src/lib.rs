@@ -79,6 +79,7 @@ pub mod future;
 pub mod goal;
 pub mod goal_budget;
 pub mod goal_continuation;
+pub mod goal_projection;
 pub mod goal_review;
 pub mod goal_tools;
 pub mod grant_disclosure;

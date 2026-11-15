@@ -2098,6 +2098,38 @@ async fn settle_slice_afterimage(
         ),
     }
     .map_err(|_| invalid())?;
+    // A control's checkpoint repeats that output's arguments; a yield's is
+    // fixed server text.
+    match end {
+        GoalSegmentEnd::Yield => {
+            goal.text_sources.checkpoint = desk_diagnose_core::goal::CheckpointSource::Server;
+        }
+        GoalSegmentEnd::Control(_) => {
+            if let Some(source) = match desk_diagnose_core::goal::latest_call_output(
+                &session.conversation,
+                desk_diagnose_core::goal_tools::CONTROL_GOAL_TOOL_NAME,
+            ) {
+                Some(output) => crate::schedule_store::ScheduleStore::model_output_source_on(
+                    &txn, session, output,
+                )
+                .await
+                .ok()
+                .flatten()
+                .and_then(|(_, model_source)| {
+                    desk_diagnose_core::model_content::StoredTextSource::model_output(
+                        &session.actor_id,
+                        model_source,
+                        Vec::new(),
+                    )
+                }),
+                None => None,
+            } {
+                goal.text_sources.checkpoint =
+                    desk_diagnose_core::goal::CheckpointSource::Model { source };
+            }
+        }
+        _ => {}
+    }
     session.last_event_seq = event_seq;
     desk_diagnose_core::future::send_phase(|| {
         persist_slice_on(

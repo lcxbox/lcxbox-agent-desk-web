@@ -157,6 +157,49 @@ pub struct GoalOpenRequest {
     pub decided_at_unix_ms: Option<u64>,
     pub decision_event_id: Option<String>,
     pub resulting_goal_id: Option<String>,
+    /// Source proof of `goal_text`, computed by the host from the proposing
+    /// model output when the request is saved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_source: Option<crate::model_content::StoredTextSource>,
+}
+
+/// The latest assistant message that called `tool`: the model output whose
+/// arguments a goal proposal or control carries.
+pub fn latest_call_output<'a>(
+    conversation: &'a [crate::chat::ChatMessage],
+    tool: &str,
+) -> Option<&'a crate::chat::ChatMessage> {
+    conversation.iter().rev().find(|message| {
+        message.role == crate::chat::ChatRole::Assistant
+            && message.tool_calls.iter().any(|call| call.name == tool)
+    })
+}
+
+/// Where a goal checkpoint's summary came from.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CheckpointSource {
+    /// No proof is known; the summary is never retained.
+    #[default]
+    Unproven,
+    /// Fixed server text, such as a yield, pause or rejection notice.
+    Server,
+    /// A model output's `control_goal` arguments.
+    Model {
+        source: crate::model_content::StoredTextSource,
+    },
+}
+
+/// Source proofs of a goal's model-visible text.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GoalTextSources {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_text: Option<crate::model_content::StoredTextSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_goal_text: Option<crate::model_content::StoredTextSource>,
+    #[serde(default)]
+    pub checkpoint: CheckpointSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -317,6 +360,7 @@ impl GoalOpenRequest {
             decided_at_unix_ms: None,
             decision_event_id: None,
             resulting_goal_id: None,
+            text_source: None,
         };
         request.validate()?;
         Ok(request)
@@ -430,6 +474,8 @@ impl GoalOpenRequest {
         if let Some(previous) = previous_completed {
             goal = goal.with_previous_completed(previous)?;
         }
+        goal.text_sources.goal_text = self.text_source.clone();
+        goal.text_sources.original_goal_text = self.text_source.clone();
         self.state = GoalOpenRequestState::Approved;
         self.decided_at_unix_ms = Some(now_unix_ms);
         self.decision_event_id = Some(decision_event_id);
@@ -466,6 +512,7 @@ impl GoalOpenRequest {
             self.input_revision,
             now_unix_ms,
         )?;
+        goal.text_sources.goal_text = self.text_source.clone();
         self.state = GoalOpenRequestState::Approved;
         self.decided_at_unix_ms = Some(now_unix_ms);
         self.decision_event_id = Some(decision_event_id);
@@ -1069,6 +1116,9 @@ pub struct GoalRun {
     pub status_reason: Option<String>,
     pub work_wait: Option<crate::goal_continuation::GoalWorkWait>,
     pub checkpoint: Option<GoalCheckpoint>,
+    /// Source proofs of the goal text, the opening text and the checkpoint.
+    #[serde(default)]
+    pub text_sources: GoalTextSources,
     pub last_progress_event_seq: Option<u64>,
     pub updated_at_unix_ms: u64,
 }
@@ -1357,6 +1407,7 @@ impl GoalRun {
             status_reason: None,
             work_wait: None,
             checkpoint: None,
+            text_sources: GoalTextSources::default(),
             last_progress_event_seq: None,
             updated_at_unix_ms: created_at_unix_ms,
         })
@@ -1887,6 +1938,8 @@ impl GoalRun {
         if let GoalControl::WaitForWork { wait, .. } = control {
             self.work_wait = Some(wait.clone());
         }
+        // The caller records where the control's text came from.
+        self.text_sources.checkpoint = CheckpointSource::Unproven;
         self.checkpoint = Some(checkpoint);
         if progressed {
             self.last_progress_event_seq = Some(checkpoint_event_seq);
@@ -1940,6 +1993,7 @@ impl GoalRun {
         self.status_reason = Some(reason.as_str().into());
         self.next_attempt_unix_ms = None;
         self.model_wait_attempts = 0;
+        self.text_sources.checkpoint = CheckpointSource::Server;
         self.checkpoint = Some(checkpoint);
         self.updated_at_unix_ms = now_unix_ms;
         Ok(())
@@ -1979,6 +2033,7 @@ impl GoalRun {
             CallRejection::TaskExpired => "delegation_deadline_reached",
         };
         self.status_reason = Some(label.into());
+        self.text_sources.checkpoint = CheckpointSource::Server;
         if let Some(checkpoint) = &mut self.checkpoint {
             checkpoint.summary = rejection.message().into();
         }
