@@ -417,7 +417,7 @@ mod protocol_version_tests {
                 "approved values must survive for {name}"
             );
         }
-        assert!(affected.contains(&"exec_command"));
+        assert!(affected.contains(&crate::exec_tools::EXEC_TOOL_NAME));
         assert!(affected.contains(&"prepare_outlook_draft"));
         assert!(affected.contains(&"send_gmail_message"));
         eprintln!(
@@ -445,7 +445,7 @@ mod protocol_version_tests {
     #[test]
     fn permission_exact_inputs_use_each_target_tools_schema() {
         let mut input = json!({"items":[
-            {"tool_name":"exec_command","exact_input":{"shell":"bash","command":"pwd","timeout_ms":10000,"schema_version":1}},
+            {"tool_name":crate::exec_tools::EXEC_TOOL_NAME,"exact_input":{"shell":"bash","command":"pwd","timeout_ms":10000,"schema_version":1}},
             {"tool_name":"prepare_outlook_draft","exact_input":{"draft":{"schema_version":desk_agent_protocol::communication::COMMUNICATION_SCHEMA_VERSION,"body_plain_text":"unchanged","recipients":[]}}},
             {"tool_name":"unknown","exact_input":{"schema_version":1}}
         ]});

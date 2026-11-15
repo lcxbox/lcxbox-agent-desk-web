@@ -21,7 +21,7 @@ pub fn has_device_receipt(
         if message.tool_ok != Some(true)
             || envelope.provenance.source_provider_id
                 != crate::ai_assistant::DOCUMENT_PREVIEW_PROVIDER_ID
-            || envelope.provenance.source_tool_name != "preview_document"
+            || envelope.provenance.source_tool_name != crate::tool_names::PREVIEW_DOCUMENT
             || envelope.provenance.source_object_id.as_deref()
                 != Some(&format!("{device_id}:{call_id}"))
             || envelope.validate().is_err()

@@ -195,7 +195,7 @@ pub(super) async fn run<F: FnMut() -> String>(
         return Ok(None);
     }
     let document_preview = out.document_preview.take();
-    if document_preview.is_some() && call.name != "preview_document" {
+    if document_preview.is_some() && call.name != crate::tool_names::PREVIEW_DOCUMENT {
         return Err(invalid_original_result());
     }
     // A model-visible tool error is still data produced by

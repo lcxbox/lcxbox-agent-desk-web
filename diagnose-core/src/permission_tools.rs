@@ -748,8 +748,8 @@ pub fn canonical_tool_permission_input_json(
         value = serde_json::to_value(request)?;
     }
     let reference_selector = match tool_name {
-        "read_current_screen" => Some(("window", "window_id")),
-        "inspect_desktop_ui" => Some(("root", "root_id")),
+        crate::tool_names::READ_CURRENT_SCREEN => Some(("window", "window_id")),
+        crate::tool_names::INSPECT_DESKTOP_UI => Some(("root", "root_id")),
         _ => None,
     };
     if let Some((reference_field, id_field)) = reference_selector
@@ -763,10 +763,10 @@ pub fn canonical_tool_permission_input_json(
             serde_json::Value::Object(reference.clone()),
         )
         && match tool_name {
-            "read_current_screen" => {
+            crate::tool_names::READ_CURRENT_SCREEN => {
                 reference.object_kind == desk_agent_protocol::computer_use::ObjectKind::Window
             }
-            "inspect_desktop_ui" => matches!(
+            crate::tool_names::INSPECT_DESKTOP_UI => matches!(
                 reference.object_kind,
                 desk_agent_protocol::computer_use::ObjectKind::DesktopSession
                     | desk_agent_protocol::computer_use::ObjectKind::Application
@@ -1445,7 +1445,10 @@ pub fn include_desktop_action_reads(
         return Ok(());
     };
     let mut additions = Vec::new();
-    for name in ["inspect_desktop_session", "inspect_desktop_ui"] {
+    for name in [
+        crate::tool_names::INSPECT_DESKTOP_SESSION,
+        crate::tool_names::INSPECT_DESKTOP_UI,
+    ] {
         if request.items.iter().any(|item| item.tool_name == name) {
             continue;
         }
@@ -1794,7 +1797,8 @@ pub fn synthesized_request_matches(request: &PermissionRequest, call: &ToolCall)
             item.item_id == format!("included-{}", item.tool_name)
                 && matches!(
                     item.tool_name.as_str(),
-                    "inspect_desktop_session" | "inspect_desktop_ui"
+                    crate::tool_names::INSPECT_DESKTOP_SESSION
+                        | crate::tool_names::INSPECT_DESKTOP_UI
                 )
                 && item.canonical_input_json.is_none()
         })

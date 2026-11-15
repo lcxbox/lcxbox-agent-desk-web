@@ -133,7 +133,7 @@ pub fn validate_output(
     if !requires_objects(&call.name)
         && !matches!(
             call.name.as_str(),
-            "inspect_desktop_ui" | "list_applications"
+            crate::tool_names::INSPECT_DESKTOP_UI | "list_applications"
         )
     {
         return Ok(());

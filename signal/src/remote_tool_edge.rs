@@ -2143,7 +2143,7 @@ impl SignalAiAssistantTools {
         call: &ToolCall,
         ctx: &ExecContext,
     ) -> Result<ExecOutcome, AgentError> {
-        if call.name != "exec_command" {
+        if call.name != desk_diagnose_core::exec_tools::EXEC_TOOL_NAME {
             return Err(error(
                 AgentErrorKind::UnsupportedCapability,
                 "command Provider is not registered",
@@ -2212,7 +2212,7 @@ impl SignalAiAssistantTools {
         })
         .await?;
         let resource_scope = confirmation.resource_scope()?;
-        let operation_scope = vec!["exec_command".into()];
+        let operation_scope = vec![desk_diagnose_core::exec_tools::EXEC_TOOL_NAME.into()];
         let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
             error(
                 AgentErrorKind::Internal,
@@ -2994,7 +2994,8 @@ impl SignalAiAssistantTools {
                 })
                 .await?
             }
-            "update_text_file" | "delete_text_file" => {
+            desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL
+            | desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL => {
                 desk_diagnose_core::future::boxed(|| async {
                     Ok::<_, AgentError>(Box::new({
                         let input = shared_text.as_ref().expect("text mutation preflight");
@@ -4010,7 +4011,7 @@ impl SignalAiAssistantTools {
         }
 
         let source_selector_call = call.clone();
-        let action_call = if call.name == "convert_document" {
+        let action_call = if call.name == desk_diagnose_core::tool_names::CONVERT_DOCUMENT {
             let without_source =
                 desk_diagnose_core::provider_preflight::text_file::selection::without_selectors(
                     call,
@@ -4022,7 +4023,7 @@ impl SignalAiAssistantTools {
         let canonical_call = call;
         let call = &action_call;
         let (args, required_capability, _operation, orchestrator_grant) = *match call.name.as_str() {
-            "create_text_file" => { desk_diagnose_core::future::boxed(|| async { Ok::<_, AgentError>(Box::new((
+            desk_diagnose_core::tool_names::CREATE_TEXT_FILE => { desk_diagnose_core::future::boxed(|| async { Ok::<_, AgentError>(Box::new((
                 ArtifactRequest::Text(serde_json::from_str(&call.arguments_json).map_err(
                     |decode_error| {
                         error(
@@ -4152,7 +4153,7 @@ impl SignalAiAssistantTools {
                     desk_diagnose_core::ai_assistant::WORD_DOCUMENT_CREATE_CAPABILITY_ID,
                 )
             })) }).await? }
-            "convert_document" => { desk_diagnose_core::future::boxed(|| async { Ok::<_, AgentError>(Box::new((
+            desk_diagnose_core::tool_names::CONVERT_DOCUMENT => { desk_diagnose_core::future::boxed(|| async { Ok::<_, AgentError>(Box::new((
                 ArtifactRequest::Document(serde_json::from_str(&call.arguments_json).map_err(
                     |decode_error| {
                         error(
@@ -4204,7 +4205,9 @@ impl SignalAiAssistantTools {
                 true,
             ));
         }
-        let artifact_preflight = if canonical_call.name == "convert_document" {
+        let artifact_preflight = if canonical_call.name
+            == desk_diagnose_core::tool_names::CONVERT_DOCUMENT
+        {
             let source =
                 desk_diagnose_core::provider_preflight::text_file::document_source_evidence_on_device(
                     &current_session,
@@ -6963,7 +6966,7 @@ impl ToolSeam for SignalAiAssistantTools {
         {
             return self.execute_selected_action(call, ctx).await;
         }
-        if call.name == "exec_command" {
+        if call.name == desk_diagnose_core::exec_tools::EXEC_TOOL_NAME {
             return self.authorize_and_execute_command(call, ctx).await;
         }
         if matches!(
@@ -6981,8 +6984,8 @@ impl ToolSeam for SignalAiAssistantTools {
                 | "patch_powerpoint_copy"
                 | "replace_word_copy_body"
                 | "patch_excel_copy"
-                | "update_text_file"
-                | "delete_text_file"
+                | desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL
+                | desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL
                 | "launch_application"
         ) {
             return self.authorize_and_execute_semantic_action(call, ctx).await;
@@ -7007,12 +7010,12 @@ impl ToolSeam for SignalAiAssistantTools {
         }
         if !matches!(
             call.name.as_str(),
-            "create_text_file"
+            desk_diagnose_core::tool_names::CREATE_TEXT_FILE
                 | "create_workbook"
                 | "create_formula_workbook"
                 | "create_word_report"
                 | "create_local_message_draft"
-                | "convert_document"
+                | desk_diagnose_core::tool_names::CONVERT_DOCUMENT
         ) {
             return Ok(ExecOutcome::Rejected {
                 reason: Some("this AI Assistant mutation is not enabled".into()),

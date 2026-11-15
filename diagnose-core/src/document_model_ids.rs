@@ -180,7 +180,9 @@ fn resolve_id(
     }
     let mut selected = None;
     for (call, mut value) in crate::result_model_ids::verified_results(history, now) {
-        if !(call.name.starts_with("inspect_") || call.name == "read_current_screen") {
+        if !(call.name.starts_with("inspect_")
+            || call.name == crate::tool_names::READ_CURRENT_SCREEN)
+        {
             continue;
         }
         crate::ui_model_output::expand_value(&mut value);
@@ -190,7 +192,8 @@ fn resolve_id(
             object_id(reference) == id
                 || (matches!(
                     call.name.as_str(),
-                    "inspect_desktop_ui" | "inspect_desktop_session"
+                    crate::tool_names::INSPECT_DESKTOP_UI
+                        | crate::tool_names::INSPECT_DESKTOP_SESSION
                 ) && reference.token == id)
         }) {
             if selected.as_ref().is_some_and(|prior| prior != &reference) {
@@ -620,10 +623,10 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
     if source.starts_with("inspect_")
         && !matches!(
             source,
-            "inspect_desktop_ui"
-                | "inspect_desktop_session"
-                | "inspect_files"
-                | "inspect_spreadsheets"
+            crate::tool_names::INSPECT_DESKTOP_UI
+                | crate::tool_names::INSPECT_DESKTOP_SESSION
+                | crate::tool_names::INSPECT_FILES
+                | crate::tool_names::INSPECT_SPREADSHEETS
         )
         && let Ok(mut value) = serde_json::from_str::<Value>(&message.text)
     {

@@ -195,14 +195,14 @@ fn unique_result(
 pub(crate) fn supports(tool: &str) -> bool {
     matches!(
         tool,
-        "update_text_file"
-            | "delete_text_file"
+        crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
+            | crate::provider_preflight::text_file::DELETE_TEXT_TOOL
             | "prepare_gmail_draft"
             | "send_gmail_message"
             | "send_slack_message"
             | "create_word_report"
     ) || crate::provider_preflight::text_file::selection::supports(tool)
-        || tool == "read_text_file"
+        || tool == crate::tool_names::READ_TEXT_FILE
 }
 
 /// Freeze the exact source envelopes in the existing action-result lineage.
@@ -326,7 +326,7 @@ pub(crate) fn resolve(
             .as_str()
             .ok_or_else(|| invalid("web_search_result_id must be a string"))?;
         let (source, result) = unique_result(&results, |call, _| {
-            call.name == "search_public_web"
+            call.name == crate::web_research::WEB_SEARCH_TOOL_NAME
                 && selected_call(&source_locators, id) == Some(call.id.as_str())
         })?;
         let requested = object
@@ -363,7 +363,11 @@ pub(crate) fn resolve(
         object.insert("web_search_call_id".into(), json!(source.id));
         object.insert("web_sources".into(), json!(restored));
     }
-    if matches!(tool, "update_text_file" | "delete_text_file") {
+    if matches!(
+        tool,
+        crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
+            | crate::provider_preflight::text_file::DELETE_TEXT_TOOL
+    ) {
         if let Some(id) = object.remove("file_version_id") {
             if object.contains_key("file_result_call_id") || object.contains_key("expected_sha256")
             {
@@ -405,13 +409,13 @@ pub(crate) fn resolve(
             let (_, result) = unique_result(&results, |call, value| {
                 matches!(
                     call.name.as_str(),
-                    "create_text_file"
+                    crate::tool_names::CREATE_TEXT_FILE
                         | "create_local_message_draft"
                         | "create_workbook"
                         | "create_formula_workbook"
                         | "create_word_report"
-                        | "convert_document"
-                        | "update_text_file"
+                        | crate::tool_names::CONVERT_DOCUMENT
+                        | crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
                 ) && selected_call(&source_locators, id) == Some(call.id.as_str())
                     && artifact(value).is_some()
             })?;
@@ -528,8 +532,11 @@ pub(crate) fn project_arguments(tool: &str, value: &mut Value, locators: &[Resul
         );
         object.insert("web_source_ids".into(), json!(selected));
     }
-    if matches!(tool, "update_text_file" | "delete_text_file")
-        && let Some(call) = object.remove("file_result_call_id")
+    if matches!(
+        tool,
+        crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
+            | crate::provider_preflight::text_file::DELETE_TEXT_TOOL
+    ) && let Some(call) = object.remove("file_result_call_id")
     {
         let id = call.as_str().and_then(|call| message_id(locators, call));
         object.insert("file_version_id".into(), json!(id));
@@ -605,7 +612,8 @@ pub(crate) fn preserves_explicit_evidence(tool: &str, original: &Value, resolved
             });
     }
     let fields: &[&str] = match tool {
-        "update_text_file" | "delete_text_file" => &["expected_sha256"],
+        crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
+        | crate::provider_preflight::text_file::DELETE_TEXT_TOOL => &["expected_sha256"],
         "send_gmail_message" => &["handoff", "draft"],
         "send_slack_message" => &["handoff", "body_plain_text"],
         "create_word_report" => &["web_sources"],
@@ -650,7 +658,8 @@ pub(crate) fn project_tool(tool: &mut ToolSpec) {
             }
             tool.description = tool.description.replace("one prior search_public_web call id from this same run plus 1-8 title/URL pairs copied exactly from that result", "web_search_result_id from one verified prior search_public_web result and web_source_ids from that result");
         }
-        "update_text_file" | "delete_text_file" => {
+        crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
+        | crate::provider_preflight::text_file::DELETE_TEXT_TOOL => {
             replace_fields(
                 &mut tool.parameters_schema,
                 &["file_result_call_id", "expected_sha256"],
@@ -824,7 +833,7 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
         message.text = value.to_string();
         return;
     }
-    if source == "preview_document" {
+    if source == crate::tool_names::PREVIEW_DOCUMENT {
         if let Some(object) = value.as_object_mut() {
             object.remove("preview_id");
         }
@@ -852,7 +861,7 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
             object.remove(field);
         }
     }
-    if source == "search_public_web" {
+    if source == crate::web_research::WEB_SEARCH_TOOL_NAME {
         for field in [
             "schema_version",
             "configuration_revision",
@@ -945,7 +954,10 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
     }
     if matches!(
         source.as_str(),
-        "read_text_file" | "create_text_file" | "create_local_message_draft" | "update_text_file"
+        crate::tool_names::READ_TEXT_FILE
+            | crate::tool_names::CREATE_TEXT_FILE
+            | "create_local_message_draft"
+            | crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
     ) {
         let verified = created.as_ref().is_some_and(|artifact| {
             artifact.media_type == crate::provider_preflight::TEXT_ARTIFACT_MEDIA_TYPE
@@ -960,7 +972,10 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
             value["file_version_id"] = json!(message.message_id);
         }
     }
-    if source == "inspect_files" || source == "read_text_file" || created.is_some() {
+    if source == crate::tool_names::INSPECT_FILES
+        || source == crate::tool_names::READ_TEXT_FILE
+        || created.is_some()
+    {
         value["file_result_call_id"] = json!(message.message_id);
     }
     if let Some(handoff) = handoff(&original) {
@@ -970,9 +985,9 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
         || created.is_some()
         || source == "prepare_outlook_draft"
         || source == "prepare_slack_message"
-        || source == "inspect_files"
+        || source == crate::tool_names::INSPECT_FILES
         || source == "read_terminal_output"
-        || source == "inspect_spreadsheets"
+        || source == crate::tool_names::INSPECT_SPREADSHEETS
         || matches!(
             source.as_str(),
             "inspect_numbers_file"
@@ -982,7 +997,7 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
                 | "inspect_word_file"
                 | "inspect_powerpoint_file"
         )
-        || source == "preview_spreadsheet_merge"
+        || source == crate::tool_names::PREVIEW_SPREADSHEET_MERGE
         || source.starts_with("inspect_live_")
         || source.starts_with("inspect_office_")
     {

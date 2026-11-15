@@ -59,7 +59,10 @@ pub fn note_successful_observation(
     tool_name: &str,
 ) -> Result<(), &'static str> {
     if session.surface != crate::session::AgentSessionSurface::AiAssistant
-        || !matches!(tool_name, "read_current_screen" | "inspect_desktop_ui")
+        || !matches!(
+            tool_name,
+            crate::tool_names::READ_CURRENT_SCREEN | crate::tool_names::INSPECT_DESKTOP_UI
+        )
     {
         return Ok(());
     }
@@ -79,7 +82,7 @@ pub fn note_successful_observation(
     {
         return Err("visual verification fence is bound to another input revision");
     }
-    if tool_name == "read_current_screen" {
+    if tool_name == crate::tool_names::READ_CURRENT_SCREEN {
         session.pending_visual_verification = Some(VisualVerificationFence {
             focus_input_revision: session.input_revision,
             source_tool_call_id: call_id.to_string(),
@@ -210,7 +213,8 @@ pub(crate) fn selected_image_device<'a>(
 ) -> Option<&'a str> {
     let source = envelope.provenance.source_object_id.as_deref()?;
     let prefix = source.strip_suffix(call_id)?.strip_suffix(':')?;
-    (!prefix.is_empty() && envelope.provenance.source_tool_name == "read_current_screen")
+    (!prefix.is_empty()
+        && envelope.provenance.source_tool_name == crate::tool_names::READ_CURRENT_SCREEN)
         .then_some(prefix)
 }
 

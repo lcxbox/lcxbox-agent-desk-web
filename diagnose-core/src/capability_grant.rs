@@ -68,7 +68,7 @@ pub fn canonical_compiled_scope(
     {
         return Some(CanonicalGrantScope {
             resources: vec!["external_query:exact_input_required".into()],
-            operations: vec!["search_public_web".into()],
+            operations: vec![crate::web_research::WEB_SEARCH_TOOL_NAME.into()],
         });
     }
     if authorization_resources == [AuthorizationResourceKind::ExactCommand]
@@ -76,7 +76,7 @@ pub fn canonical_compiled_scope(
     {
         return Some(CanonicalGrantScope {
             resources: vec!["command:exact_input_required".into()],
-            operations: vec!["exec_command".into()],
+            operations: vec![crate::exec_tools::EXEC_TOOL_NAME.into()],
         });
     }
     if authorization_resources == [AuthorizationResourceKind::ExactApplication]

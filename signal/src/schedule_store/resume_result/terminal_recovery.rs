@@ -342,7 +342,7 @@ async fn permission_fixture() -> (ScheduleStore, run::Model, PersistedAgentSessi
     session.permission_requests.push(serde_json::from_value(serde_json::json!({
         "schema_version":desk_diagnose_core::dynamic_run::PERMISSION_REQUEST_SCHEMA_VERSION, "request_id":"crash-permission", "input_revision":session.input_revision,
         "state":"pending", "created_at":"2026-09-06T00:00:00Z", "items":[{
-            "item_id":"read", "provider_id":"desktop.session", "tool_name":"inspect_desktop_session",
+            "item_id":"read", "provider_id":"desktop.session", "tool_name":desk_diagnose_core::tool_names::INSPECT_DESKTOP_SESSION,
             "expected_effect":"read_device", "resource_scope":["target:current_device"],
             "operation_scope":["observe"], "suggested_ttl_seconds":120,
             "suggested_max_uses":1, "reason":"Inspect current device"
@@ -632,7 +632,7 @@ async fn interruption_preserves_live_lease_and_records_untracked_read_as_unavail
     session.conversation.last_mut().unwrap().tool_calls.push(
         desk_diagnose_core::chat::ToolCallRef {
             id: "unresolved-read".into(),
-            name: "inspect_desktop_session".into(),
+            name: desk_diagnose_core::tool_names::INSPECT_DESKTOP_SESSION.into(),
             arguments_json: "{}".into(),
         },
     );
@@ -712,7 +712,11 @@ async fn interruption_preserves_live_lease_and_records_untracked_read_as_unavail
 
 #[tokio::test]
 async fn untracked_mutations_and_unknown_tools_cannot_be_closed_as_reads() {
-    for tool in ["exec_command", "browser_open_page", "unregistered_tool"] {
+    for tool in [
+        desk_diagnose_core::exec_tools::EXEC_TOOL_NAME,
+        "browser_open_page",
+        "unregistered_tool",
+    ] {
         let (store, work, mut session) = interrupted_fixture(false).await;
         let mut proposal = ChatMessage::text("proposal", ChatRole::Assistant, "")
             .with_turn_id(work.turn_id.clone());
@@ -775,7 +779,7 @@ async fn untracked_read_with_a_persisted_result_is_preserved_during_cancellation
         .tool_calls
         .push(desk_diagnose_core::chat::ToolCallRef {
             id: "completed-read".into(),
-            name: "inspect_desktop_session".into(),
+            name: desk_diagnose_core::tool_names::INSPECT_DESKTOP_SESSION.into(),
             arguments_json: "{}".into(),
         });
     let mut result = ChatMessage::tool_result(

@@ -32,7 +32,7 @@ pub fn observed_output(
         let Some(call) = calls.next() else {
             continue;
         };
-        if call.name != "read_current_screen" || calls.next().is_some() {
+        if call.name != crate::tool_names::READ_CURRENT_SCREEN || calls.next().is_some() {
             continue;
         }
         let Some(envelope) = &message.data_envelope else {
@@ -40,7 +40,7 @@ pub fn observed_output(
         };
         if envelope.validate().is_err()
             || crate::model_egress::envelope_expires_by(envelope, now_unix_ms)
-            || envelope.provenance.source_tool_name != "read_current_screen"
+            || envelope.provenance.source_tool_name != crate::tool_names::READ_CURRENT_SCREEN
             || envelope.provenance.source_provider_id
                 != crate::ai_assistant::CURRENT_SCREEN_PROVIDER_ID
             || envelope.content.size_bytes() != message.text.len() as u64

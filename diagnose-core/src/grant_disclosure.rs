@@ -215,7 +215,7 @@ pub(crate) mod tests {
     ) {
         let registry = crate::ai_assistant::ai_assistant_provider_registry();
         let capability = registry
-            .capability_for_tool("inspect_desktop_session")
+            .capability_for_tool(crate::tool_names::INSPECT_DESKTOP_SESSION)
             .unwrap();
         let scope = desk_agent_protocol::AgentScope {
             granted: vec![capability.required_capability],
@@ -243,7 +243,7 @@ pub(crate) mod tests {
                 .provider_id
                 .clone(),
             capability_id: capability.wire.capability_id.clone(),
-            tool_name: "inspect_desktop_session".into(),
+            tool_name: crate::tool_names::INSPECT_DESKTOP_SESSION.into(),
             tool_schema_version: capability.wire.input_schema_version,
             effect: capability.wire.effect,
             risk_tier: CapabilityRiskTier::R1,

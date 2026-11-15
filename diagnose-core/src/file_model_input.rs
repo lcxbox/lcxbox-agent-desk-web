@@ -11,9 +11,11 @@ use desk_agent_protocol::{
 use serde_json::{Value, json};
 
 pub(crate) fn is_read(tool: &str) -> bool {
-    matches!(tool, "inspect_files" | "read_text_file")
-        || (crate::provider_preflight::text_file::selection::supports(tool)
-            && tool != "convert_document")
+    matches!(
+        tool,
+        crate::tool_names::INSPECT_FILES | crate::tool_names::READ_TEXT_FILE
+    ) || (crate::provider_preflight::text_file::selection::supports(tool)
+        && tool != crate::tool_names::CONVERT_DOCUMENT)
 }
 
 fn invalid(message: impl Into<String>) -> AgentError {
@@ -75,7 +77,7 @@ pub(crate) fn restore_sources(
                 "The file result is ambiguous. Select an unambiguous current result; no request was created.",
             ));
         }
-        if call.name == "inspect_files" {
+        if call.name == crate::tool_names::INSPECT_FILES {
             let output = metadata(result).ok_or_else(|| {
                 invalid("The selected result has no verified directory metadata.")
             })?;
@@ -119,7 +121,7 @@ pub(crate) fn restore_sources(
         }
         Ok(())
     }
-    if tool == "read_text_file" && value.get("file_result_call_id").is_some() {
+    if tool == crate::tool_names::READ_TEXT_FILE && value.get("file_result_call_id").is_some() {
         complete(value, results, false)?;
     }
     if !crate::provider_preflight::text_file::selection::supports(tool) {
@@ -165,7 +167,7 @@ pub(crate) fn project_tool(tool: &mut ToolSpec) {
         } else {
             source
         };
-        if tool.name != "convert_document"
+        if tool.name != crate::tool_names::CONVERT_DOCUMENT
             && let Some(required) = tool.parameters_schema["required"].as_array_mut()
         {
             required.retain(|key| key != field);
@@ -181,12 +183,12 @@ pub(crate) fn project_tool(tool: &mut ToolSpec) {
             .contains("Select recorded files with source")
         {
             tool.description.push_str(" Select recorded files with source (sources for multi-file operations), using file_result_call_id and entry_name only when a directory result needs a child choice. The server restores source metadata. Never provide native paths or device tokens.");
-            if tool.name != "convert_document" {
+            if tool.name != crate::tool_names::CONVERT_DOCUMENT {
                 tool.description.push_str(" Source may be omitted only when the current accepted user input already selects the required file or file set. Available attachments or a recent history result are not implicit selections. Keep any required cell, worksheet or merge rules.");
             }
         }
     }
-    if tool.name == "inspect_files" {
+    if tool.name == crate::tool_names::INSPECT_FILES {
         tool.description = tool.description.replace("by supplying directory_request_id for an approved conversation directory and request separate metadata permission with these exact arguments", "from a selected or uniquely approved conversation directory");
         if !tool
             .description
@@ -195,7 +197,7 @@ pub(crate) fn project_tool(tool: &mut ToolSpec) {
             tool.description.push_str(" directory_request_id may be omitted for exactly one currently approved conversation directory, or when using the immutable object selection of the current user input. Multiple unbound directories require an explicit selection.");
         }
     }
-    if tool.name == "read_text_file" {
+    if tool.name == crate::tool_names::READ_TEXT_FILE {
         tool.description = tool.description.replace("For a child from inspect_files, provide file_result_call_id plus entry_name.", "For a child from inspect_files, provide file_result_call_id and choose entry_name when needed.").replace("Request read_text_file permission with these exact arguments", "Request contextual_exact_input read_text_file permission with the necessary business choices");
         if !tool
             .description
@@ -249,7 +251,7 @@ fn source_directory(
     let mut visited = std::collections::BTreeSet::new();
     while visited.insert(id.clone()) {
         let (call, result) = results.iter().find(|(call, _)| call.id == id).ok_or_else(|| invalid("The source directory cannot be recovered from current verified evidence. Select directory_request_id explicitly; no request was created."))?;
-        if call.name == "inspect_files" {
+        if call.name == crate::tool_names::INSPECT_FILES {
             let output = metadata(result)
                 .ok_or_else(|| invalid("The source has no verified directory metadata."))?;
             let [root] = output.entries.as_slice() else {
@@ -345,13 +347,13 @@ pub(crate) fn complete_device_input(
     {
         crate::model_input::validate_format(tool, value).map_err(invalid)?;
     }
-    let directory_tool = tool == "inspect_files"
+    let directory_tool = tool == crate::tool_names::INSPECT_FILES
         || crate::provider_preflight::ArtifactCallPreflight::supports(tool)
         || crate::provider_preflight::text_file::TextMutationPreflight::supports(tool);
     if !directory_tool {
         return Ok(());
     }
-    if tool == "inspect_files"
+    if tool == crate::tool_names::INSPECT_FILES
         && value.get("directory_request_id").is_none()
         && original.is_some_and(|selection| {
             selection.tool_names.iter().any(|name| name == tool)
@@ -404,7 +406,7 @@ pub(crate) fn complete_comparison(tool: &str, original: &mut Value, resolved: &V
         }
         return;
     }
-    let directory_tool = tool == "inspect_files"
+    let directory_tool = tool == crate::tool_names::INSPECT_FILES
         || crate::provider_preflight::ArtifactCallPreflight::supports(tool)
         || crate::provider_preflight::text_file::TextMutationPreflight::supports(tool);
     if directory_tool
@@ -413,7 +415,7 @@ pub(crate) fn complete_comparison(tool: &str, original: &mut Value, resolved: &V
     {
         original["directory_request_id"] = id.clone();
     }
-    if tool == "read_text_file"
+    if tool == crate::tool_names::READ_TEXT_FILE
         && original.get("file_result_call_id").is_some()
         && original.get("entry_name").is_none()
         && let Some(name) = resolved.get("entry_name")

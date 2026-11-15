@@ -609,7 +609,7 @@ pub(crate) mod tests {
             },
             provenance: DataProvenance {
                 source_provider_id: "desktop.ui".into(),
-                source_tool_name: "inspect_desktop_ui".into(),
+                source_tool_name: crate::tool_names::INSPECT_DESKTOP_UI.into(),
                 source_object_id: Some("call".into()),
                 source_envelope_ids: Vec::new(),
             },
@@ -685,7 +685,7 @@ pub(crate) mod tests {
             },
             provenance: DataProvenance {
                 source_provider_id: "desktop.ui".into(),
-                source_tool_name: "inspect_desktop_ui".into(),
+                source_tool_name: crate::tool_names::INSPECT_DESKTOP_UI.into(),
                 source_object_id: Some("call".into()),
                 source_envelope_ids: Vec::new(),
             },
@@ -704,7 +704,7 @@ pub(crate) mod tests {
         };
         let policy = |destination| ModelEgressPolicy {
             destination,
-            selected_source_tools: ["inspect_desktop_ui".to_string()].into(),
+            selected_source_tools: [crate::tool_names::INSPECT_DESKTOP_UI.to_string()].into(),
             export_authorization_id: "selection".into(),
             now_unix_ms: 100,
             byte_cap: crate::sink_authorizer::MAX_SINK_BYTES,

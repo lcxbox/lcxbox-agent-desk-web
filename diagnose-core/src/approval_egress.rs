@@ -600,7 +600,7 @@ pub(crate) fn is_completed_history_receipt(
         && !is_historical_permission_pause_result(message)
         && matches!(
             source.provenance.source_tool_name.as_str(),
-            "exec_command" | "wait_for_task"
+            crate::exec_tools::EXEC_TOOL_NAME | crate::wait_tools::WAIT_TOOL_NAME
         )
         && ((message.tool_ok.is_some() && message.background_task_id.is_none()) || typed_completion)
         && !message.background_task_id.as_ref().is_some_and(|id| {

@@ -139,6 +139,7 @@ pub mod terminal_completion_policy;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_timing;
 mod text_parse;
+pub mod tool_names;
 pub mod trim;
 pub mod visual_evidence;
 pub mod wait_tools;

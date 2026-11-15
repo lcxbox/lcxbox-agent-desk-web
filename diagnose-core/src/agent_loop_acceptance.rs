@@ -275,7 +275,7 @@ fn tool_use(id: &str, name: &str) -> ModelTurn {
         tool_calls: vec![ToolCall {
             id: id.into(),
             name: name.into(),
-            arguments_json: if name == "exec_command" {
+            arguments_json: if name == crate::exec_tools::EXEC_TOOL_NAME {
                 r#"{"shell":"bash","command":"pwd","timeout_ms":10000}"#
             } else {
                 "{}"
@@ -417,13 +417,19 @@ async fn acceptance_evidence_injection_is_untrusted_data() {
 #[tokio::test]
 async fn acceptance_captured_model_cannot_call_unexposed_tool() {
     let sess = MemSession::default();
-    let model = model(vec![tool_use("c1", "exec_command"), answer("done")]);
+    let model = model(vec![
+        tool_use("c1", crate::exec_tools::EXEC_TOOL_NAME),
+        answer("done"),
+    ]);
     let tools = GatedTools::new("logs ok", vec![]);
     // The mutating tool exists in the registry but the read-only scope never
     // exposes it (no ShellExecConfirmed, mode ReadOnly).
     let reg = vec![
         read_tool("read_log", Capability::LogRecent),
-        mutating_tool("exec_command", Capability::ShellExecConfirmed),
+        mutating_tool(
+            crate::exec_tools::EXEC_TOOL_NAME,
+            Capability::ShellExecConfirmed,
+        ),
     ];
     let clock = || "t".to_string();
     let user = ChatMessage::text("u", ChatRole::User, "fix it");
@@ -455,7 +461,10 @@ async fn acceptance_captured_model_cannot_call_unexposed_tool() {
     // The exec tool was never even advertised to the model.
     let requests = model.requests.borrow();
     assert!(
-        !requests[0].tools.iter().any(|t| t.name == "exec_command"),
+        !requests[0]
+            .tools
+            .iter()
+            .any(|t| t.name == crate::exec_tools::EXEC_TOOL_NAME),
         "out-of-scope mutating tool must not be advertised"
     );
 }
@@ -467,7 +476,10 @@ async fn acceptance_captured_model_cannot_call_unexposed_tool() {
 #[tokio::test]
 async fn acceptance_captured_model_cannot_self_execute() {
     let sess = MemSession::default();
-    let model = model(vec![tool_use("c1", "exec_command"), answer("acknowledged")]);
+    let model = model(vec![
+        tool_use("c1", crate::exec_tools::EXEC_TOOL_NAME),
+        answer("acknowledged"),
+    ]);
     let tools = GatedTools::new(
         "logs ok",
         vec![ExecOutcome::Rejected {
@@ -475,7 +487,7 @@ async fn acceptance_captured_model_cannot_self_execute() {
         }],
     );
     let reg = vec![mutating_tool(
-        "exec_command",
+        crate::exec_tools::EXEC_TOOL_NAME,
         Capability::ShellExecConfirmed,
     )];
     let clock = || "t".to_string();
@@ -518,7 +530,7 @@ async fn acceptance_captured_model_cannot_self_execute() {
 async fn acceptance_unknown_outcome_keeps_authorized_tools() {
     let sess = MemSession::default();
     let model = model(vec![
-        tool_use("c1", "exec_command"),
+        tool_use("c1", crate::exec_tools::EXEC_TOOL_NAME),
         answer("will verify first"),
     ]);
     let tools = GatedTools::new(
@@ -529,7 +541,10 @@ async fn acceptance_unknown_outcome_keeps_authorized_tools() {
     );
     let reg = vec![
         read_tool("read_log", Capability::LogRecent),
-        mutating_tool("exec_command", Capability::ShellExecConfirmed),
+        mutating_tool(
+            crate::exec_tools::EXEC_TOOL_NAME,
+            Capability::ShellExecConfirmed,
+        ),
     ];
     let clock = || "t".to_string();
     let user = ChatMessage::text("u", ChatRole::User, "restart it");
@@ -553,9 +568,17 @@ async fn acceptance_unknown_outcome_keeps_authorized_tools() {
 
     let requests = model.requests.borrow();
     // Both requests retain authorized mutation and inspection tools.
-    assert!(requests[0].tools.iter().any(|t| t.name == "exec_command"));
     assert!(
-        requests[1].tools.iter().any(|t| t.name == "exec_command"),
+        requests[0]
+            .tools
+            .iter()
+            .any(|t| t.name == crate::exec_tools::EXEC_TOOL_NAME)
+    );
+    assert!(
+        requests[1]
+            .tools
+            .iter()
+            .any(|t| t.name == crate::exec_tools::EXEC_TOOL_NAME),
         "prior failure does not revoke authorization"
     );
     assert!(requests[1].tools.iter().any(|t| t.name == "read_log"));

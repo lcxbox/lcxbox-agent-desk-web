@@ -2052,7 +2052,8 @@ async fn prepare_composed_turn(
                         }
                     }
                     if !selected_file_roots.is_empty() {
-                        selected_source_tools.insert("inspect_files".into());
+                        selected_source_tools
+                            .insert(desk_diagnose_core::tool_names::INSPECT_FILES.into());
                         let selected_file_count = selected_file_roots
                             .iter()
                             .filter(|object_ref| {
@@ -2065,7 +2066,8 @@ async fn prepare_composed_turn(
                                 == desk_agent_protocol::computer_use::ObjectKind::Directory
                         });
                         if selected_file_count > 0 {
-                            selected_source_tools.insert("read_text_file".into());
+                            selected_source_tools
+                                .insert(desk_diagnose_core::tool_names::READ_TEXT_FILE.into());
                         }
                         if selected_file_count == 1 {
                             selected_source_tools.extend(
@@ -2096,13 +2098,17 @@ async fn prepare_composed_turn(
                             }
                         }
                         if has_output_directory {
-                            selected_source_tools.insert("create_text_file".into());
+                            selected_source_tools
+                                .insert(desk_diagnose_core::tool_names::CREATE_TEXT_FILE.into());
                             selected_source_tools.insert("create_local_message_draft".into());
                         }
                     }
                     if !selected_spreadsheet_roots.is_empty() {
-                        selected_source_tools.insert("inspect_spreadsheets".into());
-                        selected_source_tools.insert("preview_spreadsheet_merge".into());
+                        selected_source_tools
+                            .insert(desk_diagnose_core::tool_names::INSPECT_SPREADSHEETS.into());
+                        selected_source_tools.insert(
+                            desk_diagnose_core::tool_names::PREVIEW_SPREADSHEET_MERGE.into(),
+                        );
                         if selected_file_roots.iter().any(|object_ref| {
                             object_ref.object_kind
                                 == desk_agent_protocol::computer_use::ObjectKind::Directory
@@ -2161,17 +2167,18 @@ async fn prepare_composed_turn(
                                 .map(str::to_owned),
                         );
                     }
-                    selected_source_tools.insert("exec_command".into());
+                    selected_source_tools
+                        .insert(desk_diagnose_core::exec_tools::EXEC_TOOL_NAME.into());
                     // Candidates only. Directory consent and every read/write grant remain
                     // independently checked against the authoritative conversation.
                     selected_source_tools.extend(
                         [
-                            "create_text_file",
+                            desk_diagnose_core::tool_names::CREATE_TEXT_FILE,
                             "create_local_message_draft",
-                            "read_text_file",
-                            "inspect_files",
-                            "update_text_file",
-                            "delete_text_file",
+                            desk_diagnose_core::tool_names::READ_TEXT_FILE,
+                            desk_diagnose_core::tool_names::INSPECT_FILES,
+                            desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL,
+                            desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL,
                         ]
                         .into_iter()
                         .map(str::to_string),

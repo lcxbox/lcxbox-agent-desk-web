@@ -393,11 +393,13 @@ pub(crate) fn project_read_spec(spec: &mut crate::chat::ToolSpec) {
         return;
     }
     let note = match spec.name.as_str() {
-        "read_current_screen" => {
+        crate::tool_names::READ_CURRENT_SCREEN => {
             " On the selected device, copy window_id or display only from observations with the same target_ref, and use the same target and input when requesting permission and making the approved call."
         }
-        "inspect_desktop_session" => " Use a returned display ID only with the same target_ref.",
-        "inspect_desktop_ui" => {
+        crate::tool_names::INSPECT_DESKTOP_SESSION => {
+            " Use a returned display ID only with the same target_ref."
+        }
+        crate::tool_names::INSPECT_DESKTOP_UI => {
             " Use root_id and element_id only from observations with the same target_ref."
         }
         _ => return,
@@ -703,7 +705,7 @@ fn observed_display(session: &PersistedAgentSession, device_id: &str, display: &
             let call_id = result.tool_call_id.as_deref()?;
             let source = &result.data_envelope.as_ref()?.provenance;
             if message.tool_ok != Some(true)
-                || source.source_tool_name != "inspect_desktop_session"
+                || source.source_tool_name != crate::tool_names::INSPECT_DESKTOP_SESSION
                 || source.source_object_id.as_deref() != Some(&format!("{device_id}:{call_id}"))
             {
                 return None;
@@ -794,8 +796,8 @@ fn require_observed_desktop_target(
     input: &serde_json::Value,
 ) -> Result<(), AgentError> {
     let (field, alias) = match tool_name {
-        "read_current_screen" => ("window", "window_id"),
-        "inspect_desktop_ui" => ("root", "root_id"),
+        crate::tool_names::READ_CURRENT_SCREEN => ("window", "window_id"),
+        crate::tool_names::INSPECT_DESKTOP_UI => ("root", "root_id"),
         _ => return Ok(()),
     };
     let invalid =
@@ -816,7 +818,7 @@ fn require_observed_desktop_target(
     if reference
         .as_ref()
         .is_some_and(|reference| !match tool_name {
-            "read_current_screen" => {
+            crate::tool_names::READ_CURRENT_SCREEN => {
                 reference.object_kind == ObjectKind::Window && input.get("display").is_none()
             }
             _ => matches!(
@@ -849,7 +851,7 @@ fn require_observed_desktop_target(
             || message.tool_ok != Some(true)
             || !matches!(
                 source.source_tool_name.as_str(),
-                "inspect_desktop_session" | "inspect_desktop_ui"
+                crate::tool_names::INSPECT_DESKTOP_SESSION | crate::tool_names::INSPECT_DESKTOP_UI
             )
             || source.source_object_id.as_deref() != Some(&format!("{device_id}:{call_id}"))
         {
@@ -1122,7 +1124,7 @@ pub(crate) fn append_catalogue(
                     let mut exact: serde_json::Value =
                         serde_json::from_str(item.canonical_input_json.as_deref()?).ok()?;
                     session.ui_references.alias_native_arguments(&mut exact);
-                    if item.tool_name == "inspect_desktop_ui"
+                    if item.tool_name == crate::tool_names::INSPECT_DESKTOP_UI
                         && let Some(element) = exact.get_mut("element_id")
                     {
                         session.ui_references.alias_native_id(element);

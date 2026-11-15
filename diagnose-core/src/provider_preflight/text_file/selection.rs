@@ -10,15 +10,18 @@ pub fn supports(name: &str) -> bool {
             | "inspect_powerpoint_file"
             | "inspect_word_file"
             | "inspect_excel_cell"
-            | "inspect_spreadsheets"
-            | "preview_spreadsheet_merge"
-            | "preview_document"
-            | "convert_document"
+            | crate::tool_names::INSPECT_SPREADSHEETS
+            | crate::tool_names::PREVIEW_SPREADSHEET_MERGE
+            | crate::tool_names::PREVIEW_DOCUMENT
+            | crate::tool_names::CONVERT_DOCUMENT
     )
 }
 
 pub fn multiple(name: &str) -> bool {
-    matches!(name, "inspect_spreadsheets" | "preview_spreadsheet_merge")
+    matches!(
+        name,
+        crate::tool_names::INSPECT_SPREADSHEETS | crate::tool_names::PREVIEW_SPREADSHEET_MERGE
+    )
 }
 
 pub fn has_source(call: &ToolCall) -> Result<bool, AgentError> {
@@ -107,7 +110,7 @@ pub fn selectors(call: &ToolCall) -> Result<Vec<ToolCall>, AgentError> {
             };
             let selector = ToolCall {
                 id: call.id.clone(),
-                name: "read_text_file".into(),
+                name: crate::tool_names::READ_TEXT_FILE.into(),
                 arguments_json: selector.to_string(),
             };
             if read_result_id(&selector)?.is_none() {
@@ -158,12 +161,12 @@ pub fn add_schema(tool: &mut crate::registry::RegisteredTool) {
     if multiple(&tool.spec.name) {
         schema["properties"]["sources"] =
             serde_json::json!({"type":"array","minItems":1,"maxItems":8,"items":selector});
-        if tool.spec.name == "convert_document" {
+        if tool.spec.name == crate::tool_names::CONVERT_DOCUMENT {
             required.push("sources".into());
         }
     } else {
         schema["properties"]["source"] = selector;
-        if tool.spec.name == "convert_document" {
+        if tool.spec.name == crate::tool_names::CONVERT_DOCUMENT {
             required.push("source".into());
         }
     }

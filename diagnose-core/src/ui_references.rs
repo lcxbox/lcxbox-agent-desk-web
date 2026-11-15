@@ -476,9 +476,9 @@ impl UiReferenceState {
                         call.id == *id
                             && matches!(
                                 call.name.as_str(),
-                                "inspect_desktop_ui"
-                                    | "inspect_desktop_session"
-                                    | "read_current_screen"
+                                crate::tool_names::INSPECT_DESKTOP_UI
+                                    | crate::tool_names::INSPECT_DESKTOP_SESSION
+                                    | crate::tool_names::READ_CURRENT_SCREEN
                             )
                     })
                 });
@@ -722,7 +722,7 @@ impl UiReferenceState {
 
     fn cursor_paths(tool: &str) -> &'static [&'static str] {
         match tool {
-            "inspect_files" => &["/ReadContext/FileMetadataInspect/next_cursor"],
+            crate::tool_names::INSPECT_FILES => &["/ReadContext/FileMetadataInspect/next_cursor"],
             "read_service_status" => &["/ReadContext/ServiceStatus/next_cursor", "/next_cursor"],
             "list_applications" => &["/next_cursor", "/ReadContext/ApplicationList/next_cursor"],
             "list_subagents" => &["/next_cursor"],
@@ -1433,8 +1433,8 @@ impl UiReferenceState {
             );
             let ui = matches!(
                 tool,
-                "inspect_desktop_ui"
-                    | "read_current_screen"
+                crate::tool_names::INSPECT_DESKTOP_UI
+                    | crate::tool_names::READ_CURRENT_SCREEN
                     | "execute_ui_actions"
                     | "send_background_input"
                     | "send_raw_input"
@@ -1834,8 +1834,8 @@ impl UiReferenceState {
             .map_err(|_| invalid("Tool arguments must be JSON"))?;
         let ui_tool = matches!(
             call.name.as_str(),
-            "inspect_desktop_ui"
-                | "read_current_screen"
+            crate::tool_names::INSPECT_DESKTOP_UI
+                | crate::tool_names::READ_CURRENT_SCREEN
                 | "execute_ui_actions"
                 | "send_background_input"
                 | "send_raw_input"
@@ -1988,12 +1988,12 @@ impl UiReferenceState {
         }
         let native = matches!(
             tool,
-            "inspect_desktop_ui"
+            crate::tool_names::INSPECT_DESKTOP_UI
                 | "execute_ui_actions"
                 | "send_background_input"
                 | "send_raw_input"
                 | "execute_wayland_output_input"
-                | "read_current_screen"
+                | crate::tool_names::READ_CURRENT_SCREEN
                 | "preview_computer_action"
         );
         let browser = crate::browser_model_ids::supports(tool) && tool != "create_formula_workbook";
@@ -2014,7 +2014,7 @@ impl UiReferenceState {
                 if let Some(id) = value.get_mut(field) {
                     let previous = expected.len();
                     self.expand_id(id, prefixes, expected)?;
-                    if tool == "inspect_desktop_ui" && field == "element_id" {
+                    if tool == crate::tool_names::INSPECT_DESKTOP_UI && field == "element_id" {
                         // Search uses a stable element ID, not a snapshot reference.
                         expected.truncate(previous);
                     }

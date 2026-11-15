@@ -209,7 +209,7 @@ pub fn validate_device_artifact_scope(
     resources: &[String],
     now_unix_ms: u64,
 ) -> Result<(), FileScopeError> {
-    let expected_resources = if tool_name == "convert_document" {
+    let expected_resources = if tool_name == crate::tool_names::CONVERT_DOCUMENT {
         2
     } else if crate::provider_preflight::ArtifactCallPreflight::supports(tool_name) {
         1

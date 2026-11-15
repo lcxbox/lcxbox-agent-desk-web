@@ -988,7 +988,7 @@ pub fn permission_request_can_renew(
                         // Included observation can outlive a consumed one-shot action.
                         // A renewed action still requires a new owner decision.
                         || (item.item_id == format!("included-{}", item.tool_name)
-                            && matches!(item.tool_name.as_str(), "inspect_desktop_session" | "inspect_desktop_ui")
+                            && matches!(item.tool_name.as_str(), crate::tool_names::INSPECT_DESKTOP_SESSION | crate::tool_names::INSPECT_DESKTOP_UI)
                             && request.items.iter().any(|item| matches!(item.tool_name.as_str(), "execute_ui_actions" | "send_raw_input" | "send_background_input"))))
             })
         })

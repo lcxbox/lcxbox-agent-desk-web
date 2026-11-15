@@ -137,7 +137,7 @@ pub async fn claim_scheduled_permission(
                     && tool.effect == desk_diagnose_core::registry::ToolEffect::ReadOnly
             }) || matches!(
                 grant.tool_name.as_str(),
-                "create_text_file"
+                desk_diagnose_core::tool_names::CREATE_TEXT_FILE
                     | "create_workbook"
                     | "create_word_report"
                     | "create_local_message_draft"

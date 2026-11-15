@@ -100,7 +100,7 @@ fn preview_id(value: &str) -> bool {
 pub fn artifact_action_from_call(call: &ToolCall) -> Result<FilePatchAction, AgentError> {
     let call = without_directory_selector(call)?;
     match call.name.as_str() {
-        "create_text_file" => {
+        crate::tool_names::CREATE_TEXT_FILE => {
             let args: TextArgs =
                 serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?;
             if !safe_leaf(&args.file_name, None) || args.content_utf8.len() > 65_536 {
@@ -239,12 +239,12 @@ impl ArtifactCallPreflight {
     pub fn supports(tool_name: &str) -> bool {
         matches!(
             tool_name,
-            "create_text_file"
+            crate::tool_names::CREATE_TEXT_FILE
                 | "create_workbook"
                 | "create_formula_workbook"
                 | "create_word_report"
                 | "create_local_message_draft"
-                | "convert_document"
+                | crate::tool_names::CONVERT_DOCUMENT
         )
     }
 
@@ -276,7 +276,7 @@ impl ArtifactCallPreflight {
         let destination =
             crate::file_scope::select_device_directory(session, device_id, call, now_unix_ms)
                 .map_err(|_| unavailable())?;
-        if call.name == "convert_document" {
+        if call.name == crate::tool_names::CONVERT_DOCUMENT {
             let source = crate::provider_preflight::text_file::document_source_evidence_on_device(
                 session,
                 device_id,
@@ -311,7 +311,7 @@ impl ArtifactCallPreflight {
         target: &ObjectRef,
         action: &ComputerActionKind,
     ) -> Result<Vec<String>, AgentError> {
-        if call.name != "convert_document" {
+        if call.name != crate::tool_names::CONVERT_DOCUMENT {
             return Err(unavailable());
         }
         let ComputerActionKind::DocumentConversion(document) = action else {
@@ -417,7 +417,7 @@ impl ArtifactCallPreflight {
         let provider = registry
             .provider_for_capability(&capability.wire.capability_id)
             .ok_or_else(unavailable)?;
-        if call.name != "convert_document"
+        if call.name != crate::tool_names::CONVERT_DOCUMENT
             || !matches!(
                 surface,
                 ProductSurface::OssPersonalOwner | ProductSurface::ManagerPersonalOwner
@@ -579,7 +579,7 @@ pub fn verify_text_artifact_output(
     artifact
         .validate()
         .map_err(|_| "invalid created artifact")?;
-    if tool_name != "create_text_file" {
+    if tool_name != crate::tool_names::CREATE_TEXT_FILE {
         return Ok(());
     }
     let call = ToolCall {

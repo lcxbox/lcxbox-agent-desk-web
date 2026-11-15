@@ -2632,8 +2632,12 @@ fn requested_artifact_registry_projection(
         if let Some(ComputerActionOutput::TextFileMutation(output)) = &completion.output {
             use desk_agent_protocol::computer_use::TextFileMutationOperation;
             let tool = match output.operation {
-                TextFileMutationOperation::Update => "update_text_file",
-                TextFileMutationOperation::Delete => "delete_text_file",
+                TextFileMutationOperation::Update => {
+                    crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
+                }
+                TextFileMutationOperation::Delete => {
+                    crate::provider_preflight::text_file::DELETE_TEXT_TOOL
+                }
             };
             if output.verified
                 && !output.original_file_name.is_empty()
@@ -2808,7 +2812,7 @@ fn reusable_provider_result_projection(
         }
         if message.role == ChatRole::Tool
             && preview.is_none()
-            && envelope.provenance.source_tool_name == "preview_spreadsheet_merge"
+            && envelope.provenance.source_tool_name == crate::tool_names::PREVIEW_SPREADSHEET_MERGE
             && let Ok(value) =
                 serde_json::from_str::<serde_json::Value>(&message.trusted_tool_result().text)
             && let Some(preview_id) = value
@@ -2821,14 +2825,13 @@ fn reusable_provider_result_projection(
         }
         if message.role == ChatRole::Tool
             && web_search.is_none()
-            && envelope.provenance.source_tool_name == "search_public_web"
+            && envelope.provenance.source_tool_name == crate::web_research::WEB_SEARCH_TOOL_NAME
             && let Some(call_id) = message.tool_call_id.as_deref()
             && conversation.iter().any(|candidate| {
                 candidate.role == ChatRole::Assistant
-                    && candidate
-                        .tool_calls
-                        .iter()
-                        .any(|call| call.id == call_id && call.name == "search_public_web")
+                    && candidate.tool_calls.iter().any(|call| {
+                        call.id == call_id && call.name == crate::web_research::WEB_SEARCH_TOOL_NAME
+                    })
             })
             && let Ok(value) =
                 serde_json::from_str::<serde_json::Value>(&message.trusted_tool_result().text)
@@ -3555,7 +3558,7 @@ pub(crate) fn bind_tool_input_envelopes(
             .ok_or_else(crate::directory_tools::unavailable)?;
         // Freeze authenticated source identity here. Current expiry and consent
         // are independently revalidated by preflight and dispatch.
-        let source_id = if call.name == "read_text_file" {
+        let source_id = if call.name == crate::tool_names::READ_TEXT_FILE {
             crate::provider_preflight::text_file::read_source_envelope_id(
                 session,
                 file_source_device()?,
@@ -3629,11 +3632,11 @@ pub(crate) fn bind_tool_input_envelopes(
         && matches!(
             call.name.as_str(),
             "read_terminal_output"
-                | "inspect_files"
-                | "read_text_file"
-                | "create_text_file"
-                | "inspect_spreadsheets"
-                | "preview_spreadsheet_merge"
+                | crate::tool_names::INSPECT_FILES
+                | crate::tool_names::READ_TEXT_FILE
+                | crate::tool_names::CREATE_TEXT_FILE
+                | crate::tool_names::INSPECT_SPREADSHEETS
+                | crate::tool_names::PREVIEW_SPREADSHEET_MERGE
                 | "inspect_numbers_file"
                 | "patch_numbers_copy"
                 | "inspect_pages_file"
@@ -3746,10 +3749,10 @@ fn resolve_word_report_web_source_envelope<'a>(
     }
     let search_call_exists = session.conversation.iter().any(|message| {
         message.role == ChatRole::Assistant
-            && message
-                .tool_calls
-                .iter()
-                .any(|tool_call| tool_call.id == call_id && tool_call.name == "search_public_web")
+            && message.tool_calls.iter().any(|tool_call| {
+                tool_call.id == call_id
+                    && tool_call.name == crate::web_research::WEB_SEARCH_TOOL_NAME
+            })
     });
     if !search_call_exists {
         return Err("Word report Web Search call is not part of this durable run".into());
@@ -3765,7 +3768,9 @@ fn resolve_word_report_web_source_envelope<'a>(
     let result_envelope = result
         .data_envelope
         .as_ref()
-        .filter(|envelope| envelope.provenance.source_tool_name == "search_public_web")
+        .filter(|envelope| {
+            envelope.provenance.source_tool_name == crate::web_research::WEB_SEARCH_TOOL_NAME
+        })
         .ok_or_else(|| "Word report Web Search result has no authoritative envelope".to_string())?;
     let result_json: serde_json::Value = serde_json::from_str(&result.trusted_tool_result().text)
         .map_err(|_| {

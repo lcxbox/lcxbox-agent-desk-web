@@ -236,8 +236,10 @@ impl ModelEgressPolicy {
 
             if message.image_data_url.is_some()
                 && (message.role != ChatRole::Tool
-                    || source.provenance.source_tool_name != "read_current_screen"
-                    || !(self.selected_source_tools.contains("read_current_screen")
+                    || source.provenance.source_tool_name != crate::tool_names::READ_CURRENT_SCREEN
+                    || !(self
+                        .selected_source_tools
+                        .contains(crate::tool_names::READ_CURRENT_SCREEN)
                         || history_exports.contains(&message.message_id)
                         || self.has_gateway_authority(&source))
                     || source.sensitivity != Sensitivity::Sensitive)

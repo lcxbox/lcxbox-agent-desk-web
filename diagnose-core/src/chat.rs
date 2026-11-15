@@ -142,11 +142,11 @@ pub fn frame_file_tool_result(message: &ChatMessage) -> String {
     if matches!(
         source,
         Some(
-            "inspect_files"
-                | "read_text_file"
-                | "create_text_file"
-                | "update_text_file"
-                | "delete_text_file"
+            crate::tool_names::INSPECT_FILES
+                | crate::tool_names::READ_TEXT_FILE
+                | crate::tool_names::CREATE_TEXT_FILE
+                | crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
+                | crate::provider_preflight::text_file::DELETE_TEXT_TOOL
         )
     ) && let Some(id) = &message.tool_call_id
     {

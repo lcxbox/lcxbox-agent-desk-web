@@ -10,7 +10,7 @@ use desk_agent_protocol::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const COMMAND_TOOL: &str = "exec_command";
+pub const COMMAND_TOOL: &str = crate::exec_tools::EXEC_TOOL_NAME;
 
 /// Trusted, per-request policy. Never deserialize this from model arguments.
 #[derive(Debug, Clone)]

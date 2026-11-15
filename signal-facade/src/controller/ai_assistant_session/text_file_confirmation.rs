@@ -38,8 +38,12 @@ pub(super) fn project(
     messages: &[ChatMessage],
 ) -> Option<TextFileConfirmationDto> {
     let operation = match tool {
-        "update_text_file" => TextFileMutationOperation::Update,
-        "delete_text_file" => TextFileMutationOperation::Delete,
+        desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL => {
+            TextFileMutationOperation::Update
+        }
+        desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL => {
+            TextFileMutationOperation::Delete
+        }
         _ => return None,
     };
     let canonical = canonical.filter(|text| {
@@ -84,7 +88,8 @@ pub(super) fn project(
     if envelope.content.size_bytes() != source.text.len() as u64 {
         return None;
     }
-    let (file_name, digest) = if envelope.provenance.source_tool_name == "read_text_file"
+    let (file_name, digest) = if envelope.provenance.source_tool_name
+        == desk_diagnose_core::tool_names::READ_TEXT_FILE
         && envelope.provenance.source_provider_id == "file.content"
     {
         let desk_agent_protocol::OperationOutput::ReadContext(
@@ -107,7 +112,8 @@ pub(super) fn project(
         let artifact = match completed.output? {
             ComputerActionOutput::FileArtifact(artifact)
                 if (envelope.provenance.source_provider_id == "file.artifact"
-                    && envelope.provenance.source_tool_name == "create_text_file")
+                    && envelope.provenance.source_tool_name
+                        == desk_diagnose_core::tool_names::CREATE_TEXT_FILE)
                     || (envelope.provenance.source_provider_id == "communication.local_draft"
                         && envelope.provenance.source_tool_name
                             == "create_local_message_draft") =>
@@ -116,7 +122,8 @@ pub(super) fn project(
             }
             ComputerActionOutput::TextFileMutation(result)
                 if envelope.provenance.source_provider_id == "file.text"
-                    && envelope.provenance.source_tool_name == "update_text_file"
+                    && envelope.provenance.source_tool_name
+                        == desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL
                     && result.verified =>
             {
                 result.updated_file?

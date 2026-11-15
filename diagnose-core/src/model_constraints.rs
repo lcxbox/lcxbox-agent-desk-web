@@ -21,18 +21,20 @@ pub(crate) fn project(tool: &mut ToolSpec) {
                 "Use the current model-facing target tool input, including necessary business choices and observed result IDs. contextual_exact_input file reads may omit bound sources only when the current accepted user input already selected the required files, or inspect_files has a unique approved directory; required worksheet/cell and merge rules remain necessary. The server restores reference metadata, hashes and defaults before approval. Native UI permissions use application_scope instead. Obtain prerequisite reads before requesting a mutation that depends on their results."
             );
         }
-        "read_current_screen" => schema["not"] = json!({"required":["display","window_id"]}),
-        "read_text_file" => {
+        crate::tool_names::READ_CURRENT_SCREEN => {
+            schema["not"] = json!({"required":["display","window_id"]})
+        }
+        crate::tool_names::READ_TEXT_FILE => {
             schema["dependentRequired"] = json!({"entry_name":["file_result_call_id"]})
         }
-        "inspect_files" => {
+        crate::tool_names::INSPECT_FILES => {
             schema["allOf"] = json!([
                 {"if":{"required":["file_name"]},"then":{"properties":{"paginate":{"const":false}},"not":{"required":["cursor"]}}},
                 {"if":{"required":["cursor"]},"then":{"required":["paginate"],"properties":{"paginate":{"const":true}}}},
                 {"if":{"required":["paginate"],"properties":{"paginate":{"const":true}}},"then":{"properties":{"max_entries":{"minimum":2}}}}
             ])
         }
-        "inspect_desktop_ui" => {
+        crate::tool_names::INSPECT_DESKTOP_UI => {
             schema["anyOf"] = json!([
                 {"required":["queries"],"properties":{"queries":{"minItems":1}}},
                 {"required":["element_id"]},
@@ -51,7 +53,7 @@ pub(crate) fn project(tool: &mut ToolSpec) {
             schema["not"] = json!({"required":["queries"],"anyOf":[{"required":["start_line"]},{"required":["end_line"]}]});
             schema["allOf"] = json!([{"if":{"not":{"required":["queries"]}},"then":{"properties":{"ignore_case":{"const":false},"before_context":{"const":0},"after_context":{"const":0}}}}]);
         }
-        "convert_document" => {
+        crate::tool_names::CONVERT_DOCUMENT => {
             schema["properties"]["conversion"]["allOf"] = json!([
                 {"if":{"required":["kind"],"properties":{"kind":{"enum":["markdown_to_pdf","text_to_pdf","typst_to_pdf"]}}},"then":{"not":{"anyOf":[{"required":["pages"]},{"required":["page_markers"]}]}}}
             ])

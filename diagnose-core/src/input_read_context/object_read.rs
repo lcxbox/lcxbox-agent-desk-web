@@ -41,11 +41,11 @@ pub fn requires_objects(name: &str) -> bool {
     super::live_read::target_kind(name).is_some()
         || matches!(
             name,
-            "inspect_files"
-                | "read_text_file"
-                | "preview_document"
-                | "inspect_spreadsheets"
-                | "preview_spreadsheet_merge"
+            crate::tool_names::INSPECT_FILES
+                | crate::tool_names::READ_TEXT_FILE
+                | crate::tool_names::PREVIEW_DOCUMENT
+                | crate::tool_names::INSPECT_SPREADSHEETS
+                | crate::tool_names::PREVIEW_SPREADSHEET_MERGE
                 | "read_terminal_output"
                 | "inspect_numbers_file"
                 | "inspect_pages_file"
@@ -61,7 +61,7 @@ pub fn requires_objects(name: &str) -> bool {
 /// ordinary display capture remains valid without a window attachment.
 pub fn uses_selected_objects(name: &str, objects: &[ContextAttachment], device_id: &str) -> bool {
     requires_objects(name)
-        || (name == "read_current_screen"
+        || (name == crate::tool_names::READ_CURRENT_SCREEN
             && objects.iter().any(|object| {
                 object.device_id == device_id
                     && object.kind == ContextAttachmentKind::WindowSelection
@@ -79,14 +79,14 @@ pub fn implicit_object_tool(name: &str, objects: &[ContextAttachment]) -> bool {
 pub(crate) fn supports_implicit_object(name: &str, kind: ContextAttachmentKind) -> bool {
     match name {
         "read_terminal_output" => kind == ContextAttachmentKind::TerminalSessionRef,
-        "inspect_files"
-        | "read_text_file"
-        | "inspect_spreadsheets"
-        | "preview_spreadsheet_merge" => matches!(
+        crate::tool_names::INSPECT_FILES
+        | crate::tool_names::READ_TEXT_FILE
+        | crate::tool_names::INSPECT_SPREADSHEETS
+        | crate::tool_names::PREVIEW_SPREADSHEET_MERGE => matches!(
             kind,
             ContextAttachmentKind::File | ContextAttachmentKind::DirectorySelection
         ),
-        "read_current_screen" => kind == ContextAttachmentKind::WindowSelection,
+        crate::tool_names::READ_CURRENT_SCREEN => kind == ContextAttachmentKind::WindowSelection,
         _ => false,
     }
 }
@@ -97,7 +97,7 @@ impl ObjectReadBinding<'_> {
             return Err(denied());
         }
         let terminal = call.name == "read_terminal_output";
-        let window = call.name == "read_current_screen";
+        let window = call.name == crate::tool_names::READ_CURRENT_SCREEN;
         let mut selected: Vec<_> = self
             .original
             .object_attachments
@@ -118,8 +118,8 @@ impl ObjectReadBinding<'_> {
             .collect();
         if matches!(
             call.name.as_str(),
-            "read_text_file"
-                | "preview_document"
+            crate::tool_names::READ_TEXT_FILE
+                | crate::tool_names::PREVIEW_DOCUMENT
                 | "inspect_numbers_file"
                 | "inspect_pages_file"
                 | "inspect_keynote_file"
@@ -134,7 +134,7 @@ impl ObjectReadBinding<'_> {
         }
         if matches!(
             call.name.as_str(),
-            "inspect_spreadsheets" | "preview_spreadsheet_merge"
+            crate::tool_names::INSPECT_SPREADSHEETS | crate::tool_names::PREVIEW_SPREADSHEET_MERGE
         ) && selected
             .iter()
             .any(|object| object.kind != ContextAttachmentKind::File)
@@ -192,7 +192,7 @@ impl ObjectReadBinding<'_> {
             return Err(denied());
         };
         match (call.name.as_str(), kind) {
-            ("preview_document", ContextKind::DocumentPreview(params)) => {
+            (crate::tool_names::PREVIEW_DOCUMENT, ContextKind::DocumentPreview(params)) => {
                 if refs[0].object_kind != ObjectKind::File {
                     return Err(denied());
                 }
@@ -205,22 +205,28 @@ impl ObjectReadBinding<'_> {
                 params.file = Some(refs[0].clone());
                 params.max_bytes = params.max_bytes.min(bytes);
             }
-            ("inspect_files", ContextKind::FileMetadataInspect(params)) => {
+            (crate::tool_names::INSPECT_FILES, ContextKind::FileMetadataInspect(params)) => {
                 params.roots = refs;
                 params.max_bytes = params.max_bytes.min(bytes);
                 params.max_entries = params.max_entries.min(objects);
                 params.enumerate_directories = true;
             }
-            ("read_text_file", ContextKind::FileContentRead(params)) => {
+            (crate::tool_names::READ_TEXT_FILE, ContextKind::FileContentRead(params)) => {
                 params.file = refs[0].clone();
                 params.max_bytes = params.max_bytes.min(bytes);
             }
-            ("inspect_spreadsheets", ContextKind::SpreadsheetFileInspect(params)) => {
+            (
+                crate::tool_names::INSPECT_SPREADSHEETS,
+                ContextKind::SpreadsheetFileInspect(params),
+            ) => {
                 params.files = refs;
                 params.max_bytes = params.max_bytes.min(bytes);
                 params.max_workbooks = params.max_workbooks.min(objects);
             }
-            ("preview_spreadsheet_merge", ContextKind::SpreadsheetMergePreview(params)) => {
+            (
+                crate::tool_names::PREVIEW_SPREADSHEET_MERGE,
+                ContextKind::SpreadsheetMergePreview(params),
+            ) => {
                 params.files = refs;
                 params.max_bytes = params.max_bytes.min(bytes);
             }
@@ -228,7 +234,7 @@ impl ObjectReadBinding<'_> {
                 params.roots = refs;
                 params.max_bytes = params.max_bytes.min(bytes);
             }
-            ("read_current_screen", ContextKind::ScreenCaptureCurrent(params)) => {
+            (crate::tool_names::READ_CURRENT_SCREEN, ContextKind::ScreenCaptureCurrent(params)) => {
                 if refs[0].object_kind != ObjectKind::Window
                     || params
                         .window
@@ -336,13 +342,13 @@ impl ObjectReadBinding<'_> {
             | ContextKind::PresentationLiveInspect(params) => params.max_bytes,
             _ => return Err(denied()),
         });
-        if (call.name != "read_current_screen" && output.image_data_url.is_some())
+        if (call.name != crate::tool_names::READ_CURRENT_SCREEN && output.image_data_url.is_some())
             || output.content.len() as u64 > max_bytes
         {
             return Err(denied());
         }
         let expiry = self.expiry(call)?;
-        if call.name != "read_current_screen" {
+        if call.name != crate::tool_names::READ_CURRENT_SCREEN {
             envelope.provenance.source_object_id = None;
         }
         envelope.provenance.source_envelope_ids = selected

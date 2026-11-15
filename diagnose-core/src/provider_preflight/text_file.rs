@@ -268,10 +268,10 @@ pub(crate) fn resolve_file_result_from_history(
     if source_calls.next().is_some() {
         return Err(unavailable());
     }
-    let supported = source_call.name == "read_text_file"
+    let supported = source_call.name == crate::tool_names::READ_TEXT_FILE
         || matches!(
             source_call.name.as_str(),
-            "create_text_file" | "create_local_message_draft" | UPDATE_TEXT_TOOL
+            crate::tool_names::CREATE_TEXT_FILE | "create_local_message_draft" | UPDATE_TEXT_TOOL
         );
     if !supported {
         return Err(unavailable());
@@ -300,7 +300,7 @@ pub(crate) fn resolve_file_result_from_history(
         {
             continue;
         }
-        let mut evidence = if source_call.name == "read_text_file" {
+        let mut evidence = if source_call.name == crate::tool_names::READ_TEXT_FILE {
             let Ok(desk_agent_protocol::OperationOutput::ReadContext(
                 desk_agent_protocol::ReadContextOutput::FileContentRead(output),
             )) = serde_json::from_str(&message.trusted_tool_result().text)
@@ -402,7 +402,7 @@ impl VerifiedTextFile {
 /// Optional selector for a separately authorized read. It is an immutable
 /// receipt identity, never a model-supplied path or opaque device token.
 pub fn read_result_id(call: &ToolCall) -> Result<Option<String>, AgentError> {
-    if call.name != "read_text_file" {
+    if call.name != crate::tool_names::READ_TEXT_FILE {
         return Ok(None);
     }
     #[derive(serde::Deserialize)]
@@ -446,7 +446,7 @@ pub fn uses_session_file_read(call: &ToolCall) -> Result<bool, AgentError> {
     if read_result_id(call)?.is_some() {
         return Ok(true);
     }
-    if call.name != "inspect_files" {
+    if call.name != crate::tool_names::INSPECT_FILES {
         return Ok(false);
     }
     let value: serde_json::Value =
@@ -480,7 +480,7 @@ pub fn validate_mutation_permission_input(
         .conversation
         .iter()
         .flat_map(|message| &message.tool_calls)
-        .any(|source| source.id == id && source.name == "inspect_files")
+        .any(|source| source.id == id && source.name == crate::tool_names::INSPECT_FILES)
     {
         return Err(error(
             AgentErrorKind::InvalidInput,
@@ -529,7 +529,11 @@ pub fn validate_read_permission_on_device(
     now: u64,
     original: Option<&crate::input_read_context::ReadContextSelection>,
 ) -> Result<(), AgentError> {
-    if !matches!(tool_name, "inspect_files" | "read_text_file") && !selection::supports(tool_name) {
+    if !matches!(
+        tool_name,
+        crate::tool_names::INSPECT_FILES | crate::tool_names::READ_TEXT_FILE
+    ) && !selection::supports(tool_name)
+    {
         return Ok(());
     }
     let invalid = || {
@@ -620,14 +624,14 @@ fn validate_read_selector(
         .map(|message| message.message_id.as_str())
         .ok_or_else(unavailable)?;
     let has_entry = args.get("entry_name").is_some_and(|v| !v.is_null());
-    let metadata = source.name == "inspect_files";
+    let metadata = source.name == crate::tool_names::INSPECT_FILES;
     let direct_file = matches!(
         source.name.as_str(),
-        "create_text_file"
+        crate::tool_names::CREATE_TEXT_FILE
             | "create_local_message_draft"
-            | "read_text_file"
+            | crate::tool_names::READ_TEXT_FILE
             | UPDATE_TEXT_TOOL
-            | "convert_document"
+            | crate::tool_names::CONVERT_DOCUMENT
     );
     if direct_file && has_entry {
         let example = serde_json::json!({"file_result_call_id":result_id});
@@ -703,7 +707,7 @@ fn read_evidence_on_device(
         .flat_map(|m| &m.tool_calls)
         .filter(|c| c.id == id);
     let source_call = calls.next().ok_or_else(unavailable)?;
-    if calls.next().is_some() || source_call.name != "inspect_files" {
+    if calls.next().is_some() || source_call.name != crate::tool_names::INSPECT_FILES {
         return Err(unavailable());
     }
     let source_call = ToolCall {
@@ -809,7 +813,7 @@ pub(super) fn batch_source_file_on_device(
     call: &ToolCall,
     now: u64,
 ) -> Result<ObjectRef, AgentError> {
-    let selectors = if call.name == "read_text_file" {
+    let selectors = if call.name == crate::tool_names::READ_TEXT_FILE {
         vec![call.clone()]
     } else {
         selection::selectors(call)?
@@ -856,7 +860,7 @@ pub fn document_source_evidence_on_device(
     if source_calls.next().is_some() {
         return Err(unavailable());
     }
-    if source_call.name != "convert_document" {
+    if source_call.name != crate::tool_names::CONVERT_DOCUMENT {
         let evidence = read_evidence_on_device(session, device_id, selector, now)?;
         return Ok(DocumentSourceEvidence {
             reference: evidence.reference,
@@ -865,7 +869,7 @@ pub fn document_source_evidence_on_device(
     }
     let registry = crate::ai_assistant::ai_assistant_provider_registry();
     let descriptor = registry
-        .capability_for_tool("convert_document")
+        .capability_for_tool(crate::tool_names::CONVERT_DOCUMENT)
         .ok_or_else(unavailable)?;
     let provider = registry
         .provider_for_capability(&descriptor.wire.capability_id)
@@ -884,7 +888,7 @@ pub fn document_source_evidence_on_device(
         };
         if envelope.validate().is_err()
             || crate::model_egress::envelope_expires_by(envelope, now)
-            || envelope.provenance.source_tool_name != "convert_document"
+            || envelope.provenance.source_tool_name != crate::tool_names::CONVERT_DOCUMENT
             || (session.device_id.is_empty()
                 && envelope.provenance.source_object_id.as_deref()
                     != Some(format!("{device_id}:{id}").as_str()))
@@ -983,7 +987,7 @@ pub(super) fn directory_file_target_on_device(
             }
             let read = ToolCall {
                 id: "source-resolution".into(),
-                name: "read_text_file".into(),
+                name: crate::tool_names::READ_TEXT_FILE.into(),
                 arguments_json:
                     serde_json::json!({"file_result_call_id":id,"entry_name":entry.display_name})
                         .to_string(),
@@ -1048,7 +1052,7 @@ impl ResultFileRead {
             first.tool_name = call.name.clone();
             return Ok(first);
         }
-        if call.name == "inspect_files" {
+        if call.name == crate::tool_names::INSPECT_FILES {
             let arguments: serde_json::Value =
                 serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?;
             let file_name = arguments
@@ -1212,17 +1216,17 @@ impl ResultFileRead {
             };
             use desk_agent_protocol::ReadContextOutput::*;
             match (self.tool_name.as_str(), result) {
-                ("inspect_spreadsheets", SpreadsheetFileInspect(result))
+                (crate::tool_names::INSPECT_SPREADSHEETS, SpreadsheetFileInspect(result))
                     if result.workbooks.len() <= self.files().len() =>
                 {
                     return Ok(());
                 }
-                ("preview_spreadsheet_merge", SpreadsheetMergePreview(result))
+                (crate::tool_names::PREVIEW_SPREADSHEET_MERGE, SpreadsheetMergePreview(result))
                     if result.input_digests_sha256.len() <= self.files().len() =>
                 {
                     return Ok(());
                 }
-                ("preview_document", DocumentPreview(result))
+                (crate::tool_names::PREVIEW_DOCUMENT, DocumentPreview(result))
                     if result.source_digest_sha256.len() == 64
                         && result.page_count > 0
                         && !result.preview_id.is_empty() =>
@@ -1344,7 +1348,7 @@ impl TextMutationPreflight {
             .ok_or_else(unavailable)?;
         let selector = ToolCall {
             id: call.id.clone(),
-            name: "read_text_file".into(),
+            name: crate::tool_names::READ_TEXT_FILE.into(),
             arguments_json: serde_json::json!({"file_result_call_id":id}).to_string(),
         };
         let evidence = read_evidence_on_device(session, device_id, &selector, now_unix_ms)?;
