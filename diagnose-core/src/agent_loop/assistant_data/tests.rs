@@ -443,11 +443,12 @@ async fn a_skipped_write_uses_original_scope_without_rewriting_generations_or_re
     // A write acknowledgement is a registered server receipt.
     assert_eq!(
         result.message.data_envelope,
-        crate::model_message_labels::server_result_envelope(
+        crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text(&result.message.text),
             Some(&parent),
             &call.id,
-            &result.message.text,
             crate::model_message_labels::ServerResultSource::ManageMemories,
+            false
         )
         .unwrap()
     );

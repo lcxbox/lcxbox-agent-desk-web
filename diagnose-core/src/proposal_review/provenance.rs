@@ -171,8 +171,19 @@ pub fn decision_receipt_envelope(
     content: &str,
     source: crate::model_message_labels::ServerResultSource,
 ) -> Result<Option<DataEnvelope>, desk_agent_protocol::AgentError> {
-    use crate::model_message_labels::{
-        data_result_envelope, server_result_envelope, server_review_envelope,
+    use crate::model_content::{ModelContent, Unverified};
+    use crate::model_message_labels::{composed_envelope, server_review_envelope};
+    // A reason no parent can vouch for is repeated unverified.
+    let unverified = |parent: Option<&DataEnvelope>| {
+        composed_envelope(
+            &ModelContent::builder()
+                .unverified(&Unverified::new(content))
+                .build(),
+            parent,
+            call_id,
+            source,
+            false,
+        )
     };
     let parent = proposing
         .cloned()
@@ -189,13 +200,18 @@ pub fn decision_receipt_envelope(
                     source,
                 )
                 .map(Some)
-                .or_else(|_| {
-                    data_result_envelope(parent.as_ref(), call_id, content, source.as_str())
-                }),
-                None => data_result_envelope(parent.as_ref(), call_id, content, source.as_str()),
+                .or_else(|_| unverified(parent.as_ref())),
+                None => unverified(parent.as_ref()),
             }
         }
-        None => server_result_envelope(parent.as_ref(), call_id, content, source),
+        // Without an AI reason the receipt holds the server's decision only.
+        None => composed_envelope(
+            &ModelContent::server_text(content),
+            parent.as_ref(),
+            call_id,
+            source,
+            false,
+        ),
     }
 }
 
@@ -204,10 +220,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         approval_review::ApprovalEvidenceTrust,
-        model_message_labels::{
-            ServerResultSource, data_result_envelope, model_bound_user_message,
-            server_result_envelope,
-        },
+        model_message_labels::{ServerResultSource, model_bound_user_message},
         proposal_review::{DecisionKind, DecisionPause},
     };
     use desk_agent_protocol::{AgentScope, ExecutionMode, data_lineage::DestinationIdentity};
@@ -257,19 +270,23 @@ pub(crate) mod tests {
         call.turn_id = Some("turn".into());
         call.data_envelope = Some(label("proposing", "m"));
         let mut pending = ChatMessage::tool_result("pending", "call", "pending");
-        pending.data_envelope = server_result_envelope(
+        pending.data_envelope = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text("pending"),
             call.data_envelope.as_ref(),
             "call",
-            "pending",
             ServerResultSource::SkillProposal,
+            false,
         )
         .unwrap();
         let mut device = ChatMessage::tool_result("device", "read", "device output");
-        device.data_envelope = data_result_envelope(
+        device.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new("device output"))
+                .build(),
             owner.data_envelope.as_ref(),
             "read",
-            "device output",
             "read",
+            false,
         )
         .unwrap();
         session.conversation = vec![owner, call, pending, device];

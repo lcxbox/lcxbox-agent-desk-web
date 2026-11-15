@@ -168,11 +168,16 @@ impl ActionResultOrigin {
             })
             .and_then(|message| message.data_envelope.as_ref())
             .ok_or_else(invalid)?;
-        let mut source = crate::model_message_labels::data_result_envelope(
+        let mut source = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(
+                    "action result origin",
+                ))
+                .build(),
             Some(parent),
             &call.id,
-            "action result origin",
-            crate::model_message_labels::sources::FREEZE_ACTION_RESULT_ORIGIN,
+            crate::model_message_labels::ServerResultSource::FreezeActionResultOrigin,
+            false,
         )?;
         crate::agent_loop::bind_tool_input_envelopes(session, call, &mut source)?;
         let source = source.ok_or_else(invalid)?;
@@ -463,11 +468,14 @@ mod tests {
                 arguments_json: call.arguments_json.clone(),
             }],
         );
-        let mut parent = crate::model_message_labels::data_result_envelope(
+        let mut parent = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&proposal.text))
+                .build(),
             user.data_envelope.as_ref(),
             &call.id,
-            &proposal.text,
             "test_model_output",
+            false,
         )
         .unwrap()
         .unwrap();

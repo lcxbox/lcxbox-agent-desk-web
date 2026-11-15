@@ -215,14 +215,14 @@ fn close<F: FnMut() -> String>(
     context: permission_proposal::ProposalContext<'_>,
     mint: &mut F,
     sink: &mut dyn TurnSink,
-    text: &str,
+    text: &'static str,
 ) -> Result<(), AgentError> {
     append_internal_tool_result(
         session,
         context.parent_envelope,
         mint(),
         &call.id,
-        text.into(),
+        &crate::model_content::ModelContent::constant(text),
         ServerResultSource::PermissionResumeNotExecuted,
     )?;
     finish_tool(session, &call.id, false, sink);

@@ -41,16 +41,11 @@ async fn conversation_alias_filters_real_history_without_rewriting_native_produc
         serde_json::json!({"conversation_id":"past-A"}).to_string(),
     );
     observation.data_envelope =
-        desk_diagnose_core::model_message_labels::data_result_envelope(
-            frame
+        desk_diagnose_core::model_message_labels::named_envelope(&desk_diagnose_core::model_content::ModelContent::builder().unverified(&desk_diagnose_core::model_content::Unverified::new(&observation.text)).build(), frame
                 .session
                 .conversation
                 .iter()
-                .find_map(|m| m.data_envelope.as_ref()),
-            "alias-observation",
-            &observation.text,
-            "read_conversation",
-        )
+                .find_map(|m| m.data_envelope.as_ref()), "alias-observation", "read_conversation", false)
         .unwrap();
     frame.session.conversation.extend([call, observation]);
     frame

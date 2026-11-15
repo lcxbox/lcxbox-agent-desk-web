@@ -738,7 +738,8 @@ pub(crate) fn project_runtime_registry(message: &mut ChatMessage, locators: &[Re
     if message.role != ChatRole::SystemEvent
         || !message.data_envelope.as_ref().is_some_and(|envelope| {
             envelope.provenance.source_tool_name
-                == crate::model_message_labels::sources::REQUESTED_ARTIFACT_REGISTRY_PROJECTION
+                == crate::model_message_labels::ServerResultSource::RequestedArtifactRegistry
+                    .as_str()
         })
     {
         return;

@@ -103,19 +103,20 @@ pub(in crate::capability_grant_store) async fn close_on(
     }
     let (proposal, call) = proposals[0];
     let call_id = call.id.clone();
-    let mut message = ChatMessage::tool_result(
-        format!("scheduled-unissued:{}", work.id),
-        &call_id,
-        "The original prepared action was not dispatched. Its unused reservation was released; do not automatically retry this interrupted turn.",
-    );
+    let text: &'static str = "The original prepared action was not dispatched. Its unused reservation was released; do not automatically retry this interrupted turn.";
+    let mut message =
+        ChatMessage::tool_result(format!("scheduled-unissued:{}", work.id), &call_id, text);
     message.turn_id = Some(work.turn_id.clone());
-    message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
-        Some(proposal.data_envelope.as_ref().ok_or_else(invalid)?),
-        &call_id,
-        &message.text,
-        desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledUnissuedAction,
-    )
-    .map_err(|_| invalid())?;
+    message = message
+        .with_content(
+            &desk_diagnose_core::model_content::ModelContent::constant(text),
+            desk_diagnose_core::model_content::Labelling {
+                issuing: Some(proposal.data_envelope.as_ref().ok_or_else(invalid)?),
+                call_id: &call_id,
+                source: desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledUnissuedAction,
+                request_only: false,
+            },
+        ).map_err(|_| invalid())?;
     let results: Vec<_> = session
         .conversation
         .iter()

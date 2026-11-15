@@ -232,19 +232,25 @@ mod tests {
                 arguments_json: "{}".into(),
             }],
         );
-        call.data_envelope = crate::model_message_labels::data_result_envelope(
+        call.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&call.text))
+                .build(),
             Some(&input),
             "proposal",
-            &call.text,
             "model-response",
+            false,
         )
         .unwrap();
         let mut result = ChatMessage::tool_result("done", "original-call", "native receipt");
-        result.data_envelope = crate::model_message_labels::data_result_envelope(
+        result.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&result.text))
+                .build(),
             Some(&input),
             "receipt",
-            &result.text,
             "exec_command",
+            false,
         )
         .unwrap();
         let native = result.data_envelope.as_mut().unwrap();
@@ -334,19 +340,25 @@ mod tests {
                 arguments_json: "{}".into(),
             }],
         );
-        call.data_envelope = crate::model_message_labels::data_result_envelope(
+        call.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&call.text))
+                .build(),
             Some(&input),
             "proposal",
-            &call.text,
             "model-response",
+            false,
         )
         .unwrap();
         let mut result = ChatMessage::tool_result("done", "original-call", "native receipt");
-        result.data_envelope = crate::model_message_labels::data_result_envelope(
+        result.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&result.text))
+                .build(),
             Some(&input),
             "receipt",
-            &result.text,
             "exec_command",
+            false,
         )
         .unwrap();
         let native = result.data_envelope.as_mut().unwrap();

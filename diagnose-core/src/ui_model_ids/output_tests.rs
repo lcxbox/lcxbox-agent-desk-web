@@ -16,11 +16,14 @@ pub(crate) fn history(tool: &str, value: Value) -> Vec<ChatMessage> {
     .unwrap();
     let mut result = ChatMessage::tool_result("result", "call", value.to_string());
     result.tool_ok = Some(true);
-    result.data_envelope = crate::model_message_labels::data_result_envelope(
+    result.data_envelope = crate::model_message_labels::named_envelope(
+        &crate::model_content::ModelContent::builder()
+            .unverified(&crate::model_content::Unverified::new(&result.text))
+            .build(),
         owner.data_envelope.as_ref(),
         "call",
-        &result.text,
         tool,
+        false,
     )
     .unwrap();
     if let Some(capability) =

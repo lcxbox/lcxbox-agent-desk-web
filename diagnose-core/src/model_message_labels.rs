@@ -135,92 +135,6 @@ pub(crate) fn invalid_label() -> AgentError {
     }
 }
 
-/// Labels server-built text that answers call `call_id` of `parent`, such as
-/// a receipt of ids, states and fixed text. It registers under `parent`; a
-/// missing parent leaves the result unlabelled.
-pub fn server_result_envelope(
-    parent: Option<&DataEnvelope>,
-    call_id: &str,
-    content: &str,
-    source: ServerResultSource,
-) -> Result<Option<DataEnvelope>, AgentError> {
-    composed_envelope(
-        &crate::model_content::ModelContent::server_text(content),
-        parent,
-        call_id,
-        source,
-        false,
-    )
-}
-
-/// The request-only form of [`server_result_envelope`], for server text
-/// regenerated per request under a fixed id.
-pub fn server_projection_envelope(
-    parent: Option<&DataEnvelope>,
-    call_id: &str,
-    content: &str,
-    source: ServerResultSource,
-) -> Result<Option<DataEnvelope>, AgentError> {
-    composed_envelope(
-        &crate::model_content::ModelContent::server_text(content),
-        parent,
-        call_id,
-        source,
-        true,
-    )
-}
-
-/// Labels a result whose text no source vouches for, such as host error text
-/// or data read without its own label. It never registers, whatever its name.
-pub fn data_result_envelope(
-    parent: Option<&DataEnvelope>,
-    call_id: &str,
-    content: &str,
-    source_tool_name: &str,
-) -> Result<Option<DataEnvelope>, AgentError> {
-    unverified_envelope(parent, call_id, content, source_tool_name, false)
-}
-
-/// The request-only form of [`data_result_envelope`].
-pub fn data_projection_envelope(
-    parent: Option<&DataEnvelope>,
-    call_id: &str,
-    content: &str,
-    source_tool_name: &str,
-) -> Result<Option<DataEnvelope>, AgentError> {
-    unverified_envelope(parent, call_id, content, source_tool_name, true)
-}
-
-fn unverified_envelope(
-    parent: Option<&DataEnvelope>,
-    call_id: &str,
-    content: &str,
-    name: &str,
-    request_only: bool,
-) -> Result<Option<DataEnvelope>, AgentError> {
-    let content = crate::model_content::ModelContent::builder()
-        .unverified(&crate::model_content::Unverified::new(content))
-        .build();
-    compose_named(&content, parent, call_id, name, request_only)
-}
-
-/// Label a tool's own result under its name. It registers only when the tool
-/// is `source`, whose receipts are server-authored; any other tool's result
-/// is unverified.
-pub fn tool_receipt_envelope(
-    parent: Option<&DataEnvelope>,
-    call_id: &str,
-    content: &str,
-    tool_name: &str,
-    source: ServerResultSource,
-) -> Result<Option<DataEnvelope>, AgentError> {
-    if tool_name == source.as_str() {
-        server_result_envelope(parent, call_id, content, source)
-    } else {
-        data_result_envelope(parent, call_id, content, tool_name)
-    }
-}
-
 /// Label a decision receipt, or its request projection, whose body carries
 /// an AI reviewer's reason. The first parent is the proposing model output;
 /// the others are every evidence the reviewer saw, so the reason keeps all of
@@ -281,6 +195,20 @@ pub fn composed_envelope(
     request_only: bool,
 ) -> Result<Option<DataEnvelope>, AgentError> {
     compose_named(content, issuing, call_id, source.as_str(), request_only)
+}
+
+/// Label `content` under a tool's own name, as results that history export
+/// and argument checks find by the tool that produced them. Server-built
+/// content registers only under a registered source name; unverified content
+/// never does.
+pub fn named_envelope(
+    content: &crate::model_content::ModelContent,
+    issuing: Option<&DataEnvelope>,
+    call_id: &str,
+    name: &str,
+    request_only: bool,
+) -> Result<Option<DataEnvelope>, AgentError> {
+    compose_named(content, issuing, call_id, name, request_only)
 }
 
 fn compose_named(
@@ -387,11 +315,11 @@ fn compose_named(
 /// result unlabelled; a labelled result without its call is an error. The id
 /// binds the parent, call, source and body, so two results of one call never
 /// share a source and body. On error the message is left unchanged.
-pub(crate) fn server_rewrite(
+pub(crate) fn rewrite_result(
     messages: &mut [ChatMessage],
     index: usize,
     call_id: &str,
-    text: &str,
+    content: &crate::model_content::ModelContent,
     source: ServerResultSource,
 ) -> Result<(), AgentError> {
     let issuing = messages
@@ -408,11 +336,47 @@ pub(crate) fn server_rewrite(
         None if messages[index].data_envelope.is_none() => None,
         None => return Err(invalid_label()),
     };
-    let envelope = server_result_envelope(parent.as_ref(), call_id, text, source)?;
     let message = &mut messages[index];
-    message.text = text.into();
-    message.data_envelope = envelope;
+    *message = message.clone().with_content(
+        content,
+        crate::model_content::Labelling {
+            issuing: parent.as_ref(),
+            call_id,
+            source,
+            request_only: false,
+        },
+    )?;
     Ok(())
+}
+
+/// Records `sources` as further parents of `message`'s unverified label: their
+/// sensitivity and retention apply, while the destinations stay those of the
+/// label's own parents, as the repeated references are bound at egress.
+pub(crate) fn extend_lineage<'a>(
+    message: &mut ChatMessage,
+    sources: impl IntoIterator<Item = &'a DataEnvelope>,
+) -> Result<(), AgentError> {
+    let Some(label) = message.data_envelope.as_mut() else {
+        return Ok(());
+    };
+    if !label.envelope_id.starts_with(UNVERIFIED_RESULT_PREFIX) {
+        return Err(invalid_label());
+    }
+    for source in sources {
+        if !label
+            .provenance
+            .source_envelope_ids
+            .contains(&source.envelope_id)
+        {
+            label
+                .provenance
+                .source_envelope_ids
+                .push(source.envelope_id.clone());
+        }
+        label.sensitivity = label.sensitivity.max(source.sensitivity);
+        label.retention = label.retention.most_restrictive(source.retention);
+    }
+    label.validate().map_err(|_| invalid_label())
 }
 
 /// A history page is a deterministic projection of several older message
@@ -663,27 +627,52 @@ mod tests {
     fn status_and_request_labels_name_one_body_per_id() {
         let parent = source("owner");
         // Host recovery can relabel one call's status under the same parent and tool.
-        let running = data_result_envelope(Some(&parent), "call", "running", "status")
-            .unwrap()
-            .unwrap();
-        let unknown = data_result_envelope(Some(&parent), "call", "unknown", "status")
-            .unwrap()
-            .unwrap();
+        let running = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new("running"))
+                .build(),
+            Some(&parent),
+            "call",
+            "status",
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        let unknown = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new("unknown"))
+                .build(),
+            Some(&parent),
+            "call",
+            "status",
+            false,
+        )
+        .unwrap()
+        .unwrap();
         assert_ne!(running.envelope_id, unknown.envelope_id);
         assert!(matches!(running.content, ContentRef::Projection { .. }));
         assert_eq!(
             running,
-            data_result_envelope(Some(&parent), "call", "running", "status")
-                .unwrap()
-                .unwrap()
+            crate::model_message_labels::named_envelope(
+                &crate::model_content::ModelContent::builder()
+                    .unverified(&crate::model_content::Unverified::new("running"))
+                    .build(),
+                Some(&parent),
+                "call",
+                "status",
+                false
+            )
+            .unwrap()
+            .unwrap()
         );
         // Request projections reuse one call id while their body changes per request.
         let projection = |body: &str| {
-            server_projection_envelope(
+            crate::model_message_labels::composed_envelope(
+                &crate::model_content::ModelContent::server_text(body),
                 Some(&parent),
                 "marker",
-                body,
                 ServerResultSource::RuntimeContext,
+                true,
             )
             .unwrap()
             .unwrap()
@@ -697,33 +686,63 @@ mod tests {
     fn server_and_data_labels_have_distinct_shapes_whatever_the_name() {
         let parent = source("owner");
         let name = ServerResultSource::ManageMemories;
-        let server = server_result_envelope(Some(&parent), "call", "ok", name)
-            .unwrap()
-            .unwrap();
-        let data = data_result_envelope(Some(&parent), "call", "ok", name.as_str())
-            .unwrap()
-            .unwrap();
+        let server = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text("ok"),
+            Some(&parent),
+            "call",
+            name,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        let data = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new("ok"))
+                .build(),
+            Some(&parent),
+            "call",
+            name.as_str(),
+            false,
+        )
+        .unwrap()
+        .unwrap();
         assert!(server.envelope_id.starts_with(COMPOSED_RESULT_PREFIX));
         assert!(data.envelope_id.starts_with("unverified-result-"));
         assert_eq!(server.provenance, data.provenance);
         let ContentRef::ImmutableBlob { blob_id, .. } =
-            data_projection_envelope(Some(&parent), "call", "ok", name.as_str())
-                .unwrap()
-                .unwrap()
-                .content
+            crate::model_message_labels::named_envelope(
+                &crate::model_content::ModelContent::builder()
+                    .unverified(&crate::model_content::Unverified::new("ok"))
+                    .build(),
+                Some(&parent),
+                "call",
+                name.as_str(),
+                true,
+            )
+            .unwrap()
+            .unwrap()
+            .content
         else {
             panic!("request projections are content addressed");
         };
         assert!(blob_id.starts_with("unverified-content-"));
-        // A tool receipt registers only for the tool its source names.
+        // A receipt keeps the producing tool's name; only a registered source
+        // name lets the registry accept server text under it.
         let receipt = |tool: &str| {
-            tool_receipt_envelope(Some(&parent), "call", "ok", tool, name)
-                .unwrap()
-                .unwrap()
-                .envelope_id
+            crate::model_message_labels::named_envelope(
+                &crate::model_content::ModelContent::server_text("ok"),
+                Some(&parent),
+                "call",
+                tool,
+                false,
+            )
+            .unwrap()
+            .unwrap()
+            .envelope_id
         };
         assert_eq!(receipt(name.as_str()), server.envelope_id);
-        assert!(receipt("search_memories").starts_with("unverified-result-"));
+        assert_ne!(receipt("search_memories"), server.envelope_id);
+        assert!(ServerResultSource::parse("search_memories").is_none());
     }
 
     #[test]
@@ -757,7 +776,14 @@ mod tests {
             ("disposed", ServerResultSource::ManualOutcomeDisposition),
             ("unknown", ServerResultSource::ExecutionOutcomeUnknown),
         ] {
-            server_rewrite(&mut messages, 2, "call", text, source).unwrap();
+            rewrite_result(
+                &mut messages,
+                2,
+                "call",
+                &crate::model_content::ModelContent::constant(text),
+                source,
+            )
+            .unwrap();
             let label = messages[2].data_envelope.clone().unwrap();
             assert_eq!(messages[2].text, text);
             assert_eq!(
@@ -774,11 +800,11 @@ mod tests {
         let mut orphan = vec![messages[2].clone()];
         let before = orphan.clone();
         assert!(
-            server_rewrite(
+            rewrite_result(
                 &mut orphan,
                 0,
                 "call",
-                "other",
+                &crate::model_content::ModelContent::constant("other"),
                 ServerResultSource::ExecutionOutcomeUnknown
             )
             .is_err()
@@ -952,11 +978,12 @@ mod tests {
     #[test]
     fn internal_result_never_renews_ephemeral_parent_or_mints_missing_authority() {
         assert!(
-            server_result_envelope(
+            crate::model_message_labels::composed_envelope(
+                &crate::model_content::ModelContent::server_text("unavailable"),
                 None,
                 "call",
-                "unavailable",
-                ServerResultSource::SupersedeToolCall
+                ServerResultSource::SupersedeToolCall,
+                false
             )
             .unwrap()
             .is_none()
@@ -979,11 +1006,12 @@ mod tests {
             size_bytes: 5,
             expires_at_unix_ms: 100,
         };
-        let result = server_result_envelope(
+        let result = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text("unavailable"),
             Some(&parent),
             "call",
-            "unavailable",
             ServerResultSource::SupersedeToolCall,
+            false,
         )
         .unwrap()
         .unwrap();
@@ -996,11 +1024,12 @@ mod tests {
         );
         parent.envelope_id.clear();
         assert!(
-            server_result_envelope(
+            crate::model_message_labels::composed_envelope(
+                &crate::model_content::ModelContent::server_text("unavailable"),
                 Some(&parent),
                 "call",
-                "unavailable",
-                ServerResultSource::SupersedeToolCall
+                ServerResultSource::SupersedeToolCall,
+                false
             )
             .is_err()
         );

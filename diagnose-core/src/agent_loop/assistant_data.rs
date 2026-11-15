@@ -107,7 +107,9 @@ pub(super) async fn dispatch_forget(
                     &(&operation_id, &call.id, "control-superseded"),
                 ),
                 &call.id,
-                "newer owner input superseded this control batch".into(),
+                &crate::model_content::ModelContent::constant(
+                    "newer owner input superseded this control batch",
+                ),
                 ServerResultSource::SupersededToolCall,
             )?;
         }
@@ -175,7 +177,9 @@ pub(super) async fn dispatch_forget(
                         &(&operation_id, &call.id, "control-rejected"),
                     ),
                     &call.id,
-                    "memory control did not return a committed receipt".into(),
+                    &crate::model_content::ModelContent::constant(
+                        "memory control did not return a committed receipt",
+                    ),
                     ServerResultSource::MemoryControlRejected,
                 )?;
             }
@@ -314,12 +318,13 @@ pub(super) async fn dispatch(
             ));
             message.data_envelope =
                 if mutation && data_tools::is_memory_write_acknowledgement(&message.text) {
-                    crate::model_message_labels::tool_receipt_envelope(
+                    // A write acknowledgement is the server's own receipt.
+                    crate::model_message_labels::named_envelope(
+                        &crate::model_content::ModelContent::server_text(message.text.clone()),
                         parent,
                         &call.id,
-                        &message.text,
                         &call.name,
-                        crate::model_message_labels::ServerResultSource::ManageMemories,
+                        false,
                     )?
                 } else {
                     crate::model_message_labels::assistant_data_result_envelope(

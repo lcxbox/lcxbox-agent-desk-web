@@ -304,11 +304,16 @@ async fn exercise(stack_bytes: Option<usize>) {
                 &f.plan.action_request_id,
             );
             running.turn_id = Some("turn-1".into());
-            running.data_envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+            running.data_envelope = desk_diagnose_core::model_message_labels::named_envelope(
+                &desk_diagnose_core::model_content::ModelContent::builder()
+                    .unverified(&desk_diagnose_core::model_content::Unverified::new(
+                        &running.text,
+                    ))
+                    .build(),
                 session.conversation[1].data_envelope.as_ref(),
                 &f.call.id,
-                &running.text,
                 "provider_execution_status",
+                false,
             )
             .unwrap();
             session.conversation.push(running);

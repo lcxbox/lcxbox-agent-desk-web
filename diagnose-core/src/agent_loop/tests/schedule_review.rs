@@ -29,7 +29,7 @@ fn store_receipt(
         gateway_parent(source.as_str()).as_ref(),
         message_id.into(),
         call_id,
-        text.into(),
+        &crate::model_content::ModelContent::server_text(text),
         source,
     )?;
     session.conversation.last_mut().unwrap().turn_id = session.current_turn_id.clone();
@@ -102,9 +102,16 @@ fn decide(mem: &MemSession, text: &str, source: &str) {
         .iter()
         .rev()
         .find_map(|message| message.data_envelope.as_ref());
-    message.data_envelope =
-        crate::model_message_labels::data_result_envelope(parent, "decision", text, source)
-            .unwrap();
+    message.data_envelope = crate::model_message_labels::named_envelope(
+        &crate::model_content::ModelContent::builder()
+            .unverified(&crate::model_content::Unverified::new(text))
+            .build(),
+        parent,
+        "decision",
+        source,
+        false,
+    )
+    .unwrap();
     session.conversation.push(message);
     session.decision_pause = None;
 }

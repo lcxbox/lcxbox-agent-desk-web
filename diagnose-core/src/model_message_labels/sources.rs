@@ -69,6 +69,17 @@ server_result_sources! {
     UnloadedToolCall => "unloaded_tool_call",
     // Execution placeholders and background task notices.
     ExecutionPlaceholder => "execution_placeholder",
+    // A reviewer's or host's reason why an execution did not run, or its
+    // error: never registered.
+    ExecutionStatus => "provider_execution_status",
+    // Projections repeating earlier Provider results, and the origin label of
+    // an action result: unverified, never registered.
+    RequestedArtifactRegistry => "requested_artifact_registry_projection",
+    ReusableProviderResults => "reusable_provider_result_projection",
+    FreezeActionResultOrigin => "freeze_action_result_origin",
+    // A goal proposal decision repeating the proposed text and a reviewer's
+    // reason: unverified, never registered.
+    GoalProposalDecision => "goal_proposal_decision",
     BackgroundTaskOutcomeUnknown => "background_task_outcome_unknown",
     WaitForTask => crate::wait_tools::WAIT_TOOL_NAME,
     // Session recovery.
@@ -140,8 +151,7 @@ impl ServerResultSource {
             .find(|source| source.as_str() == name)
     }
 
-    /// Decision receipts that may carry an AI reviewer's reason, and so may
-    /// use the multi-parent review label shape.
+    /// Decision receipts that may carry an AI reviewer's reason.
     pub const fn reviewed(self) -> bool {
         matches!(
             self,
@@ -149,18 +159,6 @@ impl ServerResultSource {
         )
     }
 }
-
-/// Device or Provider execution output, approval rejections and host errors.
-pub const PROVIDER_EXECUTION_STATUS: &str = "provider_execution_status";
-/// Artifact identities from earlier Provider results.
-pub const REQUESTED_ARTIFACT_REGISTRY_PROJECTION: &str = "requested_artifact_registry_projection";
-/// Earlier Provider results reused in one request.
-pub const REUSABLE_PROVIDER_RESULT_PROJECTION: &str = "reusable_provider_result_projection";
-/// The origin label of an action result.
-pub const FREEZE_ACTION_RESULT_ORIGIN: &str = "freeze_action_result_origin";
-/// Device-side directory resolution errors.
-pub const DIRECTORY_RESOLUTION_FAILED: &str = "directory_resolution_failed";
-pub const GOAL_PROPOSAL_DECISION: &str = "goal_proposal_decision";
 
 // Other system source names; their own contracts decide registration.
 /// An owner message.
@@ -199,16 +197,6 @@ mod tests {
             assert!(names.insert(source.as_str()), "{source:?}");
             assert_eq!(ServerResultSource::parse(source.as_str()), Some(*source));
         }
-        for data in [
-            PROVIDER_EXECUTION_STATUS,
-            REQUESTED_ARTIFACT_REGISTRY_PROJECTION,
-            REUSABLE_PROVIDER_RESULT_PROJECTION,
-            FREEZE_ACTION_RESULT_ORIGIN,
-            DIRECTORY_RESOLUTION_FAILED,
-            GOAL_PROPOSAL_DECISION,
-            "unknown",
-        ] {
-            assert_eq!(ServerResultSource::parse(data), None, "{data}");
-        }
+        assert_eq!(ServerResultSource::parse("unknown"), None);
     }
 }

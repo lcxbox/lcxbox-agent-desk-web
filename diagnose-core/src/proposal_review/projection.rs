@@ -12,8 +12,7 @@ use crate::{
     approval_review::ApprovalReasonCode,
     chat::ChatMessage,
     model_message_labels::{
-        COMPOSED_RESULT_PREFIX, ServerResultSource, invalid_label, server_projection_envelope,
-        server_review_envelope,
+        COMPOSED_RESULT_PREFIX, ServerResultSource, invalid_label, server_review_envelope,
     },
 };
 use desk_agent_protocol::{AgentError, data_lineage::DataEnvelope};
@@ -122,14 +121,20 @@ fn project_decided(messages: &mut [ChatMessage], pair: &DecidedPair) -> Result<(
     without_reason(&mut value);
     let receipt_text = value.to_string();
     let receipt_id = messages[pair.receipt].message_id.clone();
-    messages[pair.receipt].data_envelope =
-        server_projection_envelope(proposing.as_ref(), &receipt_id, &receipt_text, source)?;
-    messages[pair.receipt].text = receipt_text;
+    let server = |text: String, call_id: &str, message: &ChatMessage| {
+        message.clone().with_content(
+            &crate::model_content::ModelContent::server_text(text),
+            crate::model_content::Labelling {
+                issuing: proposing.as_ref(),
+                call_id,
+                source,
+                request_only: true,
+            },
+        )
+    };
+    messages[pair.receipt] = server(receipt_text, &receipt_id, &messages[pair.receipt])?;
     (pair.finish)(&mut value);
-    let text = value.to_string();
-    messages[pair.draft].data_envelope =
-        server_projection_envelope(proposing.as_ref(), &call_id, &text, source)?;
-    messages[pair.draft].text = text;
+    messages[pair.draft] = server(value.to_string(), &call_id, &messages[pair.draft])?;
     Ok(())
 }
 
@@ -138,7 +143,7 @@ mod tests {
     use super::*;
     use crate::{
         chat::ChatRole,
-        model_message_labels::{COMPOSED_RESULT_PREFIX, server_result_envelope},
+        model_message_labels::COMPOSED_RESULT_PREFIX,
         proposal_review::provenance::{
             AiDecisionReason, decision_receipt_envelope, proposing_output,
             tests::{paused_session, provenance},
@@ -154,11 +159,12 @@ mod tests {
             "status":"pending","awaiting_decision":true})
         .to_string();
         let pending = session.conversation[2].clone();
-        session.conversation[2].data_envelope = server_result_envelope(
+        session.conversation[2].data_envelope = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text(&pending.text),
             proposing_output(&session),
             "call",
-            &pending.text,
             ServerResultSource::SkillProposal,
+            false,
         )
         .unwrap();
         let ai = AiDecisionReason {

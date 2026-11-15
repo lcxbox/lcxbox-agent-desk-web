@@ -2521,11 +2521,12 @@ mod record_tests {
         })
         .to_string();
         let mut message = ChatMessage::tool_result(message_id, "query", &text);
-        message.data_envelope = crate::model_message_labels::server_result_envelope(
+        message.data_envelope = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text(&text),
             parent.data_envelope.as_ref(),
             message_id,
-            &text,
             crate::model_message_labels::ServerResultSource::ScheduleQuery,
+            false,
         )
         .unwrap();
         message
@@ -2597,11 +2598,14 @@ mod record_tests {
         let mut result = schedule_result("found", &[]);
         result.tool_call_id = Some("search".into());
         result.text = text.clone();
-        result.data_envelope = crate::model_message_labels::data_result_envelope(
+        result.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&text))
+                .build(),
             result.data_envelope.as_ref(),
             "found",
-            &text,
             crate::ai_assistant::data_tools::SEARCH_MEMORIES,
+            false,
         )
         .unwrap();
         state.observe(&[call, result.clone()]).unwrap();
@@ -2793,11 +2797,14 @@ mod record_tests {
     fn labelled_result(message_id: &str, tool: &str, text: &str) -> ChatMessage {
         let mut message = schedule_result(message_id, &[]);
         message.text = text.into();
-        message.data_envelope = crate::model_message_labels::data_result_envelope(
+        message.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(text))
+                .build(),
             message.data_envelope.as_ref(),
             message_id,
-            text,
             tool,
+            false,
         )
         .unwrap();
         message

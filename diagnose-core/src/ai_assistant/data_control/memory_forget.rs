@@ -46,17 +46,17 @@ pub fn record_stale_memory_forget(
         }) {
             return Err("stale memory control already has a result");
         }
-        let mut result = ChatMessage::tool_result(id, &call.id, &text)
-            .with_turn_id(session.current_turn_id.as_ref().unwrap());
-        result.tool_ok = Some(false);
-        result.data_envelope = crate::model_message_labels::tool_receipt_envelope(
-            producer.data_envelope.as_ref(),
+        // The receipt holds the server's control state only.
+        let mut result = ChatMessage::tool_result_named(
+            id,
             &call.id,
-            &text,
+            &crate::model_content::ModelContent::server_text(text.clone()),
+            producer.data_envelope.as_ref(),
             &call.name,
-            crate::model_message_labels::ServerResultSource::ManageMemories,
         )
-        .map_err(|_| "invalid native stale-control result")?;
+        .map_err(|_| "invalid native stale-control result")?
+        .with_turn_id(session.current_turn_id.as_ref().unwrap());
+        result.tool_ok = Some(false);
         results.push(result);
     }
     session.conversation.extend(results);
@@ -169,17 +169,17 @@ pub fn commit_memory_forget_group(
     let text = serde_json::to_string(receipt).map_err(|_| "invalid memory control receipt")?;
     let mut results = Vec::with_capacity(calls.len());
     for call in &calls {
-        let mut result =
-            ChatMessage::tool_result(result_id(session, receipt, &call.id), &call.id, &text)
-                .with_turn_id(session.current_turn_id.as_ref().unwrap());
-        result.tool_ok = Some(true);
-        result.data_envelope = crate::model_message_labels::server_result_envelope(
-            producer.data_envelope.as_ref(),
+        // The receipt holds the server's control state only.
+        let mut result = ChatMessage::tool_result_from(
+            result_id(session, receipt, &call.id),
             &call.id,
-            &text,
+            &crate::model_content::ModelContent::server_text(text.clone()),
+            producer.data_envelope.as_ref(),
             crate::model_message_labels::ServerResultSource::MemoryForgetReceipt,
         )
-        .map_err(|_| "invalid original memory control result label")?;
+        .map_err(|_| "invalid original memory control result label")?
+        .with_turn_id(session.current_turn_id.as_ref().unwrap());
+        result.tool_ok = Some(true);
         results.push(result);
     }
     let committed = CommittedMemoryForgetGroup {

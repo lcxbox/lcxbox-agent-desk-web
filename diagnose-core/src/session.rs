@@ -2970,11 +2970,11 @@ impl PersistedAgentSession {
         // Derive a new identity/digest while preserving the original authority
         // and lineage. Never leave the old envelope attached to changed bytes.
         let call_id = message.tool_call_id.clone().unwrap();
-        if crate::model_message_labels::server_rewrite(
+        if crate::model_message_labels::rewrite_result(
             &mut self.conversation,
             index,
             &call_id,
-            MANUALLY_DISPOSED_OUTCOME_UNKNOWN,
+            &crate::model_content::ModelContent::constant(MANUALLY_DISPOSED_OUTCOME_UNKNOWN),
             crate::model_message_labels::ServerResultSource::ManualOutcomeDisposition,
         )
         .is_err()
@@ -3043,11 +3043,11 @@ impl PersistedAgentSession {
         else {
             return false;
         };
-        if crate::model_message_labels::server_rewrite(
+        if crate::model_message_labels::rewrite_result(
             &mut self.conversation,
             index,
             tool_call_id,
-            RECOVER_OUTCOME_UNKNOWN,
+            &crate::model_content::ModelContent::constant(RECOVER_OUTCOME_UNKNOWN),
             crate::model_message_labels::ServerResultSource::ExecutionOutcomeUnknown,
         )
         .is_err()
@@ -3326,7 +3326,7 @@ impl PersistedAgentSession {
     /// Give the paused call its only result, `text`, at the end of its call
     /// group so the group stays contiguous, and drop the marker. Later turns
     /// treat it like any other call that did not run.
-    pub fn close_awaiting_permission(&mut self, text: &str) -> Result<(), AgentError> {
+    pub fn close_awaiting_permission(&mut self, text: &'static str) -> Result<(), AgentError> {
         let Some(waiting) = self.awaiting_permission.take() else {
             return Ok(());
         };
@@ -3358,15 +3358,14 @@ impl PersistedAgentSession {
             .find(|message| message.role == crate::chat::ChatRole::Assistant)
             .and_then(|message| message.data_envelope.clone());
         let message_id = format!("permission-pause-closed-{}", waiting.tool_call_id);
-        let mut message =
-            crate::chat::ChatMessage::tool_result(message_id, &waiting.tool_call_id, text);
-        message.turn_id = self.conversation[end - 1].turn_id.clone();
-        message.data_envelope = crate::model_message_labels::server_result_envelope(
-            parent.as_ref(),
+        let mut message = crate::chat::ChatMessage::tool_result_from(
+            message_id,
             &waiting.tool_call_id,
-            text,
+            &crate::model_content::ModelContent::constant(text),
+            parent.as_ref(),
             crate::model_message_labels::ServerResultSource::PermissionPauseClosed,
         )?;
+        message.turn_id = self.conversation[end - 1].turn_id.clone();
         self.conversation.insert(end, message);
         Ok(())
     }
@@ -3547,14 +3546,24 @@ impl PersistedAgentSession {
                         && parent.tool_calls.iter().any(|call| call.id == call_id)
                 })
                 .and_then(|parent| parent.data_envelope.as_ref());
-            let label = crate::model_message_labels::server_result_envelope(
-                parent,
-                call_id,
-                &message.text,
-                crate::model_message_labels::ServerResultSource::InterruptedCallRecovery,
+            // The text is one of the fixed recovery placeholders matched above.
+            let text = match message.text.as_str() {
+                RECOVER_NOT_EXECUTED => RECOVER_NOT_EXECUTED,
+                RECOVER_OUTCOME_UNKNOWN => RECOVER_OUTCOME_UNKNOWN,
+                _ => RECOVER_INTERRUPTED,
+            };
+            let labelled = message.clone().with_content(
+                &crate::model_content::ModelContent::constant(text),
+                crate::model_content::Labelling {
+                    issuing: parent,
+                    call_id,
+                    source:
+                        crate::model_message_labels::ServerResultSource::InterruptedCallRecovery,
+                    request_only: false,
+                },
             )?;
-            if label.is_some() {
-                self.conversation[index].data_envelope = label;
+            if labelled.data_envelope.is_some() {
+                self.conversation[index] = labelled;
                 changed = true;
             }
         }
@@ -3567,12 +3576,18 @@ impl PersistedAgentSession {
 /// Whether `text` is a recovery placeholder written for an interrupted or
 /// uncertain call; such a body is server-authored.
 pub fn is_recovery_placeholder(text: &str) -> bool {
+    recovery_placeholder(text).is_some()
+}
+
+/// The fixed recovery placeholder equal to `text`, if any.
+pub fn recovery_placeholder(text: &str) -> Option<&'static str> {
     [
         RECOVER_NOT_EXECUTED,
         RECOVER_OUTCOME_UNKNOWN,
         RECOVER_INTERRUPTED,
     ]
-    .contains(&text)
+    .into_iter()
+    .find(|placeholder| *placeholder == text)
 }
 
 const RECOVER_NOT_EXECUTED: &str = "not executed: the turn was interrupted before this command ran";

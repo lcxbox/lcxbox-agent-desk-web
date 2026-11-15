@@ -11,10 +11,25 @@ use serde_json::json;
 pub const REQUEST_DIRECTORY: &str = "request_directory";
 pub(crate) const DIRECTORY_PROMPT_MAX_BYTES: usize = 8192;
 
+crate::model_receipt! {
+    struct PendingReceipt {
+        directory_request_id: crate::model_content::ServerId,
+        state: &'static str,
+        awaiting_decision: bool,
+        message: &'static str,
+    }
+}
+
 /// Durable pause payload shared by the loop and interrupted-turn recovery.
-pub fn pending_result(request_id: &str) -> serde_json::Value {
-    json!({"directory_request_id": request_id, "state": "pending", "awaiting_decision": true,
-        "message": "Submitted for a decision. This turn ends now; when the AI reviewer or the owner decides, the server continues this requirement and this result shows the decision. No file operation has been authorized."})
+pub fn pending_result(
+    request_id: &str,
+) -> Result<crate::model_content::ModelContent, desk_agent_protocol::AgentError> {
+    crate::model_content::ModelContent::json(&PendingReceipt {
+        directory_request_id: crate::model_content::ServerId::new(request_id),
+        state: "pending",
+        awaiting_decision: true,
+        message: "Submitted for a decision. This turn ends now; when the AI reviewer or the owner decides, the server continues this requirement and this result shows the decision. No file operation has been authorized.",
+    })
 }
 
 /// Bounded current scope metadata, rebuilt each step rather than appended to

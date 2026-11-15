@@ -241,11 +241,12 @@ fn waiting_session_on(device: &str) -> PersistedAgentSession {
     let mut receipt =
         ChatMessage::tool_result("skill-proposal:call-private-id", "call-private-id", &text);
     receipt.turn_id = session.current_turn_id.clone();
-    receipt.data_envelope = crate::model_message_labels::server_result_envelope(
+    receipt.data_envelope = crate::model_message_labels::composed_envelope(
+        &crate::model_content::ModelContent::server_text(&text),
         assistant.data_envelope.as_ref(),
         "call-private-id",
-        &text,
         crate::model_message_labels::ServerResultSource::SkillProposal,
+        false,
     )
     .unwrap();
     session.conversation = vec![user, assistant, receipt];
@@ -446,11 +447,12 @@ fn a_decision_is_projected_onto_the_original_call_for_the_model() {
     .to_string();
     let mut receipt = ChatMessage::system_event("decision", &text);
     // A decision receipt derives from the proposing output.
-    receipt.data_envelope = crate::model_message_labels::server_result_envelope(
+    receipt.data_envelope = crate::model_message_labels::composed_envelope(
+        &crate::model_content::ModelContent::server_text(&text),
         session.conversation[1].data_envelope.as_ref(),
         "decision",
-        &text,
         crate::model_message_labels::ServerResultSource::SkillProposalDecision,
+        false,
     )
     .unwrap();
     session.conversation.push(receipt);
@@ -582,11 +584,12 @@ fn a_removal_decision_tells_the_model_what_happened() {
             "status":status,"kind":kind})
         .to_string();
         let mut receipt = ChatMessage::system_event("decision", &text);
-        receipt.data_envelope = crate::model_message_labels::server_result_envelope(
+        receipt.data_envelope = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text(&text),
             session.conversation[1].data_envelope.as_ref(),
             "decision",
-            &text,
             crate::model_message_labels::ServerResultSource::SkillProposalDecision,
+            false,
         )
         .unwrap();
         session.conversation.push(receipt);

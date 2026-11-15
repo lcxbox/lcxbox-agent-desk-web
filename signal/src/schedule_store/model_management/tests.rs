@@ -171,11 +171,12 @@ async fn fresh_task_is_bound_by_server_receipt_and_queries_are_paginated() {
     .unwrap();
     let mut receipt =
         desk_diagnose_core::chat::ChatMessage::tool_result("receipt", "call", text.clone());
-    receipt.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+    receipt.data_envelope = desk_diagnose_core::model_message_labels::composed_envelope(
+        &desk_diagnose_core::model_content::ModelContent::server_text(&text),
         parent.data_envelope.as_ref(),
         "call",
-        &text,
         desk_diagnose_core::model_message_labels::ServerResultSource::ScheduleProposal,
+        false,
     )
     .unwrap();
     session.conversation.push(receipt);
@@ -251,11 +252,12 @@ async fn tool_turn_commits_cancellation_and_receipt_together_and_rejects_stale_s
             "query-call",
             &query_text,
         );
-        query.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+        query.data_envelope = desk_diagnose_core::model_message_labels::composed_envelope(
+            &desk_diagnose_core::model_content::ModelContent::server_text(&query_text),
             parent.data_envelope.as_ref(),
             "schedule-query",
-            &query_text,
             desk_diagnose_core::model_message_labels::ServerResultSource::ScheduleQuery,
+            false,
         )
         .unwrap();
         let input = query.data_envelope.clone().unwrap();

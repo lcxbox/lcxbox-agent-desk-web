@@ -2442,14 +2442,27 @@ fn append_internal_tool_result(
     parent: Option<&DataEnvelope>,
     message_id: String,
     call_id: &str,
-    content: String,
+    content: &crate::model_content::ModelContent,
     source: ServerResultSource,
 ) -> Result<(), AgentError> {
-    let mut message = ChatMessage::tool_result(message_id, call_id, content.clone());
-    message.data_envelope =
-        crate::model_message_labels::server_result_envelope(parent, call_id, &content, source)?;
-    session.conversation.push(message);
+    session.conversation.push(ChatMessage::tool_result_from(
+        message_id, call_id, content, parent, source,
+    )?);
     Ok(())
+}
+
+/// Server text about `call` that repeats the call's own arguments, such as
+/// its tool name or a validation message about its input.
+fn call_text(
+    call: &crate::chat::ToolCall,
+    issuing: Option<&DataEnvelope>,
+    text: String,
+) -> crate::model_content::ModelContent {
+    crate::model_content::ModelContent::builder()
+        .arg(&crate::model_content::ModelArg::of_call(
+            call, issuing, text,
+        ))
+        .build()
 }
 
 /// Records the error result of `call`, labelled from where its text came from.
@@ -2475,14 +2488,15 @@ fn append_data_tool_result(
     content: String,
     source_tool_name: &str,
 ) -> Result<(), AgentError> {
-    let mut message = ChatMessage::tool_result(message_id, call_id, content.clone());
-    message.data_envelope = crate::model_message_labels::data_result_envelope(
-        parent,
+    session.conversation.push(ChatMessage::tool_result_named(
+        message_id,
         call_id,
-        &content,
+        &crate::model_content::ModelContent::builder()
+            .unverified(&crate::model_content::Unverified::new(content))
+            .build(),
+        parent,
         source_tool_name,
-    )?;
-    session.conversation.push(message);
+    )?);
     Ok(())
 }
 
@@ -2491,18 +2505,12 @@ fn append_unstarted_tool_results<F: FnMut() -> String>(
     calls: &[crate::chat::ToolCall],
     parent: Option<&DataEnvelope>,
     mint: &mut F,
-    content: &str,
+    content: &'static str,
     source: ServerResultSource,
 ) -> Result<(), AgentError> {
+    let content = crate::model_content::ModelContent::constant(content);
     for call in calls {
-        append_internal_tool_result(
-            session,
-            parent,
-            mint(),
-            &call.id,
-            content.to_string(),
-            source,
-        )?;
+        append_internal_tool_result(session, parent, mint(), &call.id, &content, source)?;
     }
     Ok(())
 }
@@ -2731,39 +2739,23 @@ fn requested_artifact_registry_projection(
         safe_for_model: false,
         error_code: None,
     })?;
-    let text = format!(
-        "CURRENT REQUESTED ARTIFACT REGISTRY (server authoritative metadata; not a grant): {payload}"
-    );
-    let mut projection = ChatMessage::system_event(message_id, &text);
-    projection.data_envelope = crate::model_message_labels::data_projection_envelope(
-        Some(parent),
+    // File names and tokens repeat earlier Provider results.
+    let content = crate::model_content::ModelContent::builder()
+        .text("CURRENT REQUESTED ARTIFACT REGISTRY (server authoritative metadata; not a grant): ")
+        .unverified(&crate::model_content::Unverified::new(payload))
+        .build();
+    let mut projection = ChatMessage::from_content(
+        ChatRole::SystemEvent,
         message_id,
-        &text,
-        crate::model_message_labels::sources::REQUESTED_ARTIFACT_REGISTRY_PROJECTION,
+        &content,
+        crate::model_content::Labelling {
+            issuing: Some(parent),
+            call_id: message_id,
+            source: ServerResultSource::RequestedArtifactRegistry,
+            request_only: true,
+        },
     )?;
-    if let Some(envelope) = projection.data_envelope.as_mut() {
-        for source in source_envelopes {
-            if !envelope
-                .provenance
-                .source_envelope_ids
-                .contains(&source.envelope_id)
-            {
-                envelope
-                    .provenance
-                    .source_envelope_ids
-                    .push(source.envelope_id);
-            }
-            envelope.sensitivity = envelope.sensitivity.max(source.sensitivity);
-            envelope.retention = envelope.retention.most_restrictive(source.retention);
-        }
-        envelope.validate().map_err(|error| AgentError {
-            kind: AgentErrorKind::Internal,
-            message: format!("invalid requested artifact registry envelope: {error}"),
-            retryable: false,
-            safe_for_model: false,
-            error_code: None,
-        })?;
-    }
+    crate::model_message_labels::extend_lineage(&mut projection, source_envelopes.iter())?;
     Ok(Some(projection))
 }
 
@@ -2977,43 +2969,29 @@ fn reusable_provider_result_projection(
         safe_for_model: false,
         error_code: None,
     })?;
-    let text = format!(
-        "CURRENT REUSABLE PROVIDER RESULTS (server authoritative bounded references; not a grant; copy observed browser page_id and element_id verbatim and never invent them): {payload}. This registry is emitted after the turn-start capability catalog. When browser_reference_delta.page_reference_prerequisite_present=true, it supersedes only an older catalog claim that the page-reference prerequisite is absent. If request_permissions is available and the named downstream browser tool is a registered permission candidate, request its exact permission using the observed IDs and complete remaining input now; do not claim that no browser page exists. Runtime readiness, the tool registry, grants, and final server validation remain authoritative and are not widened by this delta."
-    );
-    let mut projection = ChatMessage::system_event(message_id, &text);
-    projection.data_envelope = crate::model_message_labels::data_projection_envelope(
-        Some(parent),
+    // Page, element and preview references repeat earlier Provider results.
+    let content = crate::model_content::ModelContent::builder()
+                .text("CURRENT REUSABLE PROVIDER RESULTS (server authoritative bounded references; not a grant; copy observed browser page_id and element_id verbatim and never invent them): ")
+                .unverified(&crate::model_content::Unverified::new(payload))
+                .text(". This registry is emitted after the turn-start capability catalog. When browser_reference_delta.page_reference_prerequisite_present=true, it supersedes only an older catalog claim that the page-reference prerequisite is absent. If request_permissions is available and the named downstream browser tool is a registered permission candidate, request its exact permission using the observed IDs and complete remaining input now; do not claim that no browser page exists. Runtime readiness, the tool registry, grants, and final server validation remain authoritative and are not widened by this delta.")
+        .build();
+    let mut projection = ChatMessage::from_content(
+        ChatRole::SystemEvent,
         message_id,
-        &text,
-        crate::model_message_labels::sources::REUSABLE_PROVIDER_RESULT_PROJECTION,
+        &content,
+        crate::model_content::Labelling {
+            issuing: Some(parent),
+            call_id: message_id,
+            source: ServerResultSource::ReusableProviderResults,
+            request_only: true,
+        },
     )?;
-    if let Some(projected) = projection.data_envelope.as_mut() {
-        for source in [preview_envelope, web_envelope]
-            .into_iter()
-            .flatten()
-            .chain(browser_envelopes)
-        {
-            if !projected
-                .provenance
-                .source_envelope_ids
-                .contains(&source.envelope_id)
-            {
-                projected
-                    .provenance
-                    .source_envelope_ids
-                    .push(source.envelope_id);
-            }
-            projected.sensitivity = projected.sensitivity.max(source.sensitivity);
-            projected.retention = projected.retention.most_restrictive(source.retention);
-        }
-        projected.validate().map_err(|error| AgentError {
-            kind: AgentErrorKind::Internal,
-            message: format!("invalid reusable Provider result envelope: {error}"),
-            retryable: false,
-            safe_for_model: false,
-            error_code: None,
-        })?;
-    }
+    let sources = [preview_envelope, web_envelope]
+        .into_iter()
+        .flatten()
+        .chain(browser_envelopes)
+        .collect::<Vec<_>>();
+    crate::model_message_labels::extend_lineage(&mut projection, sources.iter())?;
     Ok(Some(projection))
 }
 
@@ -3425,25 +3403,12 @@ fn original_action_anchor(
     Ok(index)
 }
 
-fn append_mutating_result(
-    deps: &LoopDeps<'_>,
-    session: &mut crate::session::PersistedAgentSession,
+/// The label of the model output that issued `call`.
+fn issuing_label(
+    session: &crate::session::PersistedAgentSession,
     call: &crate::chat::ToolCall,
-    mut message: ChatMessage,
-    // `Some` for server-authored text; `None` for text that carries approval
-    // reasons, host errors or device output.
-    source: Option<ServerResultSource>,
-) -> Result<(), AgentError> {
-    let output = crate::seam::ToolRunOutput {
-        format: crate::seam::ToolOutputFormat::Text,
-        content: message.text.clone(),
-        image_data_url: message.image_data_url.clone(),
-        document_preview: None,
-    };
-    // Control outcomes are not native Provider results. Inherit the original
-    // proposal's boundary without inventing a completion receipt or asking a
-    // strict Provider to attest to centrally generated text.
-    let parent = session
+) -> Option<DataEnvelope> {
+    session
         .conversation
         .iter()
         .rev()
@@ -3456,24 +3421,77 @@ fn append_mutating_result(
                     .iter()
                     .any(|candidate| candidate.id == call.id && candidate.name == call.name)
         })
-        .and_then(|message| message.data_envelope.as_ref());
-    message.data_envelope = if parent.is_some() {
-        match source {
-            Some(source) => crate::model_message_labels::server_result_envelope(
-                parent,
-                &call.id,
-                &output.content,
+        .and_then(|message| message.data_envelope.clone())
+}
+
+/// Records a mutating call's result. `content` says where its text came
+/// from: server placeholders register under the issuing output, while
+/// reviewer reasons, host errors and device text are unverified.
+fn append_mutating_result(
+    deps: &LoopDeps<'_>,
+    session: &mut crate::session::PersistedAgentSession,
+    call: &crate::chat::ToolCall,
+    message_id: String,
+    content: &crate::model_content::ModelContent,
+    source: ServerResultSource,
+) -> Result<(), AgentError> {
+    let message = ChatMessage::tool_result(message_id, &call.id, String::new());
+    push_mutating_result(deps, session, call, message, content, source)
+}
+
+/// Records that `call` keeps running as background task `task_id`.
+fn append_background_running(
+    deps: &LoopDeps<'_>,
+    session: &mut crate::session::PersistedAgentSession,
+    call: &crate::chat::ToolCall,
+    message_id: String,
+    task_id: &str,
+) -> Result<(), AgentError> {
+    let message = ChatMessage::background_task_running(message_id, &call.id, task_id);
+    let content = crate::model_content::ModelContent::server_text(
+        crate::chat::background_task_running_result(task_id),
+    );
+    push_mutating_result(
+        deps,
+        session,
+        call,
+        message,
+        &content,
+        ServerResultSource::ExecutionPlaceholder,
+    )
+}
+
+fn push_mutating_result(
+    deps: &LoopDeps<'_>,
+    session: &mut crate::session::PersistedAgentSession,
+    call: &crate::chat::ToolCall,
+    message: ChatMessage,
+    content: &crate::model_content::ModelContent,
+    source: ServerResultSource,
+) -> Result<(), AgentError> {
+    // Control outcomes are not native Provider results. Inherit the original
+    // proposal's boundary without inventing a completion receipt or asking a
+    // strict Provider to attest to centrally generated text.
+    let message = match issuing_label(session, call) {
+        Some(parent) => message.with_content(
+            content,
+            crate::model_content::Labelling {
+                issuing: Some(&parent),
+                call_id: &call.id,
                 source,
-            )?,
-            None => crate::model_message_labels::data_result_envelope(
-                parent,
-                &call.id,
-                &output.content,
-                crate::model_message_labels::sources::PROVIDER_EXECUTION_STATUS,
-            )?,
+                request_only: false,
+            },
+        )?,
+        None => {
+            let output = crate::seam::ToolRunOutput {
+                format: crate::seam::ToolOutputFormat::Text,
+                content: content.text().into(),
+                image_data_url: message.image_data_url.clone(),
+                document_preview: None,
+            };
+            let label = deps.tools.mutating_data_envelope(call, &output)?;
+            message.with_host_label(content, label)
         }
-    } else {
-        deps.tools.mutating_data_envelope(call, &output)?
     };
     session.conversation.push(message);
     Ok(())
@@ -3729,12 +3747,12 @@ pub(crate) fn bind_tool_input_envelopes(
 fn resolve_word_report_web_source_envelope<'a>(
     session: &'a crate::session::PersistedAgentSession,
     call: &crate::chat::ToolCall,
-) -> Result<Option<&'a DataEnvelope>, String> {
+) -> Result<Option<&'a DataEnvelope>, &'static str> {
     if call.name != "create_word_report" {
         return Ok(None);
     }
     let arguments: serde_json::Value = serde_json::from_str(&call.arguments_json)
-        .map_err(|_| "Word report input is not valid JSON".to_string())?;
+        .map_err(|_| "Word report input is not valid JSON")?;
     let call_id = arguments
         .get("web_search_call_id")
         .and_then(serde_json::Value::as_str);
@@ -3745,17 +3763,14 @@ fn resolve_word_report_web_source_envelope<'a>(
         (None, None) => return Ok(None),
         (Some(_), Some(_)) => {}
         _ => {
-            return Err(
-                "Word report Web sources require both web_search_call_id and web_sources".into(),
-            );
+            return Err("Word report Web sources require both web_search_call_id and web_sources");
         }
     }
     let call_id = call_id.expect("paired above");
     let sources = sources.expect("paired above");
     if call_id.is_empty() || call_id.len() > 128 || !(1..=8).contains(&sources.len()) {
         return Err(
-            "Word report Web sources require one bounded prior Web Search call and 1 to 8 entries"
-                .into(),
+            "Word report Web sources require one bounded prior Web Search call and 1 to 8 entries",
         );
     }
     let search_call_exists = session.conversation.iter().any(|message| {
@@ -3766,7 +3781,7 @@ fn resolve_word_report_web_source_envelope<'a>(
             })
     });
     if !search_call_exists {
-        return Err("Word report Web Search call is not part of this durable run".into());
+        return Err("Word report Web Search call is not part of this durable run");
     }
     let result = session
         .conversation
@@ -3774,7 +3789,7 @@ fn resolve_word_report_web_source_envelope<'a>(
         .find(|message| {
             message.role == ChatRole::Tool && message.tool_call_id.as_deref() == Some(call_id)
         })
-        .ok_or_else(|| "Word report Web Search result is not available yet".to_string())?;
+        .ok_or("Word report Web Search result is not available yet")?;
     let result = result.trusted_tool_result();
     let result_envelope = result
         .data_envelope
@@ -3782,29 +3797,28 @@ fn resolve_word_report_web_source_envelope<'a>(
         .filter(|envelope| {
             envelope.provenance.source_tool_name == crate::web_research::WEB_SEARCH_TOOL_NAME
         })
-        .ok_or_else(|| "Word report Web Search result has no authoritative envelope".to_string())?;
-    let result_json: serde_json::Value = serde_json::from_str(&result.trusted_tool_result().text)
-        .map_err(|_| {
-        "Word report Web Search result is not valid structured data".to_string()
-    })?;
+        .ok_or("Word report Web Search result has no authoritative envelope")?;
+    let result_json: serde_json::Value =
+        serde_json::from_str(&result.trusted_tool_result().text)
+            .map_err(|_| "Word report Web Search result is not valid structured data")?;
     let observed = result_json
         .get("results")
         .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| "Word report Web Search result has no bounded result list".to_string())?;
+        .ok_or("Word report Web Search result has no bounded result list")?;
     let mut requested = HashSet::new();
     for source in sources {
         let object = source
             .as_object()
             .filter(|object| object.len() == 2)
-            .ok_or_else(|| "Word report Web source must contain only title and url".to_string())?;
+            .ok_or("Word report Web source must contain only title and url")?;
         let title = object
             .get("title")
             .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| "Word report Web source title is invalid".to_string())?;
+            .ok_or("Word report Web source title is invalid")?;
         let url = object
             .get("url")
             .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| "Word report Web source URL is invalid".to_string())?;
+            .ok_or("Word report Web source URL is invalid")?;
         if title.is_empty()
             || title.chars().count() > 240
             || url.len() > 2_048
@@ -3816,8 +3830,7 @@ fn resolve_word_report_web_source_envelope<'a>(
             })
         {
             return Err(
-                "Word report Web source was not copied exactly from the referenced search result"
-                    .into(),
+                "Word report Web source was not copied exactly from the referenced search result",
             );
         }
     }
@@ -3839,7 +3852,7 @@ async fn run_mutating<F: FnMut() -> String>(
     call: &crate::chat::ToolCall,
     remaining_calls: &[crate::chat::ToolCall],
     mint: &mut F,
-    halted: &mut Option<String>,
+    halted: &mut Option<crate::model_content::ModelContent>,
     grant_required: &mut Option<bool>,
     sink: &mut dyn TurnSink,
     observation: &crate::model_observability::tool::ToolObservation,
@@ -3856,11 +3869,15 @@ async fn run_mutating<F: FnMut() -> String>(
             deps,
             session,
             call,
-            ChatMessage::tool_result(mint(), &call.id, note),
-            Some(ServerResultSource::ExecutionPlaceholder),
+            mint(),
+            // The tool name is the dispatched registry tool's.
+            &crate::model_content::ModelContent::server_text(note),
+            ServerResultSource::ExecutionPlaceholder,
         )?;
         finish_tool(session, &call.id, false, sink);
-        *halted = Some("not executed: a prior command in this turn was not run".to_string());
+        *halted = Some(crate::model_content::ModelContent::constant(
+            "not executed: a prior command in this turn was not run",
+        ));
         return Ok(None);
     }
     // Defence in depth behind the exposure gate: a mutating tool is never
@@ -3873,15 +3890,16 @@ async fn run_mutating<F: FnMut() -> String>(
             deps,
             session,
             call,
-            ChatMessage::tool_result(
-                mint(),
-                &call.id,
+            mint(),
+            &crate::model_content::ModelContent::constant(
                 "not executed: an automation turn cannot start a new command",
             ),
-            Some(ServerResultSource::ExecutionPlaceholder),
+            ServerResultSource::ExecutionPlaceholder,
         )?;
         finish_tool(session, &call.id, false, sink);
-        *halted = Some("not executed: an automation turn cannot start a new command".to_string());
+        *halted = Some(crate::model_content::ModelContent::constant(
+            "not executed: an automation turn cannot start a new command",
+        ));
         return Ok(None);
     }
 
@@ -3905,19 +3923,20 @@ async fn run_mutating<F: FnMut() -> String>(
                     .permission(crate::model_observability::PermissionOutcome::PolicyRejected);
                 // The recheck compares the call with the stored approval and
                 // the host's current policy; every model-safe error is fixed text.
-                let text = crate::model_input::describe_error(
-                    &call.name,
-                    crate::model_content::ToolError::validation(&error).reason(),
-                );
+                let content = crate::model_content::ToolError::validation(&error)
+                    .describe(call, issuing_label(session, call).as_ref());
                 append_mutating_result(
                     deps,
                     session,
                     call,
-                    ChatMessage::tool_result(mint(), &call.id, text),
-                    Some(ServerResultSource::ToolCallError),
+                    mint(),
+                    &content,
+                    ServerResultSource::ToolCallError,
                 )?;
                 finish_tool(session, &call.id, false, sink);
-                *halted = Some("not executed: the approved command target or input changed".into());
+                *halted = Some(crate::model_content::ModelContent::constant(
+                    "not executed: the approved command target or input changed",
+                ));
                 return Ok(None);
             }
         }
@@ -4050,10 +4069,11 @@ async fn run_mutating<F: FnMut() -> String>(
             } else {
                 finish_tool(session, &call.id, !failed, sink);
                 if failed {
-                    *halted = Some(format!(
+                    *halted = Some(crate::model_content::ModelContent::server_text(format!(
+                        // A dispatched call names a registry tool.
                         "not executed: tool `{}` failed earlier in this group; this tool was not dispatched",
                         call.name
-                    ));
+                    )));
                 }
             }
         }
@@ -4083,71 +4103,94 @@ async fn run_mutating<F: FnMut() -> String>(
                 deps,
                 session,
                 call,
-                ChatMessage::tool_result(
-                    mint(),
-                    &call.id,
-                    format!("the command was rejected: {reason}"),
-                ),
-                None,
+                mint(),
+                &crate::model_content::ModelContent::builder()
+                    .text("the command was rejected: ")
+                    .unverified(&crate::model_content::Unverified::new(reason))
+                    .build(),
+                ServerResultSource::ExecutionStatus,
             )?;
             finish_tool(session, &call.id, false, sink);
-            *halted = Some("not executed: a prior command in this turn was not run".to_string());
+            *halted = Some(crate::model_content::ModelContent::constant(
+                "not executed: a prior command in this turn was not run",
+            ));
         }
         Ok(ExecOutcome::Rejected { reason }) => {
-            let text = match reason {
-                Some(r) => format!("the command was rejected: {r}"),
-                None => "the command was rejected".to_string(),
+            let content = match reason {
+                Some(r) => crate::model_content::ModelContent::builder()
+                    .text("the command was rejected: ")
+                    .unverified(&crate::model_content::Unverified::new(r))
+                    .build(),
+                None => crate::model_content::ModelContent::constant("the command was rejected"),
             };
             append_mutating_result(
                 deps,
                 session,
                 call,
-                ChatMessage::tool_result(mint(), &call.id, text),
-                None,
+                mint(),
+                &content,
+                ServerResultSource::ExecutionStatus,
             )?;
             finish_tool(session, &call.id, false, sink);
-            *halted = Some("not executed: a prior command in this turn was not run".to_string());
+            *halted = Some(crate::model_content::ModelContent::constant(
+                "not executed: a prior command in this turn was not run",
+            ));
         }
         Ok(ExecOutcome::NotExecuted { reason }) => {
             append_mutating_result(
                 deps,
                 session,
                 call,
-                ChatMessage::tool_result(mint(), &call.id, format!("not executed: {reason}")),
-                None,
+                mint(),
+                &crate::model_content::ModelContent::builder()
+                    .text("not executed: ")
+                    .unverified(&crate::model_content::Unverified::new(reason))
+                    .build(),
+                ServerResultSource::ExecutionStatus,
             )?;
             finish_tool(session, &call.id, false, sink);
-            *halted = Some("not executed: a prior action did not pass dispatch validation".into());
+            *halted = Some(crate::model_content::ModelContent::constant(
+                "not executed: a prior action did not pass dispatch validation",
+            ));
         }
         Ok(ExecOutcome::Cancelled { reason }) => {
-            let text = match reason {
-                Some(r) => format!("the command was cancelled before it ran: {r}"),
-                None => "the command was cancelled before it ran".to_string(),
+            let content = match reason {
+                Some(r) => crate::model_content::ModelContent::builder()
+                    .text("the command was cancelled before it ran: ")
+                    .unverified(&crate::model_content::Unverified::new(r))
+                    .build(),
+                None => crate::model_content::ModelContent::constant(
+                    "the command was cancelled before it ran",
+                ),
             };
             append_mutating_result(
                 deps,
                 session,
                 call,
-                ChatMessage::tool_result(mint(), &call.id, text),
-                None,
+                mint(),
+                &content,
+                ServerResultSource::ExecutionStatus,
             )?;
             finish_tool(session, &call.id, false, sink);
-            *halted = Some("not executed: a prior command in this turn was cancelled".to_string());
+            *halted = Some(crate::model_content::ModelContent::constant(
+                "not executed: a prior command in this turn was cancelled",
+            ));
         }
         Ok(ExecOutcome::ApprovalTimeout) => {
             append_mutating_result(
                 deps,
                 session,
                 call,
-                ChatMessage::tool_result(
-                    mint(),
-                    &call.id,
+                mint(),
+                &crate::model_content::ModelContent::constant(
                     "approval timed out; the command was not executed",
                 ),
-                Some(ServerResultSource::ExecutionPlaceholder),
+                ServerResultSource::ExecutionPlaceholder,
             )?;
             finish_tool(session, &call.id, false, sink);
-            *halted = Some("not executed: a prior command in this turn was not run".to_string());
+            *halted = Some(crate::model_content::ModelContent::constant(
+                "not executed: a prior command in this turn was not run",
+            ));
         }
         Ok(ExecOutcome::Unknown(id)) => {
             // §6: close the conversation with a placeholder tool result (so the
@@ -4158,12 +4201,9 @@ async fn run_mutating<F: FnMut() -> String>(
                 deps,
                 session,
                 call,
-                ChatMessage::tool_result(
-                    placeholder_id.clone(),
-                    &call.id,
-                    OUTCOME_UNKNOWN_PLACEHOLDER,
-                ),
-                Some(ServerResultSource::ExecutionPlaceholder),
+                placeholder_id.clone(),
+                &crate::model_content::ModelContent::constant(OUTCOME_UNKNOWN_PLACEHOLDER),
+                ServerResultSource::ExecutionPlaceholder,
             )?;
             session
                 .execution_state
@@ -4180,13 +4220,7 @@ async fn run_mutating<F: FnMut() -> String>(
             // dispatch. The real result is appended later as a completion
             // notification. Further authorized commands remain available; the host
             // atomically enforces capacity across all callers.
-            append_mutating_result(
-                deps,
-                session,
-                call,
-                ChatMessage::background_task_running(mint(), &call.id, &id.action_request_id),
-                Some(ServerResultSource::ExecutionPlaceholder),
-            )?;
+            append_background_running(deps, session, call, mint(), &id.action_request_id)?;
             session
                 .execution_state
                 .insert(ExecutionState::Executing { action: id });
@@ -4203,19 +4237,20 @@ async fn run_mutating<F: FnMut() -> String>(
                 deps,
                 session,
                 call,
-                ChatMessage::tool_result(
-                    mint(),
-                    &call.id,
-                    format!("execution error: {}", e.message),
-                ),
-                None,
+                mint(),
+                &crate::model_content::ModelContent::builder()
+                    .text("execution error: ")
+                    .unverified(&crate::model_content::Unverified::new(e.message.clone()))
+                    .build(),
+                ServerResultSource::ExecutionStatus,
             )?;
             finish_tool(session, &call.id, false, sink);
             if !e.retryable {
-                *halted = Some(format!(
+                *halted = Some(crate::model_content::ModelContent::server_text(format!(
+                    // A dispatched call names a registry tool.
                     "not executed: tool `{}` failed earlier in this group; this tool was not dispatched",
                     call.name
-                ));
+                )));
             }
         }
         Err(e) => {
@@ -4258,7 +4293,7 @@ async fn run_wait<F: FnMut() -> String>(
     call: &crate::chat::ToolCall,
     remaining_calls: &[crate::chat::ToolCall],
     mint: &mut F,
-    halted: &mut Option<String>,
+    halted: &mut Option<crate::model_content::ModelContent>,
     sink: &mut dyn TurnSink,
     observation: &crate::model_observability::tool::ToolObservation,
 ) -> Result<Option<LoopOutcome>, AgentError> {
@@ -4272,8 +4307,13 @@ async fn run_wait<F: FnMut() -> String>(
                 deps,
                 session,
                 call,
-                ChatMessage::tool_result(mint(), &call.id, format!("wait error: {}", e.message)),
-                Some(ServerResultSource::ToolCallError),
+                mint(),
+                &call_text(
+                    call,
+                    issuing_label(session, call).as_ref(),
+                    format!("wait error: {}", e.message),
+                ),
+                ServerResultSource::ToolCallError,
             )?;
             return Ok(None);
         }
@@ -4289,12 +4329,13 @@ async fn run_wait<F: FnMut() -> String>(
             deps,
             session,
             call,
-            ChatMessage::tool_result(
-                mint(),
-                &call.id,
+            mint(),
+            &call_text(
+                call,
+                issuing_label(session, call).as_ref(),
                 format!("no running background task with id `{task_id}`"),
             ),
-            Some(ServerResultSource::ExecutionPlaceholder),
+            ServerResultSource::ExecutionPlaceholder,
         )?;
         return Ok(None);
     };
@@ -4307,12 +4348,13 @@ async fn run_wait<F: FnMut() -> String>(
             deps,
             session,
             call,
-            ChatMessage::tool_result(
-                mint(),
-                &call.id,
+            mint(),
+            &call_text(
+                call,
+                issuing_label(session, call).as_ref(),
                 format!("no running background task with id `{task_id}`"),
             ),
-            Some(ServerResultSource::ExecutionPlaceholder),
+            ServerResultSource::ExecutionPlaceholder,
         )?;
         return Ok(None);
     }
@@ -4367,20 +4409,19 @@ async fn run_wait<F: FnMut() -> String>(
                     deps,
                     session,
                     call,
-                    ChatMessage::tool_result(
-                        mint(),
-                        &call.id,
-                        if failed {
-                            "the task failed; call wait_for_task on its own to retrieve the original result"
-                        } else {
-                            "the task has completed; call wait_for_task last in a tool-call group or on its own to retrieve the original result"
-                        },
-                    ),
-                    Some(ServerResultSource::ExecutionPlaceholder),
+                    mint(),
+                    &crate::model_content::ModelContent::constant(if failed {
+                        "the task failed; call wait_for_task on its own to retrieve the original result"
+                    } else {
+                        "the task has completed; call wait_for_task last in a tool-call group or on its own to retrieve the original result"
+                    }),
+                    ServerResultSource::ExecutionPlaceholder,
                 )?;
                 finish_tool(session, &call.id, !failed, sink);
                 if failed {
-                    *halted = Some("not executed: the background action failed".into());
+                    *halted = Some(crate::model_content::ModelContent::constant(
+                        "not executed: the background action failed",
+                    ));
                 }
                 deps.session_seam.save(session).await?;
                 return Ok(None);
@@ -4404,25 +4445,25 @@ async fn run_wait<F: FnMut() -> String>(
             } else {
                 "background task completed; its original result is recorded in the conversation"
             };
-            let envelope = crate::model_message_labels::tool_receipt_envelope(
-                Some(&data_envelope),
+            // Preserve the invoked tool name so history export can bind this
+            // closure to its model-authorized wait call. The original receipt
+            // retains its own call identity and independent audit.
+            let message = ChatMessage::tool_result_named(
+                mint(),
                 &call.id,
-                text,
-                // Preserve the invoked tool name so history export can bind
-                // this closure to its model-authorized wait call. The original
-                // receipt retains its own call identity and independent audit.
+                &crate::model_content::ModelContent::constant(text),
+                Some(&data_envelope),
                 &call.name,
-                ServerResultSource::WaitForTask,
             )?;
-            let mut message = ChatMessage::tool_result(mint(), &call.id, text);
-            message.data_envelope = envelope;
             // Close the wait call before any appended untrusted completion so
             // the model's assistant/tool-result group remains contiguous.
             session.conversation.insert(completion_position, message);
             ack_event_id = Some(event_id);
             finish_tool(session, &call.id, !failed, sink);
             if failed {
-                *halted = Some("not executed: the background action failed".into());
+                *halted = Some(crate::model_content::ModelContent::constant(
+                    "not executed: the background action failed",
+                ));
             }
         }
         Ok(WaitOutcome::Completed { output, event_id }) => {
@@ -4456,13 +4497,7 @@ async fn run_wait<F: FnMut() -> String>(
             }
         }
         Ok(WaitOutcome::StillRunning) => {
-            append_mutating_result(
-                deps,
-                session,
-                call,
-                ChatMessage::background_task_running(mint(), &call.id, &action.action_request_id),
-                Some(ServerResultSource::ExecutionPlaceholder),
-            )?;
+            append_background_running(deps, session, call, mint(), &action.action_request_id)?;
             finish_tool(session, &call.id, true, sink);
         }
         Ok(WaitOutcome::UnknownWithIdentity {
@@ -4477,11 +4512,11 @@ async fn run_wait<F: FnMut() -> String>(
                 session.execution_state.execution(&action.execution_id),
                 Some(ExecutionState::Executing { .. })
             ) {
-                crate::model_message_labels::server_rewrite(
+                crate::model_message_labels::rewrite_result(
                     &mut session.conversation,
                     index,
                     &original_call_id,
-                    OUTCOME_UNKNOWN_PLACEHOLDER,
+                    &crate::model_content::ModelContent::constant(OUTCOME_UNKNOWN_PLACEHOLDER),
                     ServerResultSource::BackgroundTaskOutcomeUnknown,
                 )?;
                 let original = &session.conversation[index];
@@ -4497,8 +4532,9 @@ async fn run_wait<F: FnMut() -> String>(
                 deps,
                 session,
                 call,
-                ChatMessage::tool_result(mint(), &call.id, OUTCOME_UNKNOWN_PLACEHOLDER),
-                Some(ServerResultSource::ExecutionPlaceholder),
+                mint(),
+                &crate::model_content::ModelContent::constant(OUTCOME_UNKNOWN_PLACEHOLDER),
+                ServerResultSource::ExecutionPlaceholder,
             )?;
             finish_tool(session, &call.id, false, sink);
         }
@@ -4511,12 +4547,9 @@ async fn run_wait<F: FnMut() -> String>(
                 deps,
                 session,
                 call,
-                ChatMessage::tool_result(
-                    placeholder_id.clone(),
-                    &call.id,
-                    OUTCOME_UNKNOWN_PLACEHOLDER,
-                ),
-                Some(ServerResultSource::ExecutionPlaceholder),
+                placeholder_id.clone(),
+                &crate::model_content::ModelContent::constant(OUTCOME_UNKNOWN_PLACEHOLDER),
+                ServerResultSource::ExecutionPlaceholder,
             )?;
             session
                 .execution_state
@@ -4532,8 +4565,12 @@ async fn run_wait<F: FnMut() -> String>(
                 deps,
                 session,
                 call,
-                ChatMessage::tool_result(mint(), &call.id, format!("wait error: {}", e.message)),
-                None,
+                mint(),
+                &crate::model_content::ModelContent::builder()
+                    .text("wait error: ")
+                    .unverified(&crate::model_content::Unverified::new(e.message.clone()))
+                    .build(),
+                ServerResultSource::ExecutionStatus,
             )?;
             finish_tool(session, &call.id, false, sink);
         }
@@ -4647,11 +4684,13 @@ async fn read_conversation_attachment(
             &mut session.ui_references,
         )?;
         deps.session_seam.save(session).await?;
-        let mut message = ChatMessage::tool_result("attachment-page", &call.id, content);
-        message.data_envelope = crate::model_message_labels::data_result_envelope(
-            Some(&source_envelope),
+        let mut message = ChatMessage::tool_result_named(
+            "attachment-page",
             &call.id,
-            &message.text,
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(content))
+                .build(),
+            Some(&source_envelope),
             crate::conversation_attachment::READ_ATTACHMENT_TOOL,
         )?;
         receipt.original_envelope = message.data_envelope.clone();

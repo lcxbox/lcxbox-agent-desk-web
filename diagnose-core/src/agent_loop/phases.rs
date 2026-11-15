@@ -1145,14 +1145,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     .as_ref()
                     .and_then(|message| message.data_envelope.as_ref())
             });
-            let mut marker = ChatMessage::system_event(&marker_id, &marker_text);
-            marker.data_envelope = crate::model_message_labels::server_projection_envelope(
-                parent,
+            messages.push(runtime_notice(
                 &marker_id,
-                &marker_text,
+                &crate::model_content::ModelContent::server_text(marker_text),
+                parent,
                 crate::model_message_labels::ServerResultSource::InputWatermark,
-            )?;
-            messages.push(marker);
+            )?);
             if let Some(artifact_projection) = requested_artifact_registry_projection(
                 &session.model_conversation(),
                 &format!(
@@ -1194,7 +1192,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 })
                 .unwrap_or_default();
             if consecutive_user_inputs > 1
-                && let Some(mut latest_user) = latest_user
+                && let Some(latest_user) = latest_user
             {
                 // Repeat the exact latest bytes at the recency edge only for a
                 // batched follow-up. The repeated bytes need their own derived
@@ -1205,15 +1203,10 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 // context for additive requirements, but cannot outweigh recency.
                 let projection_id =
                     format!("runtime-latest-input-{turn_id}-{}", session.input_revision);
-                latest_user.data_envelope =
-                    crate::model_message_labels::server_projection_envelope(
-                        latest_user.data_envelope.as_ref(),
-                        &projection_id,
-                        &latest_user.text,
-                        crate::model_message_labels::ServerResultSource::LatestInputProjection,
-                    )?;
-                latest_user.message_id = projection_id;
-                messages.push(latest_user);
+                messages.push(latest_user.repeat_as(
+                    projection_id,
+                    crate::model_message_labels::ServerResultSource::LatestInputProjection,
+                )?);
             }
             if state.permission_continuation_pending || permission_continuation_blocked {
                 let marker_id = format!(
@@ -1272,14 +1265,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     crate::permission_resume::latest_user_requirement(&session.conversation)
                         .and_then(|message| message.data_envelope.as_ref())
                 });
-                let mut marker = ChatMessage::system_event(&marker_id, &marker_text);
-                marker.data_envelope = crate::model_message_labels::server_projection_envelope(
-                    parent,
+                messages.push(runtime_notice(
                     &marker_id,
-                    &marker_text,
+                    &crate::model_content::ModelContent::server_text(marker_text),
+                    parent,
                     crate::model_message_labels::ServerResultSource::PermissionContinuationCheckpoint,
-                )?;
-                messages.push(marker);
+                )?);
             }
             if state.permission_continuation_pending && state.permission_protocol_retries > 0 {
                 // The first malformed/inconsistent provider response was never
@@ -1295,14 +1286,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     crate::permission_resume::latest_user_requirement(&session.conversation)
                         .and_then(|message| message.data_envelope.as_ref())
                 });
-                let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-                marker.data_envelope = crate::model_message_labels::server_projection_envelope(
-                    parent,
+                messages.push(runtime_notice(
                     &marker_id,
-                    marker_text,
+                    &crate::model_content::ModelContent::constant(marker_text),
+                    parent,
                     crate::model_message_labels::ServerResultSource::PermissionProtocolRetry,
-                )?;
-                messages.push(marker);
+                )?);
             }
         }
         if state.empty_end_turn_retries > 0 {
@@ -1321,14 +1310,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 crate::permission_resume::latest_user_requirement(&session.conversation)
                     .and_then(|message| message.data_envelope.as_ref())
             });
-            let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-            marker.data_envelope = crate::model_message_labels::server_projection_envelope(
-                parent,
+            messages.push(runtime_notice(
                 &marker_id,
-                marker_text,
+                &crate::model_content::ModelContent::constant(marker_text),
+                parent,
                 crate::model_message_labels::ServerResultSource::EmptyEndTurnRetry,
-            )?;
-            messages.push(marker);
+            )?);
         }
         if state.truncated_turn_retries > 0 {
             // A MaxTokens response can contain partial text or an incomplete
@@ -1345,14 +1332,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 crate::permission_resume::latest_user_requirement(&session.conversation)
                     .and_then(|message| message.data_envelope.as_ref())
             });
-            let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-            marker.data_envelope = crate::model_message_labels::server_projection_envelope(
-                parent,
+            messages.push(runtime_notice(
                 &marker_id,
-                marker_text,
+                &crate::model_content::ModelContent::constant(marker_text),
+                parent,
                 crate::model_message_labels::ServerResultSource::TruncatedTurnRetry,
-            )?;
-            messages.push(marker);
+            )?);
         }
         if state.post_tool_permission_protocol_retries > 0 {
             // A malformed permission-planning call after a verified/read-back
@@ -1373,14 +1358,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 crate::permission_resume::latest_user_requirement(&session.conversation)
                     .and_then(|message| message.data_envelope.as_ref())
             });
-            let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-            marker.data_envelope = crate::model_message_labels::server_projection_envelope(
-                parent,
+            messages.push(runtime_notice(
                 &marker_id,
-                marker_text,
+                &crate::model_content::ModelContent::constant(marker_text),
+                parent,
                 crate::model_message_labels::ServerResultSource::PostToolPermissionProtocolRetry,
-            )?;
-            messages.push(marker);
+            )?);
         }
         if state.invalid_tool_argument_retries > 0 {
             // The rejected response was discarded before anything was recorded or
@@ -1394,14 +1377,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 crate::permission_resume::latest_user_requirement(&session.conversation)
                     .and_then(|message| message.data_envelope.as_ref())
             });
-            let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-            marker.data_envelope = crate::model_message_labels::server_projection_envelope(
-                parent,
+            messages.push(runtime_notice(
                 &marker_id,
-                marker_text,
+                &crate::model_content::ModelContent::constant(marker_text),
+                parent,
                 crate::model_message_labels::ServerResultSource::InvalidToolArgumentsRetry,
-            )?;
-            messages.push(marker);
+            )?);
         }
         // Reserve the concrete per-step prompt and API tool bytes before the
         // history window is selected. All transient blocks are included; only
@@ -1639,14 +1620,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 let parent =
                     crate::permission_resume::latest_user_requirement(&session.conversation)
                         .and_then(|message| message.data_envelope.as_ref());
-                let mut marker = ChatMessage::system_event(&marker_id, &marker_text);
-                marker.data_envelope = crate::model_message_labels::server_projection_envelope(
-                    parent,
+                messages.push(runtime_notice(
                     &marker_id,
-                    &marker_text,
+                    &crate::model_content::ModelContent::server_text(marker_text),
+                    parent,
                     crate::model_message_labels::ServerResultSource::GoalCompletedHint,
-                )?;
-                messages.push(marker);
+                )?);
             }
             if state.goal_correction_attempted {
                 let marker_id = format!("goal-control-correction-{turn_id}");
@@ -1654,14 +1633,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 let parent =
                     crate::permission_resume::latest_user_requirement(&session.conversation)
                         .and_then(|message| message.data_envelope.as_ref());
-                let mut marker = ChatMessage::system_event(&marker_id, marker_text);
-                marker.data_envelope = crate::model_message_labels::server_projection_envelope(
-                    parent,
+                messages.push(runtime_notice(
                     &marker_id,
-                    marker_text,
+                    &crate::model_content::ModelContent::constant(marker_text),
+                    parent,
                     crate::model_message_labels::ServerResultSource::GoalControlCorrection,
-                )?;
-                messages.push(marker);
+                )?);
             }
             // The ids the model is about to see. A pending auto-trigger whose completion
             // message is in this request is cleared once the model reacts to it (the
@@ -2670,13 +2647,15 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                 if let Some(error) = tool_budget_error {
                                     for call in &turn.tool_calls {
                                         append_internal_tool_result(
-                                session,
-                                turn.provider_meta.data_envelope.as_ref(),
-                                (state.mint)(),
-                                &call.id,
-                                "not executed: call budget admission failed before dispatch".into(),
-                                ServerResultSource::ToolBudgetAdmissionFailed,
-                            )?;
+                                            session,
+                                            turn.provider_meta.data_envelope.as_ref(),
+                                            (state.mint)(),
+                                            &call.id,
+                                            &crate::model_content::ModelContent::constant(
+                                                "not executed: call budget admission failed before dispatch",
+                                            ),
+                                            ServerResultSource::ToolBudgetAdmissionFailed,
+                                        )?;
                                     }
                                     deps.session_seam.save(session).await?;
                                     for call in &turn.tool_calls {
@@ -2701,7 +2680,13 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     turn.provider_meta.data_envelope.as_ref(),
                                                     (state.mint)(),
                                                     &call.id,
-                                                    error.message.clone(),
+                                                    &call_text(
+                                                        call,
+                                                        turn.provider_meta.data_envelope.as_ref(),
+                                                        crate::model_content::ToolError::validation(&error)
+                                                            .reason()
+                                                            .into(),
+                                                    ),
                                                     ServerResultSource::MemoryBatchRejected,
                                                 )?;
                                             }
@@ -2755,13 +2740,15 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                 {
                                     for call in &turn.tool_calls {
                                         append_internal_tool_result(
-                            session,
-                            turn.provider_meta.data_envelope.as_ref(),
-                            (state.mint)(),
-                            &call.id,
-                            "not executed: goal control or goal opening must be the only tool in its model response".into(),
-                            ServerResultSource::GoalControlBatchRejected,
-                        )?;
+                                            session,
+                                            turn.provider_meta.data_envelope.as_ref(),
+                                            (state.mint)(),
+                                            &call.id,
+                                            &crate::model_content::ModelContent::constant(
+                                                "not executed: goal control or goal opening must be the only tool in its model response",
+                                            ),
+                                            ServerResultSource::GoalControlBatchRejected,
+                                        )?;
                                     }
                                     deps.session_seam.save(session).await?;
                                     for call in &turn.tool_calls {
@@ -2773,7 +2760,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                 // Mutating tools in one turn run serially; once one is rejected,
                                 // times out, or goes to an unknown outcome, the rest of the turn's
                                 // calls are not executed (§3). `halted` holds the skip note.
-                                let mut halted: Option<String> = None;
+                                let mut halted: Option<crate::model_content::ModelContent> = None;
                                 for (call_index, call) in turn.tool_calls.iter().enumerate() {
                                     if child_source_paused(deps, session).await? {
                                         for skipped in &turn.tool_calls[call_index..] {
@@ -2782,8 +2769,9 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 turn.provider_meta.data_envelope.as_ref(),
                                                 (state.mint)(),
                                                 &skipped.id,
-                                                "not executed: the delegated task source is paused"
-                                                    .into(),
+                                                &crate::model_content::ModelContent::constant(
+                                                    "not executed: the delegated task source is paused",
+                                                ),
                                                 ServerResultSource::DelegationSourcePaused,
                                             )?;
                                         }
@@ -2795,7 +2783,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             turn.provider_meta.data_envelope.as_ref(),
                                             (state.mint)(),
                                             &call.id,
-                                            note.clone(),
+                                            note,
                                             ServerResultSource::HaltedToolCall,
                                         )?;
                                         continue;
@@ -2819,14 +2807,15 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     if let Err(error) = ensure_lease_healthy(deps).await {
                                         for skipped in &turn.tool_calls[call_index..] {
                                             append_internal_tool_result(
-                                    session,
-                                    turn.provider_meta.data_envelope.as_ref(),
-                                    (state.mint)(),
-                                    &skipped.id,
-                                    "tool was not run because the turn lease is no longer healthy"
-                                        .into(),
-                                    ServerResultSource::LeaseLostToolCall,
-                                )?;
+                                                session,
+                                                turn.provider_meta.data_envelope.as_ref(),
+                                                (state.mint)(),
+                                                &skipped.id,
+                                                &crate::model_content::ModelContent::constant(
+                                                    "tool was not run because the turn lease is no longer healthy",
+                                                ),
+                                                ServerResultSource::LeaseLostToolCall,
+                                            )?;
                                         }
                                         deps.session_seam.save(session).await?;
                                         return Err(error);
@@ -2847,9 +2836,13 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 turn.provider_meta.data_envelope.as_ref(),
                                                 (state.mint)(),
                                                 &skipped.id,
-                                                format!(
-                                                    "tool `{}` was not run because the per-turn repeat limit was reached",
-                                                    skipped.name
+                                                &call_text(
+                                                    skipped,
+                                                    turn.provider_meta.data_envelope.as_ref(),
+                                                    format!(
+                                                        "tool `{}` was not run because the per-turn repeat limit was reached",
+                                                        skipped.name
+                                                    ),
                                                 ),
                                                 ServerResultSource::RepeatLimitToolCall,
                                             )?;
@@ -2863,13 +2856,15 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     if crate::visual_evidence::blocks_targeting(session, &call.name)
                                     {
                                         append_internal_tool_result(
-                            session,
-                            turn.provider_meta.data_envelope.as_ref(),
-                            (state.mint)(),
-                            &call.id,
-                            "Screenshot and targeting cannot run in the same assistant batch. Read the screenshot result, then submit the action in the next model step; no additional screenshot is required.".into(),
-                            ServerResultSource::FreshVisualVerificationRequired,
-                        )?;
+                                            session,
+                                            turn.provider_meta.data_envelope.as_ref(),
+                                            (state.mint)(),
+                                            &call.id,
+                                            &crate::model_content::ModelContent::constant(
+                                                "Screenshot and targeting cannot run in the same assistant batch. Read the screenshot result, then submit the action in the next model step; no additional screenshot is required.",
+                                            ),
+                                            ServerResultSource::FreshVisualVerificationRequired,
+                                        )?;
                                         continue;
                                     }
 
@@ -2893,14 +2888,18 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             turn.provider_meta.data_envelope.as_ref(),
                                             (state.mint)(),
                                             &call.id,
-                                            format!(
-                                                "tool_not_advertised: tool `{}` is not advertised in this request. This does not by itself mean permission was denied. Load it with describe_tools when describe_tools is advertised; calling a loaded tool asks for approval when needed. Currently advertised tools (includes built-in conversation tools; only Provider names from the capability index can be loaded): {}",
-                                                call.name,
-                                                exposed
-                                                    .iter()
-                                                    .map(|tool| tool.name())
-                                                    .collect::<Vec<_>>()
-                                                    .join(", ")
+                                            &call_text(
+                                                call,
+                                                turn.provider_meta.data_envelope.as_ref(),
+                                                format!(
+                                                    "tool_not_advertised: tool `{}` is not advertised in this request. This does not by itself mean permission was denied. Load it with describe_tools when describe_tools is advertised; calling a loaded tool asks for approval when needed. Currently advertised tools (includes built-in conversation tools; only Provider names from the capability index can be loaded): {}",
+                                                    call.name,
+                                                    exposed
+                                                        .iter()
+                                                        .map(|tool| tool.name())
+                                                        .collect::<Vec<_>>()
+                                                        .join(", ")
+                                                ),
                                             ),
                                             ServerResultSource::UnloadedToolCall,
                                         )?;
@@ -2918,35 +2917,39 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             turn.provider_meta.data_envelope.as_ref(),
                                             (state.mint)(),
                                             &call.id,
+                                            &call_text(
+                                                call,
+                                                turn.provider_meta.data_envelope.as_ref(),
                                             if crate::permission_tools::latest_tool_request_denied(
-                                                &session.permission_requests,
-                                                &session.permission_decisions,
-                                                &call.name,
-                                                session.input_revision,
-                                            ) {
-                                                format!(
-                                                    "permission_denied: the latest permission request for `{}` was denied, so this call was not dispatched. Do not retry or rename the same denied action. If the independent AI reviewer denied it, use its recorded reason to plan a materially different, narrower action and request that action separately; if the owner denied it, wait for a new owner instruction before requesting it again.",
-                                                    call.name
-                                                )
-                                            } else {
-                                                let reason = deps
-                                                    .registry
-                                                    .iter()
-                                                    .find(|tool| tool.name() == call.name)
-                                                    .and_then(|tool| {
-                                                        crate::registry::exposure_block_reason(
-                                                            tool,
-                                                            &session.scope_snapshot,
-                                                            &session.execution_state,
-                                                            session.trigger_origin,
-                                                        )
-                                                    })
-                                                    .unwrap_or("tool_not_in_runtime_registry");
-                                                format!(
-                                                    "{reason}: `{}` is not currently callable. Its visible definition does not grant permission. No action was dispatched; use the current authorization/readiness state to resolve the blocker.",
-                                                    call.name
-                                                )
-                                            },
+                                                    &session.permission_requests,
+                                                    &session.permission_decisions,
+                                                    &call.name,
+                                                    session.input_revision,
+                                                ) {
+                                                    format!(
+                                                        "permission_denied: the latest permission request for `{}` was denied, so this call was not dispatched. Do not retry or rename the same denied action. If the independent AI reviewer denied it, use its recorded reason to plan a materially different, narrower action and request that action separately; if the owner denied it, wait for a new owner instruction before requesting it again.",
+                                                        call.name
+                                                    )
+                                                } else {
+                                                    let reason = deps
+                                                        .registry
+                                                        .iter()
+                                                        .find(|tool| tool.name() == call.name)
+                                                        .and_then(|tool| {
+                                                            crate::registry::exposure_block_reason(
+                                                                tool,
+                                                                &session.scope_snapshot,
+                                                                &session.execution_state,
+                                                                session.trigger_origin,
+                                                            )
+                                                        })
+                                                        .unwrap_or("tool_not_in_runtime_registry");
+                                                    format!(
+                                                        "{reason}: `{}` is not currently callable. Its visible definition does not grant permission. No action was dispatched; use the current authorization/readiness state to resolve the blocker.",
+                                                        call.name
+                                                    )
+                                                },
+                                            ),
                                             ServerResultSource::UnavailableToolCall,
                                         )?;
                                         continue;
@@ -3017,7 +3020,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 turn.provider_meta.data_envelope.as_ref(),
                                                 (state.mint)(),
                                                 &call.id,
-                                                error.message,
+                                                &call_text(
+                                                    call,
+                                                    turn.provider_meta.data_envelope.as_ref(),
+                                                    error.message,
+                                                ),
                                                 ServerResultSource::InvalidToolArguments,
                                             )?;
                                             deps.session_seam.save(session).await?;
@@ -3067,9 +3074,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     turn.provider_meta.data_envelope.as_ref(),
                                                     (state.mint)(),
                                                     &call.id,
-                                                    crate::model_input::describe_error(
-                                                        &call.name,
-                                                        &error.message,
+                                                    &crate::model_content::ToolError::validation(
+                                                        &error,
+                                                    )
+                                                    .describe(
+                                                        call,
+                                                        turn.provider_meta.data_envelope.as_ref(),
                                                     ),
                                                     ServerResultSource::InvalidDesktopId,
                                                 )?;
@@ -3191,9 +3201,10 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 turn.provider_meta.data_envelope.as_ref(),
                                                 (state.mint)(),
                                                 &call.id,
-                                                format!(
-                                                    "{reason}: this invocation is not currently eligible. Read the latest authorization and readiness state; no action was dispatched. Never retry the same denied action."
-                                                ),
+                                                &crate::model_content::ModelContent::builder()
+                                                    .text(reason)
+                                                    .text(": this invocation is not currently eligible. Read the latest authorization and readiness state; no action was dispatched. Never retry the same denied action.")
+                                                    .build(),
                                                 ServerResultSource::InactiveGrantToolCall,
                                             )?;
                                             continue;
@@ -3220,7 +3231,9 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             turn.provider_meta.data_envelope.as_ref(),
                                             (state.mint)(),
                                             &call.id,
-                                            validation_error,
+                                            &crate::model_content::ModelContent::constant(
+                                                validation_error,
+                                            ),
                                             ServerResultSource::InvalidServerBoundWebEvidence,
                                         )?;
                                         continue;
@@ -3265,7 +3278,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                                 parent,
                                                                 (state.mint)(),
                                                                 &call.id,
-                                                                content,
+                                                                // Ids, states and reason codes of
+                                                                // the server's reply record.
+                                                                &crate::model_content::ModelContent::server_text(
+                                                                    content,
+                                                                ),
                                                                 ServerResultSource::PrepareIssueReply,
                                                             )?;
                                                         } else {
@@ -3603,7 +3620,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     )
                                                 {
                                                     append_internal_tool_result(session, turn.provider_meta.data_envelope.as_ref(), (state.mint)(), &call.id,
-                                            "goal_dependencies_pending: background work, a permission decision, or another tool result is still pending. Use continue for independent work or wait for native background results. Do not claim completion.".into(),
+                                            &crate::model_content::ModelContent::constant("goal_dependencies_pending: background work, a permission decision, or another tool result is still pending. Use continue for independent work or wait for native background results. Do not claim completion."),
                                             ServerResultSource::ControlGoal)?;
                                                     deps.session_seam.save(session).await?;
                                                     finish_tool(session, &call.id, false, sink);
@@ -3622,7 +3639,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             crate::model_observability::InputIssue::Precondition,
                                         );
                                                         append_internal_tool_result(session, turn.provider_meta.data_envelope.as_ref(), (state.mint)(), &call.id,
-                                            "required_subagents_incomplete: read_subagent_reports for each required request, page through to its current terminal report and assess it against the goal. Finished means the child returned, not that the goal was achieved. Use wait_subagent_reports for unfinished dependencies. A failed or cancelled required dependency cannot be claimed as complete.".into(),
+                                            &crate::model_content::ModelContent::constant("required_subagents_incomplete: read_subagent_reports for each required request, page through to its current terminal report and assess it against the goal. Finished means the child returned, not that the goal was achieved. Use wait_subagent_reports for unfinished dependencies. A failed or cancelled required dependency cannot be claimed as complete."),
                                             ServerResultSource::ControlGoal)?;
                                                         deps.session_seam.save(session).await?;
                                                         finish_tool(session, &call.id, false, sink);
@@ -3659,7 +3676,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                             .await?
                                                         else {
                                                             append_internal_tool_result(session, turn.provider_meta.data_envelope.as_ref(), (state.mint)(), &call.id,
-                                                "no_goal_background_tasks: no normal background task of this goal is available to wait for. Inspect saved results and choose continue, ask_user, complete, or blocked. Use wait_subagent_reports for child dependencies.".into(),
+                                                &crate::model_content::ModelContent::constant("no_goal_background_tasks: no normal background task of this goal is available to wait for. Inspect saved results and choose continue, ask_user, complete, or blocked. Use wait_subagent_reports for child dependencies."),
                                                 ServerResultSource::ControlGoal)?;
                                                             deps.session_seam.save(session).await?;
                                                             finish_tool(
@@ -3687,11 +3704,14 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     turn.provider_meta.data_envelope.as_ref(),
                                                     (state.mint)(),
                                                     &call.id,
-                                                    serde_json::json!({
-                                                        "status":"accepted_for_atomic_settlement",
-                                                        "goal_id": claimed_goal.goal_id,
-                                                    })
-                                                    .to_string(),
+                                                    &crate::model_content::ModelContent::json(
+                                                        &GoalSettlementReceipt {
+                                                            status: "accepted_for_atomic_settlement",
+                                                            goal_id: crate::model_content::ServerId::new(
+                                                                &claimed_goal.goal_id,
+                                                            ),
+                                                        },
+                                                    )?,
                                                     ServerResultSource::ControlGoal,
                                                 )?;
                                                     let summary = match &control {
@@ -3715,23 +3735,34 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                             reason,
                                                         } => reason,
                                                     };
-                                                    let mut message = ChatMessage::text(
-                                                        (state.mint)(),
+                                                    // The visible summary is the model's own
+                                                    // argument to this call.
+                                                    let issuing =
+                                                        turn.provider_meta.data_envelope.as_ref();
+                                                    let content = crate::model_content::ModelContent::builder()
+                                                        .arg(&crate::model_content::ModelArg::of_call(
+                                                            call,
+                                                            issuing,
+                                                            summary.clone(),
+                                                        ))
+                                                        .build();
+                                                    let message = ChatMessage::from_content(
                                                         ChatRole::Assistant,
-                                                        summary.clone(),
-                                                    )
+                                                        (state.mint)(),
+                                                        &content,
+                                                        crate::model_content::Labelling {
+                                                            issuing,
+                                                            call_id: &call.id,
+                                                            source: crate::model_message_labels::ServerResultSource::ControlGoal,
+                                                            request_only: false,
+                                                        },
+                                                    )?
                                                     .with_turn_id(
                                                         session
                                                             .current_turn_id
                                                             .clone()
                                                             .unwrap_or_default(),
                                                     );
-                                                    message.data_envelope = crate::model_message_labels::server_result_envelope(
-                                                        turn.provider_meta.data_envelope.as_ref(),
-                                                        &message.message_id,
-                                                        &message.text,
-                                                        crate::model_message_labels::ServerResultSource::ControlGoal,
-                                                    )?;
                                                     session.conversation.push(message);
                                                     if matches!(
                                                         control,
@@ -3794,17 +3825,19 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 tool_observation.preflight_result(&projection);
                                                 match projection {
                                                     Ok(projection) => {
-                                                        let content = serde_json::json!({
-                                                            "status": "updated",
-                                                            "revision": projection.revision,
-                                                            "item_count": projection.items.len(),
-                                                        })
-                                                        .to_string();
-                                                        let result_envelope = crate::model_message_labels::server_result_envelope(
+                                                        let content = crate::model_content::ModelContent::json(
+                                                            &TaskStatusReceipt {
+                                                                status: "updated",
+                                                                revision: projection.revision,
+                                                                item_count: projection.items.len(),
+                                                            },
+                                                        )?;
+                                                        let result_envelope = crate::model_message_labels::composed_envelope(
+                                            &content,
                                             turn.provider_meta.data_envelope.as_ref(),
                                             &call.id,
-                                            &content,
                                             crate::model_message_labels::ServerResultSource::UpdateTaskStatus,
+                                            false,
                                         )?;
                                                         let event_seq = session
                                                             .last_event_seq
@@ -3859,12 +3892,17 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         session.task_status_projection =
                                                             Some(projection);
                                                         session.last_event_seq = event_seq;
-                                                        let mut message = ChatMessage::tool_result(
+                                                        let message = ChatMessage::tool_result_from(
                                                             (state.mint)(),
                                                             &call.id,
-                                                            content,
+                                                            &content,
+                                                            turn.provider_meta.data_envelope.as_ref(),
+                                                            crate::model_message_labels::ServerResultSource::UpdateTaskStatus,
+                                                        )?;
+                                                        debug_assert_eq!(
+                                                            message.data_envelope,
+                                                            result_envelope
                                                         );
-                                                        message.data_envelope = result_envelope;
                                                         session.conversation.push(message);
                                                         deps.session_seam
                                                             .save_task_status_update(
@@ -4022,14 +4060,26 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             crate::model_observability::StageOutcome::Passed,
                                         );
                                                         let mut before = session.clone_boxed();
-                                                        let content = serde_json::json!({
-                                        "status": "pending_approval",
-                                        "request_id": &event.request.request_id,
-                                        "goal_text": &event.request.goal_text,
-                                        "previous_completed_goal_id": &event.request.previous_completed_goal_id,
-                                        "executed": false,
-                                    })
-                                    .to_string();
+                                                        // The goal text is the call's own argument.
+                                                        let content = crate::model_content::ModelContent::json(
+                                                            &GoalOpenPendingReceipt {
+                                                                status: "pending_approval",
+                                                                request_id: crate::model_content::ServerId::new(
+                                                                    &event.request.request_id,
+                                                                ),
+                                                                goal_text: crate::model_content::ModelArg::of_call(
+                                                                    call,
+                                                                    turn.provider_meta.data_envelope.as_ref(),
+                                                                    event.request.goal_text.clone(),
+                                                                ),
+                                                                previous_completed_goal_id: event
+                                                                    .request
+                                                                    .previous_completed_goal_id
+                                                                    .as_deref()
+                                                                    .map(crate::model_content::ServerId::new),
+                                                                executed: false,
+                                                            },
+                                                        )?;
                                                         append_internal_tool_result(
                                                             session,
                                                             turn.provider_meta
@@ -4037,7 +4087,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                                 .as_ref(),
                                                             (state.mint)(),
                                                             &call.id,
-                                                            content,
+                                                            &content,
                                                             ServerResultSource::GoalOpenPending,
                                                         )?;
                                                         session.last_event_seq =
@@ -4075,10 +4125,8 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                                     .as_ref(),
                                                                 (state.mint)(),
                                                                 &call.id,
-                                                                crate::model_input::describe_error(
-                                                                    &call.name,
-                                                                    &error.message,
-                                                                ),
+                                                                &crate::model_content::ToolError::validation(&error)
+    .describe(call, turn.provider_meta.data_envelope.as_ref()),
                                                                 ServerResultSource::GoalOpenFailed,
                                                             )?;
                                                                 deps.session_seam
@@ -4098,10 +4146,8 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                                 .as_ref(),
                                                             (state.mint)(),
                                                             &call.id,
-                                                            crate::model_input::describe_error(
-                                                                &call.name,
-                                                                &error.message,
-                                                            ),
+                                                            &crate::model_content::ToolError::validation(&error)
+    .describe(call, turn.provider_meta.data_envelope.as_ref()),
                                                             ServerResultSource::GoalOpenFailed,
                                                         )?;
                                                         deps.session_seam.save(session).await?;
@@ -4149,10 +4195,8 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         turn.provider_meta.data_envelope.as_ref(),
                                                         (state.mint)(),
                                                         &call.id,
-                                                        crate::model_input::describe_error(
-                                                            &call.name,
-                                                            &error.message,
-                                                        ),
+                                                        &crate::model_content::ToolError::validation(&error)
+    .describe(call, turn.provider_meta.data_envelope.as_ref()),
                                                         if skill {
                                                             ServerResultSource::SkillProposalFailed
                                                         } else {
@@ -4303,10 +4347,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                         turn.provider_meta.data_envelope.as_ref(),
                                                         (state.mint)(),
                                                         &call.id,
-                                                        crate::model_input::error_output(
-                                                            &call.name, &error,
-                                                        )
-                                                        .content,
+                                                        &crate::model_content::ToolError::validation(&error)
+                                                            .describe(
+                                                                call,
+                                                                turn.provider_meta.data_envelope.as_ref(),
+                                                            ),
                                                         ServerResultSource::DirectoryProposalFailed,
                                                     )?;
                                                     deps.session_seam.save(session).await?;
@@ -4329,10 +4374,9 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     turn.provider_meta.data_envelope.as_ref(),
                                                     (state.mint)(),
                                                     &call.id,
-                                                    crate::directory_tools::pending_result(
+                                                    &crate::directory_tools::pending_result(
                                                         &request_id,
-                                                    )
-                                                    .to_string(),
+                                                    )?,
                                                     ServerResultSource::DirectoryProposalPending,
                                                 )?;
                                                 append_unstarted_tool_results(
@@ -4491,18 +4535,16 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 let parent =
                                                     turn.provider_meta.data_envelope.as_ref();
                                                 match result {
-                                                    Ok(content) => {
-                                                        let envelope = crate::model_message_labels::server_result_envelope(
-                                                            parent,
+                                                    // Loaded schemas come from the compiled registry.
+                                                    Ok(content) => session.conversation.push(
+                                                        ChatMessage::tool_result_from(
+                                                            (state.mint)(),
                                                             &call.id,
-                                                            &content,
+                                                            &crate::model_content::ModelContent::server_text(content),
+                                                            parent,
                                                             ServerResultSource::DescribeTools,
-                                                        )?;
-                                                        let mut message =
-                                                            ChatMessage::tool_result((state.mint)(), &call.id, content);
-                                                        message.data_envelope = envelope;
-                                                        session.conversation.push(message);
-                                                    }
+                                                        )?,
+                                                    ),
                                                     // Loading reads only the call and the server's tool registry.
                                                     Err(error) => append_tool_error(
                                                         session,
@@ -4609,4 +4651,49 @@ fn load_skill_content(
             .unverified(&Unverified::new(text))
             .build(),
     })
+}
+
+/// A runtime notice for one request, registered under `parent`.
+fn runtime_notice(
+    id: &str,
+    content: &crate::model_content::ModelContent,
+    parent: Option<&desk_agent_protocol::data_lineage::DataEnvelope>,
+    source: crate::model_message_labels::ServerResultSource,
+) -> Result<ChatMessage, AgentError> {
+    ChatMessage::from_content(
+        ChatRole::SystemEvent,
+        id,
+        content,
+        crate::model_content::Labelling {
+            issuing: parent,
+            call_id: id,
+            source,
+            request_only: true,
+        },
+    )
+}
+
+crate::model_receipt! {
+    struct TaskStatusReceipt {
+        status: &'static str,
+        revision: u64,
+        item_count: usize,
+    }
+}
+
+crate::model_receipt! {
+    struct GoalSettlementReceipt {
+        status: &'static str,
+        goal_id: crate::model_content::ServerId,
+    }
+}
+
+crate::model_receipt! {
+    struct GoalOpenPendingReceipt {
+        status: &'static str,
+        request_id: crate::model_content::ServerId,
+        goal_text: crate::model_content::ModelArg<String>,
+        previous_completed_goal_id: Option<crate::model_content::ServerId>,
+        executed: bool,
+    }
 }

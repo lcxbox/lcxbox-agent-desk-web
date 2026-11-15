@@ -519,8 +519,7 @@ mod tests {
     #[test]
     fn browser_results_hide_versions_without_rewriting_evidence() {
         use crate::{
-            model_message_labels::{data_result_envelope, model_bound_user_message},
-            prompt::ResponseFormatSpec,
+            model_message_labels::model_bound_user_message, prompt::ResponseFormatSpec,
             seam::ModelRequest,
         };
         use desk_agent_protocol::data_lineage::DestinationIdentity;
@@ -575,11 +574,14 @@ mod tests {
             let original_text = payload.to_string();
             let mut message = ChatMessage::tool_result("receipt", "call", &original_text);
             message.role = role;
-            message.data_envelope = data_result_envelope(
+            message.data_envelope = crate::model_message_labels::named_envelope(
+                &crate::model_content::ModelContent::builder()
+                    .unverified(&crate::model_content::Unverified::new(&original_text))
+                    .build(),
                 owner.data_envelope.as_ref(),
                 "call",
-                &original_text,
                 "browser_take_snapshot",
+                false,
             )
             .unwrap();
             let request = ModelRequest::text_only(vec![message], ResponseFormatSpec::None);
@@ -613,7 +615,7 @@ mod tests {
 
     #[test]
     fn selected_browser_pages_require_current_receipts_from_the_physical_device() {
-        use crate::model_message_labels::{data_result_envelope, model_bound_user_message};
+        use crate::model_message_labels::model_bound_user_message;
         use desk_agent_protocol::data_lineage::DestinationIdentity;
 
         let page: BrowserPageRef = serde_json::from_value(json!({
@@ -646,11 +648,14 @@ mod tests {
                 "form_readback":[],"send_receipt":null,"completed_at_unix_ms":2
             }).to_string();
             let mut message = ChatMessage::tool_result(call_id, call_id, &body);
-            let mut envelope = data_result_envelope(
+            let mut envelope = crate::model_message_labels::named_envelope(
+                &crate::model_content::ModelContent::builder()
+                    .unverified(&crate::model_content::Unverified::new(&body))
+                    .build(),
                 owner.data_envelope.as_ref(),
                 call_id,
-                &body,
                 "browser_open_page",
+                false,
             )
             .unwrap()
             .unwrap();

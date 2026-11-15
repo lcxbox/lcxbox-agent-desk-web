@@ -71,11 +71,12 @@ fn fixture() -> (
         &receipt_text,
     );
     receipt.turn_id = session.current_turn_id.clone();
-    receipt.data_envelope = crate::model_message_labels::server_result_envelope(
+    receipt.data_envelope = crate::model_message_labels::composed_envelope(
+        &crate::model_content::ModelContent::server_text(&receipt_text),
         assistant.data_envelope.as_ref(),
         "call-private-id",
-        &receipt_text,
         crate::model_message_labels::ServerResultSource::ScheduleProposal,
+        false,
     )
     .unwrap();
     session.conversation = vec![user, assistant, receipt];

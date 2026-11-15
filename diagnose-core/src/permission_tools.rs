@@ -1883,11 +1883,28 @@ pub fn synthesized_request_matches(request: &PermissionRequest, call: &ToolCall)
         })
 }
 
+crate::model_receipt! {
+    struct ExistingRequestReceipt {
+        status: &'static str,
+        decision_state: &'static str,
+        request_id: crate::model_content::ServerId,
+        authority: &'static str,
+        message: &'static str,
+    }
+}
+
 /// Deterministic control text only; this is not a grant or current policy snapshot.
-pub(crate) fn existing_request_result(request_id: &str, decision_state: &str) -> serde_json::Value {
-    json!({"status":"existing_permission_request", "decision_state":decision_state,
-        "request_id":request_id, "authority":"unchanged",
-        "message":"An authority-equivalent permission batch already exists for this input revision. Do not request it again; use the current authorization snapshot or adapt to the recorded decision."})
+pub(crate) fn existing_request_result(
+    request_id: &str,
+    decision_state: &'static str,
+) -> Result<crate::model_content::ModelContent, AgentError> {
+    crate::model_content::ModelContent::json(&ExistingRequestReceipt {
+        status: "existing_permission_request",
+        decision_state,
+        request_id: crate::model_content::ServerId::new(request_id),
+        authority: "unchanged",
+        message: "An authority-equivalent permission batch already exists for this input revision. Do not request it again; use the current authorization snapshot or adapt to the recorded decision.",
+    })
 }
 
 #[cfg(test)]

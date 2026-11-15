@@ -81,11 +81,14 @@ impl ToolSeam for AuditedChildTools {
         call: &ToolCall,
         output: &ToolRunOutput,
     ) -> Result<Option<DataEnvelope>, AgentError> {
-        crate::model_message_labels::data_result_envelope(
+        crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&output.content))
+                .build(),
             Some(&self.label),
             &call.id,
-            &output.content,
             &call.name,
+            false,
         )
     }
 }
@@ -264,11 +267,14 @@ impl SubAgentSeam for ChildSessions {
         let payload = serde_json::json!({"report_id":"terminal", "seq":1});
         let text = payload.to_string();
         let mut receipt = ChatMessage::tool_result(result_message_id, &call.id, &text);
-        receipt.data_envelope = crate::model_message_labels::data_result_envelope(
+        receipt.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&text))
+                .build(),
             session.conversation[0].data_envelope.as_ref(),
             &call.id,
-            &text,
             &call.name,
+            false,
         )?;
         receipt.tool_ok = Some(true);
         session.conversation.push(receipt);

@@ -101,11 +101,14 @@ async fn check_completion_usage(with_usage: bool, invalid_count: usize) {
             format!("task-{index}"),
             "du completed",
         );
-        result.data_envelope = crate::model_message_labels::data_result_envelope(
+        result.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&result.text))
+                .build(),
             user.data_envelope.as_ref(),
             &event,
-            &result.text,
             "exec_command",
+            false,
         )
         .unwrap();
         session.conversation.push(result);
@@ -287,11 +290,14 @@ async fn work_continuation_keeps_history_and_tools_and_drains_seen_results() {
         "The wait is running in the background.",
     ));
     let mut result = ChatMessage::untrusted_output("completed-1", "call-1", "task-1", "done");
-    result.data_envelope = crate::model_message_labels::data_result_envelope(
+    result.data_envelope = crate::model_message_labels::named_envelope(
+        &crate::model_content::ModelContent::builder()
+            .unverified(&crate::model_content::Unverified::new(&result.text))
+            .build(),
         user.data_envelope.as_ref(),
         "completed-1",
-        &result.text,
         "exec_command",
+        false,
     )
     .unwrap();
     session.conversation.push(result);

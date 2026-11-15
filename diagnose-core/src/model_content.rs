@@ -544,17 +544,78 @@ impl crate::chat::ChatMessage {
         content: &ModelContent,
         labelling: Labelling<'_>,
     ) -> Result<Self, AgentError> {
-        let envelope = crate::model_message_labels::composed_envelope(
+        Self::text(message_id, role, String::new()).with_content(content, labelling)
+    }
+
+    /// This message with its text and label taken from `content`.
+    pub fn with_content(
+        mut self,
+        content: &ModelContent,
+        labelling: Labelling<'_>,
+    ) -> Result<Self, AgentError> {
+        self.data_envelope = crate::model_message_labels::composed_envelope(
             content,
             labelling.issuing,
             labelling.call_id,
             labelling.source,
             labelling.request_only,
         )?;
-        let mut message = Self::text(message_id, role, content.text());
-        message.stored_roots = content.stored_roots();
-        message.data_envelope = envelope;
-        Ok(message)
+        self.text = content.text().into();
+        self.stored_roots = content.stored_roots();
+        Ok(self)
+    }
+
+    /// This message with `content`'s text under the label a host tool seam
+    /// computed for it.
+    pub fn with_host_label(mut self, content: &ModelContent, label: Option<DataEnvelope>) -> Self {
+        self.text = content.text().into();
+        self.stored_roots = content.stored_roots();
+        self.data_envelope = label;
+        self
+    }
+
+    /// The result of call `call_id` labelled under the producing tool's own
+    /// name; see [`crate::model_message_labels::named_envelope`].
+    pub fn tool_result_named(
+        message_id: impl Into<String>,
+        call_id: &str,
+        content: &ModelContent,
+        issuing: Option<&DataEnvelope>,
+        tool_name: &str,
+    ) -> Result<Self, AgentError> {
+        let label = crate::model_message_labels::named_envelope(
+            content, issuing, call_id, tool_name, false,
+        )?;
+        Ok(Self::tool_result(message_id, call_id, String::new()).with_host_label(content, label))
+    }
+
+    /// This message repeated under `message_id` for one request. The repeat
+    /// carries the same text, sourced from this message's own label; an
+    /// unlabelled message stays unlabelled.
+    pub fn repeat_as(
+        &self,
+        message_id: impl Into<String>,
+        source: crate::model_message_labels::ServerResultSource,
+    ) -> Result<Self, AgentError> {
+        let message_id = message_id.into();
+        let mut repeat = self.clone();
+        repeat.data_envelope = match &self.data_envelope {
+            Some(label) => {
+                let content = ModelContent::builder()
+                    .sourced(&Sourced::new(self.text.clone(), label.clone()))
+                    .build();
+                crate::model_message_labels::composed_envelope(
+                    &content,
+                    Some(label),
+                    &message_id,
+                    source,
+                    true,
+                )?
+            }
+            None => None,
+        };
+        repeat.message_id = message_id;
+        Ok(repeat)
     }
 
     /// The persisted result of call `call_id`, issued by `issuing`.
@@ -565,13 +626,15 @@ impl crate::chat::ChatMessage {
         issuing: Option<&DataEnvelope>,
         source: crate::model_message_labels::ServerResultSource,
     ) -> Result<Self, AgentError> {
-        let envelope = crate::model_message_labels::composed_envelope(
-            content, issuing, call_id, source, false,
-        )?;
-        let mut message = Self::tool_result(message_id, call_id, content.text());
-        message.stored_roots = content.stored_roots();
-        message.data_envelope = envelope;
-        Ok(message)
+        Self::tool_result(message_id, call_id, String::new()).with_content(
+            content,
+            Labelling {
+                issuing,
+                call_id,
+                source,
+                request_only: false,
+            },
+        )
     }
 }
 

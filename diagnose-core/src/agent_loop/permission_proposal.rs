@@ -38,17 +38,11 @@ pub(super) async fn propose<F: FnMut() -> String>(
         parent_envelope,
     } = context;
     let synthesized = shown.name != crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME;
-    // Request states are server-authored; a planning error keeps a data label.
-    let (status_source, error_source) = if synthesized {
-        (
-            ServerResultSource::PermissionRequestStatus,
-            crate::model_message_labels::sources::PROVIDER_EXECUTION_STATUS,
-        )
+    // Request states are server-authored.
+    let status_source = if synthesized {
+        ServerResultSource::PermissionRequestStatus
     } else {
-        (
-            ServerResultSource::RequestPermissions,
-            crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
-        )
+        ServerResultSource::RequestPermissions
     };
     sink.on_tool_started(&shown.name, &shown.id, &shown.arguments_json);
     let created_at = (deps.clock)();
@@ -273,17 +267,14 @@ pub(super) async fn propose<F: FnMut() -> String>(
                 let content = crate::permission_tools::existing_request_result(
                     &existing.request_id,
                     decision_state,
-                )
-                .to_string();
-                let envelope = crate::model_message_labels::server_result_envelope(
-                    parent_envelope,
+                )?;
+                session.conversation.push(ChatMessage::tool_result_from(
+                    mint(),
                     &call.id,
                     &content,
+                    parent_envelope,
                     status_source,
-                )?;
-                let mut message = ChatMessage::tool_result(mint(), &call.id, content);
-                message.data_envelope = envelope;
-                session.conversation.push(message);
+                )?);
                 finish_tool(session, &call.id, true, sink);
                 if existing.state.can_user_decide() {
                     append_unstarted_tool_results(
@@ -305,23 +296,25 @@ pub(super) async fn propose<F: FnMut() -> String>(
             }
             // A direct call keeps no result while it waits: its approval
             // resume runs it, and any other continuation closes it first.
-            let content = serde_json::json!({
-                "status": "pending_user_decision",
-                "request_id": request.request_id,
-                "item_count": request.items.len(),
-                "authority": "none"
-            })
-            .to_string();
-            let result_envelope = if synthesized {
+            let result = if synthesized {
                 None
             } else {
-                crate::model_message_labels::server_result_envelope(
-                    parent_envelope,
+                Some(ChatMessage::tool_result_from(
+                    mint(),
                     &call.id,
-                    &content,
+                    &crate::model_content::ModelContent::json(&PendingDecisionReceipt {
+                        status: "pending_user_decision",
+                        request_id: crate::model_content::ServerId::new(&request.request_id),
+                        item_count: request.items.len(),
+                        authority: "none",
+                    })?,
+                    parent_envelope,
                     status_source,
-                )?
+                )?)
             };
+            let result_envelope = result
+                .as_ref()
+                .and_then(|message| message.data_envelope.clone());
             let event_seq = session
                 .last_event_seq
                 .checked_add(1)
@@ -363,9 +356,7 @@ pub(super) async fn propose<F: FnMut() -> String>(
                 safe_for_model: false,
                 error_code: None,
             })?;
-            if !synthesized {
-                let mut message = ChatMessage::tool_result(mint(), &call.id, content);
-                message.data_envelope = result_envelope;
+            if let Some(message) = result {
                 session.conversation.push(message);
             }
             append_unstarted_tool_results(
@@ -406,16 +397,14 @@ pub(super) async fn propose<F: FnMut() -> String>(
             }));
         }
         Err(error) => {
-            let content = crate::model_input::describe_error(&call.name, &error.message);
-            let envelope = crate::model_message_labels::data_result_envelope(
-                parent_envelope,
-                &call.id,
-                &content,
-                error_source,
-            )?;
-            let mut message = ChatMessage::tool_result(mint(), &call.id, content);
-            message.data_envelope = envelope;
-            session.conversation.push(message);
+            // Planning reads host state whose errors are not all server text.
+            session.conversation.push(
+                crate::model_content::ToolError::host(&error).result_message(
+                    mint(),
+                    call,
+                    parent_envelope,
+                )?,
+            );
             if session.trigger_origin == crate::session::TriggerOrigin::ScheduledTask {
                 append_unstarted_tool_results(
                     session,
@@ -461,7 +450,9 @@ pub(super) async fn propose_call<F: FnMut() -> String>(
             context.parent_envelope,
             mint(),
             &call.id,
-            "permission_denied: the owner refused this tool for the current request. No action was dispatched. Do not retry it; explain the blocker or ask the owner.".into(),
+            &crate::model_content::ModelContent::constant(
+                "permission_denied: the owner refused this tool for the current request. No action was dispatched. Do not retry it; explain the blocker or ask the owner.",
+            ),
             ServerResultSource::PermissionDenied,
         )?;
         finish_tool(session, &call.id, false, sink);
@@ -499,7 +490,8 @@ pub(super) async fn propose_call<F: FnMut() -> String>(
                 context.parent_envelope,
                 mint(),
                 &call.id,
-                crate::model_input::describe_error(&call.name, &error.message),
+                &crate::model_content::ToolError::validation(&error)
+                    .describe(call, context.parent_envelope),
                 ServerResultSource::PermissionProposalRejected,
             )?;
             finish_tool(session, &call.id, false, sink);
@@ -551,7 +543,9 @@ pub(super) async fn grant_required<F: FnMut() -> String>(
             context.parent_envelope,
             mint(),
             &call.id,
-            crate::capability_grant::APPROVED_INPUT_MISMATCH_MESSAGE.into(),
+            &crate::model_content::ModelContent::constant(
+                crate::capability_grant::APPROVED_INPUT_MISMATCH_MESSAGE,
+            ),
             ServerResultSource::ApprovedInputMismatch,
         )?;
         finish_tool(session, &call.id, false, sink);
@@ -597,4 +591,13 @@ fn bind_request_device(
         });
     }
     Ok(planning)
+}
+
+crate::model_receipt! {
+    struct PendingDecisionReceipt {
+        status: &'static str,
+        request_id: crate::model_content::ServerId,
+        item_count: usize,
+        authority: &'static str,
+    }
 }

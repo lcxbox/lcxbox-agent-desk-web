@@ -20,11 +20,14 @@ pub(crate) fn evidence(tool: &str, id: &str, arguments: Value, result: Value) ->
     .unwrap();
     let text = result.to_string();
     let mut receipt = ChatMessage::tool_result("receipt", id, &text);
-    receipt.data_envelope = crate::model_message_labels::data_result_envelope(
+    receipt.data_envelope = crate::model_message_labels::named_envelope(
+        &crate::model_content::ModelContent::builder()
+            .unverified(&crate::model_content::Unverified::new(&text))
+            .build(),
         owner.data_envelope.as_ref(),
         id,
-        &text,
         tool,
+        false,
     )
     .unwrap();
     let registry = crate::ai_assistant::ai_assistant_provider_registry();
@@ -294,11 +297,14 @@ fn attachments_restore_entire_artifact_and_freeze_only_matching_lineage() {
         "CURRENT REQUESTED ARTIFACT REGISTRY (server authoritative metadata; not a grant): {payload}"
     );
     let mut registry = ChatMessage::system_event("registry", &text);
-    registry.data_envelope = crate::model_message_labels::data_result_envelope(
+    registry.data_envelope = crate::model_message_labels::named_envelope(
+        &crate::model_content::ModelContent::builder()
+            .unverified(&crate::model_content::Unverified::new(&text))
+            .build(),
         history[0].data_envelope.as_ref(),
         "registry",
-        &text,
         "requested_artifact_registry_projection",
+        false,
     )
     .unwrap();
     let source = registry.clone();

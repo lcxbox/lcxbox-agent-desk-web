@@ -54,15 +54,21 @@ pub fn append_receipt(
     let user = session
         .authorization_requirement()
         .ok_or(ApprovalReviewError::InvalidContext)?;
-    let envelope = crate::model_message_labels::data_result_envelope(
-        user.data_envelope.as_ref(),
-        event_id,
-        &text,
-        crate::model_message_labels::sources::GOAL_PROPOSAL_DECISION,
+    // The goal text and the reviewer's reason are repeated unverified.
+    let receipt = crate::chat::ChatMessage::from_content(
+        crate::chat::ChatRole::SystemEvent,
+        &message_id,
+        &crate::model_content::ModelContent::builder()
+            .unverified(&crate::model_content::Unverified::new(text))
+            .build(),
+        crate::model_content::Labelling {
+            issuing: user.data_envelope.as_ref(),
+            call_id: event_id,
+            source: crate::model_message_labels::ServerResultSource::GoalProposalDecision,
+            request_only: false,
+        },
     )
     .map_err(|_| ApprovalReviewError::InvalidContext)?;
-    let mut receipt = crate::chat::ChatMessage::system_event(&message_id, text);
-    receipt.data_envelope = envelope;
     if !session
         .conversation
         .iter()

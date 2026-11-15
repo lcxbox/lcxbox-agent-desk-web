@@ -31,11 +31,12 @@ fn control_envelope(
     content: &str,
     name: &str,
 ) -> Result<Option<DataEnvelope>, desk_agent_protocol::AgentError> {
-    crate::model_message_labels::server_result_envelope(
+    crate::model_message_labels::composed_envelope(
+        &crate::model_content::ModelContent::server_text(content),
         parent,
         call_id,
-        content,
         crate::model_message_labels::ServerResultSource::parse(name).unwrap(),
+        false,
     )
 }
 
@@ -766,11 +767,12 @@ fn a_native_control_cannot_launder_unknown_private_or_secret_parent_content() {
         }
     }
     let owner = user();
-    let mut control = crate::model_message_labels::server_result_envelope(
+    let mut control = crate::model_message_labels::composed_envelope(
+        &crate::model_content::ModelContent::server_text("private control"),
         Some(&owner),
         "secret-control",
-        "private control",
         crate::model_message_labels::ServerResultSource::RuntimeContext,
+        false,
     )
     .unwrap()
     .unwrap();
@@ -792,11 +794,12 @@ fn renamed_malformed_weakened_and_cyclic_controls_remain_unresolved() {
     let mut owner = user();
     owner.retention.expires_at_unix_ms = Some(1000);
     owner.retention.delete_with_run = true;
-    let control = crate::model_message_labels::server_result_envelope(
+    let control = crate::model_message_labels::composed_envelope(
+        &crate::model_content::ModelContent::server_text("native observation"),
         Some(&owner),
         "control",
-        "native observation",
         crate::model_message_labels::ServerResultSource::RuntimeContext,
+        false,
     )
     .unwrap()
     .unwrap();
@@ -906,7 +909,7 @@ fn native_control_registration_fits_small_stacks() {
 
 #[test]
 fn decided_review_projections_remain_registered_controls() {
-    use crate::model_message_labels::{ServerResultSource as Source, server_result_envelope};
+    use crate::model_message_labels::ServerResultSource as Source;
     let owner =
         model_bound_user_message("owner".into(), "Keep this".into(), destination()).unwrap();
     for (draft_tool, draft_text, receipt_tool, receipt_text) in [
@@ -924,19 +927,21 @@ fn decided_review_projections_remain_registered_controls() {
         ),
     ] {
         let mut draft = ChatMessage::tool_result("draft", "call", draft_text.to_string());
-        draft.data_envelope = server_result_envelope(
+        draft.data_envelope = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text(&draft.text),
             owner.data_envelope.as_ref(),
             "call",
-            &draft.text,
             draft_tool,
+            false,
         )
         .unwrap();
         let mut receipt = ChatMessage::system_event("receipt", receipt_text.to_string());
-        receipt.data_envelope = server_result_envelope(
+        receipt.data_envelope = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text(&receipt.text),
             owner.data_envelope.as_ref(),
             "receipt",
-            &receipt.text,
             receipt_tool,
+            false,
         )
         .unwrap();
         let mut messages = vec![owner.clone(), draft, receipt];
@@ -969,14 +974,24 @@ fn decided_review_projections_remain_registered_controls() {
 
 #[test]
 fn every_server_result_source_registers_in_both_label_forms() {
-    use crate::model_message_labels::{
-        ServerResultSource, server_projection_envelope, server_result_envelope,
-    };
+    use crate::model_message_labels::ServerResultSource;
     let owner = user();
     for source in ServerResultSource::ALL {
         for result in [
-            server_result_envelope(Some(&owner), "call", "notice", *source),
-            server_projection_envelope(Some(&owner), "call", "notice", *source),
+            crate::model_message_labels::composed_envelope(
+                &crate::model_content::ModelContent::server_text("notice"),
+                Some(&owner),
+                "call",
+                *source,
+                false,
+            ),
+            crate::model_message_labels::composed_envelope(
+                &crate::model_content::ModelContent::server_text("notice"),
+                Some(&owner),
+                "call",
+                *source,
+                true,
+            ),
         ] {
             let original = snapshot(vec![owner.clone(), result.unwrap().unwrap()]);
             let registration =
@@ -993,15 +1008,13 @@ fn every_server_result_source_registers_in_both_label_forms() {
 
 #[test]
 fn data_results_never_register_whatever_their_name() {
-    use crate::model_message_labels::{data_projection_envelope, data_result_envelope, sources};
     let owner = user();
     let names = [
-        sources::PROVIDER_EXECUTION_STATUS,
-        sources::REQUESTED_ARTIFACT_REGISTRY_PROJECTION,
-        sources::REUSABLE_PROVIDER_RESULT_PROJECTION,
-        sources::FREEZE_ACTION_RESULT_ORIGIN,
-        sources::DIRECTORY_RESOLUTION_FAILED,
-        sources::GOAL_PROPOSAL_DECISION,
+        crate::model_message_labels::ServerResultSource::ExecutionStatus.as_str(),
+        crate::model_message_labels::ServerResultSource::RequestedArtifactRegistry.as_str(),
+        crate::model_message_labels::ServerResultSource::ReusableProviderResults.as_str(),
+        crate::model_message_labels::ServerResultSource::FreezeActionResultOrigin.as_str(),
+        crate::model_message_labels::ServerResultSource::GoalProposalDecision.as_str(),
         // Tool names shared with registered receipts, for their error results.
         crate::ai_assistant::data_tools::MANAGE_MEMORIES,
         crate::goal_tools::CONTROL_GOAL_TOOL_NAME,
@@ -1009,8 +1022,24 @@ fn data_results_never_register_whatever_their_name() {
     ];
     for name in names {
         for result in [
-            data_result_envelope(Some(&owner), "call", "device output", name),
-            data_projection_envelope(Some(&owner), "call", "device output", name),
+            crate::model_message_labels::named_envelope(
+                &crate::model_content::ModelContent::builder()
+                    .unverified(&crate::model_content::Unverified::new("device output"))
+                    .build(),
+                Some(&owner),
+                "call",
+                name,
+                false,
+            ),
+            crate::model_message_labels::named_envelope(
+                &crate::model_content::ModelContent::builder()
+                    .unverified(&crate::model_content::Unverified::new("device output"))
+                    .build(),
+                Some(&owner),
+                "call",
+                name,
+                true,
+            ),
         ] {
             let original = snapshot(vec![owner.clone(), result.unwrap().unwrap()]);
             let registration =

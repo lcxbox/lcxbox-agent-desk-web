@@ -92,24 +92,23 @@ pub(super) async fn close_untracked_on(
         {
             return Err(invalid());
         }
-        let mut result = ChatMessage::tool_result(
-            id,
-            &call.id,
-            "The executor stopped before a durable read result was available. The result is unavailable; this does not establish whether the read completed. Do not automatically retry this interrupted turn.",
-        );
+        let text: &'static str = "The executor stopped before a durable read result was available. The result is unavailable; this does not establish whether the read completed. Do not automatically retry this interrupted turn.";
+        let mut result = ChatMessage::tool_result(id, &call.id, text);
         result.turn_id = Some(turn.clone());
-        result.data_envelope =
-            desk_diagnose_core::model_message_labels::server_result_envelope(
-                parent.as_ref(),
-                &call.id,
-                &result.text,
-                if unavailable_mutation {
+        result = result
+            .with_content(
+                &desk_diagnose_core::model_content::ModelContent::constant(text),
+                desk_diagnose_core::model_content::Labelling {
+                    issuing: parent.as_ref(),
+                    call_id: &call.id,
+                    source: if unavailable_mutation {
                     desk_diagnose_core::model_message_labels::ServerResultSource::ChildMutationResultUnavailable
                 } else {
                     desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledReadUnavailable
                 },
-            )
-            .map_err(|_| invalid())?;
+                    request_only: false,
+                },
+            ).map_err(|_| invalid())?;
         session.conversation.push(result);
     }
     Ok(())

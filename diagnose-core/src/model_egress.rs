@@ -180,7 +180,7 @@ impl ModelEgressPolicy {
                     && message.role == ChatRole::System
                     && message.data_envelope.as_ref().is_some_and(|envelope| {
                         envelope.provenance.source_tool_name
-                            == crate::model_message_labels::sources::REUSABLE_PROVIDER_RESULT_PROJECTION
+                            == crate::model_message_labels::ServerResultSource::ReusableProviderResults.as_str()
                             && envelope_expires_by(
                                 envelope,
                                 self.now_unix_ms
@@ -2090,11 +2090,12 @@ mod tests {
         );
         let text = "background task completed; its original result is recorded in the conversation";
         let mut status = ChatMessage::tool_result("wait-status", "wait-id", text);
-        status.data_envelope = crate::model_message_labels::server_result_envelope(
+        status.data_envelope = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text(text),
             Some(&original),
             "wait-id",
-            text,
             crate::model_message_labels::ServerResultSource::WaitForTask,
+            false,
         )
         .unwrap();
         let audit = |messages| {
@@ -2107,11 +2108,12 @@ mod tests {
         ] {
             let mut receipt = status.clone();
             receipt.text = text.into();
-            receipt.data_envelope = crate::model_message_labels::server_result_envelope(
+            receipt.data_envelope = crate::model_message_labels::composed_envelope(
+                &crate::model_content::ModelContent::server_text(text),
                 Some(&original),
                 "wait-id",
-                text,
                 crate::model_message_labels::ServerResultSource::WaitForTask,
+                false,
             )
             .unwrap();
             assert!(

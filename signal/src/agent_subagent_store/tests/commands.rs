@@ -138,11 +138,16 @@ async fn approved_child_with_source_on(
         }],
     );
     proposal.turn_id = child.current_turn_id.clone();
-    proposal.data_envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+    proposal.data_envelope = desk_diagnose_core::model_message_labels::named_envelope(
+        &desk_diagnose_core::model_content::ModelContent::builder()
+            .unverified(&desk_diagnose_core::model_content::Unverified::new(
+                &proposal.text,
+            ))
+            .build(),
         child.conversation.last().unwrap().data_envelope.as_ref(),
         &call.id,
-        &proposal.text,
         "test_model_output",
+        false,
     )
     .unwrap();
     child.conversation.push(proposal);

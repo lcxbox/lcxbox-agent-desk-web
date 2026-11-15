@@ -40,11 +40,14 @@ async fn parent_with_child_source(
             &call_id,
             text,
         );
-        result.data_envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+        result.data_envelope = desk_diagnose_core::model_message_labels::named_envelope(
+            &desk_diagnose_core::model_content::ModelContent::builder()
+                .unverified(&desk_diagnose_core::model_content::Unverified::new(text))
+                .build(),
             Some(&label),
             &call_id,
-            text,
             "fixture_control",
+            false,
         )
         .unwrap();
         parent.conversation.push(result);

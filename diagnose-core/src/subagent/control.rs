@@ -61,7 +61,7 @@ pub fn stop_main_session(
 /// keyed by the session's control revision so a replay writes the same ids.
 fn close_unclosed_calls(
     next: &mut PersistedAgentSession,
-    content: &str,
+    content: &'static str,
     source: crate::model_message_labels::ServerResultSource,
     id_prefix: &str,
 ) -> Result<(), &'static str> {
@@ -74,10 +74,8 @@ fn close_unclosed_calls(
                     && message.tool_calls.iter().any(|call| call.id == call_id)
             })
             .and_then(|message| message.data_envelope.as_ref());
-        let envelope =
-            crate::model_message_labels::server_result_envelope(label, &call_id, content, source)
-                .map_err(|_| "invalid unavailable tool result label")?;
-        let mut message = crate::chat::ChatMessage::tool_result(
+        let label = label.cloned();
+        let mut message = crate::chat::ChatMessage::tool_result_from(
             format!(
                 "{id_prefix}-{:x}",
                 Sha256::digest(
@@ -89,10 +87,12 @@ fn close_unclosed_calls(
                 )
             ),
             &call_id,
-            content,
-        );
+            &crate::model_content::ModelContent::constant(content),
+            label.as_ref(),
+            source,
+        )
+        .map_err(|_| "invalid unavailable tool result label")?;
         message.turn_id = next.current_turn_id.clone();
-        message.data_envelope = envelope;
         next.conversation.push(message);
     }
     Ok(())

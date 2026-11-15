@@ -177,11 +177,12 @@ async fn exercise_preclaimed(permission: bool) {
             crate::native_ids::scheduled_message("scheduled-run"),
             "Send hello now.",
         );
-        input.data_envelope = crate::model_message_labels::server_result_envelope(
+        input.data_envelope = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text(&input.text),
             original.data_envelope.as_ref(),
             &input.message_id,
-            &input.text,
             crate::model_message_labels::ServerResultSource::ScheduledTaskInput,
+            false,
         )
         .unwrap();
         session.conversation.push(input);

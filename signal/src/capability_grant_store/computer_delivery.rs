@@ -42,25 +42,35 @@ fn refresh_control_label(session: &mut PersistedAgentSession, call: &str) -> Res
         return Err(invalid());
     }
     let message = &mut session.conversation[indexes[0]];
-    // Only a recovery placeholder is server text; anything else keeps a data
-    // label, so a real output left here never registers as a control.
-    use desk_diagnose_core::model_message_labels::{self as labels, ServerResultSource};
-    message.data_envelope =
-        if desk_diagnose_core::session::is_recovery_placeholder(&message.text) {
-            labels::server_result_envelope(
-                Some(&parent),
-                call,
-                &message.text,
-                ServerResultSource::ExecutionPlaceholder,
-            )
-        } else {
-            labels::data_result_envelope(
-                Some(&parent),
-                call,
-                &message.text,
-                labels::sources::PROVIDER_EXECUTION_STATUS,
-            )
-        }
+    // Only a recovery placeholder is server text; anything else stays
+    // unverified, so a real output left here never registers as a control.
+    use desk_diagnose_core::{
+        model_content::{Labelling, ModelContent, Unverified},
+        model_message_labels::ServerResultSource,
+    };
+    let (content, source) = match desk_diagnose_core::session::recovery_placeholder(&message.text) {
+        Some(text) => (
+            ModelContent::constant(text),
+            ServerResultSource::ExecutionPlaceholder,
+        ),
+        None => (
+            ModelContent::builder()
+                .unverified(&Unverified::new(message.text.clone()))
+                .build(),
+            ServerResultSource::ExecutionStatus,
+        ),
+    };
+    *message = message
+        .clone()
+        .with_content(
+            &content,
+            Labelling {
+                issuing: Some(&parent),
+                call_id: call,
+                source,
+                request_only: false,
+            },
+        )
         .map_err(|_| invalid())?;
     Ok(())
 }

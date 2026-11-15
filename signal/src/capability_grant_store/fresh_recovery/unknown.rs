@@ -79,20 +79,26 @@ pub(super) async fn restore(
     if captured != binding.origin {
         return Err(invalid());
     }
+    let text: &'static str = "The original action outcome is unknown. Do not retry automatically.";
     let mut message = ChatMessage::tool_result(
         format!("task-action-unknown:{}", payload.dispatch_id),
         &call.id,
-        "The original action outcome is unknown. Do not retry automatically.",
+        text,
     );
     message.turn_id = Some(work.turn_id.clone());
     message.background_task_id = Some(action.action_request_id.clone());
-    message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
-        proposal.data_envelope.as_ref(),
-        &call.id,
-        &message.text,
-        desk_diagnose_core::model_message_labels::ServerResultSource::TaskUnknownAction,
-    )
-    .map_err(|_| invalid())?;
+    message = message
+        .with_content(
+            &desk_diagnose_core::model_content::ModelContent::constant(text),
+            desk_diagnose_core::model_content::Labelling {
+                issuing: proposal.data_envelope.as_ref(),
+                call_id: &call.id,
+                source:
+                    desk_diagnose_core::model_message_labels::ServerResultSource::TaskUnknownAction,
+                request_only: false,
+            },
+        )
+        .map_err(|_| invalid())?;
     let indexes: Vec<_> = session
         .conversation
         .iter()

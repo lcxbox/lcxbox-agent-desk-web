@@ -59,16 +59,20 @@ pub(super) async fn pause<F: FnMut() -> String>(
     {
         return Err(invalid());
     }
-    let content =
-        serde_json::json!({ "status": "pending_user_decision", "request_id": request.request_id,
-        "item_count": 1, "authority": "none", "executed": false })
-        .to_string();
+    let content = crate::model_content::ModelContent::json(&PendingReceipt {
+        status: "pending_user_decision",
+        request_id: crate::model_content::ServerId::new(&request.request_id),
+        item_count: 1,
+        authority: "none",
+        executed: false,
+    })?;
     append_mutating_result(
         deps,
         session,
         call,
-        ChatMessage::tool_result(mint(), &call.id, content),
-        Some(ServerResultSource::ExecutionPlaceholder),
+        mint(),
+        &content,
+        ServerResultSource::ExecutionPlaceholder,
     )?;
     let result_ids = session
         .conversation
@@ -130,4 +134,14 @@ pub(super) async fn pause<F: FnMut() -> String>(
     Ok(LoopOutcome::PermissionRequested {
         request_id: request.request_id,
     })
+}
+
+crate::model_receipt! {
+    struct PendingReceipt {
+        status: &'static str,
+        request_id: crate::model_content::ServerId,
+        item_count: usize,
+        authority: &'static str,
+        executed: bool,
+    }
 }

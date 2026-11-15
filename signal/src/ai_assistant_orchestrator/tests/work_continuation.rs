@@ -179,11 +179,16 @@ async fn finished_command_continues_with_history_and_tools_then_drains_its_trigg
     let user =
         desk_diagnose_core::permission_resume::latest_user_requirement(&session.conversation)
             .unwrap();
-    let envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+    let envelope = desk_diagnose_core::model_message_labels::named_envelope(
+        &desk_diagnose_core::model_content::ModelContent::builder()
+            .unverified(&desk_diagnose_core::model_content::Unverified::new(
+                "command-finished-marker",
+            ))
+            .build(),
         user.data_envelope.as_ref(),
         "signal-exec:task:done",
-        "command-finished-marker",
         "exec_command",
+        false,
     )
     .unwrap();
     crate::agent_session_store::SignalAgentSessionStore::new(db.clone())

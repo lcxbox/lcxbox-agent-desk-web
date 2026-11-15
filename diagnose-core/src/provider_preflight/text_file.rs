@@ -1939,11 +1939,14 @@ mod tests {
             }],
         );
         let mut receipt = ChatMessage::tool_result("receipt", &source.id, text.clone());
-        receipt.data_envelope = crate::model_message_labels::data_result_envelope(
+        receipt.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&text))
+                .build(),
             owner.data_envelope.as_ref(),
             &source.id,
-            &text,
             &source.name,
+            false,
         )
         .unwrap();
         receipt
@@ -2104,11 +2107,14 @@ mod tests {
         externalized.conversation[1].tool_calls[0].arguments_json =
             r#"{"directory_request_id":"directory"}"#.into();
         let mut large_receipt = ChatMessage::tool_result("receipt", &source.id, &large_text);
-        large_receipt.data_envelope = crate::model_message_labels::data_result_envelope(
+        large_receipt.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&large_text))
+                .build(),
             externalized.conversation[0].data_envelope.as_ref(),
             &source.id,
-            &large_text,
             &source.name,
+            false,
         )
         .unwrap();
         large_receipt
@@ -2482,11 +2488,14 @@ mod tests {
         };
         let text = serde_json::to_string(&completed).unwrap();
         let mut receipt = ChatMessage::tool_result("receipt", "read-call", text.clone());
-        receipt.data_envelope = crate::model_message_labels::data_result_envelope(
+        receipt.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&text))
+                .build(),
             owner.data_envelope.as_ref(),
             "read-call",
-            &text,
             tool,
+            false,
         )
         .unwrap();
         let registry = crate::ai_assistant::ai_assistant_provider_registry();
@@ -2605,11 +2614,14 @@ mod tests {
                 arguments_json: call.arguments_json.clone(),
             }],
         );
-        proposal.data_envelope = crate::model_message_labels::data_result_envelope(
+        proposal.data_envelope = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(&proposal.text))
+                .build(),
             session.conversation.last().unwrap().data_envelope.as_ref(),
             &call.id,
-            &proposal.text,
             "test_model_output",
+            false,
         )
         .unwrap();
         proposal

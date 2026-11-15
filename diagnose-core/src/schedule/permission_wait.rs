@@ -275,13 +275,13 @@ pub fn unfinished_pause(session: &PersistedAgentSession) -> Option<String> {
                 if reference(session, id).as_deref() != Some(format!("directory:{id}").as_str()) {
                     continue;
                 }
-                let expected = crate::directory_tools::pending_result(id);
+                let Ok(expected) = crate::directory_tools::pending_result(id) else {
+                    return None;
+                };
+                let expected = serde_json::from_str::<serde_json::Value>(expected.text()).ok();
                 if tail.iter().any(|message| {
                     message.tool_call_id.as_deref() == Some(call.id.as_str())
-                        && serde_json::from_str::<serde_json::Value>(&message.text)
-                            .ok()
-                            .as_ref()
-                            == Some(&expected)
+                        && serde_json::from_str::<serde_json::Value>(&message.text).ok() == expected
                 }) {
                     if matched.is_some() {
                         return None;

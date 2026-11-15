@@ -61,12 +61,18 @@ pub(super) async fn run<F: FnMut() -> String>(
         crate::seam::ReadCompletion {
             outcome: crate::ai_assistant::validate_preview_call(call).and_then(|content| {
                 // The preview is the model's own validated arguments.
-                let data_envelope = crate::model_message_labels::tool_receipt_envelope(
+                let data_envelope = crate::model_message_labels::named_envelope(
+                    &crate::model_content::ModelContent::builder()
+                        .arg(&crate::model_content::ModelArg::of_call(
+                            call,
+                            context.parent_envelope,
+                            content.clone(),
+                        ))
+                        .build(),
                     context.parent_envelope,
                     &call.id,
-                    &content,
                     &call.name,
-                    crate::model_message_labels::ServerResultSource::PreviewComputerAction,
+                    false,
                 )?;
                 Ok(crate::seam::ReadOutcome::Completed {
                     output: crate::seam::ToolRunOutput {
@@ -180,13 +186,7 @@ pub(super) async fn run<F: FnMut() -> String>(
         {
             return Err(invalid_original_result());
         }
-        append_mutating_result(
-            deps,
-            session,
-            call,
-            ChatMessage::background_task_running(mint(), &call.id, &action.action_request_id),
-            Some(ServerResultSource::ExecutionPlaceholder),
-        )?;
+        append_background_running(deps, session, call, mint(), &action.action_request_id)?;
         session
             .execution_state
             .insert(ExecutionState::Executing { action });
@@ -207,11 +207,14 @@ pub(super) async fn run<F: FnMut() -> String>(
             envelope.validate().map_err(|_| invalid_original_result())?;
             Some(envelope)
         }
-        None if selected_device_read && !ok => crate::model_message_labels::data_result_envelope(
+        None if selected_device_read && !ok => crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(out.content.clone()))
+                .build(),
             context.parent_envelope,
             &call.id,
-            &out.content,
             &call.name,
+            false,
         )?,
         None => deps.tools.read_data_envelope(call, &out)?,
     };

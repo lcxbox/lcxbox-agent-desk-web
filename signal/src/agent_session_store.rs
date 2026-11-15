@@ -3248,18 +3248,23 @@ fn superseded_tool_result(
         call_id,
         CONTENT,
     );
-    message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
-        parent,
-        call_id,
-        CONTENT,
-        desk_diagnose_core::model_message_labels::ServerResultSource::SupersedeToolCall,
-    )
-    .map_err(|error| {
-        internal(format!(
-            "invalid superseded result envelope: {}",
-            error.message
-        ))
-    })?;
+    message = message
+        .with_content(
+            &desk_diagnose_core::model_content::ModelContent::constant(CONTENT),
+            desk_diagnose_core::model_content::Labelling {
+                issuing: parent,
+                call_id,
+                source:
+                    desk_diagnose_core::model_message_labels::ServerResultSource::SupersedeToolCall,
+                request_only: false,
+            },
+        )
+        .map_err(|error| {
+            internal(format!(
+                "invalid superseded result envelope: {}",
+                error.message
+            ))
+        })?;
     Ok(message)
 }
 

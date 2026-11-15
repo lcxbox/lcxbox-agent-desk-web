@@ -126,7 +126,7 @@ fn finish_decided(value: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model_message_labels::{model_bound_user_message, server_result_envelope};
+    use crate::model_message_labels::model_bound_user_message;
     use desk_agent_protocol::data_lineage::DestinationIdentity;
     fn records(approved: bool) -> Vec<ChatMessage> {
         let user = model_bound_user_message(
@@ -145,20 +145,22 @@ mod tests {
             "call",
             r#"{"schedule_id":"timer","kind":"fresh_task","state":"pending_review","awaiting_decision":true}"#,
         );
-        draft.data_envelope = server_result_envelope(
+        draft.data_envelope = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text(&draft.text),
             user.data_envelope.as_ref(),
             "call",
-            &draft.text,
             crate::model_message_labels::ServerResultSource::ScheduleProposal,
+            false,
         )
         .unwrap();
         let text = serde_json::json!({"schedule_id":"timer", "event":if approved {"scheduled_task_activated"} else {"scheduled_task_rejected"}, "decided_by":"approval_ai", "state":if approved {"active"} else {"deleted"}, "next_run_at_utc_ms":12345}).to_string();
         let mut receipt = ChatMessage::system_event("receipt", &text);
-        receipt.data_envelope = server_result_envelope(
+        receipt.data_envelope = crate::model_message_labels::composed_envelope(
+            &crate::model_content::ModelContent::server_text(&text),
             user.data_envelope.as_ref(),
             "receipt",
-            &text,
             crate::model_message_labels::ServerResultSource::ScheduleActivation,
+            false,
         )
         .unwrap();
         vec![user, draft, receipt]

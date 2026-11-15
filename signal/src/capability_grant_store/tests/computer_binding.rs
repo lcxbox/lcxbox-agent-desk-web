@@ -173,11 +173,16 @@ impl Fixture {
                 arguments_json: call.arguments_json.clone(),
             }],
         );
-        proposal.data_envelope = desk_diagnose_core::model_message_labels::data_result_envelope(
+        proposal.data_envelope = desk_diagnose_core::model_message_labels::named_envelope(
+            &desk_diagnose_core::model_content::ModelContent::builder()
+                .unverified(&desk_diagnose_core::model_content::Unverified::new(
+                    &proposal.text,
+                ))
+                .build(),
             user.data_envelope.as_ref(),
             &call.id,
-            &proposal.text,
             "test_model_output",
+            false,
         )
         .unwrap();
         proposal.turn_id = Some("turn-1".into());

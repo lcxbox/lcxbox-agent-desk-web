@@ -56,12 +56,7 @@ pub fn request() -> ModelRequest {
         let mut message = ChatMessage::tool_result(format!("result-{i}"), &call, value.to_string());
         message.tool_ok = Some(true);
         message.data_envelope =
-            desk_diagnose_core::model_message_labels::data_result_envelope(
-                owner.data_envelope.as_ref(),
-                &call,
-                &message.text,
-                tool,
-            )
+            desk_diagnose_core::model_message_labels::named_envelope(&desk_diagnose_core::model_content::ModelContent::builder().unverified(&desk_diagnose_core::model_content::Unverified::new(&message.text)).build(), owner.data_envelope.as_ref(), &call, tool, false)
             .unwrap();
         messages.push(message);
     }

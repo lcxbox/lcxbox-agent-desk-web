@@ -101,20 +101,24 @@ pub(super) async fn reconcile_on(
         &payload.dispatch_id,
         WorkKind::CapabilityProvider,
     );
+    let text: &'static str = "The original dispatch intent was committed, but no original transport binding is available. The action outcome is unknown. Do not retry automatically.";
     let mut message = ChatMessage::tool_result(
         format!("scheduled-unbound:{}", payload.dispatch_id),
         &call_id,
-        "The original dispatch intent was committed, but no original transport binding is available. The action outcome is unknown. Do not retry automatically.",
+        text,
     );
     message.turn_id = Some(work.turn_id.clone());
     message.background_task_id = Some(action.action_request_id.clone());
-    message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
-        Some(parent.data_envelope.as_ref().ok_or_else(invalid)?),
-        &call_id,
-        &message.text,
-        desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledUnboundAction,
-    )
-    .map_err(|_| invalid())?;
+    message = message
+        .with_content(
+            &desk_diagnose_core::model_content::ModelContent::constant(text),
+            desk_diagnose_core::model_content::Labelling {
+                issuing: Some(parent.data_envelope.as_ref().ok_or_else(invalid)?),
+                call_id: &call_id,
+                source: desk_diagnose_core::model_message_labels::ServerResultSource::ScheduledUnboundAction,
+                request_only: false,
+            },
+        ).map_err(|_| invalid())?;
     let results: Vec<_> = session
         .conversation
         .iter()

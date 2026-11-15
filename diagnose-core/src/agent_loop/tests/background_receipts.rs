@@ -644,23 +644,34 @@ fn background_status_inherits_proposal_boundary_without_requesting_a_native_rece
         serde_json::json!({"target_ref":"a","directory_request_id":"approved-directory"})
             .to_string();
     // Placeholders are server text and register; reasons and errors stay data.
-    for (text, source, prefix) in [
+    use crate::model_content::{ModelContent, Unverified};
+    use crate::model_message_labels::ServerResultSource;
+    for (text, content, source, prefix) in [
         (
             "still running",
-            Some(crate::model_message_labels::ServerResultSource::ExecutionPlaceholder),
+            ModelContent::constant("still running"),
+            ServerResultSource::ExecutionPlaceholder,
             "composed-result-",
         ),
-        ("outcome unknown", None, "unverified-result-"),
-        ("wait error", None, "unverified-result-"),
+        (
+            "outcome unknown",
+            ModelContent::builder()
+                .unverified(&Unverified::new("outcome unknown"))
+                .build(),
+            ServerResultSource::ExecutionStatus,
+            "unverified-result-",
+        ),
+        (
+            "wait error",
+            ModelContent::builder()
+                .text("wait error: ")
+                .unverified(&Unverified::new("device text"))
+                .build(),
+            ServerResultSource::ExecutionStatus,
+            "unverified-result-",
+        ),
     ] {
-        append_mutating_result(
-            &deps,
-            &mut session,
-            &call,
-            ChatMessage::tool_result(text, "wait", text),
-            source,
-        )
-        .unwrap();
+        append_mutating_result(&deps, &mut session, &call, text.into(), &content, source).unwrap();
         assert!(
             session
                 .conversation

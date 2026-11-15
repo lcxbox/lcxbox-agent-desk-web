@@ -319,11 +319,12 @@ pub fn release_consumed(messages: &mut [ChatMessage]) -> Result<(), AgentError> 
             .tool_call_id
             .clone()
             .unwrap_or_else(|| message.message_id.clone());
-        crate::model_message_labels::server_rewrite(
+        crate::model_message_labels::rewrite_result(
             messages,
             index,
             &call_id,
-            &content,
+            // The selection is the validated attachment id and page range.
+            &crate::model_content::ModelContent::server_text(content),
             crate::model_message_labels::ServerResultSource::AttachmentReadReceipt,
         )?;
         messages[index].attachment_read.as_mut().unwrap().released = true;

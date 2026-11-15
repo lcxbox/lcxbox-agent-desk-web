@@ -76,6 +76,18 @@ fn status_name(status: SkillProposalStatus) -> &'static str {
     }
 }
 
+desk_diagnose_core::model_receipt! {
+    struct PendingReceipt {
+        proposal_id: desk_diagnose_core::model_content::ServerId,
+        status: &'static str,
+        skill_ref: desk_diagnose_core::model_content::ModelArg<String>,
+        kind: &'static str,
+        base_version: Option<u64>,
+        awaiting_decision: bool,
+        message: &'static str,
+    }
+}
+
 fn kind_name(kind: SkillProposalKind) -> &'static str {
     match kind {
         SkillProposalKind::Create => "create",
@@ -338,19 +350,30 @@ async fn save_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     } else {
         "Submitted for a decision. This turn ends now; when the AI reviewer or the owner decides, the server continues this requirement and this result shows the decision. Do not report the skill as saved before it. A saved skill grants no tool permission."
     };
-    let text = serde_json::json!({"proposal_id": proposal_id, "status": "pending",
-        "skill_ref": format!("personal/{}", new.name),
-        "kind": kind_name(new.kind),
-        "base_version": base_version, "awaiting_decision": true,
-        "message": message})
-    .to_string();
-    let envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
+    // The skill name is the call's own argument.
+    let content = desk_diagnose_core::model_content::ModelContent::json(&PendingReceipt {
+        proposal_id: desk_diagnose_core::model_content::ServerId::new(&proposal_id),
+        status: "pending",
+        skill_ref: desk_diagnose_core::model_content::ModelArg::of_call(
+            call,
+            parent.data_envelope.as_ref(),
+            format!("personal/{}", new.name),
+        ),
+        kind: kind_name(new.kind),
+        base_version,
+        awaiting_decision: true,
+        message,
+    })
+    .map_err(|_| ScheduleStoreError::Invalid)?;
+    let envelope = desk_diagnose_core::model_message_labels::composed_envelope(
+        &content,
         parent.data_envelope.as_ref(),
         &call.id,
-        &text,
         desk_diagnose_core::model_message_labels::ServerResultSource::SkillProposal,
+        false,
     )
     .map_err(|_| ScheduleStoreError::Invalid)?;
+    let text = content.text().to_owned();
     let receipt_id = format!("{}{}", ProposalKind::Skill.receipt_prefix(), call.id);
     let next = commit_tool_receipt_on(
         host,
