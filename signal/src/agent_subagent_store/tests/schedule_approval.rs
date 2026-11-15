@@ -264,7 +264,12 @@ pub(super) async fn reviewed_kind(
     let decision = ApprovalReviewDecision {
         candidate_id: candidate.candidate_id.clone(),
         verdict,
-        reason_code: "owner_request".into(),
+        reason_code: if verdict == ApprovalVerdict::Approve {
+            "within_scope"
+        } else {
+            "needs_owner"
+        }
+        .into(),
         reason: "The task matches the owner's morning check request".into(),
         evidence_event_ids: vec!["schedule-user".into()],
     };

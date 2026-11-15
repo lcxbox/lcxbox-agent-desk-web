@@ -22,10 +22,9 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProposalDecider {
     Owner,
-    /// The delegated approval reviewer, with its reason shown to the model.
-    Ai {
-        reason: String,
-    },
+    /// The delegated approval reviewer; its reason reaches the model only
+    /// when its provenance can be verified.
+    Ai(desk_diagnose_core::proposal_review::provenance::AiDecisionReason),
 }
 
 /// `decide_proposal` inside the caller's transaction, for a decision that
@@ -318,6 +317,10 @@ pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             Err(ScheduleStoreError::Conflict)
         };
     }
+    let ai = match decider {
+        Some(ProposalDecider::Ai(ai)) => Some(ai),
+        _ => None,
+    };
     let id = format!("schedule-decision:{}:{}", task.schedule_id, task.revision);
     let text = serde_json::json!({
         "event": if rejected { "scheduled_task_rejected" } else { "scheduled_task_activated" },
@@ -325,25 +328,40 @@ pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         "next_run_at_utc_ms": task.next_run_at,
         "authority": "calendar_only_no_tool_permissions",
         "decided_by": match decider {
-            Some(ProposalDecider::Ai { .. }) => "approval_ai",
+            Some(ProposalDecider::Ai(_)) => "approval_ai",
             Some(ProposalDecider::Owner) | None => "owner",
         },
-        "reason": match decider { Some(ProposalDecider::Ai { reason }) => Some(reason), _ => None },
+        "reason": ai.map(|ai| &ai.reason),
+        "reason_code": ai.map(|ai| &ai.reason_code),
         "instruction": "This server receipt is the final decision. Do not request another chat confirmation. Ordinary chat does not cancel an enabled task. Every run approves its device actions separately."})
     .to_string();
-    let parent = session
+    let last_labelled = session
         .conversation
         .iter()
         .rev()
         .find_map(|message| message.data_envelope.as_ref());
+    // A paused turn names the proposing call; an owner decision outside the
+    // pause derives from the proposal's pending receipt; a creation or
+    // continuation notice keeps the latest label.
+    let proposing = if paused {
+        desk_diagnose_core::proposal_review::provenance::proposing_output(&session).cloned()
+    } else if decider.is_some() {
+        pending_proposal_parent(&session, &task.schedule_id)
+    } else {
+        None
+    };
     let mut message = desk_diagnose_core::chat::ChatMessage::system_event(&id, &text);
-    message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
-        parent,
-        &id,
-        &text,
-        desk_diagnose_core::model_message_labels::ServerResultSource::ScheduleActivation,
-    )
-    .map_err(|_| ScheduleStoreError::Invalid)?;
+    message.data_envelope =
+        desk_diagnose_core::proposal_review::provenance::decision_receipt_envelope(
+            &session,
+            proposing.as_ref(),
+            ai,
+            last_labelled,
+            &id,
+            &text,
+            desk_diagnose_core::model_message_labels::ServerResultSource::ScheduleActivation,
+        )
+        .map_err(|_| ScheduleStoreError::Invalid)?;
     if paused {
         return crate::decision_resume::record_decision_on(host, txn, &row, session, message, now)
             .await;
@@ -382,3 +400,35 @@ pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
 
 #[cfg(test)]
 mod tests;
+
+/// The parent of the pending proposal result for `schedule_id`: the model
+/// output that proposed it. Proposal, query and cancellation results share
+/// one id prefix, so the label and state identify the proposal.
+fn pending_proposal_parent(
+    session: &PersistedAgentSession,
+    schedule_id: &str,
+) -> Option<desk_agent_protocol::data_lineage::DataEnvelope> {
+    use desk_diagnose_core::model_message_labels::ServerResultSource;
+    let pending = session.conversation.iter().rev().find(|message| {
+        message.data_envelope.as_ref().is_some_and(|label| {
+            label.provenance.source_tool_name == ServerResultSource::ScheduleProposal.as_str()
+        }) && serde_json::from_str::<serde_json::Value>(&message.text).is_ok_and(|value| {
+            value["schedule_id"].as_str() == Some(schedule_id) && value["state"] == "pending_review"
+        })
+    })?;
+    let [parent] = pending
+        .data_envelope
+        .as_ref()?
+        .provenance
+        .source_envelope_ids
+        .as_slice()
+    else {
+        return None;
+    };
+    session
+        .conversation
+        .iter()
+        .filter_map(|message| message.data_envelope.as_ref())
+        .find(|label| &label.envelope_id == parent)
+        .cloned()
+}

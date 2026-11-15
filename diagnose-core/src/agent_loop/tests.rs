@@ -2477,7 +2477,7 @@ fn decide_directory(sess: &MemSession, request_id: &str, approve: bool) {
     };
     let (mut next, _) =
         crate::file_scope::transaction::prepare(session, &update, 1781913602000).unwrap();
-    let event = crate::directory_tools::decision_event(&next, request_id, approve).unwrap();
+    let event = crate::directory_tools::decision_event(&next, request_id, approve, None).unwrap();
     next.conversation.push(event);
     next.decision_pause = None;
     *session = next;

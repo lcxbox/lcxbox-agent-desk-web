@@ -200,6 +200,12 @@ pub fn reviewed_decision_result(
     else {
         return decision_result(request_id, approved);
     };
+    let reason_code = match &decision.source {
+        crate::dynamic_run::PermissionDecisionSource::AutomaticReview { reviews, .. } => {
+            reviews.first().map(|review| review.reason_code.as_str())
+        }
+        _ => None,
+    };
     let authority = match decision.source {
         crate::dynamic_run::PermissionDecisionSource::UserDecision => "owner",
         crate::dynamic_run::PermissionDecisionSource::AutomaticReview { .. } => "ai_approval",
@@ -209,7 +215,7 @@ pub fn reviewed_decision_result(
         }
     };
     json!({"directory_request_id":request_id,"state":if approved {"approved"} else {"rejected"},
-    "authority":authority,"reason":decision.reason,"file_operation_authorized":false,
+    "authority":authority,"reason":decision.reason,"reason_code":reason_code,"file_operation_authorized":false,
     "message":if approved {
         "Directory identity approved. Continue the current task using CURRENT CONVERSATION DIRECTORIES; file operations and export still require their own permissions."
     } else {
@@ -220,24 +226,30 @@ pub fn reviewed_decision_result(
 /// The system event recording the decision of an interactive directory
 /// request. The deciding transaction appends it to the paused session; the
 /// resumed turn sees it projected onto the request's pending tool result.
+/// `ai` is the reviewer's verdict reason when the AI reviewer decided.
 pub fn decision_event(
     session: &crate::session::PersistedAgentSession,
     request_id: &str,
     approved: bool,
+    ai: Option<&crate::proposal_review::provenance::AiDecisionReason>,
 ) -> Result<crate::chat::ChatMessage, AgentError> {
     let text = reviewed_decision_result(session, request_id, approved).to_string();
     let id = format!("directory-decision:{request_id}");
-    let parent = session
+    let last_labelled = session
         .conversation
         .iter()
         .rev()
         .find_map(|message| message.data_envelope.as_ref());
     let mut message = crate::chat::ChatMessage::system_event(&id, &text);
-    message.data_envelope = crate::model_message_labels::data_result_envelope(
-        parent,
+    // Appended only while the turn waits on this request.
+    message.data_envelope = crate::proposal_review::provenance::decision_receipt_envelope(
+        session,
+        crate::proposal_review::provenance::proposing_output(session),
+        ai,
+        last_labelled,
         &id,
         &text,
-        crate::model_message_labels::sources::DIRECTORY_DECISION,
+        crate::model_message_labels::ServerResultSource::DirectoryDecision,
     )?;
     Ok(message)
 }
@@ -249,6 +261,7 @@ pub fn record_paused_decision(
     session: &mut crate::session::PersistedAgentSession,
     request_id: &str,
     approved: bool,
+    ai: Option<&crate::proposal_review::provenance::AiDecisionReason>,
 ) -> Result<bool, AgentError> {
     if session.turn_state.is_active()
         || crate::proposal_review::current_pause(
@@ -260,23 +273,27 @@ pub fn record_paused_decision(
     {
         return Ok(false);
     }
-    let event = decision_event(session, request_id, approved)?;
+    let event = decision_event(session, request_id, approved, ai)?;
     session.conversation.push(event);
     Ok(true)
 }
 
-/// Model-only projection of decided directory requests onto their pending
-/// tool results. The stored records stay unchanged.
-pub fn project_decisions(messages: &mut [crate::chat::ChatMessage]) -> Result<(), AgentError> {
+/// Decided directory requests: each pending result with its decision, whose
+/// body replaces the pending one as it is.
+pub(crate) fn decided_pairs(
+    messages: &[crate::chat::ChatMessage],
+) -> Vec<crate::proposal_review::projection::DecidedPair> {
     use crate::chat::ChatRole;
+    use crate::model_message_labels::ServerResultSource;
     use crate::schedule::review_result::labelled;
-    for index in 0..messages.len() {
-        let pending = &messages[index];
+    let mut pairs = Vec::new();
+    for (index, pending) in messages.iter().enumerate() {
         if !labelled(
             pending,
             ChatRole::Tool,
-            crate::model_message_labels::ServerResultSource::DirectoryProposalPending.as_str(),
-        ) {
+            ServerResultSource::DirectoryProposalPending.as_str(),
+        ) || pending.tool_call_id.is_none()
+        {
             continue;
         }
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&pending.text) else {
@@ -285,30 +302,27 @@ pub fn project_decisions(messages: &mut [crate::chat::ChatMessage]) -> Result<()
         let Some(id) = value["directory_request_id"].as_str() else {
             continue;
         };
-        let Some(call_id) = pending.tool_call_id.clone() else {
-            continue;
-        };
-        let decided = messages[index + 1..].iter().find(|message| {
-            labelled(
-                message,
-                ChatRole::SystemEvent,
-                crate::model_message_labels::sources::DIRECTORY_DECISION,
-            ) && serde_json::from_str::<serde_json::Value>(&message.text)
-                .is_ok_and(|decision| decision["directory_request_id"].as_str() == Some(id))
-        });
-        let Some(decided) = decided.cloned() else {
-            continue;
-        };
-        let envelope = crate::model_message_labels::conversation_history_result_envelope(
-            pending.data_envelope.as_ref(),
-            std::slice::from_ref(&decided),
-            &call_id,
-            &decided.text,
-        )?;
-        messages[index].text = decided.text;
-        messages[index].data_envelope = envelope;
+        let decided = messages
+            .iter()
+            .enumerate()
+            .skip(index + 1)
+            .find(|(_, message)| {
+                labelled(
+                    message,
+                    ChatRole::SystemEvent,
+                    ServerResultSource::DirectoryDecision.as_str(),
+                ) && serde_json::from_str::<serde_json::Value>(&message.text)
+                    .is_ok_and(|decision| decision["directory_request_id"].as_str() == Some(id))
+            });
+        if let Some((receipt, _)) = decided {
+            pairs.push(crate::proposal_review::projection::DecidedPair {
+                draft: index,
+                receipt,
+                finish: |_| {},
+            });
+        }
     }
-    Ok(())
+    pairs
 }
 
 #[cfg(test)]

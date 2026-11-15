@@ -45,17 +45,17 @@ pub async fn decide_by_ai_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     owner: &str,
     proposal: &ReviewedProposal,
     approve: bool,
-    reason: &str,
+    ai: &desk_diagnose_core::proposal_review::provenance::AiDecisionReason,
 ) -> Result<(), ScheduleStoreError> {
     match proposal {
         ReviewedProposal::Schedule(proposal) => {
-            crate::schedule::decide_by_ai_on(host, txn, owner, proposal, approve, reason).await
+            crate::schedule::decide_by_ai_on(host, txn, owner, proposal, approve, ai).await
         }
         ReviewedProposal::Skill(proposal) => {
             if proposal.owner_id != owner {
                 return Err(ScheduleStoreError::Conflict);
             }
-            crate::skill_store::proposals::decide_by_ai_on(host, txn, proposal, approve, reason)
+            crate::skill_store::proposals::decide_by_ai_on(host, txn, proposal, approve, ai)
                 .await
                 .map_err(Into::into)
         }

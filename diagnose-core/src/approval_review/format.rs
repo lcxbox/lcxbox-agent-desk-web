@@ -1,7 +1,7 @@
 //! Bounded server-generated feedback; model text never becomes an instruction.
 use super::*;
 
-pub const DECISION_TEMPLATE: &str = r#"Return exactly four fields, with no extra keys, wrappers, Markdown or code fences. verdict must be either "approve" or "deny". Example shape: {"verdict":"deny","reason_code":"lowercase_reason_code","reason":"Concrete justification","evidence_event_ids":["an actual supplied evidence ID"]}. Use only actual evidence supplied in the candidate. A correction changes output format only, never the owner's instruction or the frozen action."#;
+pub const DECISION_TEMPLATE: &str = r#"Return exactly four fields, with no extra keys, wrappers, Markdown or code fences. verdict must be either "approve" or "deny". Example shape: {"verdict":"deny","reason_code":"owner_not_requested","reason":"Concrete justification","evidence_event_ids":["an actual supplied evidence ID"]}. reason_code is within_scope for approve and one of owner_not_requested, exceeds_task, narrower_alternative, wrong_target, unsafe_content, missing_fact, needs_owner for deny. Use only actual evidence supplied in the candidate. A correction changes output format only, never the owner's instruction or the frozen action."#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -120,12 +120,11 @@ pub fn parse_decision_diagnosed(
         .map_err(|_| ReviewOutputIssue::Semantics)?;
     let model: super::model_view::ModelDecision = serde_json::from_str(response)
         .map_err(|error| ReviewOutputIssue::Format(classify_json(&error, response)))?;
-    if model.reason_code.is_empty()
-        || model.reason_code.len() > 64
-        || !model
-            .reason_code
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    // Reviewer codes are a closed set; approval has exactly one code.
+    let code_matches = ApprovalReasonCode::parse(&model.reason_code).is_some_and(|code| {
+        (code == ApprovalReasonCode::WithinScope) == (model.verdict == ApprovalVerdict::Approve)
+    });
+    if !code_matches
         || model.reason.trim().is_empty()
         || model.reason.len() > MAX_APPROVAL_REASON_BYTES
         || model.evidence_event_ids.len() > MAX_APPROVAL_REFERENCES
@@ -179,7 +178,7 @@ pub fn format_feedback_overhead_bytes() -> usize {
         .unwrap_or(0)
 }
 const CORRECTION_PREFIX: &str = "SERVER FORMAT CORRECTION: ";
-const CORRECTION_CONSTRAINTS: &str = " Re-evaluate this same candidate and return a corrected decision. Either approve or deny is valid when justified. reason_code must contain 1..64 lowercase ASCII letters, digits or underscores; reason must contain 1..2048 UTF-8 bytes; evidence_event_ids must be an array of at most 32 strings.";
+const CORRECTION_CONSTRAINTS: &str = " Re-evaluate this same candidate and return a corrected decision. Either approve or deny is valid when justified. reason_code must be within_scope for approve, or one of owner_not_requested, exceeds_task, narrower_alternative, wrong_target, unsafe_content, missing_fact, needs_owner for deny; reason must contain 1..2048 UTF-8 bytes; evidence_event_ids must be an array of at most 32 strings.";
 
 pub fn apply_format_feedback(request: &mut ModelRequest, issue: Option<ReviewFormatIssue>) {
     if let Some(system) = request.messages.first_mut() {
@@ -198,8 +197,35 @@ pub fn apply_format_feedback(request: &mut ModelRequest, issue: Option<ReviewFor
 mod tests {
     use super::*;
 
+    #[test]
+    fn reason_codes_are_closed_and_match_the_verdict() {
+        let candidate = super::super::tests::candidate();
+        let owner = candidate.context.evidence[0].event_id.clone();
+        let parse = |verdict: &str, code: &str| {
+            let text = serde_json::json!({"verdict":verdict,"reason_code":code,
+                "reason":"Concrete reason.","evidence_event_ids":[owner]})
+            .to_string();
+            parse_decision_diagnosed(&candidate, &text)
+        };
+        assert!(parse("approve", "within_scope").is_ok());
+        assert!(parse("deny", "needs_owner").is_ok());
+        for (verdict, code) in [
+            ("approve", "needs_owner"),
+            ("deny", "within_scope"),
+            ("deny", "scope_too_broad"),
+        ] {
+            assert_eq!(
+                parse(verdict, code),
+                Err(ReviewOutputIssue::Format(
+                    ReviewFormatIssue::FieldConstraints
+                )),
+                "{verdict} {code}"
+            );
+        }
+    }
+
     fn good() -> serde_json::Value {
-        serde_json::json!({"verdict":"approve","reason_code":"owner_requested","reason":"The owner requested this exact bounded read.","evidence_event_ids":["owner-1"]})
+        serde_json::json!({"verdict":"approve","reason_code":"within_scope","reason":"The owner requested this exact bounded read.","evidence_event_ids":["owner-1"]})
     }
 
     #[test]
@@ -306,6 +332,7 @@ mod tests {
         let corrected = state.next(issue).unwrap();
         assert!(corrected.next(issue).is_none());
         decision["verdict"] = serde_json::json!("deny");
+        decision["reason_code"] = serde_json::json!("needs_owner");
         assert_eq!(
             reviewer_output_diagnosed(&candidate, &turn(&decision))
                 .unwrap()
@@ -313,6 +340,7 @@ mod tests {
             ApprovalVerdict::Deny
         );
         decision["verdict"] = serde_json::json!("approve");
+        decision["reason_code"] = serde_json::json!("within_scope");
         for key in ["verdict", "reason", "evidence_event_ids"] {
             let mut wrong_type = decision.clone();
             wrong_type[key] = serde_json::json!(42);

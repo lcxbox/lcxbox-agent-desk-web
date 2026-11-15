@@ -193,7 +193,7 @@ fn approval_probe_requires_the_expected_verdict_even_when_the_decision_json_is_v
                 text: serde_json::json!({
 
                     "verdict": verdict.as_str(),
-                    "reason_code": "fixture_review",
+                    "reason_code": if verdict.as_str() == "approve" { "within_scope" } else { "needs_owner" },
                     "reason": "private probe reason",
                     "evidence_event_ids": [probe.candidate.context.evidence[0].event_id]
                 })

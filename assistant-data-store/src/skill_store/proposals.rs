@@ -61,10 +61,9 @@ fn rejected(message: impl Into<String>) -> SkillProposalError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SkillDecider {
     Owner,
-    /// The delegated approval reviewer, with its reason shown to the model.
-    Ai {
-        reason: String,
-    },
+    /// The delegated approval reviewer; its reason reaches the model only
+    /// when its provenance can be verified.
+    Ai(desk_diagnose_core::proposal_review::provenance::AiDecisionReason),
 }
 
 fn status_name(status: SkillProposalStatus) -> &'static str {
@@ -607,11 +606,11 @@ pub async fn decide_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             "The skill changed, its name is taken, or the skill limit is reached; propose again based on the current version."
                 .to_owned(),
         ),
-        (_, SkillDecider::Ai { reason }) => Some(reason.clone()),
+        (_, SkillDecider::Ai(ai)) => Some(ai.reason.clone()),
         (_, SkillDecider::Owner) => None,
     };
     let decision_source = Some(match decider {
-        SkillDecider::Ai { .. } => "ai_review",
+        SkillDecider::Ai(_) => "ai_review",
         SkillDecider::Owner => "owner",
     });
     let changed = proposal::Entity::update_many()
@@ -821,6 +820,11 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         }
         _ => None,
     };
+    // A conflict's reason is fixed server text, not the reviewer's.
+    let ai = match (status, decider) {
+        (SkillProposalStatus::Conflicted, _) | (_, SkillDecider::Owner) => None,
+        (_, SkillDecider::Ai(ai)) => Some(ai),
+    };
     let id = format!("skill-decision:{}:{}", row.proposal_id, row.revision);
     let text = serde_json::json!({
         "event": SKILL_DECIDED_EVENT,
@@ -830,10 +834,11 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         "skill_ref": format!("personal/{}", row.name),
         "version": version.as_ref().map(|(_, version)| version),
         "decided_by": match decider {
-            SkillDecider::Ai { .. } => "approval_ai",
+            SkillDecider::Ai(_) => "approval_ai",
             SkillDecider::Owner => "owner",
         },
         "reason": row.decision_reason,
+        "reason_code": ai.map(|ai| &ai.reason_code),
         "note": note,
         "authority": "guidance_only_no_tool_permissions",
         "instruction": if is_removal(parse_kind(&row.kind)) {
@@ -843,19 +848,24 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         },
     })
     .to_string();
-    let parent = session
+    let last_labelled = session
         .conversation
         .iter()
         .rev()
         .find_map(|message| message.data_envelope.as_ref());
     let mut message = ChatMessage::system_event(&id, &text);
-    message.data_envelope = desk_diagnose_core::model_message_labels::server_result_envelope(
-        parent,
-        &id,
-        &text,
-        desk_diagnose_core::model_message_labels::ServerResultSource::SkillProposalDecision,
-    )
-    .map_err(|_| ScheduleStoreError::Invalid)?;
+    message.data_envelope =
+        desk_diagnose_core::proposal_review::provenance::decision_receipt_envelope(
+            &session,
+            // The receipt is written only while the turn waits on this proposal.
+            desk_diagnose_core::proposal_review::provenance::proposing_output(&session),
+            ai,
+            last_labelled,
+            &id,
+            &text,
+            desk_diagnose_core::model_message_labels::ServerResultSource::SkillProposalDecision,
+        )
+        .map_err(|_| ScheduleStoreError::Invalid)?;
     crate::decision_resume::record_decision_on(host, txn, &session_row, session, message, now)
         .await?;
     Ok(())
@@ -868,7 +878,7 @@ pub async fn decide_by_ai_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     txn: &C,
     proposal: &SkillProposal,
     approve: bool,
-    reason: &str,
+    ai: &desk_diagnose_core::proposal_review::provenance::AiDecisionReason,
 ) -> Result<(), SkillProposalError> {
     decide_on(
         host,
@@ -877,9 +887,7 @@ pub async fn decide_by_ai_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         &proposal.proposal_id,
         Some(proposal.revision),
         approve,
-        &SkillDecider::Ai {
-            reason: reason.to_owned(),
-        },
+        &SkillDecider::Ai(ai.clone()),
     )
     .await?;
     Ok(())

@@ -271,6 +271,41 @@ fn native_read(source: &DataEnvelope) -> Option<RegisteredSourceContract> {
     .then_some(contract)
 }
 
+/// A registered single-parent `server_*` status label: server text governed
+/// only by its parent's policy.
+pub(crate) fn is_registered_status_control(source: &DataEnvelope) -> bool {
+    let blob = match &source.content {
+        ContentRef::ImmutableBlob {
+            blob_id,
+            sha256,
+            media_type,
+            ..
+        } => Some((blob_id, sha256, media_type)),
+        _ => None,
+    };
+    source.provenance.source_provider_id == crate::dynamic_run::RUN_CONTROL_PROVIDER_ID
+        && source.provenance.source_object_id.is_none()
+        && crate::model_message_labels::ServerResultSource::parse(
+            &source.provenance.source_tool_name,
+        )
+        .is_some()
+        && status_result_shape(source, blob)
+}
+
+/// The registered shape of `server_review_envelope`: a decision receipt or
+/// its projection derived from one or more parents, all of which must be
+/// inputs of the same request.
+fn review_result_shape(source: &DataEnvelope) -> bool {
+    use crate::model_message_labels::{REVIEW_RESULT_PREFIX, REVIEW_RESULT_PROJECTION};
+    source
+        .envelope_id
+        .strip_prefix(REVIEW_RESULT_PREFIX)
+        .is_some_and(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        && !source.provenance.source_envelope_ids.is_empty()
+        && matches!(&source.content, ContentRef::Projection { projection, media_type, .. }
+            if projection == REVIEW_RESULT_PROJECTION && media_type == "text/plain")
+}
+
 /// The registered shape of a `server_*` label: a persisted status projection,
 /// or a request-only content-addressed status blob, derived from exactly one
 /// parent. `data_*` labels use another shape and never match.
@@ -334,6 +369,12 @@ fn native_control(source: &DataEnvelope) -> bool {
             return false;
         }
         match provenance.source_tool_name.as_str() {
+            name if crate::model_message_labels::ServerResultSource::parse(name)
+                .is_some_and(|registered| registered.reviewed())
+                && review_result_shape(source) =>
+            {
+                true
+            }
             name if crate::model_message_labels::ServerResultSource::parse(name).is_some() => {
                 status_result_shape(source, blob)
             }

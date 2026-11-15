@@ -209,6 +209,16 @@ async fn ai_approval_saves_the_waiting_skill_and_answers_its_turn() {
     assert_eq!(receipt["event"], "skill_proposal_decided");
     assert_eq!(receipt["status"], "approved");
     assert_eq!(receipt["decided_by"], "approval_ai");
+    // A new skill's reason derives from conversation evidence only: the
+    // receipt carries it under the proposing output and every evidence.
+    let label = current
+        .conversation
+        .last()
+        .unwrap()
+        .data_envelope
+        .clone()
+        .unwrap();
+    assert!(label.envelope_id.starts_with("review-result-"), "{label:?}");
     // The decision resumes the paused turn exactly once.
     let resume = desk_assistant_data_store::entity::agent_decision_resume::Entity::find()
         .one(&db)
@@ -416,18 +426,24 @@ async fn ai_approval_disables_the_assistant_written_skill() {
         (review.source_kind.as_str(), review.source_id.as_str()),
         ("skill_proposal", id.as_str())
     );
-    let receipt: serde_json::Value = serde_json::from_str(
-        &saved(&db, &session.conversation_id)
-            .await
-            .conversation
-            .last()
-            .unwrap()
-            .text,
-    )
-    .unwrap();
+    let last = saved(&db, &session.conversation_id)
+        .await
+        .conversation
+        .pop()
+        .unwrap();
+    let receipt: serde_json::Value = serde_json::from_str(&last.text).unwrap();
     assert_eq!(
         (receipt["kind"].as_str(), receipt["status"].as_str()),
         (Some("disable"), Some("approved"))
+    );
+    // The reviewer saw the stored skill, so its reason cannot be verified:
+    // the receipt keeps a data label, and the model gets only the code.
+    assert_eq!(receipt["reason_code"], "within_scope");
+    assert!(
+        last.data_envelope
+            .unwrap()
+            .envelope_id
+            .starts_with("data-status-")
     );
 }
 

@@ -53,7 +53,7 @@ pub async fn decide_by_ai_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     owner: &str,
     proposal: &ScheduleProposal,
     approve: bool,
-    reason: &str,
+    ai: &desk_diagnose_core::proposal_review::provenance::AiDecisionReason,
 ) -> Result<(), ScheduleStoreError> {
     let owner = owner
         .parse::<i32>()
@@ -65,9 +65,7 @@ pub async fn decide_by_ai_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         &proposal.schedule_id,
         proposal.revision,
         approve,
-        &ProposalDecider::Ai {
-            reason: reason.to_owned(),
-        },
+        &ProposalDecider::Ai(ai.clone()),
     )
     .await?;
     Ok(())

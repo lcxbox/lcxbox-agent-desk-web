@@ -322,6 +322,7 @@ impl SignalAgentSessionStore {
                     &mut session,
                     directory_request_id,
                     *approve,
+                    None,
                 )?
             {
                 desk_assistant_data_store::decision_resume::insert_on(

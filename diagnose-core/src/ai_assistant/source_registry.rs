@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 pub const SOURCE_CONTRACT_REVISION: u64 = 1;
 
 mod snapshot;
+pub(crate) use snapshot::is_registered_status_control;
 pub use snapshot::{NativeInputLeafPolicy, NativeInputPolicyRegistration};
 mod derived;
 pub use derived::{

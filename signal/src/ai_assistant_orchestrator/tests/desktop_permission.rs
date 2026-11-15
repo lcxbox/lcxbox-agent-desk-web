@@ -1377,7 +1377,7 @@ pub(super) fn concrete_review_reply(body: &[u8], approve: bool) -> String {
         .find(|e| e["trust"] == "owner_instruction")
         .unwrap();
     let decision = serde_json::json!({"verdict":if approve {"approve"}else{"deny"},
-        "reason_code":"test_review","reason":"Synthetic review of this exact action",
+        "reason_code":if approve {"within_scope"} else {"needs_owner"},"reason":"Synthetic review of this exact action",
         "evidence_event_ids":[owner["event_id"]]});
     format!(
         "data: {}\n\ndata: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\ndata: {{\"choices\":[],\"usage\":{{\"prompt_tokens\":32,\"completion_tokens\":8}}}}\n\ndata: [DONE]\n\n",

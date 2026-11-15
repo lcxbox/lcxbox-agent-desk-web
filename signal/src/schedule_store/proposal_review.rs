@@ -9,7 +9,7 @@ pub(crate) async fn decide_by_ai_on(
     owner: &str,
     proposal: &ReviewedProposal,
     approve: bool,
-    reason: &str,
+    ai: &desk_diagnose_core::proposal_review::provenance::AiDecisionReason,
 ) -> Result<(), ScheduleStoreError> {
     desk_assistant_data_store::proposal_review::decide_by_ai_on(
         &super::session_host::SignalScheduleHost,
@@ -17,7 +17,7 @@ pub(crate) async fn decide_by_ai_on(
         owner,
         proposal,
         approve,
-        reason,
+        ai,
     )
     .await
 }

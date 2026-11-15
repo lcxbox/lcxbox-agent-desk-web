@@ -445,8 +445,9 @@ fn a_decision_is_projected_onto_the_original_call_for_the_model() {
         "status":"approved","version":2,"note":"This request keeps using the loaded version 1; new owner messages use version 2."})
     .to_string();
     let mut receipt = ChatMessage::system_event("decision", &text);
+    // A decision receipt derives from the proposing output.
     receipt.data_envelope = crate::model_message_labels::server_result_envelope(
-        session.conversation.last().unwrap().data_envelope.as_ref(),
+        session.conversation[1].data_envelope.as_ref(),
         "decision",
         &text,
         crate::model_message_labels::ServerResultSource::SkillProposalDecision,
@@ -454,7 +455,7 @@ fn a_decision_is_projected_onto_the_original_call_for_the_model() {
     .unwrap();
     session.conversation.push(receipt);
     let mut messages = session.conversation.clone();
-    project_review_results(&mut messages).unwrap();
+    crate::proposal_review::projection::project_decisions(&mut messages).unwrap();
     let projected: serde_json::Value = serde_json::from_str(&messages[2].text).unwrap();
     assert_eq!(projected["review_complete"], true);
     assert_eq!(projected["awaiting_decision"], false);
@@ -582,7 +583,7 @@ fn a_removal_decision_tells_the_model_what_happened() {
         .to_string();
         let mut receipt = ChatMessage::system_event("decision", &text);
         receipt.data_envelope = crate::model_message_labels::server_result_envelope(
-            session.conversation.last().unwrap().data_envelope.as_ref(),
+            session.conversation[1].data_envelope.as_ref(),
             "decision",
             &text,
             crate::model_message_labels::ServerResultSource::SkillProposalDecision,
@@ -590,7 +591,7 @@ fn a_removal_decision_tells_the_model_what_happened() {
         .unwrap();
         session.conversation.push(receipt);
         let mut messages = session.conversation.clone();
-        project_review_results(&mut messages).unwrap();
+        crate::proposal_review::projection::project_decisions(&mut messages).unwrap();
         let projected: serde_json::Value = serde_json::from_str(&messages[2].text).unwrap();
         let message = projected["message"].as_str().unwrap();
         assert!(message.contains(expected), "{kind} {status}: {message}");

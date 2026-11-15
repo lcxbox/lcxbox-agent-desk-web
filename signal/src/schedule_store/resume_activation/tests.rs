@@ -415,9 +415,16 @@ async fn exercise_live_review(selectable: bool) {
         let decider = if approve {
             ProposalDecider::Owner
         } else {
-            ProposalDecider::Ai {
-                reason: "Not what the owner asked for".into(),
-            }
+            ProposalDecider::Ai(
+                desk_diagnose_core::proposal_review::provenance::AiDecisionReason {
+                    reason: "Not what the owner asked for".into(),
+                    reason_code: "owner_not_requested".into(),
+                    provenance: desk_diagnose_core::proposal_review::provenance::ReviewProvenance {
+                        verifiable: false,
+                        evidence: Vec::new(),
+                    },
+                },
+            )
         };
         let decided = store
             .decide_proposal(1, &task.schedule_id, task.revision, approve, decider)
@@ -426,6 +433,20 @@ async fn exercise_live_review(selectable: bool) {
         assert_eq!(decided.status, if approve { "active" } else { "deleted" });
         let session = stored_session(&store, &session.conversation_id).await;
         assert_eq!(session.conversation.len(), before.conversation.len() + 1);
+        // An owner decision is fixed server text and registers; an AI reason
+        // without verified provenance keeps a data label and its code.
+        let receipt = session.conversation.last().unwrap();
+        let label = receipt.data_envelope.as_ref().unwrap();
+        if approve {
+            assert!(label.envelope_id.starts_with("status-result-"));
+        } else {
+            assert!(label.envelope_id.starts_with("data-status-"));
+            assert!(
+                receipt
+                    .text
+                    .contains("\"reason_code\":\"owner_not_requested\"")
+            );
+        }
         // The pause remains until the decision-resume claim takes it.
         assert_eq!(session.decision_pause, before.decision_pause);
         let resume = desk_assistant_data_store::entity::agent_decision_resume::Entity::find()

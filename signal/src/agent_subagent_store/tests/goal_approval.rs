@@ -210,7 +210,7 @@ async fn goal_approval_queues_once_without_device_permissions() {
     let decision = ApprovalReviewDecision {
         candidate_id: candidate.candidate_id.clone(),
         verdict: ApprovalVerdict::Approve,
-        reason_code: "owner_request".into(),
+        reason_code: "within_scope".into(),
         reason: "The goal matches the owner's report request".into(),
         evidence_event_ids: vec!["goal-user".into()],
     };
@@ -390,7 +390,7 @@ async fn human_decision_wins_over_a_late_ai_approval() {
     let decision = ApprovalReviewDecision {
         candidate_id: candidate.candidate_id.clone(),
         verdict: ApprovalVerdict::Approve,
-        reason_code: "owner_request".into(),
+        reason_code: "within_scope".into(),
         reason: "Matches".into(),
         evidence_event_ids: vec!["goal-user".into()],
     };
@@ -443,7 +443,7 @@ async fn closing_automatic_approval_returns_the_proposal_to_manual_review() {
     let decision = ApprovalReviewDecision {
         candidate_id: candidate.candidate_id.clone(),
         verdict: ApprovalVerdict::Approve,
-        reason_code: "owner_request".into(),
+        reason_code: "within_scope".into(),
         reason: "Matches".into(),
         evidence_event_ids: vec!["goal-user".into()],
     };

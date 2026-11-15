@@ -204,6 +204,62 @@ pub fn tool_receipt_envelope(
     }
 }
 
+pub(crate) const REVIEW_RESULT_PREFIX: &str = "review-result-";
+pub(crate) const REVIEW_RESULT_PROJECTION: &str = "review-result";
+
+/// Label a decision receipt, or its request projection, whose body carries
+/// an AI reviewer's reason. Its parents are the proposing model output and
+/// every evidence the reviewer saw, so the reason keeps all of their
+/// constraints; the registry accepts it only with every parent in the same
+/// input. The id binds the source, call, parents and body.
+pub fn server_review_envelope(
+    parents: &[&DataEnvelope],
+    call_id: &str,
+    content: &str,
+    source: ServerResultSource,
+) -> Result<DataEnvelope, AgentError> {
+    if !source.reviewed() || parents.is_empty() {
+        return Err(invalid_label());
+    }
+    for parent in parents {
+        parent.validate().map_err(|_| invalid_label())?;
+    }
+    let MergedInputs {
+        source_envelope_ids,
+        sensitivity,
+        retention,
+        allowed,
+        ..
+    } = merge_inputs(parents)?;
+    let identity = serde_json::to_vec(&(
+        source.as_str(),
+        call_id,
+        &source_envelope_ids,
+        format!("{:x}", Sha256::digest(content.as_bytes())),
+    ))
+    .map_err(|_| invalid_label())?;
+    let envelope = DataEnvelope {
+        schema_version: DATA_ENVELOPE_SCHEMA_VERSION,
+        envelope_id: format!("{REVIEW_RESULT_PREFIX}{:x}", Sha256::digest(identity)),
+        content: ContentRef::Projection {
+            projection: REVIEW_RESULT_PROJECTION.into(),
+            size_bytes: content.len() as u64,
+            media_type: "text/plain".into(),
+        },
+        provenance: DataProvenance {
+            source_provider_id: crate::dynamic_run::RUN_CONTROL_PROVIDER_ID.into(),
+            source_tool_name: source.as_str().into(),
+            source_object_id: None,
+            source_envelope_ids,
+        },
+        sensitivity,
+        allowed_destinations: allowed.into_iter().collect(),
+        retention,
+    };
+    envelope.validate().map_err(|_| invalid_label())?;
+    Ok(envelope)
+}
+
 /// Envelope id and blob id prefixes of one status label shape.
 struct StatusShape {
     envelope: &'static str,
@@ -424,20 +480,18 @@ pub(crate) fn retained_assistant_data_result(
     )
 }
 
-fn source_result_identity(
-    inputs: &[&DataEnvelope],
-    call_id: &str,
-    size_bytes: u64,
-    provider: &str,
-    tool_name: &str,
-    object: Option<&str>,
-) -> Result<Option<DataEnvelope>, AgentError> {
-    if inputs.is_empty() {
-        return Ok(None);
-    }
-    for input in inputs {
-        input.validate().map_err(|_| invalid_label())?;
-    }
+/// The combined constraints of several inputs: their sorted distinct ids, the
+/// highest sensitivity, the most restrictive retention (counting ephemeral
+/// observation deadlines) and the destinations every input allows.
+struct MergedInputs<'a> {
+    by_id: std::collections::BTreeMap<&'a str, &'a DataEnvelope>,
+    source_envelope_ids: Vec<String>,
+    sensitivity: Sensitivity,
+    retention: RetentionBoundary,
+    allowed: BTreeSet<DestinationIdentity>,
+}
+
+fn merge_inputs<'a>(inputs: &[&'a DataEnvelope]) -> Result<MergedInputs<'a>, AgentError> {
     let mut by_id = std::collections::BTreeMap::new();
     for input in inputs {
         if let Some(previous) = by_id.insert(input.envelope_id.as_str(), *input)
@@ -493,6 +547,36 @@ fn source_result_identity(
             .collect::<BTreeSet<_>>();
         allowed = allowed.intersection(&destinations).cloned().collect();
     }
+    Ok(MergedInputs {
+        by_id,
+        source_envelope_ids,
+        sensitivity,
+        retention,
+        allowed,
+    })
+}
+
+fn source_result_identity(
+    inputs: &[&DataEnvelope],
+    call_id: &str,
+    size_bytes: u64,
+    provider: &str,
+    tool_name: &str,
+    object: Option<&str>,
+) -> Result<Option<DataEnvelope>, AgentError> {
+    if inputs.is_empty() {
+        return Ok(None);
+    }
+    for input in inputs {
+        input.validate().map_err(|_| invalid_label())?;
+    }
+    let MergedInputs {
+        by_id,
+        source_envelope_ids,
+        sensitivity,
+        retention,
+        allowed,
+    } = merge_inputs(inputs)?;
     let identity = serde_json::to_vec(&(
         provider,
         tool_name,

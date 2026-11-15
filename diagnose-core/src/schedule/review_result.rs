@@ -5,7 +5,7 @@ use crate::{
     dynamic_run::RUN_CONTROL_PROVIDER_ID,
     model_message_labels::ServerResultSource,
 };
-use desk_agent_protocol::{AgentError, data_lineage::DataEnvelope};
+use desk_agent_protocol::data_lineage::DataEnvelope;
 use serde_json::Value;
 
 pub(crate) fn labelled(message: &ChatMessage, role: ChatRole, source: &str) -> bool {
@@ -54,7 +54,11 @@ pub fn activation_envelope<'a>(
         .and_then(|message| message.data_envelope.as_ref())
 }
 
-pub fn project(messages: &mut [ChatMessage]) -> Result<(), AgentError> {
+/// Decided fresh-task proposals: each pending result with its decision.
+pub(crate) fn decided_pairs(
+    messages: &[ChatMessage],
+) -> Vec<crate::proposal_review::projection::DecidedPair> {
+    let mut pairs = Vec::new();
     for index in 0..messages.len() {
         let draft = &messages[index];
         if !labelled(
@@ -93,74 +97,30 @@ pub fn project(messages: &mut [ChatMessage]) -> Result<(), AgentError> {
                     value["event"] == "scheduled_task_activated" && value["state"] == "active";
                 let rejected =
                     value["event"] == "scheduled_task_rejected" && value["state"] == "deleted";
-                (value["schedule_id"].as_str() == Some(id) && (approved || rejected))
-                    .then_some((at, value))
+                (value["schedule_id"].as_str() == Some(id) && (approved || rejected)).then_some(at)
             });
-        let Some((receipt, mut value)) = decision else {
-            continue;
-        };
-        let approved = value["event"] == "scheduled_task_activated";
-        value["kind"] = Value::String("fresh_task".into());
-        value["awaiting_decision"] = Value::Bool(false);
-        value["review_complete"] = Value::Bool(true);
-        value["message"] = Value::String(if approved {
-            "This proposal has been approved and scheduling is enabled. Report success using the returned execution time; do not ask for approval again."
-        } else {
-            "This proposal was rejected. It is not scheduled. Report the rejection; do not ask for confirmation again or recreate it without a new user request."
-        }.into());
-        label_decided(messages, index, receipt, value.to_string())?;
+        if let Some(receipt) = decision {
+            pairs.push(crate::proposal_review::projection::DecidedPair {
+                draft: index,
+                receipt,
+                finish: finish_decided,
+            });
+        }
     }
-    Ok(())
+    pairs
 }
 
-/// Replaces the pending draft at `draft` with the decided `text` for one
-/// model request and relabels both records for it. The projection removes
-/// the draft's own label from the model input, so the result and the decision
-/// receipt both derive from the draft's parent, which stays an input of the
-/// same request. Labels never gain a destination or extend retention: each
-/// takes the draft parent's, which the stored draft and receipt inherit.
-pub(crate) fn label_decided(
-    messages: &mut [ChatMessage],
-    draft: usize,
-    receipt: usize,
-    text: String,
-) -> Result<(), AgentError> {
-    use crate::model_message_labels::{
-        ServerResultSource, invalid_label, server_projection_envelope,
-    };
-    let parent = messages[draft].data_envelope.as_ref().and_then(|label| {
-        let [id] = label.provenance.source_envelope_ids.as_slice() else {
-            return None;
-        };
-        messages[..draft].iter().rev().find_map(|message| {
-            message
-                .data_envelope
-                .as_ref()
-                .filter(|p| &p.envelope_id == id)
-        })
-    });
-    let parent = parent.or(messages[draft].data_envelope.as_ref()).cloned();
-    let decision = &messages[receipt];
-    let source = decision
-        .data_envelope
-        .as_ref()
-        .and_then(|label| ServerResultSource::parse(&label.provenance.source_tool_name))
-        .ok_or_else(invalid_label)?;
-    let receipt_label = server_projection_envelope(
-        parent.as_ref(),
-        &decision.message_id,
-        &decision.text,
-        source,
-    )?;
-    let call_id = messages[draft]
-        .tool_call_id
-        .clone()
-        .ok_or_else(invalid_label)?;
-    let draft_label = server_projection_envelope(parent.as_ref(), &call_id, &text, source)?;
-    messages[receipt].data_envelope = receipt_label;
-    messages[draft].text = text;
-    messages[draft].data_envelope = draft_label;
-    Ok(())
+/// How a decided fresh-task proposal reads in place of its pending result.
+fn finish_decided(value: &mut Value) {
+    let approved = value["event"] == "scheduled_task_activated";
+    value["kind"] = Value::String("fresh_task".into());
+    value["awaiting_decision"] = Value::Bool(false);
+    value["review_complete"] = Value::Bool(true);
+    value["message"] = Value::String(if approved {
+        "This proposal has been approved and scheduling is enabled. Report success using the returned execution time; do not ask for approval again."
+    } else {
+        "This proposal was rejected. It is not scheduled. Report the rejection; do not ask for confirmation again or recreate it without a new user request."
+    }.into());
 }
 
 #[cfg(test)]
@@ -195,7 +155,7 @@ mod tests {
         let text = serde_json::json!({"schedule_id":"timer", "event":if approved {"scheduled_task_activated"} else {"scheduled_task_rejected"}, "decided_by":"approval_ai", "state":if approved {"active"} else {"deleted"}, "next_run_at_utc_ms":12345}).to_string();
         let mut receipt = ChatMessage::system_event("receipt", &text);
         receipt.data_envelope = server_result_envelope(
-            draft.data_envelope.as_ref(),
+            user.data_envelope.as_ref(),
             "receipt",
             &text,
             crate::model_message_labels::ServerResultSource::ScheduleActivation,
@@ -208,7 +168,7 @@ mod tests {
         for approved in [true, false] {
             let original = records(approved);
             let mut projected = original.clone();
-            project(&mut projected).unwrap();
+            crate::proposal_review::projection::project_decisions(&mut projected).unwrap();
             let result: Value = serde_json::from_str(&projected[1].text).unwrap();
             assert_eq!(result["state"], if approved { "active" } else { "deleted" });
             assert_eq!(result["awaiting_decision"], false);
@@ -236,7 +196,7 @@ mod tests {
                 assert_eq!(label.retention, draft.retention);
             }
             let once = projected.clone();
-            project(&mut projected).unwrap();
+            crate::proposal_review::projection::project_decisions(&mut projected).unwrap();
             assert_eq!(projected, once);
         }
     }
@@ -253,7 +213,7 @@ mod tests {
                 _ => messages[2].text = messages[2].text.replace("timer", "other"),
             }
             let original = messages.clone();
-            project(&mut messages).unwrap();
+            crate::proposal_review::projection::project_decisions(&mut messages).unwrap();
             assert_eq!(messages, original);
         }
     }

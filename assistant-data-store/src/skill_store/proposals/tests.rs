@@ -331,9 +331,7 @@ async fn an_approved_proposal_becomes_an_ai_authored_version_and_tells_the_turn(
         &db,
         &waiting,
         true,
-        SkillDecider::Ai {
-            reason: "Matches the owner's request".into(),
-        },
+        ai_decider("Matches the owner's request"),
     )
     .await;
     assert_eq!(row.status, "approved");
@@ -535,15 +533,7 @@ async fn a_moved_base_conflicts_and_every_final_state_releases_its_slot() {
     let (_, rejected) = propose(&db, "call-3", args("other", "x"), true)
         .await
         .unwrap();
-    let (row, _) = decide(
-        &db,
-        &rejected,
-        false,
-        SkillDecider::Ai {
-            reason: "Relays a web page".into(),
-        },
-    )
-    .await;
+    let (row, _) = decide(&db, &rejected, false, ai_decider("Relays a web page")).await;
     assert_eq!(row.status, "rejected");
     assert_eq!(row.decision_reason.as_deref(), Some("Relays a web page"));
     assert_eq!(pending_count(&db).await, 0);
@@ -752,15 +742,7 @@ async fn an_assistant_written_skill_is_disabled_then_deleted_after_approval() {
         .unwrap()
         .unwrap();
     assert_eq!(review.kind, SkillProposalKind::Disable);
-    let (row, host) = decide(
-        &db,
-        &waiting,
-        true,
-        SkillDecider::Ai {
-            reason: "The owner asked".into(),
-        },
-    )
-    .await;
+    let (row, host) = decide(&db, &waiting, true, ai_decider("The owner asked")).await;
     assert_eq!(row.status, "approved");
     assert_eq!(pending_count(&db).await, 0);
     let disabled = current_skill(&db, "disk-report").await.unwrap();
@@ -910,4 +892,18 @@ async fn a_changed_skill_conflicts_its_removal_and_a_rejection_keeps_it() {
     );
     assert_eq!(decision_receipt(&host)["status"], "conflicted");
     assert_eq!(pending_count(&db).await, 0);
+}
+
+/// An AI decider whose reason has no verified provenance.
+fn ai_decider(reason: &str) -> SkillDecider {
+    SkillDecider::Ai(
+        desk_diagnose_core::proposal_review::provenance::AiDecisionReason {
+            reason: reason.into(),
+            reason_code: "within_scope".into(),
+            provenance: desk_diagnose_core::proposal_review::provenance::ReviewProvenance {
+                verifiable: false,
+                evidence: Vec::new(),
+            },
+        },
+    )
 }

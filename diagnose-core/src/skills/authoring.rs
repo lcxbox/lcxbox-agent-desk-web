@@ -627,17 +627,20 @@ pub fn validate_current(
     Ok(())
 }
 
-/// Model-only projection of a decided skill proposal onto its original tool
-/// call. The stored receipts stay unchanged.
-pub fn project_review_results(messages: &mut [crate::chat::ChatMessage]) -> Result<(), AgentError> {
+/// Decided skill proposals: each pending result with its decision.
+pub(crate) fn decided_pairs(
+    messages: &[crate::chat::ChatMessage],
+) -> Vec<crate::proposal_review::projection::DecidedPair> {
+    use crate::model_message_labels::ServerResultSource;
     use crate::schedule::review_result::labelled;
     use serde_json::Value;
+    let mut pairs = Vec::new();
     for index in 0..messages.len() {
         let draft = &messages[index];
         if !labelled(
             draft,
             ChatRole::Tool,
-            crate::model_message_labels::ServerResultSource::SkillProposal.as_str(),
+            ServerResultSource::SkillProposal.as_str(),
         ) {
             continue;
         }
@@ -661,36 +664,44 @@ pub fn project_review_results(messages: &mut [crate::chat::ChatMessage]) -> Resu
                 if !labelled(
                     message,
                     ChatRole::SystemEvent,
-                    crate::model_message_labels::ServerResultSource::SkillProposalDecision.as_str(),
+                    ServerResultSource::SkillProposalDecision.as_str(),
                 ) {
                     return None;
                 }
                 let value = serde_json::from_str::<Value>(&message.text).ok()?;
                 (value["proposal_id"].as_str() == Some(id)
                     && value["event"] == crate::proposal_review::SKILL_DECIDED_EVENT)
-                    .then_some((at, value))
+                    .then_some(at)
             });
-        let Some((receipt, mut value)) = outcome else {
-            continue;
-        };
-        value["awaiting_decision"] = Value::Bool(false);
-        value["review_complete"] = Value::Bool(value["status"] != "pending");
-        let removal = matches!(value["kind"].as_str(), Some("disable" | "delete"));
-        value["message"] = Value::String(
-            match (value["status"].as_str(), value["kind"].as_str()) {
-                (Some("approved"), Some("disable")) => "The skill was disabled. It no longer appears in the skill catalogue; content already loaded in this request stays available as reference. The owner can enable it again in My skills. Report it once; do not propose it again.",
-                (Some("approved"), Some("delete")) => "The skill and its versions were deleted and are no longer available. Report it once; do not propose it again.",
-                (Some("approved"), _) => "This skill proposal was approved and saved as a personal skill. Report it once; do not propose it again.",
-                (Some("conflicted"), _) if removal => "The skill changed, was deleted, or no longer meets the assistant-written condition, so nothing was changed. Tell the owner, who can ask again.",
-                (Some("conflicted"), _) => "This skill proposal could not be saved because the skill changed, its name is taken or the skill limit is reached. Nothing was saved; tell the owner, who can ask again.",
-                _ if removal => "This skill proposal was rejected. The skill was not changed; do not propose it again without a new owner request.",
-                _ => "This skill proposal was rejected. Nothing was saved; do not propose it again without a new owner request.",
-            }
-            .into(),
-        );
-        crate::schedule::review_result::label_decided(messages, index, receipt, value.to_string())?;
+        if let Some(receipt) = outcome {
+            pairs.push(crate::proposal_review::projection::DecidedPair {
+                draft: index,
+                receipt,
+                finish: finish_decided,
+            });
+        }
     }
-    Ok(())
+    pairs
+}
+
+/// How a decided skill proposal reads in place of its pending result.
+fn finish_decided(value: &mut serde_json::Value) {
+    use serde_json::Value;
+    value["awaiting_decision"] = Value::Bool(false);
+    value["review_complete"] = Value::Bool(value["status"] != "pending");
+    let removal = matches!(value["kind"].as_str(), Some("disable" | "delete"));
+    value["message"] = Value::String(
+        match (value["status"].as_str(), value["kind"].as_str()) {
+            (Some("approved"), Some("disable")) => "The skill was disabled. It no longer appears in the skill catalogue; content already loaded in this request stays available as reference. The owner can enable it again in My skills. Report it once; do not propose it again.",
+            (Some("approved"), Some("delete")) => "The skill and its versions were deleted and are no longer available. Report it once; do not propose it again.",
+            (Some("approved"), _) => "This skill proposal was approved and saved as a personal skill. Report it once; do not propose it again.",
+            (Some("conflicted"), _) if removal => "The skill changed, was deleted, or no longer meets the assistant-written condition, so nothing was changed. Tell the owner, who can ask again.",
+            (Some("conflicted"), _) => "This skill proposal could not be saved because the skill changed, its name is taken or the skill limit is reached. Nothing was saved; tell the owner, who can ask again.",
+            _ if removal => "This skill proposal was rejected. The skill was not changed; do not propose it again without a new owner request.",
+            _ => "This skill proposal was rejected. Nothing was saved; do not propose it again without a new owner request.",
+        }
+        .into(),
+    );
 }
 
 #[cfg(test)]

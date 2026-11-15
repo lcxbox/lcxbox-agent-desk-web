@@ -1099,7 +1099,16 @@ pub async fn settle_permission_review(
     if changed.rows_affected != 1 {
         return Err(invalid());
     }
-    commit_directory_on(&txn, &row, status, decision, directory_failure, now_unix_ms).await?;
+    commit_directory_on(
+        &txn,
+        &row,
+        status,
+        decision,
+        Some(candidate),
+        directory_failure,
+        now_unix_ms,
+    )
+    .await?;
     commit_goal_on(&txn, &row, status, decision, directory_failure, now_unix_ms).await?;
     // Only a final AI verdict decides a proposal; otherwise the owner decides it.
     if let Some(proposal) = reviewed_proposal
@@ -1114,7 +1123,9 @@ pub async fn settle_permission_review(
             &candidate.owner_id,
             &proposal,
             status == APPROVAL_REVIEW_STATUS_APPROVED,
-            &review.reason,
+            &desk_diagnose_core::proposal_review::provenance::AiDecisionReason::from_review(
+                review, candidate,
+            ),
         )
         .await
         .map_err(schedule_error)?;
@@ -1250,7 +1261,16 @@ pub async fn expire_review_leases(
         if changed.rows_affected != 1 {
             return Err(invalid());
         }
-        commit_directory_on(&txn, &row, status, None, directory_failure, now_unix_ms).await?;
+        commit_directory_on(
+            &txn,
+            &row,
+            status,
+            None,
+            None,
+            directory_failure,
+            now_unix_ms,
+        )
+        .await?;
         commit_goal_on(&txn, &row, status, None, directory_failure, now_unix_ms).await?;
         txn.commit().await?;
         crate::approval_metrics::committed(db, &row.candidate_id);
@@ -2326,6 +2346,7 @@ async fn commit_directory_on(
     row: &review_row::Model,
     status: &str,
     review: Option<&desk_diagnose_core::approval_review::ApprovalReviewDecision>,
+    candidate: Option<&desk_diagnose_core::approval_review::ApprovalReviewCandidate>,
     failure_reason: Option<desk_diagnose_core::approval_observation::ReviewReason>,
     now: u64,
 ) -> Result<(), DbErr> {
@@ -2355,8 +2376,14 @@ async fn commit_directory_on(
     let approved = status == APPROVAL_REVIEW_STATUS_APPROVED;
     let model_decision =
         approved || status == desk_diagnose_core::approval_review::APPROVAL_REVIEW_STATUS_DENIED;
+    let mut ai = None;
     let decision = if model_decision {
         let review = review.ok_or_else(|| invalid())?;
+        ai = candidate.map(|candidate| {
+            desk_diagnose_core::proposal_review::provenance::AiDecisionReason::from_review(
+                review, candidate,
+            )
+        });
         DirectoryDecision {
             source: PermissionDecisionSource::AutomaticReview {
                 failures: vec![],
@@ -2396,11 +2423,13 @@ async fn commit_directory_on(
         &row.source_id,
         approved,
         decision,
+        ai.as_ref(),
         now,
     )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn save_directory_decision_on(
     txn: &DatabaseTransaction,
     session_row: &agent_session::Model,
@@ -2408,6 +2437,7 @@ async fn save_directory_decision_on(
     request_id: &str,
     approved: bool,
     decision: desk_diagnose_core::directory_review::DirectoryDecision,
+    ai: Option<&desk_diagnose_core::proposal_review::provenance::AiDecisionReason>,
     now: u64,
 ) -> Result<(), DbErr> {
     use desk_diagnose_core::file_scope::transaction::FILE_SCOPE_EVENT_KIND;
@@ -2416,8 +2446,10 @@ async fn save_directory_decision_on(
     )
     .map_err(|_| invalid())?;
     // The paused turn sees the decision and resumes its requirement.
-    if desk_diagnose_core::directory_tools::record_paused_decision(&mut next, request_id, approved)
-        .map_err(|_| invalid())?
+    if desk_diagnose_core::directory_tools::record_paused_decision(
+        &mut next, request_id, approved, ai,
+    )
+    .map_err(|_| invalid())?
     {
         desk_assistant_data_store::decision_resume::insert_on(
             txn,
@@ -2547,6 +2579,7 @@ pub async fn deny_directory_unavailable(
         request_id,
         false,
         decision,
+        None,
         now,
     )
     .await?;

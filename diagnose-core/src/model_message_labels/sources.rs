@@ -96,6 +96,7 @@ server_result_sources! {
     ScheduledTaskInput => "scheduled_task_input",
     SkillProposal => "skill_proposal",
     SkillProposalDecision => "skill_proposal_decision",
+    DirectoryDecision => "directory_decision",
     // Subagent stops.
     OwnerStopResultUnavailable => "owner_stop_result_unavailable",
     PreviousRequestEnded => "previous_request_ended",
@@ -130,6 +131,15 @@ impl ServerResultSource {
             .copied()
             .find(|source| source.as_str() == name)
     }
+
+    /// Decision receipts that may carry an AI reviewer's reason, and so may
+    /// use the multi-parent review label shape.
+    pub const fn reviewed(self) -> bool {
+        matches!(
+            self,
+            Self::SkillProposalDecision | Self::ScheduleActivation | Self::DirectoryDecision
+        )
+    }
 }
 
 /// Device or Provider execution output, approval rejections and host errors.
@@ -142,8 +152,6 @@ pub const REUSABLE_PROVIDER_RESULT_PROJECTION: &str = "reusable_provider_result_
 pub const FREEZE_ACTION_RESULT_ORIGIN: &str = "freeze_action_result_origin";
 /// Device-side directory resolution errors.
 pub const DIRECTORY_RESOLUTION_FAILED: &str = "directory_resolution_failed";
-/// A directory decision with its reviewer reason.
-pub const DIRECTORY_DECISION: &str = "directory_decision";
 /// Goal text written by the model, labelled under the owner's message.
 pub const GOAL_ORIGINAL_PROJECTION: &str = "goal_original_projection";
 pub const GOAL_CLARIFICATION_PROJECTION: &str = "goal_clarification_projection";
@@ -193,7 +201,6 @@ mod tests {
             REUSABLE_PROVIDER_RESULT_PROJECTION,
             FREEZE_ACTION_RESULT_ORIGIN,
             DIRECTORY_RESOLUTION_FAILED,
-            DIRECTORY_DECISION,
             GOAL_ORIGINAL_PROJECTION,
             GOAL_CLARIFICATION_PROJECTION,
             GOAL_STATE_PROJECTION,

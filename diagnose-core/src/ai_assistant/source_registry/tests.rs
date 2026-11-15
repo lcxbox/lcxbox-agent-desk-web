@@ -934,15 +934,14 @@ fn decided_review_projections_remain_registered_controls() {
         .unwrap();
         let mut receipt = ChatMessage::system_event("receipt", receipt_text.to_string());
         receipt.data_envelope = server_result_envelope(
-            draft.data_envelope.as_ref(),
+            owner.data_envelope.as_ref(),
             "receipt",
             &receipt.text,
             receipt_tool,
         )
         .unwrap();
         let mut messages = vec![owner.clone(), draft, receipt];
-        crate::schedule::review_result::project(&mut messages).unwrap();
-        crate::skills::authoring::project_review_results(&mut messages).unwrap();
+        crate::proposal_review::projection::project_decisions(&mut messages).unwrap();
         assert!(
             messages[1].text.contains("\"awaiting_decision\":false"),
             "{draft_tool:?}"
@@ -1003,7 +1002,6 @@ fn data_results_never_register_whatever_their_name() {
         sources::REUSABLE_PROVIDER_RESULT_PROJECTION,
         sources::FREEZE_ACTION_RESULT_ORIGIN,
         sources::DIRECTORY_RESOLUTION_FAILED,
-        sources::DIRECTORY_DECISION,
         sources::GOAL_ORIGINAL_PROJECTION,
         sources::GOAL_CLARIFICATION_PROJECTION,
         sources::GOAL_STATE_PROJECTION,
@@ -1025,4 +1023,62 @@ fn data_results_never_register_whatever_their_name() {
             assert!(registration.leaves[1].is_none(), "{name}");
         }
     }
+}
+
+#[test]
+fn review_receipts_register_only_with_every_parent_present_and_keep_their_policies() {
+    use crate::model_message_labels::{ServerResultSource as Source, server_review_envelope};
+    let owner = user();
+    let other = user_with_id("other");
+    let receipt = server_review_envelope(
+        &[&owner, &other],
+        "receipt",
+        r#"{"status":"approved","reason":"The owner asked for it."}"#,
+        Source::SkillProposalDecision,
+    )
+    .unwrap();
+    let capture = |inputs: Vec<DataEnvelope>| {
+        let original = snapshot(inputs);
+        let registration =
+            NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1).unwrap();
+        (original, registration)
+    };
+    let (original, registration) = capture(vec![owner.clone(), other.clone(), receipt.clone()]);
+    assert_eq!(
+        registration.leaves[2].as_ref().map(|leaf| leaf.contract),
+        Some(RegisteredSourceContract::NativeControl)
+    );
+    assert!(
+        registration
+            .complete_leaf_text_policy(&original)
+            .unwrap()
+            .unwrap()
+            .history_retention_allowed
+    );
+    // A missing parent leaves the receipt unregistered.
+    let (_, registration) = capture(vec![owner.clone(), receipt.clone()]);
+    assert!(registration.leaves[1].is_none());
+    // Only decision sources may use this shape.
+    let mut renamed = receipt.clone();
+    renamed.provenance.source_tool_name = Source::SkillProposal.as_str().into();
+    let (_, registration) = capture(vec![owner.clone(), other.clone(), renamed]);
+    assert!(registration.leaves[2].is_none());
+    assert!(server_review_envelope(&[&owner], "receipt", "x", Source::SkillProposal).is_err());
+    // A reason drawn from private evidence never becomes retainable.
+    let mut private = provider_result(SYSTEM_LOG_CAPABILITY_ID);
+    private.allowed_destinations.push(destination());
+    let receipt = server_review_envelope(
+        &[&owner, &private],
+        "receipt",
+        "x",
+        Source::DirectoryDecision,
+    )
+    .unwrap();
+    let (original, registration) = capture(vec![owner, private, receipt]);
+    assert!(
+        registration
+            .complete_leaf_text_policy(&original)
+            .unwrap()
+            .is_none_or(|policy| !policy.history_retention_allowed)
+    );
 }

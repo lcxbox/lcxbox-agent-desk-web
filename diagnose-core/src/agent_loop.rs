@@ -1787,9 +1787,7 @@ fn assemble_context_request(
         }
     }
     history.extend(view.messages.iter().cloned());
-    crate::schedule::review_result::project(&mut history)?;
-    crate::skills::authoring::project_review_results(&mut history)?;
-    crate::directory_tools::project_decisions(&mut history)?;
+    crate::proposal_review::projection::project_decisions(&mut history)?;
     let mut at = usize::from(
         request
             .messages
