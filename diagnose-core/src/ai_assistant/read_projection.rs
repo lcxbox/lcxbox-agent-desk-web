@@ -201,7 +201,7 @@ impl ReadProjectionProof {
                 }
             }
             ReadProjectionKind::CurrentMemories => {
-                if self.tool_name != "current_memories"
+                if self.tool_name != crate::model_message_labels::sources::CURRENT_MEMORIES
                     || self.producer_message_id.is_some()
                     || self.producer_output_envelope_id.is_some()
                     || self.tool_call_id.is_some()

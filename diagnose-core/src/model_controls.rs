@@ -82,10 +82,10 @@ impl FrozenModelControls {
             let source = label.provenance.source_tool_name.as_str();
             if message.role == ChatRole::SystemEvent {
                 let reports = match source {
-                    "delegation_state" => {
+                    crate::model_message_labels::sources::DELEGATION_STATE => {
                         value.pointer("/runtime_delegation_state/pending_reports")
                     }
-                    "subagent_notification"
+                    crate::model_message_labels::sources::SUBAGENT_NOTIFICATION
                         if session.has_workbench_report_notification()
                             && session
                                 .ready_subagent_notification
@@ -115,20 +115,24 @@ impl FrozenModelControls {
                 }
             }
             let (tasks, priority, schedule) = match source {
-                "delegation_state" if message.role == ChatRole::SystemEvent => (
-                    value
-                        .pointer("/runtime_delegation_state/tasks")
-                        .and_then(Value::as_array)
-                        .map(|items| {
-                            items
-                                .iter()
-                                .map(|item| item.get("task").unwrap_or(item))
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default(),
-                    2,
-                    false,
-                ),
+                crate::model_message_labels::sources::DELEGATION_STATE
+                    if message.role == ChatRole::SystemEvent =>
+                {
+                    (
+                        value
+                            .pointer("/runtime_delegation_state/tasks")
+                            .and_then(Value::as_array)
+                            .map(|items| {
+                                items
+                                    .iter()
+                                    .map(|item| item.get("task").unwrap_or(item))
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default(),
+                        2,
+                        false,
+                    )
+                }
                 crate::subagent::tools::SPAWN | crate::subagent::tools::STATUS
                     if message.role == ChatRole::Tool =>
                 {
@@ -142,14 +146,21 @@ impl FrozenModelControls {
                     1,
                     false,
                 ),
-                "schedule_query" if message.role == ChatRole::Tool => (
-                    value["tasks"]
-                        .as_array()
-                        .map(|items| items.iter().collect())
-                        .unwrap_or_default(),
-                    1,
-                    true,
-                ),
+                source
+                    if source
+                        == crate::model_message_labels::ServerResultSource::ScheduleQuery
+                            .as_str()
+                        && message.role == ChatRole::Tool =>
+                {
+                    (
+                        value["tasks"]
+                            .as_array()
+                            .map(|items| items.iter().collect())
+                            .unwrap_or_default(),
+                        1,
+                        true,
+                    )
+                }
                 _ => continue,
             };
             for task in tasks {
@@ -414,7 +425,7 @@ pub(crate) fn project_message(message: &mut ChatMessage) {
         }
     }
     match label.provenance.source_tool_name.as_str() {
-        "delegation_state" => {
+        crate::model_message_labels::sources::DELEGATION_STATE => {
             if let Some(items) = value
                 .pointer_mut("/runtime_delegation_state/tasks")
                 .and_then(Value::as_array_mut)
@@ -447,7 +458,7 @@ pub(crate) fn project_message(message: &mut ChatMessage) {
                 }
             }
         }
-        "schedule_query" => {
+        name if name == crate::model_message_labels::ServerResultSource::ScheduleQuery.as_str() => {
             if let Some(items) = value["tasks"].as_array_mut() {
                 for item in items {
                     if let Some(object) = item.as_object_mut() {

@@ -272,7 +272,11 @@ pub fn project_decisions(messages: &mut [crate::chat::ChatMessage]) -> Result<()
     use crate::schedule::review_result::labelled;
     for index in 0..messages.len() {
         let pending = &messages[index];
-        if !labelled(pending, ChatRole::Tool, "directory_proposal_pending") {
+        if !labelled(
+            pending,
+            ChatRole::Tool,
+            crate::model_message_labels::ServerResultSource::DirectoryProposalPending.as_str(),
+        ) {
             continue;
         }
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&pending.text) else {
@@ -285,9 +289,12 @@ pub fn project_decisions(messages: &mut [crate::chat::ChatMessage]) -> Result<()
             continue;
         };
         let decided = messages[index + 1..].iter().find(|message| {
-            labelled(message, ChatRole::SystemEvent, "directory_decision")
-                && serde_json::from_str::<serde_json::Value>(&message.text)
-                    .is_ok_and(|decision| decision["directory_request_id"].as_str() == Some(id))
+            labelled(
+                message,
+                ChatRole::SystemEvent,
+                crate::model_message_labels::sources::DIRECTORY_DECISION,
+            ) && serde_json::from_str::<serde_json::Value>(&message.text)
+                .is_ok_and(|decision| decision["directory_request_id"].as_str() == Some(id))
         });
         let Some(decided) = decided.cloned() else {
             continue;

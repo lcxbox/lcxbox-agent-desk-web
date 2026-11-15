@@ -301,7 +301,7 @@ pub fn bind_context_summary_lineage(
     let mut envelope = derive_projection(
         &canonical,
         &[output.clone(), packed.clone()],
-        "checkpoint-summary",
+        crate::model_message_labels::sources::CHECKPOINT_SUMMARY,
         0,
     )?;
     envelope.provenance.source_object_id = Some(source_binding_digest(&envelope, &input.sources)?);
@@ -442,7 +442,8 @@ pub fn validate_summary_derivations(
         if step.export_authorization_id.trim().is_empty()
             || step.export_authorization_id.len() > 256
             || step.model_output.provenance.source_provider_id != "external-model"
-            || step.model_output.provenance.source_tool_name != "model-response"
+            || step.model_output.provenance.source_tool_name
+                != crate::model_message_labels::sources::MODEL_RESPONSE
             || !step
                 .model_output
                 .provenance
@@ -455,7 +456,8 @@ pub fn validate_summary_derivations(
         // Removing the oldest record must not silently turn a summary into a root.
         for source in &step.compression_sources {
             if source.provenance.source_provider_id == "ai-assistant-context"
-                && source.provenance.source_tool_name == "checkpoint-summary"
+                && source.provenance.source_tool_name
+                    == crate::model_message_labels::sources::CHECKPOINT_SUMMARY
                 && !lineage
                     .derivations
                     .iter()
@@ -493,7 +495,7 @@ pub fn validate_summary_derivations(
             step.summary.content_sha256().ok_or_else(lineage_error)?,
             *size_bytes,
             &[step.model_output.clone(), step.compression_input.clone()],
-            "checkpoint-summary",
+            crate::model_message_labels::sources::CHECKPOINT_SUMMARY,
             0,
         )?;
         expected_summary.provenance.source_object_id =

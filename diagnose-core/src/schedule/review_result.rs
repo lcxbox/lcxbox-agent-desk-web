@@ -3,6 +3,7 @@
 use crate::{
     chat::{ChatMessage, ChatRole},
     dynamic_run::RUN_CONTROL_PROVIDER_ID,
+    model_message_labels::ServerResultSource,
 };
 use desk_agent_protocol::{AgentError, data_lineage::DataEnvelope};
 use serde_json::Value;
@@ -27,8 +28,18 @@ pub fn activation_envelope<'a>(
         .iter()
         .rev()
         .find(|message| {
-            let event = labelled(message, ChatRole::SystemEvent, "schedule_activation");
-            if !event && !labelled(message, ChatRole::Tool, "schedule_proposal") {
+            let event = labelled(
+                message,
+                ChatRole::SystemEvent,
+                ServerResultSource::ScheduleActivation.as_str(),
+            );
+            if !event
+                && !labelled(
+                    message,
+                    ChatRole::Tool,
+                    ServerResultSource::ScheduleProposal.as_str(),
+                )
+            {
                 return false;
             }
             serde_json::from_str::<Value>(&message.text).is_ok_and(|value| {
@@ -46,7 +57,11 @@ pub fn activation_envelope<'a>(
 pub fn project(messages: &mut [ChatMessage]) -> Result<(), AgentError> {
     for index in 0..messages.len() {
         let draft = &messages[index];
-        if !labelled(draft, ChatRole::Tool, "schedule_proposal") {
+        if !labelled(
+            draft,
+            ChatRole::Tool,
+            ServerResultSource::ScheduleProposal.as_str(),
+        ) {
             continue;
         }
         let Ok(proposal) = serde_json::from_str::<Value>(&draft.text) else {
@@ -66,7 +81,11 @@ pub fn project(messages: &mut [ChatMessage]) -> Result<(), AgentError> {
             .enumerate()
             .skip(index + 1)
             .find_map(|(at, message)| {
-                if !labelled(message, ChatRole::SystemEvent, "schedule_activation") {
+                if !labelled(
+                    message,
+                    ChatRole::SystemEvent,
+                    ServerResultSource::ScheduleActivation.as_str(),
+                ) {
                     return None;
                 }
                 let value = serde_json::from_str::<Value>(&message.text).ok()?;

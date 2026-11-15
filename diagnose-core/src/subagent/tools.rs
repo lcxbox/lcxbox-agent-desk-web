@@ -214,7 +214,8 @@ fn ready_report_receipt(session: &PersistedAgentSession) -> Option<serde_json::V
             message.message_id == notification.message_id
                 && message.role == crate::chat::ChatRole::SystemEvent
                 && message.data_envelope.as_ref().is_some_and(|label| {
-                    label.provenance.source_tool_name == "subagent_notification"
+                    label.provenance.source_tool_name
+                        == crate::model_message_labels::sources::SUBAGENT_NOTIFICATION
                 })
         })?;
         let value: serde_json::Value = serde_json::from_str(&message.text).ok()?;

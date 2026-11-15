@@ -789,7 +789,8 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 .data_envelope
                 .as_ref()
                 .is_some_and(|envelope| {
-                    envelope.provenance.source_tool_name == "capability-authorization"
+                    envelope.provenance.source_tool_name
+                        == crate::model_message_labels::sources::CAPABILITY_AUTHORIZATION
                 })
             {
                 system_prompt.data_envelope = None;
@@ -952,7 +953,8 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             .as_ref()
             .is_some_and(|envelope| {
                 envelope.provenance.source_provider_id == "assistant-runtime-control"
-                    && envelope.provenance.source_tool_name == "capability-authorization"
+                    && envelope.provenance.source_tool_name
+                        == crate::model_message_labels::sources::CAPABILITY_AUTHORIZATION
             })
         {
             system_prompt = Box::new(

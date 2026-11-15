@@ -260,7 +260,8 @@ fn owner_inputs(conversation: &[ChatMessage]) -> impl Iterator<Item = &ChatMessa
         message.role == crate::chat::ChatRole::User
             && message.data_envelope.as_ref().is_some_and(|envelope| {
                 envelope.provenance.source_provider_id == "ai-assistant-user"
-                    && envelope.provenance.source_tool_name == "send-message"
+                    && envelope.provenance.source_tool_name
+                        == crate::model_message_labels::sources::USER_MESSAGE
                     && envelope.provenance.source_object_id.as_deref()
                         == Some(message.message_id.as_str())
             })

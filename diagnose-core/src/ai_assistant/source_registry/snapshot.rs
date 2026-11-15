@@ -337,7 +337,7 @@ fn native_control(source: &DataEnvelope) -> bool {
             name if crate::model_message_labels::ServerResultSource::parse(name).is_some() => {
                 status_result_shape(source, blob)
             }
-            "delegation_state" => {
+            crate::model_message_labels::sources::DELEGATION_STATE => {
                 source
                     .envelope_id
                     .strip_prefix("delegation-")
@@ -353,9 +353,9 @@ fn native_control(source: &DataEnvelope) -> bool {
             return false;
         };
         let prefix = match provenance.source_tool_name.as_str() {
-            "scheduled-continuation" => "scheduled-resume",
-            "permission-decision-resume" => "permission-resume",
-            "proposal-decision-resume" => "decision-resume",
+            crate::model_message_labels::sources::SCHEDULED_CONTINUATION => "scheduled-resume",
+            crate::model_message_labels::sources::PERMISSION_DECISION_RESUME => "permission-resume",
+            crate::model_message_labels::sources::PROPOSAL_DECISION_RESUME => "decision-resume",
             _ => return false,
         };
         source.envelope_id == format!("{prefix}-message-{id}")

@@ -312,6 +312,7 @@ impl NativeInputPolicyGraph {
 /// native contracts and cannot be guessed to be ordinary model outputs.
 pub fn is_native_output_policy_source(source: &DataEnvelope) -> bool {
     source.provenance.source_provider_id == "external-model"
-        && source.provenance.source_tool_name == "model-response"
+        && source.provenance.source_tool_name
+            == crate::model_message_labels::sources::MODEL_RESPONSE
         && !source.provenance.source_envelope_ids.is_empty()
 }

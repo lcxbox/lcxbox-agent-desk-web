@@ -260,8 +260,13 @@ fn is_schedule_result(message: &ChatMessage) -> bool {
         && message.data_envelope.as_ref().is_some_and(|label| {
             label.provenance.source_provider_id == crate::dynamic_run::RUN_CONTROL_PROVIDER_ID
                 && matches!(
-                    label.provenance.source_tool_name.as_str(),
-                    "schedule_query" | "schedule_proposal"
+                    crate::model_message_labels::ServerResultSource::parse(
+                        &label.provenance.source_tool_name
+                    ),
+                    Some(
+                        crate::model_message_labels::ServerResultSource::ScheduleQuery
+                            | crate::model_message_labels::ServerResultSource::ScheduleProposal
+                    )
                 )
         })
 }

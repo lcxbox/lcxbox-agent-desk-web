@@ -112,7 +112,10 @@ impl ReadProjectionProof {
         let arguments =
             serde_json::to_string(&("current-memory-request-v1", preparation_id, maximum_bytes))
                 .map_err(|_| "invalid current-memory request")?;
-        let request_hash = request_sha256("current_memories", &arguments)?;
+        let request_hash = request_sha256(
+            crate::model_message_labels::sources::CURRENT_MEMORIES,
+            &arguments,
+        )?;
         let projection_id = native_ids::stable(
             Kind::AssistantReadProjection,
             &("current-memory-read-v1", &logical_id, &request_hash),
@@ -181,7 +184,7 @@ impl ReadProjectionProof {
             },
             provenance: DataProvenance {
                 source_provider_id: "assistant-data-source".into(),
-                source_tool_name: "current_memories".into(),
+                source_tool_name: crate::model_message_labels::sources::CURRENT_MEMORIES.into(),
                 source_object_id: Some(projection_id),
                 source_envelope_ids: usage
                     .history_dependencies
@@ -225,7 +228,7 @@ impl ReadProjectionProof {
             producer_message_id: None,
             producer_output_envelope_id: None,
             tool_call_id: None,
-            tool_name: "current_memories".into(),
+            tool_name: crate::model_message_labels::sources::CURRENT_MEMORIES.into(),
             logical_call_id: logical_id,
             request_sha256: request_hash,
             source_envelope,

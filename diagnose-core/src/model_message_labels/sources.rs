@@ -150,6 +150,32 @@ pub const GOAL_CLARIFICATION_PROJECTION: &str = "goal_clarification_projection";
 pub const GOAL_STATE_PROJECTION: &str = "goal_state_projection";
 pub const GOAL_PROPOSAL_DECISION: &str = "goal_proposal_decision";
 
+// Other system source names; their own contracts decide registration.
+/// An owner message.
+pub const USER_MESSAGE: &str = "send-message";
+/// A model output.
+pub const MODEL_RESPONSE: &str = "model-response";
+/// The projected system prompt.
+pub const SYSTEM_PROMPT: &str = "system-prompt-projector";
+/// A context checkpoint summary.
+pub const CHECKPOINT_SUMMARY: &str = "checkpoint-summary";
+/// The owner's frozen personalization.
+pub const FROZEN_USER_INSTRUCTIONS: &str = "frozen-user-instructions";
+/// The interactive user's home directory.
+pub const INTERACTIVE_USER_HOME: &str = "interactive-user-home";
+/// The current memories projection.
+pub const CURRENT_MEMORIES: &str = "current_memories";
+/// A subagent delegation projection.
+pub const DELEGATION_STATE: &str = "delegation_state";
+/// A subagent report notification.
+pub const SUBAGENT_NOTIFICATION: &str = "subagent_notification";
+/// The capability authorization prompt.
+pub const CAPABILITY_AUTHORIZATION: &str = "capability-authorization";
+/// Runtime continuation messages.
+pub const SCHEDULED_CONTINUATION: &str = "scheduled-continuation";
+pub const PERMISSION_DECISION_RESUME: &str = "permission-decision-resume";
+pub const PROPOSAL_DECISION_RESUME: &str = "proposal-decision-resume";
+
 #[cfg(test)]
 mod tests {
     use super::*;

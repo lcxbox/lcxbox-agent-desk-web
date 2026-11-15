@@ -12,7 +12,8 @@ pub(crate) fn is_runtime(message: &ChatMessage) -> bool {
             label.provenance.source_provider_id == crate::dynamic_run::RUN_CONTROL_PROVIDER_ID
                 && matches!(
                     label.provenance.source_tool_name.as_str(),
-                    "delegation_state" | "subagent_notification"
+                    crate::model_message_labels::sources::DELEGATION_STATE
+                        | crate::model_message_labels::sources::SUBAGENT_NOTIFICATION
                 )
         })
 }

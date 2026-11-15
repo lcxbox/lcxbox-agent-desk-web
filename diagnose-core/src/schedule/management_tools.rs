@@ -147,7 +147,8 @@ pub fn proposed_ids(session: &PersistedAgentSession) -> Vec<String> {
             if message.role != ChatRole::Tool
                 || label.provenance.source_provider_id
                     != crate::dynamic_run::RUN_CONTROL_PROVIDER_ID
-                || label.provenance.source_tool_name != "schedule_proposal"
+                || label.provenance.source_tool_name
+                    != crate::model_message_labels::ServerResultSource::ScheduleProposal.as_str()
             {
                 return None;
             }

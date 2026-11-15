@@ -154,7 +154,7 @@ impl ModelEgressPolicy {
                     && message.role == ChatRole::System
                     && message.data_envelope.as_ref().is_some_and(|envelope| {
                         envelope.provenance.source_tool_name
-                            == "reusable_provider_result_projection"
+                            == crate::model_message_labels::sources::REUSABLE_PROVIDER_RESULT_PROJECTION
                             && envelope_expires_by(
                                 envelope,
                                 self.now_unix_ms
@@ -392,7 +392,7 @@ impl ModelEgressPolicy {
             },
             provenance: DataProvenance {
                 source_provider_id: "external-model".into(),
-                source_tool_name: "model-response".into(),
+                source_tool_name: crate::model_message_labels::sources::MODEL_RESPONSE.into(),
                 source_object_id: Some(short_digest(format!("{:?}", self.destination).as_bytes())),
                 source_envelope_ids: source_ids,
             },
@@ -431,7 +431,7 @@ impl ModelEgressPolicy {
             },
             provenance: DataProvenance {
                 source_provider_id: "ai-assistant-runtime".into(),
-                source_tool_name: "system-prompt-projector".into(),
+                source_tool_name: crate::model_message_labels::sources::SYSTEM_PROMPT.into(),
                 source_object_id: Some(message_id.to_string()),
                 source_envelope_ids: Vec::new(),
             },

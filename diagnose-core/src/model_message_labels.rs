@@ -36,7 +36,7 @@ pub fn model_bound_user_message(
         },
         provenance: DataProvenance {
             source_provider_id: "ai-assistant-user".into(),
-            source_tool_name: "send-message".into(),
+            source_tool_name: crate::model_message_labels::sources::USER_MESSAGE.into(),
             source_object_id: Some(message_id.clone()),
             source_envelope_ids: Vec::new(),
         },
@@ -644,7 +644,10 @@ mod tests {
             server_rewrite(&mut messages, 2, "call", text, source).unwrap();
             let label = messages[2].data_envelope.clone().unwrap();
             assert_eq!(messages[2].text, text);
-            assert_eq!(label.provenance.source_envelope_ids, std::slice::from_ref(&issuing));
+            assert_eq!(
+                label.provenance.source_envelope_ids,
+                std::slice::from_ref(&issuing)
+            );
             assert!(label.envelope_id.starts_with(STATUS_RESULT_PREFIX));
             // One id never names two bodies.
             let body = seen.entry(label.envelope_id).or_insert(text);

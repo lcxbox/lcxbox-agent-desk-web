@@ -3365,7 +3365,7 @@ fn interactive_user_home_projection(
         },
         provenance: DataProvenance {
             source_provider_id: "session-worker-runtime".into(),
-            source_tool_name: "interactive-user-home".into(),
+            source_tool_name: crate::model_message_labels::sources::INTERACTIVE_USER_HOME.into(),
             source_object_id: Some(worker_incarnation.to_string()),
             source_envelope_ids: Vec::new(),
         },

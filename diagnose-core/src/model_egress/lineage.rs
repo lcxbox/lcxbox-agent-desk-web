@@ -63,7 +63,7 @@ pub(crate) fn is_public_system_prompt(input: &DataEnvelope) -> bool {
     );
     input.envelope_id == expected_id
         && input.provenance.source_provider_id == "ai-assistant-runtime"
-        && input.provenance.source_tool_name == "system-prompt-projector"
+        && input.provenance.source_tool_name == crate::model_message_labels::sources::SYSTEM_PROMPT
         && input.provenance.source_envelope_ids.is_empty()
         && input.sensitivity == Sensitivity::Public
         && input.retention.expires_at_unix_ms.is_none()
@@ -83,7 +83,7 @@ pub fn is_audited_public_system_prompt(input: &ModelInputLineage) -> bool {
     input.public_system_prompt
         && input.size_bytes > 0
         && input.source_provider_id == "ai-assistant-runtime"
-        && input.source_tool_name == "system-prompt-projector"
+        && input.source_tool_name == crate::model_message_labels::sources::SYSTEM_PROMPT
         && input.source_envelope_ids.is_empty()
         && input
             .envelope_id
@@ -164,7 +164,8 @@ pub fn validate_model_output_lineage(
     let expected: BTreeSet<_> = audit.envelope_ids.iter().collect();
     let actual: BTreeSet<_> = output.provenance.source_envelope_ids.iter().collect();
     if output.provenance.source_provider_id != "external-model"
-        || output.provenance.source_tool_name != "model-response"
+        || output.provenance.source_tool_name
+            != crate::model_message_labels::sources::MODEL_RESPONSE
         || !output.allowed_destinations.contains(&audit.destination)
         || expected != actual
         || actual.len() != output.provenance.source_envelope_ids.len()

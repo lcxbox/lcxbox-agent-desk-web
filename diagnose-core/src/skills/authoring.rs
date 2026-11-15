@@ -634,7 +634,11 @@ pub fn project_review_results(messages: &mut [crate::chat::ChatMessage]) -> Resu
     use serde_json::Value;
     for index in 0..messages.len() {
         let draft = &messages[index];
-        if !labelled(draft, ChatRole::Tool, "skill_proposal") {
+        if !labelled(
+            draft,
+            ChatRole::Tool,
+            crate::model_message_labels::ServerResultSource::SkillProposal.as_str(),
+        ) {
             continue;
         }
         let Ok(proposal) = serde_json::from_str::<Value>(&draft.text) else {
@@ -654,7 +658,11 @@ pub fn project_review_results(messages: &mut [crate::chat::ChatMessage]) -> Resu
             .enumerate()
             .skip(index + 1)
             .find_map(|(at, message)| {
-                if !labelled(message, ChatRole::SystemEvent, "skill_proposal_decision") {
+                if !labelled(
+                    message,
+                    ChatRole::SystemEvent,
+                    crate::model_message_labels::ServerResultSource::SkillProposalDecision.as_str(),
+                ) {
                     return None;
                 }
                 let value = serde_json::from_str::<Value>(&message.text).ok()?;

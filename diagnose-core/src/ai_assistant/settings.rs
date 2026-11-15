@@ -116,7 +116,8 @@ pub fn instructions_projection(
     let mut message = crate::model_message_labels::model_bound_user_message(id, text, destination)?;
     if let Some(envelope) = &mut message.data_envelope {
         envelope.provenance.source_provider_id = "ai-assistant-personalization".into();
-        envelope.provenance.source_tool_name = "frozen-user-instructions".into();
+        envelope.provenance.source_tool_name =
+            crate::model_message_labels::sources::FROZEN_USER_INSTRUCTIONS.into();
     }
     Ok(Some(message))
 }
@@ -125,7 +126,8 @@ pub fn is_personalization_projection(message: &crate::chat::ChatMessage) -> bool
     message.role == crate::chat::ChatRole::User
         && message.data_envelope.as_ref().is_some_and(|envelope| {
             envelope.provenance.source_provider_id == "ai-assistant-personalization"
-                && envelope.provenance.source_tool_name == "frozen-user-instructions"
+                && envelope.provenance.source_tool_name
+                    == crate::model_message_labels::sources::FROZEN_USER_INSTRUCTIONS
         })
 }
 

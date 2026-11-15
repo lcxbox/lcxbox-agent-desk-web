@@ -183,8 +183,11 @@ impl RuntimeFacts {
             }
             if let Some(envelope) = &message.data_envelope
                 && matches!(
-                    envelope.provenance.source_tool_name.as_str(),
-                    "recover_tool_call" | "child_mutation_result_unavailable"
+                    crate::model_message_labels::ServerResultSource::parse(&envelope.provenance.source_tool_name),
+                    Some(
+                        crate::model_message_labels::ServerResultSource::RecoverToolCall
+                            | crate::model_message_labels::ServerResultSource::ChildMutationResultUnavailable
+                    )
                 )
                 && let Some(call_id) = &message.tool_call_id
                 && !self.native_result_call_ids.contains(call_id)

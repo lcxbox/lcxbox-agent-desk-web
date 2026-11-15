@@ -12,7 +12,8 @@ pub fn is_projection(message: &crate::chat::ChatMessage) -> bool {
     message.role == crate::chat::ChatRole::User
         && message.data_envelope.as_ref().is_some_and(|envelope| {
             envelope.provenance.source_provider_id == "assistant-data-source"
-                && envelope.provenance.source_tool_name == "current_memories"
+                && envelope.provenance.source_tool_name
+                    == crate::model_message_labels::sources::CURRENT_MEMORIES
         })
 }
 

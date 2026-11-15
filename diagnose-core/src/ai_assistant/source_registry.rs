@@ -233,8 +233,13 @@ fn classify(envelope: &DataEnvelope) -> RegisteredSourceContract {
             envelope.provenance.source_provider_id.as_str(),
             envelope.provenance.source_tool_name.as_str(),
         ) {
-            ("ai-assistant-user", "send-message") => return RegisteredSourceContract::OwnerText,
-            ("ai-assistant-personalization", "frozen-user-instructions") => {
+            ("ai-assistant-user", crate::model_message_labels::sources::USER_MESSAGE) => {
+                return RegisteredSourceContract::OwnerText;
+            }
+            (
+                "ai-assistant-personalization",
+                crate::model_message_labels::sources::FROZEN_USER_INSTRUCTIONS,
+            ) => {
                 return RegisteredSourceContract::FrozenPersonalization;
             }
             (provider, tool) if crate::skills::is_personal_skill_provenance(provider, tool) => {
@@ -324,7 +329,8 @@ fn canonical_user_blob(envelope: &DataEnvelope) -> bool {
 fn canonical_interactive_home(envelope: &DataEnvelope) -> bool {
     envelope.sensitivity == Sensitivity::Sensitive
         && envelope.provenance.source_provider_id == "session-worker-runtime"
-        && envelope.provenance.source_tool_name == "interactive-user-home"
+        && envelope.provenance.source_tool_name
+            == crate::model_message_labels::sources::INTERACTIVE_USER_HOME
         && envelope
             .provenance
             .source_object_id

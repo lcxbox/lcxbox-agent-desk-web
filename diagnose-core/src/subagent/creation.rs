@@ -217,7 +217,7 @@ impl TaskCreationEnvelope {
         let expected = super::projection::envelope(
             &instruction.message_id,
             &instruction.text,
-            "delegation_state",
+            crate::model_message_labels::sources::DELEGATION_STATE,
             &self.input_envelopes,
         )?;
         if instruction.data_envelope.as_ref() != Some(&expected) {
@@ -600,7 +600,8 @@ impl CreationEnvelope {
             }
             (_, None) => {
                 if label.provenance.source_provider_id != "ai-assistant-user"
-                    || label.provenance.source_tool_name != "send-message"
+                    || label.provenance.source_tool_name
+                        != crate::model_message_labels::sources::USER_MESSAGE
                 {
                     return Err(super::invalid(
                         "delegation source is not authentic owner input",

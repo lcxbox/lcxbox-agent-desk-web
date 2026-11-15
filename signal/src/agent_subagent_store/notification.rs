@@ -316,7 +316,9 @@ pub(crate) async fn ready_notification_source_on(
         .ok_or_else(|| invalid())?;
     let label = message.data_envelope.as_ref().ok_or_else(|| invalid())?;
     label.validate().map_err(|_| invalid())?;
-    if label.provenance.source_tool_name != "subagent_notification" {
+    if label.provenance.source_tool_name
+        != desk_diagnose_core::model_message_labels::sources::SUBAGENT_NOTIFICATION
+    {
         return Err(invalid());
     }
     let payload: serde_json::Value = serde_json::from_str(&message.text).map_err(|_| invalid())?;
@@ -504,7 +506,7 @@ pub(crate) async fn prepare_notification_on(
         desk_diagnose_core::subagent::projection::envelope(
             &message_id,
             &text,
-            "subagent_notification",
+            desk_diagnose_core::model_message_labels::sources::SUBAGENT_NOTIFICATION,
             &labels,
         )
         .map_err(|_| invalid())?,
@@ -661,7 +663,9 @@ pub(crate) async fn acknowledge_notification_on(
         .ok_or_else(|| invalid())?;
     let label = message.data_envelope.as_ref().ok_or_else(|| invalid())?;
     label.validate().map_err(|_| invalid())?;
-    if label.provenance.source_tool_name != "subagent_notification" {
+    if label.provenance.source_tool_name
+        != desk_diagnose_core::model_message_labels::sources::SUBAGENT_NOTIFICATION
+    {
         return Err(invalid());
     }
     let response = next

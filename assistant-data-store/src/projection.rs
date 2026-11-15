@@ -270,7 +270,9 @@ async fn change_metadata_on<C: ConnectionTrait>(
 fn kind(value: ReadProjectionKind) -> &'static str {
     match value {
         ReadProjectionKind::Tool => "tool",
-        ReadProjectionKind::CurrentMemories => "current_memories",
+        ReadProjectionKind::CurrentMemories => {
+            desk_diagnose_core::model_message_labels::sources::CURRENT_MEMORIES
+        }
     }
 }
 
