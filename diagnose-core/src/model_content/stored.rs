@@ -249,6 +249,29 @@ fn root_label(
     Ok(label)
 }
 
+/// Stored text whose root is built once the model destination is known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredSpec {
+    pub kind: &'static str,
+    pub record_id: String,
+    pub field: &'static str,
+    pub text: String,
+    pub proof: Option<StoredTextSource>,
+}
+
+impl StoredSpec {
+    pub fn root(&self, destinations: Vec<DestinationIdentity>) -> Result<StoredRoot, AgentError> {
+        StoredRoot::text(
+            self.kind,
+            &self.record_id,
+            self.field,
+            &self.text,
+            self.proof.clone(),
+            destinations,
+        )
+    }
+}
+
 /// Whether `label` is a stored-text root of the shape [`StoredRoot::text`]
 /// builds.
 pub fn is_stored_text_label(label: &DataEnvelope) -> bool {
@@ -310,4 +333,15 @@ impl<T: Serialize> ContentPiece for Stored<T> {
             .entry(self.root.label.envelope_id.clone())
             .or_insert_with(|| self.root.clone());
     }
+}
+
+/// The latest model output of `conversation`: the output whose calls the
+/// current tool execution answers.
+pub fn latest_model_output(
+    conversation: &[crate::chat::ChatMessage],
+) -> Option<&crate::chat::ChatMessage> {
+    conversation
+        .iter()
+        .rev()
+        .find(|message| message.role == crate::chat::ChatRole::Assistant)
 }

@@ -13,6 +13,7 @@ use desk_diagnose_core::{
 
 pub(super) fn request(session: &mut PersistedAgentSession) -> PermissionRequestedEvent {
     let request = PermissionRequest {
+        input_source: None,
         schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
         request_id: "paused-child-permission".into(),
         input_revision: session.input_revision,

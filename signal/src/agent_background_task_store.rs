@@ -1735,6 +1735,7 @@ mod tests {
 
         let root_scope = format!("root:{}", workspace.display());
         let request = PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "permission-file-batch-1".into(),
             input_revision: 1,

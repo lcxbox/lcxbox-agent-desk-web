@@ -118,6 +118,7 @@ mod tests {
 
     fn request() -> PermissionRequest {
         PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "permission-1".into(),
             input_revision: 1,

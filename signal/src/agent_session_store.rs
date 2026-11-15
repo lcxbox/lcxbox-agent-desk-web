@@ -2871,7 +2871,36 @@ impl SessionSeam for SignalAgentSessionStore {
         crate::schedule_store::validate_task_permission_on(&txn, session, &update.request)
             .await
             .map_err(|_| internal("permission request exceeds current task authority"))?;
+        // The requested inputs and scopes are the requesting output's
+        // arguments; an output that was not retained leaves them unproven.
+        let input_source = match desk_diagnose_core::model_content::stored::latest_model_output(
+            &session.conversation,
+        ) {
+            Some(output) => {
+                crate::schedule_store::ScheduleStore::model_output_source_on(&txn, session, output)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|(_, model_source)| {
+                        desk_diagnose_core::model_content::StoredTextSource::model_output(
+                            &session.actor_id,
+                            model_source,
+                            Vec::new(),
+                        )
+                    })
+            }
+            None => None,
+        };
+        if let Some(request) = session
+            .permission_requests
+            .iter_mut()
+            .find(|request| request.request_id == update.request.request_id)
+        {
+            request.input_source = input_source.clone().map(Box::new);
+        }
         let mut proposal = update.clone();
+        // The stored event matches the session's copy of the request.
+        proposal.request.input_source = input_source.map(Box::new);
         proposal.approval_mode_revision =
             if session.has_direct_approval_origin() && update.request.exact_command().is_some() {
                 crate::agent_approval_store::preference_for_session_on(&txn, session)
@@ -4124,6 +4153,7 @@ mod tests {
         session.capability_disclosure.reset_for_input(1_000);
         session.capability_disclosure.loaded_tool_names = vec!["read_system_info".into()];
         session.permission_requests = vec![PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "matrix-permission".into(),
             input_revision: 1_000,
@@ -4439,6 +4469,7 @@ mod tests {
             .unwrap();
         let mut session = store.claim_turn(claim("permission-turn")).await.unwrap();
         let request = PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "permission-1".into(),
             input_revision: 1,
@@ -4533,6 +4564,7 @@ mod tests {
         let mut session = store.claim_turn(claim("permission-turn")).await.unwrap();
         session.policy_revision = 1;
         let request = PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "permission-1".into(),
             input_revision: 1,
@@ -4702,6 +4734,7 @@ mod tests {
             format!("{:x}", Sha256::digest(canonical_input_json.as_bytes()));
         let exact_resource_scope = desk_diagnose_core::application_ui::resource(&target);
         let request = PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "permission-ui-action".into(),
             input_revision: 1,

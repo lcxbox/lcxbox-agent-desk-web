@@ -288,6 +288,10 @@ pub fn composed_envelope(
     request_only: bool,
 ) -> Result<Option<DataEnvelope>, AgentError> {
     let sources = content.sources();
+    // Every root must be bound to a destination before labelling.
+    if !sources.unbound.is_empty() {
+        return Err(invalid_label());
+    }
     let issuing_id = issuing.map(|label| label.envelope_id.as_str());
     if sources
         .args

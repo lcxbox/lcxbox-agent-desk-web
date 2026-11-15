@@ -4009,6 +4009,7 @@ mod tests {
 
     fn permission_request(id: usize, state: PermissionRequestState) -> PermissionRequest {
         PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: format!("permission-{id}"),
             input_revision: 1,

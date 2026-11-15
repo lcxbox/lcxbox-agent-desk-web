@@ -1511,6 +1511,7 @@ async fn seed_command_history(db: &crate::config::connection::DatabaseConnection
         session.permission_requests.insert(
             0,
             PermissionRequest {
+                input_source: None,
                 schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
                 request_id: format!("historical-command-{index}"),
                 input_revision: session.input_revision,

@@ -1374,6 +1374,7 @@ pub fn build_permission_request(
         });
     }
     let request = PermissionRequest {
+        input_source: None,
         schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
         request_id,
         input_revision,
@@ -3465,6 +3466,7 @@ mod tests {
             revoked_reason: None,
         };
         let request = PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "permission-exact".into(),
             input_revision: 1,

@@ -40,6 +40,7 @@ fn decision_fixture() -> (
         .bind_assistant_request_targets(vec![session.device_id.clone()])
         .unwrap();
     let request = PermissionRequest {
+        input_source: None,
         schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
         request_id: "permission-1".into(),
         input_revision: 1,

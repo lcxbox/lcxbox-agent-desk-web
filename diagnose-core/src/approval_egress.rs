@@ -1220,6 +1220,7 @@ mod tests {
         .unwrap();
         let exact = r#"{"path":"report.txt","content":"Updated"}"#;
         let request = PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "request".into(),
             input_revision: 1,

@@ -1895,6 +1895,7 @@ fn a_worker_session_admits_its_next_request_like_a_new_owner_input() {
     session
         .permission_requests
         .push(crate::dynamic_run::PermissionRequest {
+            input_source: None,
             schema_version: crate::dynamic_run::PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "rq-awaiting".into(),
             input_revision: session.input_revision,

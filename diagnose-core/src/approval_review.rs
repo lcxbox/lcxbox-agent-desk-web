@@ -2625,6 +2625,7 @@ pub(crate) mod tests {
 
     fn permission_request() -> PermissionRequest {
         PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "request".into(),
             input_revision: 1,

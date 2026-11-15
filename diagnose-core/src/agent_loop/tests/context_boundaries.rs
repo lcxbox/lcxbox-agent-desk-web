@@ -434,6 +434,7 @@ async fn run_permission_compaction_case(mutation: u8) {
     grant.operation_scope = vec!["launch_application".into()];
     let original_expiry = grant.expires_at_unix_ms;
     initial.permission_requests.push(PermissionRequest {
+        input_source: None,
         schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
         request_id: "approved-launch".into(),
         input_revision: 1,

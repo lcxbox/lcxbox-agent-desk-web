@@ -4566,6 +4566,7 @@ async fn projection_metrics_preserve_history_and_keep_capability_catalog_bounded
         session
             .permission_requests
             .push(crate::dynamic_run::PermissionRequest {
+                input_source: None,
                 schema_version: crate::dynamic_run::PERMISSION_REQUEST_SCHEMA_VERSION,
                 request_id: "permission-old".into(),
                 input_revision: 1,
@@ -9072,6 +9073,7 @@ fn browser_permission_references_must_match_unexpired_verified_edge_evidence() {
     });
 
     let request_for = |canonical_input_json: String| PermissionRequest {
+        input_source: None,
         schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
         request_id: "permission-request".into(),
         input_revision: 1,
@@ -9494,6 +9496,7 @@ async fn exercise_scheduled_permission_pause() {
             .unwrap();
     assert_ne!(original.arguments_json, resolved.arguments_json);
     let request = PermissionRequest {
+        input_source: None,
         schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
         request_id: "request-1".into(),
         input_revision: 1,

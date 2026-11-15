@@ -564,6 +564,7 @@ mod tests {
             .is_err()
         );
         session.permission_requests.push(PermissionRequest {
+            input_source: None,
             schema_version: crate::dynamic_run::PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "approval".into(),
             input_revision: 1,

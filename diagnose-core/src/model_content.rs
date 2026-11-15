@@ -11,12 +11,15 @@
 //! is a programming error that review and the guard tests catch.
 
 use crate::chat::ToolCall;
-use desk_agent_protocol::{AgentError, AgentErrorKind, data_lineage::DataEnvelope};
+use desk_agent_protocol::{
+    AgentError, AgentErrorKind,
+    data_lineage::{DataEnvelope, DestinationIdentity},
+};
 use serde::Serialize;
 use std::{collections::BTreeMap, fmt::Display};
 
 pub mod stored;
-pub use stored::{Stored, StoredOrigin, StoredRoot, StoredTextSource};
+pub use stored::{Stored, StoredOrigin, StoredRoot, StoredSpec, StoredTextSource};
 pub mod tool_error;
 pub use tool_error::ToolError;
 
@@ -35,6 +38,8 @@ pub struct Sources {
     pub(crate) parents: BTreeMap<String, DataEnvelope>,
     /// Roots of stored text the content repeats, by envelope id.
     pub(crate) stored: BTreeMap<String, StoredRoot>,
+    /// Stored text whose roots are bound to the model destination later.
+    pub(crate) unbound: Vec<StoredSpec>,
     /// Whether any piece is text no source vouches for.
     pub(crate) unverified: bool,
 }
@@ -51,6 +56,11 @@ impl Sources {
             self.stored
                 .entry(id.clone())
                 .or_insert_with(|| root.clone());
+        }
+        for spec in &other.unbound {
+            if !self.unbound.contains(spec) {
+                self.unbound.push(spec.clone());
+            }
         }
         self.unverified |= other.unverified;
     }
@@ -367,6 +377,19 @@ impl ModelContent {
         self.sources.unverified
     }
 
+    /// Binds the roots of stored text gathered without a destination to
+    /// `destinations`, the model the content is sent to.
+    pub fn bind(&mut self, destinations: &[DestinationIdentity]) -> Result<(), AgentError> {
+        for spec in std::mem::take(&mut self.sources.unbound) {
+            let root = spec.root(destinations.to_vec())?;
+            self.sources
+                .stored
+                .entry(root.label.envelope_id.clone())
+                .or_insert(root);
+        }
+        Ok(())
+    }
+
     /// Roots of the stored text this content repeats, in id order.
     pub fn stored_roots(&self) -> Vec<StoredRoot> {
         self.sources.stored.values().cloned().collect()
@@ -403,6 +426,16 @@ impl ContentBuilder {
         use std::fmt::Write;
         let _ = write!(self.text, "{}", piece.get());
         piece.collect(&mut self.sources);
+        self
+    }
+
+    /// Stored text whose root is bound to the destination later, by
+    /// [`ModelContent::bind`].
+    pub fn stored_spec(mut self, spec: StoredSpec) -> Self {
+        self.text.push_str(&spec.text);
+        if !self.sources.unbound.contains(&spec) {
+            self.sources.unbound.push(spec);
+        }
         self
     }
 

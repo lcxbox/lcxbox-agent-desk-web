@@ -173,6 +173,7 @@ async fn approved_child_with_source_on(
         .unwrap();
     let resources = confirmation.resource_scope().unwrap();
     let request = PermissionRequest {
+        input_source: None,
         schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
         request_id: "paused-child-permission".into(),
         input_revision: child.input_revision,

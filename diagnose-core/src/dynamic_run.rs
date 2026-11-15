@@ -817,6 +817,10 @@ pub struct PermissionRequest {
     pub state: PermissionRequestState,
     pub items: Vec<GrantRequestItem>,
     pub created_at: String,
+    /// Source proof of the requested inputs and scopes: the model output that
+    /// requested them, recorded by the host when the request is saved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_source: Option<Box<crate::model_content::StoredTextSource>>,
 }
 
 impl PermissionRequest {
@@ -1558,6 +1562,7 @@ mod tests {
 
     fn permission_request() -> PermissionRequest {
         PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "permission-1".into(),
             input_revision: 2,

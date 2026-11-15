@@ -301,6 +301,7 @@ async fn permission_resume_keeps_scoped_prerequisites_and_validates_exact_grants
         grant.operation_scope = vec!["launch_application".into()];
         grant.validate().unwrap();
         initial.permission_requests.push(PermissionRequest {
+            input_source: None,
             schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
             request_id: "approved-launch".into(),
             input_revision: 1,
