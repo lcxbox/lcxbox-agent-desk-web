@@ -271,11 +271,40 @@ fn native_read(source: &DataEnvelope) -> Option<RegisteredSourceContract> {
     .then_some(contract)
 }
 
+/// A persisted status projection, or a request-only content-addressed status
+/// blob, derived from exactly one parent.
+fn status_result_shape(source: &DataEnvelope, blob: Option<(&String, &String, &String)>) -> bool {
+    use sha2::{Digest, Sha256};
+    let Some(id) = source.envelope_id.strip_prefix("status-result-") else {
+        return false;
+    };
+    id.len() == 64
+        && source.provenance.source_envelope_ids.len() == 1
+        && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && match (&source.content, blob) {
+            (
+                ContentRef::Projection {
+                    projection,
+                    media_type,
+                    ..
+                },
+                _,
+            ) => {
+                projection == crate::model_message_labels::STATUS_RESULT_PROJECTION
+                    && media_type == "text/plain"
+            }
+            (_, Some((blob_id, sha256, media_type))) => {
+                media_type == "text/plain"
+                    && *blob_id == format!("status-content-{:x}", Sha256::digest(sha256.as_bytes()))
+            }
+            _ => false,
+        }
+}
+
 /// Match the compiled producer's complete label shape, not a model-selected
 /// source name. Parent policies above prevent control text laundering data.
 #[inline(never)]
 fn native_control(source: &DataEnvelope) -> bool {
-    use sha2::{Digest, Sha256};
     if source.provenance.source_envelope_ids.is_empty() {
         return false;
     }
@@ -299,6 +328,9 @@ fn native_control(source: &DataEnvelope) -> bool {
             return false;
         }
         match provenance.source_tool_name.as_str() {
+            name if crate::agent_loop::SERVER_RESULT_SOURCES.contains(&name) => {
+                status_result_shape(source, blob)
+            }
             "owner_context_time"
             | "context_review"
             | "runtime_context"
@@ -306,48 +338,10 @@ fn native_control(source: &DataEnvelope) -> bool {
             | "latest_input_projection"
             | "schedule_activation"
             | "scheduled_task_input"
-            | "invalid_tool_arguments"
-            | "memory_batch_rejected"
             | "manage_memories"
-            | "memory_control_rejected"
-            | "schedule_proposal"
             | "schedule_query"
             | "schedule_cancellation"
-            | "schedule_proposal_failed"
-            | "skill_proposal"
-            | "skill_proposal_decision"
-            | "skill_proposal_failed"
-            | crate::skills::LOAD_TOOL
-            | crate::issue_reply::PREPARE_TOOL_NAME => {
-                let Some(id) = source.envelope_id.strip_prefix("status-result-") else {
-                    return false;
-                };
-                id.len() == 64
-                    && provenance.source_envelope_ids.len() == 1
-                    && id.bytes().all(|byte| byte.is_ascii_hexdigit())
-                    && match (&source.content, blob) {
-                        (
-                            ContentRef::Projection {
-                                projection,
-                                media_type,
-                                ..
-                            },
-                            _,
-                        ) => {
-                            projection == crate::model_message_labels::STATUS_RESULT_PROJECTION
-                                && media_type == "text/plain"
-                        }
-                        (_, Some((blob_id, sha256, media_type))) => {
-                            media_type == "text/plain"
-                                && *blob_id
-                                    == format!(
-                                        "status-content-{:x}",
-                                        Sha256::digest(sha256.as_bytes())
-                                    )
-                        }
-                        _ => false,
-                    }
-            }
+            | "skill_proposal_decision" => status_result_shape(source, blob),
             "delegation_state" => {
                 source
                     .envelope_id

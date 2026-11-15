@@ -975,3 +975,34 @@ fn decided_review_projections_remain_registered_controls() {
         assert!(policy.history_retention_allowed, "{draft_tool}");
     }
 }
+
+#[test]
+fn every_server_tool_result_is_a_registered_control() {
+    let owner = user();
+    for name in crate::agent_loop::SERVER_RESULT_SOURCES {
+        let result = crate::agent_loop::derive_internal_tool_result_envelope(
+            Some(&owner),
+            "call",
+            "tool_not_advertised: tool `x` is not advertised in this request.",
+            name,
+        )
+        .unwrap()
+        .unwrap();
+        let original = snapshot(vec![owner.clone(), result]);
+        let registration =
+            NativeInputPolicyRegistration::capture(&original, SOURCE_CONTRACT_REVISION, 1).unwrap();
+        assert_eq!(
+            registration.leaves[1].as_ref().map(|leaf| leaf.contract),
+            Some(RegisteredSourceContract::NativeControl),
+            "{name}"
+        );
+        assert!(
+            registration
+                .complete_leaf_text_policy(&original)
+                .unwrap()
+                .unwrap()
+                .history_retention_allowed,
+            "{name}"
+        );
+    }
+}

@@ -60,7 +60,7 @@ pub(super) async fn run<F: FnMut() -> String>(
     let completion = if pure_preview {
         crate::seam::ReadCompletion {
             outcome: crate::ai_assistant::validate_preview_call(call).and_then(|content| {
-                let data_envelope = derive_internal_tool_result_envelope(
+                let data_envelope = crate::model_message_labels::internal_tool_result_envelope(
                     context.parent_envelope,
                     &call.id,
                     &content,

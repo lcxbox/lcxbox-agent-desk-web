@@ -46,7 +46,6 @@ use crate::content_safety::{
     ContentSafetyMode, SafetyImage, SafetyModelTurn, SafetyToolCall, content_blocked_error,
     normalize_safety_error, refusal_placeholder_for,
 };
-use crate::model_message_labels::internal_tool_result_envelope as derive_internal_tool_result_envelope;
 use desk_agent_protocol::{AgentError, AgentErrorKind};
 
 use crate::chat::{ChatMessage, ChatRole, ModelTurnError, TurnDisposition, classify_model_turn};
@@ -2435,6 +2434,71 @@ fn append_superseded_tool_results<F: FnMut() -> String>(
         mint,
         "not executed: superseded by newer user input",
         "supersede_tool_call",
+    )
+}
+
+/// Server-authored results the agent loop records for one tool call. Each is
+/// labelled from the model output that made the call alone, so the source
+/// registry accepts it as a native control and the answer that follows keeps
+/// its retention proof.
+pub(crate) const SERVER_RESULT_SOURCES: &[&str] = &[
+    "approved_input_mismatch",
+    "delegation_source_paused",
+    "directory_pause_tool_call",
+    "directory_proposal_failed",
+    "directory_proposal_pending",
+    "directory_resolution_failed",
+    "fresh_visual_verification_required",
+    "goal_control_batch_rejected",
+    "goal_open_failed",
+    "goal_open_pending",
+    "halted_tool_call",
+    "invalid_desktop_id",
+    "invalid_server_bound_web_evidence",
+    "invalid_tool_arguments",
+    "lease_lost_tool_call",
+    "memory_batch_rejected",
+    "memory_control_rejected",
+    "permission_denied",
+    "permission_pause_tool_call",
+    "permission_proposal_rejected",
+    "permission_resume_not_executed",
+    "proposal_pause_tool_call",
+    "repeat_limit_tool_call",
+    "schedule_proposal",
+    "schedule_proposal_failed",
+    "skill_proposal",
+    "skill_proposal_failed",
+    "supersede_tool_call",
+    "superseded_tool_call",
+    "task_permission_denied",
+    "tool_budget_admission_failed",
+    "unloaded_tool_call",
+    crate::capability_disclosure::LOAD_CAPABILITY_DETAILS_TOOL_NAME,
+    crate::goal_tools::CONTROL_GOAL_TOOL_NAME,
+    crate::issue_reply::PREPARE_TOOL_NAME,
+    crate::permission_tools::CALL_PERMISSION_RESULT_SOURCE,
+    crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
+    crate::skills::LOAD_TOOL,
+    crate::task_status_tools::UPDATE_TASK_STATUS_TOOL_NAME,
+];
+
+/// Labels a server-authored result named in [`SERVER_RESULT_SOURCES`].
+pub(crate) fn derive_internal_tool_result_envelope(
+    parent: Option<&DataEnvelope>,
+    call_id: &str,
+    content: &str,
+    source_tool_name: &str,
+) -> Result<Option<DataEnvelope>, AgentError> {
+    debug_assert!(
+        SERVER_RESULT_SOURCES.contains(&source_tool_name),
+        "unregistered server result source {source_tool_name}"
+    );
+    crate::model_message_labels::internal_tool_result_envelope(
+        parent,
+        call_id,
+        content,
+        source_tool_name,
     )
 }
 
