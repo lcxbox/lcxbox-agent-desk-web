@@ -45,6 +45,15 @@ pub struct Sources {
 }
 
 impl Sources {
+    /// Whether the content is fixed or server-built text alone.
+    pub fn is_server_only(&self) -> bool {
+        self.args.is_empty()
+            && self.parents.is_empty()
+            && self.stored.is_empty()
+            && self.unbound.is_empty()
+            && !self.unverified
+    }
+
     pub(crate) fn merge(&mut self, other: &Sources) {
         self.args.extend(other.args.iter().cloned());
         for (id, label) in &other.parents {

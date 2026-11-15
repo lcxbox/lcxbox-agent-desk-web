@@ -810,7 +810,9 @@ impl SignalAgentTools {
                     desk_diagnose_core::model_observability::PermissionOutcome::PolicyRejected,
                 );
             return Ok(ExecOutcome::Rejected {
-                reason: Some(classified.classification.impact),
+                reason: Some(desk_diagnose_core::seam::ExecReason::Unverified(
+                    classified.classification.impact,
+                )),
             });
         };
         if classified.classification.decision != ExecDecision::ConfirmRequired
@@ -823,9 +825,9 @@ impl SignalAgentTools {
                     desk_diagnose_core::model_observability::PermissionOutcome::PolicyRejected,
                 );
             return Ok(ExecOutcome::Rejected {
-                reason: Some(
-                    "the command is not admitted by its approved plan and current policy".into(),
-                ),
+                reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                    "the command is not admitted by its approved plan and current policy",
+                )),
             });
         }
 
@@ -855,7 +857,9 @@ impl SignalAgentTools {
                 .get_by_call_id(&ctx.tool_call_id)
                 .permission(desk_diagnose_core::model_observability::PermissionOutcome::Revoked);
             return Ok(ExecOutcome::Rejected {
-                reason: Some("confirmed command execution is disabled by current policy".into()),
+                reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                    "confirmed command execution is disabled by current policy",
+                )),
             });
         }
         let refreshed = classify_command_with_policy(
@@ -869,7 +873,9 @@ impl SignalAgentTools {
                 .get_by_call_id(&ctx.tool_call_id)
                 .permission(desk_diagnose_core::model_observability::PermissionOutcome::Revoked);
             return Ok(ExecOutcome::Rejected {
-                reason: Some("execution policy changed; request permission again".into()),
+                reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                    "execution policy changed; request permission again",
+                )),
             });
         }
 
@@ -891,10 +897,9 @@ impl SignalAgentTools {
                 Some(carrier_id) => Some(carrier_id),
                 None => {
                     return Ok(ExecOutcome::Rejected {
-                        reason: Some(
-                            "the owner's interactive terminal is no longer open; the command was not executed"
-                                .into(),
-                        ),
+                        reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                            "the owner's interactive terminal is no longer open; the command was not executed",
+                        )),
                     });
                 }
             }
@@ -1064,7 +1069,9 @@ impl ToolSeam for SignalAgentTools {
                 desk_diagnose_core::model_observability::PermissionOutcome::PolicyRejected,
             );
             return Ok(ExecOutcome::Rejected {
-                reason: Some(classified.classification.impact),
+                reason: Some(desk_diagnose_core::seam::ExecReason::Unverified(
+                    classified.classification.impact,
+                )),
             });
         };
         if draft.execution_basis == ExecExecutionBasis::OwnerBlocklistOnly
@@ -1082,7 +1089,9 @@ impl ToolSeam for SignalAgentTools {
                 desk_diagnose_core::model_observability::PermissionOutcome::PolicyRejected,
             );
             return Ok(ExecOutcome::Rejected {
-                reason: Some("the command is not admitted by the current policy".into()),
+                reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                    "the command is not admitted by the current policy",
+                )),
             });
         }
         let browser_connection_id = ctx.connection_id.as_deref().ok_or_else(|| {
@@ -1145,7 +1154,9 @@ impl ToolSeam for SignalAgentTools {
                     desk_diagnose_core::model_observability::PermissionOutcome::Cancelled,
                 );
                 return Ok(ExecOutcome::Cancelled {
-                    reason: Some("the approval session was cancelled".into()),
+                    reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                        "the approval session was cancelled",
+                    )),
                 });
             }
             Err(_) => {
@@ -1168,14 +1179,18 @@ impl ToolSeam for SignalAgentTools {
                 Some(value) => Some(value),
                 None => {
                     return Ok(ExecOutcome::Cancelled {
-                        reason: Some("the interactive carrier was not ready at approval".into()),
+                        reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                            "the interactive carrier was not ready at approval",
+                        )),
                     });
                 }
             }
         } else {
             if approval.carrier_id.is_some() {
                 return Ok(ExecOutcome::Rejected {
-                    reason: Some("a carrier was supplied for a non-interactive command".into()),
+                    reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                        "a carrier was supplied for a non-interactive command",
+                    )),
                 });
             }
             None
@@ -1198,7 +1213,9 @@ impl ToolSeam for SignalAgentTools {
             self.observed(call)
                 .permission(desk_diagnose_core::model_observability::PermissionOutcome::Revoked);
             return Ok(ExecOutcome::Rejected {
-                reason: Some("execution policy changed; preview the command again".into()),
+                reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                    "execution policy changed; preview the command again",
+                )),
             });
         }
         let refreshed = classify_command_with_policy(
@@ -1211,7 +1228,9 @@ impl ToolSeam for SignalAgentTools {
             self.observed(call)
                 .permission(desk_diagnose_core::model_observability::PermissionOutcome::Revoked);
             return Ok(ExecOutcome::Rejected {
-                reason: Some("execution policy changed; preview the command again".into()),
+                reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                    "execution policy changed; preview the command again",
+                )),
             });
         }
 

@@ -47,7 +47,7 @@ const ALLOWED: &[(&str, &str, usize)] = &[
     ("diagnose-core/src/agent_loop.rs", ".data_envelope = ", 4),
     ("diagnose-core/src/agent_loop.rs", ".image_data_url = ", 4),
     ("diagnose-core/src/agent_loop.rs", ".text = ", 2),
-    ("diagnose-core/src/agent_loop.rs", "Unverified::new(", 10),
+    ("diagnose-core/src/agent_loop.rs", "Unverified::new(", 7),
     (
         "diagnose-core/src/agent_loop/assistant_data/current.rs",
         ".data_envelope = ",
@@ -217,6 +217,7 @@ const ALLOWED: &[(&str, &str, usize)] = &[
     ("diagnose-core/src/model_egress.rs", ".data_envelope = ", 12),
     ("diagnose-core/src/model_egress.rs", ".text = ", 2),
     ("diagnose-core/src/model_egress.rs", ".tool_calls = ", 2),
+    ("diagnose-core/src/model_egress.rs", "Unverified::new(", 1),
     (
         "diagnose-core/src/model_egress/issue_reply.rs",
         ".data_envelope = ",
@@ -304,6 +305,7 @@ const ALLOWED: &[(&str, &str, usize)] = &[
         4,
     ),
     ("diagnose-core/src/schedule/review_result.rs", ".text = ", 2),
+    ("diagnose-core/src/seam.rs", "Unverified::new(", 1),
     ("diagnose-core/src/session.rs", ".data_envelope = ", 8),
     ("diagnose-core/src/session.rs", ".image_data_url = ", 2),
     ("diagnose-core/src/session.rs", ".text = ", 2),

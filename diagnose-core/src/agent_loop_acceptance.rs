@@ -483,7 +483,7 @@ async fn acceptance_captured_model_cannot_self_execute() {
     let tools = GatedTools::new(
         "logs ok",
         vec![ExecOutcome::Rejected {
-            reason: Some("operator declined".into()),
+            reason: Some(crate::seam::ExecReason::Server("operator declined")),
         }],
     );
     let reg = vec![mutating_tool(

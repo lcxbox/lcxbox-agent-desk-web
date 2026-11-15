@@ -249,7 +249,11 @@ impl ModelEgressPolicy {
             let bytes = message_content_bytes(message)?;
             let source = match message.data_envelope.clone() {
                 Some(envelope) => envelope,
-                None if message.role == ChatRole::System => {
+                // Compiled instructions are public. A System message that
+                // had sourced text appended needs the label built from it.
+                None if message.role == ChatRole::System
+                    && message.content_sources.is_server_only() =>
+                {
                     Self::public_system_envelope(&self.destination, &message.message_id, &bytes)?
                 }
                 None => {
@@ -1223,6 +1227,25 @@ mod tests {
             vec![old, old_answer, current.clone()],
             ResponseFormatSpec::None,
         );
+        assert!(matches!(
+            policy(&[]).authorize_request(request),
+            Err(ModelEgressError::MissingEnvelope { .. })
+        ));
+    }
+
+    #[test]
+    fn a_system_message_with_sourced_text_appended_needs_its_own_label() {
+        let fixed = ChatMessage::text("system", ChatRole::System, "trusted prompt");
+        let request = ModelRequest::text_only(vec![fixed.clone()], ResponseFormatSpec::None);
+        assert!(policy(&[]).authorize_request(request).is_ok());
+        let mut sourced = fixed;
+        crate::runtime_context::append(
+            &mut sourced,
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new(" device text"))
+                .build(),
+        );
+        let request = ModelRequest::text_only(vec![sourced], ResponseFormatSpec::None);
         assert!(matches!(
             policy(&[]).authorize_request(request),
             Err(ModelEgressError::MissingEnvelope { .. })

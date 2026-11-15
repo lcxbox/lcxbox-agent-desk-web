@@ -160,3 +160,14 @@ fn content_without_any_parent_stays_unlabelled() {
     assert_eq!(message.text, "notice");
     assert!(message.data_envelope.is_none());
 }
+
+#[test]
+fn fixed_execution_reasons_stay_server_text_and_host_reasons_stay_unverified() {
+    use crate::seam::ExecReason;
+    let fixed = ExecReason::Server("disabled by policy").content("not executed: ");
+    assert_eq!(fixed.text(), "not executed: disabled by policy");
+    assert!(!fixed.is_unverified());
+    let host = ExecReason::Unverified("device said no".into()).content("not executed: ");
+    assert_eq!(host.text(), "not executed: device said no");
+    assert!(host.is_unverified());
+}

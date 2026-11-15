@@ -4117,10 +4117,7 @@ async fn run_mutating<F: FnMut() -> String>(
         }
         Ok(ExecOutcome::Rejected { reason }) => {
             let content = match reason {
-                Some(r) => crate::model_content::ModelContent::builder()
-                    .text("the command was rejected: ")
-                    .unverified(&crate::model_content::Unverified::new(r))
-                    .build(),
+                Some(reason) => reason.content("the command was rejected: "),
                 None => crate::model_content::ModelContent::constant("the command was rejected"),
             };
             append_mutating_result(
@@ -4142,10 +4139,7 @@ async fn run_mutating<F: FnMut() -> String>(
                 session,
                 call,
                 mint(),
-                &crate::model_content::ModelContent::builder()
-                    .text("not executed: ")
-                    .unverified(&crate::model_content::Unverified::new(reason))
-                    .build(),
+                &reason.content("not executed: "),
                 ServerResultSource::ExecutionStatus,
             )?;
             finish_tool(session, &call.id, false, sink);
@@ -4155,10 +4149,7 @@ async fn run_mutating<F: FnMut() -> String>(
         }
         Ok(ExecOutcome::Cancelled { reason }) => {
             let content = match reason {
-                Some(r) => crate::model_content::ModelContent::builder()
-                    .text("the command was cancelled before it ran: ")
-                    .unverified(&crate::model_content::Unverified::new(r))
-                    .build(),
+                Some(reason) => reason.content("the command was cancelled before it ran: "),
                 None => crate::model_content::ModelContent::constant(
                     "the command was cancelled before it ran",
                 ),

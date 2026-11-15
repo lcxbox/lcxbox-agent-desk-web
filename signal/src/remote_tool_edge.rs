@@ -149,7 +149,9 @@ fn browser_read_outcome(outcome: ExecOutcome) -> Result<ReadOutcome, AgentError>
         }
         ExecOutcome::Rejected { reason } => Err(error(
             AgentErrorKind::PermissionDenied,
-            reason.unwrap_or_else(|| "browser observation was rejected".into()),
+            reason
+                .map(String::from)
+                .unwrap_or_else(|| "browser observation was rejected".into()),
             false,
             true,
         )),
@@ -158,13 +160,15 @@ fn browser_read_outcome(outcome: ExecOutcome) -> Result<ReadOutcome, AgentError>
         }
         ExecOutcome::NotExecuted { reason } => Err(error(
             AgentErrorKind::SessionUnavailable,
-            reason,
+            String::from(reason),
             true,
             true,
         )),
         ExecOutcome::Cancelled { reason } => Err(error(
             AgentErrorKind::Cancelled,
-            reason.unwrap_or_else(|| "browser observation was cancelled".into()),
+            reason
+                .map(String::from)
+                .unwrap_or_else(|| "browser observation was cancelled".into()),
             false,
             true,
         )),
@@ -2559,7 +2563,12 @@ impl SignalAiAssistantTools {
                 .await?;
                 let digest = format!(
                     "{:x}",
-                    Sha256::digest(reason.as_deref().unwrap_or("command rejected").as_bytes())
+                    Sha256::digest(
+                        reason
+                            .as_ref()
+                            .map_or("command rejected", |reason| reason.as_str())
+                            .as_bytes(),
+                    )
                 );
                 desk_diagnose_core::future::boxed(|| async {
                     store
@@ -3600,16 +3609,24 @@ impl SignalAiAssistantTools {
                         )
                     })?;
                     return Ok(match review {
-                    crate::agent_approval_concrete::ConcreteReviewResult::Denied(reason) =>
-                        ExecOutcome::ReviewDenied {
-                            reason: format!("independent AI review denied this exact UI action: {reason}"),
-                        },
-                    crate::agent_approval_concrete::ConcreteReviewResult::Unavailable =>
-                        ExecOutcome::Rejected {
-                            reason: Some("independent AI review was unavailable; this UI action was not executed. Retry later or ask the owner for another safe approach".into()),
-                        },
-                    _ => unreachable!("only denied or unavailable review closes prepared UI work"),
-                });
+                        crate::agent_approval_concrete::ConcreteReviewResult::Denied(reason) => {
+                            ExecOutcome::ReviewDenied {
+                                reason: format!(
+                                    "independent AI review denied this exact UI action: {reason}"
+                                ),
+                            }
+                        }
+                        crate::agent_approval_concrete::ConcreteReviewResult::Unavailable => {
+                            ExecOutcome::Rejected {
+                                reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                                    "independent AI review was unavailable; this UI action was not executed. Retry later or ask the owner for another safe approach",
+                                )),
+                            }
+                        }
+                        _ => unreachable!(
+                            "only denied or unavailable review closes prepared UI work"
+                        ),
+                    });
                 }
             }
             let dispatch_id = match desk_diagnose_core::future::boxed(|| async {
@@ -7018,7 +7035,9 @@ impl ToolSeam for SignalAiAssistantTools {
                 | desk_diagnose_core::tool_names::CONVERT_DOCUMENT
         ) {
             return Ok(ExecOutcome::Rejected {
-                reason: Some("this AI Assistant mutation is not enabled".into()),
+                reason: Some(desk_diagnose_core::seam::ExecReason::Server(
+                    "this AI Assistant mutation is not enabled",
+                )),
             });
         }
         self.authorize_and_execute_artifact(call).await

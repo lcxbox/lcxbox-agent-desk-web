@@ -5634,7 +5634,7 @@ async fn durable_dispatch_refusal_does_not_claim_owner_rejection_or_execution() 
         requests: Rc::new(RefCell::new(vec![])),
     };
     let scripted = tools(vec![ExecOutcome::NotExecuted {
-        reason: "input changed".into(),
+        reason: crate::seam::ExecReason::Server("input changed"),
     }]);
     let registry = vec![mutating_tool(
         "exec_command",
@@ -6371,7 +6371,7 @@ async fn mutating_rejected_skips_remaining_in_turn() {
         requests: Rc::new(RefCell::new(vec![])),
     };
     let scripted = tools(vec![ExecOutcome::Rejected {
-        reason: Some("not now".into()),
+        reason: Some(crate::seam::ExecReason::Server("not now")),
     }]);
     let reg = vec![mutating_tool(
         "exec_command",
@@ -6426,7 +6426,7 @@ async fn mutating_cancelled_before_dispatch_closes_truthfully() {
         requests: Rc::new(RefCell::new(vec![])),
     };
     let scripted = tools(vec![ExecOutcome::Cancelled {
-        reason: Some("operator stopped it".into()),
+        reason: Some(crate::seam::ExecReason::Server("operator stopped it")),
     }]);
     let reg = vec![mutating_tool(
         "exec_command",

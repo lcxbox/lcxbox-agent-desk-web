@@ -614,6 +614,51 @@ pub type ExecIdentity = crate::session::ActionIdentity;
 /// confirm + in-process exec; Manager: a durable work item + central approval +
 /// cross-instance dispatch). The loop turns this into the conversation and the
 /// execution-reconciliation state.
+/// Why an execution did not run, as the model is told.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExecReason {
+    /// Fixed server text.
+    Server(&'static str),
+    /// Text a policy classifier, a reviewer or a host produced.
+    Unverified(String),
+}
+
+impl ExecReason {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Server(text) => text,
+            Self::Unverified(text) => text,
+        }
+    }
+
+    /// The model-visible text `prefix` followed by this reason.
+    pub fn content(&self, prefix: &'static str) -> crate::model_content::ModelContent {
+        let builder = crate::model_content::ModelContent::builder().text(prefix);
+        match self {
+            Self::Server(text) => builder.text(text),
+            Self::Unverified(text) => {
+                builder.unverified(&crate::model_content::Unverified::new(text.clone()))
+            }
+        }
+        .build()
+    }
+}
+
+impl From<ExecReason> for String {
+    fn from(reason: ExecReason) -> Self {
+        match reason {
+            ExecReason::Server(text) => text.into(),
+            ExecReason::Unverified(text) => text,
+        }
+    }
+}
+
+impl std::fmt::Display for ExecReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ExecOutcome {
     /// Approved and executed successfully to a known, already-redacted result.
@@ -653,18 +698,18 @@ pub enum ExecOutcome {
     /// differs only in its approved input.
     GrantRequired { input_mismatch: bool },
     /// The operator rejected the command; nothing ran.
-    Rejected { reason: Option<String> },
+    Rejected { reason: Option<ExecReason> },
     /// The independent AI reviewer refused this exact call; nothing ran. Counted
     /// per tool so repeated refusals go to the owner instead of the reviewer.
     ReviewDenied { reason: String },
     /// The runtime durably refused dispatch before any execution generation was
     /// recorded. This is not an operator rejection or a successful cancellation.
-    NotExecuted { reason: String },
+    NotExecuted { reason: ExecReason },
     /// The command was cancelled before it dispatched; it provably never ran. Unlike
     /// [`Rejected`](Self::Rejected) (a decision at the approval gate) this is a cancel
     /// arriving while the command was still pending, and unlike
     /// [`Unknown`](Self::Unknown) the outcome is certain: it did not run.
-    Cancelled { reason: Option<String> },
+    Cancelled { reason: Option<ExecReason> },
     /// Approval expired before any decision; nothing ran.
     ApprovalTimeout,
     /// The command may have run but its outcome is unknown (cancel / timeout /
@@ -1017,7 +1062,9 @@ pub trait ToolSeam {
     ) -> Result<ExecOutcome, AgentError> {
         let _ = (call, ctx);
         Ok(ExecOutcome::Rejected {
-            reason: Some("mutating execution is not supported by this runtime".into()),
+            reason: Some(crate::seam::ExecReason::Server(
+                "mutating execution is not supported by this runtime",
+            )),
         })
     }
 
