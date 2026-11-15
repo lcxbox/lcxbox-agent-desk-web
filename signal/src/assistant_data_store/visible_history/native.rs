@@ -155,6 +155,26 @@ pub(crate) fn resolve_policy_on<'a>(
         // a missing, foreign or expired proof leaves the answer unretained.
         let snapshot = &root.sources.input_snapshot;
         for (index, stored) in snapshot.stored_roots.iter().enumerate() {
+            let authored = registration
+                .stored_leaves
+                .get(index)
+                .and_then(Option::as_ref)
+                .is_some_and(|leaf| leaf.contract == RegisteredSourceContract::AuthoredSkill);
+            if authored {
+                // As for loaded skill text, restore the version's stored proof.
+                let Some(policy) =
+                    desk_assistant_data_store::skill_store::proposals::authored_policy_on(
+                        db,
+                        &root.source_set.actor_id,
+                        &stored.label,
+                    )
+                    .await?
+                else {
+                    return Ok(None);
+                };
+                policies.insert(policy);
+                continue;
+            }
             let Some(policy) = registration.stored_root_policy(
                 snapshot,
                 index,

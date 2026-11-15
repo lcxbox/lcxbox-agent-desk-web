@@ -84,7 +84,8 @@ fn discovers_metadata_and_loads_instructions_and_reference_separately() {
     assert_eq!(before.len(), 1);
     assert!(before[0].text.contains("bundled/issue-analysis"));
     assert!(!before[0].text.contains("# Issue analysis"));
-    let receipt = state.apply(1, &call(None), &bundled()).unwrap();
+    let (receipt, root) = state.apply(1, &call(None), &bundled()).unwrap();
+    assert!(root.is_none(), "a bundled receipt needs no stored root");
     assert!(!receipt.contains("# Issue analysis"));
     assert!(receipt.contains(CHECKLIST_PATH));
     let loaded = state.project(1, &destination(), &bundled()).unwrap();
@@ -329,7 +330,11 @@ fn loads_over_the_budget_return_a_receipt_and_change_nothing() {
         disabled_bundled: vec![],
     };
     let mut state = SkillState::default();
-    let receipt = state.apply(1, &load("huge", None), &catalog).unwrap();
+    let (receipt, root) = state.apply(1, &load("huge", None), &catalog).unwrap();
+    assert!(
+        root.is_some(),
+        "a stored skill's receipt carries its version root"
+    );
     assert!(receipt.contains("exceeds_budget"));
     assert!(state.uses(1).is_empty());
 }
@@ -577,4 +582,97 @@ fn ai_authored_versions_carry_their_note_and_the_authored_label_shape() {
             "{forged}"
         );
     }
+}
+
+/// Stored skill names and descriptions keep their skill's policy: the
+/// catalogue cites each skill's root, and an AI-authored skill's root names
+/// its version so hosts restore that version's proof.
+#[test]
+fn the_catalogue_cites_each_stored_skill_root() {
+    use crate::ai_assistant::source_registry::{
+        NativeInputPolicyRegistration, RegisteredSourceContract, SOURCE_CONTRACT_REVISION,
+        stored_root_contract,
+    };
+    let mut authored = entry(SkillScope::Personal, "authored", 1);
+    authored.skill_id = "idauthored".into();
+    authored.origin = SkillOrigin::AiAuthored;
+    let catalog = SkillCatalog {
+        stored: vec![
+            entry(SkillScope::Personal, "notes", 1),
+            entry(SkillScope::Platform, "deploy", 1),
+            authored,
+        ],
+        loaded: vec![],
+        disabled_bundled: vec![],
+    };
+    let catalogue = SkillState::default()
+        .project(1, &destination(), &catalog)
+        .unwrap()
+        .remove(0);
+    let label = catalogue.data_envelope.clone().unwrap();
+    assert!(
+        label
+            .envelope_id
+            .starts_with(crate::model_message_labels::COMPOSED_RESULT_PREFIX)
+    );
+    let contracts = catalogue
+        .stored_roots
+        .iter()
+        .map(|root| stored_root_contract(&root.label).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(catalogue.stored_roots.len(), 3);
+    for contract in [
+        RegisteredSourceContract::PersonalSkill,
+        RegisteredSourceContract::PlatformSkill,
+        RegisteredSourceContract::AuthoredSkill,
+    ] {
+        assert!(contracts.contains(&contract), "{contracts:?}");
+    }
+    let authored_root = catalogue
+        .stored_roots
+        .iter()
+        .find(|root| {
+            stored_root_contract(&root.label) == Some(RegisteredSourceContract::AuthoredSkill)
+        })
+        .unwrap();
+    assert_eq!(
+        authored_version_of(
+            &authored_root.label.provenance.source_provider_id,
+            &authored_root.label.provenance.source_tool_name,
+            authored_root
+                .label
+                .provenance
+                .source_object_id
+                .as_deref()
+                .unwrap(),
+        ),
+        Some(("idauthored".to_owned(), 1))
+    );
+    let audit = crate::sink_authorizer::SinkProjectionAudit {
+        destination: destination(),
+        envelope_ids: vec![label.envelope_id.clone()],
+        total_bytes: catalogue.text.len(),
+    };
+    let snapshot = crate::model_egress::NativeModelInputSnapshot::capture_with_roots(
+        &audit,
+        std::slice::from_ref(&label),
+        &[],
+        &catalogue.stored_roots,
+    )
+    .unwrap();
+    let registration =
+        NativeInputPolicyRegistration::capture(&snapshot, SOURCE_CONTRACT_REVISION, 1).unwrap();
+    assert_eq!(
+        registration.leaves[0].as_ref().map(|leaf| leaf.contract),
+        Some(RegisteredSourceContract::NativeControl)
+    );
+    // With only compiled skills the catalogue stays public server text.
+    let bundled_only = SkillState::default()
+        .project(1, &destination(), &bundled())
+        .unwrap()
+        .remove(0);
+    assert!(bundled_only.stored_roots.is_empty());
+    assert!(crate::model_egress::is_public_system_prompt(
+        bundled_only.data_envelope.as_ref().unwrap()
+    ));
 }

@@ -4407,14 +4407,21 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 let parent =
                                                     turn.provider_meta.data_envelope.as_ref();
                                                 match result {
-                                                    Ok(content) => append_internal_tool_result(
-                                                        session,
-                                                        parent,
-                                                        (state.mint)(),
-                                                        &call.id,
-                                                        content,
-                                                        ServerResultSource::LoadSkill,
-                                                    )?,
+                                                    Ok((text, root)) => {
+                                                        let destination = deps
+                                                            .model
+                                                            .model_egress_policy()?
+                                                            .map(|policy| policy.destination);
+                                                        let content = load_skill_content(call, parent, text, root, destination.as_ref())?;
+                                                        let message = ChatMessage::tool_result_from(
+                                                            (state.mint)(),
+                                                            &call.id,
+                                                            &content,
+                                                            parent,
+                                                            ServerResultSource::LoadSkill,
+                                                        )?;
+                                                        session.conversation.push(message);
+                                                    }
                                                     // Skill loading reads only the call and the frozen catalogue.
                                                     Err(error) => append_tool_error(
                                                         session,
@@ -4567,4 +4574,32 @@ pub(super) fn dial_request<'a>(
     sink: &'a mut dyn TurnSink,
 ) -> Pin<Box<dyn Future<Output = Result<crate::chat::ModelTurn, AgentError>> + 'a>> {
     model.call(*request, sink)
+}
+
+/// A `load_skill` receipt. A stored skill's receipt lists its package files,
+/// so it carries that version's root; a bundled skill's receipt holds only
+/// compiled text and the call's own arguments.
+fn load_skill_content(
+    call: &crate::chat::ToolCall,
+    issuing: Option<&DataEnvelope>,
+    text: String,
+    root: Option<crate::skills::SkillRoot>,
+    destination: Option<&desk_agent_protocol::data_lineage::DestinationIdentity>,
+) -> Result<crate::model_content::ModelContent, AgentError> {
+    use crate::model_content::{ModelArg, ModelContent, Stored, Unverified};
+    Ok(match (root, destination) {
+        (None, _) => ModelContent::builder()
+            .arg(&ModelArg::of_call(call, issuing, text))
+            .build(),
+        (Some(root), Some(destination)) => {
+            let root = root.stored_root("receipt", &text, destination)?;
+            ModelContent::builder()
+                .stored(&Stored::new(text, root))
+                .build()
+        }
+        // Without a model destination no root can be bound.
+        (Some(_), None) => ModelContent::builder()
+            .unverified(&Unverified::new(text))
+            .build(),
+    })
 }

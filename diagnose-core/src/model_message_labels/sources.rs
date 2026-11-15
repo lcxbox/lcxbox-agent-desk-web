@@ -78,6 +78,8 @@ server_result_sources! {
     PermissionPauseClosed => "permission_pause_closed",
     // A failed call's error built from its typed origin (`ToolError`).
     ToolCallError => "tool_call_error",
+    // The skill catalogue, labelled by its stored skills.
+    SkillCatalogue => "skill_catalogue",
     // Successful receipts of tools whose body is ids, states or the call's
     // own arguments.
     ControlGoal => crate::goal_tools::CONTROL_GOAL_TOOL_NAME,

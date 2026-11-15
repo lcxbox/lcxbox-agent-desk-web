@@ -167,7 +167,7 @@ impl NativeInputPolicyRegistration {
     }
 
     /// The policy stored root `index` of `snapshot` gives an answer derived
-    /// from it: a device-reported root's compiled policy, or a stored-text
+    /// from it: a device-reported or skill root's compiled policy, or a stored-text
     /// root's embedded proof when it belongs to `actor` and may be copied at
     /// `now`. `None` leaves the answer unretained.
     pub fn stored_root_policy<'a>(
@@ -179,7 +179,12 @@ impl NativeInputPolicyRegistration {
     ) -> Option<&'a SourceUsePolicy> {
         let leaf = self.stored_leaves.get(index)?.as_ref()?;
         match leaf.contract {
-            RegisteredSourceContract::DeviceReported => self.policy(leaf),
+            // An AI-authored skill's compiled policy stands here; hosts
+            // restore its version's stored proof instead.
+            RegisteredSourceContract::DeviceReported
+            | RegisteredSourceContract::PlatformSkill
+            | RegisteredSourceContract::PersonalSkill
+            | RegisteredSourceContract::AuthoredSkill => self.policy(leaf),
             RegisteredSourceContract::StoredText => snapshot
                 .stored_roots
                 .get(index)?

@@ -73,10 +73,9 @@ impl NativeModelInputSnapshot {
         Ok(value)
     }
 
-    /// Every stored root is a valid root of a stored-text or device-reported
-    /// shape, appears once, and is a parent of at least one input.
+    /// Every stored root is a valid root of a stored-root contract, appears
+    /// once, and is a parent of at least one input.
     fn validate_stored_roots(&self) -> Result<(), &'static str> {
-        use crate::model_content::stored::{is_device_reported_label, is_stored_text_label};
         let referenced = self
             .policy_sources()
             .into_iter()
@@ -87,7 +86,7 @@ impl NativeModelInputSnapshot {
             root.label
                 .validate()
                 .map_err(|_| "invalid stored root label")?;
-            if !(is_stored_text_label(&root.label) || is_device_reported_label(&root.label))
+            if crate::ai_assistant::source_registry::stored_root_contract(&root.label).is_none()
                 || !seen.insert(&root.label.envelope_id)
                 || !referenced.contains(&root.label.envelope_id)
             {

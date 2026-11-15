@@ -118,6 +118,41 @@ impl Display for ServerId {
 
 const_piece!(ServerId);
 
+/// Server text assembled only from literals and constant values, such as a
+/// note with version numbers.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct ConstText(String);
+
+impl ConstText {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn text(mut self, text: &'static str) -> Self {
+        self.0.push_str(text);
+        self
+    }
+
+    pub fn value<T: ConstValue + Display>(mut self, value: T) -> Self {
+        use std::fmt::Write;
+        let _ = write!(self.0, "{value}");
+        self
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for ConstText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+const_piece!(ConstText);
+
 impl<T: ContentPiece> __private::Sealed for Option<T> {}
 impl<T: ContentPiece> ContentPiece for Option<T> {
     fn collect(&self, sources: &mut Sources) {

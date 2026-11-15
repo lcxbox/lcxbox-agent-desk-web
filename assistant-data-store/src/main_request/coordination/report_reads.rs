@@ -303,7 +303,9 @@ impl Batch {
             let body = if self.workbench && call.name == desk_diagnose_core::skills::LOAD_TOOL {
                 let mut next = skills.clone();
                 match next.apply(0, call, &catalog) {
-                    Ok(receipt) => {
+                    // This catalogue lists bundled skills only, so no receipt
+                    // carries a stored skill root.
+                    Ok((receipt, _)) => {
                         let projected = next
                             .project(0, &self.destination, &catalog)
                             .map_err(|_| AssistantStoreError::Inaccessible)?;

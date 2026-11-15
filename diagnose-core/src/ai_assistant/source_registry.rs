@@ -93,6 +93,25 @@ impl RegisteredSourcePolicy {
     }
 }
 
+/// The contract of a root label that may join an input snapshot as a stored
+/// root: stored text, device-reported metadata, or skill text whose policy is
+/// compiled or restored from its version.
+pub fn stored_root_contract(label: &DataEnvelope) -> Option<RegisteredSourceContract> {
+    if !label.provenance.source_envelope_ids.is_empty() || label.validate().is_err() {
+        return None;
+    }
+    let contract = classify(label);
+    matches!(
+        contract,
+        RegisteredSourceContract::StoredText
+            | RegisteredSourceContract::DeviceReported
+            | RegisteredSourceContract::PlatformSkill
+            | RegisteredSourceContract::PersonalSkill
+            | RegisteredSourceContract::AuthoredSkill
+    )
+    .then_some(contract)
+}
+
 /// Resolve only compiled roots. Derived labels and live object observations
 /// require their original native parent/reference proof, not a guessed policy.
 pub fn registered_leaf(
