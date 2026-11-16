@@ -2103,16 +2103,24 @@ const REVIEWER_REASON_NOTE: &str = "The reviewer's reason is shown to the owner.
 const UNCLASSIFIED_GUIDANCE: &str =
     "The reviewer refused this item. Ask the owner before requesting it again.";
 
+/// The name of a closed reason code and its fixed guidance; a code outside
+/// the closed set is `unclassified`.
+pub fn reason_code_guidance(
+    reason_code: Option<ApprovalReasonCode>,
+) -> (&'static str, &'static str) {
+    match reason_code {
+        Some(code) => (code.as_str(), code.guidance()),
+        None => ("unclassified", UNCLASSIFIED_GUIDANCE),
+    }
+}
+
 /// What the executing model is told when the AI reviewer refused one exact
-/// action: the closed reason code and its fixed guidance. The reviewer's
-/// own text stays with the owner.
+/// action whose reason cannot be verified: the closed reason code and its
+/// fixed guidance. The reviewer's own text stays with the owner.
 pub fn action_denial_content(
     reason_code: Option<ApprovalReasonCode>,
 ) -> crate::model_content::ModelContent {
-    let (code, guidance) = match reason_code {
-        Some(code) => (code.as_str(), code.guidance()),
-        None => ("unclassified", UNCLASSIFIED_GUIDANCE),
-    };
+    let (code, guidance) = reason_code_guidance(reason_code);
     crate::model_content::ModelContent::builder()
         .text("not executed: independent AI review denied this exact action. reason_code=")
         .text(code)

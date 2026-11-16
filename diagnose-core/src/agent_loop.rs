@@ -4097,14 +4097,19 @@ async fn run_mutating<F: FnMut() -> String>(
                 .await?,
             );
         }
-        Ok(ExecOutcome::ReviewDenied { reason_code }) => {
+        Ok(ExecOutcome::ReviewDenied { reason }) => {
             *session.review_denials.entry(call.name.clone()).or_default() += 1;
+            let content = crate::proposal_review::provenance::action_denial_content(
+                session,
+                issuing_label(session, call).as_ref(),
+                &reason,
+            );
             append_mutating_result(
                 deps,
                 session,
                 call,
                 mint(),
-                &crate::approval_review::action_denial_content(reason_code),
+                &content,
                 ServerResultSource::ExecutionStatus,
             )?;
             finish_tool(session, &call.id, false, sink);

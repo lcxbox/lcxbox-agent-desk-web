@@ -37,8 +37,8 @@ use crate::agent_approval_store::ClaimedPermissionReview;
 pub enum ConcreteReviewResult {
     NotRequired,
     Approved,
-    /// The reviewer's closed reason code; `None` outside the closed set.
-    Denied(Option<desk_diagnose_core::approval_review::ApprovalReasonCode>),
+    /// The reviewer's reason with what it saw, for provenance checks.
+    Denied(Box<desk_diagnose_core::proposal_review::provenance::AiDecisionReason>),
     Unavailable,
 }
 
@@ -464,11 +464,11 @@ async fn claim_inner(
                 if decision.verdict != ApprovalVerdict::Deny {
                     return Err(invalid());
                 }
-                ConcreteReviewResult::Denied(
-                    desk_diagnose_core::approval_review::ApprovalReasonCode::parse(
-                        &decision.reason_code,
+                ConcreteReviewResult::Denied(Box::new(
+                    desk_diagnose_core::proposal_review::provenance::AiDecisionReason::from_review(
+                        &decision, candidate,
                     ),
-                )
+                ))
             }
             _ => ConcreteReviewResult::Unavailable,
         };
@@ -797,13 +797,12 @@ async fn settle_inner(
     crate::approval_metrics::committed(db, &candidate.candidate_id);
     Ok(match status {
         APPROVAL_REVIEW_STATUS_APPROVED => ConcreteReviewResult::Approved,
-        APPROVAL_REVIEW_STATUS_DENIED => ConcreteReviewResult::Denied(
-            desk_diagnose_core::approval_review::ApprovalReasonCode::parse(
-                &decision
-                    .map(|review| review.reason_code.clone())
-                    .ok_or_else(invalid)?,
+        APPROVAL_REVIEW_STATUS_DENIED => ConcreteReviewResult::Denied(Box::new(
+            desk_diagnose_core::proposal_review::provenance::AiDecisionReason::from_review(
+                decision.ok_or_else(invalid)?,
+                candidate,
             ),
-        ),
+        )),
         _ => ConcreteReviewResult::Unavailable,
     })
 }

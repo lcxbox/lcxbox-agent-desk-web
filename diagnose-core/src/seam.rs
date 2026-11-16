@@ -706,10 +706,10 @@ pub enum ExecOutcome {
     Rejected { reason: Option<ExecReason> },
     /// The independent AI reviewer refused this exact call; nothing ran. Counted
     /// per tool so repeated refusals go to the owner instead of the reviewer.
-    /// The model sees the reviewer's closed reason code, not its text; a
-    /// code outside the closed set is `None`.
+    /// The reviewer's reason is shown to the model only when its provenance
+    /// can be verified in the session.
     ReviewDenied {
-        reason_code: Option<crate::approval_review::ApprovalReasonCode>,
+        reason: Box<crate::proposal_review::provenance::AiDecisionReason>,
     },
     /// The runtime durably refused dispatch before any execution generation was
     /// recorded. This is not an operator rejection or a successful cancellation.

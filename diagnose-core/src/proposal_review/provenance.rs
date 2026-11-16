@@ -157,6 +157,39 @@ impl AiDecisionReason {
     }
 }
 
+/// What the executing model is told when the AI reviewer denied one exact
+/// action that `proposing` called for. The reviewer's own reason is shown
+/// when every parent of its provenance is still labelled in the session, and
+/// the content then derives from all of them; otherwise the closed reason
+/// code and its fixed guidance stand in for it.
+pub fn action_denial_content(
+    session: &PersistedAgentSession,
+    proposing: Option<&DataEnvelope>,
+    ai: &AiDecisionReason,
+) -> crate::model_content::ModelContent {
+    use crate::model_content::{ModelContent, ServerText, Sourced};
+    let code = crate::approval_review::ApprovalReasonCode::parse(&ai.reason_code);
+    let parents =
+        proposing.and_then(|proposing| review_reason_parents(session, proposing, &ai.provenance));
+    let Some(parents) = parents else {
+        return crate::approval_review::action_denial_content(code);
+    };
+    let (name, guidance) = crate::approval_review::reason_code_guidance(code);
+    parents
+        .into_iter()
+        .fold(
+            ModelContent::builder()
+                .text("not executed: independent AI review denied this exact action. reason_code=")
+                .text(name)
+                .text(". ")
+                .text(guidance)
+                .text(" Reviewer reason: ")
+                .server(&ServerText::generated(ai.reason.clone())),
+            |builder, parent| builder.sourced(&Sourced::new(String::new(), parent)),
+        )
+        .build()
+}
+
 /// The label of a decision receipt. An AI reason keeps every parent of its
 /// provenance, or takes a data label that never registers when it cannot be
 /// verified; owner and system decisions carry only fixed text under the
@@ -388,6 +421,82 @@ pub(crate) mod tests {
             review_reason_parents(&session, &proposing, &provenance(&session, &["owner"]))
                 .is_none()
         );
+    }
+
+    #[test]
+    fn an_action_denial_shows_the_reviewer_reason_only_when_its_provenance_is_verified() {
+        use crate::model_message_labels::{COMPOSED_RESULT_PREFIX, composed_envelope};
+        let session = paused_session();
+        let proposing = proposing_output(&session).unwrap().clone();
+        let ai = |verifiable| AiDecisionReason {
+            reason: "The owner only asked to read the page.".into(),
+            reason_code: "exceeds_task".into(),
+            provenance: ReviewProvenance {
+                verifiable,
+                ..provenance(&session, &["owner", "device"])
+            },
+        };
+        let label = |content: &crate::model_content::ModelContent| {
+            composed_envelope(
+                content,
+                Some(&proposing),
+                "call",
+                ServerResultSource::ExecutionStatus,
+                false,
+            )
+            .unwrap()
+            .unwrap()
+        };
+        // Verified: the reviewer's words, under the proposing output and every
+        // piece of evidence the reviewer read.
+        let verified = action_denial_content(&session, Some(&proposing), &ai(true));
+        assert!(
+            verified
+                .text()
+                .contains("Reviewer reason: The owner only asked to read the page.")
+        );
+        assert!(verified.text().contains("reason_code=exceeds_task"));
+        assert!(!verified.is_unverified());
+        let verified = label(&verified);
+        assert!(verified.envelope_id.starts_with(COMPOSED_RESULT_PREFIX));
+        assert_eq!(
+            verified.provenance.source_envelope_ids[0],
+            proposing.envelope_id
+        );
+        assert_eq!(
+            ids(&session
+                .conversation
+                .iter()
+                .filter_map(|message| message.data_envelope.clone())
+                .filter(|label| verified
+                    .provenance
+                    .source_envelope_ids
+                    .contains(&label.envelope_id))
+                .collect::<Vec<_>>()),
+            BTreeSet::from([
+                "user-message-owner".to_owned(),
+                proposing.envelope_id.clone(),
+                session.conversation[3]
+                    .data_envelope
+                    .clone()
+                    .unwrap()
+                    .envelope_id,
+            ])
+        );
+        // Unverifiable, or without the proposing output: only the code and
+        // its guidance, as server text under the proposing output.
+        for fallback in [
+            action_denial_content(&session, Some(&proposing), &ai(false)),
+            action_denial_content(&session, None, &ai(true)),
+        ] {
+            assert!(!fallback.text().contains("read the page"));
+            assert!(fallback.text().contains("reason_code=exceeds_task"));
+            assert!(fallback.sources().is_server_only());
+            assert_eq!(
+                label(&fallback).provenance.source_envelope_ids,
+                std::slice::from_ref(&proposing.envelope_id)
+            );
+        }
     }
 
     #[test]

@@ -392,7 +392,14 @@ impl ToolSeam for DenyingTools {
     ) -> Result<ExecOutcome, AgentError> {
         self.calls.borrow_mut().push(call.name.clone());
         Ok(ExecOutcome::ReviewDenied {
-            reason_code: Some(crate::approval_review::ApprovalReasonCode::ExceedsTask),
+            reason: Box::new(crate::proposal_review::provenance::AiDecisionReason {
+                reason: "reviewer refused".into(),
+                reason_code: "exceeds_task".into(),
+                provenance: crate::proposal_review::provenance::ReviewProvenance {
+                    verifiable: true,
+                    evidence: Vec::new(),
+                },
+            }),
         })
     }
 }
@@ -450,14 +457,15 @@ async fn repeated_review_denials_stop_that_tool_until_the_owner_replies() {
         .find(|message| message.tool_call_id.as_deref() == Some("c3"))
         .unwrap();
     assert!(blocked.text.contains("ask how to proceed"));
-    // A refusal shows the closed code and its guidance, never the reviewer's
-    // text, so it stays server text.
+    // An unlabelled proposing output cannot vouch for the reviewer's text: the
+    // refusal shows the closed code and its guidance, as server text.
     let refused = stored
         .conversation
         .iter()
         .find(|message| message.tool_call_id.as_deref() == Some("c1"))
         .unwrap();
     assert!(refused.text.contains("reason_code=exceeds_task"));
+    assert!(!refused.text.contains("reviewer refused"));
     assert!(
         refused
             .text

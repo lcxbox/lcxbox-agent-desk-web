@@ -155,11 +155,12 @@ fn browser_read_outcome(outcome: ExecOutcome) -> Result<ReadOutcome, AgentError>
             false,
             true,
         )),
-        ExecOutcome::ReviewDenied { reason_code } => Err(error(
+        ExecOutcome::ReviewDenied { reason } => Err(error(
             AgentErrorKind::PermissionDenied,
-            desk_diagnose_core::approval_review::action_denial_content(reason_code)
-                .text()
-                .to_owned(),
+            format!(
+                "independent AI review denied this exact UI action: {}",
+                reason.reason
+            ),
             false,
             true,
         )),
@@ -3614,9 +3615,9 @@ impl SignalAiAssistantTools {
                         )
                     })?;
                     return Ok(match review {
-                        crate::agent_approval_concrete::ConcreteReviewResult::Denied(
-                            reason_code,
-                        ) => ExecOutcome::ReviewDenied { reason_code },
+                        crate::agent_approval_concrete::ConcreteReviewResult::Denied(reason) => {
+                            ExecOutcome::ReviewDenied { reason }
+                        }
                         crate::agent_approval_concrete::ConcreteReviewResult::Unavailable => {
                             ExecOutcome::Rejected {
                                 reason: Some(desk_diagnose_core::seam::ExecReason::Server(
