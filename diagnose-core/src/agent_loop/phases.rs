@@ -14,13 +14,11 @@ pub(super) struct LoopState<M> {
     pub completion_protocol_retries: u8,
     pub empty_end_turn_retries: u8,
     pub truncated_turn_retries: u8,
-    pub permission_protocol_retries: u8,
     pub post_tool_permission_protocol_retries: u8,
     pub invalid_tool_argument_retries: u8,
     pub goal_correction_attempted: bool,
     pub required_tool_choice_rejected: bool,
     pub physical_model_attempt: u32,
-    pub permission_continuation_pending: bool,
     /// Tools whose exact-input mismatch was already explained in this turn.
     pub exact_mismatch_hinted: HashSet<String>,
 }
@@ -234,14 +232,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     snapshot.readiness_revision,
                 )
             });
-    // Exact approval pins an action, but must not hide other active grants:
-    // a scoped write may be a prerequisite for that exact command.
-    let mut continuation_tools = deps.permission_continuation_exact_tools.to_vec();
-    if let Some(names) = &authority_names {
-        continuation_tools.extend(names.iter().cloned());
-    }
-    continuation_tools.sort();
-    continuation_tools.dedup();
     let planning_goal = if session.surface == AgentSessionSurface::AiAssistant
         && session.agent_role.is_main()
         && session.trigger_origin == TriggerOrigin::User
@@ -673,41 +663,17 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
     } else {
         None
     };
-    // Only the first step after a command decision is limited to that command;
-    // a different command later becomes its own call-time proposal.
-    let (selected_command_tool, offered_command_tool) = match offered_command_tool {
-        Some((tool, true)) if state.permission_continuation_pending => (Some(tool), None),
-        Some((tool, _)) => (None, Some(tool)),
-        None => (None, None),
-    };
-    if let Some(tool) = &selected_command_tool {
-        exposed.clear();
-        exposed.push(tool);
-    } else if let Some(tool) = &offered_command_tool {
+    if let Some((tool, _)) = &offered_command_tool {
         exposed.retain(|candidate| candidate.name() != tool.name());
         exposed.push(tool);
     }
-    let require_tool_choice = goal_control_only || selected_command_tool.is_some();
-
-    // Approval cannot override execution-state or scope restrictions. Keep
-    // recovery tools available if none of the approved tools can run.
-    let permission_continuation_blocked = state.permission_continuation_pending
-        && !deps.permission_continuation_exact_tools.is_empty()
-        && !exposed.iter().any(|tool| {
-            deps.permission_continuation_exact_tools
-                .iter()
-                .any(|name| name == tool.name())
-        });
-    if permission_continuation_blocked {
-        state.permission_continuation_pending = false;
-    }
+    let require_tool_choice = goal_control_only;
     exposed.sort_by_key(|tool| tool.name());
     let tool_requirements =
         crate::model_capability::ModelRequirements::for_registered_tools(exposed.iter().copied());
     // An approval resume first runs the call it released; the model is called
     // on the next iteration with that call's result and fresh authority.
     if session.released_permission_call.is_some() {
-        state.permission_continuation_pending = false;
         let outcome = crate::future::boxed(|| {
             released_dispatch::run(
                 deps,
@@ -772,45 +738,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             stable_system.clone()
         };
 
-        if let Some((snapshot, grants)) = authority.as_ref().zip(authority_grants.as_ref()) {
-            let fresh = crate::permission_tools::capability_authorization_prompt(
-                grants,
-                &session.permission_requests,
-                &session.permission_decisions,
-                current_unix_ms(deps.clock)?,
-                session.input_revision,
-                snapshot.readiness_revision,
-            );
-            // Replace the old payload before removing its old retention label.
-            // No raw device receipt or persisted conversation is modified.
-            crate::grant_disclosure::replace_authorization_payload(
-                &mut system_prompt.text,
-                &fresh.text,
-            )?;
-            system_prompt
-                .content_sources
-                .merge(fresh.content().sources());
-            // The rebuilt authorization replaces the bounds the host set.
-            let bound = match fresh.approved_exact_input_expires_at_unix_ms {
-                Some(expires_at_unix_ms) => Some(crate::permission_resume::ExactProjection {
-                    destination: deps
-                        .model
-                        .model_egress_policy()?
-                        .ok_or_else(|| AgentError {
-                            kind: AgentErrorKind::PermissionDenied,
-                            message: "Current authorization cannot be bound to the selected model"
-                                .into(),
-                            retryable: false,
-                            safe_for_model: true,
-                            error_code: None,
-                        })?
-                        .destination,
-                    expires_at_unix_ms,
-                }),
-                None => None,
-            };
-            crate::permission_resume::reset_exact_projection(&mut system_prompt, bound);
-        }
         if !policy_read_names.is_empty() {
             // Registry tool names only.
             crate::runtime_context::append(
@@ -899,35 +826,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 safe_for_model: false,
                 error_code: None,
             })?;
-            let continuation_provider_tools = raw_provider_exposed
-                .iter()
-                .filter(|tool| {
-                    !state.permission_continuation_pending
-                        || deps.permission_continuation_exact_tools.is_empty()
-                        || continuation_tools.iter().any(|name| name == tool.name())
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            // The selected command stays part of the approval continuation
-            // protocol even though it has no fixed-device catalogue entry.
-            let indexed_pins = if state.permission_continuation_pending {
-                continuation_tools
-                    .iter()
-                    .filter(|name| {
-                        !session.uses_request_device_tools()
-                            || inventory.iter().any(|item| item.tool_name == **name)
-                    })
-                    .cloned()
-                    .collect()
-            } else {
-                Vec::new()
-            };
             let projection = crate::capability_disclosure::project_capability_disclosure(
                 providers,
                 inventory,
-                &continuation_provider_tools,
+                &raw_provider_exposed,
                 permission_candidates,
-                &indexed_pins,
+                &[],
                 &session.capability_disclosure,
                 pinned_context.max_context_bytes,
             )
@@ -997,17 +901,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             if let Some(notice) = notice {
                 crate::runtime_context::append(&mut system_prompt, &notice.content);
             }
-        }
-        // A System prompt that carries its own projection is labelled once,
-        // after every append.
-        if !split_runtime && let Some(bound) = system_prompt.exact_projection.take() {
-            system_prompt = Box::new(
-                crate::permission_resume::bind_exact_authorization_system_message(
-                    *system_prompt,
-                    bound.destination,
-                    bound.expires_at_unix_ms,
-                )?,
-            );
         }
         crate::future::boxed(|| deliver_pending_results(deps, session)).await?;
         if split_runtime && system_prompt.data_envelope.is_none() {
@@ -1209,91 +1102,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 messages.push(latest_user.repeat_as(
                     projection_id,
                     crate::model_message_labels::ServerResultSource::LatestInputProjection,
-                )?);
-            }
-            if state.permission_continuation_pending || permission_continuation_blocked {
-                let marker_id = format!(
-                    "runtime-permission-continuation-{turn_id}-{}",
-                    session.input_revision
-                );
-                let marker_text = "PERMISSION CONTINUATION CHECKPOINT (server authoritative): resume at the authorization boundary; do not restart the workflow. An approved paused call runs only when you call it again: call the same tool with the same arguments as the paused call, unchanged, or copy approved_exact_input from CURRENT AUTHORIZED GRANTS when shown. Do not add fixed protocol metadata such as schema_version; the server restores it before exact authorization checks. Continue in dependency order: finish required prerequisites (for example create a file before executing it), and do not execute a dependent action if its prerequisite failed. Do not unnecessarily repeat inspection or recreate a preview, because this can replace the approved ephemeral object reference. If the decision was a refusal, adapt to it or explain the blocker. This checkpoint grants no authority; the server authorizer still performs the final match.";
-                let marker_text = if permission_continuation_blocked {
-                    let reasons = deps
-                        .permission_continuation_exact_tools
-                        .iter()
-                        .map(|name| {
-                            let reason = if let Some(tool) =
-                                deps.registry.iter().find(|tool| tool.name() == name)
-                            {
-                                crate::registry::exposure_block_reason(
-                                    tool,
-                                    &session.scope_snapshot,
-                                    &session.execution_state,
-                                    session.trigger_origin,
-                                )
-                                .or_else(|| {
-                                    step_inventory
-                                        .as_deref()
-                                        .and_then(|items| {
-                                            items.iter().find(|item| item.tool_name == *name)
-                                        })
-                                        .filter(|item| !item.callable())
-                                        .map(|_| "capability_not_ready")
-                                })
-                                .or_else(|| {
-                                    authority_names
-                                        .as_ref()
-                                        .filter(|names| !names.contains(name))
-                                        .map(|_| "no_active_matching_grant")
-                                })
-                                .unwrap_or("tool_not_selected_for_advertisement")
-                            } else {
-                                "tool_not_in_runtime_registry"
-                            };
-                            format!("{name}: {reason}")
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    format!(
-                        "PERMISSION CONTINUATION BLOCKED (server authoritative): {reasons}. Approval does not override this restriction. Do not retry the mutation or request the same permission. Available read/discovery tools remain usable. Explain the specific blocker instead of claiming the approved action ran."
-                    )
-                } else if selected_command_tool.is_some() {
-                    format!(
-                        "{marker_text} For the approved selected-device command, call exec_command again with the same target_ref and arguments as the paused call. The server checks both the target and command before dispatch."
-                    )
-                } else {
-                    marker_text.to_string()
-                };
-                let parent = child_runtime_label.as_ref().or_else(|| {
-                    crate::permission_resume::latest_user_requirement(&session.conversation)
-                        .and_then(|message| message.data_envelope.as_ref())
-                });
-                messages.push(runtime_notice(
-                    &marker_id,
-                    &crate::model_content::ModelContent::server_text(marker_text),
-                    parent,
-                    crate::model_message_labels::ServerResultSource::PermissionContinuationCheckpoint,
-                )?);
-            }
-            if state.permission_continuation_pending && state.permission_protocol_retries > 0 {
-                // The first malformed/inconsistent provider response was never
-                // committed or dispatched. Make the single existing retry
-                // actionable for weaker structured-output models without
-                // widening its budget or the exact approved authority.
-                let marker_id = format!(
-                    "runtime-permission-protocol-retry-{turn_id}-{}",
-                    state.permission_protocol_retries
-                );
-                let marker_text = "RUNTIME RECOVERY NOTICE (server authoritative): the previous permission-continuation response violated the tool-call protocol and was discarded before any action was recorded or executed. Return exactly one exposed tool call now, with no prose, no second JSON value, and no trailing characters. Choose the next authorized action in dependency order. If that tool has approved_exact_input, copy its displayed arguments unchanged and do not add protocol metadata such as schema_version; otherwise stay within its active grant scope. This notice grants no authority, and the server will still require the matching active grant and final validation.";
-                let parent = child_runtime_label.as_ref().or_else(|| {
-                    crate::permission_resume::latest_user_requirement(&session.conversation)
-                        .and_then(|message| message.data_envelope.as_ref())
-                });
-                messages.push(runtime_notice(
-                    &marker_id,
-                    &crate::model_content::ModelContent::constant(marker_text),
-                    parent,
-                    crate::model_message_labels::ServerResultSource::PermissionProtocolRetry,
                 )?);
             }
         }
@@ -1922,7 +1730,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 // Interpretation is published only after protocol and safety validation.
 
                 let model: ModelPhase<'a> = crate::future::phase(|| async move {
-                    let exposed = owned_exposed.iter().collect::<Vec<_>>();
                     let completion_only = deps.model.command_completion_event_id().is_some();
                     state.physical_model_attempt =
                         state.physical_model_attempt.checked_add(1).ok_or_else(|| {
@@ -2003,13 +1810,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     "runtime-truncated-turn-retry-{turn_id}-{}",
                                     state.truncated_turn_retries
                                 )),
-                                ProtocolCorrectionReason::PermissionProtocol
-                                | ProtocolCorrectionReason::PermissionActionMissing => {
-                                    Some(format!(
-                                        "runtime-permission-protocol-retry-{turn_id}-{}",
-                                        state.permission_protocol_retries
-                                    ))
-                                }
                                 ProtocolCorrectionReason::PermissionPlanProtocol => Some(format!(
                                     "runtime-post-tool-permission-protocol-retry-{turn_id}-{}",
                                     state.post_tool_permission_protocol_retries
@@ -2253,25 +2053,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                             } else {
                                 sink.on_turn_discarded();
                             }
-                            // A provider may transiently normalize an otherwise complete
-                            // exact-action response with inconsistent stop metadata. Before
-                            // classification no assistant message or action is durable, so a
-                            // single retry is safe. Limit this recovery to an owner-approved
-                            // permission continuation whose exposed exact tool set is already
-                            // server-frozen; ordinary protocol violations still fail closed.
-                            if state.permission_continuation_pending
-                                && !matches!(error, crate::chat::ModelTurnError::UnknownStopReason)
-                                && !deps.permission_continuation_exact_tools.is_empty()
-                                && state.permission_protocol_retries < 1
-                            {
-                                state.permission_protocol_retries += 1;
-                                state.pending_protocol_correction = PendingProtocolCorrection::open(
-                                    observation.clone(),
-                                    correction_fence.clone(),
-                                    ProtocolCorrectionReason::PermissionProtocol,
-                                );
-                                return Ok(PhaseResult::Complete(None));
-                            }
                             let follows_tool_result =
                                 session.conversation.last().is_some_and(|message| {
                                     matches!(
@@ -2320,36 +2101,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                             ))));
                         }
                     };
-                    if state.permission_continuation_pending
-                        && !deps.permission_continuation_exact_tools.is_empty()
-                        && disposition == TurnDisposition::Answer
-                        && turn.tool_calls.is_empty()
-                    {
-                        if deps.content_safety.is_enforced() {
-                            sink.on_turn_retracted(StreamRetractionReason::Incomplete, None);
-                        } else {
-                            sink.on_turn_discarded();
-                        }
-                        if let Some(correction) = &mut protocol_correction {
-                            correction.check(ProtocolCorrectionCheck::Rejected);
-                        }
-                        if let Some(context) = &observation {
-                            context.output(
-                                crate::model_observability::OutputOutcome::InvalidStructuredOutput,
-                                crate::model_observability::tool::now_ms(),
-                            );
-                        }
-                        if state.permission_protocol_retries >= 1 {
-                            return Err(permission_continuation_recovery_error());
-                        }
-                        state.permission_protocol_retries += 1;
-                        state.pending_protocol_correction = PendingProtocolCorrection::open(
-                            observation.clone(),
-                            correction_fence.clone(),
-                            ProtocolCorrectionReason::PermissionActionMissing,
-                        );
-                        return Ok(PhaseResult::Complete(None));
-                    }
                     if matches!(
                         disposition,
                         TurnDisposition::Discard | TurnDisposition::ContextWindowExceeded
@@ -2426,15 +2177,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                         ))));
                     }
 
-                    if state.permission_continuation_pending
-                        && turn.tool_calls.iter().any(|call| {
-                            continuation_tools.iter().any(|name| name == &call.name)
-                                && exposed.iter().any(|tool| tool.name() == call.name)
-                        })
-                    {
-                        state.permission_continuation_pending = false;
-                    }
-
                     let terminal_answer = session.surface
                         == crate::session::AgentSessionSurface::TerminalAiAssistant
                         && disposition == TurnDisposition::Answer;
@@ -2457,12 +2199,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                 == 1
                                 && turn.tool_calls[0].name
                                     == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
-                            ProtocolCorrectionReason::PermissionProtocol
-                            | ProtocolCorrectionReason::PermissionActionMissing => {
-                                disposition == TurnDisposition::InvokeTools
-                                    && turn.tool_calls.len() == 1
-                                    && model_tool_definitions.contains_key(&turn.tool_calls[0].name)
-                            }
                             _ => true,
                         };
                         correction.check(if passed {

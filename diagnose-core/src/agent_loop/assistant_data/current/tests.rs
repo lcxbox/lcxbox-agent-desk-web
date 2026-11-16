@@ -372,7 +372,6 @@ fn deps<'a>(
         capability_inventory: None,
         capability_permission_candidates: &[],
         capability_catalog_metrics: None,
-        permission_continuation_exact_tools: &[],
         response_format: crate::prompt::ResponseFormatSpec::None,
         system_prompt: ChatMessage::public_system("system", "server instruction"),
         max_steps_per_turn: crate::MAX_STEPS_PER_TURN,

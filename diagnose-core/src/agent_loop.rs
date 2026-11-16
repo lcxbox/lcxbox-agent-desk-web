@@ -99,18 +99,6 @@ fn empty_end_turn_recovery_error() -> AgentError {
     }
 }
 
-fn permission_continuation_recovery_error() -> AgentError {
-    AgentError {
-        kind: AgentErrorKind::Internal,
-        message: "the model twice answered without invoking the exact tool made available by the owner's permission decision; the bounded automatic recovery was exhausted".into(),
-        retryable: false,
-        safe_for_model: true,
-        error_code: Some(
-            desk_utils::error::DeskErrorCode::AI_ASSISTANT_PROTOCOL_VIOLATION.code(),
-        ),
-    }
-}
-
 fn model_context_error(error: crate::model_context::ModelContextError) -> AgentError {
     let oversized = matches!(
         error,
@@ -394,11 +382,6 @@ pub struct LoopDeps<'a> {
     /// Content-free measurements captured when the caller built the current
     /// capability catalog. Non-AI-Assistant callers leave this unset.
     pub capability_catalog_metrics: Option<crate::permission_tools::CapabilityCatalogMetrics>,
-    /// Active exact-input Provider tools recovered from the durable permission
-    /// decision. On a permission-resumed turn the loop initially exposes only
-    /// these mutations (plus internal run projection) so a model cannot replace
-    /// an approved ephemeral reference by re-running observation first.
-    pub permission_continuation_exact_tools: &'a [String],
     pub response_format: crate::prompt::ResponseFormatSpec,
     /// The system message prepended to the (trimmed) conversation on every model
     /// call. The caller builds it (with the control-end locale) via
@@ -2338,25 +2321,11 @@ async fn run_inner_impl(
     let completion_protocol_retries: u8 = 0;
     let empty_end_turn_retries: u8 = 0;
     let truncated_turn_retries: u8 = 0;
-    let permission_protocol_retries: u8 = 0;
     let post_tool_permission_protocol_retries: u8 = 0;
     let invalid_tool_argument_retries: u8 = 0;
     let goal_correction_attempted = false;
     let required_tool_choice_rejected = false;
     let physical_model_attempt = 0u32;
-    // A permission decision resumes at the authorization boundary, not at the
-    // beginning of the user's workflow. Keep a recency-edge checkpoint in
-    // model requests until the model proposes the exact Provider call made
-    // available by the decision. Permissioned reads (for example browser
-    // snapshots) are included: an approval is never satisfied by prose alone.
-    // This prevents weaker OpenAI-compatible models from re-running a read /
-    // preview, minting a new ephemeral object reference, and stranding the
-    // exact one-shot grant that the owner just approved. Once a mutating call
-    // is proposed the normal authorizer remains the sole execution authority;
-    // later model calls may inspect again to verify the outcome.
-    let permission_continuation_pending =
-        session.trigger_origin == crate::session::TriggerOrigin::PermissionDecision;
-
     let mut state = Box::new(phases::LoopState {
         mint,
         same_tool,
@@ -2366,13 +2335,11 @@ async fn run_inner_impl(
         completion_protocol_retries,
         empty_end_turn_retries,
         truncated_turn_retries,
-        permission_protocol_retries,
         post_tool_permission_protocol_retries,
         invalid_tool_argument_retries,
         goal_correction_attempted,
         required_tool_choice_rejected,
         physical_model_attempt,
-        permission_continuation_pending,
         exact_mismatch_hinted: HashSet::new(),
     });
     loop {

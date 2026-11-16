@@ -1007,50 +1007,6 @@ pub(crate) fn project_model_message(
             call.arguments_json = value.to_string();
         }
     }
-    if message.role == ChatRole::System || crate::runtime_context::is_runtime(message) {
-        let start_tag = "<capability_authorization>";
-        if let Some(start) = message.text.find(start_tag).map(|i| i + start_tag.len()) {
-            let mut stream = serde_json::Deserializer::from_str(&message.text[start..])
-                .into_iter::<Vec<Value>>();
-            if let Some(Ok(mut entries)) = stream.next() {
-                let end = start + stream.byte_offset();
-                for entry in &mut entries {
-                    if let Some(references) = references {
-                        references.alias_native_arguments(entry);
-                    }
-                    project_scope(entry);
-                    if let Some(object) = entry.as_object_mut() {
-                        object.remove("canonical_input_digest_sha256");
-                    }
-                    if let Some(tool) = entry["tool_name"].as_str().map(str::to_owned)
-                        && let Some(exact) = entry.get_mut("approved_exact_input")
-                    {
-                        if tool == "send_raw_input"
-                            || tool == "execute_wayland_output_input"
-                            || crate::browser_model_ids::supports(&tool)
-                            || crate::result_model_ids::supports(&tool)
-                            || crate::document_model_ids::supports(&tool)
-                            || !fields(&tool).is_empty()
-                        {
-                            project_arguments(&tool, exact, locators);
-                        }
-                        if let Some(references) = references {
-                            for (_, field) in fields(&tool) {
-                                if let Some(id) = exact.get_mut(*field) {
-                                    references.alias_native_id(id);
-                                }
-                            }
-                            references.alias_result_ids(exact);
-                        }
-                        crate::model_input::project_protocol_versions(&tool, exact);
-                    }
-                }
-                message
-                    .text
-                    .replace_range(start..end, &serde_json::to_string(&entries).unwrap());
-            }
-        }
-    }
 }
 
 /// Shared reducing view for inline delivery and complete JSON before paging.
@@ -1240,52 +1196,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn approved_window_input_shows_the_short_id_the_call_must_use() {
-        let mut references = crate::ui_references::UiReferenceState::default();
-        references
-            .register(
-                &json!({"token":"object-window","snapshot_id":"snapshot","object_kind":"window","expires_at":""}),
-                "source",
-            )
-            .unwrap();
-        let entries = json!([{"tool_name":"read_current_screen","state":"active",
-            "approved_exact_input":{"window_id":"object-window"}},
-            {"tool_name":"exec_command","state":"active",
-            "approved_exact_input":{"command":"echo object-window"}}]);
-        let mut message = ChatMessage::text(
-            "grants",
-            ChatRole::System,
-            format!("<capability_authorization>{entries}</capability_authorization>"),
-        );
-        project_model_message(
-            &mut message,
-            Some(&references),
-            &[],
-            crate::model_profile::ModelUseCase::Agent,
-        );
-        let start = message.text.find('[').unwrap();
-        let grants = serde_json::Deserializer::from_str(&message.text[start..])
-            .into_iter::<Value>()
-            .next()
-            .unwrap()
-            .unwrap();
-        let approved = &grants[0]["approved_exact_input"];
-        assert_eq!(approved["window_id"], "w1");
-        assert_eq!(
-            grants[1]["approved_exact_input"]["command"],
-            "echo object-window"
-        );
-        let call = ToolCall {
-            id: "capture".into(),
-            name: "read_current_screen".into(),
-            arguments_json: approved.to_string(),
-        };
-        let (expanded, _) = references.expand_call(&call).unwrap();
-        let value: Value = serde_json::from_str(&expanded.arguments_json).unwrap();
-        assert_eq!(value["window_id"], "object-window");
-    }
-
-    #[test]
     fn permission_history_hides_internal_bindings_but_preserves_real_failures_and_source() {
         let original = serde_json::json!({"items":[{"item_id":"internal-item", "tool_name":"read_system_info", "resource_scope":["selected:server_resolved"], "operation_scope":["read"], "reason":"inspect"}]}).to_string();
         let assistant = ChatMessage::assistant_tool_calls(
@@ -1374,19 +1284,10 @@ mod tests {
     }
 
     #[test]
-    fn protocol_versions_are_hidden_in_grants_and_history_without_changing_authority() {
+    fn protocol_versions_are_hidden_in_history_without_changing_authority() {
         use crate::{chat::ToolCallRef, prompt::ResponseFormatSpec, seam::ModelRequest};
         let canonical =
             json!({"schema_version":1,"shell":"bash","command":"pwd","timeout_ms":10000});
-        let entries =
-            json!([{"tool_name":"exec_command","state":"active","approved_exact_input":canonical}]);
-        let authorization = ChatMessage::text(
-            "grants",
-            ChatRole::System,
-            format!(
-                "CURRENT AUTHORIZED GRANTS\n<capability_authorization>{entries}</capability_authorization>"
-            ),
-        );
         let history = ChatMessage::assistant_tool_calls(
             "history",
             "",
@@ -1407,25 +1308,16 @@ mod tests {
                 arguments_json: canonical.to_string(),
             }],
         );
-        let request = ModelRequest::text_only(
-            vec![authorization, history, command],
-            ResponseFormatSpec::None,
-        );
+        let request = ModelRequest::text_only(vec![history, command], ResponseFormatSpec::None);
         let original = serde_json::to_string(&request.messages).unwrap();
         let projected = project_request(&request);
-        let text = &projected.messages[0].text;
-        let start =
-            text.find("<capability_authorization>").unwrap() + "<capability_authorization>".len();
-        let mut stream = serde_json::Deserializer::from_str(&text[start..]).into_iter::<Value>();
-        let grants = stream.next().unwrap().unwrap();
-        let approved = &grants[0]["approved_exact_input"];
+        let input: Value =
+            serde_json::from_str(&projected.messages[0].tool_calls[0].arguments_json).unwrap();
+        let approved = &input["items"][0]["exact_input"];
         assert!(approved.get("schema_version").is_none());
         assert_eq!(approved["command"], "pwd");
-        let input: Value =
-            serde_json::from_str(&projected.messages[1].tool_calls[0].arguments_json).unwrap();
-        assert_eq!(&input["items"][0]["exact_input"], approved);
         let visible: Value =
-            serde_json::from_str(&projected.messages[2].tool_calls[0].arguments_json).unwrap();
+            serde_json::from_str(&projected.messages[1].tool_calls[0].arguments_json).unwrap();
         assert_eq!(&visible, approved);
         let resolved = resolve_call(
             &ToolCall {

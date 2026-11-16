@@ -580,11 +580,9 @@ async fn run_permission_compaction_case(mutation: u8) {
         }
         .to_string()
     };
-    let exact_names = vec!["launch_application".into()];
     let mut dependencies = deps(&session, &model, &tools, &registry, &clock);
     dependencies.provider_registry = Some(&providers);
     dependencies.capability_inventory = Some(&inventory);
-    dependencies.permission_continuation_exact_tools = &exact_names;
     dependencies.system_prompt = ChatMessage::public_system(
         "system",
         "Continue the authorized operation in dependency order",
@@ -643,18 +641,10 @@ async fn run_permission_compaction_case(mutation: u8) {
         .iter()
         .find(|request| request.use_case == crate::model_profile::ModelUseCase::Agent)
         .unwrap();
-    assert!(
-        first
-            .messages
-            .iter()
-            .any(|message| message.text.contains("approved_exact_input"))
-    );
-    assert!(
-        first
-            .messages
-            .iter()
-            .any(|message| message.text.contains("PERMISSION CONTINUATION CHECKPOINT"))
-    );
+    assert!(first.messages.iter().all(|message| {
+        !message.text.contains("approved_exact_input")
+            && !message.text.contains("PERMISSION CONTINUATION CHECKPOINT")
+    }));
     let stored = session.inner.borrow();
     let stored = stored.as_ref().unwrap();
     assert_eq!(stored.permission_requests.len(), 1);

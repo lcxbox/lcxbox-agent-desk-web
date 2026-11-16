@@ -127,6 +127,11 @@ pub async fn claim_continuation_on<C: ConnectionTrait, H: ScheduleHostStores<C>>
         host.consume_scheduled_decision(txn, session, request_id, grants, now)
             .await
             .map_err(denied_conflict)?;
+        // Release the approved held call before the new turn would close it:
+        // the resumed turn runs it without the model repeating it.
+        session
+            .release_awaiting_permission(request_id)
+            .map_err(|_| ScheduleStoreError::Invalid)?;
         desk_diagnose_core::schedule::permission_wait::resume_turn_id(source, request_id)
     } else {
         work.turn_id.clone()

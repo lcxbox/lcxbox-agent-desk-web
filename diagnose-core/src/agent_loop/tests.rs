@@ -1293,7 +1293,6 @@ fn deps<'a>(
         capability_inventory: None,
         capability_permission_candidates: &[],
         capability_catalog_metrics: None,
-        permission_continuation_exact_tools: &[],
         response_format: ResponseFormatSpec::None,
         system_prompt: crate::agentic_prompt::build_agentic_system_message(None),
         max_steps_per_turn: crate::MAX_STEPS_PER_TURN,
@@ -1766,7 +1765,6 @@ async fn capability_discovery_explicitly_replaces_working_set_without_persisting
         capability_inventory: Some(&inventory),
         capability_permission_candidates: &[],
         capability_catalog_metrics: None,
-        permission_continuation_exact_tools: &[],
         response_format: ResponseFormatSpec::None,
         system_prompt: crate::agentic_prompt::build_agentic_system_message(None),
         max_steps_per_turn: crate::MAX_STEPS_PER_TURN,
@@ -3325,7 +3323,6 @@ async fn checkpoint_compression_preserves_disclosure_selection_without_summarizi
         capability_inventory: Some(&inventory),
         capability_permission_candidates: &permission_candidates,
         capability_catalog_metrics: None,
-        permission_continuation_exact_tools: &[],
         response_format: ResponseFormatSpec::None,
         system_prompt: crate::agentic_prompt::build_agentic_system_message(None),
         max_steps_per_turn: crate::MAX_STEPS_PER_TURN,
@@ -4874,7 +4871,6 @@ fn exec_deps<'a>(
         capability_inventory: None,
         capability_permission_candidates: &[],
         capability_catalog_metrics: None,
-        permission_continuation_exact_tools: &[],
         response_format: ResponseFormatSpec::None,
         system_prompt: crate::agentic_prompt::build_agentic_system_message(None),
         max_steps_per_turn: crate::MAX_STEPS_PER_TURN,
@@ -4934,494 +4930,6 @@ async fn mutating_executes_then_answers() {
     assert_eq!(s.conversation[2].text, "exit_code=0");
     assert_eq!(s.execution_state, ExecutionState::None);
     assert_eq!(s.turn_state, TurnState::Idle);
-}
-
-/// When a permission decision carries a recoverable exact input, the first
-/// resumed model request exposes the approved mutation but not observation.
-/// After that mutation is proposed, normal read tools return so the model can
-/// verify the outcome in the same turn.
-#[tokio::test]
-async fn exact_permission_resume_preserves_other_tool_definitions() {
-    use crate::session::{AgentSessionSurface, TriggerOrigin};
-
-    let sess = MemSession::default();
-    let requests = Rc::new(RefCell::new(vec![]));
-    let model = ScriptModel {
-        turns: RefCell::new(
-            [
-                tool_use("c1", "exact_action"),
-                tool_use("c2", "inspect"),
-                answer("verified"),
-            ]
-            .into(),
-        ),
-        requests: requests.clone(),
-    };
-    let scripted = tools(vec![ExecOutcome::Executed {
-        data_envelope: None,
-        output: ToolRunOutput {
-            format: crate::seam::ToolOutputFormat::Text,
-            content: "action completed".into(),
-            image_data_url: None,
-            document_preview: None,
-        },
-        event_id: None,
-    }]);
-    let registry = vec![
-        mutating_tool("exact_action", Capability::ShellExecConfirmed),
-        read_tool("inspect", Capability::SystemInfo),
-    ];
-    let exact_tools = vec!["exact_action".to_string()];
-    let clock = || "2026-08-30T12:00:00Z".to_string();
-    let mut sink = Collector(Rc::new(RefCell::new(String::new())));
-
-    let mut seeded = PersistedAgentSession::new("conv", "actor", "device", 1, exec_scope(), "t0");
-    seeded.surface = AgentSessionSurface::AiAssistant;
-    seeded.input_revision = 1;
-    seeded.latest_input_seq = 1;
-    seeded.conversation.push(ChatMessage::text(
-        "owner-requirement",
-        ChatRole::User,
-        "inspect, preview, execute, then verify",
-    ));
-    *sess.inner.borrow_mut() = Some(seeded);
-
-    let mut resume_claim = exec_claim();
-    resume_claim.trigger_origin = TriggerOrigin::PermissionDecision;
-    let mut loop_deps = exec_deps(&sess, &model, &scripted, &registry, &clock);
-    loop_deps.permission_continuation_exact_tools = &exact_tools;
-    let outcome = resume_agent_turn_after_permission(
-        &loop_deps,
-        resume_claim,
-        ChatMessage::text(
-            "permission-decision",
-            ChatRole::User,
-            "trusted permission decision bridge",
-        ),
-        &mut sink,
-    )
-    .await
-    .unwrap();
-    assert_eq!(outcome, LoopOutcome::Answered("verified".into()));
-    let fence = scripted.exec_fences.borrow()[0].clone().unwrap();
-    assert_eq!(fence.input_revision, 1);
-    assert_eq!(
-        fence.lease_token,
-        sess.inner.borrow().as_ref().unwrap().lease_token
-    );
-    assert_eq!(
-        (fence.actor_id.as_str(), fence.device_id.as_str()),
-        ("actor", "device")
-    );
-    assert_eq!(
-        fence.turn_id,
-        sess.inner
-            .borrow()
-            .as_ref()
-            .unwrap()
-            .current_turn_id
-            .clone()
-            .unwrap()
-    );
-
-    let requests = requests.borrow();
-    assert_eq!(
-        requests[0]
-            .tools
-            .iter()
-            .map(|tool| tool.name.as_str())
-            .collect::<Vec<_>>(),
-        vec!["exact_action", "inspect", "load_skill"]
-    );
-    assert!(
-        requests[1].tools.iter().any(|tool| tool.name == "inspect"),
-        "observation must be restored after the approved mutation is proposed"
-    );
-    assert_eq!(*scripted.reads.borrow(), vec!["inspect"]);
-}
-
-/// Progressive disclosure must not insert its discovery tool into the narrow
-/// authorization-boundary request. The exact approved Provider tool remains
-/// pinned even when the ordinary working set is rebuilt.
-#[tokio::test]
-async fn exact_provider_permission_resume_preserves_capability_discovery() {
-    use crate::session::{AgentSessionSurface, TriggerOrigin};
-
-    let providers = crate::ai_assistant::ai_assistant_provider_registry();
-    let exact = providers
-        .capability_for_tool("read_system_info")
-        .expect("system info Provider capability")
-        .registered_tool();
-    let inventory = vec![crate::capability_availability::CapabilityAvailability {
-        provider_id: providers
-            .provider_for_capability(
-                &providers
-                    .capability_for_tool(exact.name())
-                    .unwrap()
-                    .wire
-                    .capability_id,
-            )
-            .unwrap()
-            .wire
-            .provider_id
-            .clone(),
-        capability_id: providers
-            .capability_for_tool(exact.name())
-            .unwrap()
-            .wire
-            .capability_id
-            .clone(),
-        tool_name: exact.name().into(),
-        compiled: true,
-        enabled: true,
-        connected: true,
-        ready: true,
-        reason: None,
-    }];
-    let mut registry = vec![exact];
-    registry.extend(crate::capability_disclosure::capability_discovery_tool_registry());
-    let exact_tools = vec!["read_system_info".to_string()];
-
-    let sess = MemSession::default();
-    let requests = Rc::new(RefCell::new(vec![]));
-    let model = ScriptModel {
-        turns: RefCell::new([tool_use("read-exact", "read_system_info"), answer("done")].into()),
-        requests: requests.clone(),
-    };
-    let scripted = tools(vec![]);
-    let clock = || "2026-09-03T00:00:01Z".to_string();
-    let mut seeded = PersistedAgentSession::new("conv", "actor", "device", 1, exec_scope(), "t0");
-    seeded.surface = AgentSessionSurface::AiAssistant;
-    seeded.input_revision = 1;
-    seeded.latest_input_seq = 1;
-    seeded.focus_epoch.input_revision = 1;
-    seeded.conversation.push(ChatMessage::text(
-        "owner-requirement",
-        ChatRole::User,
-        "read the approved system information",
-    ));
-    *sess.inner.borrow_mut() = Some(seeded);
-
-    let mut resume_claim = exec_claim();
-    resume_claim.trigger_origin = TriggerOrigin::PermissionDecision;
-    let mut loop_deps = exec_deps(&sess, &model, &scripted, &registry, &clock);
-    loop_deps.provider_registry = Some(&providers);
-    loop_deps.capability_inventory = Some(&inventory);
-    loop_deps.permission_continuation_exact_tools = &exact_tools;
-
-    let outcome = resume_agent_turn_after_permission(
-        &loop_deps,
-        resume_claim,
-        ChatMessage::text(
-            "permission-decision",
-            ChatRole::User,
-            "trusted permission decision bridge",
-        ),
-        &mut NullTurnSink,
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(outcome, LoopOutcome::Answered("done".into()));
-    assert_eq!(*scripted.reads.borrow(), vec!["read_system_info"]);
-    assert_eq!(
-        requests.borrow()[0]
-            .tools
-            .iter()
-            .map(|tool| tool.name.as_str())
-            .collect::<Vec<_>>(),
-        vec!["describe_tools", "load_skill", "read_system_info"]
-    );
-    assert!(
-        requests.borrow()[0].tools.iter().any(
-            |tool| tool.name == crate::capability_disclosure::LOAD_CAPABILITY_DETAILS_TOOL_NAME
-        )
-    );
-}
-
-#[tokio::test]
-async fn exact_permission_resume_retries_one_precommit_protocol_error() {
-    use crate::model_observability::protocol_correction::{
-        ProtocolCorrectionCheck, ProtocolCorrectionReason,
-    };
-    use crate::session::{AgentSessionSurface, TriggerOrigin};
-
-    let sess = MemSession::default();
-    let requests = Rc::new(RefCell::new(vec![]));
-    let invalid = ModelTurn {
-        stop_reason: StopReason::EndTurn,
-        tool_calls: vec![ToolCall {
-            id: "invalid".into(),
-            name: "exact_action".into(),
-            arguments_json: "{}".into(),
-        }],
-        provider_meta: ProviderResponseMeta {
-            context_observation: None,
-            thinking_prefix: None,
-            cache_projection: None,
-            stop_reason: StopReason::EndTurn,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let model = ScriptModel {
-        turns: RefCell::new([invalid, tool_use("c1", "exact_action"), answer("done")].into()),
-        requests: requests.clone(),
-    };
-    let recorder = std::sync::Arc::new(tool_input_metrics::Recorder::default());
-    let model = tool_input_metrics::ObservedScript {
-        script: &model,
-        recorder: recorder.clone(),
-    };
-    let scripted = tools(vec![ExecOutcome::Executed {
-        data_envelope: None,
-        output: ToolRunOutput {
-            format: crate::seam::ToolOutputFormat::Text,
-            content: "action completed".into(),
-            image_data_url: None,
-            document_preview: None,
-        },
-        event_id: None,
-    }]);
-    let registry = vec![mutating_tool(
-        "exact_action",
-        Capability::ShellExecConfirmed,
-    )];
-    let exact_tools = vec!["exact_action".to_string()];
-    let clock = || "2026-08-30T12:00:00Z".to_string();
-    let mut sink = Collector(Rc::new(RefCell::new(String::new())));
-    let mut seeded = PersistedAgentSession::new("conv", "actor", "device", 1, exec_scope(), "t0");
-    seeded.surface = AgentSessionSurface::AiAssistant;
-    seeded.input_revision = 1;
-    seeded.latest_input_seq = 1;
-    seeded.conversation.push(ChatMessage::text(
-        "owner-requirement",
-        ChatRole::User,
-        "execute the approved action",
-    ));
-    *sess.inner.borrow_mut() = Some(seeded);
-
-    let mut resume_claim = exec_claim();
-    resume_claim.trigger_origin = TriggerOrigin::PermissionDecision;
-    let mut loop_deps = exec_deps(&sess, &model, &scripted, &registry, &clock);
-    loop_deps.permission_continuation_exact_tools = &exact_tools;
-    let outcome = resume_agent_turn_after_permission(
-        &loop_deps,
-        resume_claim,
-        ChatMessage::text(
-            "permission-decision",
-            ChatRole::User,
-            "trusted permission decision bridge",
-        ),
-        &mut sink,
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(outcome, LoopOutcome::Answered("done".into()));
-    assert_eq!(*scripted.exec_calls.borrow(), vec!["c1"]);
-    tool_input_metrics::assert_protocol_recovery(
-        &recorder,
-        ProtocolCorrectionReason::PermissionProtocol,
-        0,
-        1,
-        ProtocolCorrectionCheck::Passed,
-    );
-    let requests = requests.borrow();
-    assert_eq!(requests.len(), 3);
-    let recovery = requests[1].messages.last().unwrap();
-    assert_eq!(recovery.role, ChatRole::SystemEvent);
-    assert!(recovery.text.contains("no trailing characters"));
-    assert!(
-        recovery
-            .text
-            .contains("copy its displayed arguments unchanged")
-    );
-    assert!(recovery.text.contains("do not add protocol metadata"));
-    assert!(
-        !requests[2]
-            .messages
-            .iter()
-            .any(|message| message.text.contains("no trailing characters")),
-        "the permission protocol recovery marker must disappear after the approved action is proposed"
-    );
-}
-
-#[tokio::test]
-async fn exact_permission_resume_retries_one_answer_without_invoking_the_approved_tool() {
-    use crate::model_observability::protocol_correction::{
-        ProtocolCorrectionCheck, ProtocolCorrectionReason,
-    };
-    use crate::session::{AgentSessionSurface, TriggerOrigin};
-
-    let sess = MemSession::default();
-    let requests = Rc::new(RefCell::new(vec![]));
-    let model = ScriptModel {
-        turns: RefCell::new(
-            [
-                answer("I should call the approved tool now."),
-                tool_use("c1", "exact_action"),
-                answer("done"),
-            ]
-            .into(),
-        ),
-        requests: requests.clone(),
-    };
-    let recorder = std::sync::Arc::new(tool_input_metrics::Recorder::default());
-    let model = tool_input_metrics::ObservedScript {
-        script: &model,
-        recorder: recorder.clone(),
-    };
-    let scripted = tools(vec![ExecOutcome::Executed {
-        data_envelope: None,
-        output: ToolRunOutput {
-            format: crate::seam::ToolOutputFormat::Text,
-            content: "action completed".into(),
-            image_data_url: None,
-            document_preview: None,
-        },
-        event_id: None,
-    }]);
-    let registry = vec![mutating_tool(
-        "exact_action",
-        Capability::ShellExecConfirmed,
-    )];
-    let exact_tools = vec!["exact_action".to_string()];
-    let clock = || "2026-08-30T12:00:00Z".to_string();
-    let mut sink = Collector(Rc::new(RefCell::new(String::new())));
-    let mut seeded = PersistedAgentSession::new("conv", "actor", "device", 1, exec_scope(), "t0");
-    seeded.surface = AgentSessionSurface::AiAssistant;
-    seeded.input_revision = 1;
-    seeded.latest_input_seq = 1;
-    seeded.conversation.push(ChatMessage::text(
-        "owner-requirement",
-        ChatRole::User,
-        "execute the approved action",
-    ));
-    *sess.inner.borrow_mut() = Some(seeded);
-
-    let mut resume_claim = exec_claim();
-    resume_claim.trigger_origin = TriggerOrigin::PermissionDecision;
-    let mut loop_deps = exec_deps(&sess, &model, &scripted, &registry, &clock);
-    loop_deps.permission_continuation_exact_tools = &exact_tools;
-    let outcome = resume_agent_turn_after_permission(
-        &loop_deps,
-        resume_claim,
-        ChatMessage::text(
-            "permission-decision",
-            ChatRole::User,
-            "trusted permission decision bridge",
-        ),
-        &mut sink,
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(outcome, LoopOutcome::Answered("done".into()));
-    assert_eq!(*scripted.exec_calls.borrow(), vec!["c1"]);
-    tool_input_metrics::assert_protocol_recovery(
-        &recorder,
-        ProtocolCorrectionReason::PermissionActionMissing,
-        0,
-        1,
-        ProtocolCorrectionCheck::Passed,
-    );
-    let requests = requests.borrow();
-    assert_eq!(requests.len(), 3);
-    assert!(
-        requests[1]
-            .messages
-            .last()
-            .unwrap()
-            .text
-            .contains("Return exactly one exposed tool call now")
-    );
-    assert!(
-        sess.inner
-            .borrow()
-            .as_ref()
-            .unwrap()
-            .conversation
-            .iter()
-            .all(|message| message.text != "I should call the approved tool now.")
-    );
-}
-
-#[tokio::test]
-async fn exact_permissioned_read_clears_the_continuation_checkpoint_after_the_call() {
-    use crate::session::{AgentSessionSurface, TriggerOrigin};
-
-    let sess = MemSession::default();
-    let requests = Rc::new(RefCell::new(vec![]));
-    let model = ScriptModel {
-        turns: RefCell::new(
-            [
-                tool_use("c1", "exact_read"),
-                tool_use("c2", "inspect"),
-                answer("verified"),
-            ]
-            .into(),
-        ),
-        requests: requests.clone(),
-    };
-    let calls = Rc::new(RefCell::new(vec![]));
-    let recording = RecordingTools {
-        calls: calls.clone(),
-        reply: "ok".into(),
-    };
-    let registry = vec![
-        read_tool("exact_read", Capability::SystemInfo),
-        read_tool("inspect", Capability::LogRecent),
-    ];
-    let exact_tools = vec!["exact_read".to_string()];
-    let clock = || "2026-08-30T12:00:00Z".to_string();
-    let mut sink = Collector(Rc::new(RefCell::new(String::new())));
-    let mut seeded = PersistedAgentSession::new("conv", "actor", "device", 1, scope(), "t0");
-    seeded.surface = AgentSessionSurface::AiAssistant;
-    seeded.input_revision = 1;
-    seeded.latest_input_seq = 1;
-    seeded.conversation.push(ChatMessage::text(
-        "owner-requirement",
-        ChatRole::User,
-        "run the approved read and then inspect",
-    ));
-    *sess.inner.borrow_mut() = Some(seeded);
-
-    let mut resume_claim = claim();
-    resume_claim.trigger_origin = TriggerOrigin::PermissionDecision;
-    let mut loop_deps = deps(&sess, &model, &recording, &registry, &clock);
-    loop_deps.permission_continuation_exact_tools = &exact_tools;
-    let outcome = resume_agent_turn_after_permission(
-        &loop_deps,
-        resume_claim,
-        ChatMessage::text(
-            "permission-decision",
-            ChatRole::User,
-            "trusted permission decision bridge",
-        ),
-        &mut sink,
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(outcome, LoopOutcome::Answered("verified".into()));
-    assert_eq!(*calls.borrow(), vec!["exact_read", "inspect"]);
-    let requests = requests.borrow();
-    assert_eq!(
-        requests[0]
-            .tools
-            .iter()
-            .map(|tool| tool.name.as_str())
-            .collect::<Vec<_>>(),
-        vec!["exact_read", "inspect", "load_skill"]
-    );
-    assert!(requests[1].tools.iter().any(|tool| tool.name == "inspect"));
-    assert!(
-        requests[1]
-            .messages
-            .iter()
-            .all(|message| !message.text.contains("PERMISSION CONTINUATION CHECKPOINT"))
-    );
 }
 
 #[tokio::test]
@@ -5857,63 +5365,6 @@ async fn generic_work_completion_resume_runs_against_the_existing_tail_without_a
     assert_eq!(s.conversation.last().unwrap().text, "looked at it");
     // The pending entry the model reacted to is drained.
     assert!(s.pending_auto_triggers.is_empty());
-}
-
-/// A permission resume puts a server-authored checkpoint at the recency edge
-/// so the model consumes an active exact grant instead of repeating the read /
-/// preview that created its ephemeral object reference.
-#[tokio::test]
-async fn permission_resume_places_authorization_checkpoint_at_request_tail() {
-    use crate::session::{AgentSessionSurface, TriggerOrigin};
-
-    let sess = MemSession::default();
-    let requests = Rc::new(RefCell::new(vec![]));
-    let model = ScriptModel {
-        turns: RefCell::new([answer("continued")].into()),
-        requests: requests.clone(),
-    };
-    let scripted = tools(vec![]);
-    let registry: Vec<RegisteredTool> = vec![];
-    let clock = || "2026-08-30T12:00:00Z".to_string();
-    let mut sink = Collector(Rc::new(RefCell::new(String::new())));
-
-    let mut seeded = PersistedAgentSession::new("conv", "actor", "device", 1, scope(), "t0");
-    seeded.surface = AgentSessionSurface::AiAssistant;
-    seeded.conversation.push(ChatMessage::text(
-        "owner-requirement",
-        ChatRole::User,
-        "inspect, preview, then run the exact action",
-    ));
-    *sess.inner.borrow_mut() = Some(seeded);
-
-    let mut resume_claim = claim();
-    resume_claim.trigger_origin = TriggerOrigin::PermissionDecision;
-    let outcome = resume_agent_turn_after_permission(
-        &deps(&sess, &model, &scripted, &registry, &clock),
-        resume_claim,
-        ChatMessage::text(
-            "permission-decision",
-            ChatRole::User,
-            "trusted permission decision bridge",
-        ),
-        &mut sink,
-    )
-    .await
-    .unwrap();
-    assert_eq!(outcome, LoopOutcome::Answered("continued".into()));
-
-    let requests = requests.borrow();
-    let tail = requests[0].messages.last().unwrap();
-    assert!(
-        tail.text
-            .starts_with("PERMISSION CONTINUATION CHECKPOINT (server authoritative)")
-    );
-    assert!(tail.text.contains("Continue in dependency order"));
-    assert!(tail.text.contains("Do not unnecessarily repeat inspection"));
-    assert!(
-        tail.message_id
-            .starts_with("runtime-permission-continuation-")
-    );
 }
 
 /// An unknown-outcome execution closes the conversation with a placeholder tool
@@ -6517,7 +5968,6 @@ async fn mutating_backend_error_fails_turn() {
         capability_inventory: None,
         capability_permission_candidates: &[],
         capability_catalog_metrics: None,
-        permission_continuation_exact_tools: &[],
         response_format: ResponseFormatSpec::None,
         system_prompt: crate::agentic_prompt::build_agentic_system_message(None),
         max_steps_per_turn: crate::MAX_STEPS_PER_TURN,
@@ -6628,7 +6078,6 @@ async fn retryable_mutating_error_returns_to_model_for_correction() {
         capability_inventory: None,
         capability_permission_candidates: &[],
         capability_catalog_metrics: None,
-        permission_continuation_exact_tools: &[],
         response_format: ResponseFormatSpec::None,
         system_prompt: crate::agentic_prompt::build_agentic_system_message(None),
         max_steps_per_turn: crate::MAX_STEPS_PER_TURN,
@@ -7718,7 +7167,6 @@ async fn rejected_tool_image_is_not_persisted_and_remaining_calls_are_paired() {
         capability_inventory: None,
         capability_permission_candidates: &[],
         capability_catalog_metrics: None,
-        permission_continuation_exact_tools: &[],
         response_format: ResponseFormatSpec::None,
         system_prompt: crate::agentic_prompt::build_agentic_system_message(None),
         max_steps_per_turn: crate::MAX_STEPS_PER_TURN,
@@ -9679,12 +9127,20 @@ async fn exercise_scheduled_permission_pause() {
         store.inner.borrow().as_ref().unwrap().permission_requests,
         session.permission_requests
     );
+    // The call is held without a result, as a main conversation call is, so
+    // an approval releases it for the server to run.
     assert!(
-        session
+        !session
             .conversation
             .iter()
-            .any(|message| message.tool_call_id.as_deref() == Some("first")
-                && message.text.contains("pending_user_decision"))
+            .any(|message| message.tool_call_id.as_deref() == Some("first"))
+    );
+    assert_eq!(
+        session
+            .awaiting_permission
+            .as_ref()
+            .map(|waiting| (waiting.tool_call_id.as_str(), waiting.request_id.as_str())),
+        Some(("first", "request-1"))
     );
 }
 
@@ -9734,72 +9190,6 @@ async fn reasoning_display_is_saved_for_tool_turns_and_final_answers() {
         ]
     );
     assert!(!sink.0.borrow().contains("Inspect the device first."));
-}
-
-#[tokio::test]
-async fn scope_blocked_exact_permission_resume_restores_reads_without_forcing_mutation() {
-    use crate::session::{AgentSessionSurface, TriggerOrigin};
-    let sess = MemSession::default();
-    let requests = Rc::new(RefCell::new(vec![]));
-    let model = ScriptModel {
-        turns: RefCell::new(
-            [
-                tool_use("read", "inspect"),
-                answer("Please review the unresolved action."),
-            ]
-            .into(),
-        ),
-        requests: requests.clone(),
-    };
-    let scripted = tools(vec![]);
-    let registry = vec![
-        mutating_tool("exact_action", Capability::ProcessList),
-        read_tool("inspect", Capability::SystemInfo),
-    ];
-    let exact_tools = vec!["exact_action".to_string()];
-    let clock = || "2026-09-09T12:00:00Z".to_string();
-    let mut seeded = PersistedAgentSession::new("conv", "actor", "device", 1, exec_scope(), "t0");
-    seeded.surface = AgentSessionSurface::AiAssistant;
-    seeded.input_revision = 1;
-    seeded.latest_input_seq = 1;
-    seeded.conversation.push(ChatMessage::text(
-        "owner",
-        ChatRole::User,
-        "create an event",
-    ));
-    seeded.execution_state = ExecutionState::OutcomeUnknown {
-        action: crate::session::ActionIdentity::agent_exec(57, "request", "execution"),
-        placeholder_message_id: "unknown".into(),
-        since: "2026-09-09T11:59:00Z".into(),
-    };
-    *sess.inner.borrow_mut() = Some(seeded);
-    let mut claim = exec_claim();
-    claim.trigger_origin = TriggerOrigin::PermissionDecision;
-    let mut deps = exec_deps(&sess, &model, &scripted, &registry, &clock);
-    deps.permission_continuation_exact_tools = &exact_tools;
-    let outcome = resume_agent_turn_after_permission(
-        &deps,
-        claim,
-        ChatMessage::text(
-            "decision",
-            ChatRole::User,
-            "trusted permission decision bridge",
-        ),
-        &mut NullTurnSink,
-    )
-    .await
-    .unwrap();
-    assert!(matches!(outcome, LoopOutcome::Answered(_)));
-    assert!(scripted.exec_calls.borrow().is_empty());
-    assert_eq!(*scripted.reads.borrow(), vec!["inspect"]);
-    let captured = requests.borrow();
-    assert!(captured[0].tools.iter().any(|tool| tool.name == "inspect"));
-    assert!(
-        !captured[0]
-            .tools
-            .iter()
-            .any(|tool| tool.name == "exact_action")
-    );
 }
 
 #[tokio::test]

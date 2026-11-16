@@ -109,26 +109,6 @@ pub struct CapabilityCatalogMetrics {
     pub detail_max_utf8_bytes: u64,
 }
 
-/// Render the current server-owned authorization projection for the model.
-///
-/// Permission decisions are durable run events rather than conversation text,
-/// so an older assistant message may still say that a request was pending.
-/// Re-projecting grants and per-item decisions on every turn gives the model
-/// current authority facts without exposing grant ids or trusting
-/// model-maintained history. Callers must supply the session's decision
-/// projection so a partially approved batch cannot be flattened into a
-/// tool-wide refusal. Actual dispatch still has to pass the grant matcher and
-/// transactional reservation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CapabilityAuthorizationPrompt {
-    pub text: String,
-    /// The requested inputs and scopes `text` repeats, with their proofs.
-    pub cites: Vec<crate::model_content::StoredSpec>,
-    /// Earliest expiry among exact inputs included in `text`. The caller uses
-    /// this to put the whole prompt behind the same model-egress boundary.
-    pub approved_exact_input_expires_at_unix_ms: Option<u64>,
-}
-
 pub(crate) fn latest_tool_request_denied(
     requests: &[PermissionRequest],
     decisions: &[crate::dynamic_run::PermissionDecisionProjection],
@@ -196,262 +176,9 @@ pub(crate) fn unchanged_ai_denied_item<'a>(
     denials.next().map(|_| first)
 }
 
-pub fn capability_authorization_prompt(
-    grants: &[CapabilityGrant],
-    permission_requests: &[PermissionRequest],
-    decisions: &[crate::dynamic_run::PermissionDecisionProjection],
-    now_unix_ms: u64,
-    current_input_revision: u64,
-    current_readiness_revision: u64,
-) -> CapabilityAuthorizationPrompt {
-    let mut approved_exact_input_expires_at_unix_ms: Option<u64> = None;
-    let mut entries = Vec::with_capacity(grants.len());
-    let mut cites = Vec::new();
-    // Approved scope remains valid across ordinary conversation inputs.
-    for grant in grants {
-        let mut state = if grant.issued_at_unix_ms > now_unix_ms {
-            "not_yet_active"
-        } else if grant.revoked_at_unix_ms.is_some() {
-            "revoked"
-        } else if grant.expires_at_unix_ms <= now_unix_ms {
-            "expired"
-        } else if grant.remaining_uses == 0 {
-            "exhausted"
-        } else if grant.readiness_revision != current_readiness_revision {
-            "stale_readiness"
-        } else {
-            "active"
-        };
-        let approved_exact = (state == "active")
-            .then(|| approved_exact_input(grant, permission_requests))
-            .flatten();
-        if state == "active"
-            && grant.canonical_input_digest_sha256.is_some()
-            && approved_exact.is_none()
-        {
-            // An exact grant without a recoverable current-schema input cannot
-            // be called safely. Keep it out of the model's active authority
-            // set instead of encouraging the model to reconstruct old wire
-            // shapes or guess fields from a digest.
-            state = "schema_incompatible";
-        }
-        if state != "active" {
-            let existing = entries.iter_mut().find(|entry: &&mut serde_json::Value| {
-                entry["tool_name"] == grant.tool_name && entry["state"] == state
-            });
-            if let Some(entry) = existing {
-                entry["grant_count"] = json!(entry["grant_count"].as_u64().unwrap_or(0) + 1);
-            } else {
-                entries
-                    .push(json!({"tool_name": grant.tool_name, "state": state, "grant_count": 1}));
-            }
-            continue;
-        }
-        cite_grant_sources(grant, permission_requests, &mut cites);
-        let mut entry = json!({
-            "provider_id": grant.provider_id,
-            "capability_id": grant.capability_id,
-            "tool_name": grant.tool_name,
-            "effect": grant.effect,
-            "risk_tier": grant.risk_tier,
-            "use_policy": grant.use_policy,
-            "state": state,
-            "remaining_uses": grant.remaining_uses,
-            "expires_at_unix_ms": grant.expires_at_unix_ms,
-            "resource_scope": grant.resource_scope,
-            "operation_scope": grant.operation_scope,
-        });
-        if !grant.use_policy.consumes_uses() {
-            entry.as_object_mut().unwrap().remove("remaining_uses");
-        }
-        if grant.canonical_input_digest_sha256.is_none()
-            && let Some(mut scope) = permission_requests
-                .iter()
-                .filter(|r| {
-                    matches!(
-                        r.state,
-                        PermissionRequestState::Approved
-                            | PermissionRequestState::PartiallyApproved
-                    )
-                })
-                .flat_map(|r| &r.items)
-                .filter(|item| {
-                    item.tool_name == grant.tool_name && item.resource_scope == grant.resource_scope
-                })
-                .find_map(|item| {
-                    crate::application_ui::from_canonical(
-                        &item.tool_name,
-                        item.canonical_input_json.as_deref(),
-                    )
-                })
-        {
-            scope.actions.retain(|action| {
-                grant
-                    .operation_scope
-                    .contains(&crate::application_ui::operation_for_tool(
-                        &grant.tool_name,
-                        *action,
-                    ))
-            });
-            entry["application_scope"] = json!(scope);
-            approved_exact_input_expires_at_unix_ms = Some(
-                approved_exact_input_expires_at_unix_ms.map_or(grant.expires_at_unix_ms, |v| {
-                    v.min(grant.expires_at_unix_ms)
-                }),
-            );
-        }
-        if state == "active"
-            && let Some((canonical_input, digest)) = approved_exact
-        {
-            entry["canonical_input_digest_sha256"] = json!(digest);
-            entry["approved_exact_input"] = canonical_input;
-            approved_exact_input_expires_at_unix_ms = Some(
-                approved_exact_input_expires_at_unix_ms
-                    .map_or(grant.expires_at_unix_ms, |current| {
-                        current.min(grant.expires_at_unix_ms)
-                    }),
-            );
-        }
-        entries.push(entry);
-    }
-    let tools: BTreeSet<_> = permission_requests
-        .iter()
-        .flat_map(|request| &request.items)
-        .map(|item| item.tool_name.as_str())
-        .collect();
-    for tool in tools {
-        let latest = permission_requests.iter().rev().find(|request| {
-            request.input_revision == current_input_revision
-                && request.items.iter().any(|item| item.tool_name == tool)
-        });
-        let has_item_projection = latest.is_some_and(|request| {
-            decisions
-                .iter()
-                .any(|decision| decision.request_id == request.request_id)
-        });
-        if !has_item_projection
-            && latest_tool_request_denied(
-                permission_requests,
-                decisions,
-                tool,
-                current_input_revision,
-            )
-        {
-            entries.push(
-                json!({"tool_name":tool,"state":"denied","input_revision":current_input_revision}),
-            );
-        }
-    }
-    for decision in decisions
-        .iter()
-        .filter(|decision| decision.input_revision == current_input_revision)
-    {
-        if let Some(request) = permission_requests
-            .iter()
-            .find(|request| request.request_id == decision.request_id)
-        {
-            for outcome in decision.items.iter().filter(|item| !item.approved) {
-                if let Some(item) = request
-                    .items
-                    .iter()
-                    .find(|item| item.item_id == outcome.item_id)
-                {
-                    entries.push(json!({
-                        "tool_name": item.tool_name,
-                        "state": "denied_item",
-                        "request_id": request.request_id,
-                        "item_id": item.item_id,
-                        "decision_actor": match outcome.actor {
-                            crate::dynamic_run::PermissionDecisionActor::Owner => "owner",
-                            crate::dynamic_run::PermissionDecisionActor::OwnerNoReview => "owner_no_review",
-                            crate::dynamic_run::PermissionDecisionActor::AiApproval => "ai_approval",
-                            crate::dynamic_run::PermissionDecisionActor::System => "system",
-                            crate::dynamic_run::PermissionDecisionActor::Mixed => "mixed_review",
-                        },
-                        "input_revision": current_input_revision,
-                    }));
-                }
-            }
-        }
-    }
-    CapabilityAuthorizationPrompt {
-        text: format!(
-            "The following JSON authorization snapshot is server-authored for this run and supersedes any older assistant statement that a permission request is still pending. It does not widen the current tool list and does not itself dispatch anything. When a tool is present in the current tool list and has state=active here, do not refuse it based on stale permission text in conversation history; call it when the user requested it and let the server authorizer perform the final match. For any active grant bound to an exact input, approved_exact_input is the model-facing projection of the approved input: copy its displayed arguments without adding, removing, or changing any visible field. Fixed protocol metadata such as schema_version is supplied by the server and must not be added. The server restores that metadata before checking the complete canonical input against the grant. Never repeat approved_exact_input in prose or reuse it beyond remaining_uses. For an active use_policy=until_expiry grant, choose any public HTTP or HTTPS URL on its exact external_web_host scope until expiry; this grant has no call-count limit and does not authorize another host or subdomain. Exact input is deliberately omitted for every non-active or non-exact grant. For an active application_scope, use its application_id in the approved UI or background-input tool, use current observed target IDs and an approved action; do not request another exact permission for each control within that scope. A state=denied_item entry identifies one denied item, not every use of that tool; any other active grant remains independently valid. Do not retry an unchanged denied action. A narrower action after an AI approval denial requires a new permission request, while an owner denial requires new owner input. A legacy state=denied entry reports an entire refused request. Never invent or reveal a grant id.\n<capability_authorization>{}</capability_authorization>",
-            serde_json::to_string(&entries).expect("authorization projection is serializable")
-        ),
-        cites,
-        approved_exact_input_expires_at_unix_ms,
-    }
-}
-
-impl CapabilityAuthorizationPrompt {
-    /// The prompt as model content: server text that cites the requested
-    /// inputs and scopes it repeats.
-    pub fn content(&self) -> crate::model_content::ModelContent {
-        self.cites
-            .iter()
-            .cloned()
-            .fold(
-                crate::model_content::ModelContent::builder().server(
-                    &crate::model_content::ServerText::generated(self.text.clone()),
-                ),
-                |builder, spec| builder.cite(spec),
-            )
-            .build()
-    }
-}
-
-/// Cites the request item an active grant was issued for, with the
-/// request's proof. A scoped grant no request item issued cites its scope
-/// without a proof.
-fn cite_grant_sources(
-    grant: &CapabilityGrant,
-    permission_requests: &[PermissionRequest],
-    cites: &mut Vec<crate::model_content::StoredSpec>,
-) {
-    use crate::model_content::StoredSpec;
-    // A grant decided on a request item has an id derived from that item;
-    // other grants, such as policy and scheduled ones, cite no request.
-    let issued = permission_requests.iter().find_map(|request| {
-        request
-            .items
-            .iter()
-            .find(|item| {
-                crate::permission_grant::permission_item_grant_id(
-                    &grant.run_id,
-                    request,
-                    &item.item_id,
-                ) == grant.grant_id
-            })
-            .map(|item| (request, item))
-    });
-    let spec = match issued {
-        Some((request, item)) => StoredSpec::proven(
-            "permission_request",
-            request.request_id.clone(),
-            "items",
-            serde_json::to_string(&[item]).unwrap_or_default(),
-            request.input_source.as_deref().cloned(),
-        ),
-        None if !grant.resource_scope.is_empty() => StoredSpec::proven(
-            "capability_grant",
-            grant.grant_id.clone(),
-            "resource_scope",
-            serde_json::to_string(&grant.resource_scope).unwrap_or_default(),
-            None,
-        ),
-        None => return,
-    };
-    if !cites.contains(&spec) {
-        cites.push(spec);
-    }
-}
-
-/// Exact Provider tools whose approved canonical input can be recovered for a
-/// permission-decision continuation right now. The orchestration loop uses
-/// this server-owned set to temporarily hide research / preview tools until
-/// the model proposes the already-approved mutation, preventing a fresh
-/// observation from invalidating an ephemeral object reference before use.
+/// Provider tools with an active exact-input grant whose approved input is
+/// still recorded. Hosts expose these tools so an approved call stays
+/// callable; the authorizer still matches every call against the grant.
 pub fn active_exact_authorized_tool_names(
     grants: &[CapabilityGrant],
     permission_requests: &[PermissionRequest],
@@ -1893,7 +1620,7 @@ pub(crate) fn existing_request_result(
         decision_state,
         request_id: crate::model_content::ServerId::new(request_id),
         authority: "unchanged",
-        message: "An authority-equivalent permission batch already exists for this input revision. Do not request it again; use the current authorization snapshot or adapt to the recorded decision.",
+        message: "An authority-equivalent permission batch already exists for this input revision. Do not request it again; adapt to the recorded decision.",
     })
 }
 
@@ -2016,18 +1743,13 @@ mod tests {
     }
 
     #[test]
-    fn denial_projection_is_current_explicit_and_contains_no_rejected_content() {
+    fn the_latest_denial_is_current_and_explicit() {
         let registry = crate::ai_assistant::ai_assistant_provider_registry();
         let mut request = build_permission_request(
             &call(r#"{"items":[{"item_id":"capture","tool_name":"read_current_screen","exact_input":{"display":"private-display"},"suggested_ttl_seconds":300,"suggested_max_uses":1,"reason":"private-reason"}]}"#),
             &registry, "permission-denied".into(), 3, "2026-09-17T00:00:00Z".into(),
         ).unwrap();
         request.state = PermissionRequestState::Denied;
-        let prompt =
-            capability_authorization_prompt(&[], std::slice::from_ref(&request), &[], 500, 3, 1);
-        assert!(prompt.text.contains("\"state\":\"denied\""));
-        assert!(!prompt.text.contains("private-display"));
-        assert!(!prompt.text.contains("private-reason"));
         assert!(!latest_tool_request_denied(
             std::slice::from_ref(&request),
             &[],
@@ -2228,7 +1950,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_ai_decision_projects_only_the_denied_item() {
+    fn a_partial_ai_decision_denies_only_the_denied_item() {
         let registry = crate::ai_assistant::ai_assistant_provider_registry();
         let mut request = build_permission_request(
             &call(r#"{"items":[{"item_id":"first","tool_name":"read_current_screen","exact_input":{"display":"private-display"},"suggested_ttl_seconds":300,"suggested_max_uses":1,"reason":"private-reason"}]}"#),
@@ -2256,20 +1978,6 @@ mod tests {
             ],
         };
         decision.validate_for(&request).unwrap();
-        let projection = capability_authorization_prompt(
-            &[],
-            std::slice::from_ref(&request),
-            std::slice::from_ref(&decision),
-            500,
-            3,
-            1,
-        );
-        assert!(projection.text.contains("\"state\":\"denied_item\""));
-        assert!(projection.text.contains("\"item_id\":\"second\""));
-        assert!(!projection.text.contains("\"item_id\":\"first\""));
-        assert!(!projection.text.contains("\"state\":\"denied\""));
-        assert!(!projection.text.contains("private-display"));
-        assert!(!projection.text.contains("private-reason"));
         assert!(!latest_tool_request_denied(
             std::slice::from_ref(&request),
             std::slice::from_ref(&decision),
@@ -3439,193 +3147,7 @@ mod tests {
     }
 
     #[test]
-    fn authorization_projection_overrides_stale_pending_history_without_grant_ids() {
-        use desk_agent_protocol::capability_grant::{
-            CAPABILITY_GRANT_SCHEMA_VERSION, CapabilityGrantIssuer, CapabilityGrantLimits,
-            CapabilityGrantUsePolicy, CapabilityRiskTier,
-        };
-        use desk_agent_protocol::capability_provider::ProductSurface;
-
-        let grant = CapabilityGrant {
-            schema_version: CAPABILITY_GRANT_SCHEMA_VERSION,
-            grant_id: "secret-grant-id".into(),
-            actor_id: "owner".into(),
-            run_id: "run".into(),
-            input_revision: 1,
-            surface: ProductSurface::OssPersonalOwner,
-            target_device_id: "device".into(),
-            target_session_id: None,
-            provider_id: crate::ai_assistant::OFFICE_DOCUMENT_PROVIDER_ID.into(),
-            capability_id: crate::ai_assistant::OFFICE_DOCUMENT_CAPABILITY_ID.into(),
-            tool_name: "inspect_office_selection".into(),
-            tool_schema_version: 1,
-            effect: CapabilityEffect::ReadDevice,
-            risk_tier: CapabilityRiskTier::R1,
-            resource_scope: vec!["target:current_device".into()],
-            operation_scope: vec!["observe".into()],
-            export_destinations: Vec::new(),
-            allowed_envelope_ids: Vec::new(),
-            use_policy: CapabilityGrantUsePolicy::Reusable,
-            canonical_input_digest_sha256: None,
-            issued_by: CapabilityGrantIssuer::UserDecision,
-            issued_at_unix_ms: 100,
-            expires_at_unix_ms: 1_000,
-            remaining_uses: 1,
-            limits: CapabilityGrantLimits {
-                max_bytes_per_call: 1024,
-                max_items_per_call: 1,
-                max_calls: 1,
-            },
-            policy_revision: 1,
-            readiness_revision: 1,
-            revoked_at_unix_ms: None,
-            revoked_reason: None,
-        };
-        let prompt =
-            capability_authorization_prompt(std::slice::from_ref(&grant), &[], &[], 500, 1, 1);
-        assert!(prompt.text.contains("\"state\":\"active\""));
-        assert!(prompt.text.contains("inspect_office_selection"));
-        assert!(!prompt.text.contains("secret-grant-id"));
-        assert!(
-            prompt
-                .text
-                .contains("supersedes any older assistant statement")
-        );
-        assert_eq!(prompt.approved_exact_input_expires_at_unix_ms, None);
-
-        let mut expired = grant.clone();
-        expired.expires_at_unix_ms = 200;
-        let compact =
-            capability_authorization_prompt(&[expired.clone(), expired], &[], &[], 500, 1, 1);
-        assert!(compact.text.contains("\"grant_count\":2"));
-        assert!(!compact.text.contains("target:current_device"));
-        assert!(!compact.text.contains("expires_at_unix_ms"));
-        let stale_focus = capability_authorization_prompt(&[grant], &[], &[], 500, 2, 1);
-        assert!(stale_focus.text.contains("inspect_office_selection"));
-        assert_eq!(stale_focus.approved_exact_input_expires_at_unix_ms, None);
-    }
-
-    #[test]
-    fn a_grant_cites_the_request_item_it_was_issued_for() {
-        use crate::model_content::stored::SpecOrigin;
-        use desk_agent_protocol::capability_grant::{
-            CAPABILITY_GRANT_SCHEMA_VERSION, CapabilityGrantIssuer, CapabilityGrantLimits,
-            CapabilityGrantUsePolicy, CapabilityRiskTier,
-        };
-        use desk_agent_protocol::capability_provider::ProductSurface;
-
-        let item = |item_id: &str, reason: &str| GrantRequestItem {
-            command_confirmation: None,
-            selected_device_target: None,
-            launch_confirmation: None,
-            item_id: item_id.into(),
-            provider_id: "desktop.session".into(),
-            tool_name: "inspect_desktop_session".into(),
-            expected_effect: CapabilityEffect::ReadDevice,
-            resource_scope: vec!["desktop:current".into()],
-            operation_scope: vec!["inspect".into()],
-            export_destinations: Vec::new(),
-            canonical_input_json: None,
-            canonical_input_digest_sha256: None,
-            suggested_ttl_seconds: 300,
-            suggested_max_uses: 1,
-            reason: reason.into(),
-        };
-        let proof = crate::model_content::StoredTextSource::owner("owner", 1);
-        let request = PermissionRequest {
-            input_source: Some(Box::new(proof.clone())),
-            schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
-            request_id: "permission-two".into(),
-            input_revision: 1,
-            state: PermissionRequestState::PartiallyApproved,
-            // Both items share a scope; only the id tells them apart.
-            items: vec![
-                item("first", "Read the first session"),
-                item("second", "Read the second session"),
-            ],
-            created_at: "2026-08-28T00:00:00Z".into(),
-        };
-        let grant = |grant_id: String, issued_by| CapabilityGrant {
-            schema_version: CAPABILITY_GRANT_SCHEMA_VERSION,
-            grant_id,
-            actor_id: "owner".into(),
-            run_id: "run".into(),
-            input_revision: 1,
-            surface: ProductSurface::OssPersonalOwner,
-            target_device_id: "device".into(),
-            target_session_id: None,
-            provider_id: "desktop.session".into(),
-            capability_id: "desktop.session.inspect".into(),
-            tool_name: "inspect_desktop_session".into(),
-            tool_schema_version: 1,
-            effect: CapabilityEffect::ReadDevice,
-            risk_tier: CapabilityRiskTier::R1,
-            resource_scope: vec!["desktop:current".into()],
-            operation_scope: vec!["inspect".into()],
-            export_destinations: Vec::new(),
-            allowed_envelope_ids: Vec::new(),
-            use_policy: CapabilityGrantUsePolicy::Reusable,
-            canonical_input_digest_sha256: None,
-            issued_by,
-            issued_at_unix_ms: 100,
-            expires_at_unix_ms: 1_000,
-            remaining_uses: 1,
-            limits: CapabilityGrantLimits {
-                max_bytes_per_call: 1024,
-                max_items_per_call: 1,
-                max_calls: 1,
-            },
-            policy_revision: 1,
-            readiness_revision: 1,
-            revoked_at_unix_ms: None,
-            revoked_reason: None,
-        };
-        let decided = grant(
-            crate::permission_grant::permission_item_grant_id("run", &request, "second"),
-            CapabilityGrantIssuer::UserDecision,
-        );
-        let projection = capability_authorization_prompt(
-            std::slice::from_ref(&decided),
-            std::slice::from_ref(&request),
-            &[],
-            500,
-            1,
-            1,
-        );
-        let [cite] = projection.cites.as_slice() else {
-            panic!("one cite: {:?}", projection.cites);
-        };
-        assert_eq!(
-            (cite.kind, cite.record_id.as_str()),
-            ("permission_request", "permission-two")
-        );
-        assert!(cite.text.contains("Read the second session"));
-        assert!(!cite.text.contains("Read the first session"));
-        assert_eq!(cite.origin, SpecOrigin::Proof(Some(proof)));
-
-        // A grant no request item issued cites only its scope, unproven,
-        // even when a request item has the same scope.
-        let policy = grant("policy-grant".into(), CapabilityGrantIssuer::UserDecision);
-        let projection = capability_authorization_prompt(
-            std::slice::from_ref(&policy),
-            std::slice::from_ref(&request),
-            &[],
-            500,
-            1,
-            1,
-        );
-        let [cite] = projection.cites.as_slice() else {
-            panic!("one cite: {:?}", projection.cites);
-        };
-        assert_eq!(
-            (cite.kind, cite.record_id.as_str()),
-            ("capability_grant", "policy-grant")
-        );
-        assert_eq!(cite.origin, SpecOrigin::Proof(None));
-    }
-
-    #[test]
-    fn authorization_projection_recovers_only_active_approved_exact_input() {
+    fn exact_tool_names_need_a_live_grant_with_a_current_recorded_input() {
         use desk_agent_protocol::capability_grant::{
             CAPABILITY_GRANT_SCHEMA_VERSION, CapabilityGrantIssuer, CapabilityGrantLimits,
             CapabilityGrantUsePolicy, CapabilityRiskTier,
@@ -3695,18 +3217,6 @@ mod tests {
             created_at: "2026-08-28T00:00:00Z".into(),
         };
 
-        let active = capability_authorization_prompt(
-            std::slice::from_ref(&grant),
-            std::slice::from_ref(&request),
-            &[],
-            500,
-            1,
-            1,
-        );
-        assert!(active.text.contains("\"approved_exact_input\""));
-        assert!(active.text.contains("\"value\":\"approved\""));
-        assert!(!active.text.contains("secret-exact-grant-id"));
-        assert_eq!(active.approved_exact_input_expires_at_unix_ms, Some(1_000));
         assert_eq!(
             active_exact_authorized_tool_names(
                 std::slice::from_ref(&grant),
@@ -3731,19 +3241,15 @@ mod tests {
 
         let mut reusable_exact = grant.clone();
         reusable_exact.use_policy = CapabilityGrantUsePolicy::Reusable;
-        let reusable = capability_authorization_prompt(
-            &[reusable_exact],
-            std::slice::from_ref(&request),
-            &[],
-            500,
-            1,
-            1,
-        );
-        assert!(reusable.text.contains("\"approved_exact_input\""));
-        assert!(reusable.text.contains("\"value\":\"approved\""));
         assert_eq!(
-            reusable.approved_exact_input_expires_at_unix_ms,
-            Some(1_000)
+            active_exact_authorized_tool_names(
+                &[reusable_exact],
+                std::slice::from_ref(&request),
+                500,
+                1,
+                1,
+            ),
+            vec!["browser_activate_element"]
         );
 
         for inactive in [
@@ -3766,16 +3272,6 @@ mod tests {
         ] {
             // Keep the stored contract internally valid for every state fixture.
             inactive.validate().unwrap();
-            let projection = capability_authorization_prompt(
-                std::slice::from_ref(&inactive),
-                std::slice::from_ref(&request),
-                &[],
-                500,
-                1,
-                1,
-            );
-            assert!(!projection.text.contains("\"approved_exact_input\""));
-            assert_eq!(projection.approved_exact_input_expires_at_unix_ms, None);
             assert!(
                 active_exact_authorized_tool_names(
                     &[inactive],
@@ -3790,17 +3286,16 @@ mod tests {
 
         let mut stale_readiness = grant.clone();
         stale_readiness.readiness_revision = 2;
-        let stale = capability_authorization_prompt(
-            &[stale_readiness],
-            std::slice::from_ref(&request),
-            &[],
-            500,
-            1,
-            1,
+        assert!(
+            active_exact_authorized_tool_names(
+                &[stale_readiness],
+                std::slice::from_ref(&request),
+                500,
+                1,
+                1,
+            )
+            .is_empty()
         );
-        assert!(stale.text.contains("\"state\":\"stale_readiness\""));
-        assert!(!stale.text.contains("\"approved_exact_input\""));
-        assert_eq!(stale.approved_exact_input_expires_at_unix_ms, None);
 
         let legacy_flat = r#"{"target":{"host_ascii":"app.slack.com","kind":"https","port":443,"url":"https://app.slack.com/"}}"#;
         let legacy_digest = format!("{:x}", Sha256::digest(legacy_flat.as_bytes()));
@@ -3814,15 +3309,10 @@ mod tests {
         legacy_request.items[0].tool_name = legacy_grant.tool_name.clone();
         legacy_request.items[0].canonical_input_json = Some(legacy_flat.into());
         legacy_request.items[0].canonical_input_digest_sha256 = Some(legacy_digest);
-        let incompatible =
-            capability_authorization_prompt(&[legacy_grant], &[legacy_request], &[], 500, 1, 1);
         assert!(
-            incompatible
-                .text
-                .contains("\"state\":\"schema_incompatible\"")
+            active_exact_authorized_tool_names(&[legacy_grant], &[legacy_request], 500, 1, 1)
+                .is_empty()
         );
-        assert!(!incompatible.text.contains("\"approved_exact_input\""));
-        assert_eq!(incompatible.approved_exact_input_expires_at_unix_ms, None);
     }
 
     #[test]

@@ -75,6 +75,19 @@ async fn scheduled_approval_claim_consumes_original_receipt_and_preserves_occurr
     };
     let held = scheduler.claim_conversation_resume(claim()).await.unwrap();
     let mut session = held.session;
+    // The continuation paused on the call the request covers.
+    session
+        .conversation
+        .push(desk_diagnose_core::chat::ChatMessage::assistant_tool_calls(
+            "paused-call",
+            "",
+            vec![desk_diagnose_core::chat::ToolCallRef {
+                id: "first".into(),
+                name: "inspect_desktop_session".into(),
+                arguments_json: "{}".into(),
+            }],
+        ));
+    session.pause_for_permission("first", "permission-1");
     session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
     session.handled_input_seq = session.latest_input_seq;
     store.save(&mut session).await.unwrap();
@@ -193,6 +206,23 @@ async fn scheduled_approval_claim_consumes_original_receipt_and_preserves_occurr
         Some(resumed.run.turn_id.as_str())
     );
     assert_eq!(resumed.session.input_revision, session.input_revision);
+    // The approved call runs in the claimed turn instead of being closed.
+    assert!(resumed.session.awaiting_permission.is_none());
+    assert_eq!(
+        resumed
+            .session
+            .released_permission_call
+            .as_ref()
+            .map(|released| released.tool_call_id.as_str()),
+        Some("first")
+    );
+    assert!(
+        !resumed
+            .session
+            .conversation
+            .iter()
+            .any(|message| message.tool_call_id.as_deref() == Some("first"))
+    );
     assert_eq!(resumed.run.result_ref, None);
     assert_eq!(
         receipt::Entity::find()

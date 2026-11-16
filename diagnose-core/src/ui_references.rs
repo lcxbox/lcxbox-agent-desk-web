@@ -1889,20 +1889,6 @@ impl UiReferenceState {
         }
     }
 
-    /// Approved inputs store the resolved native ID in plain ID fields. Show the short ID
-    /// the model must call with, because execution only accepts observed short IDs.
-    pub(crate) fn alias_native_id(&self, value: &mut Value) {
-        let alias = value.as_str().and_then(|native| {
-            self.entries
-                .iter()
-                .find(|(_, entry)| entry.native_id == native && !entry.sources.is_empty())
-                .map(|(alias, _)| alias.clone())
-        });
-        if let Some(alias) = alias {
-            *value = Value::String(alias);
-        }
-    }
-
     fn expand_id(
         &self,
         value: &mut Value,

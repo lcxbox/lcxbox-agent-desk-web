@@ -23,7 +23,7 @@ use desk_diagnose_core::agent_loop::{
     run_preclaimed_goal_slice,
 };
 use desk_diagnose_core::ai_assistant::{
-    ai_assistant_provider_registry, build_ai_assistant_system_message_with_catalog,
+    ai_assistant_provider_registry, build_ai_assistant_system_message,
 };
 use desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
 use desk_diagnose_core::capability_availability::{
@@ -1988,12 +1988,6 @@ async fn prepare_composed_turn(
                             return Ok(PreparationStep::Ready(None));
                         }
                     };
-                    let permission_decision_resume = resume_conversation_id
-                        .as_ref()
-                        .is_some_and(|resume| resume.permission_request_id.is_some())
-                        || scheduled
-                            .as_ref()
-                            .is_some_and(|resume| resume.permission_request_id.is_some());
                     let current_desktop_grants = capability_grants
                         .iter()
                         .filter(|grant| {
@@ -2509,35 +2503,6 @@ async fn prepare_composed_turn(
                                     &registry,
                                     &[],
                                 );
-                            let permission_requests = snapshot
-                                .as_ref()
-                                .map(|snapshot| snapshot.permission_requests.as_slice())
-                                .unwrap_or_default();
-                            let permission_decisions = snapshot
-                                .as_ref()
-                                .map(|snapshot| snapshot.permission_decisions.as_slice())
-                                .unwrap_or_default();
-                            let capability_authorization =
-        desk_diagnose_core::permission_tools::capability_authorization_prompt(
-            &capability_grants,
-            permission_requests,
-            permission_decisions,
-            now_unix_ms,
-            snapshot
-                .as_ref()
-                .map_or(0, |session| session.input_revision),
-            grant_readiness_revision,
-        );
-                            let permission_continuation_exact_tools =
-        desk_diagnose_core::permission_tools::active_exact_authorized_tool_names(
-            &capability_grants,
-            permission_requests,
-            now_unix_ms,
-            snapshot
-                .as_ref()
-                .map_or(0, |session| session.input_revision),
-            grant_readiness_revision,
-        );
                             extend_internal_tools(&mut registry);
                             if targetless {
                                 registry.retain(
@@ -2870,10 +2835,7 @@ async fn prepare_composed_turn(
                                         }
                                     }
                                     let mut system_prompt =
-                                        build_ai_assistant_system_message_with_catalog(
-                                            ask.locale.as_deref(),
-                                            &capability_authorization.content(),
-                                        );
+                                        build_ai_assistant_system_message(ask.locale.as_deref());
                                     if scheduled
                                         .as_ref()
                                         .is_some_and(|resume| resume.fresh.is_some())
@@ -2903,16 +2865,6 @@ async fn prepare_composed_turn(
                                             })
                                         })
                                         .map(String::as_str);
-                                    if permission_decision_resume
-                                        || goal_approval_request_id.is_some()
-                                    {
-                                        desk_diagnose_core::runtime_context::append_instruction(
-                                            &mut system_prompt,
-                                            &desk_diagnose_core::model_content::ModelContent::constant("\n\nPERMISSION DECISION RESUME (server authoritative): a decision was recorded for the pending permission request. Re-read CURRENT AUTHORIZED GRANTS above. Do not request or ask for the same permission again. If a matching active grant exists, continue the existing user requirement now and call the authorized tool. If the item was denied or narrowed so the call no longer matches, adapt the plan or explain the remaining blocker. This trigger adds no new user requirement and does not change the original tool inputs."),
-                                        );
-                                    }
-                                    let projection_expiry = capability_authorization
-                                        .approved_exact_input_expires_at_unix_ms;
                                     let decision_request_id = resume_conversation_id
                                         .as_ref()
                                         .and_then(|resume| resume.permission_request_id.as_deref())
@@ -2940,32 +2892,6 @@ async fn prepare_composed_turn(
                                             transport_error("AI approval denial receipt is invalid")
                                         })?;
                                     }
-                                    if let Some(expires_at_unix_ms) = projection_expiry {
-                                        system_prompt =
-                                            match desk_diagnose_core::permission_resume::restrict_exact_projection(
-                                                system_prompt,
-                                                destination.clone(),
-                                                expires_at_unix_ms,
-                                            ) {
-                                                Ok(system_prompt) => system_prompt,
-                                                Err(error) => {
-                                                    desk_diagnose_core::future::boxed(|| async {
-                                                        stream_event(
-                                                            connections.as_ref(),
-                                                            &browser_connection_id,
-                                                            &AgentEvent::error(
-                                                                &request_id,
-                                                                1,
-                                                                error,
-                                                            ),
-                                                        )
-                                                        .await
-                                                    })
-                                                    .await;
-                                                    return Ok(PreparationStep::Ready(None));
-                                                }
-                                            };
-                                    }
                                     Ok(PreparationStep::Ready(Some(Box::pin(async move {
                                         let _cancel_registration = cancel_registration;
                                         let deps = LoopDeps {
@@ -2978,7 +2904,6 @@ async fn prepare_composed_turn(
             capability_inventory: Some(&inventory),
             capability_permission_candidates: &[],
             capability_catalog_metrics: Some(capability_catalog_metrics),
-            permission_continuation_exact_tools: &permission_continuation_exact_tools,
             response_format: ResponseFormatSpec::None,
             system_prompt,
             max_steps_per_turn: config.max_steps_per_turn,
@@ -3998,41 +3923,6 @@ mod tests {
             "inspect_desktop_ui",
             1_000
         ));
-    }
-
-    #[test]
-    fn exact_authorization_projection_is_not_labeled_as_public_system_text() {
-        let destination = DestinationIdentity::Model {
-            connection_id: "gateway-1".into(),
-            connection_revision: 2,
-            model_id: "model-1".into(),
-            profile_revision: 3,
-        };
-        let message = ChatMessage::text(
-            "system-exact-authorization",
-            ChatRole::System,
-            r#"approved_exact_input={"body":"private draft"}"#,
-        );
-        let bound = desk_diagnose_core::permission_resume::bind_exact_authorization_system_message(
-            message,
-            destination.clone(),
-            1_900_000_000_000,
-        )
-        .unwrap();
-
-        let envelope = bound.data_envelope.unwrap();
-        assert_eq!(envelope.sensitivity, Sensitivity::Sensitive);
-        assert_eq!(envelope.allowed_destinations, vec![destination]);
-        assert_eq!(
-            envelope.retention.expires_at_unix_ms,
-            Some(1_900_000_000_000)
-        );
-        assert!(envelope.retention.delete_with_run);
-        assert_eq!(
-            envelope.provenance.source_tool_name,
-            "capability-authorization"
-        );
-        envelope.validate().unwrap();
     }
 
     async fn capture_one_openai_request_with_sse(

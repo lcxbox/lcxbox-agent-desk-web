@@ -173,10 +173,10 @@ async fn run_desktop_history_case(
         ),
         "data: {\"choices\":[{\"delta\":{\"content\":\"object-read-complete\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n".into(),
     ];
-    // An approval resume runs the paused call itself. A goal continuation or a
-    // new owner message closes the wait instead, so the model calls the read
-    // again there.
-    let repeats = goal_route || ordinary_followup;
+    // An approval resume, including a goal continuation, runs the paused call
+    // itself. A new owner message closes the wait instead, so the model calls
+    // the read again there.
+    let repeats = ordinary_followup;
     if repeats && approve {
         replies.insert(
             2,

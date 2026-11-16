@@ -205,7 +205,7 @@ pub fn match_capability_grant(
 }
 
 /// An active exact grant exists for this tool, but with different arguments.
-pub const APPROVED_INPUT_MISMATCH_MESSAGE: &str = "approved_input_mismatch: an active grant exists, but these arguments differ from the approved exact input. No operation was performed. Copy approved_exact_input from the current authorization snapshot without changing fields. If you really need different arguments, call again with them to ask for a new approval.";
+pub const APPROVED_INPUT_MISMATCH_MESSAGE: &str = "approved_input_mismatch: an active approval covers this tool with different arguments; no operation was performed. To use it, repeat that approved call's arguments exactly; otherwise calling again with these arguments requests a new approval where approval at call time is available.";
 
 /// Whether an active exact grant would admit this call if only its approved
 /// input matched. Used to explain a miss without exposing that input.
@@ -231,7 +231,7 @@ pub fn unavailable_grant_message(
     if differs_only_in_input(grants, call) {
         APPROVED_INPUT_MISMATCH_MESSAGE
     } else {
-        "authorization_unavailable: no active capability grant matches this call's scope, limits and current authority. Check the current authorization snapshot. A denied request is an explicit decision, not an approval propagation failure; do not repeat the same rejected action or widen its target. A materially narrower action requires a new, independently reviewed request."
+        "authorization_unavailable: no active capability grant matches this call's scope, limits and current authority. A denied request is an explicit decision, not an approval propagation failure; do not repeat the same rejected action or widen its target. A materially narrower action requires a new, independently reviewed request."
     }
 }
 

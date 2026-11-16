@@ -80,6 +80,12 @@ pub async fn claim_fresh_approval_on<C: ConnectionTrait, H: ScheduleHostStores<C
             .await
             .map_err(|_| ScheduleStoreError::Conflict)?;
     }
+    // The approved call was held, not answered: release it so the resumed
+    // turn runs it without the model repeating it, as an approved main
+    // conversation call runs.
+    session
+        .release_awaiting_permission(request_id)
+        .map_err(|_| ScheduleStoreError::Invalid)?;
     // Preserve original turn counters, input, history, step evidence and
     // started_at. Approval is a continuation, not a new budget allocation.
     session.version = row

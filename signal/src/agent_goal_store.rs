@@ -1606,6 +1606,28 @@ pub fn claim_slice<'a>(
                     goal.lease_epoch,
                 )
                 .map_err(|_| invalid())?;
+            // An approved held call is released, not closed by the new turn: the
+            // slice runs it without the model repeating it.
+            if let Some(request_id) = session
+                .awaiting_permission
+                .as_ref()
+                .filter(|waiting| {
+                    session.permission_requests.iter().any(|request| {
+                        request.request_id == waiting.request_id
+                            && matches!(
+                                request.state,
+                                desk_diagnose_core::dynamic_run::PermissionRequestState::Approved
+                                    | desk_diagnose_core::dynamic_run::PermissionRequestState::PartiallyApproved
+                                    | desk_diagnose_core::dynamic_run::PermissionRequestState::Denied
+                            )
+                    })
+                })
+                .map(|waiting| waiting.request_id.clone())
+            {
+                session
+                    .release_awaiting_permission(&request_id)
+                    .map_err(|_| invalid())?;
+            }
             session
                 .begin_turn(
                     params.turn_id.clone(),

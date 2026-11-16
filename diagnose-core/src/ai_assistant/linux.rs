@@ -99,23 +99,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn both_center_prompt_entrypoints_include_linux_authority_boundaries() {
+    fn the_center_prompt_includes_linux_authority_boundaries() {
         for locale in [None, Some("zh-CN"), Some("en-US")] {
-            for message in [
-                build_ai_assistant_system_message(locale),
-                build_ai_assistant_system_message_with_catalog(
-                    locale,
-                    &crate::model_content::ModelContent::constant("fixture catalog"),
-                ),
-            ] {
-                assert!(!message.text.contains("one Windows or macOS desktop"));
-                assert!(message.text.contains(PROMPT_GUIDANCE));
-                assert!(
-                    message
-                        .text
-                        .contains(crate::wait_tools::BACKGROUND_TASK_GUIDANCE)
-                );
-            }
+            let message = build_ai_assistant_system_message(locale);
+            assert!(!message.text.contains("one Windows or macOS desktop"));
+            assert!(message.text.contains(PROMPT_GUIDANCE));
+            assert!(
+                message
+                    .text
+                    .contains(crate::wait_tools::BACKGROUND_TASK_GUIDANCE)
+            );
         }
     }
 

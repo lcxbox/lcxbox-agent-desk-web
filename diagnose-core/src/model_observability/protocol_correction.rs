@@ -9,10 +9,8 @@ closed_enum!(ProtocolCorrectionReason {
     EmptyResponse,
     TruncatedOutput,
     CompletionInterpretation,
-    PermissionProtocol,
     PermissionPlanProtocol,
     InvalidToolArguments,
-    PermissionActionMissing,
     GoalControlMissing,
     ToolChoiceFallback
 });
@@ -26,9 +24,7 @@ closed_enum!(ProtocolCorrectionCheck {
 impl ProtocolCorrectionReason {
     pub fn category(self) -> CorrectionCategory {
         match self {
-            Self::PermissionProtocol
-            | Self::PermissionPlanProtocol
-            | Self::PermissionActionMissing => CorrectionCategory::Approval,
+            Self::PermissionPlanProtocol => CorrectionCategory::Approval,
             _ => CorrectionCategory::Protocol,
         }
     }

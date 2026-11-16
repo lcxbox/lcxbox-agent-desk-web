@@ -283,7 +283,7 @@ async fn execute(protocol: WireProtocol, mode: CaptureMode) -> BusinessResult {
         session_seam: &session, model: &model, tools: &device, content_safety: ContentSafetyMode::Disabled,
         registry: &registry, provider_registry: None, capability_inventory: None,
         capability_permission_candidates: &[], capability_catalog_metrics: None,
-        permission_continuation_exact_tools: &[], response_format: ResponseFormatSpec::None,
+        response_format: ResponseFormatSpec::None,
         system_prompt: desk_diagnose_core::agentic_prompt::build_agentic_system_message(None),
         response_locale: None, interactive_user_home: None, interactive_user_home_incarnation: None,
         max_steps_per_turn: desk_diagnose_core::MAX_STEPS_PER_TURN,

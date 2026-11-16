@@ -177,6 +177,15 @@ fn close(
                 .ok()?;
         }
     }
+    // A held call ends with the run: it never ran.
+    next.close_awaiting_permission(if cancelled {
+        "not executed: the scheduled task was cancelled before approval"
+    } else if rejected(session, stored_reference) {
+        "not executed: the owner denied this call"
+    } else {
+        "not executed: approval expired before this call ran"
+    })
+    .ok()?;
     next.version = next.version.checked_add(1)?;
     next.finish_turn(
         if cancelled {
@@ -238,8 +247,11 @@ pub fn unfinished_pause(session: &PersistedAgentSession) -> Option<String> {
     if proposal.turn_id != session.current_turn_id {
         return None;
     }
+    // A held call has no result; the tail holds only results of other calls.
     let tail = &session.conversation[index + 1..];
-    if tail.is_empty() || tail.iter().any(|message| message.role != ChatRole::Tool) {
+    if (tail.is_empty() && session.awaiting_permission.is_none())
+        || tail.iter().any(|message| message.role != ChatRole::Tool)
+    {
         return None;
     }
     let mut matched = None;
@@ -291,49 +303,38 @@ pub fn unfinished_pause(session: &PersistedAgentSession) -> Option<String> {
             }
             continue;
         }
-        let explicit = call.name == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME;
+        // A task pauses by holding one exact single-use call.
+        let Some(waiting) = session
+            .awaiting_permission
+            .as_ref()
+            .filter(|waiting| waiting.tool_call_id == call.id)
+        else {
+            continue;
+        };
+        let original = crate::chat::ToolCall {
+            id: call.id.clone(),
+            name: call.name.clone(),
+            arguments_json: call.arguments_json.clone(),
+        };
         for request in &session.permission_requests {
-            if request.input_revision != session.input_revision
+            if request.request_id != waiting.request_id
+                || request.input_revision != session.input_revision
                 || matches!(
                     request.state,
                     PermissionRequestState::Replaced | PermissionRequestState::Withdrawn
                 )
                 || request.validate().is_err()
+                || request.items.len() != 1
+                || request.items[0].suggested_max_uses != 1
+                || !crate::permission_tools::synthesized_request_matches(request, &original)
+                || !super::run_approval::unique_original_call(&session.conversation, &original)
             {
                 continue;
             }
-            let mut expected = serde_json::json!({"status":"pending_user_decision", "request_id":request.request_id,
-                "item_count":request.items.len(), "authority":"none"});
-            if !explicit {
-                let original = crate::chat::ToolCall {
-                    id: call.id.clone(),
-                    name: call.name.clone(),
-                    arguments_json: call.arguments_json.clone(),
-                };
-                // A published task pauses only for one exact single-use call.
-                let task_shape = session.trigger_origin
-                    != crate::session::TriggerOrigin::ScheduledTask
-                    || (request.items.len() == 1 && request.items[0].suggested_max_uses == 1);
-                if !task_shape
-                    || !crate::permission_tools::synthesized_request_matches(request, &original)
-                    || !super::run_approval::unique_original_call(&session.conversation, &original)
-                {
-                    continue;
-                }
-                expected["executed"] = serde_json::Value::Bool(false);
+            if matched.is_some() {
+                return None;
             }
-            if tail.iter().any(|message| {
-                message.tool_call_id.as_deref() == Some(call.id.as_str())
-                    && serde_json::from_str::<serde_json::Value>(&message.text)
-                        .ok()
-                        .as_ref()
-                        == Some(&expected)
-            }) {
-                if matched.is_some() {
-                    return None;
-                }
-                matched = Some(request.request_id.clone());
-            }
+            matched = Some(request.request_id.clone());
         }
     }
     matched
@@ -458,6 +459,105 @@ mod tests {
         );
         assert!(reference(&session, "directory\n").is_none());
         assert!(reference(&session, "missing").is_none());
+    }
+}
+
+#[cfg(test)]
+mod held_call_tests {
+    use super::*;
+    use desk_agent_protocol::{AgentScope, ExecutionMode};
+
+    /// A scheduled task waiting on one held call.
+    fn waiting() -> PersistedAgentSession {
+        let mut session = PersistedAgentSession::new(
+            "conversation",
+            "owner",
+            "device",
+            1,
+            AgentScope {
+                granted: vec![],
+                mode: ExecutionMode::ReadOnly,
+                expires_at: None,
+                policy_name: None,
+            },
+            "2026-09-06T00:00:00Z",
+        );
+        session.input_revision = 1;
+        session.trigger_origin = crate::session::TriggerOrigin::ScheduledTask;
+        session.permission_requests.push(serde_json::from_value(serde_json::json!({
+            "schema_version":crate::dynamic_run::PERMISSION_REQUEST_SCHEMA_VERSION, "request_id":"request", "input_revision":1, "state":"pending",
+            "created_at":"2026-09-06T00:00:00Z", "items":[{
+                "item_id":"call-1", "provider_id":"desktop.session", "tool_name":"inspect_desktop_session",
+                "expected_effect":"read_device", "resource_scope":["target:current_device"],
+                "operation_scope":["observe"], "suggested_ttl_seconds":120,
+                "suggested_max_uses":1, "reason":"Inspect current device"
+            }]
+        })).unwrap());
+        session
+            .conversation
+            .push(crate::chat::ChatMessage::assistant_tool_calls(
+                "assistant",
+                "",
+                vec![crate::chat::ToolCallRef {
+                    id: "call-1".into(),
+                    name: "inspect_desktop_session".into(),
+                    arguments_json: "{}".into(),
+                }],
+            ));
+        session.pause_for_permission("call-1", "request");
+        session
+    }
+
+    #[test]
+    fn ending_a_scheduled_wait_closes_its_held_call() {
+        for (cancelled, text) in [
+            (false, "approval expired"),
+            (true, "cancelled before approval"),
+        ] {
+            let mut session = waiting();
+            let ended = if cancelled {
+                cancel(&mut session, "permission:request", "2026-09-06T00:01:00Z")
+            } else {
+                expire(&mut session, "permission:request", "2026-09-06T00:01:00Z")
+            };
+            assert!(ended.is_some());
+            assert!(session.awaiting_permission.is_none());
+            let result = session.conversation.last().unwrap();
+            assert_eq!(result.tool_call_id.as_deref(), Some("call-1"));
+            assert!(result.text.contains(text), "{}", result.text);
+            assert!(session.unclosed_tool_call_ids().is_empty());
+        }
+    }
+
+    #[test]
+    fn a_released_held_call_survives_the_new_turn_that_runs_it() {
+        let mut session = waiting();
+        session.permission_requests[0].state = PermissionRequestState::Approved;
+        assert!(session.release_awaiting_permission("request").unwrap());
+        session
+            .begin_turn(
+                "turn",
+                None,
+                None,
+                1,
+                session.scope_snapshot.clone(),
+                "2026-09-06T00:01:00Z",
+            )
+            .unwrap();
+        assert_eq!(
+            session
+                .released_permission_call
+                .as_ref()
+                .map(|released| released.tool_call_id.as_str()),
+            Some("call-1")
+        );
+        // The released call has no result yet: the turn runs it.
+        assert!(
+            !session
+                .conversation
+                .iter()
+                .any(|message| message.tool_call_id.as_deref() == Some("call-1"))
+        );
     }
 }
 

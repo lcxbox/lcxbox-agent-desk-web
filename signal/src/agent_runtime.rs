@@ -605,7 +605,6 @@ async fn resume_completion_turn_inner(
         capability_inventory: None,
         capability_permission_candidates: &[],
         capability_catalog_metrics: None,
-        permission_continuation_exact_tools: &[],
         response_format: desk_diagnose_core::prompt::ResponseFormatSpec::None,
         system_prompt: build_agentic_system_message(None),
         response_locale,

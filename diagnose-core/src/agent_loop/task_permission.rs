@@ -1,4 +1,6 @@
-//! Publish an exact, undispatched operation for owner approval.
+//! Publish an exact, undispatched operation for owner approval. The call is
+//! held like a main conversation call: once approved, the claim releases it
+//! and the server runs it without the model repeating it.
 use super::*;
 
 // The approval transition uses the original turn inputs and its observation handle.
@@ -59,27 +61,6 @@ pub(super) async fn pause<F: FnMut() -> String>(
     {
         return Err(invalid());
     }
-    let content = crate::model_content::ModelContent::json(&PendingReceipt {
-        status: "pending_user_decision",
-        request_id: crate::model_content::ServerId::new(&request.request_id),
-        item_count: 1,
-        authority: "none",
-        executed: false,
-    })?;
-    append_mutating_result(
-        deps,
-        session,
-        call,
-        mint(),
-        &content,
-        ServerResultSource::ExecutionPlaceholder,
-    )?;
-    let result_ids = session
-        .conversation
-        .last()
-        .and_then(|message| message.data_envelope.as_ref())
-        .map(|label| vec![label.envelope_id.clone()])
-        .unwrap_or_default();
     append_unstarted_tool_results(
         session,
         remaining,
@@ -88,6 +69,7 @@ pub(super) async fn pause<F: FnMut() -> String>(
         "not executed: waiting for user permission decision",
         ServerResultSource::PermissionPauseToolCall,
     )?;
+    session.pause_for_permission(&call.id, &request.request_id);
     let event_seq = session.last_event_seq.checked_add(1).ok_or_else(invalid)?;
     let event = crate::dynamic_run::PermissionRequestedEvent {
         approval_mode_revision: None,
@@ -108,7 +90,7 @@ pub(super) async fn pause<F: FnMut() -> String>(
             source_envelope_ids: parent
                 .map(|label| vec![label.envelope_id])
                 .unwrap_or_default(),
-            result_envelope_ids: result_ids,
+            result_envelope_ids: Vec::new(),
             created_at: request.created_at.clone(),
         },
         request: request.clone(),
@@ -134,14 +116,4 @@ pub(super) async fn pause<F: FnMut() -> String>(
     Ok(LoopOutcome::PermissionRequested {
         request_id: request.request_id,
     })
-}
-
-crate::model_receipt! {
-    struct PendingReceipt {
-        status: &'static str,
-        request_id: crate::model_content::ServerId,
-        item_count: usize,
-        authority: &'static str,
-        executed: bool,
-    }
 }

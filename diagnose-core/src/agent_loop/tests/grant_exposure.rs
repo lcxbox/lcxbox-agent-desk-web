@@ -140,11 +140,11 @@ async fn approval_exposes_without_load_and_last_use_refreshes_next_request() {
                 .iter()
                 .any(|message| message.role != ChatRole::System)
         );
-        assert!(
-            !request.messages[0]
-                .text
-                .contains("capability_authorization")
-        );
+        assert!(request.messages.iter().all(|message| {
+            !message.text.contains("capability_authorization")
+                && !message.text.contains("CURRENT AUTHORIZED GRANTS")
+                && !message.text.contains("approved_exact_input")
+        }));
     }
     assert!(
         requests[0]
@@ -163,12 +163,6 @@ async fn approval_exposes_without_load_and_last_use_refreshes_next_request() {
             .tools
             .iter()
             .any(|t| t.name == "request_permissions")
-    );
-    assert!(
-        requests[1]
-            .messages
-            .iter()
-            .any(|message| message.text.contains("exhausted"))
     );
     assert!(
         requests[1]
@@ -420,11 +414,9 @@ async fn permission_resume_keeps_scoped_prerequisites_and_validates_exact_grants
             reads: std::cell::Cell::new(0),
         };
         let clock = || "1970-01-01T00:00:00.500Z".to_string();
-        let exact_names = vec![action_name.into()];
         let mut deps = deps(&session, &model, &tools, &registry, &clock);
         deps.provider_registry = Some(&providers);
         deps.capability_inventory = Some(&inventory);
-        deps.permission_continuation_exact_tools = &exact_names;
         let mut claim = exec_claim();
         claim.current_pdp_scope = scope;
         claim.trigger_origin = crate::session::TriggerOrigin::PermissionDecision;
@@ -459,12 +451,6 @@ async fn permission_resume_keeps_scoped_prerequisites_and_validates_exact_grants
                     .any(|t| t.name == "create_text_file")
             );
             assert!(
-                requests[0]
-                    .messages
-                    .iter()
-                    .any(|m| m.text.contains("dependency order"))
-            );
-            assert!(
                 requests[1]
                     .tools
                     .iter()
@@ -474,20 +460,6 @@ async fn permission_resume_keeps_scoped_prerequisites_and_validates_exact_grants
             assert!(requests[2].tools.iter().any(|t| t.name == action_name));
         } else if blocked == "none" {
             assert!(requests[1].tools.iter().any(|t| t.name == action_name));
-        } else {
-            let reason = match blocked {
-                "scope" => "missing_scope_capability",
-                "offline" => "capability_not_ready",
-                "expired" | "revoked" | "changed_input" | "missing_grant" => {
-                    "no_active_matching_grant"
-                }
-                "mode" => "execution_mode_disallows_effect",
-                _ => unreachable!(),
-            };
-            assert!(
-                requests[0].messages.iter().any(|m| m.text.contains(reason)),
-                "{blocked}"
-            );
         }
     }
 }

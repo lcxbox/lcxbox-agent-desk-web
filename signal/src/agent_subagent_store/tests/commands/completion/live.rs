@@ -161,7 +161,6 @@ async fn live_project_model_subagent_completion() {
         capability_inventory: None,
         capability_permission_candidates: &[],
         capability_catalog_metrics: None,
-        permission_continuation_exact_tools: &[],
         response_format: ResponseFormatSpec::None,
         system_prompt: desk_diagnose_core::ai_assistant::build_ai_assistant_system_message(None),
         response_locale: None,

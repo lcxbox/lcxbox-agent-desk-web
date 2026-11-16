@@ -145,6 +145,7 @@ mod tests {
     };
     use sea_orm::{ConnectionTrait, Schema};
 
+    mod approval;
     mod executor;
     mod model_gateway;
 

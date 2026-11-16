@@ -381,27 +381,6 @@ fn web_host_grants_reuse_urls_until_expiry_on_both_surfaces() {
                 );
             }
         }
-        let prompt = crate::permission_tools::capability_authorization_prompt(
-            &[grant],
-            &[],
-            &[],
-            2_000,
-            1,
-            7,
-        );
-        assert!(prompt.text.contains("until_expiry"));
-        let snapshot: serde_json::Value = serde_json::from_str(
-            prompt
-                .text
-                .split("<capability_authorization>")
-                .nth(1)
-                .unwrap()
-                .split("</capability_authorization>")
-                .next()
-                .unwrap(),
-        )
-        .unwrap();
-        assert!(snapshot[0].get("remaining_uses").is_none());
     }
 }
 
@@ -1372,15 +1351,6 @@ fn application_scope_is_reusable_but_cannot_cross_actions_apps_or_expiry() {
         old_grant.canonical_input_digest_sha256 = item.canonical_input_digest_sha256.clone();
         let mut approved = request.clone();
         approved.state = crate::dynamic_run::PermissionRequestState::Approved;
-        let prompt = crate::permission_tools::capability_authorization_prompt(
-            std::slice::from_ref(&old_grant),
-            std::slice::from_ref(&approved),
-            &[],
-            now,
-            session.input_revision,
-            7,
-        );
-        assert!(prompt.text.contains("schema_incompatible"));
         assert!(
             crate::permission_tools::active_exact_authorized_tool_names(
                 &[old_grant],
@@ -1610,15 +1580,6 @@ fn background_scope_is_reusable_but_cannot_cross_actions_apps_or_expiry() {
         old_grant.canonical_input_digest_sha256 = item.canonical_input_digest_sha256.clone();
         let mut approved = request.clone();
         approved.state = crate::dynamic_run::PermissionRequestState::Approved;
-        let prompt = crate::permission_tools::capability_authorization_prompt(
-            std::slice::from_ref(&old_grant),
-            std::slice::from_ref(&approved),
-            &[],
-            now,
-            session.input_revision,
-            7,
-        );
-        assert!(prompt.text.contains("schema_incompatible"));
         assert!(
             crate::permission_tools::active_exact_authorized_tool_names(
                 &[old_grant],

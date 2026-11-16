@@ -59,14 +59,9 @@ fn eligible(call: &CallSnapshot, reason: ProtocolCorrectionReason) -> Option<boo
         ProtocolCorrectionReason::TruncatedOutput => call.output == OutputOutcome::OutputTruncated,
         ProtocolCorrectionReason::CompletionInterpretation
         | ProtocolCorrectionReason::PermissionPlanProtocol
-        | ProtocolCorrectionReason::InvalidToolArguments
-        | ProtocolCorrectionReason::PermissionActionMissing => {
+        | ProtocolCorrectionReason::InvalidToolArguments => {
             call.output == OutputOutcome::InvalidStructuredOutput
         }
-        ProtocolCorrectionReason::PermissionProtocol => matches!(
-            call.output,
-            OutputOutcome::InvalidProtocol | OutputOutcome::InvalidStructuredOutput
-        ),
         ProtocolCorrectionReason::GoalControlMissing => call.output == OutputOutcome::Accepted,
         ProtocolCorrectionReason::ToolChoiceFallback => unreachable!(),
     })

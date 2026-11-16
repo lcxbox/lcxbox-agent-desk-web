@@ -1259,11 +1259,11 @@ fn execute_ui_actions_tool() -> RegisteredTool {
     RegisteredTool {
         spec: ToolSpec {
             name: EXECUTE_CONFIRMED_UI_ACTION_TOOL.into(),
-            description: "Execute ordered semantic UI steps in one application using application_id and steps with observed element_id/action pairs. Reuse an active application_scope grant covering all action kinds; one batch consumes one use. Prefer semantic UI over background input. Stop at the first failure, do not roll back or retry automatically, and read UI afterward to verify application state. Split asynchronous UI dependencies into separate batches with a read between them.".into(),
+            description: "Execute ordered semantic UI steps in one application using application_id and steps with observed element_id/action pairs. An approved application scope covers the action kinds it lists; one batch consumes one use. Prefer semantic UI over background input. Stop at the first failure, do not roll back or retry automatically, and read UI afterward to verify application state. Split asynchronous UI dependencies into separate batches with a read between them.".into(),
             parameters_schema: json!({
                 "type": "object",
                 "properties": {
-                    "application": {"type":"object", "description":"For an active application_scope grant only: copy its complete application reference from CURRENT AUTHORIZED GRANTS. Do not substitute the target UI reference or another application.", "properties":{"token":{"type":"string"},"snapshot_id":{"type":"string"},"object_kind":{"const":"application"},"expires_at":{"type":"string"}},"required":["token","snapshot_id","object_kind","expires_at"],"additionalProperties":false},
+                    "application": {"type":"object", "description":"The application reference from the current UI observation of the application the steps act in. Do not substitute the target UI reference or another application.", "properties":{"token":{"type":"string"},"snapshot_id":{"type":"string"},"object_kind":{"const":"application"},"expires_at":{"type":"string"}},"required":["token","snapshot_id","object_kind","expires_at"],"additionalProperties":false},
                     "target": {
                         "type": "object",
                         "properties": {
@@ -4158,19 +4158,8 @@ pub fn interactive_user_home_prompt(home: Option<&str>) -> String {
 }
 
 pub fn build_ai_assistant_system_message(locale: Option<&str>) -> ChatMessage {
-    build_ai_assistant_system_message_with_catalog(
-        locale,
-        &crate::model_content::ModelContent::constant(""),
-    )
-}
-
-pub fn build_ai_assistant_system_message_with_catalog(
-    locale: Option<&str>,
-    catalog: &crate::model_content::ModelContent,
-) -> ChatMessage {
     let mut message = ChatMessage::public_system(AGENTIC_SYSTEM_MESSAGE_ID, system_text(|_| true));
     let mut runtime = ChatMessage::system_event(crate::runtime_context::MESSAGE_ID, "");
-    crate::runtime_context::append(&mut runtime, catalog);
     if let Some(tag) = locale.and_then(crate::runtime_context::locale_tag) {
         crate::runtime_context::append(
             &mut runtime,

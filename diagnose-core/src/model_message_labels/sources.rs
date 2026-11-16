@@ -71,7 +71,6 @@ server_result_sources! {
     ExecutionPlaceholder => "execution_placeholder",
     // The runtime context while it projects approved exact inputs, bounded to
     // their model and expiry.
-    ExactAuthorizationProjection => "exact_authorization_projection",
     // A reviewer's or host's reason why an execution did not run, or its
     // error: never registered.
     ExecutionStatus => "provider_execution_status",
@@ -132,8 +131,6 @@ server_result_sources! {
     InputWatermark => "input_watermark",
     InvalidToolArgumentsRetry => "invalid_tool_arguments_retry",
     LatestInputProjection => "latest_input_projection",
-    PermissionContinuationCheckpoint => "permission_continuation_checkpoint",
-    PermissionProtocolRetry => "permission_protocol_retry",
     PostToolPermissionProtocolRetry => "post_tool_permission_protocol_retry",
     RuntimeContext => "runtime_context",
     TruncatedTurnRetry => "truncated_turn_retry",
@@ -185,8 +182,6 @@ pub const CURRENT_MEMORIES: &str = "current_memories";
 pub const DELEGATION_STATE: &str = "delegation_state";
 /// A subagent report notification.
 pub const SUBAGENT_NOTIFICATION: &str = "subagent_notification";
-/// The capability authorization prompt.
-pub const CAPABILITY_AUTHORIZATION: &str = "capability-authorization";
 /// Runtime continuation messages.
 pub const SCHEDULED_CONTINUATION: &str = "scheduled-continuation";
 pub const PERMISSION_DECISION_RESUME: &str = "permission-decision-resume";

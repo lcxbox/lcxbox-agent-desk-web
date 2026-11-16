@@ -134,7 +134,13 @@ pub async fn resume_claimed_fresh_task_permission_turn(
         || session.active_control_connection_id.is_some()
         || session.terminal_error.is_some()
         || !session.pending_auto_triggers.is_empty()
-        || !session.unclosed_tool_call_ids().is_empty()
+        // The released approved call is the only open call: the turn runs it.
+        || session.unclosed_tool_call_ids().iter().any(|id| {
+            session
+                .released_permission_call
+                .as_ref()
+                .is_none_or(|released| released.tool_call_id != *id)
+        })
         || original.role != ChatRole::User
         || original.message_id != format!("{run_id}:input")
         || session.current_turn_id.as_deref() != Some(format!("{run_id}-turn").as_str())

@@ -634,8 +634,10 @@ async fn exercise_with_restart(
     let second = String::from_utf8(second).unwrap();
     assert!(second.contains("SYNTHETIC_SCHEDULED_ORIGINAL"));
     if permission {
-        assert!(second.contains("PERMISSION DECISION RESUME"));
+        assert!(second.contains("a decision was recorded for the pending permission request"));
         assert!(!second.contains("continuation time has arrived"));
+        assert!(!second.contains("capability_authorization"));
+        assert!(!second.contains("approved_exact_input"));
     }
     assert!(!second.contains("MUST_NOT_REPLACE_INPUT"));
     let row = crate::entity::agent_session::Entity::find()

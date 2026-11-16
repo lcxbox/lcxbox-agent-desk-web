@@ -47,63 +47,6 @@ fn client_chosen_id_prefix_cannot_hide_a_real_user_message() {
 }
 
 #[test]
-fn exact_projection_is_sensitive_and_expires_without_changing_its_text() {
-    let original = ChatMessage::public_system("system", "Exact recipient and bounded input");
-    let bound =
-        bind_exact_authorization_system_message(original.clone(), destination(), 70_000).unwrap();
-    assert_eq!(bound.text, original.text);
-    let envelope = bound.data_envelope.unwrap();
-    assert_eq!(envelope.sensitivity, Sensitivity::Sensitive);
-    assert_eq!(envelope.retention.expires_at_unix_ms, Some(70_000));
-    assert_eq!(envelope.allowed_destinations, vec![destination()]);
-}
-
-#[test]
-fn exact_projection_bounds_keep_the_earliest_expiry_for_one_model() {
-    let bound = restrict_exact_projection(
-        ChatMessage::public_system("system", "Exact bounded input"),
-        destination(),
-        70_000,
-    )
-    .unwrap();
-    assert!(bound.data_envelope.is_none());
-    let bound = restrict_exact_projection(bound, destination(), 90_000).unwrap();
-    assert_eq!(
-        bound.exact_projection,
-        Some(ExactProjection {
-            destination: destination(),
-            expires_at_unix_ms: 70_000,
-        })
-    );
-    let other = DestinationIdentity::Model {
-        connection_id: "gateway".into(),
-        connection_revision: 1,
-        model_id: "other".into(),
-        profile_revision: 1,
-    };
-    assert!(restrict_exact_projection(bound, other, 60_000).is_err());
-    // A system message with a runtime context bounds the runtime context.
-    let system = restrict_exact_projection(
-        crate::ai_assistant::build_ai_assistant_system_message_with_catalog(
-            None,
-            &crate::model_content::ModelContent::server_text("grant"),
-        ),
-        destination(),
-        70_000,
-    )
-    .unwrap();
-    assert!(system.exact_projection.is_none());
-    assert!(
-        system
-            .runtime_context
-            .as_ref()
-            .unwrap()
-            .exact_projection
-            .is_some()
-    );
-}
-
-#[test]
 fn invalid_model_destination_never_produces_a_bridge() {
     let invalid = DestinationIdentity::Model {
         connection_id: String::new(),
@@ -111,17 +54,7 @@ fn invalid_model_destination_never_produces_a_bridge() {
         model_id: "model".into(),
         profile_revision: 1,
     };
-    assert!(
-        model_bound_permission_resume_message("bridge".into(), invalid.clone(), "request").is_err()
-    );
-    assert!(
-        bind_exact_authorization_system_message(
-            ChatMessage::public_system("s", "scope"),
-            invalid,
-            70_000
-        )
-        .is_err()
-    );
+    assert!(model_bound_permission_resume_message("bridge".into(), invalid, "request").is_err());
 }
 
 fn policy() -> crate::model_egress::ModelEgressPolicy {

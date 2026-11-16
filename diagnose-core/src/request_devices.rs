@@ -1127,58 +1127,10 @@ pub(crate) fn catalogue(
         })
         .collect::<Vec<_>>();
     prompt.push_str(&serde_json::json!({ "request_devices": catalogue }).to_string());
-    let (approved, request_cites): (Vec<_>, Vec<_>) = devices
-        .iter()
-        .flat_map(|device| {
-            session
-                .permission_requests
-                .iter()
-                .filter_map(move |request| {
-                    let target = request.selected_device_target()?;
-                    let item = request.items.first()?;
-                    if device.read_target.as_ref() != Some(target)
-                        || !device.approved_read_tools.contains(&item.tool_name)
-                        || request.input_revision != session.input_revision
-                        || request.state != crate::dynamic_run::PermissionRequestState::Approved
-                    {
-                        return None;
-                    }
-                    let mut exact: serde_json::Value =
-                        serde_json::from_str(item.canonical_input_json.as_deref()?).ok()?;
-                    let cite = StoredSpec::proven(
-                        "permission_request",
-                        request.request_id.clone(),
-                        "items",
-                        serde_json::to_string(&request.items).unwrap_or_default(),
-                        request.input_source.as_deref().cloned(),
-                    );
-                    session.ui_references.alias_native_arguments(&mut exact);
-                    if item.tool_name == crate::tool_names::INSPECT_DESKTOP_UI
-                        && let Some(element) = exact.get_mut("element_id")
-                    {
-                        session.ui_references.alias_native_id(element);
-                    }
-                    crate::ui_model_ids::project_arguments(&item.tool_name, &mut exact, &[]);
-                    Some((
-                        serde_json::json!({
-                            "tool_name": item.tool_name,
-                            "target_ref": device.target_ref,
-                            "approved_exact_input": exact,
-                        }),
-                        cite,
-                    ))
-                })
-        })
-        .unzip();
-    if !approved.is_empty() {
-        prompt.push_str("\nFor these approved device reads copy the target_ref and the exact input into the tool call when advertised. The server checks the live grant: ");
-        prompt.push_str(&serde_json::Value::Array(approved).to_string());
-    }
     prompt.push_str("\nWhen advertised, use read_system_info to check current CPU, memory, and disk capacity. Use the online field for device connectivity and the advertised tools for operations available in this conversation.");
     if can_request_command {
         prompt.push_str(" If process-level CPU or disk details require an OS command, call exec_command with target_ref, shell, command and timeout_ms; each command is approved when called. Choose a bounded, non-modifying command for the device's platform. Run cheap diagnostics first and narrow expensive recursive scans to one relevant directory at a time. If a scan times out, use its partial output and narrow the scan before running another command. Do not ask for a separate chat confirmation.");
     }
-    cites.extend(request_cites);
     cites
         .into_iter()
         .fold(
