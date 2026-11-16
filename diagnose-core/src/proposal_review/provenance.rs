@@ -12,28 +12,60 @@ use crate::{
     session::PersistedAgentSession,
 };
 use desk_agent_protocol::data_lineage::{DataEnvelope, MAX_LINEAGE_ITEMS};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// What an AI reviewer saw, frozen from the settled candidate.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What an AI reviewer saw, frozen from the settled candidate. It is stored
+/// with the decision so the reason can be traced when it is shown later.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReviewProvenance {
     /// False when the reviewer saw text from outside the conversation whose
     /// source the candidate did not record.
     pub verifiable: bool,
-    /// The evidence as the reviewer saw it. Its text is compared with the
-    /// session when the receipt is written, so a message rewritten after the
-    /// review never vouches for what the reviewer read.
-    pub evidence: Vec<ApprovalEvidence>,
+    /// The evidence messages the reviewer read, by event id and the digest
+    /// of their text. A message rewritten after the review no longer
+    /// vouches for what the reviewer read.
+    pub evidence: Vec<ReviewedEvidence>,
     /// Stored text the reviewer read outside the conversation, traced to the
     /// source recorded when it was written.
     pub stored: Vec<ReviewedStoredText>,
 }
 
+/// One evidence message an AI reviewer read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewedEvidence {
+    pub event_id: String,
+    pub text_sha256: String,
+}
+
+impl ReviewedEvidence {
+    pub fn of(evidence: &ApprovalEvidence) -> Self {
+        Self {
+            event_id: evidence.event_id.clone(),
+            text_sha256: text_digest(&evidence.text),
+        }
+    }
+}
+
+fn text_digest(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(text.as_bytes()))
+}
+
 /// Stored text an AI reviewer read, whose root joins the reason's parents.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ReviewedStoredText {
-    /// Goal text or a device-resolved directory path.
-    Spec(crate::model_content::StoredSpec),
+    /// The goal text, with the proof recorded when it was written.
+    Goal {
+        goal_id: String,
+        text: String,
+        source: crate::model_content::StoredTextSource,
+    },
+    /// A directory path the device resolved for a directory request.
+    Directory { request_id: String, path: String },
     /// Text derived from a stored personal skill version.
     Skill {
         base: crate::approval_review::ReviewSkillBase,
@@ -50,8 +82,26 @@ impl ReviewedStoredText {
         &self,
         destinations: &[desk_agent_protocol::data_lineage::DestinationIdentity],
     ) -> Option<crate::model_content::StoredRoot> {
+        use crate::model_content::StoredSpec;
         match self {
-            Self::Spec(spec) => spec.root(destinations.to_vec()).ok(),
+            Self::Goal {
+                goal_id,
+                text,
+                source,
+            } => StoredSpec::proven(
+                crate::goal_projection::KIND,
+                goal_id,
+                crate::goal_projection::GOAL_TEXT_FIELD,
+                text,
+                Some(source.clone()),
+            )
+            .root(destinations.to_vec())
+            .ok(),
+            Self::Directory { request_id, path } => {
+                StoredSpec::device_reported("directory", request_id, "path", path)
+                    .root(destinations.to_vec())
+                    .ok()
+            }
             Self::Skill { base, text } => {
                 let [destination] = destinations else {
                     return None;
@@ -66,7 +116,6 @@ impl ReviewedStoredText {
 
 impl ReviewProvenance {
     pub fn from_candidate(candidate: &ApprovalReviewCandidate) -> Self {
-        use crate::model_content::StoredSpec;
         let action =
             serde_json::from_str::<serde_json::Value>(&candidate.action_json).unwrap_or_default();
         let mut stored = Vec::new();
@@ -93,9 +142,10 @@ impl ReviewProvenance {
                 let proposal = &action["directory_proposal"];
                 if proposal["canonical_path"] != proposal["requested_path"] {
                     match proposal["canonical_path"].as_str() {
-                        Some(path) => stored.push(ReviewedStoredText::Spec(
-                            StoredSpec::device_reported("directory", request_id, "path", path),
-                        )),
+                        Some(path) => stored.push(ReviewedStoredText::Directory {
+                            request_id: request_id.clone(),
+                            path: path.into(),
+                        }),
                         None => verifiable = false,
                     }
                 }
@@ -104,21 +154,22 @@ impl ReviewProvenance {
         }
         if let Some(text) = &candidate.context.goal_text {
             match (&candidate.goal_id, &candidate.context.goal_text_source) {
-                (Some(goal_id), Some(source)) => {
-                    stored.push(ReviewedStoredText::Spec(StoredSpec::proven(
-                        crate::goal_projection::KIND,
-                        goal_id,
-                        crate::goal_projection::GOAL_TEXT_FIELD,
-                        text,
-                        Some(source.clone()),
-                    )))
-                }
+                (Some(goal_id), Some(source)) => stored.push(ReviewedStoredText::Goal {
+                    goal_id: goal_id.clone(),
+                    text: text.clone(),
+                    source: source.clone(),
+                }),
                 _ => verifiable = false,
             }
         }
         Self {
             verifiable,
-            evidence: candidate.context.evidence.clone(),
+            evidence: candidate
+                .context
+                .evidence
+                .iter()
+                .map(ReviewedEvidence::of)
+                .collect(),
             stored,
         }
     }
@@ -167,6 +218,29 @@ pub fn proposing_output(session: &PersistedAgentSession) -> Option<&DataEnvelope
         .and_then(|message| message.data_envelope.as_ref())
 }
 
+/// The label of the model output that made permission request `request_id`,
+/// located through the proof recorded with the request's input; `None` when
+/// the request has no such proof or the output is no longer in the session.
+pub fn requesting_output<'a>(
+    session: &'a PersistedAgentSession,
+    request_id: &str,
+) -> Option<&'a DataEnvelope> {
+    let request = session
+        .permission_requests
+        .iter()
+        .find(|request| request.request_id == request_id)?;
+    let crate::model_content::StoredOrigin::ModelOutput { model_source, .. } =
+        &request.input_source.as_deref()?.origin
+    else {
+        return None;
+    };
+    session
+        .conversation
+        .iter()
+        .filter_map(|message| message.data_envelope.as_ref())
+        .find(|label| label.envelope_id == model_source.output_envelope_id)
+}
+
 /// Replaces a registered single-parent status label by its parent, repeatedly.
 /// Such a label is server text whose policy is its parent's, and a projected
 /// pending result leaves the model input, so its parent stands in for it.
@@ -209,7 +283,7 @@ pub fn review_reason_parents(
     parents.insert(proposing.envelope_id.clone(), proposing.clone());
     for evidence in &provenance.evidence {
         let message = crate::approval_review::review_evidence_message(session, &evidence.event_id)?;
-        if message.text != evidence.text {
+        if text_digest(&message.text) != evidence.text_sha256 {
             return None;
         }
         let label = collapse_status_label(session, message.data_envelope.as_ref()?)?;
@@ -243,7 +317,8 @@ pub fn review_reason_parents(
 }
 
 /// An AI reviewer's verdict reason as a decision receipt needs it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AiDecisionReason {
     pub reason: String,
     pub reason_code: String,
@@ -470,11 +545,11 @@ pub(crate) mod tests {
                         .iter()
                         .find(|message| message.message_id == *id)
                         .unwrap();
-                    ApprovalEvidence {
+                    ReviewedEvidence::of(&ApprovalEvidence {
                         event_id: (*id).into(),
                         trust: ApprovalEvidenceTrust::UntrustedContent,
                         text: message.text.clone(),
-                    }
+                    })
                 })
                 .collect(),
             stored: Vec::new(),
@@ -523,7 +598,7 @@ pub(crate) mod tests {
         assert!(review_reason_parents(&session, &proposing, &missing).is_none());
         // A message rewritten after the review no longer vouches for it.
         let mut rewritten = provenance(&session, &["device"]);
-        rewritten.evidence[0].text = "what the reviewer read".into();
+        rewritten.evidence[0].text_sha256 = text_digest("what the reviewer read");
         assert!(review_reason_parents(&session, &proposing, &rewritten).is_none());
         let mut unlabelled = session.clone();
         unlabelled.conversation[3].data_envelope = None;
@@ -740,18 +815,12 @@ pub(crate) mod tests {
             assert_eq!(provenance.stored.len(), stored, "{action}");
         }
         // The resolved directory is device-reported metadata of the request.
-        let ReviewedStoredText::Spec(spec) =
-            &ReviewProvenance::from_candidate(&candidate).stored[0]
-        else {
-            panic!("a resolved path is a stored spec");
-        };
         assert_eq!(
-            (spec.kind, spec.record_id.as_str(), spec.text.as_str()),
-            ("directory", "d", "/real/a")
-        );
-        assert_eq!(
-            spec.origin,
-            crate::model_content::stored::SpecOrigin::DeviceReported
+            ReviewProvenance::from_candidate(&candidate).stored[0],
+            ReviewedStoredText::Directory {
+                request_id: "d".into(),
+                path: "/real/a".into(),
+            }
         );
         // Goal text needs the proof recorded when it was written.
         candidate.context.goal_text = Some("goal".into());
@@ -764,8 +833,14 @@ pub(crate) mod tests {
         assert!(provenance.verifiable);
         assert!(provenance.stored.iter().any(|text| matches!(
             text,
-            ReviewedStoredText::Spec(spec) if spec.kind == "goal" && spec.record_id == "goal-1"
+            ReviewedStoredText::Goal { goal_id, .. } if goal_id == "goal-1"
         )));
+        // The snapshot is stored with the decision and read back unchanged.
+        let stored = serde_json::to_string(&provenance).unwrap();
+        assert_eq!(
+            serde_json::from_str::<ReviewProvenance>(&stored).unwrap(),
+            provenance
+        );
     }
 
     #[test]
@@ -784,7 +859,11 @@ pub(crate) mod tests {
             reason: "The goal is only about the disk.".into(),
             reason_code: "exceeds_task".into(),
             provenance: ReviewProvenance {
-                stored: vec![ReviewedStoredText::Spec(goal.clone())],
+                stored: vec![ReviewedStoredText::Goal {
+                    goal_id: "goal-1".into(),
+                    text: "Keep the disk tidy".into(),
+                    source: crate::model_content::StoredTextSource::owner("actor", 1),
+                }],
                 ..provenance(&session, &["owner"])
             },
         };

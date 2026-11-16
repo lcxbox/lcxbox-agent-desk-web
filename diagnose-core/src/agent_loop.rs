@@ -4116,6 +4116,13 @@ async fn run_mutating<F: FnMut() -> String>(
         }
         Ok(ExecOutcome::Rejected { reason }) => {
             let content = match reason {
+                Some(crate::seam::ExecReason::Reviewed(ai)) => {
+                    crate::proposal_review::provenance::action_denial_content(
+                        session,
+                        issuing_label(session, call).as_ref(),
+                        &ai,
+                    )
+                }
                 Some(reason) => reason.content("the command was rejected: "),
                 None => crate::model_content::ModelContent::constant("the command was rejected"),
             };

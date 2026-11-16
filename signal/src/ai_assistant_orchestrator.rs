@@ -2930,15 +2930,13 @@ async fn prepare_composed_turn(
             )
             .await }).await?
             .ok_or_else(|| transport_error("permission decision receipt is unavailable"))?;
-                                        if let Some(notice) =
-            desk_diagnose_core::approval_review::ai_review_denial_notice(&decision)
-                .map_err(|_| transport_error("AI approval denial receipt is invalid"))?
-        {
-            desk_diagnose_core::runtime_context::append_instruction(
-                &mut system_prompt,
-                &notice.content,
-            );
-        }
+                                        desk_diagnose_core::approval_review::defer_denial_notice(
+                                            &mut system_prompt,
+                                            decision,
+                                        )
+                                        .map_err(|_| {
+                                            transport_error("AI approval denial receipt is invalid")
+                                        })?;
                                     }
                                     if let Some(expires_at_unix_ms) = projection_expiry {
                                         system_prompt =

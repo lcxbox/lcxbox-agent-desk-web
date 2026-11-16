@@ -982,6 +982,22 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 ),
             );
         }
+        // AI denial notices quote reasons traced in this session.
+        for event in std::mem::take(&mut system_prompt.denial_notices) {
+            let notice =
+                crate::approval_review::ai_review_denial_notice(&event, session).map_err(|_| {
+                    AgentError {
+                        kind: AgentErrorKind::Internal,
+                        message: "AI approval denial receipt is invalid".into(),
+                        retryable: false,
+                        safe_for_model: false,
+                        error_code: None,
+                    }
+                })?;
+            if let Some(notice) = notice {
+                crate::runtime_context::append(&mut system_prompt, &notice.content);
+            }
+        }
         // A System prompt that carries its own projection is labelled once,
         // after every append.
         if !split_runtime && let Some(bound) = system_prompt.exact_projection.take() {

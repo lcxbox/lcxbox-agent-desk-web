@@ -621,6 +621,9 @@ pub enum ExecReason {
     Server(&'static str),
     /// Text the server built from its own values, such as policy levels.
     Generated(crate::model_content::ServerText),
+    /// An AI reviewer's reason with what it saw; shown only when it can be
+    /// traced in the session.
+    Reviewed(Box<crate::proposal_review::provenance::AiDecisionReason>),
     /// Text a reviewer or a host produced.
     Unverified(String),
 }
@@ -630,6 +633,7 @@ impl ExecReason {
         match self {
             Self::Server(text) => text,
             Self::Generated(text) => text.as_str(),
+            Self::Reviewed(ai) => &ai.reason,
             Self::Unverified(text) => text,
         }
     }
@@ -640,6 +644,10 @@ impl ExecReason {
         match self {
             Self::Server(text) => builder.text(text),
             Self::Generated(text) => builder.server(text),
+            // Without the session the reason cannot be traced.
+            Self::Reviewed(ai) => builder.content(&crate::approval_review::action_denial_content(
+                crate::approval_review::ApprovalReasonCode::parse(&ai.reason_code),
+            )),
             Self::Unverified(text) => {
                 builder.unverified(&crate::model_content::Unverified::new(text.clone()))
             }
@@ -653,6 +661,7 @@ impl From<ExecReason> for String {
         match reason {
             ExecReason::Server(text) => text.into(),
             ExecReason::Generated(text) => text.as_str().into(),
+            ExecReason::Reviewed(ai) => ai.reason,
             ExecReason::Unverified(text) => text,
         }
     }

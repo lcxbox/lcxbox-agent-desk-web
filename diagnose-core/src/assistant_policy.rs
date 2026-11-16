@@ -877,6 +877,7 @@ mod tests {
                 model_config_revision: 1,
                 reason_code: "within_scope".into(),
                 reason: "The owner asked for this page".into(),
+                provenance: None,
             }],
         });
         validate_permission_resume_claim(&session, &params, &reviewed).unwrap();

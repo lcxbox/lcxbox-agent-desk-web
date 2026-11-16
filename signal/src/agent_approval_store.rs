@@ -2399,6 +2399,11 @@ async fn commit_directory_on(
                             .map_err(|_| invalid())?,
                         reason_code: review.reason_code.clone(),
                         reason: review.reason.clone(),
+                        // Only a denial's reason is shown to the executing model.
+                        provenance: ai
+                            .as_ref()
+                            .filter(|_| !approved)
+                            .map(|ai| ai.provenance.clone()),
                     },
                 ],
             },
@@ -2793,6 +2798,9 @@ async fn commit_goal_on(
                             .map_err(|_| invalid())?,
                         reason_code: decision.reason_code.clone(),
                         reason: decision.reason.clone(),
+                        // A goal decision answers no permission request, so its
+                        // reason is never traced to a requesting output.
+                        provenance: None,
                     },
                 ],
             },

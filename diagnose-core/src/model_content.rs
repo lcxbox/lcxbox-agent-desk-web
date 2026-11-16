@@ -379,6 +379,20 @@ pub struct ModelContent {
     sources: Sources,
 }
 
+/// Content nested in a receipt field keeps its sources.
+impl Serialize for ModelContent {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.text)
+    }
+}
+
+impl __private::Sealed for ModelContent {}
+impl ContentPiece for ModelContent {
+    fn collect(&self, sources: &mut Sources) {
+        sources.merge(&self.sources);
+    }
+}
+
 impl ModelContent {
     /// A fixed server text.
     pub fn constant(text: &'static str) -> Self {

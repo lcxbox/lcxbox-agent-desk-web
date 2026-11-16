@@ -574,7 +574,7 @@ async fn permission_decision_uses_creator_attribution_after_writer_handoff_and_r
         (PermissionDecisionSource::AutomaticReview { failures:vec![], delegation_id:"delegation-1".into(),delegation_revision:1,reviews:vec![
             desk_diagnose_core::dynamic_run::AiPermissionDecisionEvidence {
                 model_config_revision:1,item_id:"private-provider-tool-id".into(),candidate_id:"candidate-1".into(),candidate_expires_at_unix_ms:(NOW+10_000) as u64,
-                reason_code:"risk_denied".into(),reason:"private reviewer reason".into(),
+                reason_code:"risk_denied".into(),reason:"private reviewer reason".into(),provenance:None,
             },
         ] },PermissionOutcome::PolicyRejected,true),
         (PermissionDecisionSource::SystemDecision { reason_code:"approval_ai_fault".into(),reason:"private reviewer fault".into() },PermissionOutcome::Unavailable,true),

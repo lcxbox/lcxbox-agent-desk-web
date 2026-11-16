@@ -260,6 +260,10 @@ pub struct ChatMessage {
     /// message carries; applied once when its label is computed.
     #[serde(skip)]
     pub exact_projection: Option<crate::permission_resume::ExactProjection>,
+    /// Request-only permission decisions whose denial notices the loop adds
+    /// from the session before this message is labelled.
+    #[serde(skip)]
+    pub denial_notices: Vec<crate::dynamic_run::PermissionDecidedEvent>,
     /// Server-owned control observations bound to this exact model response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_controls: Option<Box<crate::model_controls::FrozenModelControls>>,
@@ -309,6 +313,7 @@ impl ChatMessage {
             content_sources: Default::default(),
             public_instructions: false,
             exact_projection: None,
+            denial_notices: Vec::new(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -370,6 +375,7 @@ impl ChatMessage {
             content_sources: Default::default(),
             public_instructions: false,
             exact_projection: None,
+            denial_notices: Vec::new(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -476,6 +482,7 @@ impl ChatMessage {
             content_sources: Default::default(),
             public_instructions: false,
             exact_projection: None,
+            denial_notices: Vec::new(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -510,6 +517,7 @@ impl ChatMessage {
             content_sources: Default::default(),
             public_instructions: false,
             exact_projection: None,
+            denial_notices: Vec::new(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -548,6 +556,7 @@ impl ChatMessage {
             content_sources: Default::default(),
             public_instructions: false,
             exact_projection: None,
+            denial_notices: Vec::new(),
             model_controls: None,
             attachment_read: None,
             raw_result: None,

@@ -252,6 +252,7 @@ fn web_host_grants_reuse_urls_until_expiry_on_both_surfaces() {
                     model_config_revision: 1,
                     reason_code: "within_scope".into(),
                     reason: "The owner asked for this page".into(),
+                    provenance: None,
                 }],
             },
         };
@@ -503,6 +504,7 @@ fn check_ai_permission_grant(child: bool) {
                 model_config_revision: 1,
                 reason_code: "within_scope".into(),
                 reason: "Only current device is read".into(),
+                provenance: None,
             }],
         },
     };
@@ -1913,6 +1915,7 @@ fn conversion_permission_freezes_source_and_directory_for_manual_and_ai_on_both_
                     model_config_revision: 1,
                     reason_code: "within_scope".into(),
                     reason: "Exact source and destination".into(),
+                    provenance: None,
                 }],
             },
         };

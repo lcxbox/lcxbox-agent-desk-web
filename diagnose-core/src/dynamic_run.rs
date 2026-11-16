@@ -940,6 +940,10 @@ pub struct AiPermissionDecisionEvidence {
     pub model_config_revision: u64,
     pub reason_code: String,
     pub reason: String,
+    /// What the reviewer saw, so the reason can be shown to the executing
+    /// model when it can be traced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<crate::proposal_review::provenance::ReviewProvenance>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1707,6 +1711,7 @@ mod tests {
                     model_config_revision: 1,
                     reason_code: "scope_too_broad".into(),
                     reason: "The proposed output path includes unrelated files".into(),
+                    provenance: None,
                 }],
             },
         };
