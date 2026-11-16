@@ -790,37 +790,26 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             system_prompt
                 .content_sources
                 .merge(fresh.content().sources());
-            if system_prompt
-                .data_envelope
-                .as_ref()
-                .is_some_and(|envelope| {
-                    envelope.provenance.source_tool_name
-                        == crate::model_message_labels::sources::CAPABILITY_AUTHORIZATION
-                })
-            {
-                system_prompt.set_label(None);
-            }
-            if let Some(expiry) = fresh.approved_exact_input_expires_at_unix_ms {
-                let destination = deps
-                    .model
-                    .model_egress_policy()?
-                    .ok_or_else(|| AgentError {
-                        kind: AgentErrorKind::PermissionDenied,
-                        message: "Current authorization cannot be bound to the selected model"
-                            .into(),
-                        retryable: false,
-                        safe_for_model: true,
-                        error_code: None,
-                    })?
-                    .destination;
-                system_prompt = Box::new(
-                    crate::permission_resume::bind_exact_authorization_system_message(
-                        *system_prompt,
-                        destination,
-                        expiry,
-                    )?,
-                );
-            }
+            // The rebuilt authorization replaces the bounds the host set.
+            let bound = match fresh.approved_exact_input_expires_at_unix_ms {
+                Some(expires_at_unix_ms) => Some(crate::permission_resume::ExactProjection {
+                    destination: deps
+                        .model
+                        .model_egress_policy()?
+                        .ok_or_else(|| AgentError {
+                            kind: AgentErrorKind::PermissionDenied,
+                            message: "Current authorization cannot be bound to the selected model"
+                                .into(),
+                            retryable: false,
+                            safe_for_model: true,
+                            error_code: None,
+                        })?
+                        .destination,
+                    expires_at_unix_ms,
+                }),
+                None => None,
+            };
+            crate::permission_resume::reset_exact_projection(&mut system_prompt, bound);
         }
         if !policy_read_names.is_empty() {
             // Registry tool names only.
@@ -993,18 +982,14 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 ),
             );
         }
-        if system_prompt
-            .data_envelope
-            .as_ref()
-            .is_some_and(|envelope| {
-                envelope.provenance.source_provider_id == "assistant-runtime-control"
-                    && envelope.provenance.source_tool_name
-                        == crate::model_message_labels::sources::CAPABILITY_AUTHORIZATION
-            })
-        {
+        // A System prompt that carries its own projection is labelled once,
+        // after every append.
+        if !split_runtime && let Some(bound) = system_prompt.exact_projection.take() {
             system_prompt = Box::new(
-                crate::permission_resume::rebind_exact_authorization_system_message(
+                crate::permission_resume::bind_exact_authorization_system_message(
                     *system_prompt,
+                    bound.destination,
+                    bound.expires_at_unix_ms,
                 )?,
             );
         }

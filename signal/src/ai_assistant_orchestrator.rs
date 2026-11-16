@@ -73,11 +73,9 @@ pub use scheduled_permission::{ClaimedScheduledPermission, claim_scheduled_permi
 const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const BUSY_FOLLOWUP_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(150);
+use desk_diagnose_core::permission_resume::authorized_permission_resume_message;
 #[cfg(test)]
 use desk_diagnose_core::permission_resume::model_bound_permission_resume_message;
-use desk_diagnose_core::permission_resume::{
-    authorized_permission_resume_message, bind_exact_authorization_system_message,
-};
 
 fn has_active_resume_desktop_read_grant(
     grants: &[desk_agent_protocol::capability_grant::CapabilityGrant],
@@ -2911,7 +2909,7 @@ async fn prepare_composed_turn(
                                             &desk_diagnose_core::model_content::ModelContent::constant("\n\nPERMISSION DECISION RESUME (server authoritative): a decision was recorded for the pending permission request. Re-read CURRENT AUTHORIZED GRANTS above. Do not request or ask for the same permission again. If a matching active grant exists, continue the existing user requirement now and call the authorized tool. If the item was denied or narrowed so the call no longer matches, adapt the plan or explain the remaining blocker. This trigger adds no new user requirement and does not change the original tool inputs."),
                                         );
                                     }
-                                    let mut projection_expiry = capability_authorization
+                                    let projection_expiry = capability_authorization
                                         .approved_exact_input_expires_at_unix_ms;
                                     let decision_request_id = resume_conversation_id
                                         .as_ref()
@@ -2940,16 +2938,11 @@ async fn prepare_composed_turn(
                 &mut system_prompt,
                 &notice.content,
             );
-            projection_expiry = Some(
-                projection_expiry.map_or(notice.expires_at_unix_ms, |expiry| {
-                    expiry.min(notice.expires_at_unix_ms)
-                }),
-            );
         }
                                     }
                                     if let Some(expires_at_unix_ms) = projection_expiry {
                                         system_prompt =
-                                            match bind_exact_authorization_system_message(
+                                            match desk_diagnose_core::permission_resume::restrict_exact_projection(
                                                 system_prompt,
                                                 destination.clone(),
                                                 expires_at_unix_ms,
@@ -4020,7 +4013,7 @@ mod tests {
             ChatRole::System,
             r#"approved_exact_input={"body":"private draft"}"#,
         );
-        let bound = bind_exact_authorization_system_message(
+        let bound = desk_diagnose_core::permission_resume::bind_exact_authorization_system_message(
             message,
             destination.clone(),
             1_900_000_000_000,

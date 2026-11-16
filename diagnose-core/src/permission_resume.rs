@@ -398,34 +398,57 @@ pub fn bind_exact_authorization_system_message(
     Ok(message)
 }
 
-/// Rebind a server-owned exact-authorization projection after the runtime has
-/// appended other server-owned prompt material (for example progressive
-/// capability disclosure). The existing envelope supplies the already-pinned
-/// destination and expiry; arbitrary messages cannot use this path to mint a
-/// new export authority.
-pub fn rebind_exact_authorization_system_message(
+/// Bounds on a projection of approved exact inputs: the one model it may
+/// reach and when it expires.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExactProjection {
+    pub destination: DestinationIdentity,
+    pub expires_at_unix_ms: u64,
+}
+
+/// Replaces the bounds of `message`'s exact-authorization projection, as when
+/// the runtime rebuilds the authorization it projects.
+pub fn reset_exact_projection(message: &mut ChatMessage, bound: Option<ExactProjection>) {
+    message.exact_projection = bound;
+}
+
+/// Bounds the exact-authorization projection `message` carries, or that its
+/// runtime context carries when it has one. Repeated bounds keep the earliest
+/// expiry; a bound for another model is refused. The label is computed once,
+/// after the runtime context is complete.
+pub fn restrict_exact_projection(
     mut message: ChatMessage,
+    destination: DestinationIdentity,
+    expires_at_unix_ms: u64,
 ) -> Result<ChatMessage, AgentError> {
-    let denied = || AgentError {
-        kind: AgentErrorKind::Internal,
-        message: "invalid exact-authorization projection rebind".into(),
-        retryable: false,
-        safe_for_model: false,
-        error_code: None,
-    };
-    let envelope = message.data_envelope.as_ref().ok_or_else(denied)?;
-    if (message.role != ChatRole::System && !crate::runtime_context::is_runtime(&message))
-        || envelope.provenance.source_provider_id != "assistant-runtime-control"
-        || envelope.provenance.source_tool_name
-            != crate::model_message_labels::sources::CAPABILITY_AUTHORIZATION
-        || envelope.allowed_destinations.len() != 1
-    {
-        return Err(denied());
+    if let Some(runtime) = message.runtime_context.take() {
+        message.runtime_context = Some(Box::new(restrict_exact_projection(
+            *runtime,
+            destination,
+            expires_at_unix_ms,
+        )?));
+        return Ok(message);
     }
-    let destination = envelope.allowed_destinations[0].clone();
-    let expires_at_unix_ms = envelope.retention.expires_at_unix_ms.ok_or_else(denied)?;
-    message.set_label(None);
-    bind_exact_authorization_system_message(message, destination, expires_at_unix_ms)
+    message.exact_projection = Some(match message.exact_projection.take() {
+        Some(bound) if bound.destination != destination => {
+            return Err(AgentError {
+                kind: AgentErrorKind::PermissionDenied,
+                message: "Current authorization cannot be bound to the selected model".into(),
+                retryable: false,
+                safe_for_model: true,
+                error_code: None,
+            });
+        }
+        Some(bound) => ExactProjection {
+            destination,
+            expires_at_unix_ms: bound.expires_at_unix_ms.min(expires_at_unix_ms),
+        },
+        None => ExactProjection {
+            destination,
+            expires_at_unix_ms,
+        },
+    });
+    Ok(message)
 }
 
 #[cfg(test)]

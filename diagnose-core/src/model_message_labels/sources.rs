@@ -69,6 +69,9 @@ server_result_sources! {
     UnloadedToolCall => "unloaded_tool_call",
     // Execution placeholders and background task notices.
     ExecutionPlaceholder => "execution_placeholder",
+    // The runtime context while it projects approved exact inputs, bounded to
+    // their model and expiry.
+    ExactAuthorizationProjection => "exact_authorization_projection",
     // A reviewer's or host's reason why an execution did not run, or its
     // error: never registered.
     ExecutionStatus => "provider_execution_status",

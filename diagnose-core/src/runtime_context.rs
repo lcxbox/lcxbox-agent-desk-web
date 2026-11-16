@@ -44,15 +44,66 @@ pub fn label(
         std::mem::take(&mut runtime.content_sources),
     );
     content.bind(&destination.cloned().into_iter().collect::<Vec<_>>())?;
+    let Some(bound) = runtime.exact_projection.take() else {
+        let label = crate::model_message_labels::composed_envelope(
+            &content,
+            parent,
+            MESSAGE_ID,
+            crate::model_message_labels::ServerResultSource::RuntimeContext,
+            true,
+        )?;
+        runtime.set_label_and_roots(label, content.stored_roots());
+        return Ok(());
+    };
+    // Projected exact inputs may hold message bodies: the label keeps every
+    // parent's policy and is bounded to their model and expiry.
     let label = crate::model_message_labels::composed_envelope(
         &content,
         parent,
         MESSAGE_ID,
-        crate::model_message_labels::ServerResultSource::RuntimeContext,
+        crate::model_message_labels::ServerResultSource::ExactAuthorizationProjection,
         true,
     )?;
-    runtime.set_label_and_roots(label, content.stored_roots());
+    match label {
+        Some(mut label) => {
+            label.sensitivity = label
+                .sensitivity
+                .max(desk_agent_protocol::data_lineage::Sensitivity::Sensitive);
+            label.retention = label.retention.most_restrictive(
+                desk_agent_protocol::data_lineage::RetentionBoundary {
+                    expires_at_unix_ms: Some(bound.expires_at_unix_ms),
+                    delete_with_run: true,
+                },
+            );
+            label
+                .allowed_destinations
+                .retain(|destination| *destination == bound.destination);
+            if label.allowed_destinations.is_empty() {
+                return Err(projection_denied());
+            }
+            label.validate().map_err(|_| projection_denied())?;
+            runtime.set_label_and_roots(Some(label), content.stored_roots());
+        }
+        // Without any parent the projection keeps its own unregistered label.
+        None => {
+            *runtime = crate::permission_resume::bind_exact_authorization_system_message(
+                std::mem::replace(runtime, ChatMessage::system_event(MESSAGE_ID, "")),
+                bound.destination,
+                bound.expires_at_unix_ms,
+            )?;
+        }
+    }
     Ok(())
+}
+
+fn projection_denied() -> desk_agent_protocol::AgentError {
+    desk_agent_protocol::AgentError {
+        kind: desk_agent_protocol::AgentErrorKind::PermissionDenied,
+        message: "Current authorization cannot be bound to the selected model".into(),
+        retryable: false,
+        safe_for_model: true,
+        error_code: None,
+    }
 }
 
 /// A response locale as a short server-checked tag, or `None` when it is not
@@ -84,16 +135,20 @@ mod tests {
         assert!(!serde_json::to_string(&second).unwrap().contains("grant B"));
     }
     #[test]
-    fn exact_authorization_tail_retains_destination_expiry_and_checks_egress() {
-        use crate::{chat::ChatRole, prompt::ResponseFormatSpec, seam::ModelRequest};
-        use desk_agent_protocol::data_lineage::DestinationIdentity;
+    fn an_exact_projection_is_labelled_once_from_its_content_within_its_bounds() {
+        use crate::ai_assistant::source_registry::{
+            NativeInputPolicyRegistration, RegisteredSourceContract, SOURCE_CONTRACT_REVISION,
+        };
+        use crate::{prompt::ResponseFormatSpec, seam::ModelRequest};
+        use desk_agent_protocol::data_lineage::{DestinationIdentity, Sensitivity};
         let destination = DestinationIdentity::Model {
             connection_id: "gateway".into(),
             connection_revision: 1,
             model_id: "model".into(),
             profile_revision: 1,
         };
-        let mut system = crate::permission_resume::bind_exact_authorization_system_message(
+        // The host records the bounds without labelling anything.
+        let mut system = crate::permission_resume::restrict_exact_projection(
             crate::ai_assistant::build_ai_assistant_system_message_with_catalog(
                 None,
                 &crate::model_content::ModelContent::server_text("exact private input"),
@@ -103,22 +158,52 @@ mod tests {
         )
         .unwrap();
         assert!(system.data_envelope.is_none());
-        assert!(!system.text.contains("exact private input"));
-        let runtime = super::take(&mut system);
-        assert_eq!(runtime.role, ChatRole::SystemEvent);
-        assert_eq!(
-            runtime
-                .data_envelope
-                .as_ref()
-                .unwrap()
-                .retention
-                .expires_at_unix_ms,
-            Some(100_000)
+        let mut runtime = super::take(&mut system);
+        assert!(runtime.data_envelope.is_none());
+        // Later appends join before the single label.
+        super::append(
+            &mut runtime,
+            &crate::model_content::ModelContent::constant("\nCurrent time"),
         );
-        let runtime =
-            crate::permission_resume::rebind_exact_authorization_system_message(runtime).unwrap();
+        let owner = crate::model_message_labels::model_bound_user_message(
+            "owner".into(),
+            "Send the reply".into(),
+            destination.clone(),
+        )
+        .unwrap()
+        .data_envelope
+        .unwrap();
+        let mut labelled = runtime.clone();
+        super::label(&mut labelled, Some(&owner), Some(&destination)).unwrap();
+        let label = labelled.data_envelope.clone().unwrap();
+        assert_eq!(
+            label.provenance.source_tool_name,
+            crate::model_message_labels::ServerResultSource::ExactAuthorizationProjection.as_str()
+        );
+        assert_eq!(label.retention.expires_at_unix_ms, Some(100_000));
+        assert!(label.retention.delete_with_run);
+        assert!(label.sensitivity >= Sensitivity::Sensitive);
+        assert_eq!(label.allowed_destinations, vec![destination.clone()]);
+        // It registers under its parent instead of making the request unknown.
+        let inputs = vec![owner.clone(), label];
+        let audit = crate::sink_authorizer::SinkProjectionAudit {
+            destination: destination.clone(),
+            envelope_ids: inputs
+                .iter()
+                .map(|input| input.envelope_id.clone())
+                .collect(),
+            total_bytes: 32,
+        };
+        let snapshot =
+            crate::model_egress::NativeModelInputSnapshot::capture(&audit, &inputs).unwrap();
+        let registration =
+            NativeInputPolicyRegistration::capture(&snapshot, SOURCE_CONTRACT_REVISION, 1).unwrap();
+        assert_eq!(
+            registration.leaves[1].as_ref().map(|leaf| leaf.contract),
+            Some(RegisteredSourceContract::NativeControl)
+        );
         let policy = crate::model_egress::ModelEgressPolicy {
-            destination,
+            destination: destination.clone(),
             selected_source_tools: Default::default(),
             export_authorization_id: "test".into(),
             now_unix_ms: 1,
@@ -127,10 +212,19 @@ mod tests {
         };
         policy
             .authorize_request(ModelRequest::text_only(
-                vec![system, runtime],
+                vec![system.clone(), labelled],
                 ResponseFormatSpec::None,
             ))
             .unwrap();
+        // Without any parent the projection keeps its own unregistered label.
+        let mut orphan = runtime;
+        super::label(&mut orphan, None, Some(&destination)).unwrap();
+        let label = orphan.data_envelope.as_ref().unwrap();
+        assert_eq!(
+            label.provenance.source_tool_name,
+            crate::model_message_labels::sources::CAPABILITY_AUTHORIZATION
+        );
+        assert_eq!(label.retention.expires_at_unix_ms, Some(100_000));
     }
 
     /// The runtime context's label follows everything appended to it: cited

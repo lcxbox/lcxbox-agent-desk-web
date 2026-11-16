@@ -256,6 +256,10 @@ pub struct ChatMessage {
     /// instructions that model egress may label as public system text.
     #[serde(skip)]
     pub public_instructions: bool,
+    /// Request-only bounds on a projection of approved exact inputs that this
+    /// message carries; applied once when its label is computed.
+    #[serde(skip)]
+    pub exact_projection: Option<crate::permission_resume::ExactProjection>,
     /// Server-owned control observations bound to this exact model response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_controls: Option<Box<crate::model_controls::FrozenModelControls>>,
@@ -304,6 +308,7 @@ impl ChatMessage {
             stored_roots: Vec::new(),
             content_sources: Default::default(),
             public_instructions: false,
+            exact_projection: None,
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -364,6 +369,7 @@ impl ChatMessage {
             stored_roots: Vec::new(),
             content_sources: Default::default(),
             public_instructions: false,
+            exact_projection: None,
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -469,6 +475,7 @@ impl ChatMessage {
             stored_roots: Vec::new(),
             content_sources: Default::default(),
             public_instructions: false,
+            exact_projection: None,
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -502,6 +509,7 @@ impl ChatMessage {
             stored_roots: Vec::new(),
             content_sources: Default::default(),
             public_instructions: false,
+            exact_projection: None,
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -539,6 +547,7 @@ impl ChatMessage {
             stored_roots: Vec::new(),
             content_sources: Default::default(),
             public_instructions: false,
+            exact_projection: None,
             model_controls: None,
             attachment_read: None,
             raw_result: None,

@@ -59,52 +59,48 @@ fn exact_projection_is_sensitive_and_expires_without_changing_its_text() {
 }
 
 #[test]
-fn exact_projection_can_be_rebound_after_server_owned_prompt_expansion() {
-    let mut bound = bind_exact_authorization_system_message(
+fn exact_projection_bounds_keep_the_earliest_expiry_for_one_model() {
+    let bound = restrict_exact_projection(
         ChatMessage::public_system("system", "Exact bounded input"),
         destination(),
         70_000,
     )
     .unwrap();
-    let old_envelope_id = bound.data_envelope.as_ref().unwrap().envelope_id.clone();
-    bound.text.push_str("\n\nServer-owned capability index");
-    assert!(matches!(
-        policy().authorize_request(crate::seam::ModelRequest::text_only(
-            vec![bound.clone()],
-            crate::prompt::ResponseFormatSpec::None,
-        )),
-        Err(crate::model_egress::ModelEgressError::Sink(
-            crate::sink_authorizer::SinkAuthorizationError::ContentSizeMismatch
-        ))
-    ));
-
-    let rebound = rebind_exact_authorization_system_message(bound).unwrap();
-    let envelope = rebound.data_envelope.as_ref().unwrap();
-    assert_ne!(envelope.envelope_id, old_envelope_id);
-    assert_eq!(envelope.retention.expires_at_unix_ms, Some(70_000));
-    assert_eq!(envelope.allowed_destinations, vec![destination()]);
-    policy()
-        .authorize_request(crate::seam::ModelRequest::text_only(
-            vec![rebound],
-            crate::prompt::ResponseFormatSpec::None,
-        ))
-        .unwrap();
-}
-
-#[test]
-fn exact_projection_rebind_rejects_untrusted_message_shapes() {
-    assert!(
-        rebind_exact_authorization_system_message(ChatMessage::public_system("system", "unbound"))
-            .is_err()
+    assert!(bound.data_envelope.is_none());
+    let bound = restrict_exact_projection(bound, destination(), 90_000).unwrap();
+    assert_eq!(
+        bound.exact_projection,
+        Some(ExactProjection {
+            destination: destination(),
+            expires_at_unix_ms: 70_000,
+        })
     );
-    let mut wrong_role = bind_exact_authorization_system_message(
-        ChatMessage::public_system("system", "bound"),
+    let other = DestinationIdentity::Model {
+        connection_id: "gateway".into(),
+        connection_revision: 1,
+        model_id: "other".into(),
+        profile_revision: 1,
+    };
+    assert!(restrict_exact_projection(bound, other, 60_000).is_err());
+    // A system message with a runtime context bounds the runtime context.
+    let system = restrict_exact_projection(
+        crate::ai_assistant::build_ai_assistant_system_message_with_catalog(
+            None,
+            &crate::model_content::ModelContent::server_text("grant"),
+        ),
         destination(),
         70_000,
     )
     .unwrap();
-    wrong_role.role = ChatRole::User;
-    assert!(rebind_exact_authorization_system_message(wrong_role).is_err());
+    assert!(system.exact_projection.is_none());
+    assert!(
+        system
+            .runtime_context
+            .as_ref()
+            .unwrap()
+            .exact_projection
+            .is_some()
+    );
 }
 
 #[test]
