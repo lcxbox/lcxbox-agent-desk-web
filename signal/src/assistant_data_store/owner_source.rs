@@ -89,58 +89,75 @@ async fn owner_memory_source_on<C: ConnectionTrait + ConfigConnection>(
         .one(db)
         .await?
         && super::evidence::owner_history_identity_allowed_on(db, actor, &source, now).await?
+        && let Some((mut resolved, original)) =
+            retained_original_on(db, actor, &source, policy, now).await?
     {
-        // Use actual cited fragment keys, never all producer dependencies or a
-        // first search hit. An ambiguous original is not a navigation target.
-        let keys = super::evidence::forgetting_sources(&source)?;
-        let primary = keys
-            .iter()
-            .filter(|key| key.origin_id == source.origin_id)
-            .collect::<Vec<_>>();
-        if let [key] = primary.as_slice()
-            && let Some(original) =
-                history::Entity::find()
-                    .filter(history::Column::ActorId.eq(actor))
-                    .filter(history::Column::Id.eq(
-                        desk_assistant_data_store::source_rows::history(&key.source_id),
-                    ))
-                    .filter(history::Column::OriginId.eq(key.origin_id))
-                    .one(db)
-                    .await?
-            && unsigned(original.revision)? == key.revision
-        {
-            let mut resolved = history_source_on(db, actor, &original, policy, now).await?;
-            if matches!(
-                resolved.availability,
-                SourceAvailability::Available
-                    | SourceAvailability::Partial
-                    | SourceAvailability::Redacted
-            ) {
-                let prior = revision::Entity::find()
-                    .filter(revision::Column::ActorId.eq(actor))
-                    .filter(revision::Column::MemoryId.eq(&source.memory_id))
-                    .filter(revision::Column::Revision.eq(source.memory_revision))
-                    .one(db)
-                    .await?;
-                resolved.source_id = source.source_id();
-                resolved.revision = unsigned(source.memory_revision)?;
-                resolved.notice = Some(
-                    if prior.is_some_and(|value| value.status == "forgotten") {
-                        "memory_forgotten_original_kept"
-                    } else {
-                        "original_history_available"
-                    }
-                    .into(),
-                );
-                return Ok((resolved, Some(original)));
+        let prior = revision::Entity::find()
+            .filter(revision::Column::ActorId.eq(actor))
+            .filter(revision::Column::MemoryId.eq(&source.memory_id))
+            .filter(revision::Column::Revision.eq(source.memory_revision))
+            .one(db)
+            .await?;
+        resolved.source_id = source.source_id();
+        resolved.revision = unsigned(source.memory_revision)?;
+        resolved.notice = Some(
+            if prior.is_some_and(|value| value.status == "forgotten") {
+                "memory_forgotten_original_kept"
+            } else {
+                "original_history_available"
             }
-        }
+            .into(),
+        );
+        return Ok((resolved, Some(original)));
     }
     // This retains the independent-evidence lifetime and all existing source,
     // memory version and model-purpose restrictions when no original is usable.
     memory_source_on(db, actor, source_id, policy, now)
         .await
         .map(|resolution| (resolution, None))
+}
+
+/// The original chat fragment `source` was cited from, while it is still
+/// retained and readable at the exact cited revision. Only the actual cited
+/// fragment key counts, never all producer dependencies or a first search
+/// hit; an ambiguous original is no original.
+async fn retained_original_on<C: ConnectionTrait + ConfigConnection>(
+    db: &C,
+    actor: &str,
+    source: &evidence::Model,
+    policy: &AssistantDataPolicy,
+    now: u64,
+) -> Result<Option<(AssistantSourceResolution, history::Model)>, AssistantStoreError> {
+    let keys = super::evidence::forgetting_sources(source)?;
+    let primary = keys
+        .iter()
+        .filter(|key| key.origin_id == source.origin_id)
+        .collect::<Vec<_>>();
+    let [key] = primary.as_slice() else {
+        return Ok(None);
+    };
+    let Some(original) = history::Entity::find()
+        .filter(history::Column::ActorId.eq(actor))
+        .filter(
+            history::Column::Id.eq(desk_assistant_data_store::source_rows::history(
+                &key.source_id,
+            )),
+        )
+        .filter(history::Column::OriginId.eq(key.origin_id))
+        .one(db)
+        .await?
+    else {
+        return Ok(None);
+    };
+    if unsigned(original.revision)? != key.revision {
+        return Ok(None);
+    }
+    let resolved = history_source_on(db, actor, &original, policy, now).await?;
+    Ok(matches!(
+        resolved.availability,
+        SourceAvailability::Available | SourceAvailability::Partial | SourceAvailability::Redacted
+    )
+    .then_some((resolved, original)))
 }
 
 /// Model callers authorize the exact evidence purpose separately. They must
@@ -203,6 +220,15 @@ pub(super) async fn memory_source_on<C: ConnectionTrait + ConfigConnection>(
         "original_fragment_not_retained"
     } else if original_deadline <= now {
         "original_history_expired"
+    } else if desk_diagnose_core::future::boxed(|| {
+        retained_original_on(db, actor, &source, platform_policy, now)
+    })
+    .await?
+    .is_some()
+    {
+        // The evidence carries no history handle: the original is found
+        // through history search like any other chat message.
+        "original_history_retained"
     } else {
         "original_fragment_unavailable"
     };

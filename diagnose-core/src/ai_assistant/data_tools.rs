@@ -118,7 +118,7 @@ pub fn memory_registry(
         ),
         tool(
             READ_MEMORY_SOURCE,
-            "Read independent evidence using a source_id returned by search_memories, read_memory_history or current memories. History search source_ids belong to read_conversation, not this tool. A cleaned-up chat may leave memory evidence only. Never repeat a device operation to recreate missing evidence. The source identifier grants no permission.",
+            "Read independent evidence using a source_id returned by search_memories, read_memory_history or current memories. History search source_ids belong to read_conversation, not this tool. The result is the evidence excerpt only; its notice tells whether the original chat still exists: original_history_retained means it does and search_conversations can find it, while original_fragment_unavailable, original_history_expired or original_fragment_not_retained mean only the excerpt remains. Never repeat a device operation to recreate missing evidence. The source identifier grants no permission.",
             json!({"type":"object","required":["source_id"],"properties":{"source_id":{"type":"string","minLength":1,"maxLength":256},
                 "max_bytes":{"type":"integer","minimum":4,"maximum":limits.retrieval.episode.response_bytes,"default":limits.retrieval.episode.response_bytes}},"additionalProperties":false}),
             ToolEffect::MemoryQuery,

@@ -656,13 +656,15 @@ async fn forgetting_a_fact_restricts_its_evidence_but_owner_can_still_view_the_o
     assert_eq!(linked.availability, SourceAvailability::Available);
     assert_eq!(linked.source_id, source_id);
     assert_eq!(linked.locator, before.locator);
-    assert_eq!(
+    // The model reads only the excerpt, but is told the original chat is
+    // still there to search.
+    let excerpt =
         super::super::owner_source::memory_source_on(&store.db, "1", &source_id, &policy, 1000)
             .await
-            .unwrap()
-            .availability,
-        SourceAvailability::EvidenceOnly
-    );
+            .unwrap();
+    assert_eq!(excerpt.availability, SourceAvailability::EvidenceOnly);
+    assert!(excerpt.locator.is_none());
+    assert_eq!(excerpt.notice.as_deref(), Some("original_history_retained"));
 
     store
         .forget_memory(
@@ -755,6 +757,38 @@ async fn forgetting_a_fact_restricts_its_evidence_but_owner_can_still_view_the_o
 }
 
 #[tokio::test]
+async fn a_deleted_original_chat_leaves_the_excerpt_marked_unavailable() {
+    use crate::entity::agent_assistant_history as history;
+    use desk_agent_protocol::ai_assistant::source::SourceAvailability;
+    let store = setup().await;
+    let (_, source_id, _) = seed(&store, 1, "A").await;
+    seed_original_history(&store, &source_id).await;
+    history::Entity::update_many()
+        .col_expr(
+            history::Column::DeletedAtMs,
+            sea_orm::sea_query::Expr::value(999_i64),
+        )
+        .exec(&store.db)
+        .await
+        .unwrap();
+    let excerpt = super::super::owner_source::memory_source_on(
+        &store.db,
+        "1",
+        &source_id,
+        &AssistantDataPolicy::default(),
+        1000,
+    )
+    .await
+    .unwrap();
+    assert_eq!(excerpt.availability, SourceAvailability::EvidenceOnly);
+    assert_eq!(excerpt.content.as_deref(), Some("I prefer Chinese"));
+    assert_eq!(
+        excerpt.notice.as_deref(),
+        Some("original_fragment_unavailable")
+    );
+}
+
+#[tokio::test]
 async fn independent_fact_evidence_outlives_the_original_history_retention() {
     use desk_agent_protocol::ai_assistant::source::SourceAvailability;
     let store = setup().await;
@@ -776,6 +810,7 @@ async fn independent_fact_evidence_outlives_the_original_history_retention() {
         .unwrap();
     assert_eq!(evidence.availability, SourceAvailability::EvidenceOnly);
     assert_eq!(evidence.content.as_deref(), Some("I prefer Chinese"));
+    assert_eq!(evidence.notice.as_deref(), Some("original_history_expired"));
     assert_eq!(
         store
             .memories(1, &MemoryListRequest::default(), &policy, now)
