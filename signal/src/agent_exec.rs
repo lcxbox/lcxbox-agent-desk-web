@@ -810,9 +810,7 @@ impl SignalAgentTools {
                     desk_diagnose_core::model_observability::PermissionOutcome::PolicyRejected,
                 );
             return Ok(ExecOutcome::Rejected {
-                reason: Some(desk_diagnose_core::seam::ExecReason::Unverified(
-                    classified.classification.impact,
-                )),
+                reason: classified.rejection(),
             });
         };
         if classified.classification.decision != ExecDecision::ConfirmRequired
@@ -1069,9 +1067,7 @@ impl ToolSeam for SignalAgentTools {
                 desk_diagnose_core::model_observability::PermissionOutcome::PolicyRejected,
             );
             return Ok(ExecOutcome::Rejected {
-                reason: Some(desk_diagnose_core::seam::ExecReason::Unverified(
-                    classified.classification.impact,
-                )),
+                reason: classified.rejection(),
             });
         };
         if draft.execution_basis == ExecExecutionBasis::OwnerBlocklistOnly

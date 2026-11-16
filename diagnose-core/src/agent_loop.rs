@@ -4097,17 +4097,14 @@ async fn run_mutating<F: FnMut() -> String>(
                 .await?,
             );
         }
-        Ok(ExecOutcome::ReviewDenied { reason }) => {
+        Ok(ExecOutcome::ReviewDenied { reason_code }) => {
             *session.review_denials.entry(call.name.clone()).or_default() += 1;
             append_mutating_result(
                 deps,
                 session,
                 call,
                 mint(),
-                &crate::model_content::ModelContent::builder()
-                    .text("the command was rejected: ")
-                    .unverified(&crate::model_content::Unverified::new(reason))
-                    .build(),
+                &crate::approval_review::action_denial_content(reason_code),
                 ServerResultSource::ExecutionStatus,
             )?;
             finish_tool(session, &call.id, false, sink);

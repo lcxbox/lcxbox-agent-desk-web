@@ -2103,6 +2103,26 @@ const REVIEWER_REASON_NOTE: &str = "The reviewer's reason is shown to the owner.
 const UNCLASSIFIED_GUIDANCE: &str =
     "The reviewer refused this item. Ask the owner before requesting it again.";
 
+/// What the executing model is told when the AI reviewer refused one exact
+/// action: the closed reason code and its fixed guidance. The reviewer's
+/// own text stays with the owner.
+pub fn action_denial_content(
+    reason_code: Option<ApprovalReasonCode>,
+) -> crate::model_content::ModelContent {
+    let (code, guidance) = match reason_code {
+        Some(code) => (code.as_str(), code.guidance()),
+        None => ("unclassified", UNCLASSIFIED_GUIDANCE),
+    };
+    crate::model_content::ModelContent::builder()
+        .text("not executed: independent AI review denied this exact action. reason_code=")
+        .text(code)
+        .text(". ")
+        .text(guidance)
+        .text(" ")
+        .text(REVIEWER_REASON_NOTE)
+        .build()
+}
+
 crate::model_receipt! {
     struct DeniedItem {
         item_id: crate::model_content::ServerId,
@@ -3285,6 +3305,21 @@ pub(crate) mod tests {
             candidate.validate(),
             Err(ApprovalReviewError::InvalidCandidate)
         );
+    }
+
+    #[test]
+    fn an_action_denial_shows_the_code_and_its_guidance_as_server_text() {
+        let known = action_denial_content(Some(ApprovalReasonCode::WrongTarget));
+        assert!(known.text().contains("reason_code=wrong_target"));
+        assert!(
+            known
+                .text()
+                .contains(ApprovalReasonCode::WrongTarget.guidance())
+        );
+        assert!(known.sources().is_server_only());
+        let unknown = action_denial_content(None);
+        assert!(unknown.text().contains("reason_code=unclassified"));
+        assert!(unknown.sources().is_server_only());
     }
 
     #[test]

@@ -149,6 +149,10 @@ impl ServerText {
     pub fn generated(text: impl Into<String>) -> Self {
         Self(text.into())
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl Display for ServerText {

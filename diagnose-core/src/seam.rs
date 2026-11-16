@@ -619,7 +619,9 @@ pub type ExecIdentity = crate::session::ActionIdentity;
 pub enum ExecReason {
     /// Fixed server text.
     Server(&'static str),
-    /// Text a policy classifier, a reviewer or a host produced.
+    /// Text the server built from its own values, such as policy levels.
+    Generated(crate::model_content::ServerText),
+    /// Text a reviewer or a host produced.
     Unverified(String),
 }
 
@@ -627,6 +629,7 @@ impl ExecReason {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Server(text) => text,
+            Self::Generated(text) => text.as_str(),
             Self::Unverified(text) => text,
         }
     }
@@ -636,6 +639,7 @@ impl ExecReason {
         let builder = crate::model_content::ModelContent::builder().text(prefix);
         match self {
             Self::Server(text) => builder.text(text),
+            Self::Generated(text) => builder.server(text),
             Self::Unverified(text) => {
                 builder.unverified(&crate::model_content::Unverified::new(text.clone()))
             }
@@ -648,6 +652,7 @@ impl From<ExecReason> for String {
     fn from(reason: ExecReason) -> Self {
         match reason {
             ExecReason::Server(text) => text.into(),
+            ExecReason::Generated(text) => text.as_str().into(),
             ExecReason::Unverified(text) => text,
         }
     }
@@ -701,7 +706,11 @@ pub enum ExecOutcome {
     Rejected { reason: Option<ExecReason> },
     /// The independent AI reviewer refused this exact call; nothing ran. Counted
     /// per tool so repeated refusals go to the owner instead of the reviewer.
-    ReviewDenied { reason: String },
+    /// The model sees the reviewer's closed reason code, not its text; a
+    /// code outside the closed set is `None`.
+    ReviewDenied {
+        reason_code: Option<crate::approval_review::ApprovalReasonCode>,
+    },
     /// The runtime durably refused dispatch before any execution generation was
     /// recorded. This is not an operator rejection or a successful cancellation.
     NotExecuted { reason: ExecReason },

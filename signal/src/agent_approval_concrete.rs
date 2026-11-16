@@ -37,7 +37,8 @@ use crate::agent_approval_store::ClaimedPermissionReview;
 pub enum ConcreteReviewResult {
     NotRequired,
     Approved,
-    Denied(String),
+    /// The reviewer's closed reason code; `None` outside the closed set.
+    Denied(Option<desk_diagnose_core::approval_review::ApprovalReasonCode>),
     Unavailable,
 }
 
@@ -463,7 +464,11 @@ async fn claim_inner(
                 if decision.verdict != ApprovalVerdict::Deny {
                     return Err(invalid());
                 }
-                ConcreteReviewResult::Denied(decision.reason)
+                ConcreteReviewResult::Denied(
+                    desk_diagnose_core::approval_review::ApprovalReasonCode::parse(
+                        &decision.reason_code,
+                    ),
+                )
             }
             _ => ConcreteReviewResult::Unavailable,
         };
@@ -793,9 +798,11 @@ async fn settle_inner(
     Ok(match status {
         APPROVAL_REVIEW_STATUS_APPROVED => ConcreteReviewResult::Approved,
         APPROVAL_REVIEW_STATUS_DENIED => ConcreteReviewResult::Denied(
-            decision
-                .map(|review| review.reason.clone())
-                .ok_or_else(invalid)?,
+            desk_diagnose_core::approval_review::ApprovalReasonCode::parse(
+                &decision
+                    .map(|review| review.reason_code.clone())
+                    .ok_or_else(invalid)?,
+            ),
         ),
         _ => ConcreteReviewResult::Unavailable,
     })

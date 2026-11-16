@@ -43,12 +43,27 @@ pub use templates::{CommandForm, command_forms};
 pub const MAX_FREEFORM_COMMAND_BYTES: usize = 16 * 1024;
 
 /// Result of classifying an exec request.
+#[derive(Debug, Clone)]
 pub struct ClassifyOutcome {
     pub classification: CommandClassification,
     /// `Some` iff `classification.decision == ConfirmRequired`: the immutable
     /// plan draft to store in the pending-approval store and later seal into an
     /// `ExecPlan`.
     pub draft: Option<ExecPlanDraft>,
+}
+
+impl ClassifyOutcome {
+    /// Why the command cannot run, when the classifier produced no plan. The
+    /// impact of such an outcome is built only from fixed reasons and the
+    /// category of the matching blocklist rule from the command policy; it
+    /// never repeats the command.
+    pub fn rejection(&self) -> Option<crate::seam::ExecReason> {
+        self.draft.is_none().then(|| {
+            crate::seam::ExecReason::Generated(crate::model_content::ServerText::generated(
+                &self.classification.impact,
+            ))
+        })
+    }
 }
 
 /// Classify an exec request against the built-in whitelist templates only, using
@@ -504,7 +519,7 @@ fn is_unbounded_interactive_program(program: &str) -> bool {
     )
 }
 
-fn blocked(reason: &str) -> ClassifyOutcome {
+fn blocked(reason: &'static str) -> ClassifyOutcome {
     ClassifyOutcome {
         classification: CommandClassification {
             risk: RiskLevel::Blocked,
@@ -550,6 +565,22 @@ fn invalid_freeform() -> ClassifyOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rejection_without_a_plan_is_server_text_and_never_repeats_the_command() {
+        use crate::seam::ExecReason;
+        let blocked = blocked("interactive elevation command is empty");
+        let Some(ExecReason::Generated(text)) = blocked.rejection() else {
+            panic!("a blocked command is rejected with server text");
+        };
+        assert_eq!(
+            text.as_str(),
+            "Blocked: interactive elevation command is empty"
+        );
+        let plan = classify_command(&shell_input("Restart-Service -Name Spooler"));
+        assert!(plan.draft.is_some());
+        assert!(plan.rejection().is_none());
+    }
     use desk_agent_protocol::authz::ExecAdmissionPolicy;
     use desk_agent_protocol::exec::{ExecEffect, ExecExecutionBasis, ExecIoMode, ExecShellKind};
     use desk_agent_protocol::exec_policy::{

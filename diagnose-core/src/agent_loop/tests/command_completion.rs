@@ -392,7 +392,7 @@ impl ToolSeam for DenyingTools {
     ) -> Result<ExecOutcome, AgentError> {
         self.calls.borrow_mut().push(call.name.clone());
         Ok(ExecOutcome::ReviewDenied {
-            reason: "reviewer refused".into(),
+            reason_code: Some(crate::approval_review::ApprovalReasonCode::ExceedsTask),
         })
     }
 }
@@ -450,6 +450,25 @@ async fn repeated_review_denials_stop_that_tool_until_the_owner_replies() {
         .find(|message| message.tool_call_id.as_deref() == Some("c3"))
         .unwrap();
     assert!(blocked.text.contains("ask how to proceed"));
+    // A refusal shows the closed code and its guidance, never the reviewer's
+    // text, so it stays server text.
+    let refused = stored
+        .conversation
+        .iter()
+        .find(|message| message.tool_call_id.as_deref() == Some("c1"))
+        .unwrap();
+    assert!(refused.text.contains("reason_code=exceeds_task"));
+    assert!(
+        refused
+            .text
+            .contains(crate::approval_review::ApprovalReasonCode::ExceedsTask.guidance())
+    );
+    assert!(
+        refused
+            .data_envelope
+            .as_ref()
+            .is_none_or(|label| !label.envelope_id.starts_with("unverified-result-"))
+    );
     assert_eq!(stored.review_denials["ui"], 2);
     assert_eq!(stored.review_denials["other"], 1);
     stored.adopt_trigger(crate::session::TriggerOrigin::PermissionDecision, "t2");
