@@ -221,7 +221,7 @@ fn project_json_part(
         std::str::from_utf8(&part.content)
             .map_err(|_| invalid("Invalid JSON attachment encoding"))?,
     );
-    message.data_envelope = Some(source.clone());
+    message.set_label(Some(source.clone()));
     crate::ui_model_ids::project_result_view(&mut message, references);
     if message.text.as_bytes() == part.content.as_slice() {
         return Ok(None);
@@ -257,8 +257,7 @@ pub fn canonical_source(message: &ChatMessage) -> Result<ChatMessage, AgentError
         return Err(invalid("Attachment read proof does not match its body"));
     }
     let mut canonical = message.clone();
-    canonical.text = receipt_content(receipt);
-    canonical.data_envelope = receipt.original_envelope.clone();
+    canonical.replace_content(receipt_content(receipt), receipt.original_envelope.clone());
     let record = canonical.attachment_read.as_mut().unwrap();
     record.consumed = false;
     record.released = false;

@@ -163,7 +163,7 @@ pub fn model_bound_published_input(
     envelope.validate().map_err(|_| denied())?;
     let mut message =
         ChatMessage::text(message_id, ChatRole::User, text).with_turn_id(format!("{run_id}-turn"));
-    message.data_envelope = Some(envelope);
+    message.set_label(Some(envelope));
     Ok(message)
 }
 

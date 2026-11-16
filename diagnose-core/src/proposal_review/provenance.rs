@@ -302,8 +302,7 @@ pub struct ReceiptLabel {
 impl ReceiptLabel {
     /// Labels `message` with this label and its roots.
     pub fn apply(self, message: &mut ChatMessage) {
-        message.data_envelope = self.envelope;
-        message.stored_roots = self.stored_roots;
+        message.set_label_and_roots(self.envelope, self.stored_roots);
     }
 }
 

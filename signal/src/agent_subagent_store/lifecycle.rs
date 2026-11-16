@@ -389,7 +389,7 @@ impl SubAgentStore {
         }
         let text = payload.to_string();
         let mut message = ChatMessage::tool_result(result_message_id, &call.id, &text);
-        message.data_envelope = Some(
+        message.set_label(Some(
             desk_diagnose_core::subagent::projection::envelope(
                 result_message_id,
                 &text,
@@ -397,7 +397,7 @@ impl SubAgentStore {
                 &sources,
             )
             .map_err(|_| invalid())?,
-        );
+        ));
         let mut next = held.clone();
         if next
             .conversation

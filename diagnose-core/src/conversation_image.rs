@@ -154,10 +154,10 @@ impl ImageAttachment {
             return Err(error("Screenshot attachment integrity check failed"));
         }
         let mut message = self.message.clone();
-        message.image_data_url = Some(format!(
+        message.set_image(Some(format!(
             "data:{media_type};base64,{}",
             base64::engine::general_purpose::STANDARD.encode(pixels)
-        ));
+        )));
         let bytes =
             crate::model_egress::message_content_bytes(&message).map_err(|e| e.agent_error())?;
         let envelope = message

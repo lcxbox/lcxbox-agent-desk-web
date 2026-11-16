@@ -2981,7 +2981,7 @@ impl PersistedAgentSession {
         {
             return false;
         }
-        self.conversation[index].image_data_url = None;
+        self.conversation[index].set_image(None);
         let now = now.into();
         self.manual_outcome_disposition = Some(ManualOutcomeDisposition {
             action,
@@ -3053,8 +3053,7 @@ impl PersistedAgentSession {
         .is_err()
         {
             let msg = &mut self.conversation[index];
-            msg.text = RECOVER_OUTCOME_UNKNOWN.to_string();
-            msg.data_envelope = None;
+            msg.replace_content(RECOVER_OUTCOME_UNKNOWN.to_string(), None);
         }
         let placeholder_id = self.conversation[index].message_id.clone();
         let now = now.into();
@@ -3231,12 +3230,11 @@ impl PersistedAgentSession {
             {
                 return false;
             }
-            msg.text = result_text;
+            msg.replace_content(result_text, result_envelope);
             msg.message_id = event_id.to_string();
             msg.background_task_id = Some(background_task_id.to_string());
-            msg.data_envelope = result_envelope;
             msg.pending_delivery_format = Some(result_format);
-            msg.image_data_url = None;
+            msg.set_image(None);
             self.execution_state = ExecutionState::None;
             self.updated_at = now;
             return true;
@@ -3252,7 +3250,7 @@ impl PersistedAgentSession {
             let mut message =
                 crate::chat::ChatMessage::tool_result(event_id, tool_call_id, result_text);
             message.background_task_id = Some(background_task_id.to_string());
-            message.data_envelope = result_envelope;
+            message.set_label(result_envelope);
             message.pending_delivery_format = Some(result_format);
             self.conversation.push(message);
         } else {
@@ -3262,7 +3260,7 @@ impl PersistedAgentSession {
                 background_task_id,
                 result_text,
             );
-            message.data_envelope = result_envelope;
+            message.set_label(result_envelope);
             message.pending_delivery_format = Some(result_format);
             self.conversation.push(message);
         }

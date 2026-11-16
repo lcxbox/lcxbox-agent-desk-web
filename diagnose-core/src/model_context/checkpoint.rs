@@ -938,11 +938,13 @@ fn checkpoint_view(
         format!("checkpoint:{}", checkpoint.v1().generation),
         canonical,
     );
-    summary_message.data_envelope = checkpoint
-        .v1()
-        .lineage
-        .as_ref()
-        .map(|lineage| lineage.envelope.clone());
+    summary_message.set_label(
+        checkpoint
+            .v1()
+            .lineage
+            .as_ref()
+            .map(|lineage| lineage.envelope.clone()),
+    );
     messages.push(summary_message);
     let start = groups
         .get(floor)

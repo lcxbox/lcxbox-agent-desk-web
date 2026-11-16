@@ -122,14 +122,14 @@ pub fn request(
     request_id: &str,
 ) -> Result<ModelRequest, AgentError> {
     let mut system = ChatMessage::public_system(format!("{request_id}-system"), SYSTEM_PROMPT);
-    system.data_envelope = Some(
+    system.set_label(Some(
         ModelEgressPolicy::public_system_envelope(
             destination,
             &system.message_id,
             system.text.as_bytes(),
         )
         .map_err(|error| error.agent_error())?,
-    );
+    ));
     let payload = serde_json::json!({ "segments": batch.segments }).to_string();
     let content = crate::model_message_labels::model_bound_user_message(
         format!("{request_id}-package"),

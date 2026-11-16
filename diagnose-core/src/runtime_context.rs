@@ -44,14 +44,14 @@ pub fn label(
         std::mem::take(&mut runtime.content_sources),
     );
     content.bind(&destination.cloned().into_iter().collect::<Vec<_>>())?;
-    runtime.data_envelope = crate::model_message_labels::composed_envelope(
+    let label = crate::model_message_labels::composed_envelope(
         &content,
         parent,
         MESSAGE_ID,
         crate::model_message_labels::ServerResultSource::RuntimeContext,
         true,
     )?;
-    runtime.stored_roots = content.stored_roots();
+    runtime.set_label_and_roots(label, content.stored_roots());
     Ok(())
 }
 

@@ -758,10 +758,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         if session.agent_role.binding().is_some()
             && deps.model.command_completion_event_id().is_none()
         {
-            stable_system.text.push_str("\n\n");
-            stable_system
-                .text
-                .push_str(crate::subagent::report::REPORT_INSTRUCTION);
+            let text = format!(
+                "{}\n\n{}",
+                stable_system.text,
+                crate::subagent::report::REPORT_INSTRUCTION
+            );
+            stable_system.rewrite_instructions(text);
         }
         let split_runtime = session.surface == AgentSessionSurface::AiAssistant;
         let mut system_prompt = if split_runtime {
@@ -796,7 +798,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                         == crate::model_message_labels::sources::CAPABILITY_AUTHORIZATION
                 })
             {
-                system_prompt.data_envelope = None;
+                system_prompt.set_label(None);
             }
             if let Some(expiry) = fresh.approved_exact_input_expires_at_unix_ms {
                 let destination = deps
@@ -2519,7 +2521,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                         prefix.request_prefix.clone(),
                                     );
                                 }
-                                message.data_envelope = turn.provider_meta.data_envelope.clone();
+                                message.set_label(turn.provider_meta.data_envelope.clone());
                                 message.replay_disposition = turn.provider_meta.replay.clone();
                                 message.reasoning = turn
                                     .provider_meta
@@ -2596,7 +2598,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                         prefix.request_prefix.clone(),
                                     );
                                 }
-                                message.data_envelope = turn.provider_meta.data_envelope.clone();
+                                message.set_label(turn.provider_meta.data_envelope.clone());
                                 message.normalized_inputs =
                                     turn.provider_meta.normalized_inputs.clone();
                                 message.reasoning = turn

@@ -1154,7 +1154,7 @@ impl UiReferenceState {
                 }
             });
             if let Ok(text) = serde_json::to_string(&summary) {
-                message.text = text;
+                message.replace_identifiers(text);
             }
             return;
         }
@@ -1162,7 +1162,7 @@ impl UiReferenceState {
             && let Ok(mut value) = serde_json::from_str::<Value>(&message.text)
         {
             visit_history_ids(&mut value, &mut |id| self.alias_message_id(id));
-            message.text = value.to_string();
+            message.replace_identifiers(value.to_string());
             return;
         }
         if message.role == ChatRole::SystemEvent
@@ -1193,7 +1193,7 @@ impl UiReferenceState {
                     }
                 }
             }
-            message.text = value.to_string();
+            message.replace_identifiers(value.to_string());
         }
     }
 
@@ -1243,13 +1243,12 @@ impl UiReferenceState {
                     .text
                     .trim_end()
                     .ends_with(crate::image_input::IMAGE_NOT_RETAINED_PLACEHOLDER);
-                message.text = value.to_string();
+                let mut text = value.to_string();
                 if omitted {
-                    message.text.push('\n');
-                    message
-                        .text
-                        .push_str(crate::image_input::IMAGE_NOT_RETAINED_PLACEHOLDER);
+                    text.push('\n');
+                    text.push_str(crate::image_input::IMAGE_NOT_RETAINED_PLACEHOLDER);
                 }
+                message.replace_identifiers(text);
             }
             return;
         }
@@ -1264,7 +1263,7 @@ impl UiReferenceState {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        message.text = projected;
+        message.replace_identifiers(projected);
     }
 
     /// Expands record aliases in the top-level record fields of model arguments.
@@ -1362,7 +1361,7 @@ impl UiReferenceState {
                 }
             }
         }
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
     }
 
     fn observe_records(&mut self, value: &Value, message: &str) -> Result<(), AgentError> {
@@ -1759,7 +1758,7 @@ impl UiReferenceState {
                     selection,
                 );
             }
-            message.text = value.to_string();
+            message.replace_identifiers(value.to_string());
         }
         let source = message.message_id.clone();
         let delegation = crate::subagent::model_ids::is_runtime(message);
@@ -1775,14 +1774,14 @@ impl UiReferenceState {
                 crate::subagent::model_ids::omit_internal_selectors(body);
                 self.shorten_value(body, None);
             }
-            message.text = value.to_string();
+            message.replace_identifiers(value.to_string());
         }
         if matches!(message.role, ChatRole::SystemEvent)
             && crate::runtime_context::is_runtime(message)
             && let Ok(mut value) = serde_json::from_str::<Value>(&message.text)
         {
             self.shorten_value(&mut value, None);
-            message.text = value.to_string();
+            message.replace_identifiers(value.to_string());
         }
         if matches!(message.role, ChatRole::Tool | ChatRole::UntrustedOutput)
             && let Ok(mut value) = crate::image_input::structured_tool_result(&message.text)
@@ -1798,7 +1797,7 @@ impl UiReferenceState {
         {
             if is_schedule_result(message) {
                 self.project_records(&mut value, &source);
-                message.text = value.to_string();
+                message.replace_identifiers(value.to_string());
                 return;
             }
             crate::ui_model_output::expand_value(&mut value);
@@ -1814,13 +1813,12 @@ impl UiReferenceState {
                 .text
                 .trim_end()
                 .ends_with(crate::image_input::IMAGE_NOT_RETAINED_PLACEHOLDER);
-            message.text = value.to_string();
+            let mut text = value.to_string();
             if omitted {
-                message.text.push('\n');
-                message
-                    .text
-                    .push_str(crate::image_input::IMAGE_NOT_RETAINED_PLACEHOLDER);
+                text.push('\n');
+                text.push_str(crate::image_input::IMAGE_NOT_RETAINED_PLACEHOLDER);
             }
+            message.replace_identifiers(text);
         }
     }
 

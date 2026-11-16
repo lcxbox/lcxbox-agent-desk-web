@@ -4113,11 +4113,11 @@ pub fn scope_disclosed_instructions(system: &mut ChatMessage, disclosed_provider
     {
         return;
     }
-    system.text = system_text(|tools| {
+    system.rewrite_instructions(system_text(|tools| {
         tools
             .iter()
             .any(|tool| disclosed_provider_tools.contains(tool))
-    });
+    }));
 }
 
 /// Dynamic clock context shared by OSS and Manager, independent of scheduling tools.

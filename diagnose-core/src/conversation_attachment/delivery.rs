@@ -59,13 +59,13 @@ pub fn failed_delivery(
         envelope: None,
     };
     let content = crate::model_input::describe_error("result_delivery", &error.message);
-    original.data_envelope = projection_envelope(
+    let label = projection_envelope(
         original.data_envelope.as_ref(),
         content.as_bytes(),
         "delivery-error",
         &original.message_id,
     )?;
-    original.text = content;
+    original.replace_content(content, label);
     original.raw_result = Some(Box::new(proof));
     original.resolved_result = None;
     Ok(original)
@@ -427,13 +427,13 @@ pub async fn externalize_with(
     let mut batch = delivery.attachments.clone();
     batch.extend_from_slice(extra);
     store.store_attachment_batch(session, &batch).await?;
-    message.text = content;
-    message.data_envelope = projection_envelope(
+    let label = projection_envelope(
         source.data_envelope.as_ref(),
-        message.text.as_bytes(),
+        content.as_bytes(),
         "reference",
         &message.message_id,
     )?;
+    message.replace_content(content, label);
     // A truncated text prefix cannot be a trusted full result for later actions.
     if !delivery
         .attachments
@@ -441,8 +441,7 @@ pub async fn externalize_with(
         .any(|part| part.metadata.storage_truncated)
     {
         let mut resolved = source;
-        resolved.text = canonical;
-        resolved.data_envelope = raw.envelope.clone();
+        resolved.replace_content(canonical, raw.envelope.clone());
         message.resolved_result = Some(Box::new(resolved));
     }
     message.raw_result = Some(Box::new(raw));
@@ -522,8 +521,7 @@ where
             ));
         }
         let mut resolved = session.conversation[index].clone();
-        resolved.text = text;
-        resolved.data_envelope = raw.envelope;
+        resolved.replace_content(text, raw.envelope);
         resolved.raw_result = None;
         resolved.resolved_result = None;
         session.conversation[index].resolved_result = Some(Box::new(resolved));

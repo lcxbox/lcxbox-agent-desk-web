@@ -125,7 +125,7 @@ impl IssueAdmission {
         .map_err(|_| invalid())?;
         let id = format!("{COMMENT_PREFIX}{:x}", Sha256::digest(identity));
         let mut message = ChatMessage::text(id.clone(), ChatRole::UntrustedOutput, text.clone());
-        message.data_envelope = Some(DataEnvelope {
+        message.set_label(Some(DataEnvelope {
             schema_version: DATA_ENVELOPE_SCHEMA_VERSION,
             envelope_id: id.clone(),
             content: ContentRef::ImmutableBlob {
@@ -150,7 +150,7 @@ impl IssueAdmission {
                 expires_at_unix_ms: self.expires_at_ms.and_then(|at| u64::try_from(at).ok()),
                 delete_with_run: true,
             },
-        });
+        }));
         Ok(message)
     }
 
@@ -179,7 +179,7 @@ impl IssueAdmission {
         .expect("snapshot fields serialize");
         let id = format!("{PREFIX}{:x}", Sha256::digest(identity));
         let mut message = ChatMessage::text(id.clone(), ChatRole::UntrustedOutput, text.clone());
-        message.data_envelope = Some(DataEnvelope {
+        message.set_label(Some(DataEnvelope {
             schema_version: DATA_ENVELOPE_SCHEMA_VERSION,
             envelope_id: id.clone(),
             content: ContentRef::ImmutableBlob {
@@ -209,7 +209,7 @@ impl IssueAdmission {
                 expires_at_unix_ms: self.expires_at_ms.and_then(|at| u64::try_from(at).ok()),
                 delete_with_run: true,
             },
-        });
+        }));
         Ok(message)
     }
 }

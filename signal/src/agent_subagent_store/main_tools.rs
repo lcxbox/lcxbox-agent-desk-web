@@ -780,7 +780,7 @@ impl SubAgentStore {
             return Err(invalid());
         }
         let mut message = ChatMessage::tool_result(result_message_id, &call.id, &text);
-        message.data_envelope = Some(
+        message.set_label(Some(
             desk_diagnose_core::subagent::projection::envelope(
                 result_message_id,
                 &text,
@@ -788,7 +788,7 @@ impl SubAgentStore {
                 &labels,
             )
             .map_err(|_| invalid())?,
-        );
+        ));
         next.conversation.push(message);
         if let Some(observation) = observation {
             observation.validate().map_err(|_| invalid())?;

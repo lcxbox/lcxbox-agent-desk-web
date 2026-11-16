@@ -182,14 +182,16 @@ const CORRECTION_CONSTRAINTS: &str = " Re-evaluate this same candidate and retur
 
 pub fn apply_format_feedback(request: &mut ModelRequest, issue: Option<ReviewFormatIssue>) {
     if let Some(system) = request.messages.first_mut() {
-        system.text.push('\n');
-        system.text.push_str(DECISION_TEMPLATE);
+        let mut text = system.text.clone();
+        text.push('\n');
+        text.push_str(DECISION_TEMPLATE);
         if let Some(issue) = issue {
-            system.text.push('\n');
-            system.text.push_str(CORRECTION_PREFIX);
-            system.text.push_str(issue.feedback());
-            system.text.push_str(CORRECTION_CONSTRAINTS);
+            text.push('\n');
+            text.push_str(CORRECTION_PREFIX);
+            text.push_str(issue.feedback());
+            text.push_str(CORRECTION_CONSTRAINTS);
         }
+        system.rewrite_instructions(text);
     }
 }
 

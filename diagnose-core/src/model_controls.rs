@@ -469,7 +469,7 @@ pub(crate) fn project_message(message: &mut ChatMessage) {
         }
         _ => return,
     }
-    message.text = value.to_string();
+    message.replace_identifiers(value.to_string());
 }
 
 #[cfg(test)]

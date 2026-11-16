@@ -53,7 +53,8 @@ impl AuthorizedApprovalReview {
             .validate()
             .map_err(|_| ApprovalReviewError::InvalidContext)?;
         let mut request = self.model_request(candidate)?;
-        request.messages[0].text = crate::approval_review::APPROVAL_REVIEW_SYSTEM_PROMPT.to_owned();
+        request.messages[0]
+            .rewrite_instructions(crate::approval_review::APPROVAL_REVIEW_SYSTEM_PROMPT.to_owned());
         crate::approval_review::apply_format_feedback(&mut request, attempt.feedback);
         Ok(request)
     }
@@ -78,7 +79,7 @@ impl AuthorizedApprovalReview {
             .messages
             .get_mut(1)
             .ok_or(ApprovalReviewError::InvalidContext)?
-            .data_envelope = Some(self.prompt_envelope.clone());
+            .set_label(Some(self.prompt_envelope.clone()));
         Ok(request)
     }
 }

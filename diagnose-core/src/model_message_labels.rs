@@ -57,7 +57,7 @@ pub fn model_bound_user_message(
         error_code: None,
     })?;
     let mut message = ChatMessage::text(message_id, ChatRole::User, text);
-    message.data_envelope = Some(envelope);
+    message.set_label(Some(envelope));
     Ok(message)
 }
 

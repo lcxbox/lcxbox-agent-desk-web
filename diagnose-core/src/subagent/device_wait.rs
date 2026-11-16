@@ -54,12 +54,12 @@ pub fn receipt(
     let text = payload(target_ref, status).to_string();
     let mut message = ChatMessage::tool_result(message_id, &call.id, &text);
     message.tool_ok = Some(true);
-    message.data_envelope = Some(super::projection::envelope(
+    message.set_label(Some(super::projection::envelope(
         message_id,
         &text,
         super::tools::WAIT_DEVICE,
         std::slice::from_ref(label),
-    )?);
+    )?));
     Ok(message)
 }
 
@@ -86,12 +86,12 @@ pub fn finish_receipt(
     }
     let text = payload(target_ref, status).to_string();
     let resolved_id = format!("device-wait-{:x}", Sha256::digest(message_id.as_bytes()));
-    message.data_envelope = Some(super::projection::envelope(
+    let label = super::projection::envelope(
         &resolved_id,
         &text,
         super::tools::WAIT_DEVICE,
         std::slice::from_ref(label),
-    )?);
-    message.text = text;
+    )?;
+    message.replace_content(text, Some(label));
     Ok(())
 }

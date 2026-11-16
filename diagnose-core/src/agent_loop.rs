@@ -1414,12 +1414,14 @@ fn append_reviewed_tool_result<'a, 'd: 'a>(
                 "instruction": "The goal is paused. Inspect the original action ledger before considering any retry."
             }).to_string();
             let mut receipt = ChatMessage::tool_result(receipt_id, call_id, text);
-            receipt.data_envelope = crate::conversation_attachment::delivery::projection_envelope(
-                parent.as_ref(),
-                receipt.text.as_bytes(),
-                "attachment-capacity",
-                &receipt.message_id,
-            )?;
+            receipt.set_label(
+                crate::conversation_attachment::delivery::projection_envelope(
+                    parent.as_ref(),
+                    receipt.text.as_bytes(),
+                    "attachment-capacity",
+                    &receipt.message_id,
+                )?,
+            );
             session.conversation.push(receipt);
         } else if result.is_err() {
             std::mem::swap(session, &mut before);
@@ -1446,7 +1448,7 @@ async fn append_reviewed_tool_result_inner(
         // With no new image there is nothing to rotate: any previously retained
         // session image already satisfies the one-image invariant.
         let mut message = ChatMessage::tool_result(message_id, call_id, content);
-        message.data_envelope = data_envelope;
+        message.set_label(data_envelope);
         if session.surface == AgentSessionSurface::AiAssistant {
             let policy = deps.model.model_egress_policy()?;
             message = match crate::future::boxed(|| {
@@ -1479,8 +1481,8 @@ async fn append_reviewed_tool_result_inner(
     match review_image(deps, &image_data_url, &info.media_type).await {
         Ok(ContentSafetyDecision::Allow) => {
             let mut message = ChatMessage::tool_result(message_id, call_id, content);
-            message.image_data_url = Some(image_data_url);
-            message.data_envelope = data_envelope;
+            message.set_image(Some(image_data_url));
+            message.set_label(data_envelope);
             session.conversation.push(message);
             retain_latest_session_image(session)?;
             if session.surface == AgentSessionSurface::AiAssistant {
@@ -1524,7 +1526,10 @@ async fn append_reviewed_tool_result_inner(
                 let stored = if body_stored {
                     let authorized_source = attachment.message.data_envelope.clone();
                     let mut image_only = attachment.restore(&pixels)?;
-                    image_only.text = "Screenshot; the associated tool body is stored separately in this conversation's attachments.".into();
+                    image_only.replace_identifiers(
+                        "Screenshot; the associated tool body is stored separately in this conversation's attachments."
+                            .into(),
+                    );
                     let image_bytes = crate::model_egress::message_content_bytes(&image_only)
                         .map_err(|error| error.agent_error())?;
                     image_only.data_envelope =
@@ -1534,7 +1539,7 @@ async fn append_reviewed_tool_result_inner(
                             "image-body",
                             &image_only.message_id,
                         )?;
-                    image_only.image_data_url = None;
+                    image_only.set_image(None);
                     attachment.message = image_only;
                     let image_part = attachment.attachment_record(session, &pixels)?;
                     let mut body = session
@@ -1542,7 +1547,7 @@ async fn append_reviewed_tool_result_inner(
                         .last()
                         .cloned()
                         .ok_or_else(invalid_original_result)?;
-                    body.image_data_url = None;
+                    body.set_image(None);
                     body.data_envelope =
                         crate::conversation_attachment::delivery::projection_envelope(
                             attachment.message.data_envelope.as_ref(),
@@ -1563,7 +1568,7 @@ async fn append_reviewed_tool_result_inner(
                         )
                     })
                     .await?;
-                    delivered.image_data_url = Some(image_data_url.clone());
+                    delivered.set_image(Some(image_data_url.clone()));
                     *session
                         .conversation
                         .last_mut()
@@ -1590,11 +1595,11 @@ async fn append_reviewed_tool_result_inner(
                         && value.is_object()
                     {
                         value["attachment_id"] = serde_json::json!(frame.evidence_id);
-                        message.text = value.to_string();
+                        message.replace_identifiers(value.to_string());
                     } else {
-                        message.text.push_str(&format!(
-                            "\nScreenshot attachment_id: {}",
-                            frame.evidence_id
+                        message.replace_identifiers(format!(
+                            "{}\nScreenshot attachment_id: {}",
+                            message.text, frame.evidence_id
                         ));
                     }
                     let bytes = crate::model_egress::message_content_bytes(message)
@@ -3334,7 +3339,7 @@ fn interactive_user_home_projection(
     );
     let digest_sha256 = format!("{:x}", Sha256::digest(text.as_bytes()));
     let mut message = ChatMessage::system_event(&message_id, &text);
-    message.data_envelope = Some(DataEnvelope {
+    message.set_label(Some(DataEnvelope {
         schema_version: DATA_ENVELOPE_SCHEMA_VERSION,
         // The home text can change within a turn; the digest names its revision.
         envelope_id: format!("env-{message_id}-{}", &digest_sha256[..32]),
@@ -3359,7 +3364,7 @@ fn interactive_user_home_projection(
             expires_at_unix_ms: Some(expires_at_unix_ms),
             delete_with_run: true,
         },
-    });
+    }));
     message
         .data_envelope
         .as_ref()

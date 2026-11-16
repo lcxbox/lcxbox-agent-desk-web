@@ -142,12 +142,14 @@ fn legacy_error(
         crate::model_input::describe_error(&call.name, reason),
     );
     message.tool_ok = Some(false);
-    message.data_envelope = crate::model_message_labels::conversation_history_result_envelope(
-        parent,
-        &[],
-        &call.id,
-        &message.text,
-    )?;
+    message.set_label(
+        crate::model_message_labels::conversation_history_result_envelope(
+            parent,
+            &[],
+            &call.id,
+            &message.text,
+        )?,
+    );
     message.turn_id = session.current_turn_id.clone();
     Ok(message)
 }

@@ -76,8 +76,7 @@ fn project_decided(messages: &mut [ChatMessage], pair: &DecidedPair) -> Result<(
     let Some(label) = messages[pair.receipt].data_envelope.clone() else {
         // An unlabelled conversation keeps unlabelled projections.
         (pair.finish)(&mut value);
-        messages[pair.draft].text = value.to_string();
-        messages[pair.draft].data_envelope = None;
+        messages[pair.draft].replace_content(value.to_string(), None);
         return Ok(());
     };
     let source = ServerResultSource::parse(&label.provenance.source_tool_name)

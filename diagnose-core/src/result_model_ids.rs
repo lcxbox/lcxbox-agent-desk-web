@@ -786,7 +786,7 @@ pub(crate) fn project_runtime_registry(message: &mut ChatMessage, locators: &[Re
             }
         }
     }
-    message.text = format!("{PREFIX}{value}");
+    message.replace_identifiers(format!("{PREFIX}{value}"));
 }
 
 pub(crate) fn project_result_message(message: &mut ChatMessage) {
@@ -814,24 +814,24 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
             .as_object_mut()
             .unwrap()
             .remove("original_result_sha256");
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
         return;
     }
     if source == "preview_computer_action" {
         for field in ["schema_version", "adapter"] {
             value.as_object_mut().unwrap().remove(field);
         }
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
         return;
     }
     if source == "load_conversation_history" && value["unavailable_count"] == 0 {
         value.as_object_mut().unwrap().remove("availability_notice");
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
         return;
     }
     if source == "update_task_status" {
         value.as_object_mut().unwrap().remove("revision");
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
         return;
     }
     if source == crate::tool_names::PREVIEW_DOCUMENT {
@@ -842,7 +842,7 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
             page.remove("preview_id");
         }
         hide_internal(&mut value);
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
         return;
     }
     // Only the admitted completion header; earlier domain projection may have
@@ -889,14 +889,14 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
                 }
             }
         }
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
         return;
     }
     if source == "fetch_public_web_page" {
         for field in ["schema_version", "sha256", "body_bytes"] {
             value.as_object_mut().unwrap().remove(field);
         }
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
         return;
     }
     // SendReceipt IDs are provider UI correlation hashes, not remote message IDs.
@@ -1006,7 +1006,7 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
     }
     // Completion metadata and nested send receipts also occur outside artifact tools.
     if value != before {
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
     }
 }
 

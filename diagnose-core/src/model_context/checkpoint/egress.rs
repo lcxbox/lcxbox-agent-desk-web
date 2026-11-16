@@ -253,12 +253,12 @@ pub fn authorize_compression_input(
     }
     let mut messages = compression_request_messages(plan);
     let packed = messages.last_mut().ok_or_else(lineage_error)?;
-    packed.data_envelope = Some(derive_projection(
+    packed.set_label(Some(derive_projection(
         &packed.text,
         &parents,
         "compression-input",
         plan.generation,
-    )?);
+    )?));
     // Check the exact packed payload, too; a transform cannot enlarge the sink
     // byte budget or change its destination merely by relabeling its output.
     authorize_bytes(
@@ -559,7 +559,7 @@ fn authorize_bytes(
         ChatRole::ContextSummary,
         std::str::from_utf8(bytes).map_err(|_| lineage_error())?,
     );
-    message.data_envelope = Some(envelope.clone());
+    message.set_label(Some(envelope.clone()));
     policy
         .authorize_request(ModelRequest::text_only(
             vec![message],

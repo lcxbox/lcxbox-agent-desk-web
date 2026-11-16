@@ -502,7 +502,7 @@ pub(crate) async fn prepare_notification_on(
         return Err(invalid());
     }
     let mut message = ChatMessage::system_event(&message_id, &text);
-    message.data_envelope = Some(
+    message.set_label(Some(
         desk_diagnose_core::subagent::projection::envelope(
             &message_id,
             &text,
@@ -510,7 +510,7 @@ pub(crate) async fn prepare_notification_on(
             &labels,
         )
         .map_err(|_| invalid())?,
-    );
+    ));
     if parent
         .conversation
         .iter()

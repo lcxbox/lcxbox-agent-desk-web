@@ -29,7 +29,7 @@ impl ModelEgressPolicy {
             INSTRUCTION.as_bytes(),
         )?;
         label.allowed_destinations.push(issue.clone());
-        instructions.data_envelope = Some(label);
+        instructions.set_label(Some(label));
         materials.insert(0, instructions);
         self.authorize_request(ModelRequest::text_only(materials, ResponseFormatSpec::None))
     }

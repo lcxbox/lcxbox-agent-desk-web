@@ -276,7 +276,7 @@ fn project(
         content,
     );
     message.turn_id = session.current_turn_id.clone();
-    message.data_envelope = Some(envelope);
+    message.set_label(Some(envelope));
     Ok(ProjectedCurrent {
         message: Some(message),
         memories,

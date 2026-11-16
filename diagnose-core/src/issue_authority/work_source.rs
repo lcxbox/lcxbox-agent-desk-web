@@ -98,14 +98,14 @@ impl IssueWorkSource {
         let text = self.requirement();
         let mut message =
             crate::chat::ChatMessage::text(id.clone(), crate::chat::ChatRole::User, text);
-        message.data_envelope = Some(
+        message.set_label(Some(
             crate::model_egress::ModelEgressPolicy::public_system_envelope(
                 destination,
                 &id,
                 text.as_bytes(),
             )
             .map_err(|error| error.agent_error())?,
-        );
+        ));
         Ok(message)
     }
 

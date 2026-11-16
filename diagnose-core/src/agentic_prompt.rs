@@ -88,11 +88,14 @@ fn system_text(locale: Option<&str>) -> String {
 /// (`None`/empty leaves the model's default language).
 pub fn build_agentic_system_message(locale: Option<&str>) -> ChatMessage {
     let mut message = build_agentic_system_message_without_content_policy(locale);
-    message
-        .text
-        .push_str(&crate::content_safety::policy::model_policy_prompt(
+    let text = format!(
+        "{}{}",
+        message.text,
+        crate::content_safety::policy::model_policy_prompt(
             &desk_agent_protocol::content_safety::ContentSafetyCategory::ALL,
-        ));
+        )
+    );
+    message.rewrite_instructions(text);
     message
 }
 

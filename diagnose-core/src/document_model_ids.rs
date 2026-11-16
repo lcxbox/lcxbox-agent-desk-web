@@ -647,7 +647,7 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
                 }
             }
         }
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
     }
 }
 

@@ -298,8 +298,7 @@ pub(crate) async fn commit_tool_receipt_on<C: ConnectionTrait, H: ScheduleHostSt
     let mut message =
         ChatMessage::tool_result(receipt.message_id, receipt.call_id, receipt.content);
     message.turn_id = next.current_turn_id.clone();
-    message.data_envelope = receipt.envelope;
-    message.stored_roots = receipt.stored_roots;
+    message.set_label_and_roots(receipt.envelope, receipt.stored_roots);
     next.conversation.push(message);
     next.version = next
         .version

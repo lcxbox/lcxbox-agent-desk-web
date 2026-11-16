@@ -212,14 +212,15 @@ fn remove_image(message: &mut ChatMessage) {
                     .is_ok_and(|bytes| bytes.len() as u64 == size)
         })
         .cloned();
-    message.image_data_url = None;
-    if !message.text.contains(IMAGE_NOT_RETAINED_PLACEHOLDER) {
-        if !message.text.is_empty() {
-            message.text.push('\n');
+    message.set_image(None);
+    let mut text = message.text.clone();
+    if !text.contains(IMAGE_NOT_RETAINED_PLACEHOLDER) {
+        if !text.is_empty() {
+            text.push('\n');
         }
-        message.text.push_str(IMAGE_NOT_RETAINED_PLACEHOLDER);
+        text.push_str(IMAGE_NOT_RETAINED_PLACEHOLDER);
     }
-    message.data_envelope = None;
+    message.replace_content(text, None);
     if let Some(mut envelope) = source {
         let Ok(bytes) = crate::model_egress::message_content_bytes(message) else {
             return;
@@ -252,7 +253,7 @@ fn remove_image(message: &mut ChatMessage) {
         if !envelope.provenance.source_envelope_ids.contains(&source_id) {
             envelope.provenance.source_envelope_ids.push(source_id);
         }
-        message.data_envelope = Some(envelope);
+        message.set_label(Some(envelope));
     }
 }
 

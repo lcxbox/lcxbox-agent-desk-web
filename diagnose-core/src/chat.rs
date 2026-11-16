@@ -377,6 +377,52 @@ impl ChatMessage {
     /// A mid-conversation system-event notification (e.g. a background task
     /// reporting completion). Carries no tool linkage; each adapter renders the
     /// [`ChatRole::SystemEvent`] role in its own dialect.
+    /// Replaces the text with the same content under other identifiers,
+    /// such as model-facing aliases of native ids, or a bounded view of it.
+    /// The label still describes the content.
+    pub fn replace_identifiers(&mut self, text: String) {
+        self.text = text;
+    }
+
+    /// Replaces the compiled or configured instructions of a public System
+    /// message.
+    pub fn rewrite_instructions(&mut self, text: String) {
+        debug_assert!(self.role == ChatRole::System);
+        self.text = text;
+    }
+
+    /// Attaches the label a label constructor built for this exact text, or
+    /// clears it.
+    pub fn set_label(&mut self, label: Option<desk_agent_protocol::data_lineage::DataEnvelope>) {
+        self.data_envelope = label;
+    }
+
+    /// Attaches a label together with the roots of the stored text it cites.
+    pub fn set_label_and_roots(
+        &mut self,
+        label: Option<desk_agent_protocol::data_lineage::DataEnvelope>,
+        roots: Vec<crate::model_content::StoredRoot>,
+    ) {
+        self.data_envelope = label;
+        self.stored_roots = roots;
+    }
+
+    /// Replaces the text together with its label, as when a persisted result
+    /// is restored or replaced by its original.
+    pub fn replace_content(
+        &mut self,
+        text: String,
+        label: Option<desk_agent_protocol::data_lineage::DataEnvelope>,
+    ) {
+        self.text = text;
+        self.data_envelope = label;
+    }
+
+    /// Attaches or removes the image the message carries.
+    pub fn set_image(&mut self, image_data_url: Option<String>) {
+        self.image_data_url = image_data_url;
+    }
+
     /// Instructions the server compiles or an administrator configures. The
     /// text must name no owner input, device data, model output or stored
     /// record; model egress gives it the public system label.

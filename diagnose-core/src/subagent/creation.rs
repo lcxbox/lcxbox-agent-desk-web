@@ -858,7 +858,7 @@ mod caller_tests {
                 String::new(),
                 vec![call.to_ref()],
             );
-            message.data_envelope = label.data_envelope;
+            message.set_label(label.data_envelope);
             parent.conversation.push(message);
         }
         let newest = parent.conversation[1].data_envelope.as_ref();

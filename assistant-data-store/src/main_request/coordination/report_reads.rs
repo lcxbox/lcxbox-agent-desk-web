@@ -285,7 +285,7 @@ impl Batch {
             turn.tool_calls.iter().map(ToolCall::to_ref).collect(),
             replay,
         );
-        assistant.data_envelope = Some(label.clone());
+        assistant.set_label(Some(label.clone()));
         desk_diagnose_core::model_egress::model_output_message_envelope(&assistant)
             .map_err(|_| AssistantStoreError::Inaccessible)?;
         request.messages.push(assistant);
@@ -460,10 +460,10 @@ impl Batch {
                 tools::STATUS => tools::STATUS,
                 _ => READ_REPORT,
             };
-            message.data_envelope = Some(
+            message.set_label(Some(
                 subagent::projection::envelope(&id, &body, tool, &labels)
                     .map_err(|_| AssistantStoreError::Inaccessible)?,
-            );
+            ));
             request.messages.push(message);
         }
         request.messages.extend(

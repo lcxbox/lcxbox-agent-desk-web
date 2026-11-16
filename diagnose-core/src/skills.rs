@@ -243,7 +243,7 @@ impl SkillSnapshot {
             )
             .map_err(|error| error.agent_error())?;
             label.allowed_destinations.push(issue.clone());
-            message.data_envelope = Some(label);
+            message.set_label(Some(label));
         }
         Ok(messages)
     }
@@ -1097,11 +1097,11 @@ fn stored_message(
     match scope {
         SkillScope::Platform => {
             let mut message = ChatMessage::text(&id, role, text);
-            message.data_envelope = Some(platform_envelope(
+            message.set_label(Some(platform_envelope(
                 destination,
                 &id,
                 message.text.as_bytes(),
-            )?);
+            )?));
             Ok(message)
         }
         SkillScope::Personal => {
@@ -1227,10 +1227,10 @@ fn public_message(
     destination: &DestinationIdentity,
 ) -> Result<ChatMessage, AgentError> {
     let mut message = ChatMessage::text(id, role, text);
-    message.data_envelope = Some(
+    message.set_label(Some(
         ModelEgressPolicy::public_system_envelope(destination, id, message.text.as_bytes())
             .map_err(|error| error.agent_error())?,
-    );
+    ));
     Ok(message)
 }
 

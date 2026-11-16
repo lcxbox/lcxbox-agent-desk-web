@@ -54,12 +54,12 @@ pub fn runtime_message(
 ) -> Result<ChatMessage, AgentError> {
     let text = runtime_text(payload);
     let mut message = ChatMessage::system_event(message_id, &text);
-    message.data_envelope = Some(envelope(
+    message.set_label(Some(envelope(
         message_id,
         &text,
         crate::model_message_labels::sources::DELEGATION_STATE,
         inputs,
-    )?);
+    )?));
     Ok(message)
 }
 

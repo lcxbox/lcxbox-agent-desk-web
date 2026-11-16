@@ -755,13 +755,12 @@ pub(crate) fn project_tool_message(message: &mut ChatMessage) {
             .trim_end()
             .ends_with(crate::image_input::IMAGE_NOT_RETAINED_PLACEHOLDER);
         hide_references(&mut value);
-        message.text = value.to_string();
+        let mut text = value.to_string();
         if omitted {
-            message.text.push('\n');
-            message
-                .text
-                .push_str(crate::image_input::IMAGE_NOT_RETAINED_PLACEHOLDER);
+            text.push('\n');
+            text.push_str(crate::image_input::IMAGE_NOT_RETAINED_PLACEHOLDER);
         }
+        message.replace_identifiers(text);
     }
     crate::browser_model_ids::project_result_message(message);
     crate::document_model_ids::project_result_message(message);
@@ -830,7 +829,7 @@ pub(crate) fn project_tool_message(message: &mut ChatMessage) {
         if let Some(body) = value.pointer_mut("/ReadContext/DesktopUiInspect") {
             body["node_defaults"] = json!({"enabled":true,"is_protected":false});
         }
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
     }
 }
 
@@ -858,7 +857,7 @@ fn project_tool_status(message: &mut ChatMessage) {
     let failed = message.tool_ok == Some(false);
     if failed {
         object.insert("tool_call_status".into(), json!("returned_error"));
-        message.text = value.to_string();
+        message.replace_identifiers(value.to_string());
     }
 }
 
@@ -940,10 +939,9 @@ pub fn project_request(request: &crate::seam::ModelRequest) -> crate::seam::Mode
 fn attach_input_notice(message: &mut ChatMessage, notice: &str) {
     if let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(&message.text) {
         object.insert("input_notice".into(), Value::String(notice.into()));
-        message.text = Value::Object(object).to_string();
+        message.replace_identifiers(Value::Object(object).to_string());
     } else {
-        message.text.push('\n');
-        message.text.push_str(notice);
+        message.replace_identifiers(format!("{}\n{notice}", message.text));
     }
 }
 

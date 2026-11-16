@@ -145,7 +145,7 @@ fn report_message(
     .to_string();
     let id = format!("batch-{}", row.event_id);
     let mut message = ChatMessage::system_event(&id, &body);
-    message.data_envelope = Some(
+    message.set_label(Some(
         desk_diagnose_core::subagent::projection::envelope(
             &id,
             &body,
@@ -153,7 +153,7 @@ fn report_message(
             &[stored.envelope],
         )
         .map_err(|_| AssistantStoreError::Invalid("Invalid workbench report projection"))?,
-    );
+    ));
     Ok(message)
 }
 
@@ -170,7 +170,7 @@ fn target_scope_message(
     .to_string();
     let id = format!("batch-targets-{}", row.request_id);
     let mut message = ChatMessage::system_event(&id, &body);
-    message.data_envelope = Some(
+    message.set_label(Some(
         desk_diagnose_core::subagent::projection::envelope(
             &id,
             &body,
@@ -178,7 +178,7 @@ fn target_scope_message(
             input.data_envelope.as_slice(),
         )
         .map_err(|_| AssistantStoreError::Inaccessible)?,
-    );
+    ));
     Ok(message)
 }
 
@@ -506,7 +506,7 @@ fn has_audited_output(turn: Option<&ModelTurn>) -> bool {
         return false;
     };
     let mut output = ChatMessage::text("workbench-routing-output", ChatRole::Assistant, &turn.text);
-    output.data_envelope = turn.provider_meta.data_envelope.clone();
+    output.set_label(turn.provider_meta.data_envelope.clone());
     desk_diagnose_core::model_egress::model_output_message_envelope(&output).is_ok()
 }
 
