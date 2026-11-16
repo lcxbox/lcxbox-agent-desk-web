@@ -22,7 +22,7 @@ impl ModelEgressPolicy {
             ));
         }
         validate_materials(&materials, issue, self.now_unix_ms, self.byte_cap)?;
-        let mut instructions = ChatMessage::text(INSTRUCTION_ID, ChatRole::System, INSTRUCTION);
+        let mut instructions = ChatMessage::public_system(INSTRUCTION_ID, INSTRUCTION);
         let mut label = Self::public_system_envelope(
             &self.destination,
             INSTRUCTION_ID,

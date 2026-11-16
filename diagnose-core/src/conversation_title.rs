@@ -21,9 +21,8 @@ struct Output {
 pub fn request(question: ChatMessage, maximum_chars: usize) -> ModelRequest {
     let mut request = ModelRequest::text_only(
         vec![
-            ChatMessage::text(
+            ChatMessage::public_system(
                 "conversation-title-system",
-                ChatRole::System,
                 format!("{SYSTEM} Maximum title length: {maximum_chars} Unicode characters."),
             ),
             question,

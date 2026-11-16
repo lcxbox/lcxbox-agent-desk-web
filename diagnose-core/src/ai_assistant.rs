@@ -54,7 +54,7 @@ use serde_json::json;
 use std::sync::LazyLock;
 
 use crate::agentic_prompt::AGENTIC_SYSTEM_MESSAGE_ID;
-use crate::chat::{ChatMessage, ChatRole, ToolCall, ToolSpec};
+use crate::chat::{ChatMessage, ToolCall, ToolSpec};
 use crate::edge_registry::{
     EdgeAdapterDescriptor, EdgeAdapterRegistry, EdgeAdapterRegistryBuilder,
 };
@@ -4168,11 +4168,7 @@ pub fn build_ai_assistant_system_message_with_catalog(
     locale: Option<&str>,
     catalog: &crate::model_content::ModelContent,
 ) -> ChatMessage {
-    let mut message = ChatMessage::text(
-        AGENTIC_SYSTEM_MESSAGE_ID,
-        ChatRole::System,
-        system_text(|_| true),
-    );
+    let mut message = ChatMessage::public_system(AGENTIC_SYSTEM_MESSAGE_ID, system_text(|_| true));
     let mut runtime = ChatMessage::system_event(crate::runtime_context::MESSAGE_ID, "");
     crate::runtime_context::append(&mut runtime, catalog);
     if let Some(tag) = locale.and_then(crate::runtime_context::locale_tag) {
@@ -4301,11 +4297,7 @@ mod tests {
         );
         assert!(desktop_session.text.len() <= 15 * 1024);
 
-        let mut custom = crate::chat::ChatMessage::text(
-            "system",
-            crate::chat::ChatRole::System,
-            "Custom instruction",
-        );
+        let mut custom = crate::chat::ChatMessage::public_system("system", "Custom instruction");
         scope_disclosed_instructions(&mut custom, &[]);
         assert_eq!(custom.text, "Custom instruction");
         custom.message_id = super::AGENTIC_SYSTEM_MESSAGE_ID.into();

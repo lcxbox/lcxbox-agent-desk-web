@@ -17,7 +17,7 @@
 //!
 //! [`Diagnosis`]: desk_agent_protocol::diagnose::Diagnosis
 
-use crate::chat::{ChatMessage, ChatRole};
+use crate::chat::ChatMessage;
 
 #[cfg(test)]
 /// Semantic version of the agentic system prompt. Bump whenever
@@ -72,8 +72,9 @@ over repeatedly reading the complete application tree.";
 /// the control-end UI locale. Only natural-language output is steered; tool names
 /// and arguments stay as defined. Mirrors [`crate::prompt`]'s locale handling.
 fn system_text(locale: Option<&str>) -> String {
-    match locale {
-        Some(tag) if !tag.is_empty() => format!(
+    // Only a plausible BCP-47 tag is repeated, so the prompt stays server text.
+    match locale.and_then(crate::runtime_context::locale_tag) {
+        Some(tag) => format!(
             "{AGENTIC_SYSTEM_PROMPT}\n\nWrite your natural-language answers in the \
              language of BCP-47 locale tag \"{tag}\" (e.g. zh-CN = 简体中文, \
              en-US = English). Tool names and tool arguments are not translated."
@@ -97,11 +98,7 @@ pub fn build_agentic_system_message(locale: Option<&str>) -> ChatMessage {
 
 /// Manager appends its frozen category policy after configuration resolution.
 pub fn build_agentic_system_message_without_content_policy(locale: Option<&str>) -> ChatMessage {
-    ChatMessage::text(
-        AGENTIC_SYSTEM_MESSAGE_ID,
-        ChatRole::System,
-        system_text(locale),
-    )
+    ChatMessage::public_system(AGENTIC_SYSTEM_MESSAGE_ID, system_text(locale))
 }
 
 #[cfg(test)]
@@ -113,7 +110,7 @@ mod tests {
     #[test]
     fn system_message_carries_contract_without_locale() {
         let msg = build_agentic_system_message(None);
-        assert_eq!(msg.role, ChatRole::System);
+        assert_eq!(msg.role, crate::chat::ChatRole::System);
         assert_eq!(msg.message_id, AGENTIC_SYSTEM_MESSAGE_ID);
         assert!(msg.text.contains("untrusted DATA"));
         assert!(msg.text.contains("explicitly approves"));

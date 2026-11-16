@@ -1204,9 +1204,8 @@ fn exact_child_command_projection_is_tool_free_and_preserves_source_and_task_ide
     ));
     let request = crate::seam::ModelRequest::text_only(
         vec![
-            crate::chat::ChatMessage::text(
+            crate::chat::ChatMessage::public_system(
                 "system",
-                crate::chat::ChatRole::System,
                 "Interpret the exact original result",
             ),
             crate::chat::ChatMessage::text(

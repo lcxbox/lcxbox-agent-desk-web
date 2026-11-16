@@ -417,9 +417,8 @@ async fn completed_fixture_with_delivery(
     let creation = tasks.child_creation_context(&child).await.unwrap().unwrap();
     let projected = desk_diagnose_core::command_completion::project_child_request(
         ModelRequest::text_only(
-            vec![ChatMessage::text(
+            vec![ChatMessage::public_system(
                 "system",
-                desk_diagnose_core::chat::ChatRole::System,
                 desk_diagnose_core::command_completion::INTERPRETATION_INSTRUCTION,
             )],
             ResponseFormatSpec::None,

@@ -2,9 +2,7 @@
 //! advice shown to the uploader; it never blocks, approves or authorizes anything.
 
 use crate::{
-    chat::{ChatMessage, ChatRole},
-    model_egress::ModelEgressPolicy,
-    prompt::ResponseFormatSpec,
+    chat::ChatMessage, model_egress::ModelEgressPolicy, prompt::ResponseFormatSpec,
     seam::ModelRequest,
 };
 use desk_agent_protocol::{
@@ -123,11 +121,7 @@ pub fn request(
     destination: &DestinationIdentity,
     request_id: &str,
 ) -> Result<ModelRequest, AgentError> {
-    let mut system = ChatMessage::text(
-        format!("{request_id}-system"),
-        ChatRole::System,
-        SYSTEM_PROMPT,
-    );
+    let mut system = ChatMessage::public_system(format!("{request_id}-system"), SYSTEM_PROMPT);
     system.data_envelope = Some(
         ModelEgressPolicy::public_system_envelope(
             destination,
@@ -328,7 +322,7 @@ mod tests {
         let (batches, _) = plan(&[file("SKILL.md", "body\n")]);
         let request = request(&batches[0], &destination, "scan-1").unwrap();
         assert_eq!(request.messages.len(), 2);
-        assert_eq!(request.messages[1].role, ChatRole::User);
+        assert_eq!(request.messages[1].role, crate::chat::ChatRole::User);
         assert!(request.messages[1].text.contains("SKILL.md"));
         for message in &request.messages {
             assert_eq!(

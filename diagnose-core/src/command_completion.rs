@@ -364,11 +364,7 @@ mod tests {
             result.clone(),
         ];
         let request = ModelRequest::text_only(
-            vec![ChatMessage::text(
-                "system",
-                ChatRole::System,
-                "trusted prompt",
-            )],
+            vec![ChatMessage::public_system("system", "trusted prompt")],
             ResponseFormatSpec::None,
         );
         let projected = project_request(request.clone(), &session, "event").unwrap();

@@ -184,9 +184,8 @@ fn owner_and_personalization_contracts_keep_their_distinct_purposes() {
 fn public_system_registration_uses_the_actual_native_projector_and_never_public_sensitivity_alone()
 {
     let request = ModelRequest::text_only(
-        vec![ChatMessage::text(
+        vec![ChatMessage::public_system(
             crate::agentic_prompt::AGENTIC_SYSTEM_MESSAGE_ID,
-            ChatRole::System,
             "Public assistant runtime instructions",
         )],
         ResponseFormatSpec::None,

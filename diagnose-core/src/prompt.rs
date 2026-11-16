@@ -213,8 +213,9 @@ pub fn build_messages(
     // Steer the answer language from the control-end UI locale. Only
     // natural-language fields are affected; the JSON shape and enum values stay
     // in English so parsing is unaffected.
-    let mut system_text = match locale {
-        Some(tag) if !tag.is_empty() => format!(
+    // Only a plausible BCP-47 tag is repeated, so the prompt stays server text.
+    let mut system_text = match locale.and_then(crate::runtime_context::locale_tag) {
+        Some(tag) => format!(
             "{SYSTEM_PROMPT}\n\nWrite all natural-language text (the `summary`, \
              `findings` titles/explanations, `next_steps`, `missing_info`, and \
              command `purpose` fields) in the language of BCP-47 locale tag \
@@ -253,7 +254,7 @@ pub fn build_messages(
         serde_json::to_string(&user_payload).unwrap_or_else(|_| "{}".to_string()),
     );
     vec![
-        ChatMessage::text("prompt-system", ChatRole::System, system_text),
+        ChatMessage::public_system("prompt-system", system_text),
         match screen_data_url {
             Some(url) => user.with_image(url),
             None => user,

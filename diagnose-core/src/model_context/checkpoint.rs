@@ -858,7 +858,7 @@ fn compression_request_messages_for_json(
         compression_system_prompt()
     );
     vec![
-        ChatMessage::text("checkpoint-compression-system", ChatRole::System, system),
+        ChatMessage::public_system("checkpoint-compression-system", system),
         ChatMessage::context_summary(
             "checkpoint-compression-input",
             input_canonical_json.to_string(),

@@ -26,9 +26,8 @@ async fn live_project_model_thinking_replay() {
     let started = Instant::now();
     let mut request = ModelRequest::text_only(
         vec![
-            ChatMessage::text(
+            ChatMessage::public_system(
                 "system",
-                ChatRole::System,
                 "Only use supplied information. Do not call tools when the answer is already supplied. Keep replies short.",
             ),
             ChatMessage::text(

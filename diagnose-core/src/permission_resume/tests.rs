@@ -48,11 +48,7 @@ fn client_chosen_id_prefix_cannot_hide_a_real_user_message() {
 
 #[test]
 fn exact_projection_is_sensitive_and_expires_without_changing_its_text() {
-    let original = ChatMessage::text(
-        "system",
-        ChatRole::System,
-        "Exact recipient and bounded input",
-    );
+    let original = ChatMessage::public_system("system", "Exact recipient and bounded input");
     let bound =
         bind_exact_authorization_system_message(original.clone(), destination(), 70_000).unwrap();
     assert_eq!(bound.text, original.text);
@@ -65,7 +61,7 @@ fn exact_projection_is_sensitive_and_expires_without_changing_its_text() {
 #[test]
 fn exact_projection_can_be_rebound_after_server_owned_prompt_expansion() {
     let mut bound = bind_exact_authorization_system_message(
-        ChatMessage::text("system", ChatRole::System, "Exact bounded input"),
+        ChatMessage::public_system("system", "Exact bounded input"),
         destination(),
         70_000,
     )
@@ -98,15 +94,11 @@ fn exact_projection_can_be_rebound_after_server_owned_prompt_expansion() {
 #[test]
 fn exact_projection_rebind_rejects_untrusted_message_shapes() {
     assert!(
-        rebind_exact_authorization_system_message(ChatMessage::text(
-            "system",
-            ChatRole::System,
-            "unbound"
-        ))
-        .is_err()
+        rebind_exact_authorization_system_message(ChatMessage::public_system("system", "unbound"))
+            .is_err()
     );
     let mut wrong_role = bind_exact_authorization_system_message(
-        ChatMessage::text("system", ChatRole::System, "bound"),
+        ChatMessage::public_system("system", "bound"),
         destination(),
         70_000,
     )
@@ -128,7 +120,7 @@ fn invalid_model_destination_never_produces_a_bridge() {
     );
     assert!(
         bind_exact_authorization_system_message(
-            ChatMessage::text("s", ChatRole::System, "scope"),
+            ChatMessage::public_system("s", "scope"),
             invalid,
             70_000
         )

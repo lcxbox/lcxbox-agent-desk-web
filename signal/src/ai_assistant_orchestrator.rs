@@ -4391,7 +4391,7 @@ expected_revision: 0, summary_max_output_tokens: 4096, strategy: desk_signal_fac
         tool.data_envelope = Some(selected_tool_envelope(selected_content));
         let request = ModelRequest::text_only(
             vec![
-                ChatMessage::text("system", ChatRole::System, "trusted system prompt"),
+                ChatMessage::public_system("system", "trusted system prompt"),
                 user,
                 tool,
             ],
@@ -4597,7 +4597,7 @@ expected_revision: 0, summary_max_output_tokens: 4096, strategy: desk_signal_fac
         };
         let request = ModelRequest::text_only(
             vec![
-                ChatMessage::text("system", ChatRole::System, "trusted system prompt"),
+                ChatMessage::public_system("system", "trusted system prompt"),
                 model_bound_user_message(
                     "user-message-empty".into(),
                     "continue".into(),

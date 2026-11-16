@@ -120,7 +120,7 @@ pub fn build_completion_system_message() -> ChatMessage {
          prefix>\", \"note\": \"<one line: what it does>\"}]}\n\
          Do not include risk or approval fields — the server computes those. \
          `completions` may be empty when nothing sensible applies.";
-    ChatMessage::text("complete-system", ChatRole::System, body)
+    ChatMessage::public_system("complete-system", body)
 }
 
 /// Build the user turn from the ask: the (non-authoritative) environment hints

@@ -204,9 +204,8 @@ pub fn reviewer_model_request(
     }
     let mut request = ModelRequest::text_only(
         vec![
-            ChatMessage::text(
+            ChatMessage::public_system(
                 format!("{}-review-system", candidate.candidate_id),
-                ChatRole::System,
                 APPROVAL_REVIEW_SYSTEM_PROMPT.to_owned(),
             ),
             ChatMessage::text(

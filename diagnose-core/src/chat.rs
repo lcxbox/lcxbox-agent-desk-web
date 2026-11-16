@@ -252,6 +252,10 @@ pub struct ChatMessage {
     /// runtime context; they label the message when it is finished.
     #[serde(skip)]
     pub content_sources: crate::model_content::Sources,
+    /// Set only by [`ChatMessage::public_system`]: compiled or configured
+    /// instructions that model egress may label as public system text.
+    #[serde(skip)]
+    pub public_instructions: bool,
     /// Server-owned control observations bound to this exact model response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_controls: Option<Box<crate::model_controls::FrozenModelControls>>,
@@ -299,6 +303,7 @@ impl ChatMessage {
             data_envelope: None,
             stored_roots: Vec::new(),
             content_sources: Default::default(),
+            public_instructions: false,
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -358,6 +363,7 @@ impl ChatMessage {
             data_envelope: None,
             stored_roots: Vec::new(),
             content_sources: Default::default(),
+            public_instructions: false,
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -371,6 +377,15 @@ impl ChatMessage {
     /// A mid-conversation system-event notification (e.g. a background task
     /// reporting completion). Carries no tool linkage; each adapter renders the
     /// [`ChatRole::SystemEvent`] role in its own dialect.
+    /// Instructions the server compiles or an administrator configures. The
+    /// text must name no owner input, device data, model output or stored
+    /// record; model egress gives it the public system label.
+    pub fn public_system(message_id: impl Into<String>, text: impl Into<String>) -> Self {
+        let mut message = Self::text(message_id, ChatRole::System, text);
+        message.public_instructions = true;
+        message
+    }
+
     pub fn system_event(message_id: impl Into<String>, text: impl Into<String>) -> Self {
         Self::text(message_id, ChatRole::SystemEvent, text)
     }
@@ -407,6 +422,7 @@ impl ChatMessage {
             data_envelope: None,
             stored_roots: Vec::new(),
             content_sources: Default::default(),
+            public_instructions: false,
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -439,6 +455,7 @@ impl ChatMessage {
             data_envelope: None,
             stored_roots: Vec::new(),
             content_sources: Default::default(),
+            public_instructions: false,
             model_controls: None,
             attachment_read: None,
             raw_result: None,
@@ -475,6 +492,7 @@ impl ChatMessage {
             data_envelope: None,
             stored_roots: Vec::new(),
             content_sources: Default::default(),
+            public_instructions: false,
             model_controls: None,
             attachment_read: None,
             raw_result: None,

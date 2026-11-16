@@ -347,11 +347,7 @@ fn fixture(mode: Mode, fail: bool) -> (PersistedAgentSession, Store, Model, Mode
         measurable: Cell::new(true),
     };
     let mut request = ModelRequest::text_only(
-        vec![ChatMessage::text(
-            "system",
-            ChatRole::System,
-            "server instruction",
-        )],
+        vec![ChatMessage::public_system("system", "server instruction")],
         crate::prompt::ResponseFormatSpec::None,
     );
     request.context_conversation_id = Some(session.conversation_id.clone());
@@ -378,7 +374,7 @@ fn deps<'a>(
         capability_catalog_metrics: None,
         permission_continuation_exact_tools: &[],
         response_format: crate::prompt::ResponseFormatSpec::None,
-        system_prompt: ChatMessage::text("system", ChatRole::System, "server instruction"),
+        system_prompt: ChatMessage::public_system("system", "server instruction"),
         max_steps_per_turn: crate::MAX_STEPS_PER_TURN,
         max_same_tool_per_turn: crate::MAX_SAME_TOOL_PER_TURN,
         clock,

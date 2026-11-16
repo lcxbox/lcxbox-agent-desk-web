@@ -264,9 +264,8 @@ async fn one_long_turn_can_compress_two_new_prefixes_without_replaying_tools() {
     let registry = vec![read_tool("bulk_read", Capability::SystemInfo)];
     let clock = || "2026-06-20T00:00:01Z".to_string();
     let mut dependencies = deps(&sess, &model, &tools, &registry, &clock);
-    dependencies.system_prompt = ChatMessage::text(
+    dependencies.system_prompt = ChatMessage::public_system(
         "system",
-        ChatRole::System,
         "Follow the existing task and report actual results",
     );
     let outcome = run_agent_turn(
@@ -337,7 +336,7 @@ async fn an_unsendable_compression_candidate_never_advances_the_durable_floor() 
     let registry = vec![read_tool("bulk_read", Capability::SystemInfo)];
     let clock = || "2026-06-20T00:00:01Z".to_string();
     let mut dependencies = deps(&sess, &model, &tools, &registry, &clock);
-    dependencies.system_prompt = ChatMessage::text("system", ChatRole::System, "Follow the task");
+    dependencies.system_prompt = ChatMessage::public_system("system", "Follow the task");
     assert!(
         run_agent_turn(
             &dependencies,
@@ -586,9 +585,8 @@ async fn run_permission_compaction_case(mutation: u8) {
     dependencies.provider_registry = Some(&providers);
     dependencies.capability_inventory = Some(&inventory);
     dependencies.permission_continuation_exact_tools = &exact_names;
-    dependencies.system_prompt = ChatMessage::text(
+    dependencies.system_prompt = ChatMessage::public_system(
         "system",
-        ChatRole::System,
         "Continue the authorized operation in dependency order",
     );
     let mut claim = exec_claim();
@@ -723,9 +721,8 @@ async fn saving_a_new_permission_request_pauses_without_starting_another_model_o
     dependencies.provider_registry = Some(&providers);
     dependencies.capability_inventory = Some(&inventory);
     dependencies.capability_permission_candidates = &candidate;
-    dependencies.system_prompt = ChatMessage::text(
+    dependencies.system_prompt = ChatMessage::public_system(
         "system",
-        ChatRole::System,
         "Request required permission before reading the device",
     );
     let outcome = run_agent_turn(

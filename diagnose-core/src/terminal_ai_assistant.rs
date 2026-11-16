@@ -96,7 +96,11 @@ pub fn build_assistant_system_message_without_content_policy(
              then propose the command(s) that fix it."
         }
     };
-    let language_rule = match locale.map(str::trim).filter(|l| !l.is_empty()) {
+    // Only a plausible BCP-47 tag is repeated, so the prompt stays server text.
+    let language_rule = match locale
+        .map(str::trim)
+        .and_then(crate::runtime_context::locale_tag)
+    {
         Some(locale) => format!(
             "\n- Write all natural-language text (the explanation and each \
              suggestion's note) in the operator's UI language (BCP-47 `{locale}`). \
@@ -129,7 +133,7 @@ pub fn build_assistant_system_message_without_content_policy(
          Do not include risk or approval fields — the server computes those. \
          `suggestions` may be empty when no command is appropriate."
     );
-    ChatMessage::text("assistant-system", ChatRole::System, body)
+    ChatMessage::public_system("assistant-system", body)
 }
 
 /// Build the user turn from the ask: the (non-authoritative) environment hints

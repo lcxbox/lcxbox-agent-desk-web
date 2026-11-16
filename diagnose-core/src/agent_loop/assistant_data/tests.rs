@@ -362,7 +362,7 @@ fn deps<'a>(store: &'a Store, clock: &'a dyn Fn() -> String) -> LoopDeps<'a> {
         capability_catalog_metrics: None,
         permission_continuation_exact_tools: &[],
         response_format: crate::prompt::ResponseFormatSpec::None,
-        system_prompt: ChatMessage::text("system", ChatRole::System, "instruction"),
+        system_prompt: ChatMessage::public_system("system", "instruction"),
         max_steps_per_turn: crate::MAX_STEPS_PER_TURN,
         max_same_tool_per_turn: crate::MAX_SAME_TOOL_PER_TURN,
         clock,

@@ -213,9 +213,8 @@ pub async fn test_approval_model_provider(
             .map_err(|error| reject_invalid(format!("invalid approval probe: {error:?}")))?;
         let mut request = ModelRequest::text_only(
             vec![
-                ChatMessage::text(
+                ChatMessage::public_system(
                     format!("{}-system", probe.candidate.candidate_id),
-                    ChatRole::System,
                     APPROVAL_REVIEW_SYSTEM_PROMPT.to_owned(),
                 ),
                 ChatMessage::text(

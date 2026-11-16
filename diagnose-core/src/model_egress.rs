@@ -249,9 +249,11 @@ impl ModelEgressPolicy {
             let bytes = message_content_bytes(message)?;
             let source = match message.data_envelope.clone() {
                 Some(envelope) => envelope,
-                // Compiled instructions are public. A System message that
-                // had sourced text appended needs the label built from it.
+                // Instructions built as public are public. A System message
+                // built otherwise, or with sourced text appended, needs the
+                // label built from its content.
                 None if message.role == ChatRole::System
+                    && message.public_instructions
                     && message.content_sources.is_server_only() =>
                 {
                     Self::public_system_envelope(&self.destination, &message.message_id, &bytes)?
@@ -1235,9 +1237,22 @@ mod tests {
 
     #[test]
     fn a_system_message_with_sourced_text_appended_needs_its_own_label() {
-        let fixed = ChatMessage::text("system", ChatRole::System, "trusted prompt");
+        let fixed = ChatMessage::public_system("system", "trusted prompt");
         let request = ModelRequest::text_only(vec![fixed.clone()], ResponseFormatSpec::None);
         assert!(policy(&[]).authorize_request(request).is_ok());
+        // A System message not built as public instructions is not public.
+        let request = ModelRequest::text_only(
+            vec![ChatMessage::text(
+                "system",
+                ChatRole::System,
+                "trusted prompt",
+            )],
+            ResponseFormatSpec::None,
+        );
+        assert!(matches!(
+            policy(&[]).authorize_request(request),
+            Err(ModelEgressError::MissingEnvelope { .. })
+        ));
         let mut sourced = fixed;
         crate::runtime_context::append(
             &mut sourced,
@@ -1272,7 +1287,7 @@ mod tests {
         let observation = b"A1 = customer total";
         let request = ModelRequest::text_only(
             vec![
-                ChatMessage::text("system", ChatRole::System, "trusted prompt"),
+                ChatMessage::public_system("system", "trusted prompt"),
                 message(
                     "user",
                     ChatRole::User,
@@ -1376,11 +1391,7 @@ mod tests {
         let policy = policy(&[]);
         let authorized = policy
             .authorize_request(ModelRequest::text_only(
-                vec![ChatMessage::text(
-                    "system",
-                    ChatRole::System,
-                    "public instructions",
-                )],
+                vec![ChatMessage::public_system("system", "public instructions")],
                 ResponseFormatSpec::None,
             ))
             .unwrap();
@@ -1420,7 +1431,7 @@ mod tests {
                 vec![destination()],
             )),
         );
-        let system = |catalog| ChatMessage::text("system-catalog", ChatRole::System, catalog);
+        let system = |catalog| ChatMessage::public_system("system-catalog", catalog);
         let first = policy
             .authorize_request(ModelRequest::text_only(
                 vec![system("catalog A"), user.clone()],
@@ -1492,7 +1503,7 @@ mod tests {
 
         let request = ModelRequest::text_only(
             vec![
-                ChatMessage::text("system", ChatRole::System, "trusted prompt"),
+                ChatMessage::public_system("system", "trusted prompt"),
                 message(
                     "prior-user",
                     ChatRole::User,
@@ -1701,7 +1712,7 @@ mod tests {
         };
         let request = ModelRequest::text_only(
             vec![
-                ChatMessage::text("system", ChatRole::System, "trusted prompt"),
+                ChatMessage::public_system("system", "trusted prompt"),
                 message(
                     "old-permission-resume",
                     ChatRole::User,
@@ -1788,7 +1799,7 @@ mod tests {
         expired_observation.retention.expires_at_unix_ms = Some(99);
         let request = ModelRequest::text_only(
             vec![
-                ChatMessage::text("system", ChatRole::System, "trusted prompt"),
+                ChatMessage::public_system("system", "trusted prompt"),
                 message(
                     "current-user",
                     ChatRole::User,
