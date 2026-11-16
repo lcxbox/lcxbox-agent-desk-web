@@ -388,6 +388,14 @@ async fn save_main_history_on(
     }
 
     txn.mark_phase("session_persisted");
+    // Citations are optional display metadata in their own savepoint; a
+    // failure never discards the answer.
+    if desk_diagnose_core::future::boxed(|| prepared.write_citations_on(txn))
+        .await
+        .is_err()
+    {
+        log::warn!("assistant answer retained without an optional citation projection");
+    }
     let outcomes = desk_diagnose_core::future::send_phase(|| pending.finalize_on())
         .await
         .map_err(history_error)?;

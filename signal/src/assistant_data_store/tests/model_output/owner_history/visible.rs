@@ -202,11 +202,20 @@ async fn visible_session(
 #[tokio::test]
 async fn citations_are_bound_to_the_actual_consumed_roots_in_the_original_answer_cas() {
     use crate::entity::agent_assistant_citation as citation;
-    for (fail_storage, missing_policy) in
-        [(false, false), (true, false), (false, true), (true, true)]
-    {
-        let (store, _, proof, _) =
-            admitted(&format!("native-citation-{fail_storage}-{missing_policy}")).await;
+    // Main sessions with a delegation group save through the delegation path,
+    // which must write the same citations as the plain session save.
+    for (fail_storage, missing_policy, delegation) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (true, true, false),
+        (false, false, true),
+        (true, false, true),
+    ] {
+        let (store, _, proof, _) = admitted(&format!(
+            "native-citation-{fail_storage}-{missing_policy}-{delegation}"
+        ))
+        .await;
         let root = proof
             .usage
             .roots
@@ -248,7 +257,13 @@ async fn citations_are_bound_to_the_actual_consumed_roots_in_the_original_answer
             "CREATE TRIGGER fail_optional_citation BEFORE INSERT ON agent_assistant_citation BEGIN SELECT RAISE(ABORT, 'citation storage unavailable'); END")).await.unwrap();
         }
         let host = crate::agent_session_store::SignalAgentSessionStore::new(store.db.clone());
-        host.save(&mut session).await.unwrap();
+        if delegation {
+            crate::agent_subagent_store::save_main_delegation_session(&store.db, &mut session)
+                .await
+                .unwrap();
+        } else {
+            host.save(&mut session).await.unwrap();
+        }
         let saved = agent_session::Entity::find()
             .one(&store.db)
             .await
