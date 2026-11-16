@@ -162,6 +162,26 @@ pub(super) async fn run<F: FnMut() -> String>(
             .await)
                 .map(Some);
         }
+        Ok(ReadOutcome::ReviewDenied { reason }) => {
+            tool_observation.permission(crate::model_observability::PermissionOutcome::Denied);
+            // The reviewer's reason is shown when its provenance holds, as for
+            // a denied action.
+            let content = crate::proposal_review::provenance::action_denial_content(
+                session,
+                context.parent_envelope,
+                &reason,
+            );
+            session.conversation.push(ChatMessage::tool_result_from(
+                mint(),
+                &call.id,
+                &content,
+                context.parent_envelope,
+                ServerResultSource::ExecutionStatus,
+            )?);
+            finish_tool(session, &call.id, false, sink);
+            deps.session_seam.save(session).await?;
+            return Ok(None);
+        }
         Ok(ReadOutcome::Completed {
             output,
             ok,

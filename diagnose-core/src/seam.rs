@@ -779,6 +779,11 @@ pub enum ReadOutcome {
     /// session; nothing was reserved or dispatched. See
     /// [`ExecOutcome::GrantRequired`].
     GrantRequired { input_mismatch: bool },
+    /// The independent AI reviewer refused this exact read; nothing ran. See
+    /// [`ExecOutcome::ReviewDenied`].
+    ReviewDenied {
+        reason: Box<crate::proposal_review::provenance::AiDecisionReason>,
+    },
 }
 
 #[derive(Debug)]

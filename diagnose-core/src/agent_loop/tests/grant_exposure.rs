@@ -1107,3 +1107,106 @@ async fn a_capability_loading_error_registers_under_the_issuing_output() {
         Some(RegisteredSourceContract::NativeControl)
     );
 }
+
+/// Seam whose AI reviewer refuses the exact read.
+struct ReviewDeniedReads {
+    snapshot: crate::grant_disclosure::GrantDisclosureSnapshot,
+}
+
+#[async_trait(?Send)]
+impl ToolSeam for ReviewDeniedReads {
+    async fn current_grant_disclosure(
+        &self,
+    ) -> Result<Option<crate::grant_disclosure::GrantDisclosureSnapshot>, AgentError> {
+        Ok(Some(self.snapshot.clone()))
+    }
+    async fn run_read(&self, _: &ToolCall) -> Result<ToolRunOutput, AgentError> {
+        unreachable!("a refused read is never dispatched")
+    }
+    async fn run_read_versioned(
+        &self,
+        _: &ToolCall,
+        _: &crate::seam::ExecContext,
+        _: Option<&crate::action_version::ActionVersion>,
+    ) -> crate::seam::ReadCompletion {
+        crate::seam::ReadCompletion {
+            outcome: Ok(ReadOutcome::ReviewDenied {
+                reason: Box::new(crate::proposal_review::provenance::AiDecisionReason {
+                    reason: "The owner did not ask to inspect the session.".into(),
+                    reason_code: "owner_not_requested".into(),
+                    provenance: crate::proposal_review::provenance::ReviewProvenance {
+                        verifiable: true,
+                        evidence: Vec::new(),
+                    },
+                }),
+            }),
+            version_advance: None,
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_review_denied_read_shows_the_traced_reason_under_the_proposing_output() {
+    let (session, providers, snapshot, inventory, target, scope) = call_time_case(false);
+    let proposing = crate::model_message_labels::model_bound_user_message(
+        "proposing".into(),
+        "proposing".into(),
+        desk_agent_protocol::data_lineage::DestinationIdentity::Model {
+            connection_id: "gateway".into(),
+            connection_revision: 1,
+            model_id: "model".into(),
+            profile_revision: 1,
+        },
+    )
+    .unwrap()
+    .data_envelope
+    .unwrap();
+    let mut labelled = direct_read("read");
+    labelled.provider_meta.data_envelope = Some(proposing.clone());
+    let model = ScriptModel {
+        turns: RefCell::new([labelled, answer("done")].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = ReviewDeniedReads { snapshot };
+    let mut registry = vec![target];
+    registry.extend(crate::capability_disclosure::capability_discovery_tool_registry());
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let outcome = run_agent_turn(
+        &deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope,
+            ..claim()
+        },
+        ChatMessage::text("u", ChatRole::User, "inspect the session"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome, LoopOutcome::Answered("done".into()));
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    let result = stored
+        .conversation
+        .iter()
+        .find(|message| message.tool_call_id.as_deref() == Some("read"))
+        .unwrap();
+    assert!(result.text.contains("reason_code=owner_not_requested"));
+    assert!(
+        result
+            .text
+            .contains("Reviewer reason: The owner did not ask to inspect the session.")
+    );
+    let label = result.data_envelope.as_ref().unwrap();
+    assert!(
+        label
+            .envelope_id
+            .starts_with(crate::model_message_labels::COMPOSED_RESULT_PREFIX)
+    );
+    assert_eq!(
+        label.provenance.source_envelope_ids[0],
+        proposing.envelope_id
+    );
+}

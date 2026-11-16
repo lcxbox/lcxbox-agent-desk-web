@@ -211,6 +211,9 @@ impl SignalAiAssistantTools {
             Ok(ReadOutcome::GrantRequired { input_mismatch }) => {
                 return Ok(ReadOutcome::GrantRequired { input_mismatch });
             }
+            Ok(ReadOutcome::ReviewDenied { reason }) => {
+                return Ok(ReadOutcome::ReviewDenied { reason });
+            }
             Ok(_) => return Err(unavailable()),
         };
         let data_envelope = scoped.read_data_envelope(&native_call, &output)?;

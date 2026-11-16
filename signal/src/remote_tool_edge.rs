@@ -155,15 +155,7 @@ fn browser_read_outcome(outcome: ExecOutcome) -> Result<ReadOutcome, AgentError>
             false,
             true,
         )),
-        ExecOutcome::ReviewDenied { reason } => Err(error(
-            AgentErrorKind::PermissionDenied,
-            format!(
-                "independent AI review denied this exact UI action: {}",
-                reason.reason
-            ),
-            false,
-            true,
-        )),
+        ExecOutcome::ReviewDenied { reason } => Ok(ReadOutcome::ReviewDenied { reason }),
         ExecOutcome::NotExecuted { reason } => Err(error(
             AgentErrorKind::SessionUnavailable,
             String::from(reason),
@@ -6913,6 +6905,20 @@ impl ToolSeam for SignalAiAssistantTools {
                     false,
                 ))
             }
+            // Without a session the reason cannot be traced; the closed code
+            // and its guidance stand in for it.
+            ReadOutcome::ReviewDenied { reason } => Err(error(
+                AgentErrorKind::PermissionDenied,
+                desk_diagnose_core::approval_review::action_denial_content(
+                    desk_diagnose_core::approval_review::ApprovalReasonCode::parse(
+                        &reason.reason_code,
+                    ),
+                )
+                .text()
+                .to_owned(),
+                false,
+                true,
+            )),
         }
     }
 
