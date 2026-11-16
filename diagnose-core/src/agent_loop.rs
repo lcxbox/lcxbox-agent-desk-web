@@ -2742,21 +2742,17 @@ fn requested_artifact_registry_projection(
     // File names and tokens repeat earlier Provider results.
     let content = crate::model_content::ModelContent::builder()
         .text("CURRENT REQUESTED ARTIFACT REGISTRY (server authoritative metadata; not a grant): ")
-        .unverified(&crate::model_content::Unverified::new(payload))
+        .sourced_from(&payload, &source_envelopes)
         .build();
-    let mut projection = ChatMessage::from_content(
-        ChatRole::SystemEvent,
-        message_id,
+    let label = crate::model_message_labels::reference_projection_envelope(
         &content,
-        crate::model_content::Labelling {
-            issuing: Some(parent),
-            call_id: message_id,
-            source: ServerResultSource::RequestedArtifactRegistry,
-            request_only: true,
-        },
+        parent,
+        message_id,
+        ServerResultSource::RequestedArtifactRegistry,
     )?;
-    crate::model_message_labels::extend_lineage(&mut projection, source_envelopes.iter())?;
-    Ok(Some(projection))
+    Ok(Some(
+        ChatMessage::system_event(message_id, String::new()).with_host_label(&content, label),
+    ))
 }
 
 /// Re-project only the bounded opaque references needed to continue a tool
@@ -2970,29 +2966,25 @@ fn reusable_provider_result_projection(
         error_code: None,
     })?;
     // Page, element and preview references repeat earlier Provider results.
-    let content = crate::model_content::ModelContent::builder()
-                .text("CURRENT REUSABLE PROVIDER RESULTS (server authoritative bounded references; not a grant; copy observed browser page_id and element_id verbatim and never invent them): ")
-                .unverified(&crate::model_content::Unverified::new(payload))
-                .text(". This registry is emitted after the turn-start capability catalog. When browser_reference_delta.page_reference_prerequisite_present=true, it supersedes only an older catalog claim that the page-reference prerequisite is absent. If request_permissions is available and the named downstream browser tool is a registered permission candidate, request its exact permission using the observed IDs and complete remaining input now; do not claim that no browser page exists. Runtime readiness, the tool registry, grants, and final server validation remain authoritative and are not widened by this delta.")
-        .build();
-    let mut projection = ChatMessage::from_content(
-        ChatRole::SystemEvent,
-        message_id,
-        &content,
-        crate::model_content::Labelling {
-            issuing: Some(parent),
-            call_id: message_id,
-            source: ServerResultSource::ReusableProviderResults,
-            request_only: true,
-        },
-    )?;
     let sources = [preview_envelope, web_envelope]
         .into_iter()
         .flatten()
         .chain(browser_envelopes)
         .collect::<Vec<_>>();
-    crate::model_message_labels::extend_lineage(&mut projection, sources.iter())?;
-    Ok(Some(projection))
+    let content = crate::model_content::ModelContent::builder()
+                .text("CURRENT REUSABLE PROVIDER RESULTS (server authoritative bounded references; not a grant; copy observed browser page_id and element_id verbatim and never invent them): ")
+                .sourced_from(&payload, &sources)
+                .text(". This registry is emitted after the turn-start capability catalog. When browser_reference_delta.page_reference_prerequisite_present=true, it supersedes only an older catalog claim that the page-reference prerequisite is absent. If request_permissions is available and the named downstream browser tool is a registered permission candidate, request its exact permission using the observed IDs and complete remaining input now; do not claim that no browser page exists. Runtime readiness, the tool registry, grants, and final server validation remain authoritative and are not widened by this delta.")
+        .build();
+    let label = crate::model_message_labels::reference_projection_envelope(
+        &content,
+        parent,
+        message_id,
+        ServerResultSource::ReusableProviderResults,
+    )?;
+    Ok(Some(
+        ChatMessage::system_event(message_id, String::new()).with_host_label(&content, label),
+    ))
 }
 
 /// Browser page/element references are edge-minted evidence, not model-owned
@@ -4677,15 +4669,7 @@ async fn read_conversation_attachment(
             &mut session.ui_references,
         )?;
         deps.session_seam.save(session).await?;
-        let mut message = ChatMessage::tool_result_named(
-            "attachment-page",
-            &call.id,
-            &crate::model_content::ModelContent::builder()
-                .unverified(&crate::model_content::Unverified::new(content))
-                .build(),
-            Some(&source_envelope),
-            crate::conversation_attachment::READ_ATTACHMENT_TOOL,
-        )?;
+        let mut message = model_read::page_message(&call.id, content, &source_envelope)?;
         receipt.original_envelope = message.data_envelope.clone();
         message.attachment_read = Some(Box::new(receipt));
         message

@@ -72,10 +72,13 @@ server_result_sources! {
     // A reviewer's or host's reason why an execution did not run, or its
     // error: never registered.
     ExecutionStatus => "provider_execution_status",
-    // Projections repeating earlier Provider results, and the origin label of
-    // an action result: unverified, never registered.
+    // Projections repeating references from earlier Provider results; they
+    // register only when every result they cite is in the request.
     RequestedArtifactRegistry => "requested_artifact_registry_projection",
     ReusableProviderResults => "reusable_provider_result_projection",
+    // A page read from a conversation attachment, under that attachment.
+    ReadAttachmentPage => crate::conversation_attachment::READ_ATTACHMENT_TOOL,
+    // The origin label of an action result: unverified, never registered.
     FreezeActionResultOrigin => "freeze_action_result_origin",
     // A goal proposal decision repeating the proposed text and a reviewer's
     // reason: unverified, never registered.

@@ -201,3 +201,74 @@ fn controls_keep_the_original_policy_across_an_actual_native_export_alias() {
         crate::ai_assistant::source_registry::RegisteredSourceContract::NativeControl
     );
 }
+
+#[test]
+fn a_reference_projection_registers_only_when_its_cited_result_is_exported_in_the_request() {
+    use crate::ai_assistant::source_registry::{
+        NativeInputPolicyRegistration, RegisteredSourceContract, SOURCE_CONTRACT_REVISION,
+    };
+    let (_, authorized, original) = authorized(false);
+    let destination = authorized.audit.destination.clone();
+    // The stored result is bound to the model only by this request's export.
+    assert!(!original.allowed_destinations.contains(&destination));
+    let owner = crate::model_message_labels::model_bound_user_message(
+        "owner".into(),
+        "Open the page".into(),
+        destination.clone(),
+    )
+    .unwrap()
+    .data_envelope
+    .unwrap();
+    let content = crate::model_content::ModelContent::builder()
+        .text("references: ")
+        .sourced_from("page-1", std::slice::from_ref(&original))
+        .build();
+    let projection = crate::model_message_labels::reference_projection_envelope(
+        &content,
+        &owner,
+        "references",
+        crate::model_message_labels::ServerResultSource::ReusableProviderResults,
+    )
+    .unwrap()
+    .unwrap();
+    // Built from the stored result, it keeps the owner's destination.
+    assert_eq!(projection.allowed_destinations, owner.allowed_destinations);
+    assert!(
+        projection
+            .provenance
+            .source_envelope_ids
+            .contains(&original.envelope_id)
+    );
+    let exports = authorized.input_snapshot().unwrap().exports;
+    let contract = |inputs: Vec<DataEnvelope>, exports: &[NativeModelInputExport]| {
+        let audit = crate::sink_authorizer::SinkProjectionAudit {
+            destination: destination.clone(),
+            envelope_ids: inputs
+                .iter()
+                .map(|input| input.envelope_id.clone())
+                .collect(),
+            total_bytes: authorized.audit.total_bytes + 16,
+        };
+        let snapshot =
+            NativeModelInputSnapshot::capture_with_exports(&audit, &inputs, exports).unwrap();
+        let registration =
+            NativeInputPolicyRegistration::capture(&snapshot, SOURCE_CONTRACT_REVISION, 1).unwrap();
+        registration.leaves[inputs.len() - 1]
+            .as_ref()
+            .map(|leaf| leaf.contract)
+    };
+    // The cited result reaches the model in this request: registered.
+    assert_eq!(
+        contract(
+            vec![
+                authorized.input_envelopes[0].clone(),
+                owner.clone(),
+                projection.clone()
+            ],
+            &exports
+        ),
+        Some(RegisteredSourceContract::NativeControl)
+    );
+    // Without the cited result in the request: unregistered.
+    assert_eq!(contract(vec![owner, projection], &[]), None);
+}

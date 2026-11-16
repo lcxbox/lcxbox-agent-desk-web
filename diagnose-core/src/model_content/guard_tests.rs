@@ -47,7 +47,7 @@ const ALLOWED: &[(&str, &str, usize)] = &[
     ("diagnose-core/src/agent_loop.rs", ".data_envelope = ", 4),
     ("diagnose-core/src/agent_loop.rs", ".image_data_url = ", 4),
     ("diagnose-core/src/agent_loop.rs", ".text = ", 2),
-    ("diagnose-core/src/agent_loop.rs", "Unverified::new(", 6),
+    ("diagnose-core/src/agent_loop.rs", "Unverified::new(", 3),
     (
         "diagnose-core/src/agent_loop/assistant_data/current.rs",
         ".data_envelope = ",

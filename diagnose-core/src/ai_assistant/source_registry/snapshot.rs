@@ -300,9 +300,12 @@ fn registered_inputs(
                 if contract != RegisteredSourceContract::NativeControl {
                     return false;
                 }
+                // A parent exported in this request reaches the model under its
+                // exported label; that label's destinations are the ones it has.
+                let delivered = snapshot.envelopes.get(*parent_index).unwrap_or(parent);
                 source.sensitivity < parent.sensitivity
                     || source.retention.most_restrictive(parent.retention) != source.retention
-                    || source.allowed_destinations.iter().any(|destination| !parent.allowed_destinations.contains(destination))
+                    || source.allowed_destinations.iter().any(|destination| !delivered.allowed_destinations.contains(destination))
                     || matches!(parent.content, ContentRef::EphemeralObservation { expires_at_unix_ms, .. }
                         if !source.retention.delete_with_run || source.retention.expires_at_unix_ms.is_none_or(|until| until > expires_at_unix_ms))
             }) { continue; }

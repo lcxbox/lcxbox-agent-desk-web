@@ -478,6 +478,17 @@ impl ContentBuilder {
         self
     }
 
+    /// Text that repeats data read under every one of `labels`, such as
+    /// references gathered from several earlier results. Each label becomes
+    /// a parent.
+    pub fn sourced_from(mut self, text: &str, labels: &[DataEnvelope]) -> Self {
+        self.text.push_str(text);
+        for label in labels {
+            Sourced::new((), label.clone()).collect(&mut self.sources);
+        }
+        self
+    }
+
     /// Server-built text; see [`ServerText`].
     pub fn server(mut self, text: &ServerText) -> Self {
         self.text.push_str(&text.0);
@@ -578,8 +589,8 @@ impl crate::chat::ChatMessage {
         Ok(self)
     }
 
-    /// This message with `content`'s text under the label a host tool seam
-    /// computed for it.
+    /// This message with `content`'s text under `label`, computed for it
+    /// elsewhere: by a host tool seam, or as a reference projection.
     pub fn with_host_label(mut self, content: &ModelContent, label: Option<DataEnvelope>) -> Self {
         self.text = content.text().into();
         self.stored_roots = content.stored_roots();

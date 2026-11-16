@@ -302,6 +302,27 @@ pub fn mark_consumed(messages: &mut [ChatMessage], sent_ids: &std::collections::
     }
 }
 
+/// The model-visible page `text` read for call `call_id`: the attachment's
+/// own text, labelled under the attachment's label.
+pub fn page_message(
+    call_id: &str,
+    text: String,
+    attachment: &desk_agent_protocol::data_lineage::DataEnvelope,
+) -> Result<ChatMessage, AgentError> {
+    ChatMessage::tool_result_from(
+        "attachment-page",
+        call_id,
+        &crate::model_content::ModelContent::builder()
+            .sourced(&crate::model_content::Sourced::new(
+                text,
+                attachment.clone(),
+            ))
+            .build(),
+        Some(attachment),
+        crate::model_message_labels::ServerResultSource::ReadAttachmentPage,
+    )
+}
+
 /// Caller invokes only after a successfully answered turn, never for a pause/error.
 /// `messages` is the whole conversation: each receipt is labelled from the
 /// model output that made its read call.
@@ -335,6 +356,62 @@ pub fn release_consumed(messages: &mut [ChatMessage]) -> Result<(), AgentError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_page_registers_under_the_attachment_it_was_read_from() {
+        use crate::ai_assistant::source_registry::{
+            NativeInputPolicyRegistration, RegisteredSourceContract, SOURCE_CONTRACT_REVISION,
+        };
+        let destination = desk_agent_protocol::data_lineage::DestinationIdentity::Model {
+            connection_id: "gateway".into(),
+            connection_revision: 1,
+            model_id: "model".into(),
+            profile_revision: 1,
+        };
+        let attachment = crate::model_message_labels::model_bound_user_message(
+            "attachment".into(),
+            "Quarterly notes".into(),
+            destination.clone(),
+        )
+        .unwrap()
+        .data_envelope
+        .unwrap();
+        let page = page_message("read", "Quarterly notes".into(), &attachment).unwrap();
+        let label = page.data_envelope.clone().unwrap();
+        assert_eq!(
+            label.provenance.source_tool_name,
+            crate::conversation_attachment::READ_ATTACHMENT_TOOL
+        );
+        assert_eq!(
+            label.provenance.source_envelope_ids,
+            std::slice::from_ref(&attachment.envelope_id)
+        );
+        assert_eq!(label.allowed_destinations, attachment.allowed_destinations);
+        let inputs = vec![attachment, label];
+        let audit = crate::sink_authorizer::SinkProjectionAudit {
+            destination,
+            envelope_ids: inputs
+                .iter()
+                .map(|input| input.envelope_id.clone())
+                .collect(),
+            total_bytes: 32,
+        };
+        let snapshot =
+            crate::model_egress::NativeModelInputSnapshot::capture(&audit, &inputs).unwrap();
+        let registration =
+            NativeInputPolicyRegistration::capture(&snapshot, SOURCE_CONTRACT_REVISION, 1).unwrap();
+        assert_eq!(
+            registration.leaves[1].as_ref().map(|leaf| leaf.contract),
+            Some(RegisteredSourceContract::NativeControl)
+        );
+        // The page keeps the attachment's own retention.
+        assert!(
+            registration
+                .complete_leaf_text_policy(&snapshot)
+                .unwrap()
+                .is_some_and(|policy| policy.history_retention_allowed)
+        );
+    }
     use crate::conversation_attachment::batch::*;
     #[test]
     fn json_paging_uses_short_ids_and_keeps_original_storage_proof() {

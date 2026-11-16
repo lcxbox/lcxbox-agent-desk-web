@@ -211,12 +211,61 @@ pub fn named_envelope(
     compose_named(content, issuing, call_id, name, request_only)
 }
 
+/// Which destinations a composed label allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Destinations {
+    /// Those every parent allows.
+    Shared,
+    /// Those the issuing parent allows; see [`reference_projection_envelope`].
+    Issuing,
+}
+
 fn compose_named(
     content: &crate::model_content::ModelContent,
     issuing: Option<&DataEnvelope>,
     call_id: &str,
     name: &str,
     request_only: bool,
+) -> Result<Option<DataEnvelope>, AgentError> {
+    compose_with(
+        content,
+        issuing,
+        call_id,
+        name,
+        request_only,
+        Destinations::Shared,
+    )
+}
+
+/// Label a request-only projection that repeats references from earlier
+/// results, issued under `issuing`. Those results are bound to the model only
+/// when they are exported, so the label keeps the issuing parent's
+/// destinations; every parent's sensitivity and retention still apply. The
+/// registry admits it only when each parent is in the request and allows the
+/// destination; otherwise it stays unregistered.
+pub(crate) fn reference_projection_envelope(
+    content: &crate::model_content::ModelContent,
+    issuing: &DataEnvelope,
+    call_id: &str,
+    source: ServerResultSource,
+) -> Result<Option<DataEnvelope>, AgentError> {
+    compose_with(
+        content,
+        Some(issuing),
+        call_id,
+        source.as_str(),
+        true,
+        Destinations::Issuing,
+    )
+}
+
+fn compose_with(
+    content: &crate::model_content::ModelContent,
+    issuing: Option<&DataEnvelope>,
+    call_id: &str,
+    name: &str,
+    request_only: bool,
+    destinations: Destinations,
 ) -> Result<Option<DataEnvelope>, AgentError> {
     let sources = content.sources();
     // Every root must be bound to a destination before labelling.
@@ -254,6 +303,14 @@ fn compose_named(
         allowed,
         ..
     } = merge_inputs(&parents)?;
+    let allowed = match (destinations, issuing) {
+        (Destinations::Issuing, Some(issuing)) => issuing
+            .allowed_destinations
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>(),
+        _ => allowed,
+    };
     let source_envelope_ids = parents
         .iter()
         .map(|parent| parent.envelope_id.clone())
@@ -347,36 +404,6 @@ pub(crate) fn rewrite_result(
         },
     )?;
     Ok(())
-}
-
-/// Records `sources` as further parents of `message`'s unverified label: their
-/// sensitivity and retention apply, while the destinations stay those of the
-/// label's own parents, as the repeated references are bound at egress.
-pub(crate) fn extend_lineage<'a>(
-    message: &mut ChatMessage,
-    sources: impl IntoIterator<Item = &'a DataEnvelope>,
-) -> Result<(), AgentError> {
-    let Some(label) = message.data_envelope.as_mut() else {
-        return Ok(());
-    };
-    if !label.envelope_id.starts_with(UNVERIFIED_RESULT_PREFIX) {
-        return Err(invalid_label());
-    }
-    for source in sources {
-        if !label
-            .provenance
-            .source_envelope_ids
-            .contains(&source.envelope_id)
-        {
-            label
-                .provenance
-                .source_envelope_ids
-                .push(source.envelope_id.clone());
-        }
-        label.sensitivity = label.sensitivity.max(source.sensitivity);
-        label.retention = label.retention.most_restrictive(source.retention);
-    }
-    label.validate().map_err(|_| invalid_label())
 }
 
 /// A history page is a deterministic projection of several older message
