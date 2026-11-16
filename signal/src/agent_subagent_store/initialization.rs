@@ -92,7 +92,7 @@ async fn initialize_goal_group_inner(
             .map_err(|_| invalid())?;
     if !group.can_interpret(session.input_revision, session.control_revision)
         || creation.owner_requirement.message_id != goal.source_message_id
-        || binding != goal.model_binding
+        || !goal.model_binding.follows(&binding)
     {
         return Err(invalid());
     }

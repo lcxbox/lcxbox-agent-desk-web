@@ -302,7 +302,7 @@ fn validate_current_objects_on(
             .validate_context_subject(object)
             .map_err(|_| invalid("object selection subject mismatch"))?;
         if !object.is_active_at(now)
-            || object.envelope.allowed_destinations.as_slice() != [destination.clone()]
+            || !crate::model_egress::bound_to(&object.envelope.allowed_destinations, destination)
             || !session
                 .context_attachments
                 .iter()

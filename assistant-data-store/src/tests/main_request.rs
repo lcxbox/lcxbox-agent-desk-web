@@ -224,8 +224,15 @@ async fn coordination_preserves_native_fences_and_defers_omissions_independently
     )
     .await
     .unwrap();
+    // Another gateway family never joins the batch; another model of the
+    // family would.
     let mut other = input("d", "Request D");
-    other.destination = destination("different-model");
+    other.destination = desk_agent_protocol::data_lineage::DestinationIdentity::Model {
+        connection_id: "approval:1".into(),
+        connection_revision: 1,
+        model_id: "different-model".into(),
+        profile_revision: 1,
+    };
     let d = queue::enqueue(&txn, "owner", "root", &other, None, 4, now)
         .await
         .unwrap();

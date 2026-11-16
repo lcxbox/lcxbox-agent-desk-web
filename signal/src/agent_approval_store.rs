@@ -557,7 +557,7 @@ pub async fn claim_permission_review(
             let (request, policy) = goal_review_input_on(&txn, &session, request_id).await?;
             if !crate::agent_goal_open_store::current_model_binding_on(&txn, &request)
                 .await
-                .is_ok_and(|binding| binding == request.model_binding)
+                .is_ok_and(|binding| request.model_binding.follows(&binding))
             {
                 return Err(ReviewStartError::Unavailable(
                     desk_diagnose_core::approval_observation::ReviewReason::Configuration,
@@ -887,7 +887,7 @@ pub async fn settle_permission_review(
             Ok((request, policy)) => {
                 crate::agent_goal_open_store::current_model_binding_on(&txn, &request)
                     .await
-                    .is_ok_and(|binding| binding == request.model_binding)
+                    .is_ok_and(|binding| request.model_binding.follows(&binding))
                     && model_revision_matches
                     && desk_diagnose_core::goal_review::validate_current(
                         candidate,
@@ -2973,8 +2973,9 @@ pub(crate) async fn validate_goal_source_on(
         .map_err(|_| invalid())?;
     use sha2::{Digest, Sha256};
     if format!("{:x}", Sha256::digest(action.as_bytes())) != action_sha256
-        || crate::agent_goal_open_store::current_model_binding_on(txn, &request).await?
-            != request.model_binding
+        || !request
+            .model_binding
+            .follows(&crate::agent_goal_open_store::current_model_binding_on(txn, &request).await?)
     {
         return Err(invalid());
     }

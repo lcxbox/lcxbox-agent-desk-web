@@ -70,7 +70,7 @@ impl Batch {
             return Ok(None);
         };
         let frozen = FrozenRequestInput::decode(&row)?;
-        if frozen.destination != self.destination
+        if !desk_diagnose_core::model_egress::same_recipient(&frozen.destination, &self.destination)
             || !frozen.device_id.is_empty()
             || frozen.ask.target_refs != item.target_refs
             || frozen.authorization_expired(chrono::Utc::now().timestamp_millis())

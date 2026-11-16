@@ -328,7 +328,7 @@ mod tests {
         assert!(image.attachment_record(&other, &pixels).is_err());
     }
     #[test]
-    fn stored_images_transfer_within_gateway_but_never_across_connections() {
+    fn stored_images_follow_the_gateway_family_but_never_leave_it() {
         let (_, attachment, pixels) = fixture();
         let message = attachment.restore(&pixels).unwrap();
         let mut policy = ModelEgressPolicy {
@@ -356,6 +356,16 @@ mod tests {
                 crate::prompt::ResponseFormatSpec::None,
             ))
             .unwrap();
+        // A new endpoint or credential of the family keeps the image.
+        if let desk_agent_protocol::data_lineage::DestinationIdentity::Model {
+            connection_revision,
+            ..
+        } = &mut policy.destination
+        {
+            *connection_revision += 1;
+        }
+        authorize_read(&message, Some(&policy)).unwrap();
+        // Another gateway family never reads it.
         policy.destination = desk_agent_protocol::data_lineage::DestinationIdentity::Model {
             connection_id: "another".into(),
             connection_revision: 1,

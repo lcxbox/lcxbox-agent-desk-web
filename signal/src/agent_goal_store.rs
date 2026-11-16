@@ -1518,6 +1518,8 @@ pub fn claim_slice<'a>(
     expected_goal_id: &'a str,
     expected_state_version: Option<u64>,
     coordinator_id: &'a str,
+    // The owner's current model; a continued goal moves to it in this claim.
+    model_binding: Option<&'a desk_diagnose_core::goal::GoalModelBinding>,
 ) -> std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<Option<ClaimedGoalSlice>, DbErr>> + Send + 'a>,
 > {
@@ -1590,6 +1592,9 @@ pub fn claim_slice<'a>(
                 }
                 session.ready_subagent_wait = None;
                 session.ready_subagent_notification = None;
+            }
+            if let Some(binding) = model_binding {
+                goal.rebind_model(binding).map_err(|_| invalid())?;
             }
             let (slice_seq, _) = goal.claim_slice(now_ms).map_err(|_| invalid())?;
             session

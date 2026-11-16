@@ -1516,7 +1516,9 @@ async fn prepare_composed_turn(
         destination: original,
         ..
     }) = owner_queue.as_deref()
-        && original != &destination
+        // A queued input follows the owner's model within its gateway family;
+        // the activated turn is labelled for the current one.
+        && !desk_diagnose_core::model_egress::same_recipient(original, &destination)
     {
         main_requests::fail_destination(&db, &actor_id, queue, &conversation_id, request_id)
             .await?;
@@ -3083,7 +3085,7 @@ async fn prepare_composed_turn(
                                             return desk_diagnose_core::future::phase(|| async move {
                 let bound = GoalModelBinding::from_destination(&destination)
                     .map_err(|_| model_rejected("goal model binding is unavailable"))?;
-                if bound != goal.model_binding
+                if !goal.model_binding.follows(&bound)
                     || goal.conversation_id != conversation_id
                     || goal.owner_id != actor_id
                     || goal.device_id != target_device_id
@@ -3112,7 +3114,7 @@ async fn prepare_composed_turn(
                     &claim,
                     &goal.goal_id,
                     Some(goal.state_version),
-                    &turn_id,
+                    &turn_id, Some(&bound),
                 )
                 .await }).await
                 .map_err(|error| transport_error(format!("claim AI Assistant goal: {error}")))?;
@@ -3582,7 +3584,7 @@ async fn prepare_composed_turn(
         if ask.start_goal {
             let goal_id = goal_id.as_deref().ok_or_else(|| transport_error("goal id is unavailable"))?;
             let claimed = desk_diagnose_core::future::boxed(|| crate::agent_goal_store::claim_slice(
-                &db, &claim, goal_id, None, &turn_id,
+                &db, &claim, goal_id, None, &turn_id, None,
             )).await
             .map_err(|error| transport_error(format!("claim AI Assistant goal: {error}")))?;
             match claimed {

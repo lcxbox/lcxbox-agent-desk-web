@@ -108,9 +108,11 @@ impl SubAgentStore {
                 .await?
                 .ok_or_else(|| invalid())?;
                 let creation = decode_creation(&source)?;
-                if creation.model_destination != *destination
-                    || creation.scheduled_source.as_ref()
-                        != Some(&authority.delegation_source().map_err(|_| invalid())?)
+                if !desk_diagnose_core::model_egress::same_recipient(
+                    &creation.model_destination,
+                    destination,
+                ) || creation.scheduled_source.as_ref()
+                    != Some(&authority.delegation_source().map_err(|_| invalid())?)
                     || !decode_group(&source)?
                         .can_interpret(current.input_revision, current.control_revision)
                 {

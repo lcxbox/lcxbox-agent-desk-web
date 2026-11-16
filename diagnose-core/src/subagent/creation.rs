@@ -723,7 +723,7 @@ impl CreationEnvelope {
                 let binding =
                     crate::goal::GoalModelBinding::from_destination(&self.model_destination)
                         .map_err(|_| super::invalid("invalid source model binding"))?;
-                if binding != goal.model_binding {
+                if !goal.model_binding.follows(&binding) {
                     return Err(super::invalid("source model binding changed"));
                 }
                 limits.total.model_calls = limits

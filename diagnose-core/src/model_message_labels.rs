@@ -562,6 +562,7 @@ fn merge_inputs<'a>(inputs: &[&'a DataEnvelope]) -> Result<MergedInputs<'a>, Age
         .iter()
         .cloned()
         .collect::<BTreeSet<_>>();
+    let first = allowed.clone();
     for input in inputs.iter().skip(1) {
         let destinations = input
             .allowed_destinations
@@ -569,6 +570,22 @@ fn merge_inputs<'a>(inputs: &[&'a DataEnvelope]) -> Result<MergedInputs<'a>, Age
             .cloned()
             .collect::<BTreeSet<_>>();
         allowed = allowed.intersection(&destinations).cloned().collect();
+    }
+    // Models of one gateway family are one recipient: parents labelled before
+    // and after a connection change share no exact destination, but still
+    // reach the family.
+    if allowed.is_empty() {
+        allowed = first
+            .into_iter()
+            .filter(|destination| {
+                inputs.iter().skip(1).all(|input| {
+                    input
+                        .allowed_destinations
+                        .iter()
+                        .any(|other| crate::model_egress::same_recipient(destination, other))
+                })
+            })
+            .collect();
     }
     Ok(MergedInputs {
         by_id,
@@ -1195,5 +1212,41 @@ mod tests {
         assert_eq!(envelope.retention.expires_at_unix_ms, Some(300));
         assert!(envelope.retention.delete_with_run);
         assert_eq!(envelope.provenance.source_envelope_ids.len(), 2);
+    }
+
+    #[test]
+    fn parents_from_before_and_after_a_connection_change_share_the_gateway_family() {
+        let on = |connection_id: &str, revision: u64| DestinationIdentity::Model {
+            connection_id: connection_id.into(),
+            connection_revision: revision,
+            model_id: "model".into(),
+            profile_revision: 1,
+        };
+        let labelled = |id: &str, destination: DestinationIdentity| {
+            model_bound_user_message(id.into(), id.into(), destination).unwrap()
+        };
+        let compose = |first: DestinationIdentity, second: DestinationIdentity| {
+            conversation_history_result_envelope(
+                None,
+                &[labelled("before", first), labelled("after", second)],
+                "history-call",
+                r#"{"messages":[]}"#,
+            )
+            .unwrap()
+            .unwrap()
+            .allowed_destinations
+        };
+        // Same family: the first parent's destination is kept, and model egress
+        // projects it to the current connection.
+        assert_eq!(
+            compose(on("gateway:1", 1), on("gateway:1", 2)),
+            vec![on("gateway:1", 1)]
+        );
+        assert_eq!(
+            compose(on("gateway:1", 1), on("gateway:2", 1)),
+            vec![on("gateway:1", 1)]
+        );
+        // Another family shares nothing.
+        assert!(compose(on("gateway:1", 1), on("approval:1", 1)).is_empty());
     }
 }

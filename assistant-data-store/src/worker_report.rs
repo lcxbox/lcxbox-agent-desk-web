@@ -72,7 +72,7 @@ fn group_reports(group: &DelegationGroup) -> Result<sea_orm::Select<inbox::Entit
         .filter(inbox::Column::ReportSeq.is_not_null()))
 }
 
-/// Reports follow the owner's current model within one authorized gateway, as
+/// Reports follow the owner's current model within its gateway family, as
 /// conversation history does.
 fn allows_projection(envelope: &DataEnvelope, destination: &DestinationIdentity) -> bool {
     envelope
@@ -82,64 +82,32 @@ fn allows_projection(envelope: &DataEnvelope, destination: &DestinationIdentity)
         && !(envelope.sensitivity == Sensitivity::Secret && destination.is_external())
 }
 
-/// Rewrite report destinations stored as a full model destination into their
-/// gateway identity. Idempotent; only full `DestinationIdentity` values change.
-pub async fn normalize_report_gateways_on(db: &impl ConnectionTrait) -> Result<u64, DbErr> {
-    let rows = inbox::Entity::find()
-        .filter(inbox::Column::ReportModelDestination.contains("\"kind\""))
-        .all(db)
-        .await?;
-    let mut changed = 0;
-    for row in rows {
-        let Some(stored) = row.report_model_destination.as_deref() else {
-            continue;
-        };
-        let Ok(destination) = serde_json::from_str::<DestinationIdentity>(stored) else {
-            continue;
-        };
-        let Some(gateway) = desk_diagnose_core::model_egress::gateway_identity(&destination) else {
-            continue;
-        };
-        inbox::Entity::update_many()
-            .col_expr(
-                inbox::Column::ReportModelDestination,
-                sea_orm::sea_query::Expr::value(gateway),
-            )
-            .filter(inbox::Column::Id.eq(row.id))
-            .filter(inbox::Column::ReportModelDestination.eq(stored))
-            .exec(db)
-            .await?;
-        changed += 1;
-    }
-    Ok(changed)
-}
-
-/// The stored, equality-matched gateway of a report's model destination.
+/// The stored gateway of a report's model destination, kept for audit. A
+/// report without one cannot be projected to any model.
 pub fn report_gateway(destination: &DestinationIdentity) -> Result<String, DbErr> {
     desk_diagnose_core::model_egress::gateway_identity(destination).ok_or_else(invalid)
 }
 
 fn projectable_reports(
     group: &DelegationGroup,
-    destination: &DestinationIdentity,
     now_ms: i64,
 ) -> Result<sea_orm::Select<inbox::Entity>, DbErr> {
-    projectable_at(
+    Ok(projectable_at(
         group_reports(group)?.filter(inbox::Column::InterpretedAtMs.is_null()),
-        destination,
-        now_ms,
-    )
-}
-
-fn projectable_at(
-    query: sea_orm::Select<inbox::Entity>,
-    destination: &DestinationIdentity,
-    now_ms: i64,
-) -> Result<sea_orm::Select<inbox::Entity>, DbErr> {
-    Ok(retained_at(
-        query.filter(inbox::Column::ReportModelDestination.eq(report_gateway(destination)?)),
         now_ms,
     ))
+}
+
+/// Reports that may reach a model; each row is then checked against the
+/// current destination by [`decode_projectable`].
+fn projectable_at(
+    query: sea_orm::Select<inbox::Entity>,
+    now_ms: i64,
+) -> sea_orm::Select<inbox::Entity> {
+    retained_at(
+        query.filter(inbox::Column::ReportModelDestination.is_not_null()),
+        now_ms,
+    )
 }
 
 fn retained_at(
@@ -266,7 +234,7 @@ pub async fn coordination_history_on(
         .limit(u64::from(limit) + 1);
     let worker = decode_projectable(anchor, destination)?.report.worker_id;
     let mut stored = Vec::new();
-    for row in projectable_at(query, destination, now_ms)?.all(db).await? {
+    for row in projectable_at(query, now_ms).all(db).await? {
         let item = decode_projectable(&row, destination)?;
         if item.report.worker_id != worker {
             return Err(invalid());
@@ -306,10 +274,9 @@ pub async fn batch_candidates_on(
     db: &impl ConnectionTrait,
     workbench: &str,
     actor: &str,
-    destination: &DestinationIdentity,
     now_ms: i64,
 ) -> Result<Vec<inbox::Model>, DbErr> {
-    batch_eligible(workbench, actor, destination, now_ms)?
+    batch_eligible(workbench, actor, now_ms)?
         .order_by_asc(inbox::Column::Id)
         .limit((MAX_REPORT_BATCH_ITEMS * 2) as u64)
         .all(db)
@@ -319,16 +286,14 @@ pub async fn batch_candidates_on(
 pub(crate) fn batch_eligible(
     workbench: &str,
     actor: &str,
-    destination: &DestinationIdentity,
     now_ms: i64,
 ) -> Result<sea_orm::Select<inbox::Entity>, DbErr> {
-    let destination = report_gateway(destination)?;
     Ok(inbox::Entity::find()
         .filter(inbox::Column::WorkbenchId.eq(workbench))
         .filter(inbox::Column::ActorId.eq(actor))
         .filter(inbox::Column::DeviceId.eq(""))
         .filter(inbox::Column::ReportSeq.is_not_null())
-        .filter(inbox::Column::ReportModelDestination.eq(destination))
+        .filter(inbox::Column::ReportModelDestination.is_not_null())
         .filter(inbox::Column::CoordinatedAtMs.is_null())
         .filter(
             inbox::Column::CoordinationAttempts.lt(crate::main_request::coordination::MAX_ATTEMPTS),
@@ -426,7 +391,7 @@ pub async fn wake_reports_on<C: ConnectionTrait>(
     if now_ms >= group.limits.deadline_ms {
         return Ok(Vec::new());
     }
-    let query = projectable_reports(group, destination, now_ms)?
+    let query = projectable_reports(group, now_ms)?
         .filter(inbox::Column::ModelNotifiedAtMs.is_null())
         .filter(inbox::Column::EventKind.is_in([
             ReportKind::NeedsInput.inbox_kind(),
@@ -488,7 +453,7 @@ pub async fn project_pending_on<C: ConnectionTrait>(
     }
     let mut remaining = available_bytes.min(MAX_REPORT_BATCH_BYTES);
     let mut items = Vec::new();
-    for row in projectable_reports(group, destination, now_ms)?
+    for row in projectable_reports(group, now_ms)?
         .order_by_asc(inbox::Column::Id)
         .limit(MAX_REPORT_BATCH_ITEMS as u64)
         .all(txn)
@@ -748,7 +713,7 @@ pub async fn first_matching_report_on<C: ConnectionTrait>(
     destination: &DestinationIdentity,
     now_ms: i64,
 ) -> Result<Option<StoredReport>, DbErr> {
-    let row = projectable_at(report_rows(run), destination, now_ms)?
+    let row = projectable_at(report_rows(run), now_ms)
         .filter(inbox::Column::ReportSeq.gt(i64::try_from(after_seq).map_err(|_| invalid())?))
         .filter(inbox::Column::EventKind.is_in(kinds.iter().map(|kind| kind.inbox_kind())))
         .order_by_asc(inbox::Column::ReportSeq)
@@ -776,7 +741,7 @@ pub async fn read_report_page_on<C: ConnectionTrait>(
     query: ReportPageRead<'_>,
     labels: &mut Vec<DataEnvelope>,
 ) -> Result<(WorkerReportPage, Option<String>), DbErr> {
-    let rows = projectable_at(report_rows(run), query.destination, query.now_ms)?
+    let rows = projectable_at(report_rows(run), query.now_ms)
         .filter(inbox::Column::ReportSeq.gt(i64::try_from(query.after_seq).map_err(|_| invalid())?))
         .order_by_asc(inbox::Column::ReportSeq)
         .limit(u64::from(query.limit) + 1)
@@ -869,7 +834,7 @@ mod gateway_tests {
     }
 
     #[test]
-    fn a_report_projects_to_another_model_only_on_the_same_gateway() {
+    fn a_report_projects_to_any_model_of_its_gateway_family() {
         let mut envelope: DataEnvelope = serde_json::from_value(serde_json::json!({
             "schema_version": 2,
             "envelope_id": "report",
@@ -882,7 +847,18 @@ mod gateway_tests {
         .unwrap();
         envelope.allowed_destinations = vec![destination(1, "old-model")];
         assert!(allows_projection(&envelope, &destination(1, "new-model")));
-        assert!(!allows_projection(&envelope, &destination(2, "old-model")));
+        // A new endpoint or credential keeps the report readable.
+        assert!(allows_projection(&envelope, &destination(2, "old-model")));
+        // Another gateway family does not read it.
+        assert!(!allows_projection(
+            &envelope,
+            &DestinationIdentity::Model {
+                connection_id: "approval:1".into(),
+                connection_revision: 1,
+                model_id: "old-model".into(),
+                profile_revision: 1,
+            }
+        ));
         envelope.allowed_destinations.clear();
         assert!(!allows_projection(&envelope, &destination(1, "old-model")));
     }

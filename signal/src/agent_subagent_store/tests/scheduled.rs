@@ -454,11 +454,12 @@ async fn source_initialization_is_fenced_and_keeps_one_original_group() {
     let row_after = group_row::Entity::find().one(&db).await.unwrap().unwrap();
     assert_eq!(decode_group(&row_after).unwrap(), original_group);
 
+    // Another gateway family never initializes the source.
     let mut changed = super::creation::destination();
-    if let desk_agent_protocol::data_lineage::DestinationIdentity::Model { model_id, .. } =
+    if let desk_agent_protocol::data_lineage::DestinationIdentity::Model { connection_id, .. } =
         &mut changed
     {
-        *model_id = "other-model".into();
+        *connection_id = "approval:1".into();
     }
     assert!(
         store

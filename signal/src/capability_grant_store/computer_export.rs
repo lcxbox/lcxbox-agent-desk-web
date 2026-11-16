@@ -198,7 +198,10 @@ impl SignalCapabilityGrantStore {
                 || origin.turn_fence.input_revision != session.input_revision
                 || origin.tool_call_id != task.tool_call_id
                 || origin.tool_name != desk_diagnose_core::command_confirmation::COMMAND_TOOL
-                || &export.destination != destination
+                || !desk_diagnose_core::model_egress::same_recipient(
+                    &export.destination,
+                    destination,
+                )
                 || export.expires_at_unix_ms <= now
                 || now < export.captured_at_unix_ms
                 || export.context
@@ -261,7 +264,7 @@ impl SignalCapabilityGrantStore {
             let export = binding.model_export.ok_or_else(invalid)?;
             export.validate()?;
             let now = u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?;
-            if &export.destination != destination
+            if !desk_diagnose_core::model_egress::same_recipient(&export.destination, destination)
                 || export.expires_at_unix_ms <= now
                 || now < export.captured_at_unix_ms
                 || export.context

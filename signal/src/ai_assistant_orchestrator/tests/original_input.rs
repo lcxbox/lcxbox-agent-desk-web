@@ -1098,32 +1098,13 @@ async fn queued_owner_input_roundtrip(workbench: bool, delete_workbench: bool, w
     .unwrap()
     .pop()
     .unwrap();
-    assert_eq!(
+    // The queued input follows the owner's new model of the gateway family
+    // instead of failing.
+    assert_ne!(
         receipt.state,
         desk_agent_protocol::ai_assistant::MainRequestState::Failed
     );
-    assert_eq!(
-        receipt.failure,
-        Some(desk_agent_protocol::ai_assistant::MainRequestFailure::DestinationChanged)
-    );
-    if workbench {
-        let closed = crate::entity::agent_session::Entity::find()
-            .filter(
-                crate::entity::agent_session::Column::ConversationId
-                    .eq(execution(&destination_change.request_id)),
-            )
-            .one(&db)
-            .await
-            .unwrap()
-            .unwrap();
-        let closed =
-            desk_diagnose_core::session::PersistedAgentSession::decode_json(&closed.state_json)
-                .unwrap();
-        assert_eq!(
-            closed.turn_state,
-            desk_diagnose_core::session::TurnState::Failed
-        );
-    }
+    assert_eq!(receipt.failure, None);
     assert_eq!(
         native_state().await.input_revision,
         if workbench { 0 } else { 2 }

@@ -103,26 +103,53 @@ fn admitted_stored_roots(messages: &[ChatMessage]) -> Vec<crate::model_content::
     roots.into_values().collect()
 }
 
-/// Whether two model destinations use the same authorized gateway connection.
-/// A model or profile change within one gateway does not move data to another
-/// recipient; connection revisions fence endpoint, credential and account
-/// changes. Delegated work follows its owner's current model by this rule.
+/// Whether data sent to the `previous` model may follow the conversation to
+/// the `current` one: both are models of the same gateway family, the part of
+/// the connection id before its first `:`. Every connection of that family is
+/// configured by the owner or an administrator, and the host resolves and
+/// validates `current` for the conversation's subject before any request, so
+/// a model, profile, endpoint, credential or connection change keeps the
+/// conversation. Another family (such as the approval gateway) and every
+/// non-model recipient stay apart. Delegated work follows its owner's current
+/// model by this rule.
 pub fn same_gateway(current: &DestinationIdentity, previous: &DestinationIdentity) -> bool {
     match (current, previous) {
         (
             DestinationIdentity::Model {
                 connection_id: current,
-                connection_revision: current_revision,
                 ..
             },
             DestinationIdentity::Model {
                 connection_id: previous,
-                connection_revision: previous_revision,
                 ..
             },
-        ) => current == previous && current_revision == previous_revision,
+        ) => gateway_family(current) == gateway_family(previous),
         _ => false,
     }
+}
+
+/// Whether `a` and `b` are the same recipient for labels: equal, or models of
+/// one gateway family by [`same_gateway`].
+pub fn same_recipient(a: &DestinationIdentity, b: &DestinationIdentity) -> bool {
+    a == b || same_gateway(a, b)
+}
+
+/// Whether `allowed` is exactly one destination, the same recipient as
+/// `current`.
+pub fn bound_to(allowed: &[DestinationIdentity], current: &DestinationIdentity) -> bool {
+    matches!(allowed, [only] if same_recipient(current, only))
+}
+
+/// Whether two connection ids belong to one gateway family; see
+/// [`same_gateway`].
+pub fn same_gateway_family(a: &str, b: &str) -> bool {
+    gateway_family(a) == gateway_family(b)
+}
+
+fn gateway_family(connection_id: &str) -> &str {
+    connection_id
+        .split_once(':')
+        .map_or(connection_id, |(family, _)| family)
 }
 
 /// The gateway part of a model destination, in one canonical form, for
@@ -184,9 +211,8 @@ impl ModelEgressPolicy {
             .collect()
     }
 
-    /// A model/profile change within the same authorized gateway does not move
-    /// data to another recipient. Connection revisions still fence endpoint,
-    /// credential and account changes; model capabilities are checked separately.
+    /// Data sent to any model of the current gateway family may reach the
+    /// current destination; model capabilities are checked separately.
     fn same_gateway(&self, destination: &DestinationIdentity) -> bool {
         same_gateway(&self.destination, destination)
     }
@@ -786,15 +812,42 @@ mod tests {
     }
 
     #[test]
-    fn delegated_work_follows_the_owner_model_only_within_one_gateway() {
+    fn delegated_work_follows_the_owner_model_within_its_gateway_family() {
         let model = |revision: u64, model: &str, profile: i64| DestinationIdentity::Model {
             connection_id: "gateway".into(),
             connection_revision: revision,
             model_id: model.into(),
             profile_revision: profile,
         };
+        let connection = |id: &str| DestinationIdentity::Model {
+            connection_id: id.into(),
+            connection_revision: 1,
+            model_id: "a".into(),
+            profile_revision: 1,
+        };
         assert!(same_gateway(&model(1, "a", 1), &model(1, "b", 2)));
-        assert!(!same_gateway(&model(1, "a", 1), &model(2, "a", 1)));
+        // A new endpoint or credential keeps the conversation.
+        assert!(same_gateway(&model(1, "a", 1), &model(2, "a", 1)));
+        // So does another connection of the same family.
+        assert!(same_gateway(
+            &connection("manager-ai-gateway:7"),
+            &connection("manager-ai-gateway:3")
+        ));
+        assert!(same_gateway(
+            &connection("oss-ai-gateway:1:new-instance"),
+            &connection("oss-ai-gateway:1:old-instance")
+        ));
+        // Another gateway family and non-model recipients stay apart.
+        assert!(!same_gateway(
+            &connection("oss-ai-gateway:1:instance"),
+            &connection("oss-approval-gateway:1:instance")
+        ));
+        assert!(!same_gateway(
+            &connection("oss-ai-gateway:1:instance"),
+            &DestinationIdentity::WebResearch {
+                connector_id: "web".into()
+            }
+        ));
         assert_eq!(
             gateway_identity(&model(1, "a", 1)),
             gateway_identity(&model(1, "b", 7))
@@ -1718,7 +1771,7 @@ mod tests {
     }
 
     #[test]
-    fn same_gateway_model_change_preserves_history_but_connection_change_is_denied() {
+    fn history_follows_model_and_connection_changes_within_the_gateway_family() {
         let destination = destination();
         let mut old_destination = DestinationIdentity::Model {
             connection_id: "oss-ai-gateway:1".into(),
@@ -1771,6 +1824,28 @@ mod tests {
             vec!["system", "old-permission-resume", "current-user"]
         );
 
+        let labelled_for = |destination: DestinationIdentity| {
+            ModelRequest::text_only(
+                vec![
+                    message(
+                        "current-user",
+                        ChatRole::User,
+                        "continue on the new connection",
+                        Some(envelope(
+                            "current-user-envelope",
+                            "send-message",
+                            b"continue on the new connection",
+                            Sensitivity::UserContent,
+                            vec![destination],
+                        )),
+                    )
+                    .with_turn_id("current-turn"),
+                ],
+                ResponseFormatSpec::None,
+            )
+        };
+        // A new endpoint or credential, or another connection of the family,
+        // keeps the conversation.
         if let DestinationIdentity::Model {
             connection_revision,
             ..
@@ -1778,26 +1853,25 @@ mod tests {
         {
             *connection_revision += 1;
         }
-        let current_mismatch = ModelRequest::text_only(
-            vec![
-                message(
-                    "current-user",
-                    ChatRole::User,
-                    "not authorized for the new model",
-                    Some(envelope(
-                        "current-user-envelope",
-                        "send-message",
-                        b"not authorized for the new model",
-                        Sensitivity::UserContent,
-                        vec![old_destination],
-                    )),
-                )
-                .with_turn_id("current-turn"),
-            ],
-            ResponseFormatSpec::None,
+        assert!(
+            policy(&[])
+                .authorize_request(labelled_for(old_destination.clone()))
+                .is_ok()
         );
+        if let DestinationIdentity::Model { connection_id, .. } = &mut old_destination {
+            *connection_id = "oss-ai-gateway:2".into();
+        }
+        assert!(
+            policy(&[])
+                .authorize_request(labelled_for(old_destination.clone()))
+                .is_ok()
+        );
+        // Another gateway family stays apart.
+        if let DestinationIdentity::Model { connection_id, .. } = &mut old_destination {
+            *connection_id = "oss-approval-gateway:1".into();
+        }
         assert!(matches!(
-            policy(&[]).authorize_request(current_mismatch),
+            policy(&[]).authorize_request(labelled_for(old_destination)),
             Err(ModelEgressError::ExportNotSelected { .. })
         ));
     }
@@ -2035,12 +2109,25 @@ mod tests {
             .unwrap();
         assert_eq!(replay.request.messages.len(), visible_history.len());
         assert_eq!(replay.request.messages[1].text, "sensitive old UI");
+        // A new endpoint or credential keeps the replay; another gateway
+        // family does not.
         if let DestinationIdentity::Model {
             connection_revision,
             ..
         } = &mut other_sink.destination
         {
             *connection_revision += 1;
+        }
+        assert!(
+            other_sink
+                .authorize_request(ModelRequest::text_only(
+                    visible_history.clone(),
+                    ResponseFormatSpec::None,
+                ))
+                .is_ok()
+        );
+        if let DestinationIdentity::Model { connection_id, .. } = &mut other_sink.destination {
+            *connection_id = "oss-approval-gateway:1".into();
         }
         assert!(
             other_sink
@@ -2203,13 +2290,27 @@ mod tests {
         wrong_call.tool_call_id = Some("another-call".into());
         assert!(audit(vec![call.clone(), wrong_call]).is_err());
         assert!(audit(vec![status.clone()]).is_err());
-        let mut other_gateway = policy(&[]);
+        // A new credential keeps the exact call's authority; another
+        // gateway family does not.
+        let mut new_credential = policy(&[]);
         if let DestinationIdentity::Model {
             connection_revision,
             ..
-        } = &mut other_gateway.destination
+        } = &mut new_credential.destination
         {
             *connection_revision += 1;
+        }
+        assert!(
+            new_credential
+                .authorize_request(ModelRequest::text_only(
+                    vec![call.clone(), status.clone()],
+                    ResponseFormatSpec::None,
+                ))
+                .is_ok()
+        );
+        let mut other_gateway = policy(&[]);
+        if let DestinationIdentity::Model { connection_id, .. } = &mut other_gateway.destination {
+            *connection_id = "oss-approval-gateway:1".into();
         }
         assert!(
             other_gateway

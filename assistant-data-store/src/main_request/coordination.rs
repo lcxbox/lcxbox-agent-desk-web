@@ -225,7 +225,7 @@ pub async fn reserve(
             break;
         }
         let frozen = FrozenRequestInput::decode(&row)?;
-        if frozen.destination != destination
+        if !desk_diagnose_core::model_egress::same_recipient(&frozen.destination, &destination)
             || frozen.device_id != device
             || frozen.authorization_expired(now_ms)
             || !frozen
@@ -629,7 +629,9 @@ pub async fn hold_report_for_batch_on(
         return Ok(false);
     }
     let input = FrozenRequestInput::decode(&head)?;
-    if input.authorization_expired(now_ms) || input.destination != *destination {
+    if input.authorization_expired(now_ms)
+        || !desk_diagnose_core::model_egress::same_recipient(&input.destination, destination)
+    {
         return Ok(false);
     }
     let projected = report_message(&row, destination)?;

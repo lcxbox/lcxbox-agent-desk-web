@@ -186,13 +186,11 @@ fn original_content_cannot_be_omitted_then_reminted_for_permission_resume() {
             0 => original.data_envelope = None,
             1 => original.text.push_str(" tampered"),
             2 => original.data_envelope.as_mut().unwrap().sensitivity = Sensitivity::Secret,
+            // Another gateway family; a new credential of the same family
+            // keeps the resume (see the test below).
             4 => {
-                if let DestinationIdentity::Model {
-                    connection_revision,
-                    ..
-                } = &mut policy.destination
-                {
-                    *connection_revision += 1;
+                if let DestinationIdentity::Model { connection_id, .. } = &mut policy.destination {
+                    *connection_id = "approval:1".into();
                 }
             }
             5 => original
@@ -229,6 +227,23 @@ fn original_content_cannot_be_omitted_then_reminted_for_permission_resume() {
             "mutation={mutation}"
         );
     }
+}
+
+#[test]
+fn a_permission_resume_follows_a_new_connection_of_the_gateway_family() {
+    let original = original();
+    let mut policy = policy();
+    if let DestinationIdentity::Model {
+        connection_revision,
+        ..
+    } = &mut policy.destination
+    {
+        *connection_revision += 1;
+    }
+    assert!(authorized_permission_resume_message("bridge".into(), &policy, &original).is_ok());
+    assert!(
+        authorized_scheduled_resume_message("scheduled-bridge".into(), &policy, &original).is_ok()
+    );
 }
 
 #[test]

@@ -13,7 +13,7 @@ use crate::{
 };
 use desk_agent_protocol::data_lineage::{DataEnvelope, MAX_LINEAGE_ITEMS};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// What an AI reviewer saw, frozen from the settled candidate. It is stored
 /// with the decision so the reason can be traced when it is shown later.
@@ -313,12 +313,18 @@ pub fn review_reason_parents(
     if parents.len() + roots.len() > MAX_LINEAGE_ITEMS {
         return None;
     }
-    let mut shared: BTreeSet<_> = proposing.allowed_destinations.iter().collect();
-    for parent in parents.values() {
-        let allowed: BTreeSet<_> = parent.allowed_destinations.iter().collect();
-        shared = shared.intersection(&allowed).copied().collect();
-    }
-    if shared.is_empty() || shared.len() != proposing.allowed_destinations.len() {
+    // Every parent must reach every destination of the proposing output; a
+    // model of the same gateway family is the same recipient.
+    if proposing.allowed_destinations.is_empty()
+        || !parents.values().all(|parent| {
+            proposing.allowed_destinations.iter().all(|destination| {
+                parent
+                    .allowed_destinations
+                    .iter()
+                    .any(|allowed| crate::model_egress::same_recipient(allowed, destination))
+            })
+        })
+    {
         return None;
     }
     // The proposing output comes first, as the receipt's issuing parent.
@@ -351,11 +357,12 @@ fn delivered_label(
         .position(|candidate| candidate.message_id == message.message_id)?;
     let authority =
         crate::model_egress::issuing_call_label(&session.conversation[..index], message)?;
-    if !proposing
-        .allowed_destinations
-        .iter()
-        .all(|destination| authority.allowed_destinations.contains(destination))
-    {
+    if !proposing.allowed_destinations.iter().all(|destination| {
+        authority
+            .allowed_destinations
+            .iter()
+            .any(|allowed| crate::model_egress::same_recipient(allowed, destination))
+    }) {
         return None;
     }
     Some(DataEnvelope {
@@ -505,6 +512,7 @@ pub(crate) mod tests {
         proposal_review::{DecisionKind, DecisionPause},
     };
     use desk_agent_protocol::{AgentScope, ExecutionMode, data_lineage::DestinationIdentity};
+    use std::collections::BTreeSet;
 
     pub(crate) fn destination(model: &str) -> DestinationIdentity {
         DestinationIdentity::Model {
@@ -660,12 +668,36 @@ pub(crate) mod tests {
         );
     }
 
+    /// A label for `connection_id` instead of the fixture gateway.
+    fn label_on(id: &str, connection_id: &str) -> DataEnvelope {
+        model_bound_user_message(
+            id.into(),
+            id.into(),
+            DestinationIdentity::Model {
+                connection_id: connection_id.into(),
+                connection_revision: 1,
+                model_id: "m".into(),
+                profile_revision: 1,
+            },
+        )
+        .unwrap()
+        .data_envelope
+        .unwrap()
+    }
+
     #[test]
-    fn evidence_from_another_model_falls_back_to_unverifiable() {
+    fn evidence_from_another_gateway_family_falls_back_to_unverifiable() {
+        // The owner switched models within the gateway after this message: the
+        // evidence still reaches the proposing model.
         let mut session = paused_session();
-        // The owner switched models within the gateway after this message.
         session.conversation[0].data_envelope = Some(label("owner", "other"));
         let proposing = proposing_output(&session).unwrap().clone();
+        assert!(
+            review_reason_parents(&session, &proposing, &provenance(&session, &["owner"]))
+                .is_some()
+        );
+        // Evidence that only another gateway family may receive does not.
+        session.conversation[0].data_envelope = Some(label_on("owner", "approval:1"));
         assert!(
             review_reason_parents(&session, &proposing, &provenance(&session, &["owner"]))
                 .is_none()
@@ -907,7 +939,7 @@ pub(crate) mod tests {
                     arguments_json: "{}".into(),
                 }],
             );
-            reader.data_envelope = reader_model.map(|model| label("reader", model));
+            reader.data_envelope = reader_model.map(|connection| label_on("reader", connection));
             let mut screen = ChatMessage::tool_result("screen", "screen-call", "screen");
             let mut screen_label = label("screen", "m");
             screen_label.allowed_destinations.clear();
@@ -919,7 +951,7 @@ pub(crate) mod tests {
             session.conversation.insert(2, screen);
             session
         };
-        let session = with_screen(Some("m"));
+        let session = with_screen(Some("gateway"));
         let proposing = proposing_output(&session).unwrap().clone();
         let review = provenance(&session, &["owner", "screen"]);
         let parents = review_reason_parents(&session, &proposing, &review).unwrap();
@@ -943,13 +975,13 @@ pub(crate) mod tests {
                 .text()
                 .contains("The owner asked for a full-screen capture.")
         );
-        // A result whose producing output may not reach this model, or that
+        // A result whose producing output belongs to another gateway family, or that
         // no output called, does not vouch for the reason.
-        for session in [with_screen(Some("other")), with_screen(None)] {
+        for session in [with_screen(Some("approval:1")), with_screen(None)] {
             let review = provenance(&session, &["owner", "screen"]);
             assert!(review_reason_parents(&session, &proposing, &review).is_none());
         }
-        let mut uncalled = with_screen(Some("m"));
+        let mut uncalled = with_screen(Some("gateway"));
         uncalled.conversation.remove(1);
         let review = provenance(&uncalled, &["owner", "screen"]);
         assert!(review_reason_parents(&uncalled, &proposing, &review).is_none());

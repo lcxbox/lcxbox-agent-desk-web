@@ -271,26 +271,32 @@ mod tests {
         }));
         // The exported source keeps the result's own retention.
         assert_eq!(reported[1].retention, native.retention);
-        // Another model on the same gateway may read it; another connection may not.
-        let mut same_gateway = destination.clone();
-        let mut other_connection = destination.clone();
+        // Another model or connection of the gateway family may read it;
+        // another family may not.
+        let mut other_model = destination.clone();
+        let mut new_connection = destination.clone();
+        let mut other_family = destination.clone();
         if let (
             DestinationIdentity::Model { model_id, .. },
             DestinationIdentity::Model {
                 connection_revision,
                 ..
             },
-        ) = (&mut same_gateway, &mut other_connection)
+            DestinationIdentity::Model { connection_id, .. },
+        ) = (&mut other_model, &mut new_connection, &mut other_family)
         {
             *model_id = "another-model".into();
             *connection_revision = 2;
+            *connection_id = "approval:1".into();
         }
-        assert_ne!(
-            report_sources(sources.clone(), &session, &same_gateway, 1),
-            sources
-        );
+        for follower in [&other_model, &new_connection] {
+            assert_ne!(
+                report_sources(sources.clone(), &session, follower, 1),
+                sources
+            );
+        }
         assert_eq!(
-            report_sources(sources.clone(), &session, &other_connection, 1),
+            report_sources(sources.clone(), &session, &other_family, 1),
             sources
         );
         // A result without the model call that produced it keeps the whole

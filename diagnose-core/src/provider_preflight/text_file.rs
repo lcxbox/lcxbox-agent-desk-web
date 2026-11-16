@@ -1075,7 +1075,7 @@ impl ResultFileRead {
             if !matches!(
                 destination,
                 desk_agent_protocol::data_lineage::DestinationIdentity::Model { .. }
-            ) || owner.allowed_destinations.as_slice() != [destination.clone()]
+            ) || !crate::model_egress::bound_to(&owner.allowed_destinations, destination)
             {
                 return Err(unavailable());
             }
@@ -1110,8 +1110,11 @@ impl ResultFileRead {
             destination,
             desk_agent_protocol::data_lineage::DestinationIdentity::Model { .. }
         ) || (!source.allowed_destinations.is_empty()
-            && !source.allowed_destinations.contains(destination))
-            || owner.allowed_destinations.as_slice() != [destination.clone()]
+            && !source
+                .allowed_destinations
+                .iter()
+                .any(|allowed| crate::model_egress::same_recipient(allowed, destination)))
+            || !crate::model_egress::bound_to(&owner.allowed_destinations, destination)
         {
             return Err(unavailable());
         }

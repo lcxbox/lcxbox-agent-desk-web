@@ -578,7 +578,10 @@ impl SignalAgentRunEventStore {
                     .authorization_requirement()
                     .and_then(|message| message.data_envelope.as_ref())
                     .is_none_or(|envelope| {
-                        envelope.allowed_destinations.as_slice() != [destination.clone()]
+                        !desk_diagnose_core::model_egress::bound_to(
+                            &envelope.allowed_destinations,
+                            destination,
+                        )
                     }))
         {
             return Err(internal("targetless read input or destination changed"));

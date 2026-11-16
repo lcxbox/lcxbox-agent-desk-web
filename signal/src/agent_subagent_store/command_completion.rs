@@ -74,8 +74,10 @@ impl SubAgentStore {
                 .await
             })
             .await?;
-            if creation.source.model_destination != *destination
-                || !desk_diagnose_core::subagent::completion::has_pending_exec(&session, event_id)
+            if !desk_diagnose_core::model_egress::same_recipient(
+                &creation.source.model_destination,
+                destination,
+            ) || !desk_diagnose_core::subagent::completion::has_pending_exec(&session, event_id)
             {
                 return Ok(None);
             }

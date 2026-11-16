@@ -245,7 +245,6 @@ impl SignalAgentRunEventStore {
                             .as_ref()
                             .map(|previous| previous.goal_id.as_str())
                             != start.previous_completed_goal_id.as_deref()
-                        || goal.model_binding != start.model_binding
                     {
                         return Err(internal("idempotent goal input changed"));
                     }

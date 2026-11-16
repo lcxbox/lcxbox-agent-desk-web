@@ -145,7 +145,9 @@ pub fn load_history_page(
             message.data_envelope.as_ref().is_some_and(|envelope| {
                 envelope.validate().is_ok()
                     && policy.is_none_or(|policy| {
-                        envelope.allowed_destinations.contains(&policy.destination)
+                        envelope.allowed_destinations.iter().any(|allowed| {
+                            crate::model_egress::same_recipient(allowed, &policy.destination)
+                        })
                     })
             })
         })

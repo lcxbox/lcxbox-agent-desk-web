@@ -269,7 +269,12 @@ impl SignalModelSeam {
                 ("oss-approval-gateway:1", "oss-approval-model:1")
             }
         };
-        let connection_id = format!("{connection_id}:{}", config.config_instance);
+        // The connection revision moves with the endpoint and credential, so a
+        // new account never replays another account's protected reasoning.
+        let connection_id = format!(
+            "{connection_id}:{}:revision:{}",
+            config.config_instance, config.connection_revision
+        );
         let source_context_key = SourceContextKey::derive_for_endpoint(
             protocol,
             &connection_id,
@@ -2028,6 +2033,30 @@ mod tests {
         tool_output_fixture::assert_wire(&build_openai_body("model", &request));
         tool_output_fixture::assert_wire(&build_anthropic_body("model", &request));
         assert_eq!(serde_json::to_string(&request.messages).unwrap(), original);
+    }
+
+    #[test]
+    fn a_new_credential_never_replays_the_previous_account_reasoning() {
+        let config = ModelProviderConfig {
+            base_url: Some("http://127.0.0.1:9".into()),
+            model: Some("test".into()),
+            api_key: Some("test-only".into()),
+            wire_protocol: Some(WireProtocol::OpenAiChatCompletions),
+            max_context_bytes: Some(131_072),
+            ..Default::default()
+        };
+        let key = |config: &ModelProviderConfig| {
+            SignalModelSeam::from_config(config)
+                .unwrap()
+                .source_context_key
+        };
+        // Only the credential changed: same endpoint and model, new revision.
+        let mut rotated = config.clone();
+        rotated.api_key = Some("rotated".into());
+        rotated.connection_revision += 1;
+        assert_ne!(key(&config), key(&rotated));
+        // An unchanged connection keeps its replay source.
+        assert_eq!(key(&config), key(&config.clone()));
     }
 
     #[actix_web::test]

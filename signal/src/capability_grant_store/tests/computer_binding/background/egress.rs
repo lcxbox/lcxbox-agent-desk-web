@@ -404,7 +404,11 @@ async fn exercise(stack_bytes: Option<usize>) {
             .all(&f.store.db)
             .await
             .unwrap();
-        let allowed = matches!(case, "running" | "crash" | "expired-label");
+        // A changed model of the gateway family still publishes the result.
+        let allowed = matches!(
+            case,
+            "running" | "crash" | "expired-label" | "changed-model"
+        );
         let capture = actix_web::rt::spawn(capture(listener));
         tokio::time::timeout(
             // This path performs real loopback model I/O for every fixture.

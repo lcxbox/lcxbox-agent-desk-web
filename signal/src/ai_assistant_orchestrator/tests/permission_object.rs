@@ -45,8 +45,9 @@ async fn original_input_permission_decision_resumes_model_and_reads_original_obj
 }
 
 #[actix_web::test]
-async fn changed_model_object_input_subject_or_decision_cannot_resume_or_read() {
-    for change in ["model", "detach", "new_input", "subject", "decision"] {
+// A changed model of the gateway family resumes like the original one.
+async fn changed_object_input_subject_or_decision_cannot_resume_or_read() {
+    for change in ["detach", "new_input", "subject", "decision"] {
         run_case(Some(change), ResumeMode::Direct).await;
     }
 }
@@ -64,8 +65,8 @@ async fn scanner_recovers_committed_decision_once_with_original_model_and_object
 }
 
 #[actix_web::test]
-async fn scanner_rechecks_model_original_object_and_input_before_resuming() {
-    for change in ["model", "detach", "new_input"] {
+async fn scanner_rechecks_original_object_and_input_before_resuming() {
+    for change in ["detach", "new_input"] {
         run_case(Some(change), ResumeMode::Scan).await;
     }
 }

@@ -43,6 +43,15 @@ async fn claimed_fixture(
     cid: &str,
     now: DateTime<Utc>,
 ) -> ClaimedGoalSlice {
+    claimed_fixture_on(db, cid, now, None).await
+}
+
+async fn claimed_fixture_on(
+    db: &DatabaseConnection,
+    cid: &str,
+    now: DateTime<Utc>,
+    model_binding: Option<&desk_diagnose_core::goal::GoalModelBinding>,
+) -> ClaimedGoalSlice {
     seed_session(db, cid).await;
     let mut session = read_session(db, cid).await;
     session.latest_input_seq = 1;
@@ -85,6 +94,7 @@ async fn claimed_fixture(
         &goal.goal_id,
         Some(goal.state_version),
         "coordinator-a",
+        model_binding,
     )
     .await
     .unwrap()
@@ -129,6 +139,20 @@ async fn deliver_fixture(
     }
     store_fixture(db, &session).await;
     event_id
+}
+
+#[tokio::test]
+async fn a_claim_moves_the_goal_to_the_owner_current_model() {
+    let db = db().await;
+    let now = Utc::now();
+    let current = desk_diagnose_core::goal::GoalModelBinding {
+        connection_id: "gateway".into(),
+        connection_revision: 2,
+        profile_revision: 3,
+        model_id: "new-model".into(),
+    };
+    let claimed = claimed_fixture_on(&db, "rebind", now, Some(&current)).await;
+    assert_eq!(claimed.goal.model_binding, current);
 }
 
 #[tokio::test]
@@ -188,6 +212,7 @@ async fn native_wait_wakes_on_any_member_and_claims_with_other_work_running() {
         &queued.goal_id,
         Some(queued.state_version),
         "coordinator-b",
+        None,
     )
     .await
     .unwrap()
@@ -208,7 +233,8 @@ async fn native_wait_wakes_on_any_member_and_claims_with_other_work_running() {
             &params(&saved, "competing-turn", now),
             &queued.goal_id,
             Some(queued.state_version),
-            "coordinator-c"
+            "coordinator-c",
+            None
         )
         .await
         .unwrap()
@@ -603,6 +629,7 @@ async fn ready_wait_and_unreacted_receipt_survive_a_model_outage() {
         &queued.goal_id,
         Some(queued.state_version),
         "coordinator-b",
+        None,
     )
     .await
     .unwrap()

@@ -75,12 +75,12 @@ pub fn label(
                     delete_with_run: true,
                 },
             );
-            label
-                .allowed_destinations
-                .retain(|destination| *destination == bound.destination);
-            if label.allowed_destinations.is_empty() {
+            if !label.allowed_destinations.iter().any(|destination| {
+                crate::model_egress::same_recipient(destination, &bound.destination)
+            }) {
                 return Err(projection_denied());
             }
+            label.allowed_destinations = vec![bound.destination.clone()];
             label.validate().map_err(|_| projection_denied())?;
             runtime.set_label_and_roots(Some(label), content.stored_roots());
         }
@@ -216,6 +216,30 @@ mod tests {
                 ResponseFormatSpec::None,
             ))
             .unwrap();
+        // A parent from before a connection change of the gateway family is
+        // bound to the current model; another family is denied.
+        let mut old = owner.clone();
+        if let Some(DestinationIdentity::Model {
+            connection_revision,
+            ..
+        }) = old.allowed_destinations.first_mut()
+        {
+            *connection_revision += 1;
+        }
+        let mut followed = runtime.clone();
+        super::label(&mut followed, Some(&old), Some(&destination)).unwrap();
+        assert_eq!(
+            followed.data_envelope.unwrap().allowed_destinations,
+            vec![destination.clone()]
+        );
+        let mut other_family = owner.clone();
+        if let Some(DestinationIdentity::Model { connection_id, .. }) =
+            other_family.allowed_destinations.first_mut()
+        {
+            *connection_id = "approval:1".into();
+        }
+        let mut denied = runtime.clone();
+        assert!(super::label(&mut denied, Some(&other_family), Some(&destination)).is_err());
         // Without any parent the projection keeps its own unregistered label.
         let mut orphan = runtime;
         super::label(&mut orphan, None, Some(&destination)).unwrap();

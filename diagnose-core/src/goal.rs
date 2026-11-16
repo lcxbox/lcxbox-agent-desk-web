@@ -89,6 +89,13 @@ impl GoalModelBinding {
         Ok(binding)
     }
 
+    /// Whether a goal bound here may continue on `current`: any model,
+    /// profile or connection of the same gateway family, as conversation
+    /// history follows the owner's model.
+    pub fn follows(&self, current: &Self) -> bool {
+        crate::model_egress::same_gateway_family(&self.connection_id, &current.connection_id)
+    }
+
     pub fn validate(&self) -> Result<(), GoalError> {
         valid_id(&self.connection_id)?;
         valid_id(&self.model_id)?;
@@ -466,7 +473,8 @@ impl GoalOpenRequest {
                 request_id: self.request_id.clone(),
                 decision_event_id: decision_event_id.clone(),
             },
-            self.model_binding.clone(),
+            // An approved goal starts on the owner's current model.
+            current_model_binding.clone(),
             self.input_revision,
             now_unix_ms,
             self.limits,
@@ -501,7 +509,7 @@ impl GoalOpenRequest {
             || self.owner_id != goal.owner_id
             || self.device_id != goal.device_id
             || self.execution_target != goal.execution_target
-            || &goal.model_binding != current_model_binding
+            || !goal.model_binding.follows(current_model_binding)
         {
             return Err(GoalError::StaleRevision);
         }
@@ -513,6 +521,8 @@ impl GoalOpenRequest {
             now_unix_ms,
         )?;
         goal.text_sources.goal_text = self.text_source.clone();
+        // The revised goal continues on the owner's current model.
+        goal.model_binding = current_model_binding.clone();
         self.state = GoalOpenRequestState::Approved;
         self.decided_at_unix_ms = Some(now_unix_ms);
         self.decision_event_id = Some(decision_event_id);
@@ -531,7 +541,7 @@ impl GoalOpenRequest {
         created_at_unix_ms: u64,
     ) -> Result<Self, GoalError> {
         goal.can_propose_revision(input_revision)?;
-        if goal.model_binding != model_binding {
+        if !goal.model_binding.follows(&model_binding) {
             return Err(GoalError::StaleRevision);
         }
         let mut request = Self::new(
@@ -588,7 +598,7 @@ impl GoalOpenRequest {
         self.validate()?;
         if self.state != GoalOpenRequestState::Pending
             || self.input_revision != current_input_revision
-            || &self.model_binding != current_model_binding
+            || !self.model_binding.follows(current_model_binding)
         {
             return Err(GoalError::StaleRevision);
         }
@@ -1735,6 +1745,16 @@ impl GoalRun {
         Ok(true)
     }
 
+    /// Moves the goal to the owner's `current` model before a slice is
+    /// claimed in the same transaction; another gateway family is stale.
+    pub fn rebind_model(&mut self, current: &GoalModelBinding) -> Result<(), GoalError> {
+        if !self.model_binding.follows(current) {
+            return Err(GoalError::StaleRevision);
+        }
+        self.model_binding = current.clone();
+        Ok(())
+    }
+
     pub fn claim_slice(&mut self, now_unix_ms: u64) -> Result<(u32, u64), GoalError> {
         if !self.state.can_claim() {
             return Err(GoalError::InvalidState);
@@ -2870,8 +2890,10 @@ mod tests {
             ),
             Err(GoalError::StaleRevision),
         );
+        // Another model of the gateway family is the owner's current choice;
+        // another family is stale.
         let mut changed_model = model_binding();
-        changed_model.profile_revision += 1;
+        changed_model.connection_id = "approval:1".into();
         assert_eq!(
             request.approve(
                 1,
@@ -3386,6 +3408,35 @@ mod tests {
         goal.pause_settled(GoalPauseReason::Owner, 61_000).unwrap();
         assert_eq!(goal.device_unavailable_since_unix_ms, None);
         goal.validate().unwrap();
+    }
+
+    #[test]
+    fn a_goal_follows_the_owner_to_another_model_of_its_gateway_family() {
+        let mut followed = goal();
+        let mut current = model_binding();
+        current.connection_revision += 1;
+        current.model_id = "new-model".into();
+        current.profile_revision += 1;
+        followed.rebind_model(&current).unwrap();
+        assert_eq!(followed.model_binding, current);
+        assert_eq!(followed.claim_slice(1_001), Ok((1, 1)));
+        // Another gateway family is stale and leaves the binding.
+        let mut other = goal();
+        let mut family = model_binding();
+        family.connection_id = "approval:1".into();
+        assert_eq!(other.rebind_model(&family), Err(GoalError::StaleRevision));
+        assert_eq!(other.model_binding, model_binding());
+    }
+
+    #[test]
+    fn a_goal_binding_follows_only_its_gateway_family() {
+        let goal_binding = model_binding();
+        let mut current = model_binding();
+        current.model_id = "new-model".into();
+        assert!(goal_binding.follows(&current));
+        let mut family = model_binding();
+        family.connection_id = "approval:1".into();
+        assert!(!goal_binding.follows(&family));
     }
 
     #[test]

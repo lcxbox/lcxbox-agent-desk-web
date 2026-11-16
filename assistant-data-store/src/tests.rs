@@ -139,16 +139,16 @@ async fn schema_reopen_preserves_committed_assistant_rows_and_metadata_charge() 
 }
 
 #[tokio::test]
-async fn reports_follow_the_owner_model_within_one_gateway_after_backfill() {
+async fn reports_stay_selectable_after_the_owner_changes_connection() {
     use crate::entity::agent_subagent_inbox as inbox;
-    use sea_orm::{ActiveModelTrait, QueryOrder, Set};
+    use sea_orm::{ActiveModelTrait, Set};
     let store = setup().await;
-    let old = destination("old-model");
     let row = |event: &str, stored: Option<String>| inbox::ActiveModel {
         event_id: Set(event.into()),
         root_conversation_id: Set("root".into()),
         group_id: Set("group".into()),
         task_id: Set("task".into()),
+        workbench_id: Set(Some("bench".into())),
         actor_id: Set("1".into()),
         device_id: Set(String::new()),
         state_revision: Set(1),
@@ -158,49 +158,28 @@ async fn reports_follow_the_owner_model_within_one_gateway_after_backfill() {
         event_json: Set("{}".into()),
         parent_input_revision: Set(1),
         parent_control_revision: Set(1),
+        coordination_attempts: Set(Some(0)),
         created_at: Set(1),
         ..Default::default()
     };
-    // A row written before reports stored their gateway identity.
-    row("legacy", Some(serde_json::to_string(&old).unwrap()))
+    // Written while the owner used the old connection; the stored gateway is
+    // kept for audit only.
+    let old = worker_report::report_gateway(&destination("old-model")).unwrap();
+    row("projectable", Some(old))
         .insert(&store.db)
         .await
         .unwrap();
+    // A report without a gateway can never be projected.
     row("protected", None).insert(&store.db).await.unwrap();
-    assert_eq!(
-        worker_report::normalize_report_gateways_on(&store.db)
-            .await
-            .unwrap(),
-        1
-    );
-    assert_eq!(
-        worker_report::normalize_report_gateways_on(&store.db)
-            .await
-            .unwrap(),
-        0
-    );
-    let stored: Vec<_> = inbox::Entity::find()
-        .order_by_asc(inbox::Column::Id)
-        .all(&store.db)
+    let candidates = worker_report::batch_candidates_on(&store.db, "bench", "1", 1)
         .await
-        .unwrap()
-        .into_iter()
-        .map(|row| row.report_model_destination)
-        .collect();
-    // The owner's current model on the same gateway matches the stored value.
-    let current = worker_report::report_gateway(&destination("new-model")).unwrap();
-    assert_eq!(stored, [Some(current.clone()), None]);
-    let mut other_connection = destination("new-model");
-    if let desk_agent_protocol::data_lineage::DestinationIdentity::Model {
-        connection_revision,
-        ..
-    } = &mut other_connection
-    {
-        *connection_revision = 2;
-    }
-    assert_ne!(
-        worker_report::report_gateway(&other_connection).unwrap(),
-        current
+        .unwrap();
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|row| row.event_id.as_str())
+            .collect::<Vec<_>>(),
+        ["projectable"]
     );
 }
 

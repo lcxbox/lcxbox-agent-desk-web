@@ -149,7 +149,10 @@ impl ObjectReadBinding<'_> {
         }
         for object in &selected {
             if !object.is_active_at(self.now_unix_ms)
-                || object.envelope.allowed_destinations.as_slice() != [(*self.destination).clone()]
+                || !crate::model_egress::bound_to(
+                    &object.envelope.allowed_destinations,
+                    self.destination,
+                )
             {
                 return Err(denied());
             }

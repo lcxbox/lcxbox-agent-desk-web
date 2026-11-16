@@ -721,8 +721,18 @@ pub(crate) mod tests {
         let stored = store.0.borrow();
         let envelope = stored[0].metadata.source_envelope.as_ref().unwrap();
         assert!(policy(gateway(1)).has_gateway_authority(envelope));
-        // A changed connection is a different recipient and stays rejected.
-        assert!(!policy(gateway(2)).has_gateway_authority(envelope));
+        // A new endpoint or credential keeps the attachment; another gateway
+        // family does not.
+        assert!(policy(gateway(2)).has_gateway_authority(envelope));
+        assert!(
+            !policy(DestinationIdentity::Model {
+                connection_id: "approval:1".into(),
+                connection_revision: 1,
+                model_id: "model".into(),
+                profile_revision: 1,
+            })
+            .has_gateway_authority(envelope)
+        );
     }
 
     #[tokio::test]

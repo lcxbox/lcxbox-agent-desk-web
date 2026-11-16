@@ -25,7 +25,7 @@ fn validate_source_context(
         || source.device_id != session.device_id
         || source.parent_input_revision != session.input_revision
         || source.parent_control_revision > session.control_revision
-        || source.model_destination != *destination
+        || !crate::model_egress::same_recipient(&source.model_destination, destination)
         || session.delegation_group_id.as_deref() != Some(source.group_id()?.as_str())
         || session.conversation.first() != Some(&source.owner_requirement)
     {

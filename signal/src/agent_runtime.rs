@@ -536,10 +536,12 @@ async fn resume_completion_turn_inner(
             .filter(|_| matches!(work_kind, WorkKind::ComputerAction | WorkKind::AgentExec))
             .ok_or_else(export_denied)?;
         let destination = config.destination_identity().map_err(|_| export_denied())?;
-        if child_creation
-            .as_ref()
-            .is_some_and(|creation| creation.source.model_destination != destination)
-        {
+        if child_creation.as_ref().is_some_and(|creation| {
+            !desk_diagnose_core::model_egress::same_recipient(
+                &creation.source.model_destination,
+                &destination,
+            )
+        }) {
             return Err(export_denied());
         }
         let export = crate::capability_grant_store::SignalCapabilityGrantStore::new(db.clone())

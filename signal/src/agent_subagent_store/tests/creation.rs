@@ -750,7 +750,33 @@ async fn a_child_follows_the_owner_model_within_the_same_gateway() {
 }
 
 #[tokio::test]
-async fn changed_model_and_expired_source_cannot_claim_or_revive_a_child() {
+async fn a_child_follows_its_owner_to_a_new_connection_of_the_gateway_family() {
+    let db = database().await;
+    let (parent, calls) = runnable_parent(&db).await;
+    let store = SubAgentStore::new(db.clone());
+    let task = store
+        .spawn_for_turn(&parent, &calls[0], &spawn_request())
+        .await
+        .unwrap();
+    let run = load(&db, &task.task_id).await;
+    let params = claim_params(&run);
+    let new_connection = DestinationIdentity::Model {
+        connection_id: "gateway".into(),
+        connection_revision: 2,
+        model_id: "model".into(),
+        profile_revision: 1,
+    };
+    assert!(
+        store
+            .claim_child(&params, &task.task_id, run.fence(), &new_connection)
+            .await
+            .is_ok()
+    );
+    assert_ne!(load(&db, &task.task_id).await.state, SubAgentState::Queued);
+}
+
+#[tokio::test]
+async fn another_gateway_family_and_expired_source_cannot_claim_or_revive_a_child() {
     let db = database().await;
     let (parent, calls) = runnable_parent(&db).await;
     let store = SubAgentStore::new(db.clone());
@@ -761,8 +787,8 @@ async fn changed_model_and_expired_source_cannot_claim_or_revive_a_child() {
     let run = load(&db, &task.task_id).await;
     let mut params = claim_params(&run);
     let changed = DestinationIdentity::Model {
-        connection_id: "gateway".into(),
-        connection_revision: 2,
+        connection_id: "approval:1".into(),
+        connection_revision: 1,
         model_id: "model".into(),
         profile_revision: 1,
     };

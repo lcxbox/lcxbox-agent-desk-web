@@ -30,7 +30,6 @@ async fn report_candidates_on(
         db,
         workbench,
         &session.actor_id,
-        &frozen.destination,
         now_ms,
     )
     .await

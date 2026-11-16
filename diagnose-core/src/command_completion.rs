@@ -130,7 +130,7 @@ impl CommandCompletionContext {
         now: u64,
     ) -> Result<(), AgentError> {
         self.validate()?;
-        if &self.destination != destination
+        if !crate::model_egress::same_recipient(&self.destination, destination)
             || now < self.captured_at_unix_ms
             || now >= self.expires_at_unix_ms
             || self.context != session_context(session)
@@ -289,9 +289,21 @@ mod tests {
         frozen.check(&original, &destination(), 900_999).unwrap();
         assert!(frozen.check(&original, &destination(), 901_000).is_err());
         assert!(frozen.check(&original, &destination(), now - 1).is_err());
+        // Another model or connection of the gateway family completes it;
+        // another family does not.
         let mut changed = destination();
-        if let DestinationIdentity::Model { model_id, .. } = &mut changed {
+        if let DestinationIdentity::Model {
+            model_id,
+            connection_revision,
+            ..
+        } = &mut changed
+        {
             *model_id = "other".into();
+            *connection_revision += 1;
+        }
+        frozen.check(&original, &changed, now + 320_000).unwrap();
+        if let DestinationIdentity::Model { connection_id, .. } = &mut changed {
+            *connection_id = "approval:1".into();
         }
         assert!(frozen.check(&original, &changed, now + 320_000).is_err());
         let mut changed = original.clone();
