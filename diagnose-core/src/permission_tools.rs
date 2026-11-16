@@ -401,59 +401,49 @@ impl CapabilityAuthorizationPrompt {
     }
 }
 
-/// Cites the approved requests an active grant's inputs and scopes came from.
-/// A scoped grant no request explains cites its scope without a proof.
+/// Cites the request item an active grant was issued for, with the
+/// request's proof. A scoped grant no request item issued cites its scope
+/// without a proof.
 fn cite_grant_sources(
     grant: &CapabilityGrant,
     permission_requests: &[PermissionRequest],
     cites: &mut Vec<crate::model_content::StoredSpec>,
 ) {
     use crate::model_content::StoredSpec;
-    let mut matched = false;
-    for request in permission_requests.iter().filter(|request| {
-        matches!(
-            request.state,
-            PermissionRequestState::Approved | PermissionRequestState::PartiallyApproved
-        )
-    }) {
-        let items = request
+    // A grant decided on a request item has an id derived from that item;
+    // other grants, such as policy and scheduled ones, cite no request.
+    let issued = permission_requests.iter().find_map(|request| {
+        request
             .items
             .iter()
-            .filter(|item| {
-                item.provider_id == grant.provider_id
-                    && item.tool_name == grant.tool_name
-                    && (item.resource_scope == grant.resource_scope
-                        || (grant.canonical_input_digest_sha256.is_some()
-                            && item.canonical_input_digest_sha256
-                                == grant.canonical_input_digest_sha256))
+            .find(|item| {
+                crate::permission_grant::permission_item_grant_id(
+                    &grant.run_id,
+                    request,
+                    &item.item_id,
+                ) == grant.grant_id
             })
-            .collect::<Vec<_>>();
-        if items.is_empty() {
-            continue;
-        }
-        matched = true;
-        let spec = StoredSpec::proven(
+            .map(|item| (request, item))
+    });
+    let spec = match issued {
+        Some((request, item)) => StoredSpec::proven(
             "permission_request",
             request.request_id.clone(),
             "items",
-            serde_json::to_string(&items).unwrap_or_default(),
+            serde_json::to_string(&[item]).unwrap_or_default(),
             request.input_source.as_deref().cloned(),
-        );
-        if !cites.contains(&spec) {
-            cites.push(spec);
-        }
-    }
-    if !matched && !grant.resource_scope.is_empty() {
-        let spec = StoredSpec::proven(
+        ),
+        None if !grant.resource_scope.is_empty() => StoredSpec::proven(
             "capability_grant",
             grant.grant_id.clone(),
             "resource_scope",
             serde_json::to_string(&grant.resource_scope).unwrap_or_default(),
             None,
-        );
-        if !cites.contains(&spec) {
-            cites.push(spec);
-        }
+        ),
+        None => return,
+    };
+    if !cites.contains(&spec) {
+        cites.push(spec);
     }
 }
 
@@ -3513,6 +3503,125 @@ mod tests {
         let stale_focus = capability_authorization_prompt(&[grant], &[], &[], 500, 2, 1);
         assert!(stale_focus.text.contains("inspect_office_selection"));
         assert_eq!(stale_focus.approved_exact_input_expires_at_unix_ms, None);
+    }
+
+    #[test]
+    fn a_grant_cites_the_request_item_it_was_issued_for() {
+        use crate::model_content::stored::SpecOrigin;
+        use desk_agent_protocol::capability_grant::{
+            CAPABILITY_GRANT_SCHEMA_VERSION, CapabilityGrantIssuer, CapabilityGrantLimits,
+            CapabilityGrantUsePolicy, CapabilityRiskTier,
+        };
+        use desk_agent_protocol::capability_provider::ProductSurface;
+
+        let item = |item_id: &str, reason: &str| GrantRequestItem {
+            command_confirmation: None,
+            selected_device_target: None,
+            launch_confirmation: None,
+            item_id: item_id.into(),
+            provider_id: "desktop.session".into(),
+            tool_name: "inspect_desktop_session".into(),
+            expected_effect: CapabilityEffect::ReadDevice,
+            resource_scope: vec!["desktop:current".into()],
+            operation_scope: vec!["inspect".into()],
+            export_destinations: Vec::new(),
+            canonical_input_json: None,
+            canonical_input_digest_sha256: None,
+            suggested_ttl_seconds: 300,
+            suggested_max_uses: 1,
+            reason: reason.into(),
+        };
+        let proof = crate::model_content::StoredTextSource::owner("owner", 1);
+        let request = PermissionRequest {
+            input_source: Some(Box::new(proof.clone())),
+            schema_version: PERMISSION_REQUEST_SCHEMA_VERSION,
+            request_id: "permission-two".into(),
+            input_revision: 1,
+            state: PermissionRequestState::PartiallyApproved,
+            // Both items share a scope; only the id tells them apart.
+            items: vec![
+                item("first", "Read the first session"),
+                item("second", "Read the second session"),
+            ],
+            created_at: "2026-08-28T00:00:00Z".into(),
+        };
+        let grant = |grant_id: String, issued_by| CapabilityGrant {
+            schema_version: CAPABILITY_GRANT_SCHEMA_VERSION,
+            grant_id,
+            actor_id: "owner".into(),
+            run_id: "run".into(),
+            input_revision: 1,
+            surface: ProductSurface::OssPersonalOwner,
+            target_device_id: "device".into(),
+            target_session_id: None,
+            provider_id: "desktop.session".into(),
+            capability_id: "desktop.session.inspect".into(),
+            tool_name: "inspect_desktop_session".into(),
+            tool_schema_version: 1,
+            effect: CapabilityEffect::ReadDevice,
+            risk_tier: CapabilityRiskTier::R1,
+            resource_scope: vec!["desktop:current".into()],
+            operation_scope: vec!["inspect".into()],
+            export_destinations: Vec::new(),
+            allowed_envelope_ids: Vec::new(),
+            use_policy: CapabilityGrantUsePolicy::Reusable,
+            canonical_input_digest_sha256: None,
+            issued_by,
+            issued_at_unix_ms: 100,
+            expires_at_unix_ms: 1_000,
+            remaining_uses: 1,
+            limits: CapabilityGrantLimits {
+                max_bytes_per_call: 1024,
+                max_items_per_call: 1,
+                max_calls: 1,
+            },
+            policy_revision: 1,
+            readiness_revision: 1,
+            revoked_at_unix_ms: None,
+            revoked_reason: None,
+        };
+        let decided = grant(
+            crate::permission_grant::permission_item_grant_id("run", &request, "second"),
+            CapabilityGrantIssuer::UserDecision,
+        );
+        let projection = capability_authorization_prompt(
+            std::slice::from_ref(&decided),
+            std::slice::from_ref(&request),
+            &[],
+            500,
+            1,
+            1,
+        );
+        let [cite] = projection.cites.as_slice() else {
+            panic!("one cite: {:?}", projection.cites);
+        };
+        assert_eq!(
+            (cite.kind, cite.record_id.as_str()),
+            ("permission_request", "permission-two")
+        );
+        assert!(cite.text.contains("Read the second session"));
+        assert!(!cite.text.contains("Read the first session"));
+        assert_eq!(cite.origin, SpecOrigin::Proof(Some(proof)));
+
+        // A grant no request item issued cites only its scope, unproven,
+        // even when a request item has the same scope.
+        let policy = grant("policy-grant".into(), CapabilityGrantIssuer::UserDecision);
+        let projection = capability_authorization_prompt(
+            std::slice::from_ref(&policy),
+            std::slice::from_ref(&request),
+            &[],
+            500,
+            1,
+            1,
+        );
+        let [cite] = projection.cites.as_slice() else {
+            panic!("one cite: {:?}", projection.cites);
+        };
+        assert_eq!(
+            (cite.kind, cite.record_id.as_str()),
+            ("capability_grant", "policy-grant")
+        );
+        assert_eq!(cite.origin, SpecOrigin::Proof(None));
     }
 
     #[test]
