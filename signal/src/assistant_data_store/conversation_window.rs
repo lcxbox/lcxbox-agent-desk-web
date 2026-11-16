@@ -377,11 +377,19 @@ async fn prepare_query_on(
     } else {
         fence
             .observed_version(&request.source_id)
-            .ok_or(AssistantStoreError::Inaccessible)?
+            // A source this conversation never received is the model's to
+            // correct.
+            .ok_or(AssistantStoreError::SourceUnavailable)?
             .clone()
     };
-    if request.cursor.is_none() && fence.observed_version(&request.source_id) != Some(&version) {
-        return Err(AssistantStoreError::Inaccessible);
+    if request.cursor.is_none() {
+        match fence.observed_version(&request.source_id) {
+            None => return Err(AssistantStoreError::SourceUnavailable),
+            Some(observed) if observed != &version => {
+                return Err(AssistantStoreError::Inaccessible);
+            }
+            Some(_) => {}
+        }
     }
     let authority = HistorySearchAuthorization {
         actor_id: &binding.actor_id,

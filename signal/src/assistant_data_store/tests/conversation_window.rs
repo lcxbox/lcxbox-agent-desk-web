@@ -420,11 +420,15 @@ async fn guessing_an_existing_source_id_in_an_output_does_not_make_it_an_observe
         .count(&frame.store.db)
         .await
         .unwrap();
-    assert!(
-        conversation_window::read(&frame.store.db, frame.context(), &request)
-            .await
-            .is_err()
-    );
+    // The model gets a correctable error instead of a failed turn.
+    let Err(error) = conversation_window::read(&frame.store.db, frame.context(), &request).await
+    else {
+        panic!("an unobserved source is not readable");
+    };
+    assert!(matches!(error, AssistantStoreError::SourceUnavailable));
+    let error = error.into_agent_error();
+    assert!(error.safe_for_model);
+    assert!(error.message.contains("search_conversations"));
     assert_eq!(
         query_row::Entity::find()
             .count(&frame.store.db)

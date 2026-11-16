@@ -66,7 +66,7 @@ impl AssistantStoreError {
             Self::Inaccessible => (Internal, "assistant data is inaccessible", false, false),
             Self::SourceUnavailable => (
                 InvalidInput,
-                "Requested memory evidence is unavailable. Use a source returned by search_memories, read_memory_history or current memories; use read_conversation for history search results.",
+                "Requested source is unavailable. Use a source_id returned earlier in this conversation: from search_memories, read_memory_history or current memories for read_memory_source, and from search_conversations for read_conversation.",
                 false,
                 true,
             ),
