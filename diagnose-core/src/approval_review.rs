@@ -735,12 +735,30 @@ pub struct ApprovalSkippedCall {
     pub paused_for_request_id: String,
 }
 
+/// The stored personal skill version a skill proposal derives from: the
+/// version an update edits, or the one a removal names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewSkillBase {
+    pub skill_id: String,
+    pub name: String,
+    pub version: u64,
+    pub ai_authored: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovalContext {
     pub current_user_requirement: String,
     pub goal_text: Option<String>,
     pub goal_revision: Option<u64>,
+    /// The proof recorded when the goal text was written, so a reviewer's
+    /// reason that read it can be traced to its source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_text_source: Option<crate::model_content::StoredTextSource>,
+    /// The stored skill version the reviewed skill proposal derives from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_base: Option<ReviewSkillBase>,
     pub current_authority: Vec<ApprovalAuthorityFact>,
     pub skipped_calls: Vec<ApprovalSkippedCall>,
     pub evidence: Vec<ApprovalEvidence>,
@@ -1561,6 +1579,8 @@ pub fn permission_review_candidate(
             current_user_requirement,
             goal_text: goal.map(|goal| goal.goal_text.clone()),
             goal_revision: goal.map(|goal| goal.goal_revision),
+            goal_text_source: goal.and_then(|goal| goal.text_sources.goal_text.clone()),
+            skill_base: None,
             current_authority,
             skipped_calls,
             evidence,
@@ -1587,6 +1607,8 @@ pub struct SourceReviewInput<'a> {
     pub expires_at_unix_ms: u64,
     pub current_authority: Vec<ApprovalAuthorityFact>,
     pub now_unix_ms: u64,
+    /// The stored skill version a skill proposal derives from.
+    pub skill_base: Option<ReviewSkillBase>,
 }
 
 pub fn source_review_candidate(
@@ -1613,6 +1635,7 @@ pub fn source_review_candidate_for_device(
         expires_at_unix_ms,
         current_authority,
         now_unix_ms,
+        skill_base,
     } = input;
     if session.surface != AgentSessionSurface::AiAssistant
         || (device_id != session.device_id
@@ -1672,6 +1695,8 @@ pub fn source_review_candidate_for_device(
             current_user_requirement,
             goal_text: goal.map(|goal| goal.goal_text.clone()),
             goal_revision: goal.map(|goal| goal.goal_revision),
+            goal_text_source: goal.and_then(|goal| goal.text_sources.goal_text.clone()),
+            skill_base,
             current_authority,
             skipped_calls,
             evidence,
@@ -2337,6 +2362,8 @@ pub fn approval_probe_cases() -> Vec<ApprovalProbeCase> {
                     current_user_requirement: owner_instruction.into(),
                     goal_text: None,
                     goal_revision: None,
+                    goal_text_source: None,
+                    skill_base: None,
                     current_authority: vec![ApprovalAuthorityFact {
                         source,
                         status: ApprovalAuthorityStatus::Pending,
@@ -2833,6 +2860,8 @@ pub(crate) mod tests {
                 current_user_requirement: "Update this file".into(),
                 goal_text: None,
                 goal_revision: None,
+                goal_text_source: None,
+                skill_base: None,
                 current_authority: vec![ApprovalAuthorityFact {
                     source: ApprovalSource::PermissionItem {
                         request_id: "request".into(),

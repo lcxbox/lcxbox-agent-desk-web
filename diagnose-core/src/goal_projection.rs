@@ -21,7 +21,10 @@ use desk_agent_protocol::{
 };
 use serde::Serialize;
 
-const KIND: &str = "goal";
+/// The stored-text kind of goal fields.
+pub(crate) const KIND: &str = "goal";
+/// The field of the current goal text.
+pub(crate) const GOAL_TEXT_FIELD: &str = "goal_text";
 
 crate::const_piece!(
     crate::goal::GoalUsage,
@@ -179,7 +182,7 @@ pub fn state_message(
     let text = goal.goal_text.clone();
     let root = root(
         goal,
-        "goal_text",
+        GOAL_TEXT_FIELD,
         &text,
         goal.text_sources.goal_text.clone(),
         destination,
@@ -223,7 +226,7 @@ pub fn clarification_message(
     let text = goal.goal_text.clone();
     let root = root(
         goal,
-        "goal_text",
+        GOAL_TEXT_FIELD,
         &text,
         goal.text_sources.goal_text.clone(),
         destination,

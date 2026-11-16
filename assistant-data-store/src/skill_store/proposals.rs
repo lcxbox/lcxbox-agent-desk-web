@@ -282,6 +282,10 @@ async fn save_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     let removal = is_removal(new.kind);
     let proposal_id = new_id();
     let base_version = new.base.as_ref().map(|(_, version)| *version as u64);
+    let base_skill = match &new.base {
+        Some((skill_id, version)) => base_skill_on(txn, skill_id, *version, &new.name).await?,
+        None => None,
+    };
     let proposal = SkillProposal {
         proposal_id: proposal_id.clone(),
         revision: 1,
@@ -296,6 +300,7 @@ async fn save_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         files: new.content.files.clone(),
         changes: new.changes,
         reason: new.reason.clone(),
+        base_skill,
     };
     if !authoring::fits_review(session, &proposal, &call.id) {
         observation.reject(Stage::Preflight, InputIssue::Length);
@@ -525,6 +530,12 @@ pub async fn review_proposal_on<C: ConnectionTrait>(
     };
     let input = stored_input(&row)?;
     let changes = diff_of_on(db, &row, &input).await?;
+    let base_skill = match (&row.base_skill_id, row.base_version) {
+        (Some(skill_id), Some(version)) => base_skill_on(db, skill_id, version, &row.name)
+            .await
+            .map_err(|_| ScheduleStoreError::Invalid)?,
+        _ => None,
+    };
     Ok(Some(SkillProposal {
         proposal_id: row.proposal_id,
         revision: row.revision,
@@ -541,6 +552,25 @@ pub async fn review_proposal_on<C: ConnectionTrait>(
         files: input.files,
         changes,
         reason: row.reason,
+        base_skill,
+    }))
+}
+
+/// The stored version a proposal derives from, as its review records it;
+/// `None` once that version is gone.
+async fn base_skill_on<C: ConnectionTrait>(
+    db: &C,
+    skill_id: &str,
+    version: i64,
+    name: &str,
+) -> Result<Option<desk_diagnose_core::approval_review::ReviewSkillBase>, SkillStoreError> {
+    Ok(version_on(db, skill_id, version).await?.map(|row| {
+        desk_diagnose_core::approval_review::ReviewSkillBase {
+            skill_id: skill_id.to_owned(),
+            name: name.to_owned(),
+            version: version as u64,
+            ai_authored: parse_origin(&row.origin) == SkillOrigin::AiAuthored,
+        }
     }))
 }
 
@@ -885,18 +915,18 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         .rev()
         .find_map(|message| message.data_envelope.as_ref());
     let mut message = ChatMessage::system_event(&id, &text);
-    message.data_envelope =
-        desk_diagnose_core::proposal_review::provenance::decision_receipt_envelope(
-            &session,
-            // The receipt is written only while the turn waits on this proposal.
-            desk_diagnose_core::proposal_review::provenance::proposing_output(&session),
-            ai,
-            last_labelled,
-            &id,
-            &text,
-            desk_diagnose_core::model_message_labels::ServerResultSource::SkillProposalDecision,
-        )
-        .map_err(|_| ScheduleStoreError::Invalid)?;
+    desk_diagnose_core::proposal_review::provenance::decision_receipt_envelope(
+        &session,
+        // The receipt is written only while the turn waits on this proposal.
+        desk_diagnose_core::proposal_review::provenance::proposing_output(&session),
+        ai,
+        last_labelled,
+        &id,
+        &text,
+        desk_diagnose_core::model_message_labels::ServerResultSource::SkillProposalDecision,
+    )
+    .map_err(|_| ScheduleStoreError::Invalid)?
+    .apply(&mut message);
     crate::decision_resume::record_decision_on(host, txn, &session_row, session, message, now)
         .await?;
     Ok(())

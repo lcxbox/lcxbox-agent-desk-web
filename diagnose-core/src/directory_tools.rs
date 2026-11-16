@@ -282,7 +282,7 @@ pub fn decision_event(
         .find_map(|message| message.data_envelope.as_ref());
     let mut message = crate::chat::ChatMessage::system_event(&id, &text);
     // Appended only while the turn waits on this request.
-    message.data_envelope = crate::proposal_review::provenance::decision_receipt_envelope(
+    crate::proposal_review::provenance::decision_receipt_envelope(
         session,
         crate::proposal_review::provenance::proposing_output(session),
         ai,
@@ -290,7 +290,8 @@ pub fn decision_event(
         &id,
         &text,
         crate::model_message_labels::ServerResultSource::DirectoryDecision,
-    )?;
+    )?
+    .apply(&mut message);
     Ok(message)
 }
 

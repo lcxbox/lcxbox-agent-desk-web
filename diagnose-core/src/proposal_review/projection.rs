@@ -11,9 +11,7 @@
 use crate::{
     approval_review::ApprovalReasonCode,
     chat::ChatMessage,
-    model_message_labels::{
-        COMPOSED_RESULT_PREFIX, ServerResultSource, invalid_label, server_review_envelope,
-    },
+    model_message_labels::{COMPOSED_RESULT_PREFIX, ServerResultSource, invalid_label},
 };
 use desk_agent_protocol::{AgentError, data_lineage::DataEnvelope};
 use serde_json::Value;
@@ -97,23 +95,37 @@ fn project_decided(messages: &mut [ChatMessage], pair: &DecidedPair) -> Result<(
     // A registered receipt keeps its reason when every parent it was
     // decided from is an input of this request.
     if label.envelope_id.starts_with(COMPOSED_RESULT_PREFIX) {
-        let parents = label
-            .provenance
-            .source_envelope_ids
-            .iter()
-            .map(|id| label_in(earlier, id).cloned())
-            .collect::<Option<Vec<_>>>();
-        if let Some(parents) = parents {
+        // A parent is a label of this request, or a root of stored text the
+        // receipt itself carries.
+        let roots = &messages[pair.receipt].stored_roots;
+        let mut parents = crate::proposal_review::provenance::ReasonParents {
+            labels: Vec::new(),
+            roots: Vec::new(),
+        };
+        let found = label.provenance.source_envelope_ids.iter().all(|id| {
+            if let Some(found) = label_in(earlier, id) {
+                parents.labels.push(found.clone());
+                true
+            } else if let Some(root) = roots.iter().find(|root| root.label.envelope_id == *id) {
+                parents.roots.push(root.clone());
+                true
+            } else {
+                false
+            }
+        });
+        if found && !parents.labels.is_empty() {
             (pair.finish)(&mut value);
-            let text = value.to_string();
-            let envelope = server_review_envelope(
-                &parents.iter().collect::<Vec<_>>(),
-                &call_id,
-                &text,
-                source,
+            let reason = parents.content(&value.to_string());
+            let issuing = parents.labels[0].clone();
+            messages[pair.draft] = messages[pair.draft].clone().with_content(
+                &reason,
+                crate::model_content::Labelling {
+                    issuing: Some(&issuing),
+                    call_id: &call_id,
+                    source,
+                    request_only: false,
+                },
             )?;
-            messages[pair.draft].text = text;
-            messages[pair.draft].data_envelope = Some(envelope);
             return Ok(());
         }
     }
@@ -180,7 +192,7 @@ mod tests {
             "reason_code":"owner_not_requested"})
         .to_string();
         let mut receipt = ChatMessage::system_event("receipt", &text);
-        receipt.data_envelope = decision_receipt_envelope(
+        decision_receipt_envelope(
             &session,
             proposing_output(&session),
             Some(&ai),
@@ -189,7 +201,8 @@ mod tests {
             &text,
             ServerResultSource::SkillProposalDecision,
         )
-        .unwrap();
+        .unwrap()
+        .apply(&mut receipt);
         session.conversation.push(receipt);
         session.conversation
     }
@@ -273,7 +286,7 @@ mod tests {
         let text = messages[4].text.replace("p1", "p2");
         let mut receipt = ChatMessage::system_event("receipt-2", &text);
         receipt.data_envelope = Some(
-            server_review_envelope(
+            crate::model_message_labels::server_review_envelope(
                 &[&proposing, &first],
                 "receipt-2",
                 &text,

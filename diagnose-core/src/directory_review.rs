@@ -229,6 +229,7 @@ pub fn candidate(
             dispatch_ids: vec![],
         }],
         now_unix_ms: now,
+        skill_base: None,
     })
 }
 

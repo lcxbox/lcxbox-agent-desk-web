@@ -351,17 +351,17 @@ pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         None
     };
     let mut message = desk_diagnose_core::chat::ChatMessage::system_event(&id, &text);
-    message.data_envelope =
-        desk_diagnose_core::proposal_review::provenance::decision_receipt_envelope(
-            &session,
-            proposing.as_ref(),
-            ai,
-            last_labelled,
-            &id,
-            &text,
-            desk_diagnose_core::model_message_labels::ServerResultSource::ScheduleActivation,
-        )
-        .map_err(|_| ScheduleStoreError::Invalid)?;
+    desk_diagnose_core::proposal_review::provenance::decision_receipt_envelope(
+        &session,
+        proposing.as_ref(),
+        ai,
+        last_labelled,
+        &id,
+        &text,
+        desk_diagnose_core::model_message_labels::ServerResultSource::ScheduleActivation,
+    )
+    .map_err(|_| ScheduleStoreError::Invalid)?
+    .apply(&mut message);
     if paused {
         return crate::decision_resume::record_decision_on(host, txn, &row, session, message, now)
             .await;

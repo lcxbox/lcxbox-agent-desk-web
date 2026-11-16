@@ -1004,6 +1004,21 @@ pub struct SkillRoot {
 }
 
 impl SkillRoot {
+    /// The stored personal version a reviewed skill proposal derives from.
+    pub(crate) fn reviewed_base(base: &crate::approval_review::ReviewSkillBase) -> Self {
+        Self {
+            skill_id: base.skill_id.clone(),
+            scope: SkillScope::Personal,
+            origin: if base.ai_authored {
+                SkillOrigin::AiAuthored
+            } else {
+                SkillOrigin::Imported
+            },
+            version: base.version,
+            name: base.name.clone(),
+        }
+    }
+
     fn of_entry(entry: &StoredSkillEntry) -> Self {
         Self {
             skill_id: entry.skill_id.clone(),

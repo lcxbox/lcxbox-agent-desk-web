@@ -407,6 +407,10 @@ pub struct SkillProposal {
     /// Changed hunks from the base version; empty for a new skill.
     pub changes: Vec<SkillFileDiff>,
     pub reason: String,
+    /// The stored version an update edits or a removal names, so a
+    /// reviewer's reason that read its text can be traced to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_skill: Option<crate::approval_review::ReviewSkillBase>,
 }
 
 impl SkillProposal {
@@ -559,6 +563,7 @@ pub fn candidate(
             dispatch_ids: vec![],
         }],
         now_unix_ms: now,
+        skill_base: proposal.base_skill.clone(),
     })
 }
 

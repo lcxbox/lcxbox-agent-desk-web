@@ -300,6 +300,7 @@ async fn prepare_on_inner(
                     dispatch_ids: vec![],
                 }],
                 now_unix_ms,
+                skill_base: None,
             },
             subject.device_id,
         )

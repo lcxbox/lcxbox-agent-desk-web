@@ -422,6 +422,7 @@ async fn exercise_live_review(selectable: bool) {
                     provenance: desk_diagnose_core::proposal_review::provenance::ReviewProvenance {
                         verifiable: false,
                         evidence: Vec::new(),
+                        stored: Vec::new(),
                     },
                 },
             )

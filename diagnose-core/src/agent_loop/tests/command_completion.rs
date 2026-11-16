@@ -398,6 +398,7 @@ impl ToolSeam for DenyingTools {
                 provenance: crate::proposal_review::provenance::ReviewProvenance {
                     verifiable: true,
                     evidence: Vec::new(),
+                    stored: Vec::new(),
                 },
             }),
         })

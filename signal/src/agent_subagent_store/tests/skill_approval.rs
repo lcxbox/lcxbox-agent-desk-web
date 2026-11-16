@@ -440,14 +440,25 @@ async fn ai_approval_disables_the_assistant_written_skill() {
         (receipt["kind"].as_str(), receipt["status"].as_str()),
         (Some("disable"), Some("approved"))
     );
-    // The reviewer saw the stored skill, so its reason cannot be verified:
-    // the receipt keeps a data label, and the model gets only the code.
+    // The reviewer saw the stored skill version; its reason is traced to
+    // that version's root, which the receipt carries.
     assert_eq!(receipt["reason_code"], "within_scope");
     assert!(
         last.data_envelope
+            .as_ref()
             .unwrap()
             .envelope_id
-            .starts_with("unverified-result-")
+            .starts_with("composed-result-")
+    );
+    let [root] = last.stored_roots.as_slice() else {
+        panic!("the receipt cites the removed version");
+    };
+    assert!(
+        last.data_envelope
+            .unwrap()
+            .provenance
+            .source_envelope_ids
+            .contains(&root.label.envelope_id)
     );
 }
 

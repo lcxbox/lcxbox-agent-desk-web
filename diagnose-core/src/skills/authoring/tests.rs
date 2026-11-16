@@ -189,6 +189,7 @@ fn proposal(body: &str) -> SkillProposal {
         files: vec![],
         changes: vec![],
         reason: "The owner asked to keep this".into(),
+        base_skill: None,
     }
 }
 

@@ -17,35 +17,135 @@ use std::collections::{BTreeMap, BTreeSet};
 /// What an AI reviewer saw, frozen from the settled candidate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviewProvenance {
-    /// False when the reviewer saw content from outside the conversation:
-    /// a stored skill version, a device-resolved directory, or goal text.
+    /// False when the reviewer saw text from outside the conversation whose
+    /// source the candidate did not record.
     pub verifiable: bool,
     /// The evidence as the reviewer saw it. Its text is compared with the
     /// session when the receipt is written, so a message rewritten after the
     /// review never vouches for what the reviewer read.
     pub evidence: Vec<ApprovalEvidence>,
+    /// Stored text the reviewer read outside the conversation, traced to the
+    /// source recorded when it was written.
+    pub stored: Vec<ReviewedStoredText>,
+}
+
+/// Stored text an AI reviewer read, whose root joins the reason's parents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReviewedStoredText {
+    /// Goal text or a device-resolved directory path.
+    Spec(crate::model_content::StoredSpec),
+    /// Text derived from a stored personal skill version.
+    Skill {
+        base: crate::approval_review::ReviewSkillBase,
+        text: String,
+    },
+}
+
+/// The purpose naming a skill version's root in a reviewed reason.
+const REVIEWED_SKILL_PURPOSE: &str = "approval-review";
+
+impl ReviewedStoredText {
+    /// The root bound to `destinations`, or `None` when it cannot be built.
+    fn root(
+        &self,
+        destinations: &[desk_agent_protocol::data_lineage::DestinationIdentity],
+    ) -> Option<crate::model_content::StoredRoot> {
+        match self {
+            Self::Spec(spec) => spec.root(destinations.to_vec()).ok(),
+            Self::Skill { base, text } => {
+                let [destination] = destinations else {
+                    return None;
+                };
+                crate::skills::SkillRoot::reviewed_base(base)
+                    .stored_root(REVIEWED_SKILL_PURPOSE, text, destination)
+                    .ok()
+            }
+        }
+    }
 }
 
 impl ReviewProvenance {
     pub fn from_candidate(candidate: &ApprovalReviewCandidate) -> Self {
+        use crate::model_content::StoredSpec;
         let action =
             serde_json::from_str::<serde_json::Value>(&candidate.action_json).unwrap_or_default();
-        let outside = match candidate.source {
+        let mut stored = Vec::new();
+        let mut verifiable = true;
+        match &candidate.source {
+            // An update shows text merged from its base version, and a
+            // removal shows that version itself.
             ApprovalSource::SkillProposal { .. } => {
                 let proposal = &action["skill_proposal"];
-                !proposal["base_version"].is_null()
+                if !proposal["base_version"].is_null()
                     || matches!(proposal["kind"].as_str(), Some("disable" | "delete"))
+                {
+                    match &candidate.context.skill_base {
+                        Some(base) => stored.push(ReviewedStoredText::Skill {
+                            base: base.clone(),
+                            text: proposal["skill_md"].as_str().unwrap_or_default().into(),
+                        }),
+                        None => verifiable = false,
+                    }
+                }
             }
-            ApprovalSource::DirectoryProposal { .. } => {
+            // A path other than the requested one was resolved by the device.
+            ApprovalSource::DirectoryProposal { request_id } => {
                 let proposal = &action["directory_proposal"];
-                proposal["canonical_path"] != proposal["requested_path"]
+                if proposal["canonical_path"] != proposal["requested_path"] {
+                    match proposal["canonical_path"].as_str() {
+                        Some(path) => stored.push(ReviewedStoredText::Spec(
+                            StoredSpec::device_reported("directory", request_id, "path", path),
+                        )),
+                        None => verifiable = false,
+                    }
+                }
             }
-            _ => false,
-        };
-        Self {
-            verifiable: !outside && candidate.context.goal_text.is_none(),
-            evidence: candidate.context.evidence.clone(),
+            _ => {}
         }
+        if let Some(text) = &candidate.context.goal_text {
+            match (&candidate.goal_id, &candidate.context.goal_text_source) {
+                (Some(goal_id), Some(source)) => {
+                    stored.push(ReviewedStoredText::Spec(StoredSpec::proven(
+                        crate::goal_projection::KIND,
+                        goal_id,
+                        crate::goal_projection::GOAL_TEXT_FIELD,
+                        text,
+                        Some(source.clone()),
+                    )))
+                }
+                _ => verifiable = false,
+            }
+        }
+        Self {
+            verifiable,
+            evidence: candidate.context.evidence.clone(),
+            stored,
+        }
+    }
+}
+
+/// Every parent of a reviewer's reason: the labels of the proposing output and
+/// the evidence, and the roots of the stored text the reviewer read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReasonParents {
+    pub labels: Vec<DataEnvelope>,
+    pub roots: Vec<crate::model_content::StoredRoot>,
+}
+
+impl ReasonParents {
+    /// `text` built from all of these parents.
+    pub fn content(&self, text: &str) -> crate::model_content::ModelContent {
+        use crate::model_content::{ModelContent, ServerText, Sourced, Stored};
+        let builder = ModelContent::builder().server(&ServerText::generated(text));
+        let builder = self.labels.iter().fold(builder, |builder, label| {
+            builder.sourced(&Sourced::new(String::new(), label.clone()))
+        });
+        self.roots
+            .iter()
+            .fold(builder, |builder, root| {
+                builder.stored(&Stored::new(String::new(), root.clone()))
+            })
+            .build()
     }
 }
 
@@ -101,7 +201,7 @@ pub fn review_reason_parents(
     session: &PersistedAgentSession,
     proposing: &DataEnvelope,
     provenance: &ReviewProvenance,
-) -> Option<Vec<DataEnvelope>> {
+) -> Option<ReasonParents> {
     if !provenance.verifiable {
         return None;
     }
@@ -115,7 +215,13 @@ pub fn review_reason_parents(
         let label = collapse_status_label(session, message.data_envelope.as_ref()?)?;
         parents.insert(label.envelope_id.clone(), label);
     }
-    if parents.len() > MAX_LINEAGE_ITEMS {
+    // Stored text the reviewer read is bound to the proposing output's model.
+    let roots = provenance
+        .stored
+        .iter()
+        .map(|text| text.root(&proposing.allowed_destinations))
+        .collect::<Option<Vec<_>>>()?;
+    if parents.len() + roots.len() > MAX_LINEAGE_ITEMS {
         return None;
     }
     let mut shared: BTreeSet<_> = proposing.allowed_destinations.iter().collect();
@@ -127,13 +233,13 @@ pub fn review_reason_parents(
         return None;
     }
     // The proposing output comes first, as the receipt's issuing parent.
-    let mut ordered = vec![proposing.clone()];
-    ordered.extend(
+    let mut labels = vec![proposing.clone()];
+    labels.extend(
         parents
             .into_values()
             .filter(|parent| parent.envelope_id != proposing.envelope_id),
     );
-    Some(ordered)
+    Some(ReasonParents { labels, roots })
 }
 
 /// An AI reviewer's verdict reason as a decision receipt needs it.
@@ -167,7 +273,6 @@ pub fn action_denial_content(
     proposing: Option<&DataEnvelope>,
     ai: &AiDecisionReason,
 ) -> crate::model_content::ModelContent {
-    use crate::model_content::{ModelContent, ServerText, Sourced};
     let code = crate::approval_review::ApprovalReasonCode::parse(&ai.reason_code);
     let parents =
         proposing.and_then(|proposing| review_reason_parents(session, proposing, &ai.provenance));
@@ -175,19 +280,31 @@ pub fn action_denial_content(
         return crate::approval_review::action_denial_content(code);
     };
     let (name, guidance) = crate::approval_review::reason_code_guidance(code);
-    parents
-        .into_iter()
-        .fold(
-            ModelContent::builder()
-                .text("not executed: independent AI review denied this exact action. reason_code=")
-                .text(name)
-                .text(". ")
-                .text(guidance)
-                .text(" Reviewer reason: ")
-                .server(&ServerText::generated(ai.reason.clone())),
-            |builder, parent| builder.sourced(&Sourced::new(String::new(), parent)),
-        )
+    let reason = parents.content(&ai.reason);
+    crate::model_content::ModelContent::builder()
+        .text("not executed: independent AI review denied this exact action. reason_code=")
+        .text(name)
+        .text(". ")
+        .text(guidance)
+        .text(" Reviewer reason: ")
+        .content(&reason)
         .build()
+}
+
+/// A decision receipt's label and the stored roots its reason cites, which
+/// the receipt message carries.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReceiptLabel {
+    pub envelope: Option<DataEnvelope>,
+    pub stored_roots: Vec<crate::model_content::StoredRoot>,
+}
+
+impl ReceiptLabel {
+    /// Labels `message` with this label and its roots.
+    pub fn apply(self, message: &mut ChatMessage) {
+        message.data_envelope = self.envelope;
+        message.stored_roots = self.stored_roots;
+    }
 }
 
 /// The label of a decision receipt. An AI reason keeps every parent of its
@@ -203,9 +320,13 @@ pub fn decision_receipt_envelope(
     call_id: &str,
     content: &str,
     source: crate::model_message_labels::ServerResultSource,
-) -> Result<Option<DataEnvelope>, desk_agent_protocol::AgentError> {
+) -> Result<ReceiptLabel, desk_agent_protocol::AgentError> {
     use crate::model_content::{ModelContent, Unverified};
-    use crate::model_message_labels::{composed_envelope, server_review_envelope};
+    use crate::model_message_labels::composed_envelope;
+    let only = |envelope: Option<DataEnvelope>| ReceiptLabel {
+        envelope,
+        stored_roots: Vec::new(),
+    };
     // A reason no parent can vouch for is repeated unverified.
     let unverified = |parent: Option<&DataEnvelope>| {
         composed_envelope(
@@ -217,6 +338,7 @@ pub fn decision_receipt_envelope(
             source,
             false,
         )
+        .map(only)
     };
     let parent = proposing
         .cloned()
@@ -226,15 +348,18 @@ pub fn decision_receipt_envelope(
             let parents = proposing
                 .and_then(|proposing| review_reason_parents(session, proposing, &ai.provenance));
             match parents {
-                Some(parents) => server_review_envelope(
-                    &parents.iter().collect::<Vec<_>>(),
-                    call_id,
-                    content,
-                    source,
-                )
-                .map(Some)
-                .or_else(|_| unverified(parent.as_ref())),
-                None => unverified(parent.as_ref()),
+                Some(parents) if source.reviewed() => {
+                    let reason = parents.content(content);
+                    match composed_envelope(&reason, parents.labels.first(), call_id, source, false)
+                    {
+                        Ok(envelope) => Ok(ReceiptLabel {
+                            envelope,
+                            stored_roots: reason.stored_roots(),
+                        }),
+                        Err(_) => unverified(parent.as_ref()),
+                    }
+                }
+                _ => unverified(parent.as_ref()),
             }
         }
         // Without an AI reason the receipt holds the server's decision only.
@@ -244,7 +369,8 @@ pub fn decision_receipt_envelope(
             call_id,
             source,
             false,
-        ),
+        )
+        .map(only),
     }
 }
 
@@ -352,6 +478,7 @@ pub(crate) mod tests {
                     }
                 })
                 .collect(),
+            stored: Vec::new(),
         }
     }
 
@@ -376,7 +503,7 @@ pub(crate) mod tests {
         // The pending result collapses to the proposing output it came from.
         let device = session.conversation[3].data_envelope.clone().unwrap();
         assert_eq!(
-            ids(&parents),
+            ids(&parents.labels),
             BTreeSet::from([
                 "user-message-owner".to_owned(),
                 proposing.envelope_id.clone(),
@@ -523,6 +650,7 @@ pub(crate) mod tests {
                 ServerResultSource::SkillProposalDecision,
             )
             .unwrap()
+            .envelope
             .unwrap()
         };
         assert!(
@@ -544,56 +672,170 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn candidates_with_outside_content_are_unverifiable() {
+    fn stored_text_the_reviewer_read_is_traced_only_with_its_recorded_source() {
+        use crate::approval_review::ReviewSkillBase;
+        let base = ReviewSkillBase {
+            skill_id: "skill-1".into(),
+            name: "disk-usage".into(),
+            version: 2,
+            ai_authored: true,
+        };
         let mut candidate = crate::approval_review::tests::candidate();
+        let skill = ApprovalSource::SkillProposal {
+            proposal_id: "p".into(),
+        };
+        let directory = ApprovalSource::DirectoryProposal {
+            request_id: "d".into(),
+        };
         let cases = [
             (
-                ApprovalSource::SkillProposal {
-                    proposal_id: "p".into(),
-                },
-                serde_json::json!({"skill_proposal":{"kind":"create","base_version":null}}),
+                skill.clone(),
+                serde_json::json!({"skill_proposal":{"kind":"create","base_version":null,"skill_md":"new"}}),
+                None,
                 true,
+                0,
             ),
             (
-                ApprovalSource::SkillProposal {
-                    proposal_id: "p".into(),
-                },
-                serde_json::json!({"skill_proposal":{"kind":"update","base_version":2}}),
+                skill.clone(),
+                serde_json::json!({"skill_proposal":{"kind":"update","base_version":2,"skill_md":"merged"}}),
+                None,
                 false,
+                0,
             ),
             (
-                ApprovalSource::SkillProposal {
-                    proposal_id: "p".into(),
-                },
-                serde_json::json!({"skill_proposal":{"kind":"disable","base_version":null}}),
-                false,
+                skill.clone(),
+                serde_json::json!({"skill_proposal":{"kind":"update","base_version":2,"skill_md":"merged"}}),
+                Some(base.clone()),
+                true,
+                1,
             ),
             (
-                ApprovalSource::DirectoryProposal {
-                    request_id: "d".into(),
-                },
+                skill.clone(),
+                serde_json::json!({"skill_proposal":{"kind":"disable","base_version":null,"skill_md":"stored"}}),
+                Some(base.clone()),
+                true,
+                1,
+            ),
+            (
+                directory.clone(),
                 serde_json::json!({"directory_proposal":{"requested_path":"a","canonical_path":"a"}}),
+                None,
                 true,
+                0,
             ),
             (
-                ApprovalSource::DirectoryProposal {
-                    request_id: "d".into(),
-                },
+                directory.clone(),
                 serde_json::json!({"directory_proposal":{"requested_path":"a","canonical_path":"/real/a"}}),
-                false,
+                None,
+                true,
+                1,
             ),
         ];
-        for (source, action, verifiable) in cases {
+        for (source, action, skill_base, verifiable, stored) in cases {
             candidate.source = source;
             candidate.action_json = action.to_string();
             candidate.context.goal_text = None;
-            assert_eq!(
-                ReviewProvenance::from_candidate(&candidate).verifiable,
-                verifiable,
-                "{action}"
-            );
+            candidate.context.skill_base = skill_base;
+            let provenance = ReviewProvenance::from_candidate(&candidate);
+            assert_eq!(provenance.verifiable, verifiable, "{action}");
+            assert_eq!(provenance.stored.len(), stored, "{action}");
         }
+        // The resolved directory is device-reported metadata of the request.
+        let ReviewedStoredText::Spec(spec) =
+            &ReviewProvenance::from_candidate(&candidate).stored[0]
+        else {
+            panic!("a resolved path is a stored spec");
+        };
+        assert_eq!(
+            (spec.kind, spec.record_id.as_str(), spec.text.as_str()),
+            ("directory", "d", "/real/a")
+        );
+        assert_eq!(
+            spec.origin,
+            crate::model_content::stored::SpecOrigin::DeviceReported
+        );
+        // Goal text needs the proof recorded when it was written.
         candidate.context.goal_text = Some("goal".into());
+        candidate.goal_id = Some("goal-1".into());
+        candidate.context.goal_text_source = None;
         assert!(!ReviewProvenance::from_candidate(&candidate).verifiable);
+        candidate.context.goal_text_source =
+            Some(crate::model_content::StoredTextSource::owner("actor", 1));
+        let provenance = ReviewProvenance::from_candidate(&candidate);
+        assert!(provenance.verifiable);
+        assert!(provenance.stored.iter().any(|text| matches!(
+            text,
+            ReviewedStoredText::Spec(spec) if spec.kind == "goal" && spec.record_id == "goal-1"
+        )));
+    }
+
+    #[test]
+    fn a_reason_that_read_stored_text_cites_its_root_in_denials_and_receipts() {
+        use crate::model_message_labels::{COMPOSED_RESULT_PREFIX, composed_envelope};
+        let session = paused_session();
+        let proposing = proposing_output(&session).unwrap().clone();
+        let goal = crate::model_content::StoredSpec::proven(
+            crate::goal_projection::KIND,
+            "goal-1",
+            crate::goal_projection::GOAL_TEXT_FIELD,
+            "Keep the disk tidy",
+            Some(crate::model_content::StoredTextSource::owner("actor", 1)),
+        );
+        let ai = AiDecisionReason {
+            reason: "The goal is only about the disk.".into(),
+            reason_code: "exceeds_task".into(),
+            provenance: ReviewProvenance {
+                stored: vec![ReviewedStoredText::Spec(goal.clone())],
+                ..provenance(&session, &["owner"])
+            },
+        };
+        let parents = review_reason_parents(&session, &proposing, &ai.provenance).unwrap();
+        let [root] = parents.roots.as_slice() else {
+            panic!("one stored root");
+        };
+        assert_eq!(
+            root,
+            &goal.root(proposing.allowed_destinations.clone()).unwrap()
+        );
+        // The denial shows the reason and cites the root.
+        let denial = action_denial_content(&session, Some(&proposing), &ai);
+        assert!(denial.text().contains("The goal is only about the disk."));
+        assert_eq!(denial.stored_roots(), vec![root.clone()]);
+        let label = composed_envelope(
+            &denial,
+            Some(&proposing),
+            "call",
+            ServerResultSource::ExecutionStatus,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(label.envelope_id.starts_with(COMPOSED_RESULT_PREFIX));
+        assert!(
+            label
+                .provenance
+                .source_envelope_ids
+                .contains(&root.label.envelope_id)
+        );
+        // A decision receipt carries the root with its label.
+        let receipt = decision_receipt_envelope(
+            &session,
+            Some(&proposing),
+            Some(&ai),
+            None,
+            "receipt",
+            "{}",
+            ServerResultSource::SkillProposalDecision,
+        )
+        .unwrap();
+        assert_eq!(receipt.stored_roots, vec![root.clone()]);
+        assert!(
+            receipt
+                .envelope
+                .unwrap()
+                .provenance
+                .source_envelope_ids
+                .contains(&root.label.envelope_id)
+        );
     }
 }

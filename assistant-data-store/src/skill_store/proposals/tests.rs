@@ -494,6 +494,10 @@ async fn updating_a_loaded_skill_keeps_the_old_version_for_this_input() {
         .unwrap();
     assert_eq!(review.base_version, Some(1));
     assert!(!review.changes.is_empty());
+    // The review records the stored version the update edits.
+    let base = review.base_skill.as_ref().unwrap();
+    assert_eq!(base.version, 1);
+    assert_eq!(base.name, review.name);
     let (row, host) = decide(&db, &waiting, true, SkillDecider::Owner).await;
     assert_eq!(row.status, "approved");
     let turn = PersistedAgentSession::decode_json(&host.written_states.lock().unwrap()[0]).unwrap();
@@ -744,6 +748,10 @@ async fn an_assistant_written_skill_is_disabled_then_deleted_after_approval() {
         .unwrap()
         .unwrap();
     assert_eq!(review.kind, SkillProposalKind::Disable);
+    // A removal names the assistant-written version it removes.
+    let base = review.base_skill.as_ref().unwrap();
+    assert_eq!(base.skill_id, skill.skill_id);
+    assert!(base.ai_authored);
     let (row, host) = decide(&db, &waiting, true, ai_decider("The owner asked")).await;
     assert_eq!(row.status, "approved");
     assert_eq!(pending_count(&db).await, 0);
@@ -941,6 +949,7 @@ fn ai_decider(reason: &str) -> SkillDecider {
             provenance: desk_diagnose_core::proposal_review::provenance::ReviewProvenance {
                 verifiable: false,
                 evidence: Vec::new(),
+                stored: Vec::new(),
             },
         },
     )

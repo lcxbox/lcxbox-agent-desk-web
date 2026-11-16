@@ -1137,6 +1137,7 @@ impl ToolSeam for ReviewDeniedReads {
                     provenance: crate::proposal_review::provenance::ReviewProvenance {
                         verifiable: true,
                         evidence: Vec::new(),
+                        stored: Vec::new(),
                     },
                 }),
             }),

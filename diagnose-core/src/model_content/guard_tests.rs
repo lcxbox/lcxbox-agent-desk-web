@@ -156,11 +156,6 @@ const ALLOWED: &[(&str, &str, usize)] = &[
         4,
     ),
     ("diagnose-core/src/directory_review.rs", ".text = ", 1),
-    (
-        "diagnose-core/src/directory_tools.rs",
-        ".data_envelope = ",
-        1,
-    ),
     ("diagnose-core/src/document_model_ids.rs", ".text = ", 1),
     (
         "diagnose-core/src/document_preview.rs",
@@ -246,17 +241,17 @@ const ALLOWED: &[(&str, &str, usize)] = &[
     (
         "diagnose-core/src/proposal_review/projection.rs",
         ".data_envelope = ",
-        5,
+        3,
     ),
     (
         "diagnose-core/src/proposal_review/projection.rs",
         ".text = ",
-        4,
+        3,
     ),
     (
         "diagnose-core/src/proposal_review/provenance.rs",
         ".data_envelope = ",
-        6,
+        7,
     ),
     (
         "diagnose-core/src/proposal_review/provenance.rs",

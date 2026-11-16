@@ -1282,6 +1282,70 @@ mod stored_roots {
     }
 
     #[test]
+    fn a_reviewed_reason_citing_stored_text_registers_under_its_roots() {
+        let owner = user();
+        let goal = StoredRoot::text(
+            crate::goal_projection::KIND,
+            "goal-1",
+            crate::goal_projection::GOAL_TEXT_FIELD,
+            "Keep the disk tidy",
+            Some(StoredTextSource::owner("owner", 1)),
+            vec![destination()],
+        )
+        .unwrap();
+        let directory =
+            StoredRoot::device_reported("directory", "d", "path", "/real/a", vec![destination()])
+                .unwrap();
+        let register = |roots: Vec<StoredRoot>| {
+            let reason = crate::proposal_review::provenance::ReasonParents {
+                labels: vec![owner.clone()],
+                roots: roots.clone(),
+            }
+            .content("The goal is only about the disk.");
+            let label = composed_envelope(
+                &reason,
+                Some(&owner),
+                "receipt",
+                ServerResultSource::SkillProposalDecision,
+                false,
+            )
+            .unwrap()
+            .unwrap();
+            let inputs = vec![owner.clone(), label];
+            let audit = crate::sink_authorizer::SinkProjectionAudit {
+                destination: destination(),
+                envelope_ids: inputs
+                    .iter()
+                    .map(|input| input.envelope_id.clone())
+                    .collect(),
+                total_bytes: 32,
+            };
+            let snapshot = crate::model_egress::NativeModelInputSnapshot::capture_with_roots(
+                &audit,
+                &inputs,
+                &[],
+                &roots,
+            )
+            .unwrap();
+            let registration =
+                NativeInputPolicyRegistration::capture(&snapshot, SOURCE_CONTRACT_REVISION, 1)
+                    .unwrap();
+            assert_eq!(
+                registration.leaves[1].as_ref().map(|leaf| leaf.contract),
+                Some(RegisteredSourceContract::NativeControl)
+            );
+            registration
+                .complete_leaf_text_policy(&snapshot)
+                .unwrap()
+                .is_some_and(|policy| policy.history_retention_allowed)
+        };
+        // Owner-written goal text keeps the reason retainable.
+        assert!(register(vec![goal.clone()]));
+        // A device-resolved path joins with its own, stricter policy.
+        register(vec![goal, directory]);
+    }
+
+    #[test]
     fn stored_text_counts_only_with_a_retainable_embedded_proof() {
         assert!(retained(text_root(Some(StoredTextSource::owner(
             "owner", 1

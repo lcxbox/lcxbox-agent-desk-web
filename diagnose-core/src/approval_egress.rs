@@ -861,6 +861,7 @@ mod tests {
                     dispatch_ids: vec![],
                 }],
                 now_unix_ms: 10,
+                skill_base: None,
             },
             device_id,
         )?;
@@ -1561,6 +1562,7 @@ mod tests {
                 dispatch_ids: vec![],
             }],
             now_unix_ms: 10,
+            skill_base: None,
         })
         .unwrap();
         let binding = SourceReviewBinding {
