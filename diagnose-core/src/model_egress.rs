@@ -149,17 +149,9 @@ impl ModelEgressPolicy {
         messages
             .iter()
             .enumerate()
-            .filter(|(_, message)| is_provider_output(message))
             .filter_map(|(index, message)| {
                 let source = message.data_envelope.as_ref()?;
-                let call_id = message.tool_call_id.as_ref()?;
-                let parent = messages[..index].iter().find(|parent| {
-                    parent.role == ChatRole::Assistant
-                        && parent.tool_calls.iter().any(|call| {
-                            &call.id == call_id && call.name == source.provenance.source_tool_name
-                        })
-                })?;
-                let authority = parent.data_envelope.as_ref()?;
+                let authority = issuing_call_label(&messages[..index], message)?;
                 (authority.validate().is_ok()
                     && self.has_gateway_authority(authority)
                     && source.validate().is_ok()
@@ -685,6 +677,30 @@ impl std::fmt::Display for ModelEgressError {
 }
 
 impl std::error::Error for ModelEgressError {}
+
+/// The label of the model output whose exact tool call produced provider
+/// output `message`, among the messages before it. A provider result is
+/// delivered to the model under that output's authority.
+pub(crate) fn issuing_call_label<'a>(
+    earlier: &'a [ChatMessage],
+    message: &ChatMessage,
+) -> Option<&'a DataEnvelope> {
+    if !is_provider_output(message) {
+        return None;
+    }
+    let source = message.data_envelope.as_ref()?;
+    let call_id = message.tool_call_id.as_ref()?;
+    earlier
+        .iter()
+        .find(|parent| {
+            parent.role == ChatRole::Assistant
+                && parent.tool_calls.iter().any(|call| {
+                    &call.id == call_id && call.name == source.provenance.source_tool_name
+                })
+        })?
+        .data_envelope
+        .as_ref()
+}
 
 fn is_provider_output(message: &ChatMessage) -> bool {
     message.role == ChatRole::Tool

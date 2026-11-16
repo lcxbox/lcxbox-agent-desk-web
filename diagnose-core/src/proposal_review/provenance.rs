@@ -218,13 +218,27 @@ pub fn proposing_output(session: &PersistedAgentSession) -> Option<&DataEnvelope
         .and_then(|message| message.data_envelope.as_ref())
 }
 
-/// The label of the model output that made permission request `request_id`,
-/// located through the proof recorded with the request's input; `None` when
-/// the request has no such proof or the output is no longer in the session.
+/// The label of the model output that made item `item_id` of permission
+/// request `request_id`. A held tool call's item is that call, made by the
+/// assistant message that carries it; any other item is located through the
+/// proof recorded with the request's input. `None` when neither is still in
+/// the session.
 pub fn requesting_output<'a>(
     session: &'a PersistedAgentSession,
     request_id: &str,
+    item_id: &str,
 ) -> Option<&'a DataEnvelope> {
+    if let Some(label) = session
+        .conversation
+        .iter()
+        .find(|message| {
+            message.role == crate::chat::ChatRole::Assistant
+                && message.tool_calls.iter().any(|call| call.id == item_id)
+        })
+        .and_then(|message| message.data_envelope.as_ref())
+    {
+        return Some(label);
+    }
     let request = session
         .permission_requests
         .iter()
@@ -287,6 +301,7 @@ pub fn review_reason_parents(
             return None;
         }
         let label = collapse_status_label(session, message.data_envelope.as_ref()?)?;
+        let label = delivered_label(session, message, label, proposing)?;
         parents.insert(label.envelope_id.clone(), label);
     }
     // Stored text the reviewer read is bound to the proposing output's model.
@@ -314,6 +329,39 @@ pub fn review_reason_parents(
             .filter(|parent| parent.envelope_id != proposing.envelope_id),
     );
     Some(ReasonParents { labels, roots })
+}
+
+/// `label` as the proposing model received it. A provider result binds no
+/// destination at rest; it reaches the model under the authority of the
+/// output whose exact call produced it, so it counts for the proposing
+/// output's destinations only when that output may reach all of them. Its
+/// sensitivity and retention are kept.
+fn delivered_label(
+    session: &PersistedAgentSession,
+    message: &crate::chat::ChatMessage,
+    label: DataEnvelope,
+    proposing: &DataEnvelope,
+) -> Option<DataEnvelope> {
+    if !label.allowed_destinations.is_empty() || message.data_envelope.as_ref() != Some(&label) {
+        return Some(label);
+    }
+    let index = session
+        .conversation
+        .iter()
+        .position(|candidate| candidate.message_id == message.message_id)?;
+    let authority =
+        crate::model_egress::issuing_call_label(&session.conversation[..index], message)?;
+    if !proposing
+        .allowed_destinations
+        .iter()
+        .all(|destination| authority.allowed_destinations.contains(destination))
+    {
+        return None;
+    }
+    Some(DataEnvelope {
+        allowed_destinations: proposing.allowed_destinations.clone(),
+        ..label
+    })
 }
 
 /// An AI reviewer's verdict reason as a decision receipt needs it.
@@ -841,6 +889,70 @@ pub(crate) mod tests {
             serde_json::from_str::<ReviewProvenance>(&stored).unwrap(),
             provenance
         );
+    }
+
+    #[test]
+    fn a_device_result_counts_for_the_model_whose_call_produced_it() {
+        use desk_agent_protocol::data_lineage::Sensitivity;
+        // A model output that called the screen reader, and the reader's
+        // result, which binds no destination at rest.
+        let with_screen = |reader_model: Option<&str>| {
+            let mut session = paused_session();
+            let mut reader = ChatMessage::assistant_tool_calls(
+                "reader",
+                "",
+                vec![crate::chat::ToolCallRef {
+                    id: "screen-call".into(),
+                    name: "read_current_screen".into(),
+                    arguments_json: "{}".into(),
+                }],
+            );
+            reader.data_envelope = reader_model.map(|model| label("reader", model));
+            let mut screen = ChatMessage::tool_result("screen", "screen-call", "screen");
+            let mut screen_label = label("screen", "m");
+            screen_label.allowed_destinations.clear();
+            screen_label.sensitivity = Sensitivity::Sensitive;
+            screen_label.retention.delete_with_run = true;
+            screen_label.provenance.source_tool_name = "read_current_screen".into();
+            screen.data_envelope = Some(screen_label);
+            session.conversation.insert(1, reader);
+            session.conversation.insert(2, screen);
+            session
+        };
+        let session = with_screen(Some("m"));
+        let proposing = proposing_output(&session).unwrap().clone();
+        let review = provenance(&session, &["owner", "screen"]);
+        let parents = review_reason_parents(&session, &proposing, &review).unwrap();
+        let screen = parents
+            .labels
+            .iter()
+            .find(|label| label.provenance.source_tool_name == "read_current_screen")
+            .unwrap();
+        // Delivered to the proposing model only, as sensitive as it was.
+        assert_eq!(screen.allowed_destinations, proposing.allowed_destinations);
+        assert_eq!(screen.sensitivity, Sensitivity::Sensitive);
+        assert!(screen.retention.delete_with_run);
+        let ai = AiDecisionReason {
+            reason: "The owner asked for a full-screen capture.".into(),
+            reason_code: "exceeds_task".into(),
+            provenance: review.clone(),
+        };
+        let denial = action_denial_content(&session, Some(&proposing), &ai);
+        assert!(
+            denial
+                .text()
+                .contains("The owner asked for a full-screen capture.")
+        );
+        // A result whose producing output may not reach this model, or that
+        // no output called, does not vouch for the reason.
+        for session in [with_screen(Some("other")), with_screen(None)] {
+            let review = provenance(&session, &["owner", "screen"]);
+            assert!(review_reason_parents(&session, &proposing, &review).is_none());
+        }
+        let mut uncalled = with_screen(Some("m"));
+        uncalled.conversation.remove(1);
+        let review = provenance(&uncalled, &["owner", "screen"]);
+        assert!(review_reason_parents(&uncalled, &proposing, &review).is_none());
     }
 
     #[test]

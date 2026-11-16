@@ -2211,6 +2211,7 @@ pub fn ai_review_denial_notice(
                 let requesting = crate::proposal_review::provenance::requesting_output(
                     session,
                     &event.request_id,
+                    &item.item_id,
                 )?;
                 crate::proposal_review::provenance::review_reason_parents(
                     session, requesting, provenance,
@@ -3458,6 +3459,28 @@ pub(crate) mod tests {
         unproven.permission_requests[0].input_source = None;
         let notice = ai_review_denial_notice(&event, &unproven).unwrap().unwrap();
         assert!(!notice.content.text().contains("The owner only asked"));
+        // A held tool call is its own item: the output that carries the call
+        // made it, with or without an input proof.
+        let mut held = unproven;
+        held.permission_requests[0].items[0].item_id = "call".into();
+        let mut held_event = event.clone();
+        held_event.items[0].item_id = "call".into();
+        let PermissionDecisionSource::AutomaticReview { reviews, .. } =
+            &mut held_event.decision_source
+        else {
+            unreachable!()
+        };
+        reviews[0].item_id = "call".into();
+        let notice = ai_review_denial_notice(&held_event, &held)
+            .unwrap()
+            .unwrap();
+        assert!(
+            notice
+                .content
+                .text()
+                .contains("The owner only asked about the device")
+        );
+        assert!(notice.content.text().contains(REVIEWER_REASON_QUOTED));
     }
 
     #[test]
