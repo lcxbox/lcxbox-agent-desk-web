@@ -1,20 +1,43 @@
 [package]
 name = "desk-document-conversion"
-description = "Bounded PDF, Markdown, TXT, and Typst document conversion with a sandbox process protocol"
+description = "Bounded PDF, HTML, Markdown, TXT, and Typst document conversion with sandboxed PDF and Typst requests"
 license.workspace = true
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["typst"]
+# PDF generation and preview. Hosts that only extract text leave it off.
+typst = [
+    "dep:png",
+    "dep:pulldown-cmark",
+    "dep:sha2",
+    "dep:typst",
+    "dep:typst-pdf",
+    "dep:typst-render",
+]
+
 [dependencies]
-flate2 = { workspace = true }
-png = { workspace = true }
-pulldown-cmark = { workspace = true }
+desk-utils = { workspace = true }
+encoding_rs = { workspace = true }
+html5ever = { workspace = true }
+htmd = { workspace = true }
+markup5ever_rcdom = { workspace = true }
+png = { workspace = true, optional = true }
+pulldown-cmark = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
-typst = { workspace = true }
-typst-pdf = { workspace = true }
-typst-render = { workspace = true }
+sha2 = { workspace = true, optional = true }
+typst = { workspace = true, optional = true }
+typst-pdf = { workspace = true, optional = true }
+typst-render = { workspace = true, optional = true }
 unpdf = { workspace = true }
 url = { workspace = true }
+
+[[test]]
+name = "sandbox"
+harness = false
+
+[[example]]
+name = "readable_bench"

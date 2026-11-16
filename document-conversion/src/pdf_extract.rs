@@ -5,25 +5,30 @@ use unpdf::{
 };
 
 use crate::{
-    ConversionDetails, ConversionError, ConversionKind, ConversionOutput, ConversionWarning,
-    ConversionWarningCode, ConvertOptions, MAX_OUTPUT_BYTES, MAX_PAGE_RANGES, MAX_SELECTED_PAGES,
-    MAX_SOURCE_PAGES, PageMarkerStyle, PageRange,
+    ConversionDetails, ConversionError, ConversionWarning, ConversionWarningCode, ExtractedFormat,
+    MAX_OUTPUT_BYTES, MAX_PAGE_RANGES, MAX_SELECTED_PAGES, MAX_SOURCE_PAGES, PageMarkerStyle,
+    PageRange, PdfExtractOptions, PdfPageSelection,
 };
 
-pub(crate) fn convert(
+/// Text extracted from a PDF, with the document facts reported alongside it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtractedPdf {
+    pub text: String,
+    pub details: ConversionDetails,
+    pub title: Option<String>,
+    pub published_at: Option<String>,
+    /// The output budget stopped extraction before the selected pages ended.
+    pub truncated: bool,
+    pub warnings: Vec<ConversionWarning>,
+}
+
+/// Extracts text from a PDF. The parser has unbounded paths on hostile
+/// input, so this only runs inside the document sandbox child.
+pub(crate) fn extract(
     source: &[u8],
-    options: &ConvertOptions,
-) -> Result<ConversionOutput, ConversionError> {
-    if !matches!(
-        options.kind,
-        ConversionKind::PdfToMarkdown | ConversionKind::PdfToText
-    ) {
-        return Err(ConversionError::new(
-            "invalid_conversion_options",
-            "PDF extraction received a non-PDF conversion kind",
-        ));
-    }
-    if matches!(options.kind, ConversionKind::PdfToText)
+    options: &PdfExtractOptions,
+) -> Result<ExtractedPdf, ConversionError> {
+    if matches!(options.kind, ExtractedFormat::Text)
         && matches!(options.page_markers, Some(PageMarkerStyle::HtmlComment))
     {
         return Err(ConversionError::new(
@@ -31,7 +36,10 @@ pub(crate) fn convert(
             "HTML comment page markers are not valid for plain text output",
         ));
     }
+    let max_output_bytes = options.max_output_bytes.min(MAX_OUTPUT_BYTES);
     crate::pdf_preflight::validate(source)?;
+    // Owner-password-only documents are decrypted with the empty user
+    // password; a document that needs a password fails to parse.
     let parse_options = ParseOptions::new().text_only().sequential();
     let document =
         unpdf::parse_bytes_with_options(source, parse_options).map_err(map_unpdf_error)?;
@@ -42,12 +50,6 @@ pub(crate) fn convert(
             format!("PDF has {source_pages} pages; expected 1..={MAX_SOURCE_PAGES}"),
         ));
     }
-    if document.metadata.encrypted || document.extraction_quality.encrypted {
-        return Err(ConversionError::new(
-            "encrypted_pdf",
-            "encrypted PDFs are not supported",
-        ));
-    }
     if document.extraction_quality.pages_incomplete
         || document.extraction_quality.unresolved_page_nodes > 0
     {
@@ -56,24 +58,26 @@ pub(crate) fn convert(
             "the PDF page tree is damaged and extraction would omit pages",
         ));
     }
-    let (ranges, selected_pages) = normalize_ranges(&options.pages, source_pages)?;
-    let mut warnings = page_warnings(&document, &selected_pages);
-    if document.extraction_quality.suppressed_text_runs > 0
-        || document.extraction_quality.replacement_char_count > 0
-    {
-        warnings.push(ConversionWarning {
-            code: ConversionWarningCode::FontDecodeIssue,
-            page: None,
-            detail: format!(
-                "PDF extraction dropped {} unreadable text run(s) and produced {} replacement character(s)",
-                document.extraction_quality.suppressed_text_runs,
-                document.extraction_quality.replacement_char_count
-            ),
-        });
-    }
-    warnings.truncate(64);
+    let selected_pages = match &options.pages {
+        PdfPageSelection::Exact { pages } => normalize_ranges(pages, source_pages)?.1,
+        PdfPageSelection::Leading { max_pages } => {
+            let max_pages = (*max_pages).min(MAX_SELECTED_PAGES as u32);
+            if max_pages == 0 {
+                return Err(ConversionError::new(
+                    "invalid_conversion_options",
+                    "at least one leading page must be selected",
+                ));
+            }
+            (1..=source_pages.min(max_pages)).collect()
+        }
+    };
+    let leading = matches!(options.pages, PdfPageSelection::Leading { .. });
 
-    let mut rendered_pages = Vec::with_capacity(selected_pages.len());
+    let marker = options.page_markers.unwrap_or(PageMarkerStyle::None);
+    let mut output = String::new();
+    let mut converted = Vec::with_capacity(selected_pages.len());
+    let mut has_text = false;
+    let mut truncated = false;
     for page_number in &selected_pages {
         let page = document
             .get_page(*page_number)
@@ -88,19 +92,46 @@ pub(crate) fn convert(
             .with_table_fallback(TableFallback::Ascii)
             .with_pages(PageSelection::All);
         let rendered = match options.kind {
-            ConversionKind::PdfToMarkdown => render::to_markdown(&one, &render_options),
-            ConversionKind::PdfToText => render::to_text(&one, &render_options),
-            ConversionKind::MarkdownToPdf
-            | ConversionKind::TextToPdf
-            | ConversionKind::TypstToPdf => unreachable!(),
+            ExtractedFormat::Markdown => render::to_markdown(&one, &render_options),
+            ExtractedFormat::Text => render::to_text(&one, &render_options),
         }
         .map_err(map_unpdf_error)?;
-        rendered_pages.push((*page_number, rendered));
+        has_text |= !rendered.trim().is_empty();
+        let mut part = String::new();
+        if !output.is_empty() {
+            part.push_str("\n\n");
+        }
+        match marker {
+            PageMarkerStyle::None => {}
+            PageMarkerStyle::HtmlComment => {
+                part.push_str(&format!("<!-- lcxl-page: {page_number} -->\n\n"));
+            }
+            PageMarkerStyle::PlainText => {
+                part.push_str(&format!("--- page {page_number} ---\n\n"));
+            }
+        }
+        part.push_str(rendered.trim());
+        if output.len() + part.len() > max_output_bytes {
+            if !leading {
+                return Err(ConversionError::new(
+                    "output_too_large",
+                    format!("extracted document exceeds the {max_output_bytes} byte output limit"),
+                ));
+            }
+            let mut end = max_output_bytes - output.len();
+            while !part.is_char_boundary(end) {
+                end -= 1;
+            }
+            output.push_str(&part[..end]);
+            converted.push(*page_number);
+            truncated = true;
+            break;
+        }
+        output.push_str(&part);
+        converted.push(*page_number);
     }
 
-    let has_text = rendered_pages
-        .iter()
-        .any(|(_, value)| !value.trim().is_empty());
+    let mut warnings = page_warnings(&document, &converted);
     if !has_text {
         if warnings
             .iter()
@@ -116,40 +147,54 @@ pub(crate) fn convert(
             "the selected PDF pages contain no extractable text",
         ));
     }
-
-    let marker = options.page_markers.unwrap_or(PageMarkerStyle::None);
-    let mut output = String::new();
-    for (index, (page, rendered)) in rendered_pages.into_iter().enumerate() {
-        if index > 0 {
-            output.push_str("\n\n");
-        }
-        match marker {
-            PageMarkerStyle::None => {}
-            PageMarkerStyle::HtmlComment => {
-                output.push_str(&format!("<!-- lcxl-page: {page} -->\n\n"));
-            }
-            PageMarkerStyle::PlainText => {
-                output.push_str(&format!("--- page {page} ---\n\n"));
-            }
-        }
-        output.push_str(rendered.trim());
+    if document.extraction_quality.suppressed_text_runs > 0
+        || document.extraction_quality.replacement_char_count > 0
+    {
+        warnings.push(ConversionWarning {
+            code: ConversionWarningCode::FontDecodeIssue,
+            page: None,
+            detail: format!(
+                "PDF extraction dropped {} unreadable text run(s) and produced {} replacement character(s)",
+                document.extraction_quality.suppressed_text_runs,
+                document.extraction_quality.replacement_char_count
+            ),
+        });
     }
-    if output.len() > MAX_OUTPUT_BYTES {
-        return Err(ConversionError::new(
-            "output_too_large",
-            "extracted document exceeds the 32 MiB output limit",
-        ));
-    }
-    Ok(ConversionOutput {
-        bytes: output.into_bytes(),
-        media_type: options.kind.media_type(),
+    warnings.truncate(64);
+    Ok(ExtractedPdf {
+        text: output,
         details: ConversionDetails::PdfExtraction {
             source_pages,
-            selected_page_ranges: ranges,
-            converted_pages: selected_pages.len() as u32,
+            selected_page_ranges: ranges_of(&converted),
+            converted_pages: converted.len() as u32,
         },
+        title: document
+            .metadata
+            .title
+            .as_deref()
+            .and_then(crate::clamp_title),
+        published_at: document
+            .metadata
+            .created
+            .and_then(|created| crate::clamp_published_at(&created.to_rfc3339())),
+        truncated,
         warnings,
     })
+}
+
+/// Contiguous ranges covering `pages`, which are sorted and distinct.
+fn ranges_of(pages: &[u32]) -> Vec<PageRange> {
+    let mut ranges: Vec<PageRange> = Vec::new();
+    for page in pages {
+        match ranges.last_mut() {
+            Some(last) if last.end + 1 == *page => last.end = *page,
+            _ => ranges.push(PageRange {
+                start: *page,
+                end: *page,
+            }),
+        }
+    }
+    ranges
 }
 
 fn normalize_ranges(

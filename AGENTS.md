@@ -81,7 +81,7 @@ sudo apt install -y build-essential pkg-config libssl-dev libasound2-dev \
 | `virtual-display/` | 虚拟显示器（IddCx）用户态抽象（`desk-virtual-display`，trait + Windows IDD impl + 其他平台 stub） |
 | `virtual-display-driver-ops/` | 虚拟显示驱动安装/卸载操作封装（`desk-virtual-display-driver-ops`，pnputil 等） |
 | `server-user/` | 服务端用户/账户模型 |
-| `utils/` | 通用工具类 |
+| `utils/` | 通用工具类；含资源受限子进程运行器 `process_sandbox`（不含业务语义；资源边界而非权限边界） |
 | `turn/` | TURN 服务器 (与信令服务器捆绑) |
 | `server-version/` | API 版本常量 |
 

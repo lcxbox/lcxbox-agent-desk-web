@@ -32,16 +32,12 @@ const MAX_PREVIEW_SOURCE_BYTES_TOTAL: usize = 16 * 1024 * 1024;
 const MAX_RENDERS_PER_PREVIEW: u32 = 20;
 const MAX_RENDER_TIME_PER_PREVIEW: Duration = Duration::from_secs(120);
 
-/// Runs one Typst request out of process. Production uses
-/// [`crate::typst_sandbox::run`]; tests substitute an in-memory runner.
-pub(crate) type SandboxRunner = dyn Fn(
-        &sandbox::SandboxRequest,
-        &[u8],
-    ) -> Result<(sandbox::SandboxResponse, Vec<u8>), crate::typst_sandbox::SandboxFailure>
-    + Sync;
+/// PDF extraction, generation and preview all run in the document sandbox
+/// child. Tests substitute an in-memory runner.
+type SandboxRunner = sandbox::Runner;
 
 fn sandbox_runner() -> &'static SandboxRunner {
-    &crate::typst_sandbox::run
+    &sandbox::process_runner
 }
 
 #[derive(Clone)]
@@ -112,60 +108,6 @@ pub async fn acquire_slot() -> Result<OwnedSemaphorePermit, AgentError> {
     })
 }
 
-struct RenderedPreviewPage {
-    page_count: u32,
-    template_version: String,
-    font_set_sha256: String,
-    engine: String,
-    warnings: Vec<engine::ConversionWarning>,
-    png: Vec<u8>,
-    width: u32,
-    height: u32,
-    pixels_per_point_milli: u32,
-}
-
-fn render_in_sandbox(
-    runner: &SandboxRunner,
-    source: &[u8],
-    format: engine::SourceFormat,
-    page: u32,
-) -> Result<RenderedPreviewPage, AgentError> {
-    let (response, png) = runner(
-        &sandbox::SandboxRequest::RenderPage { format, page },
-        source,
-    )
-    .map_err(|failure| engine_error(failure.into_conversion_error()))?;
-    match response {
-        sandbox::SandboxResponse::RenderedPage {
-            page_count,
-            template_version,
-            font_set_sha256,
-            engine,
-            warnings,
-            width,
-            height,
-            pixels_per_point_milli,
-        } if png.starts_with(b"\x89PNG\r\n\x1a\n") => Ok(RenderedPreviewPage {
-            page_count,
-            template_version,
-            font_set_sha256,
-            engine,
-            warnings,
-            png,
-            width,
-            height,
-            pixels_per_point_milli,
-        }),
-        sandbox::SandboxResponse::Failed { code, message } => {
-            Err(engine_error(sandbox::error_from_wire(&code, message)))
-        }
-        _ => Err(engine_error(
-            crate::typst_sandbox::SandboxFailure::Protocol("unexpected preview response".into())
-                .into_conversion_error(),
-        )),
-    }
-}
-
 pub fn create_preview(
     params: DocumentPreviewParams,
     actor_id: String,
@@ -192,7 +134,8 @@ fn create_preview_with(
     )?;
     let format = preview_format(&source.display_name)?;
     let started = Instant::now();
-    let first_page = render_in_sandbox(runner, &source.bytes, format, 1)?;
+    let first_page =
+        sandbox::render_page(&source.bytes, format, 1, runner).map_err(engine_error)?;
     let elapsed = started.elapsed();
     if first_page.png.len() as u64 > MAX_DOCUMENT_PREVIEW_BYTES {
         return Err(error(
@@ -346,7 +289,7 @@ fn render_preview_page_with(
         (Arc::clone(&entry.source), entry.format)
     };
     let started = Instant::now();
-    let rendered = render_in_sandbox(runner, &source, format, params.page);
+    let rendered = sandbox::render_page(&source, format, params.page, runner).map_err(engine_error);
     let elapsed = started.elapsed();
     if let Ok(mut guard) = store().lock()
         && let Some(entry) = guard.entries.get_mut(&params.preview_id)
@@ -397,8 +340,7 @@ pub fn convert_and_publish(
     {
         return failed(error.message);
     }
-    let options = map_options(&action.conversion);
-    let converted = match convert_source(&source.bytes, &options, sandbox_runner()) {
+    let converted = match convert_source(&source.bytes, &action.conversion, sandbox_runner()) {
         Ok(output) => output,
         Err(error) => return failed(engine_error(error).message),
     };
@@ -452,52 +394,59 @@ pub fn convert_and_publish(
     )
 }
 
-/// Typst-backed conversions run in the resource-limited sandbox. PDF text
-/// extraction has no evaluation step and stays in process.
+/// Converts in the resource-limited sandbox: PDF extraction keeps the exact
+/// page selection and markers; generation takes no page options.
 fn convert_source(
     source: &[u8],
-    options: &engine::ConvertOptions,
+    options: &DocumentConversionOptions,
     runner: &SandboxRunner,
 ) -> Result<engine::ConversionOutput, engine::ConversionError> {
-    match options.kind {
-        engine::ConversionKind::PdfToMarkdown | engine::ConversionKind::PdfToText => {
-            engine::convert(source, options)
-        }
-        engine::ConversionKind::MarkdownToPdf
-        | engine::ConversionKind::TextToPdf
-        | engine::ConversionKind::TypstToPdf => {
+    let format = match options.kind {
+        DocumentConversionKind::PdfToMarkdown => engine::ExtractedFormat::Markdown,
+        DocumentConversionKind::PdfToText => engine::ExtractedFormat::Text,
+        DocumentConversionKind::MarkdownToPdf
+        | DocumentConversionKind::TextToPdf
+        | DocumentConversionKind::TypstToPdf => {
             if !options.pages.is_empty() || options.page_markers.is_some() {
                 return Err(engine::ConversionError::new(
                     "invalid_conversion_options",
                     "page ranges and page markers are only valid for PDF extraction",
                 ));
             }
-            let (response, bytes) = runner(
-                &sandbox::SandboxRequest::Convert { kind: options.kind },
-                source,
-            )
-            .map_err(crate::typst_sandbox::SandboxFailure::into_conversion_error)?;
-            match response {
-                sandbox::SandboxResponse::Converted { details, warnings }
-                    if bytes.starts_with(b"%PDF-") && bytes.len() <= engine::MAX_OUTPUT_BYTES =>
-                {
-                    Ok(engine::ConversionOutput {
-                        bytes,
-                        media_type: options.kind.media_type(),
-                        details,
-                        warnings,
-                    })
-                }
-                sandbox::SandboxResponse::Failed { code, message } => {
-                    Err(sandbox::error_from_wire(&code, message))
-                }
-                _ => Err(crate::typst_sandbox::SandboxFailure::Protocol(
-                    "unexpected conversion response".into(),
-                )
-                .into_conversion_error()),
-            }
+            let kind = match options.kind {
+                DocumentConversionKind::MarkdownToPdf => engine::ConversionKind::MarkdownToPdf,
+                DocumentConversionKind::TextToPdf => engine::ConversionKind::TextToPdf,
+                _ => engine::ConversionKind::TypstToPdf,
+            };
+            return sandbox::run_typst(source, kind, runner);
         }
-    }
+    };
+    let extract = engine::PdfExtractOptions {
+        kind: format,
+        pages: engine::PdfPageSelection::Exact {
+            pages: options
+                .pages
+                .iter()
+                .map(|range| engine::PageRange {
+                    start: range.start,
+                    end: range.end,
+                })
+                .collect(),
+        },
+        page_markers: options.page_markers.map(|style| match style {
+            DocumentPageMarkerStyle::None => engine::PageMarkerStyle::None,
+            DocumentPageMarkerStyle::HtmlComment => engine::PageMarkerStyle::HtmlComment,
+            DocumentPageMarkerStyle::PlainText => engine::PageMarkerStyle::PlainText,
+        }),
+        max_output_bytes: engine::MAX_OUTPUT_BYTES,
+    };
+    let extracted = sandbox::extract_pdf(source, &extract, runner)?;
+    Ok(engine::ConversionOutput {
+        bytes: extracted.text.into_bytes(),
+        media_type: format.media_type(),
+        details: extracted.details,
+        warnings: extracted.warnings,
+    })
 }
 
 fn failed(message: String) -> publication::Receipt {
@@ -545,31 +494,6 @@ fn validate_source_kind(
             "source file type does not match the requested document conversion",
         )
     })
-}
-
-fn map_options(options: &DocumentConversionOptions) -> engine::ConvertOptions {
-    engine::ConvertOptions {
-        kind: match options.kind {
-            DocumentConversionKind::PdfToMarkdown => engine::ConversionKind::PdfToMarkdown,
-            DocumentConversionKind::PdfToText => engine::ConversionKind::PdfToText,
-            DocumentConversionKind::MarkdownToPdf => engine::ConversionKind::MarkdownToPdf,
-            DocumentConversionKind::TextToPdf => engine::ConversionKind::TextToPdf,
-            DocumentConversionKind::TypstToPdf => engine::ConversionKind::TypstToPdf,
-        },
-        pages: options
-            .pages
-            .iter()
-            .map(|range| engine::PageRange {
-                start: range.start,
-                end: range.end,
-            })
-            .collect(),
-        page_markers: options.page_markers.map(|style| match style {
-            DocumentPageMarkerStyle::None => engine::PageMarkerStyle::None,
-            DocumentPageMarkerStyle::HtmlComment => engine::PageMarkerStyle::HtmlComment,
-            DocumentPageMarkerStyle::PlainText => engine::PageMarkerStyle::PlainText,
-        }),
-    }
 }
 
 fn map_details(details: engine::ConversionDetails) -> DocumentConversionDetails {
@@ -668,19 +592,6 @@ mod tests {
         }
     }
 
-    fn in_process(
-        request: &sandbox::SandboxRequest,
-        source: &[u8],
-    ) -> Result<(sandbox::SandboxResponse, Vec<u8>), crate::typst_sandbox::SandboxFailure> {
-        let mut input = Vec::new();
-        sandbox::write_frame(&mut input, request, source).unwrap();
-        let mut output = Vec::new();
-        sandbox::serve(&mut input.as_slice(), &mut output)
-            .map_err(|error| crate::typst_sandbox::SandboxFailure::Protocol(error.to_string()))?;
-        sandbox::read_frame(&mut output.as_slice())
-            .map_err(|error| crate::typst_sandbox::SandboxFailure::Protocol(error.to_string()))
-    }
-
     fn entry(conversation: &str, created_at: Instant, source: &[u8]) -> PreviewEntry {
         PreviewEntry {
             actor_id: "owner".into(),
@@ -716,7 +627,12 @@ mod tests {
             );
         }
         let render = |id: &str, conversation: &str, actor: &str, device: &str| {
-            render_preview_page_with(params(id, conversation), actor, device, &in_process)
+            render_preview_page_with(
+                params(id, conversation),
+                actor,
+                device,
+                &sandbox::in_process_runner,
+            )
         };
 
         let wrong_actor = render(&live_id, "conversation", "other", "device").unwrap_err();
@@ -742,48 +658,95 @@ mod tests {
         let mut spent = entry("budget", Instant::now(), b"# Budget");
         spent.renders = MAX_RENDERS_PER_PREVIEW;
         store().lock().unwrap().entries.insert(id.clone(), spent);
-        let error = render_preview_page_with(params(&id, "budget"), "owner", "device", &in_process)
-            .unwrap_err();
+        let error = render_preview_page_with(
+            params(&id, "budget"),
+            "owner",
+            "device",
+            &sandbox::in_process_runner,
+        )
+        .unwrap_err();
         assert_eq!(error.kind, AgentErrorKind::OutputLimitExceeded);
         let mut slow = entry("budget", Instant::now(), b"# Budget");
         slow.render_time = MAX_RENDER_TIME_PER_PREVIEW;
         store().lock().unwrap().entries.insert(id.clone(), slow);
         assert!(
-            render_preview_page_with(params(&id, "budget"), "owner", "device", &in_process)
-                .is_err()
+            render_preview_page_with(
+                params(&id, "budget"),
+                "owner",
+                "device",
+                &sandbox::in_process_runner
+            )
+            .is_err()
         );
         store().lock().unwrap().entries.remove(&id);
     }
 
-    #[test]
-    fn a_sandbox_failure_is_a_definite_non_publication() {
-        let failing = |_: &sandbox::SandboxRequest, _: &[u8]| {
-            Err(crate::typst_sandbox::SandboxFailure::ResourceLimit)
-        };
-        let options = engine::ConvertOptions {
-            kind: engine::ConversionKind::TypstToPdf,
+    fn conversion(kind: DocumentConversionKind) -> DocumentConversionOptions {
+        DocumentConversionOptions {
+            kind,
             pages: vec![],
             page_markers: None,
+        }
+    }
+
+    #[test]
+    fn a_sandbox_failure_is_a_definite_non_publication() {
+        let failing = |_: &sandbox::SandboxRequest,
+                       _: &[u8],
+                       _: &desk_utils::process_sandbox::SandboxSpec| {
+            Err(desk_utils::process_sandbox::SandboxFailure::Exited(None))
         };
-        let error = convert_source(b"#let x = 1", &options, &failing).unwrap_err();
+        let typst = conversion(DocumentConversionKind::TypstToPdf);
+        let error = convert_source(b"#let x = 1", &typst, &failing).unwrap_err();
         assert_eq!(error.code, "document_resource_limit_exceeded");
         assert_eq!(
             engine_error(error).kind,
             AgentErrorKind::OutputLimitExceeded
         );
-        let converted = convert_source(b"Hello", &options, &in_process).unwrap();
+        let converted = convert_source(b"Hello", &typst, &sandbox::in_process_runner).unwrap();
         assert!(converted.bytes.starts_with(b"%PDF-"));
-        // PDF extraction never reaches the sandbox runner.
-        let extraction = engine::ConvertOptions {
-            kind: engine::ConversionKind::PdfToText,
-            pages: vec![],
-            page_markers: None,
-        };
-        assert_ne!(
-            convert_source(b"not a pdf", &extraction, &failing)
+        // PDF extraction runs in the sandbox too.
+        let extraction = conversion(DocumentConversionKind::PdfToText);
+        assert_eq!(
+            convert_source(b"%PDF-1.7", &extraction, &failing)
                 .unwrap_err()
                 .code,
             "document_resource_limit_exceeded"
+        );
+    }
+
+    #[test]
+    fn pdf_extraction_keeps_exact_pages_and_markers() {
+        let pdf = convert_source(
+            b"One\n#pagebreak()\nTwo\n#pagebreak()\nThree",
+            &conversion(DocumentConversionKind::TypstToPdf),
+            &sandbox::in_process_runner,
+        )
+        .unwrap()
+        .bytes;
+        let options = DocumentConversionOptions {
+            kind: DocumentConversionKind::PdfToMarkdown,
+            pages: vec![DocumentPageRange { start: 2, end: 2 }],
+            page_markers: Some(DocumentPageMarkerStyle::HtmlComment),
+        };
+        let extracted = convert_source(&pdf, &options, &sandbox::in_process_runner).unwrap();
+        let text = String::from_utf8(extracted.bytes).unwrap();
+        assert!(text.starts_with("<!-- lcxl-page: 2 -->"), "{text}");
+        assert!(text.contains("Two") && !text.contains("Three"));
+        assert_eq!(extracted.media_type, "text/markdown;charset=utf-8");
+        let generation_with_pages = DocumentConversionOptions {
+            kind: DocumentConversionKind::TextToPdf,
+            ..options
+        };
+        assert_eq!(
+            convert_source(
+                b"Hello",
+                &generation_with_pages,
+                &sandbox::in_process_runner
+            )
+            .unwrap_err()
+            .code,
+            "invalid_conversion_options"
         );
     }
 

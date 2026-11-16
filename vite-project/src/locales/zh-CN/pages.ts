@@ -2115,7 +2115,7 @@ export default {
   'pages.aiAssistant.automationPolicyLoadFailed': "无法读取自动续跑上限。",
   'pages.aiAssistant.automationPolicySaveFailed': "无法保存自动续跑上限，请重新加载后再试。",
   'pages.aiAssistant.webResearchPolicyTitle': "网页读取上限",
-  'pages.aiAssistant.webResearchPolicyDescription': "助手读取一个公开网页时最多读取的数据量。超过上限的页面只读取开头部分，并标明内容已截断。",
+  'pages.aiAssistant.webResearchPolicyDescription': "助手读取一个公开网页或文档时，返回给助手的文本量上限。网页和文档先转为 Markdown，超出上限的部分不返回，并标明内容已截断。",
   'pages.aiAssistant.webResearchPolicyMaxFetch': "单次读取上限（KiB）",
   'pages.aiAssistant.webResearchPolicyInvalid': "请输入 16 到 1024 之间的整数。",
   'pages.aiAssistant.webResearchPolicySaved': "已保存。",

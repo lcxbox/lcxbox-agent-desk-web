@@ -144,7 +144,9 @@ fn confirm_cli_lock() -> anyhow::Result<()> {
 
 fn main() {
     // Before anything else: the sandbox child's stdout carries only its frame.
-    if let Some(code) = lcxl_remote_desk_server::typst_sandbox::run_child_if_requested() {
+    if let Some(code) = desk_utils::process_sandbox::run_child_if_requested(&[
+        desk_document_conversion::sandbox::SERVICE,
+    ]) {
         std::process::exit(code);
     }
     #[cfg(windows)]

@@ -56,7 +56,7 @@ desk-assistant-data-store = { path = "assistant-data-store" }
 desk-file-recovery = { path = "file-recovery" }
 desk-office-batch = { path = "office-batch" }
 desk-mcp-server = { path = "mcp-server" }
-desk-document-conversion = { path = "document-conversion" }
+desk-document-conversion = { path = "document-conversion", default-features = false }
 
 clap = { version = "4.5", features = ["derive"] }
 log = "0.4"
@@ -171,6 +171,9 @@ config = { version = "0.15", features = ["toml"] }
 
 codepage = "0.1"
 encoding_rs = "0.8"
+htmd = "=0.5.6"
+html5ever = "=0.38.0"
+markup5ever_rcdom = "=0.38.0"
 regex = "1.11"
 ipnet = "2.11"
 lru = "0.18.2"

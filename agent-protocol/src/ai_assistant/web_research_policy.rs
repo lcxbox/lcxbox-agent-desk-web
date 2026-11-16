@@ -1,11 +1,12 @@
-//! Bound on the bytes one public web page read may take; not a permission grant.
+//! Bound on the text one public page or document read returns to the
+//! assistant; not a permission grant.
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub const SCHEMA_VERSION: u16 = 1;
 pub const DEFAULT_MAX_FETCH_BYTES: u32 = 128 * 1024;
 pub const MIN_MAX_FETCH_BYTES: u32 = 16 * 1024;
-/// A hard ceiling on the response body read for one page.
+/// A hard ceiling on the text returned for one read.
 pub const MAX_MAX_FETCH_BYTES: u32 = 1024 * 1024;
 
 pub fn valid_max_fetch_bytes(value: u32) -> bool {

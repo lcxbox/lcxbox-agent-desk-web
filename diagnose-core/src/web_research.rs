@@ -11,6 +11,30 @@ pub const CENTRAL_WEB_READINESS_REVISION: u64 = 1;
 /// Encoded page read results stay below the shared per-call output limit of
 /// central capabilities, with room for the result envelope.
 pub const MAX_FETCH_RESULT_BYTES: usize = 240 * 1024;
+/// Media types a page read converts to Markdown.
+pub const READABLE_MEDIA_TYPES: [&str; 5] = [
+    "text/html",
+    "application/xhtml+xml",
+    "text/plain",
+    "text/markdown",
+    "application/pdf",
+];
+/// Bytes read of a text page; a longer page is truncated.
+pub const MAX_TEXT_DOWNLOAD_BYTES: usize = 2 * 1024 * 1024;
+/// Bytes read of a PDF; a larger document fails, since a PDF prefix is not
+/// readable.
+pub const MAX_DOCUMENT_DOWNLOAD_BYTES: usize = 16 * 1024 * 1024;
+/// Pages a readable PDF may have; equal to the document converter's limit.
+pub const MAX_FETCH_DOCUMENT_PAGES: u32 = 500;
+
+/// The download bound of a readable media type.
+pub fn max_download_bytes(content_type: &str) -> usize {
+    if content_type == "application/pdf" {
+        MAX_DOCUMENT_DOWNLOAD_BYTES
+    } else {
+        MAX_TEXT_DOWNLOAD_BYTES
+    }
+}
 
 pub fn is_web_tool(name: &str) -> bool {
     matches!(name, WEB_FETCH_TOOL_NAME | WEB_SEARCH_TOOL_NAME)

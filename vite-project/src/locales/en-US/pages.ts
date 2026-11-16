@@ -2118,7 +2118,7 @@ export default {
   'pages.aiAssistant.automationPolicyLoadFailed': "Could not load the automatic continuation limit.",
   'pages.aiAssistant.automationPolicySaveFailed': "Could not save the automatic continuation limit. Reload and try again.",
   'pages.aiAssistant.webResearchPolicyTitle': "Web page read limit",
-  'pages.aiAssistant.webResearchPolicyDescription': "The most data the assistant reads from one public web page. A longer page is read only up to the limit and marked as truncated.",
+  'pages.aiAssistant.webResearchPolicyDescription': "The most text returned to the assistant from one public web page or document. Pages and documents are converted to Markdown first; text beyond the limit is left out and marked as truncated.",
   'pages.aiAssistant.webResearchPolicyMaxFetch': "Read limit per page (KiB)",
   'pages.aiAssistant.webResearchPolicyInvalid': "Enter a whole number from 16 to 1024.",
   'pages.aiAssistant.webResearchPolicySaved': "Saved.",

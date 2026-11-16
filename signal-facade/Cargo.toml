@@ -18,6 +18,7 @@ clap = ["dep:clap"]
 serde_urlencoded = { workspace = true }
 desk-agent-protocol = { workspace = true }
 desk-diagnose-core = { workspace = true }
+desk-document-conversion = { workspace = true }
 desk-utils = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true, optional = true }

@@ -6091,9 +6091,9 @@ impl SignalAiAssistantTools {
     ) -> Result<ToolRunOutput, ProviderInvokeError> {
         if call.name == WEB_FETCH_TOOL_NAME {
             let validated = validate_fetch_arguments(call)?;
-            let max_body_bytes = crate::web_research_policy::max_fetch_bytes(&self.db).await;
+            let max_fetch_bytes = crate::web_research_policy::max_fetch_bytes(&self.db).await;
             return desk_diagnose_core::future::boxed(|| async {
-                fetch_public_web_page(validated, max_body_bytes).await
+                fetch_public_web_page(validated, max_fetch_bytes).await
             })
             .await
             .map_err(Into::into);

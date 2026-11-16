@@ -1,8 +1,8 @@
 //! Windows limits: a job object with a per-process memory cap, a CPU-time cap,
 //! a single active process and kill-on-close. The job is assigned right after
 //! the spawn, before the parent writes the request the child blocks on, so no
-//! Typst work runs outside it.
-use super::SandboxLimits;
+//! sandboxed work runs outside it.
+use super::SandboxSpec;
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command};
@@ -15,6 +15,9 @@ use windows::Win32::System::JobObjects::{
 };
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// A job object enforces the per-process memory limit.
+pub const MEMORY_LIMIT_ENFORCED: bool = true;
 
 /// Owns the job handle; closing it kills the child if it is still running.
 pub struct Containment {
@@ -34,11 +37,11 @@ impl Drop for Containment {
     }
 }
 
-pub fn before_spawn(command: &mut Command, _limits: SandboxLimits) {
+pub fn before_spawn(command: &mut Command, _spec: &SandboxSpec) {
     command.creation_flags(CREATE_NO_WINDOW);
 }
 
-pub fn after_spawn(child: &Child, limits: SandboxLimits) -> Result<Containment, String> {
+pub fn after_spawn(child: &Child, spec: &SandboxSpec) -> Result<Containment, String> {
     // SAFETY: an anonymous job with default security attributes.
     let job = unsafe { CreateJobObjectW(None, windows::core::PCWSTR::null()) }
         .map_err(|error| error.message())?;
@@ -51,8 +54,8 @@ pub fn after_spawn(child: &Child, limits: SandboxLimits) -> Result<Containment, 
     info.BasicLimitInformation.ActiveProcessLimit = 1;
     // Per-process user-mode time, in 100-nanosecond units.
     info.BasicLimitInformation.PerProcessUserTimeLimit =
-        (limits.cpu_seconds.saturating_mul(10_000_000)).min(i64::MAX as u64) as i64;
-    info.ProcessMemoryLimit = usize::try_from(limits.memory_bytes).unwrap_or(usize::MAX);
+        (spec.cpu_seconds.saturating_mul(10_000_000)).min(i64::MAX as u64) as i64;
+    info.ProcessMemoryLimit = usize::try_from(spec.memory_bytes).unwrap_or(usize::MAX);
     // SAFETY: `info` is a fully initialized structure of the declared size.
     unsafe {
         SetInformationJobObject(

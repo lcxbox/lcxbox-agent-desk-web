@@ -209,16 +209,24 @@ struct FetchOutput {
     sha256: String,
     // The remaining fields are part of the strict result shape; the encoded
     // result length already bounds the excerpt.
-    /// Absent in results written before reads could be truncated.
-    #[serde(default)]
     #[allow(dead_code)]
     truncated: bool,
     /// The server's declared length, reported only.
     #[serde(default)]
     #[allow(dead_code)]
     content_length: Option<u64>,
+    /// Page counts of a PDF read; absent for other media types.
+    #[serde(default)]
+    document: Option<FetchDocument>,
     #[allow(dead_code)]
     excerpt: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FetchDocument {
+    source_pages: u32,
+    converted_pages: u32,
 }
 
 #[derive(Deserialize)]
@@ -283,13 +291,13 @@ fn validate_web_output(
                     .as_ref()
                     .is_some_and(|date| date.len() > 256 || date.chars().any(char::is_control))
                 || value.fetched_at.len() > 64
-                || !matches!(
-                    value.content_type.as_str(),
-                    "text/html" | "text/plain" | "application/xhtml+xml"
-                )
-                || value.body_bytes
-                    > desk_agent_protocol::ai_assistant::web_research_policy::MAX_MAX_FETCH_BYTES
-                        as usize
+                || !crate::web_research::READABLE_MEDIA_TYPES.contains(&value.content_type.as_str())
+                || value.body_bytes > crate::web_research::max_download_bytes(&value.content_type)
+                || (value.content_type == "application/pdf") != value.document.is_some()
+                || value.document.as_ref().is_some_and(|document| {
+                    document.converted_pages > document.source_pages
+                        || document.source_pages > crate::web_research::MAX_FETCH_DOCUMENT_PAGES
+                })
                 || !is_sha256(&value.sha256)
                 || limits.max_items_per_call < 1
             {

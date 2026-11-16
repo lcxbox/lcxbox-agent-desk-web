@@ -1,26 +1,28 @@
 //! Unix limits, applied in the forked child before `exec`, so they are in
-//! force before the sandbox reads its request.
-use super::SandboxLimits;
+//! force before the child reads its request.
+use super::SandboxSpec;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command};
+
+/// macOS accepts but does not enforce an address-space limit.
+pub const MEMORY_LIMIT_ENFORCED: bool = cfg!(target_os = "linux");
 
 /// Unix limits live in the child itself; nothing is held by the parent.
 pub struct Containment;
 
-pub fn before_spawn(command: &mut Command, limits: SandboxLimits) {
+pub fn before_spawn(command: &mut Command, spec: &SandboxSpec) {
+    let (cpu_seconds, memory_bytes) = (spec.cpu_seconds, spec.memory_bytes);
     // SAFETY: the closure runs between fork and exec and only calls
     // `setrlimit`, which is async-signal-safe, on plain integers.
     unsafe {
         command.pre_exec(move || {
-            limit(libc::RLIMIT_CPU, limits.cpu_seconds)?;
+            limit(libc::RLIMIT_CPU, cpu_seconds)?;
             // No core dumps and no regular-file writes: the child only uses its
             // pipes.
             limit(libc::RLIMIT_CORE, 0)?;
             limit(libc::RLIMIT_FSIZE, 0)?;
-            // macOS accepts but does not enforce an address-space limit; the
-            // CPU and wall-clock limits still bound the child there.
-            let memory = limit(libc::RLIMIT_AS, limits.memory_bytes);
-            if cfg!(target_os = "linux") {
+            let memory = limit(libc::RLIMIT_AS, memory_bytes);
+            if MEMORY_LIMIT_ENFORCED {
                 memory?;
             }
             Ok(())
@@ -28,7 +30,7 @@ pub fn before_spawn(command: &mut Command, limits: SandboxLimits) {
     }
 }
 
-pub fn after_spawn(_child: &Child, _limits: SandboxLimits) -> Result<Containment, String> {
+pub fn after_spawn(_child: &Child, _spec: &SandboxSpec) -> Result<Containment, String> {
     Ok(Containment)
 }
 

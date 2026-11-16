@@ -4,6 +4,8 @@ Generated from `diagnose-core/src/output_contracts.rs`. Catalog version describe
 
 The `read_subagent_reports` tool returns a `WorkerReportPage` with reports in sequence order, acceptance criteria when reports are present, a next cursor, and an indication of further pages. Report text and available evidence and receipt references stay with the individual report.
 
+`fetch_public_web_page` returns a `FetchOutput`: the requested and final URL, title and publication time when found, fetch time, media type, the size and SHA-256 of the downloaded bytes, a `truncated` flag for a download or output limit, and an untrusted Markdown `excerpt` converted from the page or document. A PDF read also has `document` with its source and converted page counts.
+
 Model results retain business text, outcomes, times, coverage and usable references. Internal source locators, verification hashes, idempotency keys and control generations stay in the original stored result. History uses conversation aliases such as `cv1`; source IDs remain readable, and memory update/forget keeps the memory revision. Live document references and JSON attachment pages use the same view as inline results. A successful tool return does not by itself prove that an action completed or was verified.
 
 | Tool | Business output type | Catalog version | Possible delivery |

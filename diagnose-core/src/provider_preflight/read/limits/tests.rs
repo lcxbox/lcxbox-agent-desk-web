@@ -252,7 +252,8 @@ fn central_web_output_is_schema_checked_and_narrowed_by_the_grant() {
             "content_type": "text/html",
             "body_bytes": 100,
             "sha256": "b".repeat(64),
-            "excerpt": "Example body"
+            "truncated": false,
+            "excerpt": "# Example\n\nBody"
         })
         .to_string(),
         image_data_url: None,
@@ -271,15 +272,63 @@ fn central_web_output_is_schema_checked_and_narrowed_by_the_grant() {
         ..fetch.clone()
     };
     validate_output(&registry, &fetch_call, &truncated, &limit(256 * 1024, 1)).unwrap();
-    // The body read stays within the configurable ceiling.
-    value["body_bytes"] = serde_json::json!(
-        desk_agent_protocol::ai_assistant::web_research_policy::MAX_MAX_FETCH_BYTES + 1
-    );
-    let oversized = ToolRunOutput {
-        content: value.to_string(),
-        ..fetch.clone()
+    let check = |value: &serde_json::Value| {
+        validate_output(
+            &registry,
+            &fetch_call,
+            &ToolRunOutput {
+                content: value.to_string(),
+                ..fetch.clone()
+            },
+            &limit(256 * 1024, 1),
+        )
     };
-    assert!(validate_output(&registry, &fetch_call, &oversized, &limit(256 * 1024, 1)).is_err());
+    // Text reads stay within the text download bound.
+    value["body_bytes"] = serde_json::json!(crate::web_research::MAX_TEXT_DOWNLOAD_BYTES + 1);
+    assert!(check(&value).is_err());
+    value["body_bytes"] = serde_json::json!(100);
+    // Every readable media type is accepted, others are not.
+    for content_type in ["text/markdown", "text/plain", "application/xhtml+xml"] {
+        value["content_type"] = serde_json::json!(content_type);
+        check(&value).unwrap();
+    }
+    value["content_type"] = serde_json::json!("application/json");
+    assert!(check(&value).is_err());
+    // A PDF read carries its page counts, within the document bounds.
+    let mut pdf = value.clone();
+    pdf["content_type"] = serde_json::json!("application/pdf");
+    pdf["body_bytes"] = serde_json::json!(crate::web_research::MAX_DOCUMENT_DOWNLOAD_BYTES);
+    assert!(
+        check(&pdf).is_err(),
+        "a PDF result needs its document facts"
+    );
+    pdf["document"] = serde_json::json!({"source_pages": 300, "converted_pages": 200});
+    check(&pdf).unwrap();
+    for document in [
+        serde_json::json!({"source_pages": 3, "converted_pages": 4}),
+        serde_json::json!({"source_pages": 501, "converted_pages": 200}),
+        serde_json::json!({"source_pages": 3, "converted_pages": 3, "forged": 1}),
+    ] {
+        pdf["document"] = document;
+        assert!(check(&pdf).is_err());
+    }
+    pdf["document"] = serde_json::json!({"source_pages": 3, "converted_pages": 3});
+    pdf["body_bytes"] = serde_json::json!(crate::web_research::MAX_DOCUMENT_DOWNLOAD_BYTES + 1);
+    assert!(check(&pdf).is_err());
+    value["content_type"] = serde_json::json!("text/html");
+    value["document"] = serde_json::json!({"source_pages": 1, "converted_pages": 1});
+    assert!(
+        check(&value).is_err(),
+        "only a PDF result has document facts"
+    );
+    value.as_object_mut().unwrap().remove("document");
+    // `truncated` is required.
+    let mut without_truncated = value.clone();
+    without_truncated
+        .as_object_mut()
+        .unwrap()
+        .remove("truncated");
+    assert!(check(&without_truncated).is_err());
     // Unknown fields are still rejected.
     value["body_bytes"] = serde_json::json!(100);
     value["forged"] = serde_json::json!(true);
