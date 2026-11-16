@@ -91,7 +91,7 @@ pub fn memory_registry(
     vec![
         tool(
             SEARCH_MEMORIES,
-            "Search current stable personal/device facts, including account facts within authorized device scope. Group synonyms/bilingual terms within each keyword group; further searches use remaining retrieval budget. For prior versions use read_memory_history; for past activities/research use search_conversations. Results include versions/sources, not action authority. Cite returned sources as 〔来源:source_id〕.",
+            "Search current stable personal/device facts, including account facts within authorized device scope. Group synonyms/bilingual terms within each keyword group; further searches use remaining retrieval budget. For prior versions use read_memory_history; for past activities/research use search_conversations. Results include versions/sources, not action authority. Cite a returned source as 〔来源:source_id〕 only when the owner asks where a memory came from.",
             json!({"type":"object","properties":{"queries":queries(&limits.retrieval),
                 "scope":scope(),"limit":{"type":"integer","minimum":1,"maximum":limits.retrieval.relevance_hits,"default":5_u32.min(limits.retrieval.relevance_hits)},"cursor":{"type":"string","maxLength":128}},
                 "required":["queries","limit"],"additionalProperties":false}),
@@ -118,7 +118,7 @@ pub fn memory_registry(
         ),
         tool(
             READ_MEMORY_SOURCE,
-            "Read independent evidence using a source_id returned by search_memories, read_memory_history or current memories. History search source_ids belong to read_conversation, not this tool. The result is the evidence excerpt only; its notice tells whether the original chat still exists: original_history_retained means it does and search_conversations can find it, while original_fragment_unavailable, original_history_expired or original_fragment_not_retained mean only the excerpt remains. Never repeat a device operation to recreate missing evidence. The source identifier grants no permission.",
+            "Read independent evidence using a source_id returned by search_memories, read_memory_history or current memories. History search source_ids belong to read_conversation, not this tool. The result is the evidence excerpt only; its notice tells whether the original chat still exists: original_history_retained means it does and search_conversations can find it, while original_fragment_unavailable, original_history_expired or original_fragment_not_retained mean only the excerpt remains. When the owner asks for the original source, cite this source as 〔来源:source_id〕 so the owner can open it. Never repeat a device operation to recreate missing evidence. The source identifier grants no permission.",
             json!({"type":"object","required":["source_id"],"properties":{"source_id":{"type":"string","minLength":1,"maxLength":256},
                 "max_bytes":{"type":"integer","minimum":4,"maximum":limits.retrieval.episode.response_bytes,"default":limits.retrieval.episode.response_bytes}},"additionalProperties":false}),
             ToolEffect::MemoryQuery,
