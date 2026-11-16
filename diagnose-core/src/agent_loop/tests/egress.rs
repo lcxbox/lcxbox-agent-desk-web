@@ -167,3 +167,101 @@ async fn strict_compression_loop_keeps_authorized_summaries_after_time_advances(
         }
     }
 }
+
+#[tokio::test]
+async fn a_permission_plan_the_server_cannot_build_is_reported_as_server_text() {
+    let policy = ModelEgressPolicy {
+        destination: DestinationIdentity::Model {
+            connection_id: "test".into(),
+            connection_revision: 1,
+            model_id: "test".into(),
+            profile_revision: 1,
+        },
+        selected_source_tools: Default::default(),
+        export_authorization_id: "send".into(),
+        now_unix_ms: 1000,
+        byte_cap: crate::sink_authorizer::MAX_SINK_BYTES,
+        permission_resume: false,
+    };
+    let current = model_bound_user_message(
+        "current".into(),
+        "inspect it".into(),
+        policy.destination.clone(),
+    )
+    .unwrap();
+    let sess = MemSession::default();
+    let mut existing = PersistedAgentSession::new(
+        "conv",
+        "actor",
+        "device",
+        1,
+        scope(),
+        "2026-06-19T00:00:00Z",
+    );
+    existing.surface = crate::session::AgentSessionSurface::AiAssistant;
+    existing.input_revision = 1;
+    existing.latest_input_seq = 1;
+    *sess.inner.borrow_mut() = Some(existing);
+    let model = StrictCompressionModel {
+        inner: CompressionScriptModel {
+            turns: RefCell::new(
+                [
+                    Ok(tool_use_args(
+                        "permission-call",
+                        crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
+                        r#"{"items":[{"tool_name":"no_such_tool","suggested_ttl_seconds":300,"suggested_max_uses":1,"reason":"Inspect the target"}]}"#,
+                    )),
+                    Ok(answer("corrected")),
+                ]
+                .into(),
+            ),
+            requests: Rc::new(RefCell::new(Vec::new())),
+            audits: Rc::new(RefCell::new(Vec::new())),
+            source: SourceContextKey::derive(
+                WireProtocol::OpenAiChatCompletions,
+                "test",
+                "test",
+                "test",
+            ),
+            max_context_bytes: crate::MIN_MODEL_CONTEXT_BYTES * 4,
+        },
+        policy: RefCell::new(policy),
+        expire_after_compression: false,
+    };
+    let tools = RecordingTools {
+        calls: Rc::new(RefCell::new(vec![])),
+        reply: "must not run".into(),
+    };
+    let providers = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::permission_tools::permission_planning_tool_registry();
+    let clock = || "2026-06-20T00:00:01Z".into();
+    let mut loop_deps = deps(&sess, &model, &tools, &registry, &clock);
+    loop_deps.provider_registry = Some(&providers);
+    let outcome = run_agent_turn(&loop_deps, claim(), current, &mut NullTurnSink)
+        .await
+        .unwrap();
+    assert_eq!(outcome, LoopOutcome::Answered("corrected".into()));
+    let stored = sess.inner.borrow();
+    let result = stored
+        .as_ref()
+        .unwrap()
+        .conversation
+        .iter()
+        .find(|message| message.tool_call_id.as_deref() == Some("permission-call"))
+        .unwrap();
+    assert_eq!(result.tool_ok, Some(false));
+    assert!(
+        result.text.contains("unknown tool `no_such_tool`"),
+        "{}",
+        result.text
+    );
+    // Building the request read only the call and the registry.
+    let label = result.data_envelope.as_ref().unwrap();
+    assert!(
+        label
+            .envelope_id
+            .starts_with(crate::model_message_labels::COMPOSED_RESULT_PREFIX),
+        "{}",
+        label.envelope_id
+    );
+}

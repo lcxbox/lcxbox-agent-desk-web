@@ -69,6 +69,10 @@ pub(super) async fn propose<F: FnMut() -> String>(
         )
     })
     .await;
+    // Building the request reads only the call and the registry, so its own
+    // failure is server validation; the later checks read host and device
+    // state.
+    let build_failed = std::cell::Cell::new(false);
     let request = selected_request.unwrap_or_else(|| deps.provider_registry.ok_or_else(|| AgentError {
                                 kind: AgentErrorKind::Internal,
                                 message: "permission planning has no Provider catalog".into(),
@@ -83,6 +87,7 @@ pub(super) async fn propose<F: FnMut() -> String>(
                                     session.input_revision,
                                     created_at.clone(),
                                 )
+                                .inspect_err(|_| build_failed.set(true))
                             }).and_then(|mut request| {
                                 let providers = deps.provider_registry.ok_or_else(|| AgentError {
                                     kind: AgentErrorKind::Internal,
@@ -397,14 +402,15 @@ pub(super) async fn propose<F: FnMut() -> String>(
             }));
         }
         Err(error) => {
-            // Planning reads host state whose errors are not all server text.
-            session.conversation.push(
-                crate::model_content::ToolError::host(&error).result_message(
-                    mint(),
-                    call,
-                    parent_envelope,
-                )?,
-            );
+            let result = if build_failed.get() {
+                crate::model_content::ToolError::validation(&error)
+            } else {
+                // Planning reads host state whose errors are not all server text.
+                crate::model_content::ToolError::host(&error)
+            };
+            session
+                .conversation
+                .push(result.result_message(mint(), call, parent_envelope)?);
             if session.trigger_origin == crate::session::TriggerOrigin::ScheduledTask {
                 append_unstarted_tool_results(
                     session,
