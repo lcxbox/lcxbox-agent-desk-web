@@ -711,6 +711,10 @@ pub fn same_call_input_with_references(
         references.alias_native_arguments(&mut right);
     }
     project_arguments(tool, &mut right, locators);
+    if let Some(references) = references {
+        // Projection names results by message id; the model used their aliases.
+        references.alias_result_ids(&mut right);
+    }
     crate::file_model_input::complete_comparison(tool, &mut left, &right);
     left == right
 }

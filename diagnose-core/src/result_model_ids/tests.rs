@@ -752,3 +752,37 @@ fn mutation_results_are_offered_and_resolved_as_restore_sources() {
             .is_none()
     );
 }
+
+#[test]
+fn a_recorded_call_naming_a_result_alias_matches_its_resolved_input() {
+    let history = read_history();
+    let mut references = crate::ui_references::UiReferenceState::default();
+    references.observe(&history).unwrap();
+    let recorded = json!({"file_version_id":"res1","change":{"kind":"write","content_utf8":"new"}});
+    let mut expanded = recorded.clone();
+    references.expand_result_ids(&mut expanded).unwrap();
+    let call = ToolCall {
+        id: "change".into(),
+        name: "update_text_file".into(),
+        arguments_json: expanded.to_string(),
+    };
+    let resolved = crate::ui_model_ids::resolve_call(&call, &history, 1)
+        .unwrap()
+        .arguments_json;
+    let locators = super::locators(&history);
+    assert!(crate::ui_model_ids::same_call_input_with_references(
+        "update_text_file",
+        &recorded.to_string(),
+        &resolved,
+        Some(&references),
+        &locators,
+    ));
+    let other = json!({"file_version_id":"res9","change":{"kind":"write","content_utf8":"new"}});
+    assert!(!crate::ui_model_ids::same_call_input_with_references(
+        "update_text_file",
+        &other.to_string(),
+        &resolved,
+        Some(&references),
+        &locators,
+    ));
+}
