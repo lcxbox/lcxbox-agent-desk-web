@@ -4,13 +4,40 @@
 //! only the live process value and the mapping from the browser's BCP-47 tags
 //! to the locale identifiers used by the Rust translation catalog.
 
-use once_cell::sync::Lazy;
-use std::sync::RwLock;
-
 pub const DEFAULT_LOCALE: &str = "zh-CN";
 pub const SUPPORTED_LOCALES: [&str; 2] = ["en-US", "zh-CN"];
 
-static GLOBAL_LOCALE: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(DEFAULT_LOCALE.to_string()));
+#[cfg(not(test))]
+static GLOBAL_LOCALE: once_cell::sync::Lazy<std::sync::RwLock<String>> =
+    once_cell::sync::Lazy::new(|| std::sync::RwLock::new(DEFAULT_LOCALE.to_string()));
+
+#[cfg(not(test))]
+fn store(locale: &str) {
+    *GLOBAL_LOCALE.write().unwrap() = locale.to_string();
+}
+
+#[cfg(not(test))]
+fn load() -> String {
+    GLOBAL_LOCALE.read().unwrap().clone()
+}
+
+// Tests run in parallel threads of one process; each thread keeps its own
+// value so a test never observes a locale another test applied.
+#[cfg(test)]
+thread_local! {
+    static TEST_LOCALE: std::cell::RefCell<String> =
+        std::cell::RefCell::new(DEFAULT_LOCALE.to_string());
+}
+
+#[cfg(test)]
+fn store(locale: &str) {
+    TEST_LOCALE.with(|value| *value.borrow_mut() = locale.to_string());
+}
+
+#[cfg(test)]
+fn load() -> String {
+    TEST_LOCALE.with(|value| value.borrow().clone())
+}
 
 /// Return the canonical locale accepted by both the web UI and native shell.
 pub fn canonicalize(locale: &str) -> Option<&'static str> {
@@ -35,12 +62,12 @@ pub fn set_global_locale(locale: &str) -> Result<&'static str, String> {
         _ => unreachable!("canonicalize only returns supported locales"),
     };
     rust_i18n::set_locale(rust_locale);
-    *GLOBAL_LOCALE.write().unwrap() = canonical.to_string();
+    store(canonical);
     Ok(canonical)
 }
 
 pub fn current_locale() -> String {
-    GLOBAL_LOCALE.read().unwrap().clone()
+    load()
 }
 
 #[cfg(test)]
