@@ -723,20 +723,7 @@ pub async fn run_signaling_proxy(
                 );
                 continue;
             }
-            let global_control = matches!(
-                &worker_message.message,
-                WorkerToService::Ready
-                    | WorkerToService::Heartbeat(_)
-                    | WorkerToService::Capabilities(_)
-                    | WorkerToService::LinuxAiInputEndpoint(_)
-                    | WorkerToService::ComputerTurnQuery(_)
-                    | WorkerToService::DesktopChanged(_)
-                    | WorkerToService::InteractiveRouteApplied(_)
-                    | WorkerToService::RemoteAccessStateApplied(_)
-                    | WorkerToService::LocaleApplied(_)
-                    | WorkerToService::SecurityPolicyApplied(_)
-                    | WorkerToService::ComputerUseLocalPolicyApplied(_)
-            );
+            let global_control = resident_global_control(&worker_message.message);
             let connection_owned =
                 worker_message
                     .message
@@ -2090,6 +2077,28 @@ use central_authorization::*;
 
 pub(crate) mod inbound;
 use inbound::*;
+
+/// Resident-worker messages about the worker or the device rather than one
+/// connection; they are forwarded without a connection the worker owns.
+/// Readiness describes what the device can do, so it must reach the central
+/// even while no connection is bound to the worker.
+fn resident_global_control(message: &WorkerToService) -> bool {
+    matches!(
+        message,
+        WorkerToService::Ready
+            | WorkerToService::Heartbeat(_)
+            | WorkerToService::Capabilities(_)
+            | WorkerToService::LinuxAiInputEndpoint(_)
+            | WorkerToService::ComputerTurnQuery(_)
+            | WorkerToService::DesktopChanged(_)
+            | WorkerToService::InteractiveRouteApplied(_)
+            | WorkerToService::RemoteAccessStateApplied(_)
+            | WorkerToService::LocaleApplied(_)
+            | WorkerToService::SecurityPolicyApplied(_)
+            | WorkerToService::ComputerUseLocalPolicyApplied(_)
+            | WorkerToService::ComputerUseReadinessUpdated(_)
+    )
+}
 
 #[cfg(test)]
 mod tests;

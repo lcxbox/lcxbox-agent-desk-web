@@ -1935,3 +1935,17 @@ fn agent_capability_completed_outbound_rebuild_both_arms() {
         assert_eq!(decoded, outcome);
     }
 }
+
+#[test]
+fn resident_worker_readiness_reaches_the_central_without_a_bound_connection() {
+    use desk_ipc_protocol::message::{ComputerUseReadinessPayload, WorkerToService};
+    let readiness = crate::worker::agent::computer_use_broker::ComputerUseBroker::new().readiness(
+        &crate::model::settings::ComputerUseSettings::default(),
+        false,
+        false,
+    );
+    let message =
+        WorkerToService::ComputerUseReadinessUpdated(ComputerUseReadinessPayload { readiness });
+    assert_eq!(message.connection_id(), None);
+    assert!(resident_global_control(&message));
+}
