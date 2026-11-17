@@ -70,6 +70,17 @@ pub fn run_service_daemon(args: Args) -> Result<(), Box<dyn std::error::Error>> 
     system.block_on(async { run_service_daemon_inner(args, None).await })
 }
 
+/// Start the local API on the daemon's actix system. The API spawns its
+/// background executors with `actix_web::rt::spawn`, which needs the system's
+/// local task set; a plain `tokio::spawn` task would make those spawns panic.
+fn spawn_local_api_task<F>(task: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: std::future::Future + 'static,
+    F::Output: 'static,
+{
+    actix_web::rt::spawn(task)
+}
+
 /// The actual async daemon logic, shared between the interactive path and the
 /// Windows Service path (called from `windows_service::run_service()`).
 ///
@@ -185,7 +196,7 @@ pub async fn run_service_daemon_inner(
         let coordinator = Arc::clone(&settings_coordinator);
         #[cfg(target_os = "linux")]
         let session_shell_registry = session_shell_registry.clone();
-        tokio::spawn(async move {
+        spawn_local_api_task(async move {
             if let Err(e) = local_api::run_local_api(
                 settings,
                 coordinator,
@@ -714,3 +725,25 @@ fn get_initial_desktop_name() -> Option<String> {
 
 #[cfg(target_os = "linux")]
 mod linux_ai_input_route;
+
+#[cfg(test)]
+mod tests {
+    use super::spawn_local_api_task;
+
+    #[test]
+    fn the_local_api_task_can_spawn_actix_tasks() {
+        let system = actix_web::rt::System::new();
+        let spawned = system.block_on(async {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            spawn_local_api_task(async move {
+                actix_web::rt::spawn(async move {
+                    let _ = tx.send(());
+                });
+            })
+            .await
+            .unwrap();
+            rx.await
+        });
+        assert!(spawned.is_ok());
+    }
+}
