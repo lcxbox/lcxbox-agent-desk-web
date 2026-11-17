@@ -150,6 +150,13 @@ impl HostDataPaths {
         create_private_directory(&self.data_root)?;
         if let Some(runtime_root) = &self.runtime_root {
             create_private_directory(runtime_root)?;
+            // The system daemon's session workers reach their own sockets below
+            // it: others may traverse it but never list or create entries.
+            #[cfg(unix)]
+            if self.scope == HostDataScope::System {
+                use std::os::unix::fs::PermissionsExt as _;
+                fs::set_permissions(runtime_root, fs::Permissions::from_mode(0o711))?;
+            }
         }
         fs::create_dir_all(&self.log_dir)?;
         Ok(())
@@ -491,6 +498,37 @@ fn windows_program_data() -> Result<PathBuf, HostDataPathError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn only_the_system_runtime_root_is_traversable_by_session_workers() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let root = tempfile::tempdir().unwrap();
+        let layout = |scope, name: &str| {
+            let base = root.path().join(name);
+            HostDataPaths::assemble(
+                scope,
+                false,
+                base.join("config/config.toml"),
+                base.join("data"),
+                Some(base.join("run")),
+                base.join("logs"),
+                base.join("data"),
+                base.join("data"),
+                base.join("data").join(REMOTE_ACCESS_STATE_FILE),
+                Some(base.join("run").join(LOCAL_ACCESS_SOCKET_FILE)),
+            )
+            .unwrap()
+        };
+        let system = layout(HostDataScope::System, "system");
+        system.ensure_directories().unwrap();
+        assert_eq!(mode(&root.path().join("system/run")), 0o711);
+        assert_eq!(mode(&root.path().join("system/data")), 0o700);
+        let user = layout(HostDataScope::User, "user");
+        user.ensure_directories().unwrap();
+        assert_eq!(mode(&root.path().join("user/run")), 0o700);
+    }
 
     /// The scope is whatever the running platform supports (Windows only admits
     /// `Machine`, Linux `System` / `User`, macOS `User`), because `resolve` still
