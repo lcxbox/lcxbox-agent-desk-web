@@ -20,6 +20,7 @@ const neutral: CommandSandbox = { mode: 'unrestricted', attention: 'neutral', wr
 describe('command sandbox block', () => {
     it('accepts consistent blocks and rejects missing or contradictory ones', () => {
         for (const valid of [sandboxed, prominent, neutral, { ...sandboxed, writableRoots: [], implicitWritable: ['exec_temp_dir'] },
+            { ...sandboxed, implicitWritable: ['exec_temp_dir', 'low_integrity_locations', 'other_sandbox_roots'] },
             { ...neutral, identity: { elevated: false, system: false, root: true } }]) {
             expect(validCommandSandbox(valid)).toBe(true);
         }
@@ -116,6 +117,9 @@ describe('command sandbox result notes', () => {
         expect(sandboxDiagnostic([refused], failure)).toBe('refused');
         expect(sandboxDiagnostic(undefined, null)).toBeNull();
         expect(sandboxDiagnostic([null, 'x', other], null)).toBeNull();
+        // A Windows device still preparing the write directory: retryable.
+        const preparing = { ...hint, operation: 'prepare command sandbox', domain: 'exec_sandbox_preparing' };
+        expect(sandboxDiagnostic([preparing], { kind: 'host_at_capacity', message: 'x' })).toBe('preparing');
         expect(parseCommandReceipt(exec([other, hint]))?.sandboxNote).toBe('unavailable_program');
         expect(parseCommandReceipt(exec([]))?.sandboxNote).toBeNull();
     });

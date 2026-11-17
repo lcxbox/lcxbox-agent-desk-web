@@ -5984,11 +5984,12 @@ mod tests {
             assert_eq!(readiness.exec_sandbox, ExecSandboxSupport::Supported);
             assert!(!readiness.exec_identity.is_notable());
         }
+        // Windows: supported once the start-up self-test passes, except as
+        // SYSTEM (plan 6.5).
         #[cfg(windows)]
-        assert!(matches!(
-            readiness.exec_sandbox,
-            ExecSandboxSupport::Unsupported(_)
-        ));
+        if !readiness.exec_identity.system {
+            assert_eq!(readiness.exec_sandbox, ExecSandboxSupport::Supported);
+        }
 
         let mut changed = readiness.clone();
         changed.exec_sandbox = ExecSandboxSupport::Unsupported(

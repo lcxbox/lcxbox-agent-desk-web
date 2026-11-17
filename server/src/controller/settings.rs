@@ -745,6 +745,7 @@ mod tests {
                 max_command_runtime_seconds: None,
                 exec_pty_enabled: Some(true),
                 interactive_elevation_enabled: Some(true),
+                windows_sandbox_label_idle_minutes: None,
             })
             .to_request();
         let resp = test::call_service(&app, req).await;

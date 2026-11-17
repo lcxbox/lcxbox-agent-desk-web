@@ -247,6 +247,8 @@ pub struct WorkerManager {
     turn_queries: Arc<linux_turn_queries::Routes>,
     #[cfg(windows)]
     local_recovery_requests: local_file_recovery::PendingRequests,
+    #[cfg(windows)]
+    exec_sandbox_revocations: exec_sandbox_labels::PendingRevocations,
     settings: web::Data<SharedSettings>,
     inner: Arc<Mutex<WorkerManagerInner>>,
     worker_msg_tx: Arc<mpsc::UnboundedSender<WorkerMessage>>,
@@ -664,6 +666,8 @@ impl WorkerManager {
             local_policy_acks: Arc::new(StdMutex::new(HashMap::new())),
             #[cfg(windows)]
             local_recovery_requests: local_file_recovery::PendingRequests::default(),
+            #[cfg(windows)]
+            exec_sandbox_revocations: exec_sandbox_labels::PendingRevocations::default(),
         };
         (mgr, rx)
     }
@@ -3740,9 +3744,13 @@ mod policy_tests;
 #[cfg(test)]
 mod central_routing_tests;
 
+#[cfg(windows)]
+mod exec_sandbox_labels;
 mod file_recovery_quota;
 #[cfg(target_os = "linux")]
 mod linux_turn_queries;
+#[cfg(windows)]
+pub(crate) use exec_sandbox_labels::RevokeForwardError;
 #[cfg(windows)]
 mod local_file_recovery;
 #[cfg(windows)]

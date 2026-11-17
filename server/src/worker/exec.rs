@@ -208,92 +208,163 @@ pub(crate) async fn execute_plan_cancellable(
         }
     };
 
-    let mut cmd = match &launch {
-        ExecLaunch::Unrestricted => {
-            let mut cmd = Command::new(&plan.program);
-            cmd.args(&plan.argv);
-            containment.apply(&mut cmd);
-            cmd
-        }
-        ExecLaunch::Sandboxed(prepared) => {
-            #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(unused_mut))]
-            let mut cmd = prepared.pipe_command(&plan.program, &plan.argv);
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
-            containment.apply_new_session(&mut cmd);
-            cmd
-        }
-        ExecLaunch::SandboxedTerminal { .. } | ExecLaunch::Refused(_) => {
-            let reason = match &launch {
-                ExecLaunch::Refused(error) => {
-                    format!("the command sandbox is unavailable: {error}")
-                }
-                _ => "a terminal launch requires the dedicated PTY executor".to_owned(),
-            };
-            on_spawn(ExecSpawnReport::Failed {
-                reason: reason.clone(),
-            });
-            return failed_start(
-                false,
-                err(
-                    AgentErrorKind::UnsupportedCapability,
-                    format!("Command was not started: {reason}"),
-                ),
-                NativeDiagnostic::new(
-                    DiagnosticStage::Environment,
-                    "prepare command sandbox",
-                    "exec_sandbox",
-                    None,
-                    &reason,
-                ),
-            );
-        }
-    };
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    if let Some(cwd) = &plan.cwd {
-        cmd.current_dir(cwd);
+    // A refused or terminal launch never starts.
+    if matches!(
+        launch,
+        ExecLaunch::SandboxedTerminal { .. } | ExecLaunch::Refused(_)
+    ) {
+        let preparing = matches!(
+            launch,
+            ExecLaunch::Refused(crate::worker::exec_sandbox::SandboxError::Preparing)
+        );
+        let reason = match &launch {
+            ExecLaunch::Refused(error) if preparing => error.to_string(),
+            ExecLaunch::Refused(error) => format!("the command sandbox is unavailable: {error}"),
+            _ => "a terminal launch requires the dedicated PTY executor".to_owned(),
+        };
+        on_spawn(ExecSpawnReport::Failed {
+            reason: reason.clone(),
+        });
+        // A write root still being prepared is transient and nothing ran
+        // (plan 6.5.3): retryable `HostAtCapacity`, not "unsupported", so the
+        // model retries instead of switching the sandbox off.
+        let mut failure = err(
+            if preparing {
+                AgentErrorKind::HostAtCapacity
+            } else {
+                AgentErrorKind::UnsupportedCapability
+            },
+            format!("Command was not started: {reason}"),
+        );
+        failure.retryable = preparing;
+        return failed_start(
+            false,
+            failure,
+            NativeDiagnostic::new(
+                DiagnosticStage::Environment,
+                "prepare command sandbox",
+                if preparing {
+                    "exec_sandbox_preparing"
+                } else {
+                    "exec_sandbox"
+                },
+                None,
+                &reason,
+            ),
+        );
     }
 
+    let not_started = |e: std::io::Error, on_spawn: &mut dyn FnMut(ExecSpawnReport)| {
+        // Preserve the OS error in both the local log and the receipt.
+        warn!(
+            "exec spawn failed: template={} program={} error={e}",
+            plan.template_id, plan.program,
+        );
+        on_spawn(ExecSpawnReport::Failed {
+            reason: format!("failed to start command: {e}"),
+        });
+        failed_start(
+            false,
+            err(
+                AgentErrorKind::Internal,
+                format!("Command was not started: {e}"),
+            ),
+            NativeDiagnostic::from_io(DiagnosticStage::ProcessCreation, "spawn command", &e),
+        )
+    };
+    let mut on_spawn = Some(on_spawn);
+    let mut report = |r: ExecSpawnReport| {
+        if let Some(f) = on_spawn.take() {
+            f(r)
+        }
+    };
+
     let started = Instant::now();
-    let mut child = match cmd.spawn() {
-        Ok(child) => child,
-        Err(e) => {
-            // Preserve the OS error in both the local log and the receipt.
-            warn!(
-                "exec spawn failed: template={} program={} error={e}",
-                plan.template_id, plan.program,
-            );
-            on_spawn(ExecSpawnReport::Failed {
-                reason: format!("failed to start command: {e}"),
-            });
-            return failed_start(
-                false,
-                err(
-                    AgentErrorKind::Internal,
-                    format!("Command was not started: {e}"),
-                ),
-                NativeDiagnostic::from_io(DiagnosticStage::ProcessCreation, "spawn command", &e),
-            );
+    // A sandboxed Windows command whose launcher did not confirm the start
+    // may still have run (plan 6.5.3): reported as started, with this cause.
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut start_problem: Option<String> = None;
+    let mut child = match &launch {
+        #[cfg(windows)]
+        ExecLaunch::Sandboxed(prepared) => {
+            let Some(job) = containment.windows_job() else {
+                return not_started(
+                    std::io::Error::other("the execution has no job object"),
+                    &mut report,
+                );
+            };
+            let parts = prepared.windows_launch();
+            let job = job.0 as usize;
+            let sealed = plan.clone();
+            match tokio::task::spawn_blocking(move || {
+                crate::worker::exec_sandbox::spawn_windows(parts, &sealed, job)
+            })
+            .await
+            {
+                Ok(crate::worker::exec_sandbox::SpawnOutcome::Started { child, problem }) => {
+                    start_problem = problem;
+                    SpawnedChild::Sandboxed(*child)
+                }
+                Ok(crate::worker::exec_sandbox::SpawnOutcome::NotStarted(e)) => {
+                    return not_started(e, &mut report);
+                }
+                Err(join) => return not_started(std::io::Error::other(join), &mut report),
+            }
+        }
+        _ => {
+            let mut cmd = match &launch {
+                #[cfg(not(windows))]
+                ExecLaunch::Sandboxed(prepared) => {
+                    #[cfg_attr(
+                        not(any(target_os = "linux", target_os = "macos")),
+                        allow(unused_mut)
+                    )]
+                    let mut cmd = prepared.pipe_command(&plan.program, &plan.argv);
+                    #[cfg(any(target_os = "linux", target_os = "macos"))]
+                    containment.apply_new_session(&mut cmd);
+                    cmd
+                }
+                _ => {
+                    let mut cmd = Command::new(&plan.program);
+                    cmd.args(&plan.argv);
+                    containment.apply(&mut cmd);
+                    cmd
+                }
+            };
+            cmd.stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+            if let Some(cwd) = &plan.cwd {
+                cmd.current_dir(cwd);
+            }
+            match cmd.spawn() {
+                Ok(child) => SpawnedChild::Tokio(child),
+                Err(e) => return not_started(e, &mut report),
+            }
         }
     };
 
     // The child exists but nothing yet ties its descendants to us. Until this
     // succeeds the tree is unreclaimable, so a failure kills the child outright
-    // rather than letting it run loose.
-    let adoption_error = containment.adopt(&child).err();
+    // rather than letting it run loose. A sandboxed Windows command was created
+    // inside the job.
+    let adoption_error = match &child {
+        SpawnedChild::Tokio(tokio_child) => containment.adopt(tokio_child).err(),
+        #[cfg(windows)]
+        SpawnedChild::Sandboxed(_) => None,
+    };
     if adoption_error.is_some() {
         // Stop immediately, but still drain already captured output below.
         let _ = child.start_kill();
     }
 
-    on_spawn(ExecSpawnReport::Started {
+    report(ExecSpawnReport::Started {
         containment_identity: containment.identity().map(str::to_string),
     });
 
-    let mut stdout_pipe = child.stdout.take();
-    let mut stderr_pipe = child.stderr.take();
+    let mut stdout_pipe = child.take_stdout();
+    let mut stderr_pipe = child.take_stderr();
     let out_cap = plan.max_stdout_bytes as usize;
     let err_cap = plan.max_stderr_bytes as usize;
 
@@ -353,6 +424,21 @@ pub(crate) async fn execute_plan_cancellable(
             format!("Command started but could not be contained: {error}"),
         ));
         diagnostics.insert(0, error.0);
+    }
+    if let Some(problem) = start_problem {
+        if failure.is_none() {
+            failure = Some(err(
+                AgentErrorKind::Internal,
+                format!("Command may have started, but its sandbox launcher failed: {problem}"),
+            ));
+        }
+        diagnostics.push(NativeDiagnostic::new(
+            DiagnosticStage::ProcessCreation,
+            "start sandboxed command",
+            "exec_sandbox",
+            None,
+            &problem,
+        ));
     }
     if let Err(diagnostic) = containment.reclaim() {
         if failure.is_none() {
@@ -484,6 +570,50 @@ pub(crate) async fn execute_plan_cancellable(
         redactions,
         file_changes: None,
     }))
+}
+
+type OutputPipe = Box<dyn AsyncRead + Unpin + Send>;
+
+/// The spawned process: a tokio child, or on Windows a sandboxed command's
+/// launcher (whose exit status is the command's).
+enum SpawnedChild {
+    Tokio(tokio::process::Child),
+    #[cfg(windows)]
+    Sandboxed(crate::worker::exec_sandbox::SandboxedChild),
+}
+
+impl SpawnedChild {
+    fn start_kill(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Tokio(child) => child.start_kill(),
+            #[cfg(windows)]
+            Self::Sandboxed(child) => child.start_kill(),
+        }
+    }
+
+    async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        match self {
+            Self::Tokio(child) => child.wait().await,
+            #[cfg(windows)]
+            Self::Sandboxed(child) => child.wait().await,
+        }
+    }
+
+    fn take_stdout(&mut self) -> Option<OutputPipe> {
+        match self {
+            Self::Tokio(child) => child.stdout.take().map(|p| Box::new(p) as OutputPipe),
+            #[cfg(windows)]
+            Self::Sandboxed(child) => child.stdout.take().map(|p| Box::new(p) as OutputPipe),
+        }
+    }
+
+    fn take_stderr(&mut self) -> Option<OutputPipe> {
+        match self {
+            Self::Tokio(child) => child.stderr.take().map(|p| Box::new(p) as OutputPipe),
+            #[cfg(windows)]
+            Self::Sandboxed(child) => child.stderr.take().map(|p| Box::new(p) as OutputPipe),
+        }
+    }
 }
 
 fn failed_start(started: bool, failure: AgentError, diagnostic: NativeDiagnostic) -> AgentOutcome {
@@ -684,6 +814,62 @@ mod tests {
         // Give any survivor a generous chance to prove it is still running.
         let _ = std::fs::remove_file(&marker);
         tokio::time::sleep(Duration::from_millis(400)).await;
+        assert!(
+            !marker.exists(),
+            "a descendant outlived the reclaimed command"
+        );
+    }
+
+    /// PowerShell arguments running `script`, encoded so no quoting rule of
+    /// cmd or the command line gets in the way.
+    #[cfg(windows)]
+    pub(crate) fn powershell_encoded(script: &str) -> Vec<String> {
+        use base64::Engine;
+        let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        vec![
+            "-NoProfile".into(),
+            "-NonInteractive".into(),
+            "-EncodedCommand".into(),
+            base64::engine::general_purpose::STANDARD.encode(utf16),
+        ]
+    }
+
+    /// A command that starts a detached grandchild (re-creating `marker`) and
+    /// then hangs.
+    #[cfg(windows)]
+    pub(crate) fn windows_descendant_plan(marker: &std::path::Path, timeout_ms: u32) -> ExecPlan {
+        let marker = marker.display().to_string().replace('\'', "''");
+        let loop_script = format!(
+            "while ($true) {{ Set-Content -LiteralPath '{marker}' -Value x; Start-Sleep -Milliseconds 50 }}"
+        );
+        let child_args = powershell_encoded(&loop_script).join("','");
+        let script = format!(
+            "Start-Process -WindowStyle Hidden powershell.exe -ArgumentList '{child_args}'; Start-Sleep -Seconds 60"
+        );
+        let mut p = plan("", timeout_ms, 4096);
+        p.program = "powershell.exe".into();
+        p.argv = powershell_encoded(&script);
+        p
+    }
+
+    /// Windows: the job object reclaims a detached grandchild when the command
+    /// times out (`exec_containment.rs` "Verification status").
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_timed_out_command_takes_its_descendants_with_it_on_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("descendant-alive");
+        let outcome = execute_plan(&windows_descendant_plan(&marker, 8_000)).await;
+        assert!(
+            matches!(&outcome, AgentOutcome::Ok(OperationOutput::Exec(o)) if o.failure.as_ref().is_some_and(|e| e.kind == AgentErrorKind::Timeout)),
+            "expected a timeout, got {outcome:?}"
+        );
+        assert!(
+            marker.exists(),
+            "the grandchild never ran, so the test proves nothing"
+        );
+        let _ = std::fs::remove_file(&marker);
+        tokio::time::sleep(Duration::from_millis(1_500)).await;
         assert!(
             !marker.exists(),
             "a descendant outlived the reclaimed command"

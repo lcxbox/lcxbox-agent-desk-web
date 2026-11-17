@@ -1931,6 +1931,18 @@ pub async fn run_signaling_proxy(
                     )
                     .await;
             }
+            WorkerToService::ExecSandboxLabelsRevoked(reply) => {
+                #[cfg(windows)]
+                worker_mgr
+                    .complete_exec_sandbox_revoke(
+                        resident_worker_key.as_ref(),
+                        worker_incarnation,
+                        reply,
+                    )
+                    .await;
+                #[cfg(not(windows))]
+                let _ = reply;
+            }
             WorkerToService::LocalFileRecoveryManaged(reply) => {
                 #[cfg(windows)]
                 worker_mgr

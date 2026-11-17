@@ -88,6 +88,7 @@ impl DeviceExecSandbox {
                 match self.os.to_ascii_lowercase().as_str() {
                     "linux" => "the Linux kernel does not provide Landlock ABI 3 or later (kernel 6.2+ with Landlock enabled)".into(),
                     "macos" => "the macOS sandbox (/usr/bin/sandbox-exec) failed its startup check".into(),
+                    "windows" => "the Windows sandbox (low-integrity launcher) failed its startup check".into(),
                     _ => format!("the operating system facility the sandbox needs is unavailable on {}", self.platform()),
                 }
             }

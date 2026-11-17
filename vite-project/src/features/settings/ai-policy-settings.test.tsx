@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
     policyMutateAsync: vi.fn(async () => ({})),
     collectionData: {} as Record<string, unknown>,
     collectionMutateAsync: vi.fn(async () => ({})),
+    revokeMutateAsync: vi.fn(async () => ({ success: true, data: { revoked: 2, in_use: 1 } })),
     toast: vi.fn(),
 }))
 
@@ -37,12 +38,16 @@ vi.mock("@/services/hooks/aiModelController/useQueryAiAssistantSettings", () => 
 vi.mock("@/services/hooks/aiModelController/useUpdateAiAssistantSettings", () => ({
     useUpdateAiAssistantSettings: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
+vi.mock("@/services/hooks/aiModelController/useRevokeExecSandboxLabels", () => ({
+    useRevokeExecSandboxLabels: () => ({ mutateAsync: h.revokeMutateAsync, isPending: false }),
+}))
 
 import { AiPolicySettings } from "./ai-policy-settings"
 
 beforeEach(() => {
     h.policyMutateAsync.mockClear()
     h.collectionMutateAsync.mockClear()
+    h.revokeMutateAsync.mockClear()
     h.toast.mockClear()
     h.policyData = {
         execution_mode: "confirm_each_action",
@@ -69,6 +74,28 @@ describe("AiPolicySettings", () => {
         expect(payload.max_concurrent_executions).toBe(7)
         expect(payload.exec_pty_enabled).toBe(true)
         expect(payload.interactive_elevation_enabled).toBe(false)
+        // Not a Windows host: the label idle time is neither shown nor sent.
+        expect(payload.windows_sandbox_label_idle_minutes).toBeUndefined()
+        expect(screen.queryByText("Revoke sandbox labels")).toBeNull()
+    })
+
+    it("on Windows, saves the sandbox label idle time and revokes labels", async () => {
+        h.policyData.windows_sandbox_label_idle_supported = true
+        h.policyData.windows_sandbox_label_idle_minutes = 45
+        render(<AiPolicySettings />)
+        const idle = await screen.findByDisplayValue("45")
+        fireEvent.change(idle, { target: { value: "90" } })
+
+        fireEvent.click(screen.getAllByText("Save Settings")[0])
+        await waitFor(() => expect(h.policyMutateAsync).toHaveBeenCalled())
+        const payload = (h.policyMutateAsync.mock.calls[0][0] as { data: Record<string, unknown> }).data
+        expect(payload.windows_sandbox_label_idle_minutes).toBe(90)
+
+        fireEvent.click(screen.getByRole("button", { name: "Revoke" }))
+        await waitFor(() => expect(h.revokeMutateAsync).toHaveBeenCalled())
+        await waitFor(() => expect(h.toast).toHaveBeenCalledWith(expect.objectContaining({
+            description: "Revoked 2 label(s); 1 still in use and will be revoked automatically.",
+        })))
     })
 
     it("resets elevation when ordinary PTY is disabled", async () => {

@@ -1,5 +1,5 @@
-//! Platforms without a command sandbox backend. Windows reports
-//! `not_implemented` until its restricted-token backend passes admission.
+//! Platforms without a command sandbox backend: they report
+//! `not_implemented`.
 use std::fs::File;
 use std::io;
 use std::path::PathBuf;

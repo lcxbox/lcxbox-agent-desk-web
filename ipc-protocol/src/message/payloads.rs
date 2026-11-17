@@ -741,6 +741,34 @@ pub struct DeleteFilePayload {
     pub request: DeleteFileRequest,
 }
 
+/// Payload of [`crate::message::ServiceToWorker::SetExecSandboxLabelIdle`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub struct SetExecSandboxLabelIdlePayload {
+    /// Minutes, already clamped by the daemon.
+    pub minutes: u32,
+}
+
+/// Payload of [`crate::message::ServiceToWorker::RevokeExecSandboxLabels`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub struct RevokeExecSandboxLabelsRequest {
+    pub request_id: String,
+    /// SID of the authenticated local user; the worker refuses when it runs
+    /// as someone else.
+    pub os_user: String,
+}
+
+/// Payload of [`crate::message::WorkerToService::ExecSandboxLabelsRevoked`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub struct RevokeExecSandboxLabelsReply {
+    pub request_id: String,
+    /// Labels removed.
+    pub revoked: u32,
+    /// Labels a running command still uses; the reaper removes them later.
+    pub in_use: u32,
+    /// Why nothing was revoked, when the worker refused.
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, SchemaWrite, SchemaRead)]
 pub struct SetLocalePayload {
     /// Identifies this instruction so its acknowledgement cannot be mistaken

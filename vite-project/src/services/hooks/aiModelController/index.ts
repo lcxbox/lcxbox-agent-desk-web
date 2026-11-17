@@ -4,6 +4,7 @@ export type { QueryAiPolicySettingsQueryKey } from "./useQueryAiPolicySettings.t
 export type { QueryAiPolicySettingsSuspenseQueryKey } from "./useQueryAiPolicySettingsSuspense.ts";
 export type { QueryCollectionPolicySettingsQueryKey } from "./useQueryCollectionPolicySettings.ts";
 export type { QueryCollectionPolicySettingsSuspenseQueryKey } from "./useQueryCollectionPolicySettingsSuspense.ts";
+export type { RevokeExecSandboxLabelsMutationKey } from "./useRevokeExecSandboxLabels.ts";
 export type { UpdateAiAssistantSettingsMutationKey } from "./useUpdateAiAssistantSettings.ts";
 export type { UpdateAiPolicySettingsMutationKey } from "./useUpdateAiPolicySettings.ts";
 export type { UpdateCollectionPolicySettingsMutationKey } from "./useUpdateCollectionPolicySettings.ts";
@@ -25,6 +26,9 @@ export { useQueryCollectionPolicySettings } from "./useQueryCollectionPolicySett
 export { queryCollectionPolicySettingsSuspenseQueryKey } from "./useQueryCollectionPolicySettingsSuspense.ts";
 export { queryCollectionPolicySettingsSuspenseQueryOptions } from "./useQueryCollectionPolicySettingsSuspense.ts";
 export { useQueryCollectionPolicySettingsSuspense } from "./useQueryCollectionPolicySettingsSuspense.ts";
+export { revokeExecSandboxLabelsMutationKey } from "./useRevokeExecSandboxLabels.ts";
+export { revokeExecSandboxLabelsMutationOptions } from "./useRevokeExecSandboxLabels.ts";
+export { useRevokeExecSandboxLabels } from "./useRevokeExecSandboxLabels.ts";
 export { updateAiAssistantSettingsMutationKey } from "./useUpdateAiAssistantSettings.ts";
 export { updateAiAssistantSettingsMutationOptions } from "./useUpdateAiAssistantSettings.ts";
 export { useUpdateAiAssistantSettings } from "./useUpdateAiAssistantSettings.ts";

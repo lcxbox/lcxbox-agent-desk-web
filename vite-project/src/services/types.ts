@@ -2197,7 +2197,9 @@ export type ExecIdentity = {
 export const execSandboxImplicitWritableEnum = {
     exec_temp_dir: "exec_temp_dir",
     user_temp_dir: "user_temp_dir",
-    dev_shm: "dev_shm"
+    dev_shm: "dev_shm",
+    low_integrity_locations: "low_integrity_locations",
+    other_sandbox_roots: "other_sandbox_roots"
 } as const;
 
 export type ExecSandboxImplicitWritableEnumKey = (typeof execSandboxImplicitWritableEnum)[keyof typeof execSandboxImplicitWritableEnum];
@@ -4301,6 +4303,17 @@ export type AiExecutionPolicyPublic = {
      * @type integer, int32
     */
     max_concurrent_executions: number;
+    /**
+     * @description Windows command sandbox: minutes an unused Low label stays on a\ndirectory before it is revoked.
+     * @minLength 0
+     * @type integer, int32
+    */
+    windows_sandbox_label_idle_minutes: number;
+    /**
+     * @description Whether the label idle time applies to this host (Windows only).
+     * @type boolean
+    */
+    windows_sandbox_label_idle_supported: boolean;
 };
 
 /**
@@ -4330,6 +4343,12 @@ export type AiExecutionPolicyUpdate = {
      * @type integer,null, int32
     */
     max_concurrent_executions?: number | null;
+    /**
+     * @description `None` leaves the value unchanged. Clamped into 5..=1440 minutes.
+     * @minLength 0
+     * @type integer,null, int32
+    */
+    windows_sandbox_label_idle_minutes?: number | null;
 };
 
 /**
@@ -7860,6 +7879,24 @@ export type EncoderInputSupport = ({
     */
     Known: EncoderInputLimits;
 } | EncoderInputSupportEnumKey);
+
+/**
+ * @description Result of revoking the current user\'s sandbox labels.
+*/
+export type ExecSandboxLabelsRevoked = {
+    /**
+     * @description Labels a running command still uses; they are revoked automatically\nonce their lease runs out.
+     * @minLength 0
+     * @type integer, int32
+    */
+    in_use: number;
+    /**
+     * @description Labels removed now.
+     * @minLength 0
+     * @type integer, int32
+    */
+    revoked: number;
+};
 
 export type FileRecoveryCleanupDto = {
     /**
@@ -12731,6 +12768,17 @@ export type RestResponseAiExecutionPolicyPublic = {
          * @type integer, int32
         */
         max_concurrent_executions: number;
+        /**
+         * @description Windows command sandbox: minutes an unused Low label stays on a\ndirectory before it is revoked.
+         * @minLength 0
+         * @type integer, int32
+        */
+        windows_sandbox_label_idle_minutes: number;
+        /**
+         * @description Whether the label idle time applies to this host (Windows only).
+         * @type boolean
+        */
+        windows_sandbox_label_idle_supported: boolean;
     };
     /**
      * @type string,null
@@ -14350,6 +14398,39 @@ export type RestResponseEmptyResponseDto = {
      * @type object | undefined
     */
     data?: object;
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseExecSandboxLabelsRevoked = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @description Result of revoking the current user\'s sandbox labels.
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @description Labels a running command still uses; they are revoked automatically\nonce their lease runs out.
+         * @minLength 0
+         * @type integer, int32
+        */
+        in_use: number;
+        /**
+         * @description Labels removed now.
+         * @minLength 0
+         * @type integer, int32
+        */
+        revoked: number;
+    };
     /**
      * @type string,null
     */
@@ -21655,6 +21736,15 @@ export type QueryComputerUseCommunicationPolicyMutationResponse = QueryComputerU
 
 export type QueryComputerUseCommunicationPolicyMutation = {
     Response: QueryComputerUseCommunicationPolicy200;
+    Errors: any;
+};
+
+export type RevokeExecSandboxLabels200 = RestResponseExecSandboxLabelsRevoked;
+
+export type RevokeExecSandboxLabelsMutationResponse = RevokeExecSandboxLabels200;
+
+export type RevokeExecSandboxLabelsMutation = {
+    Response: RevokeExecSandboxLabels200;
     Errors: any;
 };
 

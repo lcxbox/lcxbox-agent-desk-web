@@ -161,6 +161,13 @@ pub enum ExecSandboxImplicitWritable {
     UserTempDir,
     /// Linux: `/dev/shm`.
     DevShm,
+    /// Windows: locations every Low integrity process may write, such as
+    /// `AppData\LocalLow` and `HKCU\Software\AppDataLow` (research 8.7.4).
+    LowIntegrityLocations,
+    /// Windows: other sandboxed write roots of the same user whose labels are
+    /// still within their lease, and the temporary directories of concurrent
+    /// sandboxed commands (plan 6.5.3, part five).
+    OtherSandboxRoots,
 }
 
 impl ExecSandboxImplicitWritable {
@@ -171,6 +178,10 @@ impl ExecSandboxImplicitWritable {
         match os.to_ascii_lowercase().as_str() {
             "macos" => locations.push(Self::UserTempDir),
             "linux" => locations.push(Self::DevShm),
+            "windows" => {
+                locations.push(Self::LowIntegrityLocations);
+                locations.push(Self::OtherSandboxRoots);
+            }
             _ => {}
         }
         locations
@@ -290,7 +301,7 @@ mod tests {
         );
         assert_eq!(
             ExecSandboxImplicitWritable::for_os("windows"),
-            [ExecTempDir]
+            [ExecTempDir, LowIntegrityLocations, OtherSandboxRoots]
         );
     }
 

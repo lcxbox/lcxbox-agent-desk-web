@@ -11,6 +11,8 @@ pub mod diagnose;
 pub mod durable_file;
 pub mod error;
 pub mod exec;
+#[cfg(windows)]
+pub mod exec_sandbox_launcher;
 pub mod exec_shells;
 pub(crate) mod file_recovery_service;
 pub mod host_activity;
@@ -352,6 +354,7 @@ pub fn configure_api_surface(
                     .service(query_ai_assistant_settings)
                     .service(update_ai_assistant_settings)
                     .service(controller::computer_use_policy::query_computer_use_application_policy)
+                    .service(controller::exec_sandbox::revoke_exec_sandbox_labels)
                     .service(controller::file_recovery::query_local_file_recovery)
                     .service(controller::file_recovery::update_local_file_recovery_policy)
                     .service(controller::file_recovery::retry_local_file_recovery_cleanup)

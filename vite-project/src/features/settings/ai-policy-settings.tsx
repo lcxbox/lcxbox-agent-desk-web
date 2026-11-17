@@ -11,6 +11,7 @@ import { useQueryCollectionPolicySettings } from "@/services/hooks/aiModelContro
 import { useUpdateCollectionPolicySettings } from "@/services/hooks/aiModelController/useUpdateCollectionPolicySettings"
 import { useQueryAiAssistantSettings } from "@/services/hooks/aiModelController/useQueryAiAssistantSettings"
 import { useUpdateAiAssistantSettings } from "@/services/hooks/aiModelController/useUpdateAiAssistantSettings"
+import { useRevokeExecSandboxLabels } from "@/services/hooks/aiModelController/useRevokeExecSandboxLabels"
 import type { AiExecutionPolicyUpdate, CollectionPolicySettingsUpdate } from "@/services/types"
 
 import { Button } from "@/components/ui/button"
@@ -29,6 +30,9 @@ const MIN_CONCURRENT_EXECUTIONS = 1
 const MAX_CONCURRENT_EXECUTIONS = 64
 const MIN_COMMAND_RUNTIME_SECONDS = 10
 const MAX_COMMAND_RUNTIME_SECONDS = 7200
+const MIN_LABEL_IDLE_MINUTES = 5
+const MAX_LABEL_IDLE_MINUTES = 1440
+const DEFAULT_LABEL_IDLE_MINUTES = 30
 
 const policySchema = z.object({
     execution_mode: z.enum(EXECUTION_MODES),
@@ -44,6 +48,11 @@ const policySchema = z.object({
         .max(MAX_COMMAND_RUNTIME_SECONDS),
     exec_pty_enabled: z.boolean(),
     interactive_elevation_enabled: z.boolean(),
+    windows_sandbox_label_idle_minutes: z
+        .number()
+        .int()
+        .min(MIN_LABEL_IDLE_MINUTES)
+        .max(MAX_LABEL_IDLE_MINUTES),
 })
 
 type PolicyFormValues = z.infer<typeof policySchema>
@@ -85,6 +94,7 @@ export function AiPolicySettings() {
     const { mutateAsync: updateCollection, isPending: isCollectionUpdating } = useUpdateCollectionPolicySettings()
     const assistantSettings = useQueryAiAssistantSettings()
     const assistantSettingsMutation = useUpdateAiAssistantSettings()
+    const revokeLabels = useRevokeExecSandboxLabels()
 
     const policyForm = useForm<PolicyFormValues>({
         resolver: zodResolver(policySchema),
@@ -94,6 +104,7 @@ export function AiPolicySettings() {
             max_command_runtime_seconds: 600,
             exec_pty_enabled: true,
             interactive_elevation_enabled: false,
+            windows_sandbox_label_idle_minutes: DEFAULT_LABEL_IDLE_MINUTES,
         },
     })
     const collectionForm = useForm<CollectionPolicyFormValues>({
@@ -112,6 +123,8 @@ export function AiPolicySettings() {
                 exec_pty_enabled: policyResponse.data.exec_pty_enabled ?? true,
                 interactive_elevation_enabled:
                     policyResponse.data.interactive_elevation_enabled ?? false,
+                windows_sandbox_label_idle_minutes:
+                    policyResponse.data.windows_sandbox_label_idle_minutes ?? DEFAULT_LABEL_IDLE_MINUTES,
             })
         }
     }, [policyResponse?.data, isPolicyLoading, policyForm])
@@ -125,6 +138,8 @@ export function AiPolicySettings() {
         }
     }, [collectionResponse?.data, isCollectionLoading, collectionForm])
 
+    const labelIdleSupported = policyResponse?.data?.windows_sandbox_label_idle_supported ?? false
+
     const onSubmitPolicy = async (values: PolicyFormValues) => {
         let saved = false
         const payload: AiExecutionPolicyUpdate = {
@@ -133,6 +148,10 @@ export function AiPolicySettings() {
             max_command_runtime_seconds: values.max_command_runtime_seconds,
             exec_pty_enabled: values.exec_pty_enabled,
             interactive_elevation_enabled: values.interactive_elevation_enabled,
+            // Only a Windows host uses it; elsewhere the stored value is left alone.
+            windows_sandbox_label_idle_minutes: labelIdleSupported
+                ? values.windows_sandbox_label_idle_minutes
+                : undefined,
         }
         try {
             await updatePolicy({ data: payload })
@@ -170,6 +189,26 @@ export function AiPolicySettings() {
                 variant: "destructive",
                 title: t("pages.system.settings.error"),
                 description: t(saved ? "pages.system.settings.savedButRefreshFailedMessage" : "pages.collectionPolicy.updateFailedMessage"),
+            })
+        }
+    }
+
+    const onRevokeSandboxLabels = async () => {
+        try {
+            const response = await revokeLabels.mutateAsync()
+            if (!response.success || !response.data) throw new Error(response.message ?? "revoke failed")
+            toast({
+                title: t("pages.system.settings.success"),
+                description: t("pages.aiPolicy.revokeSandboxLabels.done", {
+                    revoked: response.data.revoked,
+                    inUse: response.data.in_use,
+                }),
+            })
+        } catch {
+            toast({
+                variant: "destructive",
+                title: t("pages.system.settings.error"),
+                description: t("pages.aiPolicy.revokeSandboxLabels.failed"),
             })
         }
     }
@@ -344,6 +383,54 @@ export function AiPolicySettings() {
                                     </FormItem>
                                 )}
                             />
+                            {labelIdleSupported && <FormField
+                                control={policyForm.control}
+                                name="windows_sandbox_label_idle_minutes"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>{t("pages.aiPolicy.windowsSandboxLabelIdle")}</FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                type="number"
+                                                min={MIN_LABEL_IDLE_MINUTES}
+                                                max={MAX_LABEL_IDLE_MINUTES}
+                                                name={field.name}
+                                                ref={field.ref}
+                                                onBlur={field.onBlur}
+                                                value={field.value}
+                                                onChange={(e) =>
+                                                    field.onChange(
+                                                        e.target.value === ""
+                                                            ? Number.NaN
+                                                            : e.target.valueAsNumber,
+                                                    )
+                                                }
+                                            />
+                                        </FormControl>
+                                        <FormDescription>
+                                            {t("pages.aiPolicy.windowsSandboxLabelIdle.description")}
+                                        </FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />}
+                            {labelIdleSupported && <div className="flex flex-row items-center justify-between gap-6 rounded-lg border p-3 shadow-sm">
+                                <div className="space-y-0.5">
+                                    <p className="text-sm font-medium">{t("pages.aiPolicy.revokeSandboxLabels")}</p>
+                                    <p className="text-sm text-muted-foreground">
+                                        {t("pages.aiPolicy.revokeSandboxLabels.description")}
+                                    </p>
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    disabled={revokeLabels.isPending}
+                                    onClick={() => void onRevokeSandboxLabels()}
+                                >
+                                    {revokeLabels.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    {t("pages.aiPolicy.revokeSandboxLabels.action")}
+                                </Button>
+                            </div>}
                             <FormField
                                 control={policyForm.control}
                                 name="exec_pty_enabled"

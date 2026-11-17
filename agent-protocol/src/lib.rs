@@ -1232,9 +1232,11 @@ pub enum AgentErrorKind {
     UnsupportedPlatform,
     TargetOffline,
     SessionUnavailable,
-    /// The host is already running as many commands as it permits. Nothing ran,
-    /// and the condition is transient — distinct from a refusal on policy grounds,
-    /// which will not become permitted by waiting.
+    /// The host is already running as many commands as it permits, or (Windows
+    /// command sandbox, diagnostic domain `exec_sandbox_preparing`) it is still
+    /// preparing a write root in the background. Nothing ran, and the condition
+    /// is transient — distinct from a refusal on policy grounds, which will not
+    /// become permitted by waiting. Retry the same request later.
     HostAtCapacity,
     Timeout,
     /// The command was stopped on request and its process tree reclaimed. It did

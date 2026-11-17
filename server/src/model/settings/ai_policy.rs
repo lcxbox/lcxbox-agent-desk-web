@@ -49,6 +49,13 @@ pub const MIN_MAX_COMMAND_RUNTIME_SECONDS: u32 = 10;
 pub const MAX_MAX_COMMAND_RUNTIME_SECONDS: u32 =
     desk_agent_protocol::exec_policy::PRODUCT_MAX_BACKGROUND_MS / 1_000;
 
+/// Windows command sandbox: how long an unused Low label stays on a write root
+/// after its last sandboxed command before it is revoked, in minutes (plan
+/// 6.5.3, decision 16). Out-of-range values are clamped.
+pub const DEFAULT_WINDOWS_SANDBOX_LABEL_IDLE_MINUTES: u32 = 30;
+pub const MIN_WINDOWS_SANDBOX_LABEL_IDLE_MINUTES: u32 = 5;
+pub const MAX_WINDOWS_SANDBOX_LABEL_IDLE_MINUTES: u32 = 1440;
+
 /// Persisted edge-local AI execution policy.
 ///
 /// Holds no model credentials (those live on the central brain); the fields are
@@ -86,6 +93,9 @@ pub struct AiExecutionPolicy {
     /// disabled. Runtime support is reported separately and cannot be widened
     /// by this preference.
     pub interactive_elevation_enabled: bool,
+    /// Windows only: minutes an unused sandbox label may stay on a directory
+    /// before the worker revokes it. Read but unused on other platforms.
+    pub windows_sandbox_label_idle_minutes: u32,
 }
 
 impl Default for AiExecutionPolicy {
@@ -96,6 +106,7 @@ impl Default for AiExecutionPolicy {
             max_command_runtime_seconds: DEFAULT_MAX_COMMAND_RUNTIME_SECONDS,
             exec_pty_enabled: true,
             interactive_elevation_enabled: false,
+            windows_sandbox_label_idle_minutes: DEFAULT_WINDOWS_SANDBOX_LABEL_IDLE_MINUTES,
         }
     }
 }
@@ -113,8 +124,10 @@ impl AiExecutionPolicy {
             max_command_runtime_seconds: self.max_command_runtime_seconds,
             exec_pty_enabled: self.exec_pty_enabled,
             interactive_elevation_enabled: self.interactive_elevation_enabled,
+            windows_sandbox_label_idle_minutes: self.windows_sandbox_label_idle_minutes(),
             exec_pty_supported,
             interactive_elevation_supported,
+            windows_sandbox_label_idle_supported: cfg!(windows),
         }
     }
 
@@ -149,6 +162,21 @@ impl AiExecutionPolicy {
         if let Some(enabled) = update.interactive_elevation_enabled {
             self.interactive_elevation_enabled = self.exec_pty_enabled && enabled;
         }
+        if let Some(minutes) = update.windows_sandbox_label_idle_minutes {
+            self.windows_sandbox_label_idle_minutes = minutes.clamp(
+                MIN_WINDOWS_SANDBOX_LABEL_IDLE_MINUTES,
+                MAX_WINDOWS_SANDBOX_LABEL_IDLE_MINUTES,
+            );
+        }
+    }
+
+    /// The label idle time, clamped: a hand-edited `config.toml` value never
+    /// passes through [`Self::apply_update`].
+    pub fn windows_sandbox_label_idle_minutes(&self) -> u32 {
+        self.windows_sandbox_label_idle_minutes.clamp(
+            MIN_WINDOWS_SANDBOX_LABEL_IDLE_MINUTES,
+            MAX_WINDOWS_SANDBOX_LABEL_IDLE_MINUTES,
+        )
     }
 }
 
@@ -165,11 +193,16 @@ pub struct AiExecutionPolicyPublic {
     pub exec_pty_enabled: bool,
     /// Machine-wide local switch for bounded sudo/doas PTY execution.
     pub interactive_elevation_enabled: bool,
+    /// Windows command sandbox: minutes an unused Low label stays on a
+    /// directory before it is revoked.
+    pub windows_sandbox_label_idle_minutes: u32,
     /// Whether this host build/runtime can execute an ordinary one-shot PTY.
     pub exec_pty_supported: bool,
     /// Whether this host currently has the root ServiceDaemon containment
     /// required for interactive elevation.
     pub interactive_elevation_supported: bool,
+    /// Whether the label idle time applies to this host (Windows only).
+    pub windows_sandbox_label_idle_supported: bool,
 }
 
 /// Update body for `POST /api/desk/settings/ai-policy`.
@@ -190,11 +223,37 @@ pub struct AiExecutionPolicyUpdate {
     /// `None` leaves the local switch unchanged. A `true` value is ignored while
     /// ordinary PTY execution is disabled.
     pub interactive_elevation_enabled: Option<bool>,
+    /// `None` leaves the value unchanged. Clamped into 5..=1440 minutes.
+    pub windows_sandbox_label_idle_minutes: Option<u32>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_windows_label_idle_time_defaults_and_is_clamped() {
+        let mut policy = AiExecutionPolicy::default();
+        assert_eq!(policy.windows_sandbox_label_idle_minutes(), 30);
+        policy.apply_update(AiExecutionPolicyUpdate {
+            windows_sandbox_label_idle_minutes: Some(1),
+            ..Default::default()
+        });
+        assert_eq!(policy.windows_sandbox_label_idle_minutes, 5);
+        policy.apply_update(AiExecutionPolicyUpdate {
+            windows_sandbox_label_idle_minutes: Some(100_000),
+            ..Default::default()
+        });
+        assert_eq!(policy.windows_sandbox_label_idle_minutes, 1440);
+        // A config written before the field existed, or edited by hand.
+        let old: AiExecutionPolicy = toml::from_str("execution_mode = \"suggest_only\"").unwrap();
+        assert_eq!(old.windows_sandbox_label_idle_minutes, 30);
+        let edited = AiExecutionPolicy {
+            windows_sandbox_label_idle_minutes: 0,
+            ..Default::default()
+        };
+        assert_eq!(edited.windows_sandbox_label_idle_minutes(), 5);
+    }
 
     /// The ceiling defaults to a usable value and a config written before the field
     /// existed picks it up, rather than deserializing to zero and silently refusing

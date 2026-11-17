@@ -266,7 +266,7 @@ impl SettingsCoordinator {
         F: FnOnce(&mut Settings) -> Result<(), DeskError>,
         E: FnOnce(&Settings),
     {
-        let (outcome, published, application_policy) = {
+        let (outcome, published, application_policy, label_idle_moved) = {
             let mut live = self.settings.write().await;
             let mut candidate = live.clone();
             change(&mut candidate)?;
@@ -306,6 +306,9 @@ impl SettingsCoordinator {
             candidate.save()?;
 
             let locale_moved = candidate.system.locale != live.system.locale;
+            let label_idle_moved = (candidate.ai_policy.windows_sandbox_label_idle_minutes()
+                != live.ai_policy.windows_sandbox_label_idle_minutes())
+            .then(|| candidate.ai_policy.windows_sandbox_label_idle_minutes());
             let applied_locale = candidate
                 .system
                 .locale
@@ -343,6 +346,7 @@ impl SettingsCoordinator {
                 },
                 policy_changed.then_some(snapshot),
                 application_policy,
+                label_idle_moved,
             )
             // The settings write guard drops here, before anything is sent to
             // the worker. `WorkerManager::start_worker` takes its own lock and
@@ -356,6 +360,9 @@ impl SettingsCoordinator {
         }
         if let Some(locale) = outcome.locale_changed_to.as_deref() {
             self.send_locale(locale).await;
+        }
+        if let Some(minutes) = label_idle_moved {
+            self.send_sandbox_label_idle(minutes).await;
         }
         if let Some(policy) = application_policy
             && let Some(manager) = self.worker_manager.get()
@@ -377,6 +384,25 @@ impl SettingsCoordinator {
         manager
             .publish_security_policy(snapshot, POLICY_ACK_TIMEOUT)
             .await;
+    }
+
+    /// Tell the workers how long an unused Windows sandbox label may stay.
+    /// Best effort: a worker that misses it only revokes later, and a new
+    /// worker reads the value from its Init settings.
+    async fn send_sandbox_label_idle(&self, minutes: u32) {
+        let Some(manager) = self.worker_manager.get() else {
+            return;
+        };
+        if let Err(error) = manager
+            .broadcast_to_workers(ServiceToWorker::SetExecSandboxLabelIdle(
+                desk_ipc_protocol::message::SetExecSandboxLabelIdlePayload { minutes },
+            ))
+            .await
+        {
+            log::debug!(
+                "[settings] no live worker to tell about the sandbox label idle time: {error}"
+            );
+        }
     }
 
     /// Tell the worker which locale the host now runs in. Every entry point

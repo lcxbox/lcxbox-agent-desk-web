@@ -184,7 +184,11 @@ fn neutral_unrestricted_cards_still_show_a_privileged_or_admin_identity() {
     assert_eq!(sandboxed.sandbox.displayed_identity(), None);
     assert_eq!(
         sandboxed.sandbox.implicit_writable,
-        [ExecSandboxImplicitWritable::ExecTempDir]
+        [
+            ExecSandboxImplicitWritable::ExecTempDir,
+            ExecSandboxImplicitWritable::LowIntegrityLocations,
+            ExecSandboxImplicitWritable::OtherSandboxRoots
+        ]
     );
 }
 

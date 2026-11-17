@@ -142,6 +142,10 @@ impl ProtectedRoots {
             }
         }
         directories.extend(temporary_product_entries());
+        // Windows: the per-user worker directory as a whole — the sandbox label
+        // store and every configuration's private data (plan 6.5.3, part two).
+        #[cfg(windows)]
+        directories.extend(crate::worker::exec_sandbox::worker_app_dir());
         let xdg_config = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .filter(|path| path.is_absolute());
@@ -154,7 +158,8 @@ impl ProtectedRoots {
             xdg_config
                 .iter()
                 .flat_map(|config| [config.join("systemd/user"), config.join("autostart")]),
-        );
+        )
+        .with_persistence(windows_persistence_directories());
         match std::env::var_os("PATH") {
             Some(path) => protected.with_executable_search_path(&path),
             None => protected,
@@ -192,6 +197,35 @@ impl ProtectedRoots {
                 .iter()
                 .any(|directory| within(directory, &path))
     }
+}
+
+/// Windows directories whose content runs later with the user's full token:
+/// the Startup folder and the PowerShell profile directories. Resolved as
+/// known folders, so a Documents folder redirected (for example to OneDrive)
+/// is covered (plan 6.5.3, part five).
+#[cfg(windows)]
+fn windows_persistence_directories() -> Vec<PathBuf> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::{
+        FOLDERID_Documents, FOLDERID_Startup, KF_FLAG_DEFAULT, SHGetKnownFolderPath,
+    };
+    let known = |id| {
+        let raw = unsafe { SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None) }.ok()?;
+        let path = unsafe { raw.to_string() }.ok().map(PathBuf::from);
+        unsafe { CoTaskMemFree(Some(raw.0.cast())) };
+        path
+    };
+    let mut directories: Vec<PathBuf> = known(&FOLDERID_Startup).into_iter().collect();
+    if let Some(documents) = known(&FOLDERID_Documents) {
+        directories.push(documents.join("WindowsPowerShell"));
+        directories.push(documents.join("PowerShell"));
+    }
+    directories
+}
+
+#[cfg(not(windows))]
+fn windows_persistence_directories() -> Vec<PathBuf> {
+    Vec::new()
 }
 
 fn absolute(paths: impl IntoIterator<Item = PathBuf>) -> Vec<Vec<String>> {
@@ -391,5 +425,35 @@ mod tests {
         assert!(protected.refuses(Path::new(r"\\?\C:\")));
         assert!(protected.refuses(Path::new(r"\\?\c:\windows\system32")));
         assert!(!protected.refuses(Path::new(r"\\?\C:\work\repo")));
+    }
+
+    /// The Startup folder, the PowerShell profile folders (known folders, so a
+    /// redirected Documents is covered) and the whole per-user worker
+    /// directory are never write roots (plan 6.5.3, parts two and five).
+    #[cfg(windows)]
+    #[test]
+    fn windows_persistence_and_worker_directories_are_refused_as_write_roots() {
+        let persistence = windows_persistence_directories();
+        assert_eq!(persistence.len(), 3, "{persistence:?}");
+        assert!(
+            persistence[0].ends_with(r"Start Menu\Programs\Startup"),
+            "{persistence:?}"
+        );
+        assert!(persistence[1].ends_with("WindowsPowerShell"));
+        assert!(persistence[2].ends_with("PowerShell"));
+
+        let protected = ProtectedRoots::current([]);
+        for directory in &persistence {
+            assert!(protected.refuses_write_root(directory), "{directory:?}");
+            assert!(
+                protected.refuses_write_root(&directory.join("sub")),
+                "{directory:?}"
+            );
+        }
+        let worker = crate::worker::exec_sandbox::worker_app_dir().expect("worker directory");
+        assert!(protected.refuses(&worker));
+        assert!(protected.refuses(&worker.join("exec-sandbox-labels")));
+        // An ancestor of the worker directory contains product data.
+        assert!(protected.refuses(worker.parent().unwrap()));
     }
 }

@@ -131,6 +131,39 @@ fn physical_mode_request_and_result_round_trip_with_operation_fence() {
 }
 
 #[test]
+fn exec_sandbox_label_messages_round_trip_and_stay_with_the_user_worker() {
+    let idle =
+        ServiceToWorker::SetExecSandboxLabelIdle(SetExecSandboxLabelIdlePayload { minutes: 45 });
+    assert!(!idle.allowed_for_profile(WorkerProfile::RestrictedDesktop));
+    let ServiceToWorker::SetExecSandboxLabelIdle(decoded) = wincode_round_trip(&idle) else {
+        panic!("wrong variant")
+    };
+    assert_eq!(decoded.minutes, 45);
+
+    let revoke = ServiceToWorker::RevokeExecSandboxLabels(RevokeExecSandboxLabelsRequest {
+        request_id: "r1".into(),
+        os_user: "S-1-5-21-1-2-3-1001".into(),
+    });
+    assert!(revoke.allowed_for_profile(WorkerProfile::SessionUser));
+    assert!(!revoke.allowed_for_profile(WorkerProfile::RestrictedDesktop));
+    let ServiceToWorker::RevokeExecSandboxLabels(decoded) = wincode_round_trip(&revoke) else {
+        panic!("wrong variant")
+    };
+    assert_eq!(decoded.os_user, "S-1-5-21-1-2-3-1001");
+
+    let reply = WorkerToService::ExecSandboxLabelsRevoked(RevokeExecSandboxLabelsReply {
+        request_id: "r1".into(),
+        revoked: 2,
+        in_use: 1,
+        error: None,
+    });
+    let WorkerToService::ExecSandboxLabelsRevoked(decoded) = wincode_round_trip(&reply) else {
+        panic!("wrong variant")
+    };
+    assert_eq!((decoded.revoked, decoded.in_use), (2, 1));
+}
+
+#[test]
 fn local_recovery_stays_in_user_worker_ipc_and_redacts_export_debug() {
     use crate::local_file_recovery::*;
     let request = ServiceToWorker::ManageLocalFileRecovery(LocalFileRecoveryRequest {

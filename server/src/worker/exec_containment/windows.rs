@@ -1,5 +1,5 @@
 use super::*;
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE};
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
@@ -43,6 +43,17 @@ impl Platform {
             )
         })?;
 
+        // A job of this name that already exists was not created for this
+        // execution; a sandboxed process can create named objects in the
+        // session, so never adopt one.
+        if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+            unsafe {
+                let _ = CloseHandle(job);
+            }
+            return Err(ContainmentError::message(
+                "a job object with this execution's name already exists",
+            ));
+        }
         let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { core::mem::zeroed() };
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         unsafe {
@@ -87,19 +98,22 @@ impl Platform {
         // would escape; since Windows 8 a process may belong to nested jobs, so
         // the child itself always joins even if something else already placed it
         // in a job.
-        unsafe { AssignProcessToJobObject(job, HANDLE(handle as *mut core::ffi::c_void)) }
-            .map_err(|e| {
-                ContainmentError(
-                    desk_agent_protocol::native_diagnostic::NativeDiagnostic::new(
-                        desk_agent_protocol::native_diagnostic::DiagnosticStage::ProcessContainment,
-                        "AssignProcessToJobObject",
-                        "hresult",
-                        Some(i64::from(e.code().0)),
-                        &e.message(),
-                    ),
-                )
-            })?;
+        unsafe { AssignProcessToJobObject(job, HANDLE(handle)) }.map_err(|e| {
+            ContainmentError(
+                desk_agent_protocol::native_diagnostic::NativeDiagnostic::new(
+                    desk_agent_protocol::native_diagnostic::DiagnosticStage::ProcessContainment,
+                    "AssignProcessToJobObject",
+                    "hresult",
+                    Some(i64::from(e.code().0)),
+                    &e.message(),
+                ),
+            )
+        })?;
         Ok(())
+    }
+
+    pub fn job(&self) -> Option<HANDLE> {
+        self.job
     }
 
     pub fn identity_after_adopt(&self) -> Option<String> {

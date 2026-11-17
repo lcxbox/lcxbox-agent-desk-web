@@ -369,7 +369,7 @@ A restore is not atomic across files; the result reports each file as restored, 
 
 ### Command sandbox {#command-sandbox}
 
-On macOS and Linux devices that support it, a command that may change files runs in a write sandbox: it can change files only in its snapshot folders and a few temporary locations, and writes anywhere else fail with a permission error. Windows devices do not support the sandbox yet; commands there run without it, and the approval card says so.
+On macOS, Linux and Windows devices that support it, a command that may change files runs in a write sandbox: it can change files only in its snapshot folders and a few temporary locations, and writes anywhere else fail with a permission error. On a device that cannot sandbox commands, they run without it, and the approval card says so.
 
 The assistant chooses with the optional `sandbox` parameter of `exec_command`. The approval covers the value exactly as written, including when it is omitted.
 
@@ -382,8 +382,9 @@ The assistant chooses with the optional `sandbox` parameter of `exec_command`. T
 A sandboxed command can write to:
 
 - its snapshot folders: the working directory or, when it is omitted, every directory approved in this conversation on that device. Approving a directory for a conversation therefore lets a sandboxed command without a working directory write anywhere inside it;
-- a new temporary directory created for the command and deleted when it ends. `TMPDIR`, `TEMP` and `TMP` point to it;
+- a new temporary directory created for the command and deleted when it ends. `TMPDIR`, `TEMP` and `TMP` point to it (`TEMP` and `TMP` on Windows);
 - on macOS, the user's temporary directory, where tools such as `mktemp` create files, except this product's own files there. On Linux, `/tmp` is not writable but `/dev/shm` is, for tools such as Python `multiprocessing`; other programs of the same user also keep shared memory there;
+- on Windows, the locations every low-integrity program may write, such as `AppData\LocalLow` and the registry key `HKCU\Software\AppDataLow`, and the snapshot folders of other sandboxed commands of the same user that are still prepared (see [Windows](#command-sandbox-windows) below), as well as the temporary directories of sandboxed commands running at the same time;
 - device files the command needs, such as `/dev/null` and its own terminal.
 
 Reading files and network access are not restricted. A working directory must be an absolute path.
@@ -395,8 +396,9 @@ File metadata is handled differently by platform. On macOS, permission, timestam
 Common commands that fail in the sandbox:
 
 - package managers that write a cache in your home folder, for example `npm install`. Point the cache at the temporary directory, for example `npm_config_cache=$TMPDIR/npm`;
-- tools that write global or user configuration;
-- `git` in a submodule or worktree whose Git directory is outside the working directory. Use the main repository folder as the working directory.
+- tools that write global or user configuration, for example `~/.gitconfig`;
+- `git` in a submodule or worktree whose Git directory is outside the working directory. Use the main repository folder as the working directory;
+- on Windows, programs that talk to a service of the same user through a named pipe, such as `ssh-agent` or Docker Desktop (expected, not yet tested), and files moved into a snapshot folder from outside it after the folder was prepared: they keep their original permissions and stay read-only for the sandbox.
 
 When a command really needs to write elsewhere, the assistant can request it again with `sandbox=false` and explain why; that request needs its own approval.
 
@@ -405,7 +407,8 @@ Before a sandboxed command starts, the device opens each snapshot folder and che
 - a drive or file system root, your home folder, or a folder that contains your home folder;
 - a system folder, such as `/usr`, `/etc` or `/System`;
 - this product's configuration, data, log or runtime folders, or a folder that contains one, such as the system temporary folder;
-- `~/.ssh`, `~/.config/systemd/user`, `~/.config/autostart`, `~/Library/LaunchAgents`, or a folder inside or containing them;
+- `~/.ssh`, `~/.config/systemd/user`, `~/.config/autostart`, `~/Library/LaunchAgents`, or a folder inside or containing them; on Windows, the Startup folder and the PowerShell profile folders (`Documents\WindowsPowerShell`, `Documents\PowerShell`), wherever Documents is redirected;
+- on Windows, a folder on a file system without permissions (FAT, exFAT) or on a network drive, and a folder that contains a file with more than one hard link;
 - a folder that is, or contains, a directory in the device's program search path (`PATH`).
 
 Most of these are reported before the approval card; the device checks the rest when the command is about to start, and the result then says the command did not start. Choose a narrower project folder as the working directory. Problems with the snapshot itself, such as the file-count limit or unavailable backup storage, still only skip the snapshot; the command runs in the sandbox.
@@ -426,6 +429,7 @@ The sandbox limits mistakes and stray writes. It is not isolation and does not s
 - A command can ask programs that run as the same user outside the sandbox to act for it. On Linux this includes `systemd-run --user` and other D-Bus services, running tmux or screen servers, and the Docker or Podman socket; under WSL2, Windows programs started from Linux are not restricted and can write to `/mnt/c` and the rest of the Windows file system. On macOS this includes launchd, `open` and Apple Events.
 - Files written inside the snapshot folders can later run outside the sandbox, for example Git hooks, build scripts or `Makefile` targets.
 - Because reading is not restricted, a command can read and send any file the command account can read.
+- On Windows, a sandboxed command can end or interfere with other programs of the same user (the device's own command worker is protected and not visible to it), read saved credentials such as the Windows Credential Manager or Git Credential Manager, and sandboxed commands of the same user running at the same time are not isolated from each other.
 - On Linux in Default or DeskServer mode, a sandboxed command can read this product's configuration file (`config.toml`). It holds the local access tokens and the connection token for the signaling server or manager, and these can be used to sign in to the device's local console and change its settings, including AI policy. In ServiceDaemon mode on Linux the system configuration is readable only by root. On macOS, sandboxed commands cannot read this product's configuration and data folders.
 
 #### Requirements
@@ -434,9 +438,17 @@ The sandbox limits mistakes and stray writes. It is not isolation and does not s
 |---|---|
 | Linux | The kernel has Landlock enabled with ABI 3 or later (upstream 6.2 or later), and commands do not run as root. Verified: Ubuntu 24.04, Debian 13, RHEL 9.10 and 10, Fedora, Arch, and WSL2 with Microsoft kernel 6.6 or later. Not available: Ubuntu 22.04 with its original kernel, Debian 12, kernels that do not list Landlock among the enabled security modules, and containers whose seccomp profile blocks Landlock. |
 | macOS | `/usr/bin/sandbox-exec` exists and passes the device's startup check. Tested on macOS 15.6.1. Commands must not run as root. |
-| Windows | Not supported yet. |
+| Windows | The device passes its startup check (starting a test program in the sandbox). Verified on Windows 11 26H2 (build 26300). Commands must not run as SYSTEM. |
 
 On WSL2, if Windows programs must not be reachable from AI commands, turn off interoperability in `/etc/wsl.conf` (`[interop]` `enabled = false`) and restart WSL. On a device without sandbox support, `sandbox=true` is refused with the reason, for example that the Linux kernel does not provide Landlock ABI 3.
+
+#### Windows {#command-sandbox-windows}
+
+On Windows, a sandboxed command runs as a low-integrity program, and its snapshot folders are made writable for it by marking them with a low-integrity label. The device keeps the label after the command ends and removes it once no sandboxed command has used the folder for a while (30 minutes by default; set it between 5 and 1,440 minutes under **AI policy** in the local console). Until then, other sandboxed commands of the same user can write the folder too. If the host is not running, for example while the desktop app is closed, labels are removed after it starts again.
+
+Labelling a large folder for the first time can take a while. When it takes longer than 10 seconds, the command is refused and does not run, and the result says that the device is still preparing the folder; the preparation continues in the background. Approve the same request again a little later. This is not a lack of sandbox support, so the assistant should not switch to `sandbox=false` for it.
+
+To remove all labels of your account at once, click **Revoke sandbox labels** under **AI policy** in the local console. Labels that a running command still uses are removed automatically once their time runs out. Uninstalling the service with `--uninstall-service` also removes the labels of the account that runs it. A label that stayed behind on a folder that was moved or renamed afterwards cannot be found automatically; set the folder back to medium integrity with `icacls <folder> /setintegritylevel (OI)(CI)M /T`.
 
 ## Key Properties
 

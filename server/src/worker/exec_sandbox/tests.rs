@@ -46,7 +46,7 @@ fn the_identity_follows_the_effective_user() {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 #[test]
 fn other_platforms_report_not_implemented() {
     assert!(matches!(

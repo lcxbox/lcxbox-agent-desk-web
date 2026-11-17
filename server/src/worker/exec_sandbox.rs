@@ -15,13 +15,18 @@
 //!    ([`ProtectedRoots::refuses_write_root`]);
 //! 2. creates the execution's private temporary directory ([`PerExecTemp`]);
 //! 3. builds the platform restriction ([`PreparedSandbox`]): a Landlock
-//!    ruleset on Linux, a `sandbox-exec` profile with path parameters on macOS.
+//!    ruleset on Linux, a `sandbox-exec` profile with path parameters on macOS,
+//!    Low labels held by leases on Windows (plan 6.5), where the command is
+//!    then started through a launcher with a Low integrity token.
 //!
 //! Any failure refuses the command. Process-tree reclamation stays with
 //! `exec_containment`; sandboxed commands use its `setsid` form so they have
 //! no controlling terminal.
 // Without a backend no restriction is ever built.
-#![cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+#![cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    allow(dead_code)
+)]
 use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -40,9 +45,72 @@ mod platform;
 #[cfg(target_os = "macos")]
 #[path = "exec_sandbox/macos.rs"]
 mod platform;
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(windows)]
+#[path = "exec_sandbox/windows.rs"]
+mod platform;
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 #[path = "exec_sandbox/unsupported.rs"]
 mod platform;
+
+#[cfg(windows)]
+#[path = "exec_sandbox/temp_windows.rs"]
+mod temp;
+#[cfg(windows)]
+#[path = "exec_sandbox/windows_label.rs"]
+mod windows_label;
+#[cfg(windows)]
+#[path = "exec_sandbox/windows_lease.rs"]
+mod windows_lease;
+#[cfg(windows)]
+#[path = "exec_sandbox/windows_spawn.rs"]
+mod windows_spawn;
+#[cfg(windows)]
+#[path = "exec_sandbox/windows_token.rs"]
+mod windows_token;
+#[cfg(windows)]
+pub(crate) use platform::{revoke_all_labels, set_idle_minutes, worker_app_dir};
+#[cfg(windows)]
+pub(crate) use windows_spawn::{SandboxedChild, SpawnOutcome};
+
+/// Revoke this user's unused Windows sandbox labels for the daemon's
+/// "revoke all" request. Refused when the requester is not the user this
+/// worker runs as: the lease store and the labels are that user's.
+pub(crate) fn revoke_for_daemon(
+    request: &desk_ipc_protocol::message::RevokeExecSandboxLabelsRequest,
+) -> desk_ipc_protocol::message::RevokeExecSandboxLabelsReply {
+    let mut reply = desk_ipc_protocol::message::RevokeExecSandboxLabelsReply {
+        request_id: request.request_id.clone(),
+        revoked: 0,
+        in_use: 0,
+        error: None,
+    };
+    #[cfg(windows)]
+    match crate::file_recovery_service::platform_user::current() {
+        Ok(sid) if sid == request.os_user => {
+            let (revoked, in_use) = revoke_all_labels();
+            reply.revoked = u32::try_from(revoked).unwrap_or(u32::MAX);
+            reply.in_use = u32::try_from(in_use).unwrap_or(u32::MAX);
+        }
+        Ok(_) => reply.error = Some("the worker runs as a different user".into()),
+        Err(error) => reply.error = Some(format!("the worker user is unknown: {error}")),
+    }
+    #[cfg(not(windows))]
+    {
+        reply.error = Some("sandbox labels exist only on Windows".into());
+    }
+    reply
+}
+
+/// Windows: start `plan` through the sandbox launcher inside `job` (the raw
+/// handle value of the execution's containment job). Blocking.
+#[cfg(windows)]
+pub(crate) fn spawn_windows(
+    parts: platform::LaunchParts,
+    plan: &ExecPlan,
+    job: usize,
+) -> SpawnOutcome {
+    platform::spawn(parts, plan, job)
+}
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[path = "exec_sandbox/temp_unix.rs"]
@@ -53,6 +121,9 @@ pub(crate) use temp::PerExecTemp;
 #[cfg(test)]
 #[path = "exec_sandbox/tests.rs"]
 mod tests;
+#[cfg(all(test, windows))]
+#[path = "exec_sandbox/tests_windows.rs"]
+mod tests_windows;
 
 /// The probe result, computed once for the process lifetime. Blocking on its
 /// first call: on macOS it runs the full profile once.
@@ -162,8 +233,13 @@ pub(crate) enum SandboxError {
     /// The execution's temporary directory could not be created.
     TempUnavailable(std::io::Error),
     /// The platform restriction could not be built or applied.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
     Restriction(String),
+    /// Windows: a write root is still being prepared (its Low label is being
+    /// propagated in the background). Transient: nothing ran, and the same
+    /// request succeeds once the preparation finished (plan 6.5.3).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Preparing,
 }
 
 impl std::fmt::Display for SandboxError {
@@ -185,6 +261,12 @@ impl std::fmt::Display for SandboxError {
                 )
             }
             Self::Restriction(message) => write!(f, "the sandbox could not be applied: {message}"),
+            Self::Preparing => write!(
+                f,
+                "a writable directory of this command is still being prepared for the sandbox; \
+                 retry the same command with the same parameters in about a minute. This is \
+                 not a lack of sandbox support: do not switch to sandbox=false because of it"
+            ),
         }
     }
 }
@@ -271,9 +353,14 @@ impl ExecSandbox {
         protected: ProtectedRoots,
         read_protected: Vec<PathBuf>,
     ) -> Self {
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
         if support == ExecSandboxSupport::Supported {
-            PerExecTemp::sweep_stale(&private_dir);
+            temp::PerExecTemp::sweep_stale(&private_dir);
+        }
+        #[cfg(windows)]
+        {
+            static GUARDED: OnceLock<()> = OnceLock::new();
+            GUARDED.get_or_init(platform::protect_worker_process);
         }
         Self {
             support,
@@ -370,7 +457,21 @@ impl ExecSandbox {
         Ok(PreparedSandbox { platform, temp })
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    /// Windows: volume check, leases on the roots (labelling within a 10 s
+    /// budget, otherwise `Preparing`) and the temporary directory. Blocking.
+    #[cfg(windows)]
+    pub(crate) fn prepare(
+        &self,
+        roots: &SandboxRoots,
+        _pty_slave: Option<&Path>,
+    ) -> Result<PreparedSandbox, SandboxError> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let platform = platform::Prepared::build(&roots.0, &self.private_dir, deadline)?;
+        let _ = &self.read_protected;
+        Ok(PreparedSandbox { platform })
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     pub(crate) fn prepare(
         &self,
         _roots: &SandboxRoots,
@@ -416,6 +517,13 @@ impl PreparedSandbox {
         self.temp.path()
     }
 
+    /// Windows: what [`spawn_windows`] needs, owned, so the spawn can run on
+    /// a blocking thread while `self` stays with the executor.
+    #[cfg(windows)]
+    pub(crate) fn windows_launch(&self) -> platform::LaunchParts {
+        self.platform.launch_parts()
+    }
+
     /// The variables that point temporary files at the execution's
     /// temporary directory.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -429,6 +537,7 @@ impl PreparedSandbox {
     /// working directory, containment) left to the caller. On Linux the
     /// restriction is applied in the forked child, so `self` must outlive the
     /// spawn.
+    #[cfg(not(windows))]
     pub(crate) fn pipe_command(&self, program: &str, args: &[String]) -> tokio::process::Command {
         #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(unused_mut))]
         let mut command = self.platform.pipe_command(program, args);

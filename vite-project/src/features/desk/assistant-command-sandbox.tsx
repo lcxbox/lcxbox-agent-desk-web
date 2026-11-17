@@ -3,8 +3,8 @@ import type { TFunction } from 'i18next';
 import { AlertTriangle } from 'lucide-react';
 
 type RootKind = 'cwd' | 'grant';
-type ImplicitWritable = 'exec_temp_dir' | 'user_temp_dir' | 'dev_shm';
-const IMPLICIT_WRITABLE: readonly string[] = ['exec_temp_dir', 'user_temp_dir', 'dev_shm'];
+type ImplicitWritable = 'exec_temp_dir' | 'user_temp_dir' | 'dev_shm' | 'low_integrity_locations' | 'other_sandbox_roots';
+const IMPLICIT_WRITABLE: readonly string[] = ['exec_temp_dir', 'user_temp_dir', 'dev_shm', 'low_integrity_locations', 'other_sandbox_roots'];
 
 /** Account an unrestricted command runs as, present only when notable. */
 export interface CommandIdentity {
@@ -85,16 +85,20 @@ export function CommandSandboxNotice({ value }: { value: CommandSandbox }) {
 }
 
 /** What an `exec_sandbox` device diagnostic in a command result says. */
-export type SandboxDiagnostic = 'unavailable_program' | 'refused';
+export type SandboxDiagnostic = 'unavailable_program' | 'refused' | 'preparing';
 
 /**
  * The command-sandbox note of an `ExecOutput`: an `exec_sandbox` diagnostic on
  * a result without a failure is the run-after hint that a program is
  * unavailable inside the sandbox; with a failure the device refused to start
- * the command in the sandbox.
+ * the command in the sandbox. An `exec_sandbox_preparing` diagnostic means a
+ * Windows device is still preparing the write directory; retrying the same
+ * request later succeeds.
  */
 export function sandboxDiagnostic(diagnostics: unknown, failure: unknown): SandboxDiagnostic | null {
-    if (!Array.isArray(diagnostics) || !diagnostics.some(entry => record(entry) && entry.domain === 'exec_sandbox')) return null;
+    if (!Array.isArray(diagnostics)) return null;
+    if (diagnostics.some(entry => record(entry) && entry.domain === 'exec_sandbox_preparing')) return 'preparing';
+    if (!diagnostics.some(entry => record(entry) && entry.domain === 'exec_sandbox')) return null;
     return failure == null ? 'unavailable_program' : 'refused';
 }
 

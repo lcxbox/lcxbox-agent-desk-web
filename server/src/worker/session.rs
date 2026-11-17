@@ -76,6 +76,7 @@ pub(crate) fn survives_remote_access_lock(msg: &ServiceToWorker) -> bool {
             | ServiceToWorker::SetRemoteAccessState(_)
             | ServiceToWorker::SetInteractiveRoute(_)
             | ServiceToWorker::SetLocale(_)
+            | ServiceToWorker::SetExecSandboxLabelIdle(_)
     )
 }
 

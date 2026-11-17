@@ -89,6 +89,7 @@ export type { QueryAiPolicySettingsQueryKey } from "./aiModelController/useQuery
 export type { QueryAiPolicySettingsSuspenseQueryKey } from "./aiModelController/useQueryAiPolicySettingsSuspense.ts";
 export type { QueryCollectionPolicySettingsQueryKey } from "./aiModelController/useQueryCollectionPolicySettings.ts";
 export type { QueryCollectionPolicySettingsSuspenseQueryKey } from "./aiModelController/useQueryCollectionPolicySettingsSuspense.ts";
+export type { RevokeExecSandboxLabelsMutationKey } from "./aiModelController/useRevokeExecSandboxLabels.ts";
 export type { UpdateAiAssistantSettingsMutationKey } from "./aiModelController/useUpdateAiAssistantSettings.ts";
 export type { UpdateAiPolicySettingsMutationKey } from "./aiModelController/useUpdateAiPolicySettings.ts";
 export type { UpdateCollectionPolicySettingsMutationKey } from "./aiModelController/useUpdateCollectionPolicySettings.ts";
@@ -587,6 +588,9 @@ export { useQueryCollectionPolicySettings } from "./aiModelController/useQueryCo
 export { queryCollectionPolicySettingsSuspenseQueryKey } from "./aiModelController/useQueryCollectionPolicySettingsSuspense.ts";
 export { queryCollectionPolicySettingsSuspenseQueryOptions } from "./aiModelController/useQueryCollectionPolicySettingsSuspense.ts";
 export { useQueryCollectionPolicySettingsSuspense } from "./aiModelController/useQueryCollectionPolicySettingsSuspense.ts";
+export { revokeExecSandboxLabelsMutationKey } from "./aiModelController/useRevokeExecSandboxLabels.ts";
+export { revokeExecSandboxLabelsMutationOptions } from "./aiModelController/useRevokeExecSandboxLabels.ts";
+export { useRevokeExecSandboxLabels } from "./aiModelController/useRevokeExecSandboxLabels.ts";
 export { updateAiAssistantSettingsMutationKey } from "./aiModelController/useUpdateAiAssistantSettings.ts";
 export { updateAiAssistantSettingsMutationOptions } from "./aiModelController/useUpdateAiAssistantSettings.ts";
 export { useUpdateAiAssistantSettings } from "./aiModelController/useUpdateAiAssistantSettings.ts";

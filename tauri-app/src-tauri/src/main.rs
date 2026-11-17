@@ -11,6 +11,12 @@ fn main() -> ExitCode {
     ]) {
         return ExitCode::from(code as u8);
     }
+    // The Windows command-sandbox launcher must keep the full 32-bit exit
+    // code, which `ExitCode::from(u8)` would truncate.
+    #[cfg(windows)]
+    if let Some(code) = lcxl_remote_desk_server::exec_sandbox_launcher::run_if_requested() {
+        std::process::exit(code);
+    }
     #[cfg(windows)]
     if let Some(code) = lcxl_remote_desk_server::windows_application_host::run_if_requested() {
         return ExitCode::from(code as u8);

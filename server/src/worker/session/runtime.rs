@@ -62,6 +62,10 @@ impl WorkerSession {
         let mut interactive_route_active = init_payload.worker_identity.is_none();
         let settings = match serde_json::from_str::<Settings>(&init_payload.config_json) {
             Ok(mut s) => {
+                #[cfg(windows)]
+                crate::worker::exec_sandbox::set_idle_minutes(
+                    s.ai_policy.windows_sandbox_label_idle_minutes(),
+                );
                 // Args is #[serde(skip)] so it defaults to Args::default() after
                 // deserialization. SessionWorker always acts as a pure desk server,
                 // so set the mode explicitly to satisfy DeskServer-specific checks
@@ -1327,6 +1331,12 @@ impl WorkerSession {
                                         .await;
                                     }
                                 }
+                                ServiceToWorker::SetExecSandboxLabelIdle(_payload) => {
+                                    #[cfg(windows)]
+                                    crate::worker::exec_sandbox::set_idle_minutes(
+                                        _payload.minutes,
+                                    );
+                                }
                                 ServiceToWorker::SetLocale(payload) => {
                                     // The daemon has already persisted this; the
                                     // worker only brings its own process and
@@ -2004,6 +2014,23 @@ impl WorkerSession {
                                 }
                                 ServiceToWorker::FileRecoveryQuotaReplied(reply) => {
                                     file_recovery_quota.complete(reply);
+                                }
+                                ServiceToWorker::RevokeExecSandboxLabels(payload) => {
+                                    let reply_tx = writer_tx.clone();
+                                    tokio::spawn(async move {
+                                        let request_id = payload.request_id.clone();
+                                        let reply = tokio::task::spawn_blocking(move || {
+                                            crate::worker::exec_sandbox::revoke_for_daemon(&payload)
+                                        })
+                                        .await
+                                        .unwrap_or_else(|_| desk_ipc_protocol::message::RevokeExecSandboxLabelsReply {
+                                            request_id,
+                                            revoked: 0,
+                                            in_use: 0,
+                                            error: Some("revocation task failed".into()),
+                                        });
+                                        let _ = reply_tx.send(WorkerToService::ExecSandboxLabelsRevoked(reply));
+                                    });
                                 }
                                 ServiceToWorker::ManageLocalFileRecovery(payload) => {
                                     let quota = file_recovery_quota.clone();

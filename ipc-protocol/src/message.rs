@@ -299,6 +299,15 @@ pub enum ServiceToWorker {
     ComputerTurnStatus(ComputerTurnStatusPayload),
     /// Release held keyboard keys and mouse buttons without stopping media.
     ReleaseInputState(ReleaseInputStatePayload),
+    /// Daemon → worker, best effort: how long an unused Low label of the
+    /// Windows command sandbox may stay before it is revoked. Not a security
+    /// ceiling (a stale value only delays a revocation), so it has no
+    /// acknowledgement; the worker starts from the value in its Init settings.
+    SetExecSandboxLabelIdle(SetExecSandboxLabelIdlePayload),
+    /// Local authenticated OS-user request, never forwarded from signaling:
+    /// revoke every Windows sandbox label of the worker's user that no running
+    /// command uses. Answered with [`WorkerToService::ExecSandboxLabelsRevoked`].
+    RevokeExecSandboxLabels(RevokeExecSandboxLabelsRequest),
 }
 
 impl ServiceToWorker {
@@ -592,6 +601,9 @@ pub enum WorkerToService {
     /// Appended variant: native input endpoint of this authenticated worker.
     LinuxAiInputEndpoint(Option<String>),
     ComputerTurnQuery(ComputerTurnQueryPayload),
+    /// Reply to [`ServiceToWorker::RevokeExecSandboxLabels`], for the local
+    /// HTTP waiter only.
+    ExecSandboxLabelsRevoked(RevokeExecSandboxLabelsReply),
 }
 
 impl WorkerToService {
@@ -658,6 +670,7 @@ impl WorkerToService {
             Self::LinuxAiInputEndpoint(_)
             | Self::ComputerTurnQuery(_)
             | Self::LocalFileRecoveryManaged(_)
+            | Self::ExecSandboxLabelsRevoked(_)
             | Self::FileRecoveryQuotaRequested(_)
             | Self::Ready
             | Self::Capabilities(_)

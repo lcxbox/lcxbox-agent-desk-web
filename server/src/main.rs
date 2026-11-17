@@ -149,6 +149,11 @@ fn main() {
     ]) {
         std::process::exit(code);
     }
+    // The Windows command-sandbox launcher keeps the full 32-bit exit code.
+    #[cfg(windows)]
+    if let Some(code) = lcxl_remote_desk_server::exec_sandbox_launcher::run_if_requested() {
+        std::process::exit(code);
+    }
     #[cfg(windows)]
     if let Some(code) = lcxl_remote_desk_server::windows_application_host::run_if_requested() {
         std::process::exit(code);
@@ -273,6 +278,14 @@ fn main() {
                 std::process::exit(1);
             }
             println!("Service uninstalled successfully");
+            // Best effort: the uninstalling user's sandbox labels. Labels of
+            // other users are revoked by their own workers or stay until
+            // those users run the revocation themselves.
+            let (revoked, in_use) =
+                lcxl_remote_desk_server::exec_sandbox_launcher::revoke_current_user_labels();
+            if revoked + in_use > 0 {
+                println!("Revoked {revoked} command sandbox label(s); {in_use} still in use");
+            }
             return;
         }
     }

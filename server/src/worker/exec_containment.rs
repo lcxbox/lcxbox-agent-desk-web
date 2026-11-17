@@ -132,6 +132,13 @@ impl Containment {
         Ok(())
     }
 
+    /// Windows: the job object, for a process created directly inside it
+    /// (`PROC_THREAD_ATTRIBUTE_JOB_LIST`, the command sandbox).
+    #[cfg(target_os = "windows")]
+    pub fn windows_job(&self) -> Option<windows::Win32::Foundation::HANDLE> {
+        self.inner.job()
+    }
+
     /// Reclaim the whole tree now, rather than waiting for the drop.
     pub fn reclaim(
         &mut self,
