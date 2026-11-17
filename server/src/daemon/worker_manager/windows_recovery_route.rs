@@ -7,7 +7,7 @@ impl WorkerManager {
         payload: desk_ipc_protocol::message::FileRecoveryRequestPayload,
     ) -> Result<(), String> {
         let inner = self.inner.lock().await;
-        let worker = inner
+        let (key, worker) = inner
             .resident_workers
             .iter()
             .filter(|(key, worker)| {
@@ -15,11 +15,8 @@ impl WorkerManager {
                     && file_recovery_quota::windows_worker_user(worker).as_deref() == Some(user)
             })
             .max_by_key(|(_, worker)| worker.incarnation.0)
-            .map(|(_, worker)| worker)
             .ok_or_else(|| "original recovery user worker unavailable".to_owned())?;
-        worker
-            .ipc_tx
-            .send(ServiceToWorker::ManageFileRecovery(payload))
-            .map_err(|_| "original recovery user worker disconnected".to_owned())
+        self.deliver_to_resident(key, worker, ServiceToWorker::ManageFileRecovery(payload))
+            .map_err(|()| "original recovery user worker disconnected".to_owned())
     }
 }

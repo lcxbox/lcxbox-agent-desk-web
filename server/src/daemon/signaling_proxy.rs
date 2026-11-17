@@ -723,21 +723,14 @@ pub async fn run_signaling_proxy(
                 );
                 continue;
             }
-            let global_control = resident_global_control(&worker_message.message);
-            let connection_owned =
-                worker_message
-                    .message
-                    .connection_id()
-                    .is_some_and(|connection_id| {
-                        worker_mgr.resident_worker_owns_connection(key, connection_id)
-                    });
-            let pty_output = matches!(
+            if !resident_output::resident_output_admitted(
                 &worker_message.message,
-                WorkerToService::ExecPtyOpened(_)
-                    | WorkerToService::ExecPtyOutput(_)
-                    | WorkerToService::ExecPtyClosed(_)
-            );
-            if !global_control && !connection_owned && !pty_output {
+                key,
+                worker_message.incarnation,
+                |connection_id| worker_mgr.resident_worker_owns_connection(key, connection_id),
+                &router_ctx.exec_capacity,
+                worker_mgr.resident_requests(),
+            ) {
                 warn!(
                     "[SignalingProxy] dropping unbound or cross-session output from resident worker {:?}",
                     key
@@ -966,7 +959,8 @@ pub async fn run_signaling_proxy(
                     &payload.request_id,
                     payload.signaling_type,
                     None,
-                    Some(payload.connection_id.clone()),
+                    // A connection-less request answers no browser connection.
+                    (!payload.connection_id.is_empty()).then(|| payload.connection_id.clone()),
                     None,
                     response_state,
                 ) {
@@ -1737,11 +1731,9 @@ pub async fn run_signaling_proxy(
                         payload.request_id
                     );
                 }
-                // A command that never started occupies nothing, so give its slot
-                // back now rather than letting the deadline reclaim it.
-                if matches!(payload.report, ExecSpawnReport::Failed { .. }) {
-                    router_ctx.exec_capacity.release(&payload.request_id);
-                }
+                // A failed spawn keeps its slot until the result that always
+                // follows it, which releases the slot and must still find the
+                // binding that admits it from a resident worker.
                 // Tell whoever asked that the command is up. A failed spawn is not
                 // reported here: it is terminal, and it travels on the result path
                 // like every other ending.
@@ -2070,6 +2062,8 @@ async fn cancel_pty_worker(
 }
 
 mod responses;
+
+mod resident_output;
 use responses::*;
 
 mod connection_policy;

@@ -149,6 +149,18 @@ impl ExecCapacity {
             .cloned()
     }
 
+    /// The frozen destination of an execution, whether or not its slot has
+    /// passed its deadline. Admitting a resident worker's connection-less
+    /// output checks it; an expired slot remains until the next admission
+    /// prunes it, so a late result is admitted only on a best-effort basis.
+    pub fn binding(&self, generation: &str) -> Option<ExecBinding> {
+        self.slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(generation)
+            .and_then(|slot| slot.binding.clone())
+    }
+
     /// Give back a slot once the execution is accounted for — it finished, or it
     /// never started.
     pub fn release(&self, generation: &str) {

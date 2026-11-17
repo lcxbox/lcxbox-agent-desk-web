@@ -617,11 +617,13 @@ async fn shutdown_clears_state() {
     assert!(g.permission_cache.is_empty());
 }
 
-/// Read the one message waiting on the file lane, or fail.
+/// Read the next message on the file lane, or fail. A completed upload is
+/// published durably first, and its fsyncs can take hundreds of milliseconds
+/// on a loaded disk, so the wait only bounds a message that never comes.
 async fn expect_message(
     rx: &mut Box<dyn EventReceiver<FileTransferPayload>>,
 ) -> FileTransferMessage {
-    let payload = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+    let payload = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
         .await
         .expect("file lane produced no message")
         .expect("file lane closed");

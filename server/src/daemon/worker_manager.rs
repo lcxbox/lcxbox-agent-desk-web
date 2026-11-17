@@ -249,6 +249,8 @@ pub struct WorkerManager {
     local_recovery_requests: local_file_recovery::PendingRequests,
     #[cfg(windows)]
     exec_sandbox_revocations: exec_sandbox_labels::PendingRevocations,
+    /// Which resident worker each connection-less central request went to.
+    resident_requests: Arc<resident_request_routes::ResidentRequestRoutes>,
     settings: web::Data<SharedSettings>,
     inner: Arc<Mutex<WorkerManagerInner>>,
     worker_msg_tx: Arc<mpsc::UnboundedSender<WorkerMessage>>,
@@ -668,6 +670,7 @@ impl WorkerManager {
             local_recovery_requests: local_file_recovery::PendingRequests::default(),
             #[cfg(windows)]
             exec_sandbox_revocations: exec_sandbox_labels::PendingRevocations::default(),
+            resident_requests: Arc::default(),
         };
         (mgr, rx)
     }
@@ -2805,13 +2808,39 @@ impl WorkerManager {
             })
             .find(|key| inner.resident_workers.contains_key(key))
             .ok_or_else(|| format!("no session-user worker for target {session:?}"))?;
-        inner
+        let worker = inner
             .resident_workers
             .get(&key)
-            .expect("selected resident key disappeared while manager lock is held")
-            .ipc_tx
-            .send(msg)
-            .map_err(|error| format!("failed to send to resident worker {key:?}: {error}"))
+            .expect("selected resident key disappeared while manager lock is held");
+        self.deliver_to_resident(&key, worker, msg)
+            .map_err(|()| format!("failed to send to resident worker {key:?}"))
+    }
+
+    /// Send to a selected resident worker. A connection-less central request
+    /// first records which worker it went to, so that only this worker may
+    /// answer it; the record is undone when the send fails.
+    fn deliver_to_resident(
+        &self,
+        key: &WorkerKey,
+        worker: &WorkerHandle,
+        msg: ServiceToWorker,
+    ) -> Result<(), ()> {
+        let route = resident_request_routes::central_reply_route(&msg)
+            .map(|(request_id, response)| (request_id.to_owned(), response));
+        if let Some((request_id, response)) = &route {
+            self.resident_requests
+                .record(request_id, key.clone(), worker.incarnation, *response);
+        }
+        worker.ipc_tx.send(msg).map_err(|_| {
+            if let Some((request_id, _)) = &route {
+                self.resident_requests.forget(request_id);
+            }
+        })
+    }
+
+    /// Routes of connection-less central requests, for admitting their replies.
+    pub(crate) fn resident_requests(&self) -> &resident_request_routes::ResidentRequestRoutes {
+        &self.resident_requests
     }
 
     /// Use the admitted worker identity rather than resolving a browser's current
@@ -3753,6 +3782,7 @@ mod linux_turn_queries;
 pub(crate) use exec_sandbox_labels::RevokeForwardError;
 #[cfg(windows)]
 mod local_file_recovery;
+pub(crate) mod resident_request_routes;
 #[cfg(windows)]
 #[path = "worker_manager/windows_recovery_route.rs"]
 mod windows_recovery_route;
