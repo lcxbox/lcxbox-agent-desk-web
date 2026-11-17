@@ -14,6 +14,7 @@ use std::{
 
 const OBJECTS: &str = "objects";
 const TEMPORARY: &str = "tmp";
+const EXECUTORS: &str = "executors";
 /// Bound on entries enumerated from one private directory.
 const MAX_LISTED: usize = 1_000_000;
 
@@ -144,6 +145,99 @@ impl PrivateDirectoryLock {
         Ok(bytes)
     }
 
+    /// The first `len` bytes of an object, for reading its header.
+    pub(crate) fn read_object_prefix(
+        &self,
+        namespace: &str,
+        name: &str,
+        len: u64,
+    ) -> io::Result<Vec<u8>> {
+        if !crate::valid_id(name) {
+            return Err(crate::invalid("invalid recovery object name"));
+        }
+        let directory = self.require_namespace(namespace)?;
+        let file = open_relative(&directory, name, &self.user, OpenKind::ReadFile)?;
+        file_identity(&file, FileKind::File)?;
+        let mut bytes = Vec::new();
+        (&file).take(len).read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }
+
+    fn executor_name(id: &str) -> io::Result<String> {
+        if !crate::valid_id(id) {
+            return Err(crate::invalid("invalid recovery executor"));
+        }
+        Ok(format!("{id}.lock"))
+    }
+
+    /// Create and lock the lock file of a new executor. The returned handle
+    /// holds the lock until it is dropped.
+    pub(crate) fn create_executor(&self, id: &str) -> io::Result<File> {
+        self.validate()?;
+        let directory = self
+            .subdirectory(&self._directory, EXECUTORS, true)?
+            .unwrap();
+        let file = open_relative(
+            &directory,
+            &Self::executor_name(id)?,
+            &self.user,
+            OpenKind::Lock,
+        )?;
+        file_identity(&file, FileKind::File)?;
+        security::validate_private_file(&file, &self.user)?;
+        match file.try_lock() {
+            Ok(()) => Ok(file),
+            Err(std::fs::TryLockError::WouldBlock) => Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "recovery executor is already running",
+            )),
+            Err(std::fs::TryLockError::Error(error)) => Err(error),
+        }
+    }
+
+    /// Whether an executor still holds its lock. The lock file of an exited
+    /// executor is removed.
+    pub(crate) fn executor_alive(&self, id: &str) -> io::Result<bool> {
+        self.validate()?;
+        let name = Self::executor_name(id)?;
+        let Some(directory) = self.subdirectory(&self._directory, EXECUTORS, false)? else {
+            return Ok(false);
+        };
+        let file = match open_relative(
+            &directory,
+            &name,
+            &self.user,
+            OpenKind::InspectTransactionFile,
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        file_identity(&file, FileKind::File)?;
+        match file.try_lock() {
+            Ok(()) => {
+                drop(file);
+                remove_child(&directory, &name, &self.user)?;
+                Ok(false)
+            }
+            Err(std::fs::TryLockError::WouldBlock) => Ok(true),
+            Err(std::fs::TryLockError::Error(error)) => Err(error),
+        }
+    }
+
+    pub(crate) fn list_executors(&self) -> io::Result<Vec<String>> {
+        self.validate()?;
+        let Some(directory) = self.subdirectory(&self._directory, EXECUTORS, false)? else {
+            return Ok(Vec::new());
+        };
+        Ok(list_entries(&directory)?
+            .into_iter()
+            .filter(|entry| !entry.directory)
+            .filter_map(|entry| entry.name.strip_suffix(".lock").map(str::to_owned))
+            .filter(|id| crate::valid_id(id))
+            .collect())
+    }
+
     pub(crate) fn remove_object(&self, namespace: &str, name: &str) -> io::Result<()> {
         let directory = self.require_namespace(namespace)?;
         remove_child(&directory, name, &self.user)
@@ -263,6 +357,14 @@ fn rename_into(file: &File, directory: &File, name: &str) -> io::Result<()> {
         )));
     }
     Ok(())
+}
+
+/// Names of a directory's entries, for command snapshot traversal.
+pub(crate) fn list_names(directory: &File) -> io::Result<Vec<String>> {
+    Ok(list_entries(directory)?
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect())
 }
 
 /// Enumerate a directory through its handle; names are never resolved

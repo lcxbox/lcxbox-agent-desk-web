@@ -302,6 +302,61 @@ impl SignalAgentExecStore {
             .map_err(|e| internal(format!("settle unsent agent execution: {e}")))
     }
 
+    /// Keep a device change report only when it matches the snapshot roots of
+    /// the approved plan behind `execution_generation`. A report authorizes
+    /// later restores, so one the plan does not admit (or any report for an
+    /// execution without roots) is dropped before the result is stored or
+    /// delivered.
+    pub async fn admit_file_changes(
+        &self,
+        execution_generation: &str,
+        disposition: &mut EdgeExecDisposition,
+    ) {
+        let EdgeExecDisposition::Executed {
+            outcome: AgentOutcome::Ok(desk_agent_protocol::OperationOutput::Exec(output)),
+        } = disposition
+        else {
+            return;
+        };
+        if output.file_changes.is_none() {
+            return;
+        }
+        let roots = match self.command_snapshot_roots(execution_generation).await {
+            Ok(roots) => roots,
+            Err(error) => {
+                log::warn!(
+                    "[agent-exec] snapshot roots unavailable; dropping the change report: {}",
+                    error.message
+                );
+                Vec::new()
+            }
+        };
+        if let Err(reason) = output.validate_file_changes(&roots) {
+            log::warn!("[agent-exec] dropped a device change report: {reason}");
+            output.file_changes = None;
+        }
+    }
+
+    async fn command_snapshot_roots(
+        &self,
+        execution_generation: &str,
+    ) -> Result<Vec<desk_agent_protocol::exec::ExecSnapshotRoot>, AgentError> {
+        use crate::entity::agent_capability_dispatch_outbox as outbox;
+        let Some(row) = outbox::Entity::find()
+            .filter(outbox::Column::DispatchId.eq(execution_generation))
+            .one(&self.db)
+            .await
+            .map_err(|e| internal(format!("load command dispatch: {e}")))?
+        else {
+            return Ok(Vec::new());
+        };
+        serde_json::from_str::<crate::capability_grant_store::CapabilityDispatchPayload>(
+            &row.payload_json,
+        )
+        .map(|payload| payload.command_snapshot_roots)
+        .map_err(|e| internal(format!("decode command dispatch: {e}")))
+    }
+
     /// Persist the terminal before waking any foreground waiter. A duplicate host
     /// result is harmless because only a non-terminal row may transition.
     pub async fn finalize(

@@ -85,6 +85,8 @@ impl WorkerSession {
             .log_dir
             .as_deref()
             .map(std::path::PathBuf::from);
+        // Command snapshots never cover this worker's own log directory.
+        let snapshot_log_dir = worker_log_dir.clone();
         let worker_data_dir = init_payload
             .data_dir
             .as_deref()
@@ -376,6 +378,28 @@ impl WorkerSession {
             endpoint.announce_worker(writer_tx.clone());
         }
         let file_recovery_quota = super::file_recovery_quota::QuotaClient::new(writer_tx.clone());
+        // Held for the worker's lifetime: the executor lock tells other workers
+        // that this one's pending command snapshots are still running.
+        let exec_snapshots = {
+            let user_session = worker_profile == WorkerProfile::SessionUser;
+            let data_root = worker_data_dir.clone();
+            let quota = file_recovery_quota.clone();
+            let product: Vec<std::path::PathBuf> = worker_data_dir
+                .iter()
+                .chain(snapshot_log_dir.iter())
+                .cloned()
+                .collect();
+            tokio::task::spawn_blocking(move || {
+                crate::worker::exec_snapshot::ExecSnapshots::start(
+                    user_session,
+                    data_root,
+                    quota,
+                    crate::worker::exec_snapshot::ProtectedRoots::current(product),
+                )
+            })
+            .await
+            .unwrap_or_else(|_| crate::worker::exec_snapshot::ExecSnapshots::unavailable())
+        };
         #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         let file_recovery_maintenance = if worker_profile == WorkerProfile::SessionUser {
             worker_data_dir
@@ -2691,6 +2715,49 @@ impl WorkerSession {
                                             );
                                             return;
                                         }
+                                        if matches!(step.action, ComputerActionKind::File(FilePatchAction::RestoreCommandChanges { .. })) {
+                                            let recovery = crate::worker::exec_snapshot::ActionRecovery {
+                                                binding: payload.file_recovery.clone(),
+                                                data_root: action_data_root.clone(),
+                                                quota: file_recovery_quota.clone(),
+                                                device: plan.device_id.clone(),
+                                                owner: plan.approved_actor_id.clone(),
+                                                operation_id: format!("{}:{}", plan.work_id, plan.action_request_id),
+                                                generation: generation.clone(),
+                                            };
+                                            let target = step.target.clone();
+                                            let ComputerActionKind::File(action) = step.action.clone() else { unreachable!() };
+                                            let broker = action_broker.clone();
+                                            let generation_for_call = generation.clone();
+                                            let result = crate::worker::agent::computer_use_writer::spawn_writer_task(
+                                                broker.clone(), generation.clone(), move || {
+                                                    broker.require_writer_lease(&generation_for_call)?;
+                                                    crate::worker::exec_snapshot::restore_command_changes(
+                                                        recovery, &target, &action,
+                                                        || broker.require_writer_lease(&generation_for_call).map(|_| ()),
+                                                    )
+                                                }).await;
+                                            let (class, facts, message, output) = match result {
+                                                Ok(Ok(output)) => {
+                                                    let summary = crate::worker::exec_snapshot::restore_summary(&output);
+                                                    let verified = output.verified();
+                                                    let changed = output.file_changes.snapshot == desk_agent_protocol::exec::ExecSnapshotOutcome::Taken;
+                                                    (
+                                                        if verified { ComputerActionResultClass::Verified } else { ComputerActionResultClass::OutcomeUnknown },
+                                                        vec![ComputerActionStepFact { index: 0, changed, verified, summary: summary.clone() }],
+                                                        Some(summary), Some(ComputerActionOutput::CommandChangesRestore(output)),
+                                                    )
+                                                }
+                                                Ok(Err(error)) => (ComputerActionResultClass::Failed, vec![], Some(error.message), None),
+                                                Err(_) => (ComputerActionResultClass::OutcomeUnknown, vec![], Some("Restore worker ended without a verified receipt; do not retry automatically".into()), None),
+                                            };
+                                            let _ = action_writer.send(WorkerToService::ComputerActionCompleted(ComputerActionCompletedPayload {
+                                                request_id: payload.request_id, connection_id: payload.connection_id,
+                                                completed: ComputerActionCompleted { work_id: plan.work_id, action_request_id: plan.action_request_id,
+                                                    execution_generation: generation, result: class, facts, message, output },
+                                            }));
+                                            return;
+                                        }
                                         if desk_diagnose_core::provider_preflight::text_file::is_text_mutation(&step.action) {
                                             let quota = file_recovery_quota.clone();
                                             let recovery_binding = (payload.file_recovery.clone(), action_data_root.clone(),
@@ -3024,6 +3091,7 @@ impl WorkerSession {
                                     // cancel racing the spawn still finds it.
                                     let (cancel, registration) =
                                         exec_registry.register(&payload.plan.execution_generation);
+                                    let snapshots = exec_snapshots.clone();
                                     tokio::spawn(async move {
                                         // Held for the whole run; dropping it
                                         // deregisters however the command ends.
@@ -3073,27 +3141,36 @@ impl WorkerSession {
                                         let spawn_tx = writer_tx.clone();
                                         let spawn_request_id = payload.request_id.clone();
                                         let spawn_connection_id = payload.connection_id.clone();
-                                        let outcome = crate::worker::exec::execute_plan_cancellable(
-                                            &payload.plan,
-                                            move |report| {
-                                                if spawn_tx
-                                                    .send(WorkerToService::ExecSpawnReport(
-                                                        ExecSpawnReportPayload {
-                                                            request_id: spawn_request_id,
-                                                            connection_id: spawn_connection_id,
-                                                            report,
-                                                        },
-                                                    ))
-                                                    .is_err()
-                                                {
-                                                    warn!(
-                                                        "writer task closed; dropping ExecSpawnReport"
-                                                    );
-                                                }
-                                            },
-                                            Some(cancel.subscribe()),
-                                        )
-                                        .await;
+                                        // Snapshot roots are scanned before the
+                                        // spawn and after the command ends; the
+                                        // scans are not part of its timeout.
+                                        let outcome = snapshots
+                                            .run(&payload.plan, payload.file_recovery.clone(), |started| {
+                                                crate::worker::exec::execute_plan_cancellable(
+                                                    &payload.plan,
+                                                    move |report| {
+                                                        if matches!(report, desk_ipc_protocol::message::ExecSpawnReport::Started { .. }) {
+                                                            started.store(true, std::sync::atomic::Ordering::Release);
+                                                        }
+                                                        if spawn_tx
+                                                            .send(WorkerToService::ExecSpawnReport(
+                                                                ExecSpawnReportPayload {
+                                                                    request_id: spawn_request_id,
+                                                                    connection_id: spawn_connection_id,
+                                                                    report,
+                                                                },
+                                                            ))
+                                                            .is_err()
+                                                        {
+                                                            warn!(
+                                                                "writer task closed; dropping ExecSpawnReport"
+                                                            );
+                                                        }
+                                                    },
+                                                    Some(cancel.subscribe()),
+                                                )
+                                            })
+                                            .await;
                                         // Nothing is still running to report on.
                                         heartbeat.abort();
                                         let result = desk_agent_protocol::exec::ExecResultPayload {
@@ -3175,6 +3252,7 @@ impl WorkerSession {
                                     let worker_incarnation = exec_worker_incarnation;
                                     let (cancel, registration) =
                                         registry.register(&payload.plan.execution_generation);
+                                    let snapshots = exec_snapshots.clone();
                                     tokio::spawn(async move {
                                         let _registration = registration;
                                         let heartbeat = {
@@ -3211,33 +3289,39 @@ impl WorkerSession {
                                         let spawn_tx = writer_tx.clone();
                                         let spawn_request_id = payload.request_id.clone();
                                         let spawn_connection_id = payload.connection_id.clone();
-                                        let outcome = crate::worker::exec_pty::execute_pty_plan_cancellable(
-                                            &payload.plan,
-                                            payload.exec_pty,
-                                            payload.exec_pty_elevation,
-                                            payload.stream_id,
-                                            session_target_id,
-                                            registration_generation,
-                                            worker_incarnation,
-                                            registry,
-                                            cancel.subscribe(),
-                                            event_sender,
-                                            move |report| {
-                                                if spawn_tx
-                                                    .send(WorkerToService::ExecSpawnReport(
-                                                        ExecSpawnReportPayload {
-                                                            request_id: spawn_request_id,
-                                                            connection_id: spawn_connection_id,
-                                                            report,
-                                                        },
-                                                    ))
-                                                    .is_err()
-                                                {
-                                                    warn!("writer task closed; dropping PTY ExecSpawnReport");
-                                                }
-                                            },
-                                        )
-                                        .await;
+                                        let outcome = snapshots
+                                            .run(&payload.plan, payload.file_recovery.clone(), |started| {
+                                                crate::worker::exec_pty::execute_pty_plan_cancellable(
+                                                    &payload.plan,
+                                                    payload.exec_pty,
+                                                    payload.exec_pty_elevation,
+                                                    payload.stream_id.clone(),
+                                                    session_target_id,
+                                                    registration_generation,
+                                                    worker_incarnation,
+                                                    registry,
+                                                    cancel.subscribe(),
+                                                    event_sender,
+                                                    move |report| {
+                                                        if matches!(report, desk_ipc_protocol::message::ExecSpawnReport::Started { .. }) {
+                                                            started.store(true, std::sync::atomic::Ordering::Release);
+                                                        }
+                                                        if spawn_tx
+                                                            .send(WorkerToService::ExecSpawnReport(
+                                                                ExecSpawnReportPayload {
+                                                                    request_id: spawn_request_id,
+                                                                    connection_id: spawn_connection_id,
+                                                                    report,
+                                                                },
+                                                            ))
+                                                            .is_err()
+                                                        {
+                                                            warn!("writer task closed; dropping PTY ExecSpawnReport");
+                                                        }
+                                                    },
+                                                )
+                                            })
+                                            .await;
                                         heartbeat.abort();
                                         let result = desk_agent_protocol::exec::ExecResultPayload {
                                             exec_request_id: payload.plan.exec_request_id,

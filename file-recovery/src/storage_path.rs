@@ -12,6 +12,7 @@ use std::{
 
 const OBJECTS: &str = "objects";
 const TEMPORARY: &str = "tmp";
+const EXECUTORS: &str = "executors";
 
 #[cfg(unix)]
 fn private_dir(path: &Path) -> io::Result<()> {
@@ -97,21 +98,57 @@ fn temporary_name(prefix: &str) -> String {
         NEXT.fetch_add(1, Ordering::Relaxed)
     )
 }
+/// Create a new private file without following links.
+fn create_private(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let file = options.open(path)?;
+    #[cfg(target_os = "macos")]
+    macos::make_private(&file)?;
+    Ok(file)
+}
+/// Make the written data of several files durable with one barrier.
+#[cfg(target_os = "linux")]
+fn make_durable(files: &[File]) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    // syncfs writes back and waits for every dirty file of the filesystem.
+    match files.first() {
+        Some(file) if unsafe { libc::syncfs(file.as_raw_fd()) } == 0 => Ok(()),
+        Some(_) => files.iter().try_for_each(File::sync_all),
+        None => Ok(()),
+    }
+}
+/// Make the written data of several files durable with one barrier.
+#[cfg(target_os = "macos")]
+fn make_durable(files: &[File]) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    // fsync hands each file's data to the drive; one F_FULLFSYNC then
+    // flushes the drive cache, which holds all of it.
+    for file in files {
+        if unsafe { libc::fsync(file.as_raw_fd()) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    match files.last() {
+        Some(file) => file.sync_all(),
+        None => Ok(()),
+    }
+}
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn make_durable(files: &[File]) -> io::Result<()> {
+    files.iter().try_for_each(File::sync_all)
+}
 /// Write a new private file, flush it and rename it over `path`.
 fn rename_publish(temporary: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
     let result = (|| {
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-        }
-        let mut file = options.open(temporary)?;
-        #[cfg(target_os = "macos")]
-        macos::make_private(&file)?;
+        let mut file = create_private(temporary)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(temporary, path)?;
@@ -237,6 +274,47 @@ impl Locked {
         rename_publish(&temporary, &path, bytes)?;
         Ok(previous)
     }
+    /// Publish several objects with one durability barrier: every temporary
+    /// file is written and made durable before the first rename, so a
+    /// present name still always denotes a complete object. Returns each
+    /// replaced file's size, if any.
+    pub fn publish_objects(
+        &self,
+        namespace: &str,
+        objects: &[(String, Vec<u8>)],
+    ) -> io::Result<Vec<Option<u64>>> {
+        let directory = self.namespace_dir(namespace, true)?;
+        let mut files = Vec::with_capacity(objects.len());
+        let mut staged: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(objects.len());
+        let mut previous = Vec::with_capacity(objects.len());
+        let result = (|| {
+            for (name, bytes) in objects {
+                let path = directory.join(Self::object_name(name)?);
+                previous.push(match fs::symlink_metadata(&path) {
+                    Ok(metadata) if metadata.file_type().is_file() => Some(metadata.len()),
+                    Ok(_) => return Err(invalid("recovery object is not a regular file")),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error),
+                });
+                let temporary = directory.join(TEMPORARY).join(temporary_name(name));
+                let mut file = create_private(&temporary)?;
+                staged.push((temporary, path));
+                file.write_all(bytes)?;
+                files.push(file);
+            }
+            make_durable(&files)?;
+            for (temporary, path) in &staged {
+                fs::rename(temporary, path)?;
+            }
+            sync_directory(&directory)
+        })();
+        if result.is_err() {
+            for (temporary, _) in &staged {
+                let _ = fs::remove_file(temporary);
+            }
+        }
+        result.map(|()| previous)
+    }
     /// Whether a published object of this name exists; links do not count.
     pub fn object_exists(&self, namespace: &str, name: &str) -> io::Result<bool> {
         let directory = self.namespace_dir(namespace, false)?;
@@ -249,6 +327,65 @@ impl Locked {
     pub fn read_object(&self, namespace: &str, name: &str, limit: u64) -> io::Result<Vec<u8>> {
         let directory = self.namespace_dir(namespace, false)?;
         bounded_read(&directory.join(Self::object_name(name)?), limit)
+    }
+    /// The first `len` bytes of an object, for reading its header.
+    pub fn read_object_prefix(&self, namespace: &str, name: &str, len: u64) -> io::Result<Vec<u8>> {
+        let directory = self.namespace_dir(namespace, false)?;
+        let file = open_private(&directory.join(Self::object_name(name)?), false)?;
+        let mut bytes = Vec::new();
+        file.take(len).read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }
+    fn executor_path(&self, id: &str) -> io::Result<PathBuf> {
+        if !crate::valid_id(id) {
+            return Err(invalid("invalid recovery executor"));
+        }
+        Ok(self.root.join(EXECUTORS).join(format!("{id}.lock")))
+    }
+    /// Create and lock the lock file of a new executor. The returned handle
+    /// holds the lock until it is dropped.
+    pub fn create_executor(&self, id: &str) -> io::Result<File> {
+        private_dir(&self.root.join(EXECUTORS))?;
+        let file = open_private(&self.executor_path(id)?, true)?;
+        match file.try_lock() {
+            Ok(()) => Ok(file),
+            Err(std::fs::TryLockError::WouldBlock) => Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "recovery executor is already running",
+            )),
+            Err(std::fs::TryLockError::Error(error)) => Err(error),
+        }
+    }
+    /// Whether an executor still holds its lock. The lock file of an exited
+    /// executor is removed.
+    pub fn executor_alive(&self, id: &str) -> io::Result<bool> {
+        let path = self.executor_path(id)?;
+        let file = match open_private(&path, false) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        match file.try_lock() {
+            Ok(()) => {
+                fs::remove_file(&path)?;
+                Ok(false)
+            }
+            Err(std::fs::TryLockError::WouldBlock) => Ok(true),
+            Err(std::fs::TryLockError::Error(error)) => Err(error),
+        }
+    }
+    pub fn list_executors(&self) -> io::Result<Vec<String>> {
+        let directory = self.root.join(EXECUTORS);
+        let files = match regular_files(&directory) {
+            Ok(files) => files,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        };
+        Ok(files
+            .into_iter()
+            .filter_map(|(name, _)| name.strip_suffix(".lock").map(str::to_owned))
+            .filter(|id| crate::valid_id(id))
+            .collect())
     }
     /// Removes the directory entry only; a link is removed, never followed.
     pub fn remove_object(&self, namespace: &str, name: &str) -> io::Result<()> {

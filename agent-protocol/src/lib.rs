@@ -1058,6 +1058,11 @@ pub struct ExecInput {
     pub timeout_ms: u32,
     pub max_stdout_bytes: u32,
     pub max_stderr_bytes: u32,
+    /// Server-derived snapshot roots of a mutating AI command, copied into the
+    /// classified draft. Only the trusted central sets them; every non-AI
+    /// execution path keeps this empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub snapshot_roots: Vec<exec::ExecSnapshotRoot>,
 }
 
 /// Open-ended exec target. `Shell` carries shell commands; `Domain` reserves
@@ -1084,9 +1089,28 @@ pub struct ExecOutput {
     pub duration_ms: u32,
     #[serde(default)]
     pub redactions: Vec<String>,
+    /// Files the command changed under its snapshot roots. Absent when the
+    /// plan has no roots or the command never reached the snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_changes: Option<exec::ExecFileChanges>,
 }
 
 impl ExecOutput {
+    /// Check the change report against the sealed plan's snapshot roots. A
+    /// plan without roots must not report changes.
+    pub fn validate_file_changes(
+        &self,
+        plan_roots: &[exec::ExecSnapshotRoot],
+    ) -> Result<(), &'static str> {
+        match &self.file_changes {
+            None => Ok(()),
+            Some(_) if plan_roots.is_empty() => {
+                Err("a command without snapshot roots reported file changes")
+            }
+            Some(changes) => changes.validate_for(plan_roots),
+        }
+    }
+
     pub fn outcome_unknown(&self) -> bool {
         self.started
             && ((self.exit_code.is_none()
@@ -1636,6 +1660,7 @@ mod tests {
             timeout_ms: 10_000,
             max_stdout_bytes: 65_536,
             max_stderr_bytes: 65_536,
+            snapshot_roots: vec![],
         });
         assert_eq!(input.capability(), None);
     }

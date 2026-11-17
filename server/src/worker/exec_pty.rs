@@ -116,6 +116,7 @@ pub(crate) fn finish_combined_result(
         },
         duration_ms: duration.as_millis().min(u32::MAX as u128) as u32,
         redactions: redacted.kinds,
+        file_changes: None,
     }))
 }
 
@@ -961,6 +962,7 @@ mod platform {
                 max_stdout_bytes: 4096,
                 max_stderr_bytes: 4096,
                 containment: ExecContainmentSnapshot::default(),
+                snapshot_roots: Vec::new(),
             };
             let registry = ExecRegistry::new();
             let (cancel, _registration) = registry.register(&generation);

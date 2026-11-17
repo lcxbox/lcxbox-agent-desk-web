@@ -74,7 +74,10 @@ impl LockedVault {
             .ok_or_else(|| invalid("recovery material unavailable"))?;
         if !matches!(
             record.change,
-            ChangeState::Succeeded | ChangeState::Aborted | ChangeState::OutcomeUnknown
+            ChangeState::Succeeded
+                | ChangeState::Aborted
+                | ChangeState::OutcomeUnknown
+                | ChangeState::Completed
         ) {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
@@ -143,7 +146,13 @@ impl LockedVault {
                     record.revision += 1;
                     self.dirty = true;
                 }
-                ChangeState::OutcomeUnknown | ChangeState::Succeeded | ChangeState::Aborted => (),
+                // A pending snapshot may belong to a running executor of
+                // another worker; `cleanup` probes its executor lock.
+                ChangeState::OutcomeUnknown
+                | ChangeState::Succeeded
+                | ChangeState::Aborted
+                | ChangeState::SnapshotPending
+                | ChangeState::Completed => (),
             }
         }
         // A failed immediate cleanup must be retried before expiry, too.
@@ -159,6 +168,7 @@ impl LockedVault {
             self.settle_transaction_in_memory(&id)?;
         }
         self.cleanup(now_ms)?;
+        self.remove_exited_executors();
         Ok(self
             .ledger
             .records
@@ -170,10 +180,13 @@ impl LockedVault {
             .collect())
     }
 
-    /// Purge expired, discarded and deleted-conversation records, then sweep.
-    /// API success is sufficient; cleanup does not perform post-delete stat calls.
+    /// Purge expired, discarded and deleted-conversation records and
+    /// manifests, then sweep. Pending snapshots of exited executors become
+    /// unknown outcomes. API success is sufficient; cleanup does not perform
+    /// post-delete stat calls.
     pub fn cleanup(&mut self, now_ms: u64) -> io::Result<()> {
         self.check_cleanup_clock(now_ms)?;
+        self.settle_abandoned_snapshots();
         let ids: Vec<_> = self
             .ledger
             .records
@@ -183,11 +196,23 @@ impl LockedVault {
                     && (r.discard_requested
                         || self.is_deleted(&r.scope, &r.conversation)
                         || (r.expires_at_ms <= now_ms
-                            && matches!(r.change, ChangeState::Succeeded | ChangeState::Aborted)))
+                            && matches!(
+                                r.change,
+                                ChangeState::Succeeded
+                                    | ChangeState::Aborted
+                                    | ChangeState::Completed
+                            )))
             })
             .map(|r| r.id.clone())
             .collect();
-        let mut purged = false;
+        let manifests = self.ledger.manifests.len();
+        let deleted = &self.ledger.deleted_conversations;
+        self.ledger.manifests.retain(|_, manifest| {
+            manifest.expires_at_ms > now_ms
+                && !deleted.contains_key(&manifest.scope.key(&manifest.conversation))
+        });
+        let mut purged = self.ledger.manifests.len() != manifests;
+        self.dirty |= purged;
         for id in ids {
             // Windows transaction cleanup compares the retained original with
             // the backup, so material stays until the transaction is settled.

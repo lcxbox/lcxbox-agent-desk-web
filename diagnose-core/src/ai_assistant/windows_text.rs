@@ -20,6 +20,7 @@ pub(super) fn adapter(providers: &ProviderRegistry) -> EdgeAdapterDescriptor {
             TEXT_FILE_UPDATE_CAPABILITY_ID.into(),
             TEXT_FILE_DELETE_CAPABILITY_ID.into(),
             TEXT_FILE_RESTORE_CAPABILITY_ID.into(),
+            COMMAND_CHANGES_RESTORE_CAPABILITY_ID.into(),
         ],
         limits: providers
             .capability(TEXT_FILE_UPDATE_CAPABILITY_ID)
@@ -43,6 +44,10 @@ mod tests {
             (TEXT_FILE_UPDATE_CAPABILITY_ID, "update_text_file"),
             (TEXT_FILE_DELETE_CAPABILITY_ID, "delete_text_file"),
             (TEXT_FILE_RESTORE_CAPABILITY_ID, "restore_text_file"),
+            (
+                COMMAND_CHANGES_RESTORE_CAPABILITY_ID,
+                "restore_command_changes",
+            ),
         ] {
             let capability = providers.capability(id).unwrap();
             assert_eq!(capability.wire.tool_name, tool);

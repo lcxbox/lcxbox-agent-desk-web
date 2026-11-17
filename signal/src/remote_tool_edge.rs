@@ -75,6 +75,7 @@ use desk_diagnose_core::capability_grant::{
 use desk_diagnose_core::chat::ToolCall;
 use desk_diagnose_core::chunk::ByteReassembler;
 use desk_diagnose_core::permission_tools::canonical_tool_permission_input_json;
+use desk_diagnose_core::provider_preflight::text_file::COMMAND_RESTORE_TOOL;
 use desk_diagnose_core::provider_registry::ProviderRegistry;
 use desk_diagnose_core::read_tools::build_read_operation;
 use desk_diagnose_core::seam::{
@@ -932,6 +933,9 @@ fn semantic_action_target_kind(action: &ComputerActionKind) -> Option<ObjectKind
         ComputerActionKind::File(
             FilePatchAction::UpdateText { .. } | FilePatchAction::DeleteText { .. },
         ) => Some(ObjectKind::File),
+        ComputerActionKind::File(
+            FilePatchAction::RestoreText { .. } | FilePatchAction::RestoreCommandChanges { .. },
+        ) => Some(ObjectKind::Directory),
         ComputerActionKind::UiInApplication { .. } => Some(ObjectKind::UiElement),
         ComputerActionKind::BackgroundInput { .. } => Some(ObjectKind::Window),
         ComputerActionKind::RawInput(_) => Some(ObjectKind::Application),
@@ -2186,12 +2190,22 @@ impl SignalAiAssistantTools {
                 &canonical_input_json,
             )?;
         let confirmation = confirmation.clone();
+        let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+            error(
+                AgentErrorKind::Internal,
+                "system clock predates the Unix epoch",
+                false,
+                false,
+            )
+        })?;
         let policy = desk_diagnose_core::future::boxed(|| async {
             crate::command_policy::current(
                 &self.db,
                 self.connections.as_ref(),
                 &self.target_connection_id,
                 &self.actor_id,
+                &session,
+                now_unix_ms,
             )
             .await
         })
@@ -2224,14 +2238,6 @@ impl SignalAiAssistantTools {
         .await?;
         let resource_scope = confirmation.resource_scope()?;
         let operation_scope = vec![desk_diagnose_core::exec_tools::EXEC_TOOL_NAME.into()];
-        let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
-            error(
-                AgentErrorKind::Internal,
-                "system clock predates the Unix epoch",
-                false,
-                false,
-            )
-        })?;
         // An interactive command runs under the id its approved permission
         // derived: the owner's carrier was prepared and consumed for that id.
         let server_call_id = confirmation
@@ -2428,6 +2434,7 @@ impl SignalAiAssistantTools {
                     &ctx.conversation_id,
                     &ctx.tool_call_id,
                     confirmation.plan.timeout_ms,
+                    &confirmation.plan.snapshot_roots,
                     &origin,
                     model_export.as_ref(),
                 )
@@ -2490,9 +2497,30 @@ impl SignalAiAssistantTools {
         let result = match checked {
             Err(error) => Err(error),
             Ok(grant) => {
+                // Snapshots are best effort: without a backup namespace the
+                // device runs the command and reports the snapshot skipped.
+                let file_recovery = if confirmation.plan.snapshot_roots.is_empty() {
+                    None
+                } else {
+                    desk_diagnose_core::future::boxed(|| self.file_recovery_registration())
+                        .await
+                        .inspect_err(|error| {
+                            log::warn!(
+                                "[agent-exec] command snapshot has no backup namespace: {}",
+                                error.message
+                            );
+                        })
+                        .ok()
+                        .map(|registration| crate::agent_exec::ExecFileRecovery {
+                            conversation_id: self.run_id.clone(),
+                            registration,
+                        })
+                };
                 desk_diagnose_core::future::boxed(|| async {
                     self.exec_tools
                         .execute_preapproved(
+                            &session,
+                            file_recovery,
                             validation_input,
                             &confirmation,
                             &canonical_input_json,
@@ -2681,9 +2709,21 @@ impl SignalAiAssistantTools {
     ) -> Result<Option<desk_agent_protocol::authz::FileRecoveryRegistration>, AgentError> {
         if !plan.actions.iter().any(|step| {
             desk_diagnose_core::provider_preflight::text_file::is_text_mutation(&step.action)
+                || matches!(
+                    step.action,
+                    ComputerActionKind::File(FilePatchAction::RestoreCommandChanges { .. })
+                )
         }) {
             return Ok(None);
         }
+        self.file_recovery_registration().await.map(Some)
+    }
+
+    /// Register this conversation's backup namespace on the target device for
+    /// the owner who acts here.
+    async fn file_recovery_registration(
+        &self,
+    ) -> Result<desk_agent_protocol::authz::FileRecoveryRegistration, AgentError> {
         let actor = self.actor_id.parse::<i32>().map_err(|_| {
             error(
                 AgentErrorKind::PermissionDenied,
@@ -2702,7 +2742,6 @@ impl SignalAiAssistantTools {
                 &self.run_id,
             )
             .await
-            .map(Some)
             .map_err(|_| {
                 error(
                     AgentErrorKind::Internal,
@@ -2816,6 +2855,14 @@ impl SignalAiAssistantTools {
                 &call.name,
             ) {
                 Some(desk_diagnose_core::provider_preflight::text_file::TextMutationPreflight::from_device_session(&desk_diagnose_core::future::boxed(|| async { self.authoritative_session().await }).await?, &self.target_device_id, ProductSurface::OssPersonalOwner, call, now_unix_ms).inspect_err(|error| { self.observed(call).input_error(error); })?)
+            } else if call.name == COMMAND_RESTORE_TOOL {
+                Some(
+                    desk_diagnose_core::future::boxed(|| self.command_restore_preflight(call, now_unix_ms))
+                        .await
+                        .inspect_err(|error| {
+                            self.observed(call).input_error(error);
+                        })?,
+                )
             } else {
                 None
             };
@@ -2912,6 +2959,43 @@ impl SignalAiAssistantTools {
             output: shared_output,
             raw_input: shared_raw_input,
         }))
+    }
+
+    /// `restore_command_changes` against the authoritative session and the
+    /// target device's current execution mode (absent when its command policy
+    /// is unavailable, which leaves working-directory roots unrestorable).
+    async fn command_restore_preflight(
+        &self,
+        call: &ToolCall,
+        now_unix_ms: u64,
+    ) -> Result<desk_diagnose_core::provider_preflight::text_file::TextMutationPreflight, AgentError>
+    {
+        let session = Box::new(
+            desk_diagnose_core::future::boxed(|| async { self.authoritative_session().await })
+                .await?,
+        );
+        let execution_mode = desk_diagnose_core::future::boxed(|| async {
+            crate::command_policy::current(
+                &self.db,
+                self.connections.as_ref(),
+                &self.target_connection_id,
+                &self.actor_id,
+                &session,
+                now_unix_ms,
+            )
+            .await
+        })
+        .await
+        .ok()
+        .map(|policy| policy.execution_mode);
+        desk_diagnose_core::provider_preflight::text_file::TextMutationPreflight::command_restore(
+            &session,
+            &self.target_device_id,
+            ProductSurface::OssPersonalOwner,
+            call,
+            execution_mode,
+            now_unix_ms,
+        )
     }
 
     async fn prepare_semantic_action<'a>(
@@ -3012,20 +3096,26 @@ impl SignalAiAssistantTools {
             }
             desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL
             | desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL
-            | desk_diagnose_core::provider_preflight::text_file::RESTORE_TEXT_TOOL => {
+            | desk_diagnose_core::provider_preflight::text_file::RESTORE_TEXT_TOOL
+            | COMMAND_RESTORE_TOOL => {
                 desk_diagnose_core::future::boxed(|| async {
                     Ok::<_, AgentError>(Box::new({
                         let input = shared_text.as_ref().expect("text mutation preflight");
-                        // A restore targets its directory; the file name is
+                        // A restore targets its directory; the file names are
                         // part of the frozen action.
-                        let resources = match input.action() {
+                        let (resources, action_name) = match input.action() {
                             FilePatchAction::UpdateText { directory, .. }
-                            | FilePatchAction::DeleteText { directory, .. } => {
-                                vec![directory.clone(), input.target().clone()]
-                            }
+                            | FilePatchAction::DeleteText { directory, .. } => (
+                                vec![directory.clone(), input.target().clone()],
+                                "recoverable text file change",
+                            ),
                             FilePatchAction::RestoreText { directory, .. } => {
-                                vec![directory.clone()]
+                                (vec![directory.clone()], "recoverable text file change")
                             }
+                            FilePatchAction::RestoreCommandChanges { .. } => (
+                                vec![input.target().clone()],
+                                "recoverable command change restore",
+                            ),
                             _ => unreachable!(),
                         };
                         (
@@ -3034,7 +3124,7 @@ impl SignalAiAssistantTools {
                             ComputerActionKind::File(input.action().clone()),
                             input.required_capability(),
                             ComputerUseAdapterKind::FileSystem,
-                            "recoverable text file change",
+                            action_name,
                         )
                     }))
                 })
@@ -7033,6 +7123,7 @@ impl ToolSeam for SignalAiAssistantTools {
                 | desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL
                 | desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL
                 | desk_diagnose_core::provider_preflight::text_file::RESTORE_TEXT_TOOL
+                | COMMAND_RESTORE_TOOL
                 | "launch_application"
         ) {
             return self.authorize_and_execute_semantic_action(call, ctx).await;
@@ -7442,6 +7533,36 @@ async fn record_computer_action_pre_send_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn file_restores_target_the_directory_they_restore_into() {
+        let directory = ObjectRef {
+            token: "directory".into(),
+            snapshot_id: "generation".into(),
+            object_kind: ObjectKind::Directory,
+            expires_at: String::new(),
+        };
+        for action in [
+            FilePatchAction::RestoreText {
+                directory,
+                file_name: "notes.txt".into(),
+                recovery_id: "recovery".into(),
+                expected_current: desk_agent_protocol::computer_use::RestoreExpectation::Absent,
+            },
+            FilePatchAction::RestoreCommandChanges {
+                recovery_id: "recovery".into(),
+                root: desk_agent_protocol::exec::ExecSnapshotRoot::Cwd {
+                    path: "/repo".into(),
+                },
+                entries: vec![],
+            },
+        ] {
+            assert_eq!(
+                semantic_action_target_kind(&ComputerActionKind::File(action)),
+                Some(ObjectKind::Directory)
+            );
+        }
+    }
+
     #[test]
     fn browser_read_failure_preserves_result_and_delivery_identity() {
         let outcome = browser_read_outcome(ExecOutcome::Failed {

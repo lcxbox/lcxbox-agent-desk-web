@@ -184,6 +184,7 @@ image = "0.25"
 quick-xml = "0.41"
 zip = { version = "6.0.0", default-features = false, features = ["deflate"] }
 zstd = { version = "0.13.3", default-features = false }
+ignore = "0.4.25"
 yaml-rust2 = { version = "=0.10.4", default-features = false }
 
 sysinfo = "0.37"

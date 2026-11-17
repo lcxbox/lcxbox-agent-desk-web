@@ -546,6 +546,11 @@ mod tests {
         let mut policy = crate::command_confirmation::test_policy();
         policy.actor_id = session.actor_id.clone();
         policy.target_device_id = session.device_id.clone();
+        policy.directory_grants = crate::file_scope::TrustedDirectoryGrants::from_session(
+            &session,
+            &session.device_id,
+            1,
+        );
         policy.max_runtime_ms = 600_000;
         call.name = crate::command_confirmation::COMMAND_TOOL.into();
         call.arguments_json = crate::permission_tools::canonical_tool_permission_input_json(&call.name,

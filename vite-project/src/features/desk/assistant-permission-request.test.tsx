@@ -235,4 +235,21 @@ describe('shared permission review', () => {
             expect(screen.getByText('pages.aiAssistant.interactiveCommand.unsupportedHere')).toBeInTheDocument();
         });
     });
+    it('shows a command restore review and denies the restore when the review is missing', async () => {
+        const restore = { itemId: 'restore', providerId: 'file.text', toolName: 'restore_command_changes', expectedEffect: 'write_artifact' as const,
+            resourceScope: [], operationScope: [] };
+        const review = { sourceResultCallId: 'call-exec', rootKind: 'cwd' as const, rootPath: '/work/repo', directoryRequestId: null,
+            executionStartedAtUnixMs: 1_700_000_000_000, executionFinishedAtUnixMs: 1_700_000_005_000,
+            files: [{ path: 'a.txt', change: 'modified' as const }], oneShot: true };
+        const { unmount } = render(<AssistantPermissionRequest request={request([item({ ...restore, commandRestoreConfirmation: review })])} canDecide onDecide={vi.fn()} />);
+        expect(screen.getByTestId('command-restore-confirmation')).toBeInTheDocument();
+        expect(screen.queryByText('pages.aiAssistant.commandRestore.missing')).not.toBeInTheDocument();
+        unmount();
+        const onDecide = vi.fn().mockResolvedValue(true);
+        render(<AssistantPermissionRequest request={request([item(restore)])} canDecide onDecide={onDecide} />);
+        expect(screen.getByText('pages.aiAssistant.commandRestore.missing')).toBeInTheDocument();
+        expect(screen.getByRole('checkbox')).toBeDisabled();
+        fireEvent.click(submit());
+        expect(onDecide.mock.calls[0][1][0].decision).toBe('deny');
+    });
 });

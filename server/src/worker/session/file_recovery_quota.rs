@@ -163,9 +163,16 @@ impl QuotaClient {
     }
     /// Two-part settlement; returns whether the absolute usage was applied.
     pub(crate) fn settle(&self, clear: Option<&Record>, usage: &UsageReport) -> io::Result<bool> {
+        self.settle_identity(clear.map(record_identity), usage)
+    }
+    fn settle_identity(
+        &self,
+        identity: Option<FileRecoveryQuotaIdentity>,
+        usage: &UsageReport,
+    ) -> io::Result<bool> {
         match self.raw_request_with_timeout(
             FileRecoveryQuotaCommand::Settle {
-                identity: clear.map(record_identity),
+                identity,
                 usage: usage_message(usage),
             },
             Duration::from_secs(10),
@@ -187,8 +194,17 @@ impl QuotaClient {
         vault: &mut LockedVault,
         clear: Option<&Record>,
     ) -> io::Result<()> {
+        self.settle_vault_clearing(vault, clear.map(record_identity))
+    }
+    /// As [`Self::settle_vault`], clearing an operation named by its identity;
+    /// used when the operation's record is no longer at hand.
+    pub(crate) fn settle_vault_clearing(
+        &self,
+        vault: &mut LockedVault,
+        clear: Option<FileRecoveryQuotaIdentity>,
+    ) -> io::Result<()> {
         let usage = vault.usage_report();
-        if self.settle(clear, &usage)? {
+        if self.settle_identity(clear, &usage)? {
             vault.acknowledge_settlement(&usage)?;
         }
         Ok(())

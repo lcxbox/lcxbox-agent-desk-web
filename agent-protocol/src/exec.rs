@@ -31,7 +31,14 @@ use wincode::{SchemaRead, SchemaWrite};
 
 use crate::{AgentOperation, AgentOutcome, RiskLevel};
 
+mod snapshot;
+pub use snapshot::*;
+
+/// Model-facing [`CommandDraft`] shape. Snapshot roots are server-derived and
+/// never part of the draft.
 pub const COMMAND_DRAFT_SCHEMA_VERSION: u16 = 1;
+/// Shape of the sealed command identity and its frozen [`ExecPlanDraft`].
+pub const COMMAND_PLAN_SCHEMA_VERSION: u16 = 2;
 pub const MAX_COMMAND_DRAFT_BYTES: usize = 16 * 1024;
 pub const MAX_COMMAND_DRAFT_CWD_BYTES: usize = 4096;
 pub const MAX_COMMAND_DRAFT_TIMEOUT_MS: u32 = 7_200_000;
@@ -253,6 +260,10 @@ pub struct ExecPreview {
     pub executable: bool,
     /// The operator-facing reason for a non-executable preview.
     pub blocked_reason: Option<String>,
+    /// Best-effort snapshot of the plan's roots; present only when the sealed
+    /// plan has snapshot roots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<ExecSnapshotNotice>,
 }
 
 /// The user's decision on a previewed execution.
@@ -396,7 +407,7 @@ pub struct CanonicalCommandIdentity {
 
 impl CanonicalCommandIdentity {
     pub fn validate(&self) -> Result<(), CommandContractError> {
-        if self.schema_version != COMMAND_DRAFT_SCHEMA_VERSION {
+        if self.schema_version != COMMAND_PLAN_SCHEMA_VERSION {
             return Err(CommandContractError::UnsupportedSchemaVersion(
                 self.schema_version,
             ));
@@ -430,6 +441,7 @@ impl CanonicalCommandIdentity {
         {
             return Err(CommandContractError::InvalidSealedPlan);
         }
+        ExecSnapshotRoot::validate_all(&self.plan.snapshot_roots)?;
         validate_sha256(&self.canonical_input_digest_sha256)?;
         Ok(())
     }
@@ -654,6 +666,11 @@ pub struct ExecPlanDraft {
     /// that is `timeout_ms`). Bound at seal time and fingerprinted.
     #[serde(default)]
     pub containment: ExecContainmentSnapshot,
+    /// Directories the device snapshots before running the command. Copied
+    /// from the classified [`crate::ExecInput`] and fingerprinted; empty for a
+    /// read-only or non-AI command.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub snapshot_roots: Vec<ExecSnapshotRoot>,
 }
 
 impl ExecPlanDraft {
@@ -744,11 +761,34 @@ pub struct ExecPlan {
     /// that is `timeout_ms`). Copied verbatim from the sealed draft.
     #[serde(default)]
     pub containment: ExecContainmentSnapshot,
+    /// Copied verbatim from the sealed draft.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub snapshot_roots: Vec<ExecSnapshotRoot>,
 }
 
 impl ExecPlan {
     pub fn requires_root_pty_containment(&self) -> bool {
         self.io_mode.is_pty() && is_interactive_elevation_program(&self.program)
+    }
+
+    /// Whether this plan's own render matches a draft a validator
+    /// reconstructed. Compares every draft field; the ids, approval token and
+    /// authorization are not on the draft.
+    pub fn matches_draft(&self, draft: &ExecPlanDraft) -> bool {
+        draft.program == self.program
+            && draft.argv == self.argv
+            && draft.cwd == self.cwd
+            && draft.shell == self.shell
+            && draft.risk == self.risk
+            && draft.io_mode == self.io_mode
+            && draft.execution_basis == self.execution_basis
+            && draft.template_id == self.template_id
+            && draft.fingerprint == self.fingerprint
+            && draft.timeout_ms == self.timeout_ms
+            && draft.max_stdout_bytes == self.max_stdout_bytes
+            && draft.max_stderr_bytes == self.max_stderr_bytes
+            && draft.containment == self.containment
+            && draft.snapshot_roots == self.snapshot_roots
     }
 }
 
@@ -790,6 +830,7 @@ impl ExecPlan {
             max_stdout_bytes: draft.max_stdout_bytes,
             max_stderr_bytes: draft.max_stderr_bytes,
             containment: draft.containment,
+            snapshot_roots: draft.snapshot_roots,
         }
     }
 }
@@ -846,6 +887,7 @@ mod tests {
             max_stdout_bytes: 65_536,
             max_stderr_bytes: 65_536,
             containment: ExecContainmentSnapshot::default(),
+            snapshot_roots: vec![],
         }
     }
 
@@ -898,7 +940,7 @@ mod tests {
     #[test]
     fn canonical_command_identity_requires_valid_basis_limits_and_exact_digest() {
         let mut identity = CanonicalCommandIdentity {
-            schema_version: COMMAND_DRAFT_SCHEMA_VERSION,
+            schema_version: COMMAND_PLAN_SCHEMA_VERSION,
             target_device_id: "device-1".into(),
             policy_revision: 7,
             input_revision: 3,
@@ -927,6 +969,17 @@ mod tests {
             identity.validate(),
             Err(CommandContractError::InvalidDigest)
         );
+        identity.canonical_input_digest_sha256 = "a".repeat(64);
+        identity.plan.snapshot_roots = vec![
+            ExecSnapshotRoot::Cwd { path: "/w".into() },
+            ExecSnapshotRoot::Cwd { path: "/w".into() },
+        ];
+        assert_eq!(
+            identity.validate(),
+            Err(CommandContractError::InvalidField("snapshot_roots"))
+        );
+        identity.plan.snapshot_roots.pop();
+        identity.validate().unwrap();
     }
 
     #[test]
@@ -999,6 +1052,42 @@ mod tests {
         assert_eq!(plan.template_id, draft.template_id);
         assert_eq!(plan.timeout_ms, draft.timeout_ms);
         assert_eq!(plan.execution_basis, draft.execution_basis);
+        assert!(plan.matches_draft(&draft));
+    }
+
+    #[test]
+    fn snapshot_roots_are_sealed_into_the_plan_and_compared() {
+        let mut draft = sample_draft();
+        draft.snapshot_roots = vec![ExecSnapshotRoot::Cwd {
+            path: "/repo".into(),
+        }];
+        let plan = ExecPlan::from_draft(
+            ExecRequestId("exec_1".into()),
+            "gen_1",
+            ApprovalId("appr_1".into()),
+            draft.clone(),
+        );
+        assert_eq!(plan.snapshot_roots, draft.snapshot_roots);
+        assert!(plan.matches_draft(&draft));
+        let mut other = draft.clone();
+        other.snapshot_roots.clear();
+        assert!(!plan.matches_draft(&other));
+        let mut other = draft;
+        other.io_mode = ExecIoMode::Pty {
+            initial_rows: 24,
+            initial_cols: 80,
+        };
+        assert!(!plan.matches_draft(&other));
+        // Empty roots stay off the wire so non-AI plans keep their shape.
+        assert!(
+            serde_json::to_value(sample_draft())
+                .unwrap()
+                .get("snapshot_roots")
+                .is_none()
+        );
+        let bytes = wincode::config::serialize(&plan, unbounded_config()).unwrap();
+        let back: ExecPlan = wincode::config::deserialize(&bytes, unbounded_config()).unwrap();
+        assert_eq!(back, plan);
     }
 
     /// Retrying a task keeps its task id and takes a fresh generation. The two
@@ -1041,6 +1130,10 @@ mod tests {
             requires_confirmation: true,
             executable: true,
             blocked_reason: None,
+            snapshot: Some(ExecSnapshotNotice::new(vec![ExecSnapshotRootLabel {
+                kind: ExecSnapshotRootKind::Cwd,
+                path: "/repo".into(),
+            }])),
         };
         let resolve = ResolveExecData {
             exec_request_id: ExecRequestId("exec_1".into()),
@@ -1063,6 +1156,7 @@ mod tests {
                 },
                 duration_ms: 12,
                 redactions: vec![],
+                file_changes: None,
             })),
         };
         let result_err = ExecResultPayload {

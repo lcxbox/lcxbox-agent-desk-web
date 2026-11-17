@@ -335,6 +335,7 @@ pub(super) fn build(
         // Directory references do not expire; dispatch revalidates approval.
         valid_until_unix_ms: u64::MAX,
         restore: Some(review),
+        command_restore: None,
     })
 }
 

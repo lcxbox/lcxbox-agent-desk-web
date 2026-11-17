@@ -272,15 +272,60 @@ pub(super) async fn handle_edge_exec_request_inbound(
     // its own immutable connection→session binding; no central component sees a
     // platform session key.
     let session_connection_id = payload.session_connection_id().map(str::to_string);
+    let file_recovery = exec_file_recovery_binding(ctx, &authz, payload.plan());
     dispatch_fleet_exec_plan(
         ctx,
         &request_id,
         payload.into_plan(),
         session_connection_id.as_deref(),
         carrier_id,
+        file_recovery,
     )
     .await;
     Ok(())
+}
+
+/// The device-resolved backup namespace of the authorized frame's
+/// conversation, when the trusted central registered one for it.
+fn file_recovery_context(
+    ctx: &RouterContext,
+    authz: &desk_agent_protocol::authz::AuthorizationBlock,
+) -> Option<desk_ipc_protocol::message::FileRecoveryExecutionContext> {
+    let authority = ctx.file_recovery_authority.as_ref()?;
+    let conversation_id = authz.session_id.as_ref().filter(|session| {
+        !session.is_empty() && session.len() <= 512 && !session.chars().any(char::is_control)
+    })?;
+    let registration = authz.file_recovery_registration.as_ref()?;
+    (registration.authority == *authority
+        && !registration.os_user.is_empty()
+        && registration.os_user.len() <= 128
+        && !registration.os_user.chars().any(char::is_control))
+    .then(
+        || desk_ipc_protocol::message::FileRecoveryExecutionContext {
+            execution_epoch: registration.execution_epoch,
+            authority: authority.clone(),
+            conversation_id: conversation_id.clone(),
+            os_user: registration.os_user.clone(),
+        },
+    )
+}
+
+/// Backup scope of a plan with snapshot roots: the frame's recovery context,
+/// the authorized device and the acting user, as a sealed Computer Action
+/// names them. Plans without roots never snapshot.
+pub(super) fn exec_file_recovery_binding(
+    ctx: &RouterContext,
+    authz: &desk_agent_protocol::authz::AuthorizationBlock,
+    plan: &ExecPlan,
+) -> Option<desk_ipc_protocol::message::ExecFileRecoveryBinding> {
+    if plan.snapshot_roots.is_empty() {
+        return None;
+    }
+    Some(desk_ipc_protocol::message::ExecFileRecoveryBinding {
+        recovery: file_recovery_context(ctx, authz)?,
+        device: authz.audience.clone(),
+        owner: authz.actor.user_id?.to_string(),
+    })
 }
 
 /// Dispatch a PEP-validated fleet [`ExecPlan`] to the worker, correlated so the
@@ -294,6 +339,7 @@ pub(super) async fn dispatch_fleet_exec_plan(
     plan: ExecPlan,
     session_connection_id: Option<&str>,
     carrier_id: Option<String>,
+    file_recovery: Option<desk_ipc_protocol::message::ExecFileRecoveryBinding>,
 ) {
     // A ServiceDaemon can host several independently ready desktop sessions.
     // Resolve the execution anchor before claiming the at-most-once ledger: an
@@ -512,6 +558,7 @@ pub(super) async fn dispatch_fleet_exec_plan(
                     worker_incarnation: target.wire_worker_incarnation,
                     plan,
                     audit_source_request_id: Some(request_id.to_string()),
+                    file_recovery: file_recovery.clone(),
                 };
                 match link.registry.bind(
                     link.link_id,
@@ -547,6 +594,7 @@ pub(super) async fn dispatch_fleet_exec_plan(
             connection_id: None,
             plan,
             audit_source_request_id: Some(request_id.to_string()),
+            file_recovery,
         };
         ctx.worker_mgr
             .send_to_exec_target(&target, ServiceToWorker::ExecPlan(payload))
@@ -629,6 +677,7 @@ async fn dispatch_root_fleet_pty(
         worker_incarnation: target.wire_worker_incarnation,
         plan,
         audit_source_request_id: Some(request_id.to_string()),
+        file_recovery: None,
     };
     let (control_tx, control_rx) = tokio::sync::mpsc::channel(32);
     link.registry
@@ -1054,28 +1103,7 @@ pub(super) async fn handle_computer_action_inbound(
         );
         return Ok(());
     }
-    let file_recovery = ctx
-        .file_recovery_authority
-        .as_ref()
-        .zip(authz.session_id.as_ref())
-        .filter(|(_, session)| {
-            !session.is_empty() && session.len() <= 512 && !session.chars().any(char::is_control)
-        })
-        .and_then(|(authority, conversation_id)| {
-            let registration = authz.file_recovery_registration.as_ref()?;
-            (registration.authority == *authority
-                && !registration.os_user.is_empty()
-                && registration.os_user.len() <= 128
-                && !registration.os_user.chars().any(char::is_control))
-            .then(
-                || desk_ipc_protocol::message::FileRecoveryExecutionContext {
-                    execution_epoch: registration.execution_epoch,
-                    authority: authority.clone(),
-                    conversation_id: conversation_id.clone(),
-                    os_user: registration.os_user.clone(),
-                },
-            )
-        });
+    let file_recovery = file_recovery_context(ctx, authz);
     let payload = ComputerActionPlanPayload {
         turn_authority: ctx.file_recovery_authority.clone(),
         file_recovery,

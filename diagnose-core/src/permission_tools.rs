@@ -58,7 +58,7 @@ pub(crate) fn permission_input_mode(capability: &CapabilityDescriptor) -> &'stat
             | CapabilityEffect::ExecuteCommand
             | CapabilityEffect::LaunchApplication
     ) || crate::provider_preflight::ArtifactCallPreflight::supports(&capability.tool_spec.name)
-        || crate::provider_preflight::text_file::TextMutationPreflight::supports(
+        || crate::provider_preflight::text_file::TextMutationPreflight::is_exact_r3_file_mutation(
             &capability.tool_spec.name,
         )
         || capability.required_capability == Capability::SpreadsheetFormulaWorkbookCreateConfirmed
@@ -755,7 +755,7 @@ pub fn build_permission_request(
                 | CapabilityEffect::LaunchApplication
         );
         let inherently_r3 = inherently_r3
-            || crate::provider_preflight::text_file::TextMutationPreflight::supports(
+            || crate::provider_preflight::text_file::TextMutationPreflight::is_exact_r3_file_mutation(
                 &item.tool_name,
             );
         if inherently_r3 && canonical_input_json.is_none() {

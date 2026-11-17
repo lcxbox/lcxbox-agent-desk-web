@@ -149,6 +149,8 @@ pub const TEXT_FILE_UPDATE_CAPABILITY_ID: &str = "file.text.update";
 pub const TEXT_FILE_DELETE_CAPABILITY_ID: &str = "file.text.delete";
 /// Restores reuse the update device capability: both rewrite one approved file.
 pub const TEXT_FILE_RESTORE_CAPABILITY_ID: &str = "file.text.restore";
+/// Command-change restores also reuse the update device capability.
+pub const COMMAND_CHANGES_RESTORE_CAPABILITY_ID: &str = "file.command.restore";
 pub const DOCUMENT_PREVIEW_CAPABILITY_ID: &str = "document.preview";
 pub const DOCUMENT_CONVERT_CAPABILITY_ID: &str = "document.convert.confirmed";
 pub const LOCAL_COMMUNICATION_DRAFT_CREATE_CAPABILITY_ID: &str = "communication.local_draft.create";
@@ -881,13 +883,18 @@ pub fn provider_readiness_reports(
             &entry.adapter.version,
         )?);
         if entry.capability == Capability::FilePatchConfirmed {
-            reports.push(make_report(
-                entry,
-                TEXT_FILE_PROVIDER_ID,
+            for capability_id in [
                 TEXT_FILE_RESTORE_CAPABILITY_ID,
-                adapter_id,
-                &entry.adapter.version,
-            )?);
+                COMMAND_CHANGES_RESTORE_CAPABILITY_ID,
+            ] {
+                reports.push(make_report(
+                    entry,
+                    TEXT_FILE_PROVIDER_ID,
+                    capability_id,
+                    adapter_id,
+                    &entry.adapter.version,
+                )?);
+            }
         }
     }
     Ok(reports)
@@ -3241,6 +3248,31 @@ fn build_ai_assistant_provider_registry() -> ProviderRegistry {
             text_tools.next().expect("restore text tool"),
         ),
     );
+    let text_files = merge_provider_capabilities(
+        text_files,
+        provider_for_tool(
+            TargetBinding::RequestDevice,
+            crate::tool_exposure::ExposureRequirement::NoAttachment,
+            TEXT_FILE_PROVIDER_ID,
+            COMMAND_CHANGES_RESTORE_CAPABILITY_ID,
+            "assistant.capability.fileCommandRestore",
+            vec![
+                TEXT_FILE_ADAPTER_ID.into(),
+                windows_text::ADAPTER_ID.into(),
+                linux::TEXT_ADAPTER_ID.into(),
+            ],
+            ExecutionLocality::Edge,
+            CapabilityEffect::WriteArtifact,
+            1,
+            Vec::new(),
+            vec![
+                CapabilityDataCategory::UserRequest,
+                CapabilityDataCategory::FileMetadata,
+            ],
+            vec![AuthorizationResourceKind::FreshObjectReference],
+            text_tools.next().expect("restore command changes tool"),
+        ),
+    );
     let local_communication_draft = provider_for_tool(
         TargetBinding::RequestDevice,
         crate::tool_exposure::ExposureRequirement::NoAttachment,
@@ -3826,6 +3858,7 @@ pub fn ai_assistant_edge_adapter_registry() -> EdgeAdapterRegistry {
                 TEXT_FILE_UPDATE_CAPABILITY_ID.into(),
                 TEXT_FILE_DELETE_CAPABILITY_ID.into(),
                 TEXT_FILE_RESTORE_CAPABILITY_ID.into(),
+                COMMAND_CHANGES_RESTORE_CAPABILITY_ID.into(),
             ],
             limits: providers
                 .capability(TEXT_FILE_UPDATE_CAPABILITY_ID)
@@ -3993,7 +4026,10 @@ const BROWSER: &[&str] = &[
 const GMAIL: &[&str] = &["prepare_gmail_draft"];
 const SLACK: &[&str] = &["prepare_slack_message"];
 const OUTLOOK: &[&str] = &["prepare_outlook_draft"];
-const EXEC: &[&str] = &[crate::exec_tools::EXEC_TOOL_NAME];
+const EXEC: &[&str] = &[
+    crate::exec_tools::EXEC_TOOL_NAME,
+    crate::provider_preflight::text_file::COMMAND_RESTORE_TOOL,
+];
 const ARTIFACT: &[&str] = &[
     crate::tool_names::CREATE_TEXT_FILE,
     "create_workbook",
@@ -4098,7 +4134,7 @@ const PROMPT_FRAGMENTS: &[(Option<&[&str]>, &str)] = &[
     ),
     (
         Some(EXEC),
-        "\n\nFor exec_command, call the complete minimal command; it runs once after its one-shot approval.",
+        "\n\nFor exec_command, call the complete minimal command; it runs once after its one-shot approval. Before a command that may change files, the device takes a best-effort snapshot of text files under its cwd, or under this conversation's approved directories when cwd is omitted, and the result's file_changes lists files added, modified and deleted there, including changes other programs made meanwhile. Excluded paths (such as .git or dependency folders), binary or oversized files and anything outside those directories are not protected; a skipped snapshot means nothing was protected. When the owner asks to undo such a command, call restore_command_changes with that result's command_result_id; files changed again since are reported as conflicts, never overwritten.",
     ),
     (
         Some(ARTIFACT),
@@ -4628,7 +4664,7 @@ mod tests {
     #[test]
     fn registry_contains_reads_preview_and_bounded_artifact_create() {
         let tools = ai_assistant_provider_registry().registered_tools();
-        assert_eq!(tools.len(), 64);
+        assert_eq!(tools.len(), 65);
         assert_eq!(
             tools
                 .iter()
@@ -4666,6 +4702,7 @@ mod tests {
                     "replace_live_document_body",
                     "replace_pages_copy_body",
                     "replace_word_copy_body",
+                    "restore_command_changes",
                     "restore_text_file",
                     "send_gmail_message",
                     "send_slack_message",
@@ -5320,6 +5357,7 @@ mod tests {
                 "read_text_file",
                 "read_service_status",
                 "read_system_info",
+                "restore_command_changes",
                 "restore_text_file",
                 "search_public_web",
                 "update_text_file",
@@ -5375,6 +5413,7 @@ mod tests {
                 "read_text_file",
                 "read_service_status",
                 "read_system_info",
+                "restore_command_changes",
                 "restore_text_file",
                 "search_public_web",
                 "update_text_file",

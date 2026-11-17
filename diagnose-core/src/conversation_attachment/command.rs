@@ -117,6 +117,7 @@ mod tests {
                 },
                 duration_ms: 100,
                 redactions: vec![],
+                file_changes: None,
             },
             1,
         )
@@ -147,6 +148,7 @@ mod tests {
                     terminal: "x".repeat(5000),
                     truncated: true,
                 },
+                file_changes: None,
             },
             1,
         )
@@ -181,6 +183,7 @@ mod tests {
                     stdout_truncated: false,
                     stderr_truncated: false,
                 },
+                file_changes: None,
             },
             1,
         )

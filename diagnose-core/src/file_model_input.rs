@@ -343,7 +343,9 @@ pub(crate) fn complete_device_input(
     }
     if is_read(tool)
         || crate::provider_preflight::ArtifactCallPreflight::supports(tool)
-        || crate::provider_preflight::text_file::TextMutationPreflight::supports(tool)
+        || crate::provider_preflight::text_file::TextMutationPreflight::is_exact_r3_file_mutation(
+            tool,
+        )
     {
         crate::model_input::validate_format(tool, value).map_err(invalid)?;
     }

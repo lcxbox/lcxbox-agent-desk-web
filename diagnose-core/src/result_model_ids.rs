@@ -198,6 +198,7 @@ pub(crate) fn supports(tool: &str) -> bool {
         crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
             | crate::provider_preflight::text_file::DELETE_TEXT_TOOL
             | crate::provider_preflight::text_file::RESTORE_TEXT_TOOL
+            | crate::provider_preflight::text_file::COMMAND_RESTORE_TOOL
             | "prepare_gmail_draft"
             | "send_gmail_message"
             | "send_slack_message"
@@ -430,6 +431,25 @@ pub(crate) fn resolve(
             return Err(invalid("mutation_result_id is required"));
         }
     }
+    if tool == crate::provider_preflight::text_file::COMMAND_RESTORE_TOOL {
+        // Like a text restore, the command's receipt stays usable after its
+        // model window ends.
+        if let Some(id) = object.remove("command_result_id") {
+            if object.contains_key("command_result_call_id") {
+                return Err(invalid("use only command_result_id"));
+            }
+            let id = id
+                .as_str()
+                .ok_or_else(|| invalid("result ID must be a string"))?;
+            let call = selected_call(&source_locators, id)
+                .ok_or_else(|| invalid("command_result_id is unavailable"))?
+                .to_owned();
+            object.insert("command_result_call_id".into(), json!(call));
+        }
+        if !object.contains_key("command_result_call_id") {
+            return Err(invalid("command_result_id is required"));
+        }
+    }
     if tool == "prepare_gmail_draft" {
         if let Some(attachment) = object.get_mut("attachment").and_then(Value::as_object_mut)
             && let Some(id) = attachment.remove("artifact_result_id")
@@ -587,6 +607,12 @@ pub(crate) fn project_arguments(tool: &str, value: &mut Value, locators: &[Resul
             }
         }
     }
+    if tool == crate::provider_preflight::text_file::COMMAND_RESTORE_TOOL
+        && let Some(call) = object.remove("command_result_call_id")
+    {
+        let id = call.as_str().and_then(|call| message_id(locators, call));
+        object.insert("command_result_id".into(), json!(id));
+    }
     if tool == "prepare_gmail_draft"
         && let Some(attachment) = object.get_mut("attachment").and_then(Value::as_object_mut)
         && let Some(artifact) = attachment.remove("artifact")
@@ -726,6 +752,13 @@ pub(crate) fn project_tool(tool: &mut ToolSpec) {
                 properties.insert("file_version_id".into(), json!({"type":"string","minLength":1,"maxLength":32,"description":"Optional file_version_id of a verified read of the file's current version."}));
             }
             tool.parameters_schema["required"] = json!(["mutation_result_id"]);
+        }
+        crate::provider_preflight::text_file::COMMAND_RESTORE_TOOL => {
+            if let Some(properties) = tool.parameters_schema["properties"].as_object_mut() {
+                properties.remove("command_result_call_id");
+                properties.insert("command_result_id".into(), json!({"type":"string","minLength":1,"maxLength":32,"description":"command_result_id of the exec_command or restore_command_changes result whose file_changes to undo."}));
+            }
+            tool.parameters_schema["required"] = json!(["command_result_id"]);
         }
         "prepare_gmail_draft" => {
             if let Some(attachment) = tool.parameters_schema.pointer_mut("/properties/attachment") {
@@ -1050,6 +1083,33 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
         },
     ) {
         value["mutation_result_id"] = json!(message.message_id);
+    }
+    // A command result with a taken snapshot, or a command restore, can be
+    // named by a later restore_command_changes.
+    let command_changes = if source == crate::exec_tools::EXEC_TOOL_NAME {
+        Some("/Exec/file_changes")
+    } else if source == crate::provider_preflight::text_file::COMMAND_RESTORE_TOOL {
+        Some("/output/value/file_changes")
+    } else {
+        None
+    };
+    if let Some(path) = command_changes
+        && original
+            .pointer(path)
+            .and_then(|changes| {
+                serde_json::from_value::<desk_agent_protocol::exec::ExecFileChanges>(
+                    changes.clone(),
+                )
+                .ok()
+            })
+            .is_some_and(|changes| {
+                changes.snapshot == desk_agent_protocol::exec::ExecSnapshotOutcome::Taken
+            })
+    {
+        if let Some(changes) = value.pointer_mut(path) {
+            hide_internal(changes);
+        }
+        value["command_result_id"] = json!(message.message_id);
     }
     if let Some(handoff) = handoff(&original) {
         value = json!({"handoff_result_id":message.message_id,"verification":handoff.verification,"send_authority":handoff.send_authority,"surface":handoff.surface,"business_effect":"draft_prepared","message_sent":false});

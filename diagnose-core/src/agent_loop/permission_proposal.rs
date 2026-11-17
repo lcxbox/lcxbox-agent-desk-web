@@ -146,6 +146,13 @@ pub(super) async fn propose<F: FnMut() -> String>(
                                         item.canonical_input_json.as_deref(),
                                         now,
                                     )?;
+                                    crate::provider_preflight::text_file::validate_command_restore_permission_input(
+                                        session,
+                                        providers,
+                                        &item.tool_name,
+                                        item.canonical_input_json.as_deref(),
+                                        now,
+                                    )?;
                                     crate::provider_preflight::text_file::validate_read_permission_input_with_context(
                                         session,
                                         &item.tool_name,

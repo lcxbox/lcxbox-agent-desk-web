@@ -1,0 +1,1 @@
+{"type":"string","description":"What a root is, for the approval card.","enum":["cwd","grant"],"x-readme-ref-name":"ExecSnapshotRootKind"}

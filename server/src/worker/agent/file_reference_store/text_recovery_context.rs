@@ -108,7 +108,7 @@ fn restore_conflict(message: &str) -> AgentError {
 
 impl RecoveryContext {
     /// Lock the vault and bring it to the device policy and execution epoch.
-    pub(super) fn open_vault(&self) -> Result<LockedVault, AgentError> {
+    pub(crate) fn open_vault(&self) -> Result<LockedVault, AgentError> {
         let vault = desk_file_recovery::Vault::open(&self.data_root)
             .map_err(|e| io_error("open private file backups", e))?;
         let mut vault = vault
@@ -294,10 +294,30 @@ impl RecoveryContext {
     /// Clear the operation's reservation and settle absolute usage. The
     /// published objects are already in the usage; a failed settlement is
     /// corrected by the next reconciliation.
-    pub(super) fn settle(&self, vault: &mut LockedVault, record: &Record) {
+    pub(crate) fn settle(&self, vault: &mut LockedVault, record: &Record) {
         if let Some(quota) = &self.quota
             && let Err(e) = quota.settle_vault(vault, Some(record))
         {
+            tracing::warn!(error_kind = ?e.kind(), "file backup quota settlement unconfirmed; reconciliation will correct it");
+        }
+    }
+
+    /// Clear this context's operation reservation and settle absolute usage
+    /// when no record of the operation is at hand (a skipped, abandoned or
+    /// discarded command snapshot).
+    pub(crate) fn settle_operation(&self, vault: &mut LockedVault) {
+        let Some(quota) = &self.quota else {
+            return;
+        };
+        let identity = desk_ipc_protocol::message::FileRecoveryQuotaIdentity {
+            execution_epoch: self.execution_epoch,
+            authority: self.scope.authority.clone(),
+            device: self.scope.device.clone(),
+            owner: self.scope.owner.clone(),
+            conversation: self.conversation_id.clone(),
+            operation: self.operation_id.clone(),
+        };
+        if let Err(e) = quota.settle_vault_clearing(vault, Some(identity)) {
             tracing::warn!(error_kind = ?e.kind(), "file backup quota settlement unconfirmed; reconciliation will correct it");
         }
     }

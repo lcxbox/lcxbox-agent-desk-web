@@ -39,6 +39,19 @@ use desk_signal_facade::service::{EdgeExecObserver, ExecStateReplyObserver};
 use tokio::sync::oneshot;
 
 const RESULT_SLACK: Duration = Duration::from_secs(30);
+
+/// The conversation's backup namespace on the target device, which a command
+/// with snapshot roots stores its snapshot in.
+pub(crate) struct ExecFileRecovery {
+    pub conversation_id: String,
+    pub registration: desk_agent_protocol::authz::FileRecoveryRegistration,
+}
+
+/// How long a command may take to report, excluding transport slack: its own
+/// timeout plus the time the device may spend snapshotting files around it.
+pub(crate) fn result_wait_ms(timeout_ms: u32) -> i64 {
+    i64::from(timeout_ms) + i64::from(desk_agent_protocol::exec::EXEC_SNAPSHOT_TIME_BUDGET_MS)
+}
 const FOREGROUND_THRESHOLD: Duration = Duration::from_secs(8);
 const WAIT_FOR_TASK_TIMEOUT: Duration = Duration::from_secs(10);
 const WAIT_FOR_TASK_POLL: Duration = Duration::from_millis(250);
@@ -399,9 +412,12 @@ fn build_exec_frame(
     max_risk: RiskLevel,
     session_connection_id: Option<String>,
     carrier_id: Option<String>,
+    file_recovery: Option<ExecFileRecovery>,
     plan: &ExecPlan,
     validation_input: &ExecInput,
 ) -> Result<SignalingModel, AgentError> {
+    // Only a plan with snapshot roots stores anything in the backup vault.
+    let file_recovery = file_recovery.filter(|_| !plan.snapshot_roots.is_empty());
     let audience = target
         .client_id
         .clone()
@@ -413,8 +429,11 @@ fn build_exec_frame(
             )
         })?;
     let request_id = plan.execution_generation.clone();
+    let (session_id, file_recovery_registration) = file_recovery
+        .map(|recovery| (Some(recovery.conversation_id), Some(recovery.registration)))
+        .unwrap_or_default();
     let authz = AuthorizationBlock {
-        file_recovery_registration: None,
+        file_recovery_registration,
         version: AUTHORIZATION_BLOCK_VERSION,
         exec_admission_policy: admission_policy,
         scope,
@@ -425,7 +444,7 @@ fn build_exec_frame(
         },
         device: AuthzDevice { device_id: None },
         request_id: request_id.clone(),
-        session_id: None,
+        session_id,
         expires_at: Some(
             (chrono::Utc::now() + chrono::Duration::minutes(5))
                 .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
@@ -605,6 +624,7 @@ impl SignalAgentTools {
         plan: ExecPlan,
         validation_input: ExecInput,
         carrier_id: Option<String>,
+        file_recovery: Option<ExecFileRecovery>,
         ctx: &ExecContext,
         preclaimed: bool,
     ) -> Result<SignalDispatch, AgentError> {
@@ -612,7 +632,7 @@ impl SignalAgentTools {
         let request_id = plan.execution_generation.clone();
         let exec_store = crate::agent_exec_store::SignalAgentExecStore::new(self.db.clone());
         let deadline = chrono::Utc::now()
-            + chrono::Duration::milliseconds(plan.timeout_ms as i64)
+            + chrono::Duration::milliseconds(result_wait_ms(plan.timeout_ms))
             + chrono::Duration::from_std(RESULT_SLACK).unwrap_or_default();
         let task = if preclaimed {
             let task = exec_store
@@ -677,6 +697,7 @@ impl SignalAgentTools {
             self.max_risk,
             ctx.connection_id.clone(),
             carrier_id,
+            file_recovery,
             &plan,
             &validation_input,
         )?;
@@ -770,6 +791,8 @@ impl SignalAgentTools {
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn execute_preapproved(
         &self,
+        session: &desk_diagnose_core::session::PersistedAgentSession,
+        file_recovery: Option<ExecFileRecovery>,
         mut validation_input: ExecInput,
         confirmation: &desk_diagnose_core::command_confirmation::CommandConfirmation,
         canonical_input: &str,
@@ -882,6 +905,9 @@ impl SignalAgentTools {
             self.connections.as_ref(),
             &self.target_connection_id,
             &ctx.actor_id,
+            session,
+            u64::try_from(chrono::Utc::now().timestamp_millis())
+                .map_err(|_| internal("system clock predates the Unix epoch"))?,
         )
         .await?
         .revalidate(confirmation, canonical_input, confirmation.input_revision)?;
@@ -926,6 +952,7 @@ impl SignalAgentTools {
                 plan,
                 validation_input,
                 carrier_id,
+                file_recovery,
                 ctx,
                 true,
             )
@@ -1125,6 +1152,9 @@ impl ToolSeam for SignalAgentTools {
             requires_confirmation: true,
             executable: true,
             blocked_reason: None,
+            // A model call decoded here never carries snapshot roots; only an
+            // approved command policy plan does.
+            snapshot: None,
         };
         let Some(approval_rx) = self.pending.register_approval(
             exec_request_id.0.clone(),
@@ -1252,6 +1282,7 @@ impl ToolSeam for SignalAgentTools {
                 plan,
                 validation_input,
                 carrier_id,
+                None,
                 ctx,
                 false,
             )
@@ -1429,7 +1460,7 @@ impl EdgeExecObserver for SignalEdgeExecObserver {
         model: &'a SignalingModel,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
-            let payload = match model.get_data::<EdgeExecResultPayload>() {
+            let mut payload = match model.get_data::<EdgeExecResultPayload>() {
                 Ok(payload) => payload,
                 Err(error) => {
                     log::warn!("[agent-exec] malformed EdgeExecResult: {error}");
@@ -1437,6 +1468,9 @@ impl EdgeExecObserver for SignalEdgeExecObserver {
                 }
             };
             let store = crate::agent_exec_store::SignalAgentExecStore::new(self.db.clone());
+            store
+                .admit_file_changes(&payload.request_id, &mut payload.disposition)
+                .await;
             let correlated = match store
                 .finalize(
                     &source.model.connection_id,
@@ -1475,6 +1509,100 @@ impl EdgeExecObserver for SignalEdgeExecObserver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The authorization of one AI command frame for a plan prepared under an
+    /// owner policy with one approved directory.
+    async fn command_authz(
+        shell: &str,
+        command: &str,
+        file_recovery: Option<ExecFileRecovery>,
+    ) -> (ExecPlan, AuthorizationBlock) {
+        let mut policy = desk_diagnose_core::command_confirmation::test_policy();
+        policy.directory_grants = desk_diagnose_core::file_scope::TrustedDirectoryGrants::for_test(
+            "device-1",
+            vec![desk_diagnose_core::file_scope::TrustedDirectoryGrant {
+                directory_request_id: "approved".into(),
+                canonical_path: "/work".into(),
+                directory: desk_agent_protocol::computer_use::ObjectRef {
+                    token: "directory".into(),
+                    snapshot_id: "generation".into(),
+                    object_kind: desk_agent_protocol::computer_use::ObjectKind::Directory,
+                    expires_at: String::new(),
+                },
+            }],
+        );
+        let input = serde_json::json!({"schema_version":1, "shell":shell,
+            "command":command, "timeout_ms":1000})
+        .to_string();
+        let confirmation = policy.prepare(&input, 1).unwrap();
+        let plan = ExecPlan::from_draft(
+            ExecRequestId("command".into()),
+            "generation".to_string(),
+            ApprovalId("approval".into()),
+            confirmation.plan.clone(),
+        );
+        let target =
+            crate::command_policy::tests::owner_host("host", "device-1", &["bash"], None).await;
+        let frame = build_exec_frame(
+            &target,
+            "host",
+            1,
+            AgentScope {
+                granted: vec![],
+                mode: desk_agent_protocol::ExecutionMode::ConfirmEachAction,
+                expires_at: None,
+                policy_name: None,
+            },
+            ExecAdmissionPolicy::OwnerInteractive,
+            RiskLevel::Critical,
+            None,
+            None,
+            file_recovery,
+            &plan,
+            &confirmation.validation_input,
+        )
+        .unwrap();
+        let wrapper: AuthorizedControlPayload<serde_json::Value> = frame.get_data().unwrap();
+        (plan, wrapper.authz)
+    }
+
+    fn recovery() -> ExecFileRecovery {
+        ExecFileRecovery {
+            conversation_id: "conversation".into(),
+            registration: desk_agent_protocol::authz::FileRecoveryRegistration {
+                execution_epoch: 3,
+                authority: "a".repeat(64),
+                os_user: "owner".into(),
+            },
+        }
+    }
+
+    #[actix_web::test]
+    async fn a_command_with_snapshot_roots_names_its_backup_namespace() {
+        let (plan, authz) = command_authz("bash", "touch notes.txt", Some(recovery())).await;
+        assert!(!plan.snapshot_roots.is_empty());
+        assert_eq!(authz.session_id.as_deref(), Some("conversation"));
+        assert_eq!(
+            authz.file_recovery_registration,
+            Some(recovery().registration)
+        );
+        assert_eq!(authz.actor.user_id, Some(1));
+    }
+
+    #[actix_web::test]
+    async fn a_command_without_snapshot_roots_carries_no_backup_namespace() {
+        for file_recovery in [None, Some(recovery())] {
+            let (plan, authz) =
+                command_authz("powershell", "Get-Service -Name Spooler", file_recovery).await;
+            assert!(plan.snapshot_roots.is_empty());
+            assert_eq!(authz.session_id, None);
+            assert_eq!(authz.file_recovery_registration, None);
+        }
+        let (plan, authz) = command_authz("bash", "touch notes.txt", None).await;
+        assert!(!plan.snapshot_roots.is_empty());
+        assert_eq!(authz.session_id, None);
+        assert_eq!(authz.file_recovery_registration, None);
+    }
 
     fn resolve(id: &str, decision: ApprovalDecision) -> ResolveExecData {
         ResolveExecData {

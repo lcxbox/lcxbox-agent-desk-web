@@ -4,7 +4,7 @@ use super::*;
 use std::collections::{BTreeMap, hash_map::RandomState};
 use std::hash::{BuildHasher, Hasher};
 
-pub(crate) const FORMAT_VERSION: u32 = 3;
+pub(crate) const FORMAT_VERSION: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,6 +37,9 @@ pub(crate) struct Ledger {
     pub policy: Policy,
     pub records: BTreeMap<String, Record>,
     pub deleted_conversations: BTreeMap<String, DeletedConversation>,
+    /// The latest command snapshot manifest of each (conversation, root),
+    /// owned by its conversation.
+    pub manifests: BTreeMap<String, snapshot::ManifestPointer>,
     /// Absolute counts, recomputed from directory listings by every sweep.
     pub namespaces: BTreeMap<String, NamespaceUsage>,
     pub last_cleanup_at_ms: u64,
@@ -76,6 +79,7 @@ impl Ledger {
             policy: Policy::default(),
             records: BTreeMap::new(),
             deleted_conversations: BTreeMap::new(),
+            manifests: BTreeMap::new(),
             namespaces: BTreeMap::new(),
             last_cleanup_at_ms: 0,
             last_sweep_at_ms: 0,
@@ -122,6 +126,12 @@ impl Ledger {
         {
             return Err(invalid("recovery namespace index is corrupt"));
         }
+        for (key, manifest) in &self.manifests {
+            if key != &manifest.key() {
+                return Err(invalid("recovery manifest index is corrupt"));
+            }
+            manifest.validate()?;
+        }
         for (id, record) in &self.records {
             if record.clock_generation > self.clock_generation
                 || record.storage_epoch > self.execution_epoch
@@ -143,6 +153,21 @@ impl Ledger {
                         return Err(invalid("recovery entry table is corrupt"));
                     }
                 }
+                Entries::PreRun { count } => {
+                    if *count as usize > MAX_RECORD_ENTRIES {
+                        return Err(invalid("recovery entry table is corrupt"));
+                    }
+                }
+            }
+            if let Some(snapshot) = &record.snapshot {
+                snapshot.validate()?;
+            }
+            if record.executor.as_deref().is_some_and(|id| !valid_id(id))
+                || (record.kind == RecordKind::CommandSnapshot)
+                    != (record.snapshot.is_some() && record.executor.is_some())
+                || (record.kind == RecordKind::CommandRestore && record.snapshot.is_none())
+            {
+                return Err(invalid("recovery snapshot record is corrupt"));
             }
             if let Some(transaction) = &record.transaction {
                 transaction.validate(id)?;
@@ -238,6 +263,10 @@ impl LockedVault {
             *namespaces.entry(record.namespace()).or_default() += record.serialized_bytes;
             records = records.saturating_add(record.serialized_bytes);
         }
+        for manifest in self.ledger.manifests.values() {
+            *namespaces.entry(manifest.scope.namespace()).or_default() += manifest.serialized_bytes;
+            records = records.saturating_add(manifest.serialized_bytes);
+        }
         namespaces.retain(|_, bytes| *bytes > 0);
         quota::UsageReport {
             vault_instance_id: self.ledger.vault_instance_id.clone(),
@@ -275,6 +304,11 @@ impl LockedVault {
                             && (record.material != MaterialState::Purged
                                 || record.transaction.is_some())
                     })
+                    && !self
+                        .ledger
+                        .manifests
+                        .values()
+                        .any(|manifest| manifest.scope.key(&manifest.conversation) == **key)
             })
             .map(|(key, _)| key.clone())
             .collect();

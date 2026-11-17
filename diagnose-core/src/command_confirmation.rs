@@ -3,7 +3,11 @@
 use desk_agent_protocol::authz::ExecAdmissionPolicy;
 use desk_agent_protocol::command_blocklist::BlocklistRule;
 use desk_agent_protocol::command_template::SyncedCommandTemplate;
-use desk_agent_protocol::exec::{CommandDraft, CommandIoMode, ExecDecision, ExecPlanDraft};
+use desk_agent_protocol::exec::{
+    COMMAND_PLAN_SCHEMA_VERSION, CommandDraft, CommandIoMode, ExecDecision, ExecEffect,
+    ExecPlanDraft, ExecSnapshotNotice, ExecSnapshotRoot, ExecSnapshotRootKind,
+    ExecSnapshotRootLabel, MAX_EXEC_SNAPSHOT_ROOTS,
+};
 use desk_agent_protocol::{
     AgentError, AgentErrorKind, ExecInput, ExecTarget, ExecutionMode, RiskLevel,
 };
@@ -34,6 +38,10 @@ pub struct CommandPolicyContext {
     /// The target host reports that interactive elevation (`sudo`/`doas`
     /// inside a PTY) is enabled.
     pub exec_pty_elevation: bool,
+    /// The session's current directory approvals on the target device, from
+    /// [`crate::file_scope::TrustedDirectoryGrants::from_session`]. A caller
+    /// without an authoritative session cannot build a policy.
+    pub directory_grants: crate::file_scope::TrustedDirectoryGrants,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -53,6 +61,7 @@ pub fn test_policy() -> CommandPolicyContext {
         policy_version: "test:1".into(),
         exec_pty: true,
         exec_pty_elevation: true,
+        directory_grants: crate::file_scope::TrustedDirectoryGrants::for_test("device-1", vec![]),
     }
 }
 
@@ -74,6 +83,198 @@ mod tests {
             io_mode,
         })
         .unwrap()
+    }
+
+    fn shell_input(shell: &str, command: &str, cwd: Option<&str>) -> String {
+        serde_json::to_string(&CommandDraft {
+            schema_version: 1,
+            shell: shell.into(),
+            command: command.into(),
+            cwd: cwd.map(Into::into),
+            timeout_ms: 30_000,
+            io_mode: CommandIoMode::NonInteractive,
+        })
+        .unwrap()
+    }
+
+    fn grant(id: &str) -> crate::file_scope::TrustedDirectoryGrant {
+        crate::file_scope::TrustedDirectoryGrant {
+            directory_request_id: id.into(),
+            canonical_path: format!("/work/{id}"),
+            directory: desk_agent_protocol::computer_use::ObjectRef {
+                token: format!("ref-{id}"),
+                snapshot_id: "gen".into(),
+                object_kind: desk_agent_protocol::computer_use::ObjectKind::Directory,
+                expires_at: String::new(),
+            },
+        }
+    }
+
+    fn policy_with(grants: &[&str]) -> CommandPolicyContext {
+        let mut policy = test_policy();
+        policy.directory_grants = crate::file_scope::TrustedDirectoryGrants::for_test(
+            "device-1",
+            grants.iter().map(|id| grant(id)).collect(),
+        );
+        policy
+    }
+
+    #[test]
+    fn only_mutating_commands_get_snapshot_roots() {
+        let policy = policy_with(&["r1"]);
+        // A read-only template has no roots, even with approved directories.
+        let read = shell_input("powershell", "Get-Service -Name Spooler", None);
+        let sealed = policy.prepare(&read, 1).unwrap();
+        assert!(sealed.plan.snapshot_roots.is_empty());
+        assert!(sealed.validation_input.snapshot_roots.is_empty());
+        assert!(sealed.snapshot.is_none());
+        // A mutating template and an off-template command are snapshotted.
+        for (shell, command) in [
+            ("powershell", "Restart-Service -Name Spooler"),
+            ("bash", "make fmt"),
+        ] {
+            let sealed = policy
+                .prepare(&shell_input(shell, command, None), 1)
+                .unwrap();
+            assert_eq!(sealed.plan.snapshot_roots.len(), 1, "{command}");
+            assert_eq!(sealed.snapshot.as_ref().unwrap().roots[0].path, "/work/r1");
+        }
+        // Without a cwd or approved directory nothing is snapshotted.
+        let none = test_policy()
+            .prepare(&shell_input("bash", "make fmt", None), 1)
+            .unwrap();
+        assert!(none.plan.snapshot_roots.is_empty() && none.snapshot.is_none());
+        // Elevated PTY commands run as root and are never snapshotted.
+        let elevated = policy
+            .prepare(
+                &input_with("sudo docker restart web1", CommandIoMode::Pty),
+                1,
+            )
+            .unwrap();
+        assert!(elevated.is_elevated());
+        assert!(elevated.plan.snapshot_roots.is_empty());
+        // The same template without elevation is snapshotted.
+        let plain = policy
+            .prepare(&shell_input("bash", "docker restart web1", None), 1)
+            .unwrap();
+        assert_eq!(plain.plan.snapshot_roots.len(), 1);
+    }
+
+    #[test]
+    fn cwd_is_the_single_root_otherwise_every_current_grant() {
+        let policy = policy_with(&["r2", "r1"]);
+        let with_cwd = policy
+            .prepare(&shell_input("bash", "make fmt", Some("/repo")), 1)
+            .unwrap();
+        assert_eq!(
+            with_cwd.plan.snapshot_roots,
+            vec![ExecSnapshotRoot::Cwd {
+                path: "/repo".into()
+            }]
+        );
+        let notice = with_cwd.snapshot.as_ref().unwrap();
+        assert_eq!(notice.roots[0].kind, ExecSnapshotRootKind::Cwd);
+        let without = policy
+            .prepare(&shell_input("bash", "make fmt", None), 1)
+            .unwrap();
+        // Grants come in their trusted order (the deriving function sorts).
+        assert_eq!(
+            without.plan.snapshot_roots,
+            vec![
+                ExecSnapshotRoot::Grant {
+                    directory_request_id: "r2".into(),
+                    directory: grant("r2").directory,
+                },
+                ExecSnapshotRoot::Grant {
+                    directory_request_id: "r1".into(),
+                    directory: grant("r1").directory,
+                },
+            ]
+        );
+        assert_eq!(
+            without.validation_input.snapshot_roots,
+            without.plan.snapshot_roots
+        );
+        // Too many approvals for one snapshot: the command must name a cwd.
+        let many: Vec<String> = (0..=MAX_EXEC_SNAPSHOT_ROOTS)
+            .map(|i| format!("r{i:03}"))
+            .collect();
+        let crowded = policy_with(&many.iter().map(String::as_str).collect::<Vec<_>>());
+        assert!(
+            crowded
+                .prepare(&shell_input("bash", "make fmt", None), 1)
+                .is_err()
+        );
+        assert!(
+            crowded
+                .prepare(&shell_input("bash", "make fmt", Some("/repo")), 1)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn snapshot_roots_are_fingerprinted_and_reproduced_from_the_input() {
+        let canonical = shell_input("bash", "make fmt", None);
+        let one = policy_with(&["r1"]).prepare(&canonical, 1).unwrap();
+        let other = policy_with(&["r2"]).prepare(&canonical, 1).unwrap();
+        assert_ne!(one.plan.fingerprint, other.plan.fingerprint);
+        assert_ne!(
+            one.resource_scope().unwrap(),
+            other.resource_scope().unwrap()
+        );
+        // The edge re-classifies the validation input into the identical draft.
+        let rebuilt = crate::exec_classify::classify_command_with_policy(
+            &one.validation_input,
+            &[],
+            desk_agent_protocol::exec_policy::builtin_blocklist(),
+            ExecAdmissionPolicy::OwnerInteractive,
+        );
+        assert_eq!(rebuilt.draft.as_ref(), Some(&one.plan));
+        let sealed = desk_agent_protocol::exec::ExecPlan::from_draft(
+            desk_agent_protocol::exec::ExecRequestId("exec".into()),
+            "gen",
+            desk_agent_protocol::exec::ApprovalId("approval".into()),
+            one.plan.clone(),
+        );
+        assert!(sealed.matches_draft(&one.plan));
+        assert!(!sealed.matches_draft(&other.plan));
+        // A tampered root breaks the frozen confirmation.
+        let mut tampered = one.clone();
+        tampered.plan.snapshot_roots = other.plan.snapshot_roots.clone();
+        tampered.validation_input.snapshot_roots = other.plan.snapshot_roots.clone();
+        assert!(tampered.validate(&canonical).is_err());
+        let mut dropped = one.clone();
+        dropped.snapshot = None;
+        assert!(dropped.validate(&canonical).is_err());
+        // The persisted confirmation round-trips.
+        let json = serde_json::to_string(&one).unwrap();
+        assert_eq!(
+            serde_json::from_str::<CommandConfirmation>(&json).unwrap(),
+            one
+        );
+    }
+
+    #[test]
+    fn grant_changes_invalidate_only_snapshotted_approvals() {
+        let mutating = shell_input("bash", "make fmt", None);
+        let readonly = shell_input("powershell", "Get-Service -Name Spooler", None);
+        let in_cwd = shell_input("bash", "make fmt", Some("/repo"));
+        let before = policy_with(&["r1"]);
+        let approved =
+            [&mutating, &readonly, &in_cwd].map(|canonical| before.prepare(canonical, 1).unwrap());
+        for after in [policy_with(&["r1", "r2"]), policy_with(&[])] {
+            assert!(after.revalidate(&approved[0], &mutating, 1).is_err());
+            after.revalidate(&approved[1], &readonly, 1).unwrap();
+            after.revalidate(&approved[2], &in_cwd, 1).unwrap();
+        }
+        before.revalidate(&approved[0], &mutating, 1).unwrap();
+    }
+
+    #[test]
+    fn grants_must_belong_to_the_target_device() {
+        let mut policy = policy_with(&["r1"]);
+        policy.target_device_id = "device-2".into();
+        assert!(policy.prepare(&input("df -h"), 1).is_err());
     }
 
     #[test]
@@ -224,6 +425,9 @@ pub struct CommandConfirmation {
     pub validation_input: ExecInput,
     pub plan: ExecPlanDraft,
     pub canonical_input_digest_sha256: String,
+    /// What the owner is shown about the plan's snapshot roots; present iff
+    /// the plan has roots.
+    pub snapshot: Option<Box<ExecSnapshotNotice>>,
 }
 
 fn denied(message: impl Into<String>) -> AgentError {
@@ -249,6 +453,7 @@ impl CommandPolicyContext {
             || self.policy_revision < 1
             || input_revision == 0
             || !self.execution_mode.allows_confirmed_execution()
+            || self.directory_grants.device_id() != self.target_device_id
         {
             return Err(denied(
                 "confirmed command execution is unavailable under current policy",
@@ -286,14 +491,36 @@ impl CommandPolicyContext {
             timeout_ms: proposal.timeout_ms,
             max_stdout_bytes: 65_536,
             max_stderr_bytes: 65_536,
+            snapshot_roots: Vec::new(),
         };
         crate::exec_tools::apply_exec_runtime_ceiling(&mut input, self.max_runtime_ms);
-        let classified = crate::exec_classify::classify_command_with_policy(
+        let mut classified = crate::exec_classify::classify_command_with_policy(
             &input,
             &self.operator_templates,
             &self.effective_blocklist,
             self.admission_policy,
         );
+        // A mutating command is snapshotted; the classifier seals the roots
+        // into the draft, so the edge reproduces them from the input.
+        let mut snapshot = None;
+        if classified.classification.effect == Some(ExecEffect::Mutating)
+            && classified
+                .draft
+                .as_ref()
+                .is_some_and(|plan| !plan.requires_root_pty_containment())
+        {
+            let (roots, labels) = self.snapshot_roots(input.cwd.as_deref())?;
+            if !roots.is_empty() {
+                input.snapshot_roots = roots;
+                snapshot = Some(Box::new(ExecSnapshotNotice::new(labels)));
+                classified = crate::exec_classify::classify_command_with_policy(
+                    &input,
+                    &self.operator_templates,
+                    &self.effective_blocklist,
+                    self.admission_policy,
+                );
+            }
+        }
         if classified.classification.decision != ExecDecision::ConfirmRequired {
             return Err(denied(format!(
                 "command rejected by current policy: {}",
@@ -312,7 +539,7 @@ impl CommandPolicyContext {
             ));
         }
         let confirmation = CommandConfirmation {
-            schema_version: 1,
+            schema_version: COMMAND_PLAN_SCHEMA_VERSION,
             actor_id: self.actor_id.clone(),
             target_device_id: self.target_device_id.clone(),
             target_session_id: self.target_session_id.clone(),
@@ -324,9 +551,48 @@ impl CommandPolicyContext {
             validation_input: input,
             plan,
             canonical_input_digest_sha256: format!("{:x}", Sha256::digest(canonical.as_bytes())),
+            snapshot,
         };
         confirmation.validate(canonical)?;
         Ok(confirmation)
+    }
+
+    /// Snapshot roots of a mutating command: its `cwd`, or else every
+    /// directory the session currently has approved on the target device.
+    fn snapshot_roots(
+        &self,
+        cwd: Option<&str>,
+    ) -> Result<(Vec<ExecSnapshotRoot>, Vec<ExecSnapshotRootLabel>), AgentError> {
+        if let Some(path) = cwd {
+            return Ok((
+                vec![ExecSnapshotRoot::Cwd { path: path.into() }],
+                vec![ExecSnapshotRootLabel {
+                    kind: ExecSnapshotRootKind::Cwd,
+                    path: path.into(),
+                }],
+            ));
+        }
+        let grants = self.directory_grants.grants();
+        if grants.len() > MAX_EXEC_SNAPSHOT_ROOTS {
+            return Err(denied(format!(
+                "this conversation has more than {MAX_EXEC_SNAPSHOT_ROOTS} approved directories on the device; set cwd for a command that changes files"
+            )));
+        }
+        Ok(grants
+            .iter()
+            .map(|grant| {
+                (
+                    ExecSnapshotRoot::Grant {
+                        directory_request_id: grant.directory_request_id.clone(),
+                        directory: grant.directory.clone(),
+                    },
+                    ExecSnapshotRootLabel {
+                        kind: ExecSnapshotRootKind::Grant,
+                        path: grant.canonical_path.clone(),
+                    },
+                )
+            })
+            .unzip())
     }
 
     pub fn revalidate(
@@ -517,11 +783,14 @@ impl CommandConfirmation {
     }
 
     pub fn validate(&self, canonical: &str) -> Result<(), AgentError> {
-        if self.schema_version != 1
+        if self.schema_version != COMMAND_PLAN_SCHEMA_VERSION
             || self.actor_id.is_empty()
             || self.target_session_id.is_empty()
             || self.policy_version.is_empty()
             || self.plan.io_mode != self.proposal.io_mode.exec_io_mode()
+            || self.plan.snapshot_roots != self.validation_input.snapshot_roots
+            || self.snapshot.as_ref().map(|notice| notice.roots.len())
+                != (!self.plan.snapshot_roots.is_empty()).then_some(self.plan.snapshot_roots.len())
             || serde_json::from_str::<CommandDraft>(canonical)
                 .ok()
                 .as_ref()
@@ -547,12 +816,13 @@ impl CommandConfirmation {
                 &limits,
                 &self.plan.containment,
                 self.plan.io_mode,
+                &self.plan.snapshot_roots,
             )
         {
             return Err(denied("command plan fingerprint mismatch"));
         }
         desk_agent_protocol::exec::CanonicalCommandIdentity {
-            schema_version: 1,
+            schema_version: COMMAND_PLAN_SCHEMA_VERSION,
             target_device_id: self.target_device_id.clone(),
             policy_revision: self.policy_revision,
             input_revision: self.input_revision,

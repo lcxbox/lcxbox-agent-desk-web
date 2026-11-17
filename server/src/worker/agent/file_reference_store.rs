@@ -44,6 +44,9 @@ mod macos_publish;
 pub(crate) mod publication;
 
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[path = "file_reference_store/command_changes.rs"]
+pub(crate) mod command_changes;
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[path = "file_reference_store/text_edit.rs"]
 mod text_edit;
 #[cfg(target_os = "macos")]
@@ -2433,7 +2436,7 @@ fn error(kind: AgentErrorKind, message: impl Into<String>, retryable: bool) -> A
 }
 
 #[cfg(test)]
-pub(super) fn file_store_test_lock() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn file_store_test_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
         .lock()

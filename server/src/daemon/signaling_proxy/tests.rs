@@ -1345,6 +1345,7 @@ fn wrapped_confirm_exec_model(request_id: &str, audience: &str) -> SignalingMode
                     timeout_ms: 0,
                     max_stdout_bytes: 0,
                     max_stderr_bytes: 0,
+                    snapshot_roots: Vec::new(),
                 }),
             },
             reason: Some("operator promoted a assistant suggestion".to_string()),

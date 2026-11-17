@@ -430,6 +430,7 @@ pub async fn execute_plan_cancellable(
         },
         duration_ms,
         redactions,
+        file_changes: None,
     }))
 }
 
@@ -448,6 +449,7 @@ fn failed_start(started: bool, failure: AgentError, diagnostic: NativeDiagnostic
         },
         duration_ms: 0,
         redactions: vec![],
+        file_changes: None,
     }))
 }
 
@@ -813,6 +815,7 @@ mod tests {
             max_stdout_bytes: max_out,
             max_stderr_bytes: max_out,
             containment: Default::default(),
+            snapshot_roots: Vec::new(),
         }
     }
 

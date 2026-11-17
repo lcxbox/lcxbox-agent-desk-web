@@ -71,6 +71,7 @@
 | `update_text_file` | `ComputerActionCompleted<TextFileMutationOutput>` | 1 | inline | background_completion | externalized_attachment |
 | `delete_text_file` | `ComputerActionCompleted<TextFileMutationOutput>` | 1 | inline | background_completion | externalized_attachment |
 | `restore_text_file` | `ComputerActionCompleted<TextFileMutationOutput>` | 1 | inline | background_completion | externalized_attachment |
+| `restore_command_changes` | `ComputerActionCompleted<CommandChangesRestoreOutput>` | 1 | inline | background_completion | externalized_attachment |
 | `inspect_spreadsheets` | `ReadContext.SpreadsheetFileInspect` | 1 | inline | externalized_attachment |
 | `preview_spreadsheet_merge` | `ReadContext.SpreadsheetMergePreview` | 1 | inline | externalized_attachment |
 | `create_workbook` | `ComputerActionCompleted<CreatedFileArtifactOutput>` | 1 | inline | background_completion | externalized_attachment |

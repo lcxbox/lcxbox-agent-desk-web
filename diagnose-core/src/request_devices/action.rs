@@ -74,6 +74,18 @@ pub(super) fn permission_resources(
         )
         .map(|preflight| Some(preflight.resource_scope().to_vec()));
     }
+    if call.name == crate::provider_preflight::text_file::COMMAND_RESTORE_TOOL {
+        use crate::provider_preflight::text_file::TextMutationPreflight;
+        return TextMutationPreflight::command_restore(
+            session,
+            &target.device_id,
+            surface,
+            call,
+            TextMutationPreflight::command_restore_execution_mode(registry, &target.device_id),
+            now,
+        )
+        .map(|preflight| Some(preflight.resource_scope().to_vec()));
+    }
     if crate::provider_preflight::text_file::TextMutationPreflight::supports(&call.name) {
         return crate::provider_preflight::text_file::TextMutationPreflight::from_device_session(
             session,

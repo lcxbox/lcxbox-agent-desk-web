@@ -463,7 +463,7 @@ async fn command_attempts_keep_one_input_and_do_not_turn_unsent_work_into_an_ope
     let native=AgentOutcome::Ok(OperationOutput::Exec(ExecOutput {
         started:true,exit_code:Some(0),termination_signal:None,failure:None,diagnostics:vec![],
         streams:ExecOutputStreams::Split { stdout:"private stdout".into(),stderr:String::new(),stdout_truncated:false,stderr_truncated:false },
-        duration_ms:25,redactions:vec![],
+        duration_ms:25,redactions:vec![],file_changes:None,
     }));
     command_executed(sent.clone(),NOW+3_000,&native,|event|events.push(event));
     command_route_indeterminate(sent.clone(),NOW+3_001,|event|events.push(event));

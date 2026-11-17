@@ -293,6 +293,7 @@ pub(super) fn non_executable_preview(
         requires_confirmation: false,
         executable: false,
         blocked_reason,
+        snapshot: None,
     }
 }
 

@@ -1,6 +1,7 @@
 //! Execution epochs fence replays of old dispatches. Advancing the epoch lets
 //! the vault prune purged replay records:
-//! 0. no record may be Preparing or BackupReady (otherwise `WouldBlock`);
+//! 0. no record may be Preparing, BackupReady or SnapshotPending (otherwise
+//!    `WouldBlock`), so a running command's snapshot reservation stays valid;
 //! 1. the device quota stops accepting reservations of the old epoch;
 //! 2. the vault prunes old purged records and tombstones and sweeps;
 //! 3. a reconciliation reports the pruned usage and live operations;
@@ -189,7 +190,9 @@ impl LockedVault {
                 if self.ledger.records.values().any(|record| {
                     matches!(
                         record.change,
-                        ChangeState::Preparing | ChangeState::BackupReady
+                        ChangeState::Preparing
+                            | ChangeState::BackupReady
+                            | ChangeState::SnapshotPending
                     )
                 }) {
                     return Err(io::Error::new(

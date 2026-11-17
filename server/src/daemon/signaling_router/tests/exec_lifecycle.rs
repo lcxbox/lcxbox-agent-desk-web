@@ -671,6 +671,7 @@ pub(super) async fn invoke_agent_capability_plane_permanently_rejects_exec() {
         timeout_ms: 0,
         max_stdout_bytes: 0,
         max_stderr_bytes: 0,
+        snapshot_roots: Vec::new(),
     };
     let req = AgentRequestData {
         operation: AgentOperation {
@@ -755,6 +756,7 @@ pub(super) async fn confirm_exec_local_mode_caps_manager_authorization() {
                 timeout_ms: 0,
                 max_stdout_bytes: 0,
                 max_stderr_bytes: 0,
+                snapshot_roots: Vec::new(),
             }),
         },
         reason: None,
@@ -785,7 +787,7 @@ async fn central_cancel_uses_original_worker_without_browser_connection() {
     let (tx, mut worker) = tokio::sync::mpsc::unbounded_channel();
     ctx.worker_mgr.install_active_for_test(tx).await;
     let plan = super::exec_edge::fleet_plan(&super::exec_edge::fleet_template(), "gen-1");
-    super::super::edge_exec::dispatch_fleet_exec_plan(&ctx, "gen-1", plan, None, None).await;
+    super::super::edge_exec::dispatch_fleet_exec_plan(&ctx, "gen-1", plan, None, None, None).await;
     assert!(matches!(
         worker.try_recv().unwrap(),
         ServiceToWorker::ExecPlan(_)
@@ -858,8 +860,15 @@ async fn redelivered_execution_does_not_erase_original_stop_binding_or_capacity(
     let (tx, mut worker) = tokio::sync::mpsc::unbounded_channel();
     ctx.worker_mgr.install_active_for_test(tx).await;
     let plan = super::exec_edge::fleet_plan(&super::exec_edge::fleet_template(), "gen-1");
-    super::super::edge_exec::dispatch_fleet_exec_plan(&ctx, "gen-1", plan.clone(), None, None)
-        .await;
+    super::super::edge_exec::dispatch_fleet_exec_plan(
+        &ctx,
+        "gen-1",
+        plan.clone(),
+        None,
+        None,
+        None,
+    )
+    .await;
     assert!(matches!(
         worker.try_recv().unwrap(),
         ServiceToWorker::ExecPlan(_)

@@ -161,7 +161,7 @@ pub fn trusted_permission_descriptor(
             sensitive_content,
             external_egress: capability.wire.data_policy.may_export_data,
             destructive_or_overwrite:
-                crate::provider_preflight::text_file::TextMutationPreflight::supports(
+                crate::provider_preflight::text_file::TextMutationPreflight::is_exact_r3_file_mutation(
                     &item.tool_name,
                 ),
             unpredictable_input: false,
@@ -1710,8 +1710,9 @@ pub fn source_review_candidate_for_device(
 /// gate uses this as an independent check before any candidate text leaves the
 /// process; no model-authored rendering of the action can widen it.
 ///
-/// A text mutation is reviewed as its per-file change, resolved from the
-/// conversation's immutable results, instead of result IDs and digests.
+/// A text mutation is reviewed as its per-file change and a command restore as
+/// its files and operations, resolved from the conversation's immutable
+/// results, instead of result IDs and digests.
 pub fn permission_item_action_json(
     history: &[crate::chat::ChatMessage],
     item: &crate::dynamic_run::GrantRequestItem,
@@ -1734,6 +1735,16 @@ pub fn permission_item_action_json(
                     )
                     .ok_or(ApprovalReviewError::InvalidCandidate)?;
                     ("text_change", review.projection())
+                } else if item.tool_name
+                    == crate::provider_preflight::text_file::COMMAND_RESTORE_TOOL
+                {
+                    let review =
+                        crate::provider_preflight::text_file::review_command_restore_input(
+                            Some(canonical),
+                            history,
+                        )
+                        .ok_or(ApprovalReviewError::InvalidCandidate)?;
+                    ("command_restore", review.projection())
                 } else {
                     (
                         "exact_input",

@@ -7,6 +7,7 @@ use std::{fs::File, io, mem::size_of, os::windows::io::AsRawHandle};
 #[path = "windows_private.rs"]
 mod private;
 pub(crate) use private::clean_transaction;
+pub(crate) use private::list_names;
 pub(crate) use private::transaction_location;
 #[path = "windows_private_state.rs"]
 pub mod private_state;

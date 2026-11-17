@@ -31,6 +31,7 @@ mod inventory;
 pub use inventory::{PendingIndexFile, PendingIndexInventory};
 #[path = "windows_objects.rs"]
 mod objects;
+pub(crate) use objects::list_names;
 #[path = "windows_root.rs"]
 mod root;
 #[path = "windows_transaction_location.rs"]

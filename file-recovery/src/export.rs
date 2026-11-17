@@ -22,7 +22,11 @@ pub struct ExportChunk {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EntrySummary {
     pub index: u64,
+    /// Snapshot root of `rel_path`; 0 for text records.
+    pub root: u32,
     pub rel_path: String,
+    /// The recorded change of command snapshot and restore entries.
+    pub change: Option<ChangeKind>,
     pub before_sha256: Option<String>,
     pub after_sha256: Option<String>,
 }
@@ -145,7 +149,7 @@ impl ExportCache {
 
 impl LockedVault {
     /// Exportable material of a record; failures carry no other scope's data.
-    fn exportable(
+    pub(crate) fn exportable(
         &self,
         scope: Option<&Scope>,
         conversation: Option<&str>,
@@ -171,7 +175,10 @@ impl LockedVault {
         if record.discard_requested {
             return Err(export_error(ExportError::Cleaning));
         }
-        if record.change == ChangeState::Preparing {
+        if matches!(
+            record.change,
+            ChangeState::Preparing | ChangeState::SnapshotPending
+        ) {
             return Err(export_error(ExportError::Preparing));
         }
         if record.expires_at_ms <= now_ms && record.change != ChangeState::OutcomeUnknown {
@@ -241,9 +248,17 @@ impl LockedVault {
             .take(ENTRIES_PAGE)
             .map(|(index, entry)| EntrySummary {
                 index: index as u64,
+                root: entry.root,
+                before_sha256: entry
+                    .before
+                    .map(|object| object.sha256)
+                    .or_else(|| entry.change.as_ref()?.before_sha256.clone()),
+                after_sha256: entry
+                    .after
+                    .map(|object| object.sha256)
+                    .or_else(|| entry.change.as_ref()?.after_sha256.clone()),
+                change: entry.change.map(|change| change.kind),
                 rel_path: entry.rel_path,
-                before_sha256: entry.before.map(|object| object.sha256),
-                after_sha256: entry.after.map(|object| object.sha256),
             })
             .collect();
         let next = offset + entries.len() as u64;

@@ -2160,6 +2160,95 @@ export type InteractiveCommandDto = {
     targetConnectionId: string;
 };
 
+export const execSnapshotRootKindEnum = {
+    cwd: "cwd",
+    grant: "grant"
+} as const;
+
+export type ExecSnapshotRootKindEnumKey = (typeof execSnapshotRootKindEnum)[keyof typeof execSnapshotRootKindEnum];
+
+/**
+ * @description What a root is, for the approval card.
+*/
+export type ExecSnapshotRootKind = ExecSnapshotRootKindEnumKey;
+
+/**
+ * @description One snapshot root as the owner sees it: the `cwd` string or the approved\ndirectory\'s canonical path.
+*/
+export type ExecSnapshotRootLabel = {
+    /**
+     * @description What a root is, for the approval card.
+     * @type string
+    */
+    kind: ExecSnapshotRootKind;
+    /**
+     * @type string
+    */
+    path: string;
+};
+
+export const execSnapshotGapEnum = {
+    excluded_paths: "excluded_paths",
+    outside_roots: "outside_roots",
+    binary_files: "binary_files",
+    oversized_files: "oversized_files",
+    hard_linked_files: "hard_linked_files",
+    metadata_changes: "metadata_changes",
+    detached_processes: "detached_processes"
+} as const;
+
+export type ExecSnapshotGapEnumKey = (typeof execSnapshotGapEnum)[keyof typeof execSnapshotGapEnum];
+
+/**
+ * @description Areas a best-effort snapshot does not detect or cannot restore.
+*/
+export type ExecSnapshotGap = ExecSnapshotGapEnumKey;
+
+/**
+ * @description Approval-card and preview data for a command whose plan has snapshot roots.
+*/
+export type ExecSnapshotNotice = {
+    /**
+     * @description Size of the device\'s latest manifest for these roots, when known.
+     * @minLength 0
+     * @type integer,null, int32
+    */
+    estimated_file_count?: number | null;
+    /**
+     * @description Directory names never scanned.
+     * @type array
+    */
+    excluded_names: string[];
+    /**
+     * @description `.gitignore` and `.ignore` rules under a root are honored.
+     * @type boolean
+    */
+    honors_ignore_files: boolean;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    max_file_bytes: number;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    max_files: number;
+    /**
+     * @type array
+    */
+    roots: ExecSnapshotRootLabel[];
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    scan_time_limit_ms: number;
+    /**
+     * @type array
+    */
+    unprotected: ExecSnapshotGap[];
+};
+
 /**
  * @description Owner-visible projection of the exact persisted command plan.
 */
@@ -2196,6 +2285,7 @@ export type CommandConfirmationDto = {
      * @type string
     */
     shell: string;
+    snapshot?: (null | ExecSnapshotNotice);
     /**
      * @type string
     */
@@ -2209,6 +2299,74 @@ export type CommandConfirmationDto = {
      * @type integer, int32
     */
     timeoutMs: number;
+};
+
+export const execFileChangeKindEnum = {
+    added: "added",
+    modified: "modified",
+    deleted: "deleted"
+} as const;
+
+export type ExecFileChangeKindEnumKey = (typeof execFileChangeKindEnum)[keyof typeof execFileChangeKindEnum];
+
+export type ExecFileChangeKind = ExecFileChangeKindEnumKey;
+
+/**
+ * @description One file the restore puts back. `change` is what the command did: an added\nfile is deleted, a modified file gets its previous content, a deleted file\nis recreated.
+*/
+export type CommandRestoreFileDto = {
+    /**
+     * @type string
+    */
+    change: ExecFileChangeKind;
+    /**
+     * @type string
+    */
+    path: string;
+};
+
+/**
+ * @description One command restore awaiting approval. The card always warns that the list\nmay include changes the command did not make, including the owner\'s or the\nAI\'s own edits during the execution window.
+*/
+export type CommandRestoreConfirmationDto = {
+    /**
+     * @description The directory approval, for a root from an approved directory.
+     * @type string,null
+    */
+    directoryRequestId?: string | null;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    executionFinishedAtUnixMs: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    executionStartedAtUnixMs: number;
+    /**
+     * @type array
+    */
+    files: CommandRestoreFileDto[];
+    /**
+     * @type boolean
+    */
+    oneShot: boolean;
+    /**
+     * @description What a root is, for the approval card.
+     * @type string
+    */
+    rootKind: ExecSnapshotRootKind;
+    /**
+     * @description The command\'s working directory, for a working-directory root.
+     * @type string,null
+    */
+    rootPath?: string | null;
+    /**
+     * @description Result whose recorded changes are undone.
+     * @type string
+    */
+    sourceResultCallId: string;
 };
 
 export const externalIssueAudienceEnum = {
@@ -2760,6 +2918,7 @@ export type WaylandOutputConfirmationDto = {
 export type GrantRequestItemDto = {
     applicationScope?: (null | UiApplicationScope);
     commandConfirmation?: (null | CommandConfirmationDto);
+    commandRestoreConfirmation?: (null | CommandRestoreConfirmationDto);
     /**
      * @type string
     */

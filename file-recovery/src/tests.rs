@@ -6,6 +6,10 @@ mod encoding;
 mod epoch;
 mod export;
 mod lifecycle;
+#[cfg(unix)]
+mod restore;
+#[cfg(unix)]
+mod snapshot;
 mod sweep;
 
 pub(super) fn scope() -> Scope {
@@ -66,6 +70,47 @@ pub(super) fn edit<'a>(
 }
 pub(super) fn no_quota(_: &Record, _: u64) -> io::Result<()> {
     Ok(())
+}
+/// A multi-entry `CommandRestore` record backed up through the annotated path.
+pub(super) fn multi(
+    v: &mut LockedVault,
+    conversation: &str,
+    operation: &str,
+    entries: Vec<EntryInput<'_>>,
+) -> Record {
+    let request = request(conversation, operation, RecordKind::CommandRestore, entries);
+    let annotation = backup::Annotation {
+        snapshot: SnapshotState {
+            roots: vec![SnapshotRootState {
+                directory_identity: "directory-1".into(),
+                baseline: None,
+                manifest: None,
+            }],
+            batches: Vec::new(),
+            started_at_ms: 1000,
+            finished_at_ms: None,
+        },
+        entries: request
+            .entries
+            .iter()
+            .map(|entry| {
+                (
+                    0,
+                    lineage("directory-1", entry.rel_path),
+                    RecordedChange {
+                        kind: ChangeKind::Deleted,
+                        before_sha256: entry.before.map(hash),
+                        after_sha256: None,
+                        size: 0,
+                        protected: true,
+                    },
+                )
+            })
+            .collect(),
+    };
+    let encoded = v.encode(&request).unwrap();
+    v.backup_annotated(request, encoded, 0, no_quota, Some(annotation))
+        .unwrap()
 }
 pub(super) fn save(v: &mut LockedVault, conversation: &str, operation: &str) -> Record {
     v.backup(

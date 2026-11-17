@@ -1,0 +1,1 @@
+{"type":"string","description":"Areas a best-effort snapshot does not detect or cannot restore.","enum":["excluded_paths","outside_roots","binary_files","oversized_files","hard_linked_files","metadata_changes","detached_processes"],"x-readme-ref-name":"ExecSnapshotGap"}

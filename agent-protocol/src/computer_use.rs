@@ -1290,6 +1290,17 @@ pub enum FilePatchAction {
         recovery_id: String,
         expected_current: RestoreExpectation,
     },
+    /// Undo protected changes an AI command (or an earlier restore of one)
+    /// made under one snapshot root. The step target is the root's
+    /// device-issued directory reference. Each file is restored only while it
+    /// is still in the state the change produced; the current state is backed
+    /// up first into a new recovery record.
+    RestoreCommandChanges {
+        /// Recovery record of the command's snapshot.
+        recovery_id: String,
+        root: crate::exec::ExecSnapshotRoot,
+        entries: Vec<crate::exec::CommandChangeRestore>,
+    },
 }
 
 /// Closed UTF-8 edits. No shell, executable patch format, or implicit overwrite.
@@ -1501,6 +1512,23 @@ impl TextFileMutationOutput {
 }
 
 impl FilePatchAction {
+    /// Validate a `RestoreCommandChanges` body; other actions are rejected.
+    pub fn validate_command_restore(&self) -> Result<(), ComputerUseValidationError> {
+        let Self::RestoreCommandChanges {
+            recovery_id,
+            root,
+            entries,
+        } = self
+        else {
+            return Err(ComputerUseValidationError::InvalidContextReference(
+                "not a command change restore",
+            ));
+        };
+        crate::exec::validate_command_restore(recovery_id, root, entries).map_err(|_| {
+            ComputerUseValidationError::InvalidContextReference("invalid command change restore")
+        })
+    }
+
     pub fn validate_text_mutation(&self) -> Result<(), ComputerUseValidationError> {
         let invalid =
             || ComputerUseValidationError::InvalidContextReference("invalid exact text mutation");
@@ -1638,7 +1666,9 @@ impl ComputerActionKind {
             }
             Self::File(FilePatchAction::DeleteText { .. }) => Capability::FileDeleteConfirmed,
             Self::File(
-                FilePatchAction::UpdateText { .. } | FilePatchAction::RestoreText { .. },
+                FilePatchAction::UpdateText { .. }
+                | FilePatchAction::RestoreText { .. }
+                | FilePatchAction::RestoreCommandChanges { .. },
             ) => Capability::FilePatchConfirmed,
             Self::Browser(request) => match &request.action {
                 BrowserAction::TakeSnapshot { .. } | BrowserAction::WaitFor { .. } => {
@@ -2073,6 +2103,7 @@ fn validate_actions(
                             | FilePatchAction::CreateWordReportArtifact { .. }
                             | FilePatchAction::CreateLocalCommunicationDraftArtifact { .. }
                             | FilePatchAction::RestoreText { .. }
+                            | FilePatchAction::RestoreCommandChanges { .. }
                     ),
                     ObjectKind::Directory
                 )
@@ -2507,6 +2538,7 @@ pub enum ComputerActionOutput {
     BatchDocumentArtifact(BatchDocumentArtifact),
     FileArtifact(CreatedFileArtifactOutput),
     TextFileMutation(TextFileMutationOutput),
+    CommandChangesRestore(crate::exec::CommandChangesRestoreOutput),
     ApplicationLaunch(crate::application_launch::LaunchApplicationResult),
     DocumentArtifact(crate::document_conversion::DocumentArtifactOutput),
 }

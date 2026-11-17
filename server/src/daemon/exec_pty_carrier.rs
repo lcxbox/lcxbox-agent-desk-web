@@ -688,8 +688,10 @@ mod tests {
                 max_stdout_bytes: 4096,
                 max_stderr_bytes: 4096,
                 containment: ExecContainmentSnapshot::default(),
+                snapshot_roots: Vec::new(),
             },
             audit_source_request_id: None,
+            file_recovery: None,
         }
     }
 

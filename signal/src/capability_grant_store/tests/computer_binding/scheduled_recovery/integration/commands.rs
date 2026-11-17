@@ -147,6 +147,7 @@ async fn fixture(db: DatabaseConnection) -> (ScheduleStore, String, String) {
             "run-1",
             &call.id,
             60000,
+            &[],
             &origin,
             None,
         )

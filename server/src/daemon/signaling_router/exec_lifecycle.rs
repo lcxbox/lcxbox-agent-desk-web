@@ -85,6 +85,38 @@ pub(super) async fn handle_confirm_exec_inbound(
         return Ok(());
     };
 
+    // Snapshot roots are derived by the trusted central for AI commands only;
+    // a control end can never supply them.
+    if !exec_input.snapshot_roots.is_empty() {
+        ctx.audit
+            .record(AuditEvent::task_failed_for_request(
+                new_audit_event_id(),
+                audit_now(),
+                &request_id,
+                &agent_error(
+                    AgentErrorKind::InvalidInput,
+                    "ConfirmExec must not carry snapshot roots",
+                    false,
+                    true,
+                ),
+            ))
+            .await;
+        send_exec_preview(
+            &ctx.outbound_tx,
+            &request_id,
+            to,
+            non_executable_preview(
+                exec_shell_label(&exec_input),
+                exec_input.command.clone(),
+                exec_input.cwd.clone(),
+                0,
+                desk_agent_protocol::RiskLevel::High,
+                Some("ConfirmExec must not carry snapshot roots".to_string()),
+            ),
+        );
+        return Ok(());
+    }
+
     let (local_mode, local_runtime_ms) = {
         let settings = ctx.settings.read().await;
         (
@@ -360,6 +392,7 @@ pub(super) async fn handle_confirm_exec_inbound(
                 requires_confirmation: false,
                 executable: true,
                 blocked_reason: None,
+                snapshot: None,
             };
             send_exec_preview(&ctx.outbound_tx, &request_id, to.clone(), preview);
             dispatch_exec_plan(ctx, &request_id, to, plan, audit_source, None).await;
@@ -406,6 +439,7 @@ pub(super) async fn handle_confirm_exec_inbound(
             requires_confirmation: true,
             executable: true,
             blocked_reason: None,
+            snapshot: None,
         };
         send_exec_preview(&ctx.outbound_tx, &request_id, to, preview);
         return Ok(());
@@ -944,6 +978,7 @@ pub(super) async fn dispatch_exec_plan(
                     worker_incarnation: target.wire_worker_incarnation,
                     plan,
                     audit_source_request_id,
+                    file_recovery: None,
                 };
                 match link.registry.bind(
                     link.link_id,
@@ -976,6 +1011,7 @@ pub(super) async fn dispatch_exec_plan(
             connection_id: to_connection_id.clone(),
             plan,
             audit_source_request_id,
+            file_recovery: None,
         };
         ctx.worker_mgr
             .send_to_exec_target(&target, ServiceToWorker::ExecPlan(payload))
@@ -1037,24 +1073,13 @@ pub(crate) fn send_edge_execution_completed(
 }
 
 /// Whether the sealed plan's own render matches the [`ExecPlanDraft`] a validator
-/// authoritatively reconstructed. Compares every executable field (the ids and
-/// approval token are not on the draft). Shared by the fleet and agentic PEP paths.
+/// authoritatively reconstructed, including its I/O mode and snapshot roots.
+/// Shared by the fleet and agentic PEP paths.
 pub(super) fn plan_matches_draft(
     plan: &ExecPlan,
     expected: &desk_agent_protocol::exec::ExecPlanDraft,
 ) -> bool {
-    expected.program == plan.program
-        && expected.argv == plan.argv
-        && expected.risk == plan.risk
-        && expected.execution_basis == plan.execution_basis
-        && expected.shell == plan.shell
-        && expected.cwd == plan.cwd
-        && expected.template_id == plan.template_id
-        && expected.timeout_ms == plan.timeout_ms
-        && expected.max_stdout_bytes == plan.max_stdout_bytes
-        && expected.max_stderr_bytes == plan.max_stderr_bytes
-        && expected.fingerprint == plan.fingerprint
-        && expected.containment == plan.containment
+    plan.matches_draft(expected)
 }
 
 /// Source-agnostic PEP checks that every sealed [`ExecPlan`] must pass regardless

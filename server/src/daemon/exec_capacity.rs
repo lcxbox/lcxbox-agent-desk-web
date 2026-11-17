@@ -43,10 +43,12 @@ struct Slot {
 }
 
 /// Grace added to a command's own timeout before its slot is reclaimed, covering
-/// the spawn, the result's trip back, and clock jitter. Generous on purpose:
-/// reclaiming a slot early would let one more command run than the ceiling
-/// allows, which is the failure this exists to prevent.
-const SLOT_GRACE: Duration = Duration::from_secs(30);
+/// the spawn, the snapshot scans around a mutating AI command (which do not
+/// count against its timeout), the result's trip back, and clock jitter.
+/// Generous on purpose: reclaiming a slot early would let one more command run
+/// than the ceiling allows, which is the failure this exists to prevent.
+const SLOT_GRACE: Duration =
+    Duration::from_millis(30_000 + desk_agent_protocol::exec::EXEC_SNAPSHOT_TIME_BUDGET_MS as u64);
 
 /// Refusal returned when the host is already at its ceiling.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +172,26 @@ mod tests {
     use super::*;
 
     const T: Duration = Duration::from_secs(10);
+
+    /// A slot outlives the command's own timeout by the snapshot scans around
+    /// a mutating AI command plus the spawn and result margin.
+    #[test]
+    fn the_slot_grace_covers_the_snapshot_budget() {
+        assert_eq!(
+            SLOT_GRACE,
+            Duration::from_secs(30)
+                + Duration::from_millis(u64::from(
+                    desk_agent_protocol::exec::EXEC_SNAPSHOT_TIME_BUDGET_MS
+                ))
+        );
+        let cap = ExecCapacity::new();
+        assert!(cap.try_admit("a", 1, Duration::ZERO).is_ok());
+        assert_eq!(
+            cap.in_flight(),
+            1,
+            "a zero-timeout slot is held for the grace"
+        );
+    }
 
     /// The ceiling is enforced, and a released slot is immediately reusable.
     #[test]

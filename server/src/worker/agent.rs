@@ -955,6 +955,7 @@ mod tests {
             timeout_ms: 1_000,
             max_stdout_bytes: 1_024,
             max_stderr_bytes: 1_024,
+            snapshot_roots: Vec::new(),
         }));
         let err = agent.invoke(env).await.expect_err("exec must reject");
         assert_eq!(err.kind, AgentErrorKind::UnsupportedCapability);

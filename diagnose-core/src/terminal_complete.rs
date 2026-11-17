@@ -334,6 +334,7 @@ fn classify_full_command(command: &str, shell: &str) -> FullClassification {
         timeout_ms: 0,
         max_stdout_bytes: 0,
         max_stderr_bytes: 0,
+        snapshot_roots: Vec::new(),
     };
     let c = classify_command(&input).classification;
     FullClassification {

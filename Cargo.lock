@@ -2905,6 +2905,7 @@ dependencies = [
 name = "desk-file-recovery"
 version = "0.1.0"
 dependencies = [
+ "ignore",
  "libc",
  "mach2",
  "serde",

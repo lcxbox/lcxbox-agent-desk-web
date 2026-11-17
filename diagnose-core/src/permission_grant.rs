@@ -513,6 +513,8 @@ pub fn build_permission_grants(
         let text_mutation = crate::provider_preflight::text_file::TextMutationPreflight::supports(
             &requested.tool_name,
         );
+        let command_restore =
+            requested.tool_name == crate::provider_preflight::text_file::COMMAND_RESTORE_TOOL;
         let external_web_host = capability.wire.authorization_hint.resources
             == [AuthorizationResourceKind::ExternalWebHost];
         let resource_scope = if external_web_host {
@@ -573,7 +575,8 @@ pub fn build_permission_grants(
                 ));
             }
             preflight.resource_scope().to_vec()
-        } else if text_mutation {
+        } else if text_mutation || command_restore {
+            use crate::provider_preflight::text_file::TextMutationPreflight;
             let call = crate::chat::ToolCall {
                 id: requested.item_id.clone(),
                 name: requested.tool_name.clone(),
@@ -582,14 +585,27 @@ pub fn build_permission_grants(
                     .clone()
                     .ok_or_else(|| internal("text mutation requires exact input"))?,
             };
-            let preflight =
-                crate::provider_preflight::text_file::TextMutationPreflight::from_device_session(
+            let preflight = if command_restore {
+                TextMutationPreflight::command_restore(
+                    session,
+                    device_id,
+                    context.surface,
+                    &call,
+                    TextMutationPreflight::command_restore_execution_mode(
+                        context.registry,
+                        device_id,
+                    ),
+                    context.now_unix_ms,
+                )?
+            } else {
+                TextMutationPreflight::from_device_session(
                     session,
                     device_id,
                     context.surface,
                     &call,
                     context.now_unix_ms,
-                )?;
+                )?
+            };
             preflight
                 .resource_scope()
                 .iter()
@@ -745,7 +761,7 @@ pub fn build_permission_grants(
                 CapabilityRiskSignals {
                     sensitive_content,
                     external_egress: capability.wire.data_policy.may_export_data,
-                    destructive_or_overwrite: text_mutation,
+                    destructive_or_overwrite: text_mutation || command_restore,
                     unpredictable_input: false,
                 },
             )

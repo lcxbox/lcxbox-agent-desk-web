@@ -337,6 +337,36 @@ When the main assistant's background command finishes, the assistant continues y
 
 On the controlled device, **System settings → AI policy → Maximum runtime per command** accepts 10–7200 seconds and defaults to 600 seconds. Execution is also bounded by the duration requested on that command's confirmation card. Moving to the background does not reset the clock, and increasing the device ceiling does not extend an already approved command.
 
+### Command file changes and restore {#command-file-changes}
+
+Before a command that may change files runs, the device takes a best-effort snapshot of the folders it is expected to write. Every command outside the template catalog counts as possibly modifying; read-only template commands and interactive commands that need elevation are not snapshotted. The snapshot covers the command's working directory or, when the working directory is omitted, every directory approved in this conversation on that device. Without either, the command runs without a snapshot. With more than 32 approved directories, the command must specify a working directory. If a directory approval is added or removed after you approve a command that has no working directory, the command needs approval again.
+
+The approval card lists the snapshot folders, the excluded names, the limits and what stays unprotected. The scans take up to 20 seconds in total and do not count against the command's timeout.
+
+After the command ends, including after a timeout or cancellation, its result lists the files added, modified and deleted under those folders and marks which ones are protected, meaning they can be restored. The list contains every change in those folders while the command ran, including changes made by other programs or by you. A process that detaches from the command and writes after the final scan is not included. A long list is shortened and marked as truncated; only listed files can be restored.
+
+| Content | Snapshot treatment |
+|---|---|
+| UTF-8 text files up to 16 MiB | Checked and protected |
+| Binary files and files over 16 MiB | Changes listed as unprotected |
+| Symbolic links, files with multiple hard links, other file systems mounted inside a snapshot folder | Not checked |
+| Paths matched by `.gitignore` or `.ignore` (rules read before the command runs), and `.git`, `node_modules`, `target`, `dist`, `build`, `.venv`, `__pycache__` | Not checked or protected; for example, commits lost through `git reset` cannot be restored |
+| Anything outside the snapshot folders | Not detected |
+
+The snapshot is skipped, and the command runs unprotected, when a scan finds more than 20,000 files or takes longer than 10 seconds; when a folder cannot be opened or is a drive or file system root, your home directory itself, a system directory, or one of this product's configuration, data or log directories; when the device runs commands as SYSTEM or root; or when backup storage is unavailable. The result then states that the command ran without protection. If backup capacity runs out during a scan, files that no longer fit are listed as unprotected.
+
+If the device restarts or the command's worker stops while the command runs, the snapshot remains and can be exported from backup management, but it cannot be restored through the assistant, because the device cannot tell which changes the command made.
+
+To undo a command's file changes, ask the assistant; it uses `restore_command_changes` with that command result. One request restores one snapshot folder, either every protected file in the list or the files you name, up to 512 files; larger restores are split into several requests. Each restore needs its own exact approval. The card lists each file and its operation, shows when the command ran, and warns that the list may include changes the command did not make, including yours.
+
+Each file is handled on its own:
+
+- A modified file gets its earlier content back, and an added file is deleted, only if the file still has the content the command left.
+- A file that has changed since is reported as a conflict and left untouched.
+- A deleted file is recreated, together with any missing parent folders.
+
+A restore is not atomic across files; the result reports each file as restored, conflicting, failed or unknown. Authorization is checked again at restore time: a folder that came from a directory approval needs that approval to still be valid in this conversation, and a folder that came from the working directory needs the device's command execution policy to still allow modifying commands. The current content is backed up before the restore and the restore result has its own change list, so a restore can be undone the same way. Snapshots keep file content only: on macOS and Linux a replaced file keeps its permission bits and a recreated file gets the current user's default permissions; on Windows restored files inherit the parent folder's permissions, and explicit permissions on a replaced file are lost.
+
 ## Key Properties
 
 - **Thin Edge** — the device never runs model inference or holds provider credentials; it only collects and redacts evidence when the central brain asks.
@@ -651,6 +681,8 @@ The list shows the number of loaded backup records and indicates when more pages
 Only the device owner may manage backups, and the device must be online. Retention, capacity and usage apply to the whole device. Retention defaults to 7 days and capacity to 512 MiB. Insufficient capacity blocks new file changes without silently deleting unexpired backups. Shortening retention requires confirmation and recalculates expiry from each backup’s original creation time. Dates use the viewer’s time zone.
 
 Identical content is stored only once, and successive versions of the same file are stored as compressed differences, so repeated small edits to a large file use little space. A backup record's size shows the bytes newly stored for that record. Records can share stored content, so discarding a record may free less space than its size suggests.
+
+[Command snapshots](#command-file-changes) use the same recovery store, capacity and retention as text backups. The first snapshot of a folder stores all of its protected text files; later snapshots reuse files that have not changed, and identical content is stored once. Snapshots read files with the permissions of the account that runs commands and keep the copies in the device owner's private recovery store.
 
 Conversation deletion also warns about removing its backups. Cleanup remains queued and retries while the device is offline or cleanup is incomplete; backup management shows its progress. Screenshots and file backups are managed separately. A recovery package contains the original text and saved metadata; exporting it does not overwrite the current file.
 

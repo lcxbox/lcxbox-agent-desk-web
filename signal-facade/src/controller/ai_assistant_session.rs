@@ -1797,6 +1797,7 @@ pub struct GrantRequestItemDto {
     pub launch_confirmation: Option<LaunchConfirmationDto>,
     pub application_scope: Option<desk_agent_protocol::computer_use::UiApplicationScope>,
     pub text_file_confirmation: Option<TextFileConfirmationDto>,
+    pub command_restore_confirmation: Option<CommandRestoreConfirmationDto>,
     pub wayland_output_confirmation: Option<WaylandOutputConfirmationDto>,
 }
 
@@ -1805,6 +1806,9 @@ pub use wayland_output_confirmation::WaylandOutputConfirmationDto;
 
 mod text_file_confirmation;
 pub use text_file_confirmation::{TextFileConfirmationDto, TextFileRestoreDto};
+
+mod command_restore_confirmation;
+pub use command_restore_confirmation::{CommandRestoreConfirmationDto, CommandRestoreFileDto};
 
 impl PermissionRequestDto {
     pub fn with_decision(
@@ -1932,18 +1936,33 @@ impl PermissionRequestDto {
                 if item.provider_id != desk_diagnose_core::ai_assistant::TEXT_FILE_PROVIDER_ID
                     || item.validate().is_err()
                 {
-                    return None;
+                    return (None, None);
                 }
-                text_file_confirmation::project(
-                    &item.tool_name,
-                    item.canonical_input_json.as_deref(),
-                    messages,
+                if item.tool_name
+                    == desk_diagnose_core::provider_preflight::text_file::COMMAND_RESTORE_TOOL
+                {
+                    return (
+                        None,
+                        command_restore_confirmation::project(
+                            item.canonical_input_json.as_deref(),
+                            messages,
+                        ),
+                    );
+                }
+                (
+                    text_file_confirmation::project(
+                        &item.tool_name,
+                        item.canonical_input_json.as_deref(),
+                        messages,
+                    ),
+                    None,
                 )
             })
             .collect::<Vec<_>>();
         let mut dto = Self::from(request);
-        for (item, review) in dto.items.iter_mut().zip(reviews) {
-            item.text_file_confirmation = review;
+        for (item, (text, command_restore)) in dto.items.iter_mut().zip(reviews) {
+            item.text_file_confirmation = text;
+            item.command_restore_confirmation = command_restore;
         }
         for (item, exec_request_id) in dto.items.iter_mut().zip(interactive_ids) {
             if let (Some(interactive), Some(exec_request_id)) = (
@@ -1990,6 +2009,10 @@ pub struct CommandConfirmationDto {
     /// Present for an interactive (PTY) command: the client opens a terminal
     /// carrier for exactly this execution before approving.
     pub interactive: Option<InteractiveCommandDto>,
+    /// Best-effort snapshot taken before the command runs: covered
+    /// directories, exclusions, limits and unprotected areas. Absent for a
+    /// read-only command or when there is nothing to snapshot.
+    pub snapshot: Option<desk_agent_protocol::exec::ExecSnapshotNotice>,
 }
 
 /// Binding a client needs to prepare the terminal carrier of a pending
@@ -2204,6 +2227,7 @@ impl From<desk_diagnose_core::dynamic_run::PermissionRequest> for PermissionRequ
                                         elevated: confirmation.is_elevated(),
                                     }
                                 }),
+                                snapshot: confirmation.snapshot.as_deref().cloned(),
                             });
                     let application_scope = desk_diagnose_core::application_ui::from_canonical(
                         &item.tool_name,
@@ -2230,6 +2254,7 @@ impl From<desk_diagnose_core::dynamic_run::PermissionRequest> for PermissionRequ
                         command_confirmation,
                         launch_confirmation,
                         text_file_confirmation: None,
+                        command_restore_confirmation: None,
                     }
                 })
                 .collect(),
@@ -3066,6 +3091,7 @@ mod command_task_projection_tests {
                 },
                 duration_ms: 1,
                 redactions: vec![],
+                file_changes: None,
             };
             let task = CommandTaskDto::project(
                 "device".into(),
@@ -3527,5 +3553,192 @@ mod configured_page_budget_tests {
         assert_eq!(large.messages.len(), 6);
         assert!(small.messages.iter().all(|m| m.text.len() == 2000));
         assert!(small.page.has_more);
+    }
+}
+
+#[cfg(test)]
+mod command_snapshot_card_tests {
+    use super::*;
+    use desk_agent_protocol::capability_provider::CapabilityEffect;
+    use desk_agent_protocol::computer_use::{ObjectKind, ObjectRef};
+    use desk_agent_protocol::exec::{
+        ExecFileChange, ExecFileChangeKind, ExecFileChangeRoot, ExecFileChanges,
+        ExecSnapshotOutcome, ExecSnapshotRoot, ExecSnapshotRootKind,
+    };
+    use desk_diagnose_core::dynamic_run::{
+        GrantRequestItem, PermissionRequest, PermissionRequestState,
+    };
+    use desk_diagnose_core::file_scope::{TrustedDirectoryGrant, TrustedDirectoryGrants};
+    use sha2::{Digest, Sha256};
+
+    fn directory() -> ObjectRef {
+        ObjectRef {
+            token: "dir".into(),
+            snapshot_id: "gen".into(),
+            object_kind: ObjectKind::Directory,
+            expires_at: String::new(),
+        }
+    }
+
+    fn request(item: GrantRequestItem) -> PermissionRequest {
+        PermissionRequest {
+            schema_version: desk_diagnose_core::dynamic_run::PERMISSION_REQUEST_SCHEMA_VERSION,
+            request_id: "request".into(),
+            input_revision: 1,
+            state: PermissionRequestState::Pending,
+            items: vec![item],
+            created_at: "2026-11-16T00:00:00Z".into(),
+            input_source: None,
+        }
+    }
+
+    fn item(tool: &str, provider: &str, canonical: String) -> GrantRequestItem {
+        GrantRequestItem {
+            item_id: "item".into(),
+            provider_id: provider.into(),
+            tool_name: tool.into(),
+            expected_effect: CapabilityEffect::WriteArtifact,
+            resource_scope: vec![],
+            operation_scope: vec![],
+            export_destinations: vec![],
+            canonical_input_digest_sha256: Some(format!(
+                "{:x}",
+                Sha256::digest(canonical.as_bytes())
+            )),
+            canonical_input_json: Some(canonical),
+            command_confirmation: None,
+            selected_device_target: None,
+            launch_confirmation: None,
+            suggested_ttl_seconds: 60,
+            suggested_max_uses: 1,
+            reason: "requested".into(),
+        }
+    }
+
+    #[test]
+    fn command_card_shows_the_best_effort_snapshot() {
+        let mut policy = desk_diagnose_core::command_confirmation::test_policy();
+        policy.directory_grants = TrustedDirectoryGrants::for_test(
+            "device-1",
+            vec![TrustedDirectoryGrant {
+                directory_request_id: "r1".into(),
+                canonical_path: "/work/repo".into(),
+                directory: directory(),
+            }],
+        );
+        let canonical =
+            r#"{"command":"make fmt","schema_version":1,"shell":"bash","timeout_ms":30000}"#;
+        let confirmation = policy.prepare(canonical, 1).unwrap();
+        let mut command = item(
+            desk_diagnose_core::command_confirmation::COMMAND_TOOL,
+            desk_diagnose_core::ai_assistant::SYSTEM_COMMAND_PROVIDER_ID,
+            canonical.into(),
+        );
+        command.expected_effect = CapabilityEffect::ExecuteCommand;
+        command.resource_scope = confirmation.resource_scope().unwrap();
+        command.command_confirmation = Some(confirmation);
+        let dto = PermissionRequestDto::with_file_evidence(request(command), "run", &[]);
+        let snapshot = dto.items[0]
+            .command_confirmation
+            .as_ref()
+            .unwrap()
+            .snapshot
+            .as_ref()
+            .unwrap();
+        assert_eq!(snapshot.roots[0].kind, ExecSnapshotRootKind::Grant);
+        assert_eq!(snapshot.roots[0].path, "/work/repo");
+        assert_eq!(snapshot.max_files, 20_000);
+        assert!(!snapshot.unprotected.is_empty());
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(
+            json["items"][0]["commandConfirmation"]["snapshot"]["roots"][0]["path"],
+            "/work/repo"
+        );
+    }
+
+    #[test]
+    fn command_restore_card_lists_files_and_execution_window() {
+        let changes = ExecFileChanges {
+            snapshot: ExecSnapshotOutcome::Taken,
+            recovery_id: Some("c".repeat(64)),
+            started_at_unix_ms: 500,
+            finished_at_unix_ms: 700,
+            roots: vec![ExecFileChangeRoot {
+                root: ExecSnapshotRoot::Cwd {
+                    path: "/repo".into(),
+                },
+                directory: directory(),
+            }],
+            changes: vec![ExecFileChange {
+                path: "src/main.rs".into(),
+                root: 0,
+                kind: ExecFileChangeKind::Modified,
+                before_sha256: Some("a".repeat(64)),
+                after_sha256: Some("b".repeat(64)),
+                size_bytes: 4,
+                protected: true,
+            }],
+            truncated: false,
+        };
+        let text = serde_json::json!({"Exec":{
+            "started":true,"exit_code":0,"termination_signal":null,"failure":null,"diagnostics":[],
+            "streams":{"type":"split","stdout":"","stderr":"","stdout_truncated":false,"stderr_truncated":false},
+            "duration_ms":200,"redactions":[],"file_changes":changes
+        }})
+        .to_string();
+        let owner = desk_diagnose_core::model_message_labels::model_bound_user_message(
+            "owner".into(),
+            "Format the code".into(),
+            desk_agent_protocol::data_lineage::DestinationIdentity::Model {
+                connection_id: "model".into(),
+                connection_revision: 1,
+                model_id: "model".into(),
+                profile_revision: 1,
+            },
+        )
+        .unwrap();
+        let mut receipt = ChatMessage::tool_result("receipt", "command-call", text.clone());
+        receipt.data_envelope = desk_diagnose_core::model_message_labels::named_envelope(
+            &desk_diagnose_core::model_content::ModelContent::builder()
+                .unverified(&desk_diagnose_core::model_content::Unverified::new(&text))
+                .build(),
+            owner.data_envelope.as_ref(),
+            "command-call",
+            "exec_command",
+            false,
+        )
+        .unwrap();
+        let proposal = ChatMessage::assistant_tool_calls(
+            "proposal",
+            "",
+            vec![desk_diagnose_core::chat::ToolCallRef {
+                id: "command-call".into(),
+                name: "exec_command".into(),
+                arguments_json: "{}".into(),
+            }],
+        );
+        let restore = item(
+            desk_diagnose_core::provider_preflight::text_file::COMMAND_RESTORE_TOOL,
+            desk_diagnose_core::ai_assistant::TEXT_FILE_PROVIDER_ID,
+            r#"{"command_result_call_id":"command-call","root":0}"#.into(),
+        );
+        let dto =
+            PermissionRequestDto::with_file_evidence(request(restore), "run", &[proposal, receipt]);
+        let card = dto.items[0].command_restore_confirmation.as_ref().unwrap();
+        assert!(dto.items[0].text_file_confirmation.is_none());
+        assert_eq!(card.root_kind, ExecSnapshotRootKind::Cwd);
+        assert_eq!(card.root_path.as_deref(), Some("/repo"));
+        assert_eq!(card.execution_started_at_unix_ms, 500);
+        assert_eq!(card.execution_finished_at_unix_ms, 700);
+        assert_eq!(card.files.len(), 1);
+        assert_eq!(card.files[0].change, ExecFileChangeKind::Modified);
+        // Without the source result there is nothing reviewable to show.
+        let unknown = item(
+            desk_diagnose_core::provider_preflight::text_file::COMMAND_RESTORE_TOOL,
+            desk_diagnose_core::ai_assistant::TEXT_FILE_PROVIDER_ID,
+            r#"{"command_result_call_id":"missing","root":0}"#.into(),
+        );
+        let dto = PermissionRequestDto::with_file_evidence(request(unknown), "run", &[]);
+        assert!(dto.items[0].command_restore_confirmation.is_none());
     }
 }

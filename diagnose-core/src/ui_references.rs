@@ -169,12 +169,13 @@ fn visit_references(value: &Value, visitor: &mut impl FnMut(&Value)) {
 
 /// Result fields the model copies into later calls. Each holds the message id
 /// of a verified result and is presented to the model as a `res` alias.
-const RESULT_OUTPUT_FIELDS: [&str; 6] = [
+const RESULT_OUTPUT_FIELDS: [&str; 7] = [
     "search_result_id",
     "artifact_result_id",
     "file_version_id",
     "file_result_call_id",
     "mutation_result_id",
+    "command_result_id",
     "handoff_result_id",
 ];
 
@@ -183,6 +184,7 @@ fn visit_result_selectors(value: &mut Value, visitor: &mut impl FnMut(&mut Value
         "file_result_call_id",
         "file_version_id",
         "mutation_result_id",
+        "command_result_id",
         "web_search_result_id",
         "handoff_result_id",
     ] {

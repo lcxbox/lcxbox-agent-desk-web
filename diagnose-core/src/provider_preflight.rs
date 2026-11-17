@@ -271,7 +271,7 @@ pub fn classify_provider_call(
     capability: &CapabilityDescriptor,
     call: &ToolCall,
 ) -> Result<CapabilityRiskTier, AgentError> {
-    if text_file::TextMutationPreflight::supports(&call.name) {
+    if text_file::TextMutationPreflight::is_exact_r3_file_mutation(&call.name) {
         return Ok(CapabilityRiskTier::R3);
     }
     let process_command_line_requested = capability

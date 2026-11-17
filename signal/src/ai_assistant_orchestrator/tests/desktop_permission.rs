@@ -1474,6 +1474,11 @@ async fn seed_command_history(db: &crate::config::connection::DatabaseConnection
         policy_version: "synthetic:1".into(),
         exec_pty: false,
         exec_pty_elevation: false,
+        directory_grants: desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
+            &session,
+            &session.device_id,
+            chrono::Utc::now().timestamp_millis() as u64,
+        ),
     };
     let registry = ai_assistant_provider_registry().with_command_policy(policy.clone());
     let capability = registry.capability_for_tool("exec_command").unwrap();

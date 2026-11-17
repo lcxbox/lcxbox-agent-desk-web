@@ -4709,7 +4709,7 @@ async fn projection_metrics_preserve_history_and_keep_capability_catalog_bounded
         long.loaded_capability_detail_utf8_bytes
     );
     assert_eq!(short.loaded_capability_count, long.loaded_capability_count);
-    assert_eq!(long.capability_registry_count, 64);
+    assert_eq!(long.capability_registry_count, 65);
     assert!(long.conversation_message_count > short.conversation_message_count);
     assert!(long.session_snapshot_json_bytes > short.session_snapshot_json_bytes);
     println!(

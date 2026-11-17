@@ -166,6 +166,7 @@ function ScopedFileRecoverySettings({ target }: RecoverySettingsProps) {
                             <div className="min-w-0">{record.recovery_id === page.oldest_pending_record?.recovery_id && <p className="text-xs text-amber-700 dark:text-amber-300">{t('pages.fileRecovery.oldestPending', { time: formatLocalTime(new Date(record.created_at_unix_ms).toISOString()) })}</p>}<p className="break-all text-sm font-medium">{record.file_name}</p>
                                 <p className="text-xs text-muted-foreground">{record.change_state === 'outcome_unknown'
                                     ? t('pages.fileRecovery.unknownRetained')
+                                    : record.change_state === 'snapshot_pending' ? t('pages.fileRecovery.snapshotPending')
                                     : t('pages.fileRecovery.until', { time: formatLocalTime(new Date(record.expires_at_unix_ms).toISOString()) })}</p>
                                 {(record.cleanup_pending || record.cleanup_reason) && <p className="text-xs text-amber-700 dark:text-amber-300">{t(['temporary_file_pending', 'storage_unavailable', 'quota_pending', 'quota_settlement_pending'].includes(record.cleanup_reason ?? '') ? `pages.fileRecovery.error.${record.cleanup_reason}` : 'pages.fileRecovery.pending')}</p>}
                             </div>

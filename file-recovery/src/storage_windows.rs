@@ -51,11 +51,35 @@ impl Locked {
     ) -> io::Result<Option<u64>> {
         self.0.publish_object(namespace, name, bytes)
     }
+    /// Each object is flushed and renamed on its own: a whole-volume flush
+    /// needs administrative rights.
+    pub fn publish_objects(
+        &self,
+        namespace: &str,
+        objects: &[(String, Vec<u8>)],
+    ) -> io::Result<Vec<Option<u64>>> {
+        objects
+            .iter()
+            .map(|(name, bytes)| self.0.publish_object(namespace, name, bytes))
+            .collect()
+    }
     pub fn object_exists(&self, namespace: &str, name: &str) -> io::Result<bool> {
         self.0.object_exists(namespace, name)
     }
     pub fn read_object(&self, namespace: &str, name: &str, limit: u64) -> io::Result<Vec<u8>> {
         self.0.read_object(namespace, name, limit)
+    }
+    pub fn read_object_prefix(&self, namespace: &str, name: &str, len: u64) -> io::Result<Vec<u8>> {
+        self.0.read_object_prefix(namespace, name, len)
+    }
+    pub fn create_executor(&self, id: &str) -> io::Result<std::fs::File> {
+        self.0.create_executor(id)
+    }
+    pub fn executor_alive(&self, id: &str) -> io::Result<bool> {
+        self.0.executor_alive(id)
+    }
+    pub fn list_executors(&self) -> io::Result<Vec<String>> {
+        self.0.list_executors()
     }
     pub fn remove_object(&self, namespace: &str, name: &str) -> io::Result<()> {
         self.0.remove_object(namespace, name)

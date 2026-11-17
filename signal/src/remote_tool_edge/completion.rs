@@ -378,6 +378,17 @@ fn project_with_observation(
         if completed.output.is_some() || verified {
             return Err(invalid());
         }
+    } else if matches!(
+        action,
+        ComputerActionKind::File(
+            desk_agent_protocol::computer_use::FilePatchAction::RestoreCommandChanges { .. }
+        )
+    ) {
+        desk_diagnose_core::provider_preflight::text_file::validate_command_restore_completion(
+            &plan.actions[0].target,
+            action,
+            completed,
+        )?;
     } else if desk_diagnose_core::provider_preflight::text_file::is_text_mutation(action) {
         desk_diagnose_core::provider_preflight::text_file::validate_completion(
             &plan.actions[0].target,

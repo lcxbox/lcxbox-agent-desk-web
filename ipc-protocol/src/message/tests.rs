@@ -1542,6 +1542,7 @@ fn service_to_worker_all_variants_round_trip() {
             connection_id: Some("c".to_string()),
             plan: sample_exec_plan(),
             audit_source_request_id: Some("frame-req".to_string()),
+            file_recovery: None,
         }),
         ServiceToWorker::UpdateSecurityPolicy(UpdateSecurityPolicyPayload {
             operation_id: "op-policy".to_string(),
@@ -2543,6 +2544,7 @@ fn sample_exec_plan() -> desk_agent_protocol::exec::ExecPlan {
         approval_id: ApprovalId("appr-1".to_string()),
         authorization: Default::default(),
         fingerprint: "fp".to_string(),
+        snapshot_roots: Vec::new(),
         timeout_ms: 30_000,
         max_stdout_bytes: 65_536,
         max_stderr_bytes: 65_536,
@@ -2560,6 +2562,7 @@ fn exec_plan_and_result_round_trip_wincode() {
         connection_id: Some("conn-1".to_string()),
         plan: sample_exec_plan(),
         audit_source_request_id: Some("frame-req-9".to_string()),
+        file_recovery: None,
     });
     match wincode_round_trip(&plan_msg) {
         ServiceToWorker::ExecPlan(p) => {
@@ -2602,6 +2605,7 @@ fn exec_plan_and_result_round_trip_wincode() {
                     },
                     duration_ms: 5,
                     redactions: vec![],
+                    file_changes: None,
                 }),
             ),
         },
@@ -2633,6 +2637,111 @@ fn exec_plan_and_result_round_trip_wincode() {
 }
 
 #[test]
+fn exec_snapshot_binding_and_file_changes_round_trip_wincode() {
+    use desk_agent_protocol::computer_use::{ObjectKind, ObjectRef};
+    use desk_agent_protocol::exec::{
+        ExecFileChange, ExecFileChangeKind, ExecFileChangeRoot, ExecFileChanges,
+        ExecSnapshotOutcome, ExecSnapshotRoot,
+    };
+    let directory = ObjectRef {
+        token: "dir-token".into(),
+        snapshot_id: "incarnation:1".into(),
+        object_kind: ObjectKind::Directory,
+        expires_at: String::new(),
+    };
+    let root = ExecSnapshotRoot::Cwd {
+        path: "/work/repo".into(),
+    };
+    let mut plan = sample_exec_plan();
+    plan.snapshot_roots = vec![root.clone()];
+    let binding = ExecFileRecoveryBinding {
+        recovery: FileRecoveryExecutionContext {
+            execution_epoch: 3,
+            os_user: "user".into(),
+            authority: "authority".into(),
+            conversation_id: "conversation".into(),
+        },
+        device: "device-1".into(),
+        owner: "7".into(),
+    };
+    match wincode_round_trip(&ServiceToWorker::ExecPlan(ExecPlanPayload {
+        request_id: "r-exec".into(),
+        connection_id: None,
+        plan: plan.clone(),
+        audit_source_request_id: None,
+        file_recovery: Some(binding),
+    })) {
+        ServiceToWorker::ExecPlan(payload) => {
+            assert_eq!(payload.plan.snapshot_roots, plan.snapshot_roots);
+            let binding = payload.file_recovery.expect("binding survives the wire");
+            assert_eq!(binding.recovery.conversation_id, "conversation");
+            assert_eq!(binding.recovery.execution_epoch, 3);
+            assert_eq!(
+                (binding.device.as_str(), binding.owner.as_str()),
+                ("device-1", "7")
+            );
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+    let changes = ExecFileChanges {
+        snapshot: ExecSnapshotOutcome::Taken,
+        recovery_id: Some("a".repeat(64)),
+        started_at_unix_ms: 10,
+        finished_at_unix_ms: 20,
+        roots: vec![ExecFileChangeRoot { root, directory }],
+        changes: vec![ExecFileChange {
+            path: "src/main.rs".into(),
+            root: 0,
+            kind: ExecFileChangeKind::Modified,
+            before_sha256: Some("b".repeat(64)),
+            after_sha256: Some("c".repeat(64)),
+            size_bytes: 12,
+            protected: true,
+        }],
+        truncated: false,
+    };
+    let output = desk_agent_protocol::ExecOutput {
+        started: true,
+        termination_signal: None,
+        failure: None,
+        diagnostics: vec![],
+        exit_code: Some(0),
+        streams: desk_agent_protocol::ExecOutputStreams::Split {
+            stdout: String::new(),
+            stderr: String::new(),
+            stdout_truncated: false,
+            stderr_truncated: false,
+        },
+        duration_ms: 1,
+        redactions: vec![],
+        file_changes: Some(changes.clone()),
+    };
+    let message = WorkerToService::ExecutionCompleted(ExecResultIpcPayload {
+        request_id: "r-exec".into(),
+        connection_id: None,
+        result: desk_agent_protocol::exec::ExecResultPayload {
+            exec_request_id: plan.exec_request_id.clone(),
+            outcome: desk_agent_protocol::AgentOutcome::Ok(
+                desk_agent_protocol::OperationOutput::Exec(output),
+            ),
+        },
+        audit_source_request_id: None,
+    });
+    match wincode_round_trip(&message) {
+        WorkerToService::ExecutionCompleted(payload) => match payload.result.outcome {
+            desk_agent_protocol::AgentOutcome::Ok(desk_agent_protocol::OperationOutput::Exec(
+                output,
+            )) => {
+                assert_eq!(output.file_changes, Some(changes));
+                output.validate_file_changes(&plan.snapshot_roots).unwrap();
+            }
+            other => panic!("unexpected: {other:?}"),
+        },
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
 fn exec_pty_start_carries_the_authoritative_capability_snapshot() {
     let mut plan = sample_exec_plan();
     plan.io_mode = desk_agent_protocol::exec::ExecIoMode::Pty {
@@ -2650,6 +2759,7 @@ fn exec_pty_start_carries_the_authoritative_capability_snapshot() {
         worker_incarnation: 9,
         plan,
         audit_source_request_id: Some("approval-1".to_string()),
+        file_recovery: None,
     });
 
     match wincode_round_trip(&message) {
@@ -2696,6 +2806,7 @@ fn invoke_agent_capability_cannot_decode_an_exec_envelope() {
         timeout_ms: 10_000,
         max_stdout_bytes: 65_536,
         max_stderr_bytes: 65_536,
+        snapshot_roots: Vec::new(),
     });
     // Deliberately decoding bytes as a different schema may turn payload bytes
     // into an arbitrary collection length. Bound this negative test's decoder;

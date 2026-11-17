@@ -13,6 +13,7 @@ sha2 = { workspace = true }
 libc = { workspace = true }
 zip = { workspace = true }
 zstd = { workspace = true }
+ignore = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mach2 = "0.4.3"

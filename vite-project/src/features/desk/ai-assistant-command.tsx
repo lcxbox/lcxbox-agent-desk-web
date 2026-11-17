@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { CommandSnapshotNotice, validSnapshotNotice, type SnapshotNotice } from './assistant-command-changes';
 
 export interface CommandReview {
     command: string;
@@ -11,6 +12,7 @@ export interface CommandReview {
     maxStderrBytes: number;
     executionBasis: string;
     oneShot: boolean;
+    snapshot?: SnapshotNotice | null;
 }
 
 export function validCommandReview(input: unknown): input is CommandReview {
@@ -24,7 +26,8 @@ export function validCommandReview(input: unknown): input is CommandReview {
         && Number.isInteger(value.timeoutMs) && value.timeoutMs > 0
         && Number.isInteger(value.maxStdoutBytes) && value.maxStdoutBytes > 0
         && Number.isInteger(value.maxStderrBytes) && value.maxStderrBytes > 0
-        && ['template', 'owner_blocklist_only'].includes(value.executionBasis));
+        && ['template', 'owner_blocklist_only'].includes(value.executionBasis)
+        && (value.snapshot == null || validSnapshotNotice(value.snapshot)));
 }
 
 export function CommandConfirmationCard({ value }: { value: CommandReview }) {
@@ -44,6 +47,7 @@ export function CommandConfirmationCard({ value }: { value: CommandReview }) {
                     seconds: value.timeoutMs / 1000, stdout: value.maxStdoutBytes, stderr: value.maxStderrBytes,
                 })}</dd>
             </dl>
+            {value.snapshot && <CommandSnapshotNotice value={value.snapshot} />}
         </div>
     );
 }

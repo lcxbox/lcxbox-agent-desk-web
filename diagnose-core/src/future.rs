@@ -156,7 +156,9 @@ mod tests {
             std::mem::size_of::<desk_agent_protocol::ExecInput>(),
         ];
         eprintln!("session/confirmation/exec layout bytes: {sizes:?}");
-        for (actual, maximum) in sizes.into_iter().zip([3568, 576, 120]) {
+        // The exec input and the frozen plan each carry the sealed snapshot
+        // root list; the owner-facing snapshot notice stays boxed.
+        for (actual, maximum) in sizes.into_iter().zip([3568, 632, 144]) {
             assert!(
                 actual <= maximum,
                 "security state layout grew to {actual} bytes (budget {maximum})"

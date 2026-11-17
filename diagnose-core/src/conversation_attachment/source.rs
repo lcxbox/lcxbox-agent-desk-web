@@ -203,6 +203,7 @@ mod tests {
                 stdout_truncated: false,
                 stderr_truncated: false,
             },
+            file_changes: None,
         });
         assert_eq!(source_format(&output), SourceFormat::Command);
         validate_output(&output).unwrap();

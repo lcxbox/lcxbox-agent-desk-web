@@ -816,6 +816,7 @@ pub(super) fn agentic_input(
         timeout_ms,
         max_stdout_bytes: 0,
         max_stderr_bytes: 0,
+        snapshot_roots: Vec::new(),
     }
 }
 
@@ -1949,4 +1950,93 @@ pub(super) async fn resolve_exec_approve_consumes_pending_once() {
         AgentOutcome::Err(e) => assert_eq!(e.kind, AgentErrorKind::InvalidInput),
         AgentOutcome::Ok(_) => panic!("replayed approve must not succeed"),
     }
+}
+
+/// The device PEP compares the sealed snapshot roots and I/O mode with the
+/// reconstruction from the original input: a plan whose roots or I/O mode
+/// differ from what the input classifies to is rejected.
+#[test]
+pub(super) fn agentic_plan_snapshot_roots_and_io_mode_are_compared() {
+    let mut input = agentic_input("Get-Service -Name Spooler", Some("C:/work"), 5_000);
+    input.snapshot_roots = vec![desk_agent_protocol::exec::ExecSnapshotRoot::Cwd {
+        path: "C:/work".into(),
+    }];
+    let plan = agentic_plan_from_input(&input, &[], "a1");
+    assert_eq!(plan.snapshot_roots, input.snapshot_roots);
+    let validate = |plan: &ExecPlan| {
+        validate_agentic_edge_exec(
+            plan,
+            &input,
+            desk_agent_protocol::authz::ExecAdmissionPolicy::TemplateOnly,
+            desk_agent_protocol::RiskLevel::Critical,
+            &[],
+            desk_agent_protocol::exec_policy::builtin_blocklist(),
+        )
+    };
+    assert_eq!(validate(&plan), None);
+    let mut stripped = plan.clone();
+    stripped.snapshot_roots.clear();
+    assert!(validate(&stripped).is_some());
+    let mut widened = plan.clone();
+    widened
+        .snapshot_roots
+        .push(desk_agent_protocol::exec::ExecSnapshotRoot::Cwd {
+            path: "C:/other".into(),
+        });
+    assert!(validate(&widened).is_some());
+    let mut interactive = plan;
+    interactive.io_mode = desk_agent_protocol::exec::ExecIoMode::Pty {
+        initial_rows: 24,
+        initial_cols: 80,
+    };
+    assert!(validate(&interactive).is_some());
+}
+
+/// A plan with snapshot roots carries the frame's backup scope to the worker:
+/// the device-resolved conversation namespace, the authorized device and the
+/// acting user. Plans without roots, frames without a registration and
+/// registrations for another authority carry none.
+#[tokio::test]
+pub(super) async fn exec_recovery_binding_follows_the_authorized_frame() {
+    let (mut ctx, _rx) = make_ctx_with_rx().await;
+    ctx.file_recovery_authority = Some("authority".into());
+    let mut authz = super::exec_confirm::authz_block(
+        vec![],
+        vec![],
+        ExecutionMode::Automated,
+        desk_agent_protocol::RiskLevel::Critical,
+    );
+    authz.session_id = Some("conversation".into());
+    authz.file_recovery_registration = Some(desk_agent_protocol::authz::FileRecoveryRegistration {
+        execution_epoch: 4,
+        authority: "authority".into(),
+        os_user: "user".into(),
+    });
+    let mut input = agentic_input("Get-Service -Name Spooler", Some("C:/work"), 5_000);
+    input.snapshot_roots = vec![desk_agent_protocol::exec::ExecSnapshotRoot::Cwd {
+        path: "C:/work".into(),
+    }];
+    let plan = agentic_plan_from_input(&input, &[], "a1");
+    let binding = super::super::edge_exec::exec_file_recovery_binding(&ctx, &authz, &plan).unwrap();
+    assert_eq!(binding.recovery.conversation_id, "conversation");
+    assert_eq!(binding.recovery.execution_epoch, 4);
+    assert_eq!(binding.recovery.os_user, "user");
+    assert_eq!(binding.device, authz.audience);
+    assert_eq!(binding.owner, "1");
+
+    let mut without_roots = plan.clone();
+    without_roots.snapshot_roots.clear();
+    assert!(
+        super::super::edge_exec::exec_file_recovery_binding(&ctx, &authz, &without_roots).is_none()
+    );
+    let mut foreign = authz.clone();
+    foreign
+        .file_recovery_registration
+        .as_mut()
+        .unwrap()
+        .authority = "other".into();
+    assert!(super::super::edge_exec::exec_file_recovery_binding(&ctx, &foreign, &plan).is_none());
+    let mut anonymous = authz;
+    anonymous.session_id = None;
+    assert!(super::super::edge_exec::exec_file_recovery_binding(&ctx, &anonymous, &plan).is_none());
 }

@@ -195,6 +195,24 @@ fn build_wrapper_outcome(
             message: "AI frame had no payload".to_string(),
         };
     };
+    // Snapshot roots come only from the AI command policy; an operator's own
+    // command never names them.
+    if model.signaling_type == SignalingType::PreviewExecution
+        && model
+            .get_data::<desk_agent_protocol::exec::ConfirmExecData>()
+            .is_ok_and(|data| {
+                matches!(
+                    &data.operation.input,
+                    desk_agent_protocol::OperationInput::Exec(input)
+                        if !input.snapshot_roots.is_empty()
+                )
+            })
+    {
+        return ControlFrameOutcome::Reject {
+            code: DeskErrorCode::INVALID_PARAMS,
+            message: "an operator command cannot carry snapshot roots".to_string(),
+        };
+    }
     let authz = AuthorizationBlock {
         file_recovery_registration: None,
         version: AUTHORIZATION_BLOCK_VERSION,
@@ -750,6 +768,7 @@ mod tests {
                     timeout_ms: 0,
                     max_stdout_bytes: 0,
                     max_stderr_bytes: 0,
+                    snapshot_roots: Vec::new(),
                 }),
             },
             reason: Some("operator promoted a assistant suggestion".to_string()),
@@ -941,6 +960,49 @@ mod tests {
                 .validate("req-9", "edge-1", "2026-01-01T00:00:00Z")
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn an_operator_command_cannot_name_snapshot_roots() {
+        use desk_agent_protocol::OperationInput;
+        use desk_agent_protocol::exec::{ConfirmExecData, ExecSnapshotRoot};
+        let plain = confirm_exec_model("req-roots", Some("edge-1"));
+        let mut data: ConfirmExecData = plain.get_data().unwrap();
+        let OperationInput::Exec(input) = &mut data.operation.input else {
+            panic!("expected an exec operation")
+        };
+        input.snapshot_roots = vec![ExecSnapshotRoot::Cwd {
+            path: "/srv".into(),
+        }];
+        let rooted = SignalingModel::new(
+            "req-roots",
+            SignalingType::PreviewExecution,
+            Some("browser-1".to_string()),
+            Some("edge-1".to_string()),
+            Some(serde_json::to_value(data).unwrap()),
+            None,
+        );
+        let wrap = |model: &SignalingModel| {
+            let (scope, grants, max_risk) =
+                single_account_decision(ExecutionMode::ConfirmEachAction);
+            build_wrapper_outcome(
+                model,
+                scope,
+                grants,
+                max_risk,
+                SINGLE_ACCOUNT_USER_ID,
+                "edge-1".to_string(),
+                "signal".to_string(),
+                "2999-01-01T00:00:00Z".to_string(),
+            )
+        };
+        assert!(matches!(
+            wrap(&rooted),
+            ControlFrameOutcome::Reject { code, message }
+                if code == DeskErrorCode::INVALID_PARAMS
+                    && message == "an operator command cannot carry snapshot roots"
+        ));
+        assert!(matches!(wrap(&plain), ControlFrameOutcome::Forward(_)));
     }
 
     #[test]

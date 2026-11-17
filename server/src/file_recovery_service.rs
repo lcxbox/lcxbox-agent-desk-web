@@ -36,7 +36,8 @@ pub(crate) fn project_record(vault: &LockedVault, r: Record, now: u64) -> FileRe
             ChangeState::Preparing => "preparing",
             ChangeState::BackupReady => "backup_ready",
             ChangeState::CommitIntent | ChangeState::OutcomeUnknown => "outcome_unknown",
-            ChangeState::Succeeded => "succeeded",
+            ChangeState::SnapshotPending => "snapshot_pending",
+            ChangeState::Succeeded | ChangeState::Completed => "succeeded",
             ChangeState::Aborted => "aborted",
         }
         .into(),

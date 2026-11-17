@@ -25,6 +25,7 @@ fn shell(command: &str) -> ExecInput {
         timeout_ms: 0,
         max_stdout_bytes: 0,
         max_stderr_bytes: 0,
+        snapshot_roots: Vec::new(),
     }
 }
 

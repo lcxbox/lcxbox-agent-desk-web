@@ -113,6 +113,7 @@ async fn fixture() -> (DatabaseConnection, i64) {
         command_origin: Some(origin),
         command_receipt: None,
         command_export: None,
+        command_snapshot_roots: Vec::new(),
         dispatch_id: generation.into(),
         grant_id: prepared.grant_id.clone(),
         reservation_id: prepared.reservation_id.clone(),

@@ -289,6 +289,7 @@ pub fn build_exec_input(call: &ToolCall) -> Result<(OperationInput, Option<Strin
         timeout_ms: params.timeout_ms.unwrap_or(0),
         max_stdout_bytes: DEFAULT_EXEC_MAX_STDOUT_BYTES,
         max_stderr_bytes: DEFAULT_EXEC_MAX_STDERR_BYTES,
+        snapshot_roots: Vec::new(),
     };
     Ok((OperationInput::Exec(input), params.reason))
 }

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatLocalTime } from '@/lib/local-time';
+import { commandRestoreApprovalBlocked, COMMAND_RESTORE_TOOL } from './assistant-command-changes';
 import { ELLIPSIS, inlineTextDiff, textPreviewHead, type DiffSegment } from './text-edit-diff';
 
 type Operation = 'update' | 'delete' | 'restore';
@@ -56,7 +57,8 @@ export function validTextFileReview(input: unknown): input is TextFileReview {
     return v.write == null ? validTextEdits(v.edits) : typeof v.write === 'string' && v.edits == null;
 }
 
-export function fileApprovalBlocked(item: { toolName: string; textFileConfirmation?: unknown }): boolean {
+export function fileApprovalBlocked(item: { toolName: string; textFileConfirmation?: unknown; commandRestoreConfirmation?: unknown }): boolean {
+    if (item.toolName === COMMAND_RESTORE_TOOL) return commandRestoreApprovalBlocked(item);
     const expected = TOOL_OPERATIONS[item.toolName];
     if (!expected) return false;
     return !validTextFileReview(item.textFileConfirmation) || item.textFileConfirmation.operation !== expected;

@@ -1,9 +1,14 @@
 //! Exact text mutation input compilation. Hosts supply authenticated device
 //! evidence from their durable receipt store, never model-supplied file refs.
 use super::*;
+pub mod command_restore;
 pub mod read_window;
 mod restore;
 pub mod selection;
+pub use command_restore::{
+    COMMAND_RESTORE_TOOL, CommandRestoreReview, review_command_restore_input,
+    validate_command_restore_completion,
+};
 use desk_agent_protocol::computer_use::{
     CreatedFileArtifactOutput, FileContentReadOutput, FilePatchAction, MAX_TEXT_CHANGE_FIELD_BYTES,
     MAX_TEXT_EDITS, MAX_TEXT_FILE_BYTES, TextFileChange,
@@ -139,6 +144,16 @@ pub fn registered_tools() -> Vec<crate::registry::RegisteredTool> {
             },"required":["mutation_result_call_id"],"additionalProperties":false}),
             Capability::FilePatchConfirmed,
         ),
+        tool(
+            COMMAND_RESTORE_TOOL,
+            "Undo file changes recorded by an earlier exec_command (or by an earlier restore_command_changes) when the owner asks for it. Before a command that may change files, the device takes a best-effort snapshot of text files under the command's cwd, or under the conversation's approved directories when cwd is omitted; the result's file_changes lists the files added, modified and deleted under those roots. Only entries with protected=true can be restored. One call restores entries of one root: a modified file gets its previous content back, an added file is deleted, a deleted file is recreated. A file that changed again since is skipped as a conflict and never overwritten; results are reported per file and the restore is not atomic across files. The list covers every change under the roots while the command ran, possibly including changes the command did not make. The device backs up the current state first, so a restore can itself be undone. A root from an approved directory needs that approval to still be valid; a cwd root needs the device to still allow commands that change files. Needs one exact approval and is never retried automatically.",
+            serde_json::json!({"type":"object","properties":{
+                "command_result_call_id":{"type":"string","minLength":1,"maxLength":256,"description":"Exact tool call id of the exec_command or restore_command_changes result whose file_changes to undo."},
+                "root":{"type":"integer","minimum":0,"maximum":desk_agent_protocol::exec::MAX_EXEC_SNAPSHOT_ROOTS - 1,"default":0,"description":"Index of the root in that result's file_changes.roots."},
+                "paths":{"type":"array","minItems":1,"maxItems":desk_agent_protocol::exec::MAX_COMMAND_RESTORE_ENTRIES,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":4096},"description":"Protected paths of that root exactly as listed in file_changes. Omit to restore every protected change of the root."}
+            },"required":["command_result_call_id"],"additionalProperties":false}),
+            Capability::FilePatchConfirmed,
+        ),
     ]
 }
 
@@ -207,9 +222,17 @@ pub fn frozen_resources(
             }
             (args.mutation_result_call_id, vec![directory.clone()])
         }
+        (COMMAND_RESTORE_TOOL, FilePatchAction::RestoreCommandChanges { .. }) => {
+            let args: command_restore::CommandRestoreArgs =
+                serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?;
+            action
+                .validate_command_restore()
+                .map_err(|_| unavailable())?;
+            (args.command_result_call_id, vec![target.clone()])
+        }
         _ => return Err(unavailable()),
     };
-    let expected_kind = if call.name == RESTORE_TEXT_TOOL {
+    let expected_kind = if matches!(call.name.as_str(), RESTORE_TEXT_TOOL | COMMAND_RESTORE_TOOL) {
         ObjectKind::Directory
     } else {
         ObjectKind::File
@@ -538,6 +561,33 @@ pub fn uses_session_file_read(call: &ToolCall) -> Result<bool, AgentError> {
     let value: serde_json::Value =
         serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?;
     Ok(value.get("directory_request_id").is_some())
+}
+
+/// Reject an unusable `restore_command_changes` input before presenting an
+/// owner permission card, against the registry's trusted command policy.
+pub fn validate_command_restore_permission_input(
+    session: &crate::session::PersistedAgentSession,
+    registry: &crate::provider_registry::ProviderRegistry,
+    tool_name: &str,
+    exact_input: Option<&str>,
+    now: u64,
+) -> Result<(), AgentError> {
+    if tool_name != COMMAND_RESTORE_TOOL {
+        return Ok(());
+    }
+    let call = ToolCall {
+        id: "command-restore-permission-preflight".into(),
+        name: tool_name.into(),
+        arguments_json: exact_input.unwrap_or("{}").into(),
+    };
+    command_restore::build(
+        session,
+        &session.device_id,
+        &call,
+        TextMutationPreflight::command_restore_execution_mode(registry, &session.device_id),
+        now,
+    )
+    .map(|_| ())
 }
 
 /// Reject unusable file selectors before presenting an owner permission card.
@@ -1421,6 +1471,7 @@ pub struct TextMutationPreflight {
     resource_scope: Vec<String>,
     valid_until_unix_ms: u64,
     restore: Option<RestoreReview>,
+    command_restore: Option<CommandRestoreReview>,
 }
 
 impl TextMutationPreflight {
@@ -1442,6 +1493,13 @@ impl TextMutationPreflight {
     ) -> Result<Self, AgentError> {
         let mut result = if call.name == RESTORE_TEXT_TOOL {
             restore::build(session, device_id, call, now_unix_ms)?
+        } else if call.name == COMMAND_RESTORE_TOOL {
+            return Err(error(
+                AgentErrorKind::PermissionDenied,
+                "restoring command changes needs the device's current execution policy",
+                false,
+                true,
+            ));
         } else {
             Self::from_file_version(session, device_id, call, now_unix_ms)?
         };
@@ -1454,6 +1512,42 @@ impl TextMutationPreflight {
         }
         result.surface = surface;
         Ok(result)
+    }
+
+    /// Preflight of `restore_command_changes`. `execution_mode` is the target
+    /// device's current trusted execution mode (from its command policy);
+    /// without it a working-directory root cannot be restored.
+    pub fn command_restore(
+        session: &crate::session::PersistedAgentSession,
+        device_id: &str,
+        surface: ProductSurface,
+        call: &ToolCall,
+        execution_mode: Option<desk_agent_protocol::ExecutionMode>,
+        now_unix_ms: u64,
+    ) -> Result<Self, AgentError> {
+        let mut result =
+            command_restore::build(session, device_id, call, execution_mode, now_unix_ms)?;
+        if !matches!(
+            surface,
+            ProductSurface::OssPersonalOwner | ProductSurface::ManagerPersonalOwner
+        ) || !result.capability.wire.surfaces.contains(&surface)
+        {
+            return Err(unavailable());
+        }
+        result.surface = surface;
+        Ok(result)
+    }
+
+    /// Execution mode of a registry's command policy for `device_id`, the
+    /// trusted input of [`Self::command_restore`].
+    pub fn command_restore_execution_mode(
+        registry: &crate::provider_registry::ProviderRegistry,
+        device_id: &str,
+    ) -> Option<desk_agent_protocol::ExecutionMode> {
+        registry
+            .command_policy()
+            .filter(|policy| policy.target_device_id == device_id)
+            .map(|policy| policy.execution_mode)
     }
 
     fn from_file_version(
@@ -1542,11 +1636,20 @@ impl TextMutationPreflight {
     pub fn restore(&self) -> Option<&RestoreReview> {
         self.restore.as_ref()
     }
+    /// The files and operations a command restore undoes.
+    pub fn command_restore_review(&self) -> Option<&CommandRestoreReview> {
+        self.command_restore.as_ref()
+    }
     pub fn supports(tool: &str) -> bool {
         matches!(
             tool,
             UPDATE_TEXT_TOOL | DELETE_TEXT_TOOL | RESTORE_TEXT_TOOL
         )
+    }
+    /// Device file mutations approved once for an exact input at R3: the
+    /// text tools and `restore_command_changes`.
+    pub fn is_exact_r3_file_mutation(tool: &str) -> bool {
+        Self::supports(tool) || tool == COMMAND_RESTORE_TOOL
     }
     /// Tools whose input names a file version and selects its directory. A
     /// restore instead inherits the directory of the operation it undoes.
@@ -1661,6 +1764,7 @@ impl TextMutationPreflight {
             resource_scope: fresh_object_resource_scope(&[directory, evidence.reference.clone()]),
             valid_until_unix_ms,
             restore: None,
+            command_restore: None,
         })
     }
 }

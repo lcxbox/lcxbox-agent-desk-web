@@ -947,6 +947,7 @@ mod tests {
             command_origin: None,
             command_receipt: None,
             command_export: None,
+            command_snapshot_roots: Vec::new(),
             dispatch_id: dispatch.into(),
             grant_id: "grant".into(),
             reservation_id: "reservation".into(),

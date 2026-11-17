@@ -4,7 +4,7 @@ use crate::entity::{agent_file_recovery_scope as vault, agent_session};
 use desk_assistant_data_store::entity_table::EntityTableExt;
 use sea_orm::{
     ActiveValue::Set,
-    ColumnTrait, EntityTrait, QueryFilter, QueryOrder, TransactionTrait,
+    ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, TransactionTrait,
     sea_query::{Expr, OnConflict},
 };
 use sha2::{Digest, Sha256};
@@ -112,7 +112,14 @@ impl FileRecoveryScopeStore {
             )
             .filter(agent_session::Column::ConversationId.eq(conversation))
             .filter(agent_session::Column::ActorId.eq(actor))
-            .filter(agent_session::Column::DeviceId.eq(device))
+            // A device-bound conversation registers only its own device; a
+            // multi-device conversation (no bound device) acts on the devices
+            // it selects.
+            .filter(
+                Condition::any()
+                    .add(agent_session::Column::DeviceId.eq(device))
+                    .add(agent_session::Column::DeviceId.eq("")),
+            )
             .exec(&txn)
             .await?;
         if locked.rows_affected != 1 {
@@ -322,5 +329,59 @@ mod tests {
             .unwrap();
         assert_eq!(remaining.len(), 1);
         assert_ne!(remaining[0].os_user, first.os_user);
+    }
+
+    #[tokio::test]
+    async fn a_multi_device_conversation_registers_each_selected_device() {
+        let db = crate::config::test_support::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let schema = sea_orm::Schema::new(db.get_database_backend());
+        db.execute(&schema.entity_table(agent_session::Entity).to_owned())
+            .await
+            .unwrap();
+        db.execute(&schema.entity_table(vault::Entity).to_owned())
+            .await
+            .unwrap();
+        let now = chrono::Utc::now();
+        // A conversation without a bound device acts on the devices it selects.
+        agent_session::ActiveModel {
+            conversation_id: Set("conversation".into()),
+            actor_id: Set("owner".into()),
+            device_id: Set(String::new()),
+            state_json: Set("{}".into()),
+            version: Set(1),
+            lease_token: Set(0),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+        let store = FileRecoveryScopeStore::new(db.clone());
+        let authority = "a".repeat(64);
+        for device in ["first", "second"] {
+            assert!(
+                store
+                    .register("owner", device, "conversation", &authority, "501", 1)
+                    .await
+                    .unwrap()
+            );
+            assert_eq!(
+                store
+                    .pending("owner", device, "conversation")
+                    .await
+                    .unwrap()
+                    .len(),
+                1
+            );
+        }
+        assert!(
+            !store
+                .register("other", "first", "conversation", &authority, "501", 1)
+                .await
+                .unwrap()
+        );
     }
 }

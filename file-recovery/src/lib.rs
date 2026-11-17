@@ -33,12 +33,29 @@ mod export;
 pub use export::{
     EXPORT_CHUNK_BYTES, EntriesPage, EntryMaterial, EntrySummary, ExportCache, ExportChunk,
 };
+mod executor;
+pub use executor::Executor;
 mod ledger;
 use ledger::Ledger;
 mod lifecycle;
 mod object;
 pub mod quota;
+mod restore;
+pub use restore::{RestoreFile, RestoreRequest, RestoreTarget};
+#[cfg(unix)]
+#[path = "scan_unix.rs"]
+mod scan_fs;
+#[cfg(windows)]
+#[path = "scan_windows.rs"]
+mod scan_fs;
+pub use scan_fs::create_directories;
+mod snapshot;
+pub use snapshot::{
+    ChangeKind, FileChange, PendingSnapshot, RecordedChange, ScanLimits, SkipReason, SnapshotBegin,
+    SnapshotFinish, SnapshotRequest, SnapshotRoot, SnapshotRootState, SnapshotState,
+};
 mod store;
+use store::EntryTable;
 mod sweep;
 pub use sweep::SweepReport;
 
@@ -134,6 +151,12 @@ pub enum ChangeState {
     OutcomeUnknown,
     Succeeded,
     Aborted,
+    /// A command snapshot whose command may still be running. Never reclaimed
+    /// by restart recovery: maintenance marks it `OutcomeUnknown` only after
+    /// its executor's lock was released.
+    SnapshotPending,
+    /// A command snapshot whose post-run scan was recorded.
+    Completed,
 }
 /// Purged records keep only their replay fence; their objects are no longer roots.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -149,10 +172,13 @@ pub enum RecordKind {
     TextDelete,
     TextRestore,
     CommandSnapshot,
+    /// A multi-file restore of command changes; shaped like a snapshot so
+    /// that it can be restored in turn.
+    CommandRestore,
 }
 impl RecordKind {
     fn is_text(self) -> bool {
-        !matches!(self, Self::CommandSnapshot)
+        matches!(self, Self::TextEdit | Self::TextDelete | Self::TextRestore)
     }
 }
 
@@ -197,10 +223,22 @@ pub struct Entry {
     pub metadata: Option<String>,
     /// `hash(directory identity, rel_path)`, used only to choose delta bases.
     pub lineage: String,
+    /// Index of the snapshot root `rel_path` is relative to.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub root: u32,
+    /// The recorded change of command snapshot and command restore entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<RecordedChange>,
+}
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }
 impl Entry {
     fn validate(&self) -> io::Result<()> {
         validate_rel_path(&self.rel_path, false)?;
+        if let Some(change) = &self.change {
+            change.validate()?;
+        }
         for object in self.before.iter().chain(&self.after) {
             object.validate()?;
         }
@@ -213,11 +251,18 @@ impl Entry {
 
 /// Text records keep their single entry inline; larger records store the
 /// entry list as an object and keep only its name and length in the ledger.
+/// An unfinished command snapshot exposes the saved files of its pre-run
+/// manifests instead.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "storage", rename_all = "snake_case", deny_unknown_fields)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "text records keep their single entry inline in the ledger"
+)]
 pub enum Entries {
     Inline { entry: Entry },
     Table { sha256: String, count: u64 },
+    PreRun { count: u64 },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -251,18 +296,24 @@ pub struct Record {
     pub discard_requested: bool,
     pub clock_generation: u64,
     pub storage_epoch: u64,
+    /// Worker instance running a command snapshot; maintenance probes its
+    /// lock file to tell a running command from a crashed worker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<SnapshotState>,
 }
 impl Record {
     pub fn entry_count(&self) -> u64 {
         match &self.entries {
             Entries::Inline { .. } => 1,
-            Entries::Table { count, .. } => *count,
+            Entries::Table { count, .. } | Entries::PreRun { count } => *count,
         }
     }
     pub fn inline_entry(&self) -> Option<&Entry> {
         match &self.entries {
             Entries::Inline { entry } => Some(entry),
-            Entries::Table { .. } => None,
+            Entries::Table { .. } | Entries::PreRun { .. } => None,
         }
     }
     /// The original file name of a single-entry text record.
@@ -275,7 +326,10 @@ impl Record {
     fn in_flight(&self) -> bool {
         matches!(
             self.change,
-            ChangeState::Preparing | ChangeState::BackupReady | ChangeState::CommitIntent
+            ChangeState::Preparing
+                | ChangeState::BackupReady
+                | ChangeState::CommitIntent
+                | ChangeState::SnapshotPending
         )
     }
 }
@@ -419,6 +473,11 @@ impl LockedVault {
                 .saturating_add(u64::from(policy.retention_days) * 86_400_000);
             record.revision += 1;
         }
+        for manifest in self.ledger.manifests.values_mut() {
+            manifest.expires_at_ms = manifest
+                .updated_at_ms
+                .saturating_add(u64::from(policy.retention_days) * 86_400_000);
+        }
         self.ledger.policy = policy;
         self.persist()
     }
@@ -537,11 +596,16 @@ impl LockedVault {
             && !self.conversation_retains_material(scope, conversation)
     }
     fn conversation_retains_material(&self, scope: &Scope, conversation: &str) -> bool {
+        let key = scope.key(conversation);
         self.ledger.records.values().any(|r| {
             &r.scope == scope
                 && r.conversation == conversation
                 && (r.material != MaterialState::Purged || r.transaction.is_some())
-        })
+        }) || self
+            .ledger
+            .manifests
+            .values()
+            .any(|manifest| manifest.scope.key(&manifest.conversation) == key)
     }
     pub fn is_deleted(&self, scope: &Scope, conversation: &str) -> bool {
         self.ledger

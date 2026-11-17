@@ -73,6 +73,22 @@ enum BaseSource<'a> {
     Stored,
 }
 
+/// Roots, lineages and changes of a command restore record's entries.
+pub(crate) struct Annotation {
+    pub snapshot: SnapshotState,
+    /// Per entry: root index, lineage and change.
+    pub entries: Vec<(u32, String, RecordedChange)>,
+}
+impl Annotation {
+    fn apply(&self, entries: &mut [Entry]) {
+        for (entry, (root, lineage, change)) in entries.iter_mut().zip(&self.entries) {
+            entry.root = *root;
+            entry.lineage = lineage.clone();
+            entry.change = Some(change.clone());
+        }
+    }
+}
+
 /// Objects referenced by live records of one namespace: sha -> base chain.
 pub(crate) type LiveObjects = HashMap<String, Vec<String>>;
 /// An object name and the frame to publish under it.
@@ -91,7 +107,12 @@ impl LockedVault {
         }
         let count = request.entries.len();
         let text = request.kind.is_text();
-        if count == 0 || count > MAX_RECORD_ENTRIES || (text && count != 1) {
+        // Command snapshots are written by `Vault::begin_snapshot`.
+        if count == 0
+            || count > MAX_RECORD_ENTRIES
+            || (text && count != 1)
+            || request.kind == RecordKind::CommandSnapshot
+        {
             return Err(invalid("invalid recovery entry count"));
         }
         for entry in &request.entries {
@@ -99,9 +120,9 @@ impl LockedVault {
             let shape = match request.kind {
                 RecordKind::TextEdit => entry.before.is_some() && entry.after.is_some(),
                 RecordKind::TextDelete => entry.before.is_some() && entry.after.is_none(),
-                RecordKind::TextRestore | RecordKind::CommandSnapshot => {
-                    entry.before.is_some() || entry.after.is_some()
-                }
+                RecordKind::TextRestore
+                | RecordKind::CommandSnapshot
+                | RecordKind::CommandRestore => entry.before.is_some() || entry.after.is_some(),
             };
             let content_ok = |content: &[u8]| {
                 content.len() <= MAX_TEXT_BYTES
@@ -285,20 +306,26 @@ impl LockedVault {
         Ok(live)
     }
 
-    /// Every object a record keeps alive, including its entry table.
+    /// Every object a record's entries keep alive, including its entry table
+    /// and the objects it published. Snapshot roots (manifests and batches of
+    /// an unfinished run) are marked by the sweep separately.
     pub(crate) fn record_objects(&self, record: &Record) -> io::Result<Vec<ObjRef>> {
         let mut objects = Vec::new();
         let entries = match &record.entries {
             Entries::Inline { entry } => vec![entry.clone()],
             Entries::Table { sha256, .. } => {
                 objects.push(ObjRef::full(sha256.clone()));
-                match self.entry_table(record) {
-                    Ok(entries) => entries,
+                match self.table(record) {
+                    Ok(table) => {
+                        objects.extend(table.published);
+                        table.entries
+                    }
                     // A Preparing record may have crashed before publishing its table.
                     Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
                     Err(error) => return Err(error),
                 }
             }
+            Entries::PreRun { .. } => Vec::new(),
         };
         for entry in entries {
             objects.extend(entry.before);
@@ -334,10 +361,31 @@ impl LockedVault {
         request: BackupRequest<'_>,
         encoded: EncodedBackup,
         expected_epoch: u64,
+        reserve: impl FnMut(&Record, u64) -> io::Result<()>,
+    ) -> io::Result<Record> {
+        self.backup_annotated(request, encoded, expected_epoch, reserve, None)
+    }
+
+    /// `backup_encoded` with per-entry roots and changes and the snapshot
+    /// state of a command restore record.
+    pub(crate) fn backup_annotated(
+        &mut self,
+        request: BackupRequest<'_>,
+        encoded: EncodedBackup,
+        expected_epoch: u64,
         mut reserve: impl FnMut(&Record, u64) -> io::Result<()>,
+        annotation: Option<Annotation>,
     ) -> io::Result<Record> {
         self.require_execution_epoch(expected_epoch)?;
         self.validate_request(&request)?;
+        // Restore records need their roots and changes.
+        if (request.kind == RecordKind::CommandRestore) != annotation.is_some()
+            || annotation
+                .as_ref()
+                .is_some_and(|annotation| annotation.entries.len() != request.entries.len())
+        {
+            return Err(invalid("invalid recovery entry count"));
+        }
         let namespace = request.scope.namespace();
         if encoded.namespace != namespace || encoded.entries.len() != request.entries.len() {
             return Err(invalid("encoded backup does not match its request"));
@@ -367,7 +415,10 @@ impl LockedVault {
             .clone()
             .map(|plan| plan.into_transaction(&id))
             .transpose()?;
-        let entries = self.entries_of(&request, &encoded.entries);
+        let mut entries = self.entries_of(&request, &encoded.entries);
+        if let Some(annotation) = &annotation {
+            annotation.apply(&mut entries);
+        }
         let (record_entries, table_frame) = Self::entries_storage(entries)?;
         let mut record = Record {
             id: id.clone(),
@@ -393,6 +444,10 @@ impl LockedVault {
             discard_requested: false,
             clock_generation: self.ledger.clock_generation,
             storage_epoch: self.ledger.execution_epoch,
+            executor: None,
+            snapshot: annotation
+                .as_ref()
+                .map(|annotation| annotation.snapshot.clone()),
         };
         Self::rebill(&mut record)?;
         let planned_bytes = encoded
@@ -421,7 +476,10 @@ impl LockedVault {
             // Step 2.
             reserve(&self.ledger.records[&id], reserved)?;
             // Step 3.
-            let (entries, frames) = self.finalize(&id, &request, encoded)?;
+            let (mut entries, frames) = self.finalize(&id, &request, encoded)?;
+            if let Some(annotation) = &annotation {
+                annotation.apply(&mut entries);
+            }
             let (record_entries, table_frame) = Self::entries_storage(entries)?;
             let mut publish: Vec<Frame> = frames;
             if let (Entries::Table { sha256, .. }, Some((_, frame))) =
@@ -471,13 +529,15 @@ impl LockedVault {
                 after: planned.after.as_ref().map(|p| p.object().clone()),
                 metadata: planned.metadata.as_ref().map(|p| p.object().sha256.clone()),
                 lineage: lineage(request.directory_identity, input.rel_path),
+                root: 0,
+                change: None,
             })
             .collect()
     }
 
-    /// One entry stays inline; more entries become a table object.
+    /// One text entry stays inline; other records use a table object.
     pub(crate) fn entries_storage(mut entries: Vec<Entry>) -> io::Result<(Entries, Option<Frame>)> {
-        if entries.len() == 1 {
+        if entries.len() == 1 && entries[0].change.is_none() {
             return Ok((
                 Entries::Inline {
                     entry: entries.pop().unwrap(),
@@ -485,17 +545,25 @@ impl LockedVault {
                 None,
             ));
         }
-        let table = serde_json::to_vec(&entries)?;
-        if table.len() > MAX_TEXT_BYTES {
+        Self::table_storage(EntryTable {
+            entries,
+            published: Vec::new(),
+        })
+    }
+
+    pub(crate) fn table_storage(table: EntryTable) -> io::Result<(Entries, Option<Frame>)> {
+        let count = table.entries.len() as u64;
+        let raw = serde_json::to_vec(&table)?;
+        if raw.len() > MAX_TEXT_BYTES {
             return Err(invalid("recovery entry table exceeds its bound"));
         }
-        let sha = hash(&table);
+        let sha = hash(&raw);
         Ok((
             Entries::Table {
                 sha256: sha.clone(),
-                count: entries.len() as u64,
+                count,
             },
-            Some((sha, object::encode_full(&table)?)),
+            Some((sha, object::encode_full(&raw)?)),
         ))
     }
 
@@ -553,6 +621,16 @@ impl LockedVault {
                         bases: bases.clone(),
                     }));
                 }
+                // An object held only by roots outside the record ledger (a
+                // manifest or a pending snapshot) is kept with its chain.
+                if let Some(bases) = self.stored_chain(namespace, &sha)? {
+                    let object = ObjRef {
+                        sha256: sha.clone(),
+                        bases,
+                    };
+                    published.insert(sha, object.clone());
+                    return Ok(Some(object));
+                }
                 let delta_base_alive = match &planned {
                     Planned::New { object, .. } => match object.bases.split_first() {
                         None => true,
@@ -584,6 +662,8 @@ impl LockedVault {
                 after,
                 metadata,
                 lineage: lineage(request.directory_identity, input.rel_path),
+                root: 0,
+                change: None,
             });
         }
         Ok((entries, frames))
@@ -604,6 +684,35 @@ impl LockedVault {
             Some(len) => usage.bytes = usage.bytes.saturating_sub(round_block(len)),
         }
         usage.bytes += written;
+        Ok(written)
+    }
+
+    /// Publish several objects with one durability barrier and update their
+    /// namespace's counts. Returns the block-rounded bytes written.
+    pub(crate) fn publish_batch(
+        &mut self,
+        namespace: &str,
+        frames: &[(String, Vec<u8>)],
+    ) -> io::Result<u64> {
+        if frames.is_empty() {
+            return Ok(0);
+        }
+        let previous = self.storage.publish_objects(namespace, frames)?;
+        let usage = self
+            .ledger
+            .namespaces
+            .entry(namespace.to_owned())
+            .or_default();
+        let mut written = 0;
+        for ((_, frame), previous) in frames.iter().zip(previous) {
+            match previous {
+                None => usage.objects += 1,
+                Some(len) => usage.bytes = usage.bytes.saturating_sub(round_block(len)),
+            }
+            let bytes = round_block(frame.len() as u64);
+            usage.bytes += bytes;
+            written += bytes;
+        }
         Ok(written)
     }
 

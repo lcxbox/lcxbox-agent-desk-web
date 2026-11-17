@@ -873,6 +873,7 @@ mod tests {
             },
             duration_ms: 25,
             redactions: vec!["private redaction".into()],
+            file_changes: None,
         };
         for (started, exit, outcome) in [
             (true, Some(0), OperationOutcome::Accepted),

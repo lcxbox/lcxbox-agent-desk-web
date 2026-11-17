@@ -86,6 +86,7 @@ pub(super) fn text_adapter(providers: &ProviderRegistry) -> EdgeAdapterDescripto
             TEXT_FILE_UPDATE_CAPABILITY_ID.into(),
             TEXT_FILE_DELETE_CAPABILITY_ID.into(),
             TEXT_FILE_RESTORE_CAPABILITY_ID.into(),
+            COMMAND_CHANGES_RESTORE_CAPABILITY_ID.into(),
         ],
         limits: providers
             .capability(TEXT_FILE_UPDATE_CAPABILITY_ID)

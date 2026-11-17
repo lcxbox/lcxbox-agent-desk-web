@@ -1843,11 +1843,50 @@ async fn prepare_composed_turn(
                     );
                     let provider_registry = if !targetless
                         && let Ok(policy) = desk_diagnose_core::future::boxed(|| async {
+                            // A claimed scheduled turn already holds its
+                            // session; a conversation not stored yet starts
+                            // without directory approvals.
+                            let stored = if scheduled.is_some() {
+                                None
+                            } else {
+                                crate::command_policy::stored_session(
+                                    &db,
+                                    &conversation_id,
+                                    &actor_id,
+                                    &target_device_id,
+                                )
+                                .await?
+                            };
+                            let fresh;
+                            let session = match (scheduled.as_ref(), stored.as_deref()) {
+                                (Some(resume), _) => &resume.claimed.session,
+                                (None, Some(session)) => session,
+                                (None, None) => {
+                                    fresh = Box::new(
+                                        desk_diagnose_core::session::PersistedAgentSession::new(
+                                            conversation_id.clone(),
+                                            actor_id.clone(),
+                                            target_device_id.clone(),
+                                            PERSONAL_ASSISTANT_POLICY_REVISION,
+                                            AgentScope {
+                                                granted: Vec::new(),
+                                                mode: ExecutionMode::ReadOnly,
+                                                expires_at: None,
+                                                policy_name: None,
+                                            },
+                                            chrono::Utc::now().to_rfc3339(),
+                                        ),
+                                    );
+                                    &*fresh
+                                }
+                            };
                             crate::command_policy::current(
                                 &db,
                                 connections.as_ref(),
                                 &target_connection_id,
                                 &actor_id,
+                                session,
+                                now_unix_ms,
                             )
                             .await
                         })
@@ -2174,6 +2213,7 @@ async fn prepare_composed_turn(
                             desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL,
                             desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL,
                             desk_diagnose_core::provider_preflight::text_file::RESTORE_TEXT_TOOL,
+                            desk_diagnose_core::provider_preflight::text_file::COMMAND_RESTORE_TOOL,
                         ]
                         .into_iter()
                         .map(str::to_string),

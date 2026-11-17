@@ -331,6 +331,7 @@ async fn completed_fixture_with_delivery(
             &child.conversation_id,
             &call.id,
             60000,
+            &[],
             &origin,
             Some(&export),
         )
@@ -356,6 +357,7 @@ async fn completed_fixture_with_delivery(
                     },
                     duration_ms: 1,
                     redactions: vec![],
+                    file_changes: None,
                 }),
             ),
         },

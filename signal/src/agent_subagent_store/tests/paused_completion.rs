@@ -241,6 +241,7 @@ async fn seed_origin(
         command_origin: Some(origin.clone()),
         command_receipt: None,
         command_export: None,
+        command_snapshot_roots: Vec::new(),
         dispatch_id: work.execution_generation.clone(),
         grant_id: "fixture-grant".into(),
         reservation_id: "fixture-reservation".into(),

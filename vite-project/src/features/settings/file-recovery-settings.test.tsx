@@ -188,3 +188,15 @@ it('distinguishes a partial list from the final loaded records', async () => {
     expect(await screen.findByText('pages.fileRecovery.loaded')).toBeInTheDocument();
     expect(screen.queryByText('pages.fileRecovery.loadedMore')).not.toBeInTheDocument();
 });
+it('labels a command snapshot in progress and does not offer to discard it', async () => {
+    api.query.mockResolvedValueOnce({ data: { policy: { retention_days: 7, max_bytes: 104857600 }, used_bytes: 100, reserved_bytes: 0,
+        records: [{ recovery_id: 'snapshot', conversation_id: 'conversation', file_name: 'repo', created_at_unix_ms: 1000, expires_at_unix_ms: 2000,
+            change_state: 'snapshot_pending', export_available: true }], next_cursor: null } });
+    render(<FileRecoverySettings />);
+    fireEvent.click(screen.getByText('pages.fileRecovery.manage'));
+    fireEvent.click(screen.getByRole('button', { name: 'pages.fileRecovery.refresh' }));
+    expect(await screen.findByText('pages.fileRecovery.snapshotPending')).toBeInTheDocument();
+    expect(screen.queryByText('pages.fileRecovery.until')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'pages.fileRecovery.discard' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'pages.fileRecovery.export' })).toBeEnabled();
+});

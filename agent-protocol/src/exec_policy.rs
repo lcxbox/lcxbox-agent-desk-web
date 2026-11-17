@@ -23,6 +23,7 @@ use crate::command_blocklist::{BlocklistMatcher, BlocklistRule, blocklist_match}
 use crate::command_template::SyncedCommandTemplate;
 use crate::exec::{
     ExecContainmentSnapshot, ExecExecutionBasis, ExecIoMode, ExecPlanDraft, ExecShellKind,
+    ExecSnapshotRoot,
 };
 
 // ============================ Execution limits ============================
@@ -208,6 +209,8 @@ pub fn build_exact_argv_draft_with_io_mode(
         max_stdout_bytes,
         max_stderr_bytes,
     };
+    // Operator templates seal no snapshot roots: fleet and other non-AI
+    // executions are never snapshotted.
     let fingerprint = fingerprint_with_io_mode(
         &program,
         &argv,
@@ -215,6 +218,7 @@ pub fn build_exact_argv_draft_with_io_mode(
         &limits,
         &containment,
         io_mode,
+        &[],
     );
     ExecPlanDraft {
         program,
@@ -231,6 +235,7 @@ pub fn build_exact_argv_draft_with_io_mode(
         max_stdout_bytes,
         max_stderr_bytes,
         containment,
+        snapshot_roots: Vec::new(),
     }
 }
 
@@ -267,10 +272,12 @@ pub fn fingerprint(
         limits,
         containment,
         ExecIoMode::NonInteractive,
+        &[],
     )
 }
 
-/// Fingerprint a plan including its sealed standard-I/O contract.
+/// Fingerprint a plan including its sealed standard-I/O contract and the
+/// snapshot roots of a mutating AI command.
 pub fn fingerprint_with_io_mode(
     program: &str,
     argv: &[String],
@@ -278,6 +285,7 @@ pub fn fingerprint_with_io_mode(
     limits: &ExecLimits,
     containment: &ExecContainmentSnapshot,
     io_mode: ExecIoMode,
+    snapshot_roots: &[ExecSnapshotRoot],
 ) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let mut feed = |bytes: &[u8]| {
@@ -335,6 +343,14 @@ pub fn fingerprint_with_io_mode(
             .unwrap_or(0)
             .to_le_bytes(),
     );
+    // Roots are appended only when present, so a rootless plan keeps the
+    // fingerprint it had before roots existed.
+    if !snapshot_roots.is_empty() {
+        feed(&(snapshot_roots.len() as u32).to_le_bytes());
+        for root in snapshot_roots {
+            root.feed_fingerprint(&mut feed);
+        }
+    }
     format!("{hash:016x}")
 }
 
@@ -591,6 +607,7 @@ mod tests {
             timeout_ms: 0,
             max_stdout_bytes: 0,
             max_stderr_bytes: 0,
+            snapshot_roots: vec![],
         }
     }
 

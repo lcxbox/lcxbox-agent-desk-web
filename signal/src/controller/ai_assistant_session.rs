@@ -946,9 +946,26 @@ pub(crate) async fn decide_permission_on(
     let search_config = crate::web_search_config::read(db).await?;
     let registry =
         ai_assistant_provider_registry().with_web_search_binding(search_config.binding());
+    let policy_session = match connection {
+        Some(_) => {
+            crate::command_policy::stored_session(db, &session_id, &actor_id, &target_audience)
+                .await
+                .ok()
+                .flatten()
+        }
+        None => None,
+    };
     let registry = if let Some(connection) = connection
-        && let Ok(policy) =
-            crate::command_policy::current(db, connection_map.as_ref(), connection, &actor_id).await
+        && let Some(session) = policy_session.as_deref()
+        && let Ok(policy) = crate::command_policy::current(
+            db,
+            connection_map.as_ref(),
+            connection,
+            &actor_id,
+            session,
+            now_unix_ms,
+        )
+        .await
     {
         registry.with_command_policy(policy)
     } else {

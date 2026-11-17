@@ -76,6 +76,11 @@ async fn fixture() -> (
     policy.actor_id = parent.actor_id.clone();
     policy.target_device_id = parent.device_id.clone();
     policy.policy_revision = parent.policy_revision;
+    policy.directory_grants = desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
+        &parent,
+        &parent.device_id,
+        chrono::Utc::now().timestamp_millis() as u64,
+    );
     let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
         .with_command_policy(policy);
     let capability = registry.capability_for_tool(&call.name).unwrap();
@@ -181,6 +186,7 @@ async fn fixture() -> (
             &parent.conversation_id,
             &call.id,
             60000,
+            &[],
             &origin,
             None,
         )

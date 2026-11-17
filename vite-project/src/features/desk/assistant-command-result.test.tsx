@@ -32,7 +32,7 @@ describe('command receipt presentation', () => {
     });
 
     it('parses the actual tagged device receipt without altering its output', () => {
-        expect(parseCommandReceipt(wire(receipt))).toEqual(receipt);
+        expect(parseCommandReceipt(wire(receipt))).toEqual({ ...receipt, fileChanges: null });
     });
 
     it.each(['execution failed: timeout', '{bad json', 'null', '[]', '{}', '{"Exec":null}', wire({ ...receipt, duration_ms: -1 }), wire({ ...receipt, exit_code: '0' }), wire({ ...receipt, streams: { type: 'unknown' } }), wire({ ...receipt, redactions: [123] })])('preserves unrecognized content: %s', text => {

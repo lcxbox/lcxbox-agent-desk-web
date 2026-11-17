@@ -76,14 +76,33 @@ async fn current_device_context(
     let reports = provider_readiness_reports(&readiness.readiness).ok()?;
     let search = crate::web_search_config::read(db).await.ok()?;
     let registry = ai_assistant_provider_registry().with_web_search_binding(search.binding());
-    let registry =
-        match crate::command_policy::current(db, connections, &connection_id, &subject.owner_id)
-            .await
-        {
-            Ok(policy) => registry.with_command_policy(policy),
-            Err(_) => registry,
-        };
     let now_unix_ms = u64::try_from(now.timestamp_millis()).ok()?;
+    let session = crate::command_policy::stored_session(
+        db,
+        &subject.conversation_id,
+        &subject.owner_id,
+        &subject.device_id,
+    )
+    .await
+    .ok()
+    .flatten();
+    let policy = match session {
+        Some(session) => crate::command_policy::current(
+            db,
+            connections,
+            &connection_id,
+            &subject.owner_id,
+            &session,
+            now_unix_ms,
+        )
+        .await
+        .ok(),
+        None => None,
+    };
+    let registry = match policy {
+        Some(policy) => registry.with_command_policy(policy),
+        None => registry,
+    };
     let inventory = project_capability_availability(
         &registry,
         ProductSurface::OssPersonalOwner,

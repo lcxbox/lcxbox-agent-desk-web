@@ -887,6 +887,7 @@ pub(crate) mod tests {
                 stdout_truncated: true,
                 stderr_truncated: false,
             },
+            file_changes: None,
         });
         let original = serde_json::to_string(&command).unwrap();
         let message = externalize(

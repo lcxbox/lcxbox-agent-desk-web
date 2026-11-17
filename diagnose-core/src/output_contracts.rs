@@ -250,6 +250,11 @@ catalog!(
         InlineBackgroundOrAttachment
     ),
     (
+        "restore_command_changes",
+        "ComputerActionCompleted<CommandChangesRestoreOutput>",
+        InlineBackgroundOrAttachment
+    ),
+    (
         "inspect_spreadsheets",
         "ReadContext.SpreadsheetFileInspect",
         InlineOrAttachment
@@ -497,7 +502,7 @@ mod tests {
         ] {
             assert!(for_tool(builtin).is_some());
         }
-        assert_eq!(ALL.len(), 95);
+        assert_eq!(ALL.len(), 96);
     }
 
     #[test]

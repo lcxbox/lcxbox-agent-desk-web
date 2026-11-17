@@ -140,13 +140,7 @@ fn multi_entry_records_use_an_entry_table_and_page_their_entries() {
         .zip(&contents)
         .map(|(name, content)| entry(name, Some(content), None))
         .collect();
-    let record = v
-        .backup(
-            request("c", "snapshot", RecordKind::CommandSnapshot, entries),
-            0,
-            no_quota,
-        )
-        .unwrap();
+    let record = multi(&mut v, "c", "snapshot", entries);
     assert!(matches!(record.entries, Entries::Table { count: 150, .. }));
     let first = v.query_entries(&scope(), "c", &record.id, 0).unwrap();
     assert_eq!(
@@ -176,18 +170,12 @@ fn sweep_lock_time_for_a_large_object_set_is_measured() {
     const ORPHANS: usize = 20_000;
     let (root, vault) = fixture();
     let mut v = vault.lock().unwrap();
-    let record = v
-        .backup(
-            request(
-                "c",
-                "snapshot",
-                RecordKind::CommandSnapshot,
-                vec![entry("a", Some(b"a"), None), entry("b", Some(b"b"), None)],
-            ),
-            0,
-            no_quota,
-        )
-        .unwrap();
+    let record = multi(
+        &mut v,
+        "c",
+        "snapshot",
+        vec![entry("a", Some(b"a"), None), entry("b", Some(b"b"), None)],
+    );
     let directory = namespace_dir(root.path(), &scope());
     let entries: Vec<Entry> = (0..LIVE)
         .map(|index| {
@@ -199,6 +187,8 @@ fn sweep_lock_time_for_a_large_object_set_is_measured() {
                 after: None,
                 metadata: None,
                 lineage: hash(index.to_string().as_bytes()),
+                root: 0,
+                change: None,
             }
         })
         .collect();

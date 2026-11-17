@@ -80,6 +80,11 @@ async fn approved_fresh_task_claim_releases_the_held_call_for_the_server_to_run(
     policy.actor_id = session.actor_id.clone();
     policy.target_device_id = session.device_id.clone();
     policy.policy_revision = session.policy_revision;
+    policy.directory_grants = desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
+        &session,
+        &session.device_id,
+        chrono::Utc::now().timestamp_millis() as u64,
+    );
     let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
         .with_command_policy(policy);
     let created_at = chrono::Utc::now().to_rfc3339();

@@ -1248,6 +1248,8 @@ fn approved_command_visibility_uses_live_device_authority_across_continuations()
     let mut policy = crate::command_confirmation::test_policy();
     policy.actor_id = session.actor_id.clone();
     policy.target_device_id = "a".into();
+    policy.directory_grants =
+        crate::file_scope::TrustedDirectoryGrants::from_session(&session, "a", 1);
     policy.target_session_id = "connection-a:session-1".into();
     let registry =
         crate::ai_assistant::ai_assistant_provider_registry().with_command_policy(policy);

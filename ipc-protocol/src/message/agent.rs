@@ -129,6 +129,20 @@ pub struct ExecPlanPayload {
     /// `command_completed` audit event can be attributed to the real operator.
     /// `None` on the single-machine / non-manager path.
     pub audit_source_request_id: Option<String>,
+    /// Recovery namespace for the snapshot of a plan with snapshot roots;
+    /// derived by the daemon from the authorized frame, never from the plan.
+    #[serde(default)]
+    pub file_recovery: Option<ExecFileRecoveryBinding>,
+}
+
+/// Backup scope of an AI command's snapshot. Together with the device-resolved
+/// recovery context it names the same scope a later `RestoreCommandChanges`
+/// action resolves from its sealed plan (device id and approving actor).
+#[derive(Debug, Clone, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub struct ExecFileRecoveryBinding {
+    pub recovery: FileRecoveryExecutionContext,
+    pub device: String,
+    pub owner: String,
 }
 
 /// Start one sealed, one-shot PTY execution. This is deliberately distinct
@@ -149,6 +163,10 @@ pub struct ExecPtyStartPayload {
     pub worker_incarnation: u64,
     pub plan: desk_agent_protocol::exec::ExecPlan,
     pub audit_source_request_id: Option<String>,
+    /// As [`ExecPlanPayload::file_recovery`]; always `None` for a
+    /// daemon-owned root PTY, which never snapshots.
+    #[serde(default)]
+    pub file_recovery: Option<ExecFileRecoveryBinding>,
 }
 
 /// Payload for [`ServiceToWorker::ExecCancel`].

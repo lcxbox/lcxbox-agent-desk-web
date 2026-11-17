@@ -38,6 +38,101 @@ pub fn approved_device_directories(
     Ok(directories)
 }
 
+/// One directory a session currently has approved on a device, as trusted
+/// command policy input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustedDirectoryGrant {
+    pub directory_request_id: String,
+    pub canonical_path: String,
+    pub directory: ObjectRef,
+}
+
+/// The session's currently approved directories on one device: its own
+/// approved records plus, for a child, those delegated by its main
+/// conversation. Built only from an authoritative session, so a caller
+/// without one cannot produce it; command policy requires it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustedDirectoryGrants {
+    device_id: String,
+    grants: Vec<TrustedDirectoryGrant>,
+}
+
+impl TrustedDirectoryGrants {
+    /// Derive the grants for `device_id`, ordered by directory request id. A
+    /// session whose file scope does not cover the device (another surface or
+    /// device) contributes no own approvals, exactly as directory selection
+    /// finds none there.
+    pub fn from_session(
+        session: &PersistedAgentSession,
+        device_id: &str,
+        now_unix_ms: u64,
+    ) -> Self {
+        let mut grants = Vec::new();
+        if let Ok(subject) =
+            session.file_scope_subject(&session.actor_id, device_id, &session.conversation_id)
+        {
+            for record in session.file_scope.records() {
+                if let Ok(directory) = session.file_scope.approved_directory(
+                    &subject,
+                    session.file_scope.revision(),
+                    &record.proposal.request_id,
+                    now_unix_ms,
+                ) {
+                    grants.push(TrustedDirectoryGrant {
+                        directory_request_id: record.proposal.request_id.clone(),
+                        canonical_path: record.proposal.canonical_path.clone(),
+                        directory: directory.clone(),
+                    });
+                }
+            }
+        }
+        grants.extend(
+            session
+                .delegated_directories
+                .iter()
+                .filter(|delegated| delegated.device_id == device_id)
+                .map(|delegated| TrustedDirectoryGrant {
+                    directory_request_id: delegated.request_id.clone(),
+                    canonical_path: delegated.canonical_path.clone(),
+                    directory: delegated.directory.clone(),
+                }),
+        );
+        grants.sort_by(|a, b| a.directory_request_id.cmp(&b.directory_request_id));
+        grants.dedup_by(|a, b| a.directory_request_id == b.directory_request_id);
+        Self {
+            device_id: device_id.into(),
+            grants,
+        }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn for_test(device_id: &str, grants: Vec<TrustedDirectoryGrant>) -> Self {
+        Self {
+            device_id: device_id.into(),
+            grants,
+        }
+    }
+
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
+
+    pub fn grants(&self) -> &[TrustedDirectoryGrant] {
+        &self.grants
+    }
+
+    /// The approval with this id, while it still names this directory.
+    pub fn find(
+        &self,
+        directory_request_id: &str,
+        directory: &ObjectRef,
+    ) -> Option<&TrustedDirectoryGrant> {
+        self.grants.iter().find(|grant| {
+            grant.directory_request_id == directory_request_id && grant.directory == *directory
+        })
+    }
+}
+
 /// A main conversation's owner-approved directory, usable by its child.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

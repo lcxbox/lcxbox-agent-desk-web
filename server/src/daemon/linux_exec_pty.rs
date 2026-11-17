@@ -989,6 +989,11 @@ pub async fn run_root_pty(
     if let AgentOutcome::Ok(desk_agent_protocol::OperationOutput::Exec(output)) = &mut outcome {
         output.termination_signal = status.as_ref().and_then(|value| value.signal());
         output.diagnostics.extend(completion_diagnostics);
+        output.file_changes = crate::worker::exec_snapshot::root_pty_report(
+            &payload.plan,
+            crate::worker::exec_snapshot::now_ms()
+                .saturating_sub(started_at.elapsed().as_millis() as u64),
+        );
         if let Some(error) = read_error {
             output.diagnostics.push(error);
             if output.failure.is_none() {

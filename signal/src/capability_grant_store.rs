@@ -122,6 +122,10 @@ pub struct CapabilityDispatchPayload {
     pub command_origin: Option<desk_diagnose_core::action_result::ActionResultOrigin>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command_receipt: Option<desk_diagnose_core::action_result::ActionResultReceipt>,
+    /// Snapshot roots of the approved command plan; a device change report is
+    /// admitted only against them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub command_snapshot_roots: Vec<desk_agent_protocol::exec::ExecSnapshotRoot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) command_export: Option<computer_export::ComputerExportContext>,
     pub dispatch_id: String,
@@ -959,6 +963,7 @@ impl SignalCapabilityGrantStore {
             command_origin: None,
             command_receipt: None,
             command_export: None,
+            command_snapshot_roots: Vec::new(),
             dispatch_id: dispatch_id.clone(),
             grant_id: request.grant_id.to_string(),
             reservation_id: reservation.reservation_id.clone(),
@@ -1065,6 +1070,7 @@ impl SignalCapabilityGrantStore {
         conversation_id: &str,
         tool_call_id: &str,
         timeout_ms: u32,
+        snapshot_roots: &[desk_agent_protocol::exec::ExecSnapshotRoot],
         origin: &desk_diagnose_core::action_result::ActionResultOrigin,
         model_export: Option<&computer_export::ComputerExportContext>,
     ) -> Result<DispatchClaimResult, DbErr> {
@@ -1076,6 +1082,7 @@ impl SignalCapabilityGrantStore {
                 conversation_id,
                 tool_call_id,
                 timeout_ms,
+                snapshot_roots,
                 origin,
                 model_export,
             )),
@@ -1093,6 +1100,7 @@ impl SignalCapabilityGrantStore {
             &str,
             &str,
             u32,
+            &[desk_agent_protocol::exec::ExecSnapshotRoot],
             &desk_diagnose_core::action_result::ActionResultOrigin,
             Option<&computer_export::ComputerExportContext>,
         )>,
@@ -1235,7 +1243,9 @@ impl SignalCapabilityGrantStore {
             return Err(DbErr::Custom("capability dispatch claim conflicted".into()));
         }
         let mut command_task_id = None;
-        if let Some((target, conversation, call, timeout, origin, model_export)) = command {
+        if let Some((target, conversation, call, timeout, snapshot_roots, origin, model_export)) =
+            command
+        {
             if payload.tool_name != desk_diagnose_core::command_confirmation::COMMAND_TOOL {
                 return Err(DbErr::Custom(
                     "command claim requires a command capability".into(),
@@ -1275,7 +1285,10 @@ impl SignalCapabilityGrantStore {
                     status: Set(crate::agent_exec_store::STATUS_DISPATCHING.into()),
                     event_id: Set(format!("signal-exec:{}:done", payload.call_id)),
                     delivery_state: Set(crate::agent_exec_store::DELIVERY_PENDING.into()),
-                    deadline: Set(now + chrono::Duration::milliseconds(i64::from(timeout) + 60000)),
+                    deadline: Set(now
+                        + chrono::Duration::milliseconds(
+                            crate::agent_exec::result_wait_ms(timeout) + 60000,
+                        )),
                     created_at: Set(now),
                     updated_at: Set(now),
                     ..Default::default()
@@ -1287,6 +1300,7 @@ impl SignalCapabilityGrantStore {
             command_task_id = Some(task.id);
             payload.command_origin = Some(origin.clone());
             payload.command_export = model_export.cloned();
+            payload.command_snapshot_roots = snapshot_roots.to_vec();
             desk_diagnose_core::future::boxed(|| async {
                 agent_capability_dispatch_outbox::Entity::update_many()
                     .col_expr(
@@ -2603,6 +2617,7 @@ mod tests {
                     "wrong-run",
                     "original-model-call",
                     10000,
+                    &[],
                     &origin,
                     None
                 )
@@ -2625,6 +2640,7 @@ mod tests {
                     "run-1",
                     "original-model-call",
                     10000,
+                    &[],
                     &origin,
                     Some(&export)
                 )
@@ -2649,6 +2665,7 @@ mod tests {
                     "run-1",
                     "original-model-call",
                     10000,
+                    &[],
                     &origin,
                     None
                 )

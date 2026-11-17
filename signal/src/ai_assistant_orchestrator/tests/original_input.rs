@@ -2636,6 +2636,10 @@ async fn respond_to_selected_command(
         panic!("expected exact command")
     };
     assert_eq!(plan.argv.last().map(String::as_str), Some("df -h"));
+    // A read-only command has no snapshot roots and names no backup namespace.
+    assert!(plan.snapshot_roots.is_empty());
+    assert!(payload["authz"]["session_id"].is_null());
+    assert!(payload["authz"].get("file_recovery_registration").is_none());
     use desk_agent_protocol::{ExecutionMode, exec::ExecAuthorization};
     if no_review {
         let ExecAuthorization::OwnerNoReview(proof) = &plan.authorization else {
@@ -2670,6 +2674,7 @@ async fn respond_to_selected_command(
                     stdout_truncated: false,
                     stderr_truncated: false,
                 },
+                file_changes: None,
             })),
         },
     };

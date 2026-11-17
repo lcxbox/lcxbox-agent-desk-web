@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { AssistantFileResult, parseFileReceipt, parseTextFileChange } from './assistant-file-result';
 import { hasUnknownActionResult } from './action-result-status';
 import { AssistantLaunchResult, parseLaunchReceipt } from './assistant-launch-result';
+import { CommandFileChangesView, CommandRestoreReceiptView, parseCommandRestoreReceipt, parseFileChanges, type FileChanges } from './assistant-command-changes';
 
 type CommandReceipt = {
     exit_code: number | null;
@@ -16,6 +17,8 @@ type CommandReceipt = {
     streams: { type: 'split'; stdout: string; stderr: string; stdout_truncated: boolean; stderr_truncated: boolean }
         | { type: 'pty_combined'; terminal: string; truncated: boolean };
     redactions?: string[];
+    /** Files changed under the snapshot roots of a mutating command. */
+    fileChanges: FileChanges | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -40,7 +43,9 @@ export function parseCommandReceipt(text: string): CommandReceipt | null {
         } else if (streams.type === 'pty_combined') {
             if (typeof streams.terminal !== 'string' || typeof streams.truncated !== 'boolean') return null;
         } else return null;
-        return value as CommandReceipt;
+        const fileChanges = value.file_changes == null ? null : parseFileChanges(value.file_changes);
+        if (value.file_changes != null && !fileChanges) return null;
+        return { ...value, fileChanges } as CommandReceipt;
     } catch {
         return null;
     }
@@ -86,7 +91,14 @@ export function AssistantCommandResult({ text, tool, onLocateCall, onExportBacku
     const launchReceipt = useMemo(() => parseLaunchReceipt(text), [text]);
     const outcomeUnknown = useMemo(() => hasUnknownActionResult(text), [text]);
     const readWindow = useMemo(() => parseReadWindow(text), [text]);
+    const restoreReceipt = useMemo(() => parseCommandRestoreReceipt(text), [text]);
     if (launchReceipt) return <AssistantLaunchResult receipt={launchReceipt} text={text} />;
+    if (restoreReceipt) return <Disclosure className="min-w-0" title={<>{t('pages.aiAssistant.commandRestore.receiptTitle')} · {t(`pages.aiAssistant.fileReceipt.${restoreReceipt.verified ? 'verified' : 'unknown'}`)}</>} summaryClassName="cursor-pointer font-medium">
+        <div className="mt-3 space-y-3">
+            <CommandRestoreReceiptView receipt={restoreReceipt} />
+            <Disclosure title={<>{t('pages.aiAssistant.commandReceipt.raw')}</>} summaryClassName="cursor-pointer text-xs"><AssistantCodeBlock text={text} /></Disclosure>
+        </div>
+    </Disclosure>;
     if (fileReceipt) return <AssistantFileResult receipt={fileReceipt} text={text} change={fileChange} onExportBackup={onExportBackup} />;
     const output = (label: string, content: string, truncated: boolean) => (
         <div className="min-w-0 space-y-1">
@@ -123,6 +135,7 @@ export function AssistantCommandResult({ text, tool, onLocateCall, onExportBacku
                             <div><dt className="text-muted-foreground">{t('pages.aiAssistant.commandReceipt.duration')}</dt><dd>{duration}</dd></div>
                         </dl>
                         {receipt.failure && <p role="alert" className="whitespace-pre-wrap break-words text-destructive">{receipt.failure.message}</p>}
+                        {receipt.fileChanges && <CommandFileChangesView value={receipt.fileChanges} />}
                         {receipt.streams.type === 'split' ? <>
                             {output(t('pages.aiAssistant.commandReceipt.stdout'), receipt.streams.stdout, receipt.streams.stdout_truncated)}
                             {output(t('pages.aiAssistant.commandReceipt.stderr'), receipt.streams.stderr, receipt.streams.stderr_truncated)}

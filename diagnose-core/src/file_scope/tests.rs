@@ -851,3 +851,95 @@ fn a_child_uses_the_directories_its_owner_approved_in_the_main_conversation() {
     root.refresh_delegated_directories(&child, 1);
     assert!(root.delegated_directories.is_empty());
 }
+
+#[test]
+fn trusted_directory_grants_follow_current_approvals_and_delegations() {
+    let mut session = PersistedAgentSession::new(
+        "conversation",
+        "owner",
+        "device",
+        1,
+        AgentScope {
+            granted: vec![],
+            expires_at: None,
+            mode: ExecutionMode::ReadOnly,
+            policy_name: None,
+        },
+        "2026-09-05T00:00:00Z",
+    );
+    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAssistant);
+    let device = session.device_id.clone();
+    assert!(
+        TrustedDirectoryGrants::from_session(&session, &device, 1)
+            .grants()
+            .is_empty()
+    );
+    let mut scope = SessionFileScope::default();
+    let mut subject = subject();
+    subject.device_id = device.clone();
+    let mut second = proposal();
+    second.request_id = "a-second-request".into();
+    second.canonical_path = "/private/tmp/second".into();
+    second.directory.token = "second-reference".into();
+    scope.propose(&subject, 0, proposal(), 1).unwrap();
+    scope.propose(&subject, 1, second.clone(), 1).unwrap();
+    scope
+        .decide(&subject, 2, "directory-request", true, 1)
+        .unwrap();
+    scope
+        .decide(&subject, 3, "a-second-request", true, 1)
+        .unwrap();
+    session.file_scope = scope;
+    session.delegated_directories.push(DelegatedDirectory {
+        device_id: device.clone(),
+        request_id: "main-request".into(),
+        canonical_path: "/private/tmp/main".into(),
+        directory: ObjectRef {
+            token: "main-reference".into(),
+            ..proposal().directory
+        },
+    });
+    session.delegated_directories.push(DelegatedDirectory {
+        device_id: "other-device".into(),
+        request_id: "elsewhere".into(),
+        canonical_path: "/elsewhere".into(),
+        directory: proposal().directory,
+    });
+    let grants = TrustedDirectoryGrants::from_session(&session, &device, 1);
+    assert_eq!(grants.device_id(), device);
+    // Own and delegated approvals, ordered by request id; other devices excluded.
+    assert_eq!(
+        grants
+            .grants()
+            .iter()
+            .map(|grant| grant.directory_request_id.as_str())
+            .collect::<Vec<_>>(),
+        ["a-second-request", "directory-request", "main-request"]
+    );
+    assert_eq!(grants.grants()[0].canonical_path, "/private/tmp/second");
+    assert!(
+        grants
+            .find("directory-request", &proposal().directory)
+            .is_some()
+    );
+    assert!(
+        grants
+            .find("directory-request", &second.directory)
+            .is_none()
+    );
+    // Revocation removes the approval at once.
+    session
+        .file_scope
+        .revoke(&subject, 4, "a-second-request")
+        .unwrap();
+    let grants = TrustedDirectoryGrants::from_session(&session, &device, 1);
+    assert_eq!(grants.grants().len(), 2);
+    assert!(grants.find("a-second-request", &second.directory).is_none());
+    // A device outside the file scope contributes only its delegations.
+    assert_eq!(
+        TrustedDirectoryGrants::from_session(&session, "other-device", 1)
+            .grants()
+            .len(),
+        1
+    );
+}

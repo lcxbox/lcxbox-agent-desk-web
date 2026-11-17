@@ -64,6 +64,7 @@ async fn read_work(
         command_origin: None,
         command_receipt: None,
         command_export: None,
+        command_snapshot_roots: Vec::new(),
         dispatch_id: "dispatch".into(),
         grant_id: prepared.grant_id.clone(),
         reservation_id: prepared.reservation_id.clone(),

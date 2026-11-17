@@ -364,6 +364,7 @@ fn finalize_suggestion(raw: RawSuggestion, default_shell: &str) -> CommandSugges
         timeout_ms: 0,
         max_stdout_bytes: 0,
         max_stderr_bytes: 0,
+        snapshot_roots: Vec::new(),
     };
     let classification = classify_command(&input).classification;
     CommandSuggestion {

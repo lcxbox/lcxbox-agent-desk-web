@@ -16,6 +16,7 @@ pub(super) fn confirm_exec_model(request_id: &str, command: &str) -> SignalingMo
         timeout_ms: 0,
         max_stdout_bytes: 0,
         max_stderr_bytes: 0,
+        snapshot_roots: Vec::new(),
     };
     let data = desk_agent_protocol::exec::ConfirmExecData {
         operation: AgentOperation {
@@ -549,3 +550,41 @@ pub(super) async fn owner_interactive_cannot_bypass_readonly_mode_or_blocklist()
 }
 
 // ====== Fleet exec PEP + dispatch ======
+
+/// Snapshot roots are derived by the trusted central for AI commands only. A
+/// control end that supplies them gets a non-executable preview and nothing
+/// is parked for approval.
+#[tokio::test]
+pub(super) async fn confirm_exec_with_controller_snapshot_roots_is_rejected() {
+    let (ctx, mut rx) = exec_enabled_ctx(ExecutionMode::Automated).await;
+    let mut data = confirm_exec_model("r-roots", "Get-Service -Name Spooler")
+        .get_data::<desk_agent_protocol::exec::ConfirmExecData>()
+        .unwrap();
+    let OperationInput::Exec(input) = &mut data.operation.input else {
+        unreachable!()
+    };
+    input.snapshot_roots = vec![desk_agent_protocol::exec::ExecSnapshotRoot::Cwd {
+        path: "C:/work".into(),
+    }];
+    let model = SignalingModel::new(
+        "r-roots",
+        SignalingType::PreviewExecution,
+        Some("conn-1".to_string()),
+        None,
+        Some(serde_json::to_value(data).unwrap()),
+        None,
+    );
+    super::super::exec_lifecycle::handle_confirm_exec_inbound(&ctx, &model)
+        .await
+        .unwrap();
+    let preview = read_preview(&mut rx);
+    assert!(!preview.executable);
+    assert_eq!(preview.exec_request_id, None);
+    assert!(
+        preview
+            .blocked_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("snapshot roots")),
+        "{preview:?}"
+    );
+}

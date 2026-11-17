@@ -11,6 +11,7 @@ import { AssistantPermissionDisclosure } from './assistant-permission-disclosure
 import { CommandConfirmationCard, validCommandReview } from './ai-assistant-command';
 import { LaunchConfirmationCard, validLaunchReview } from './ai-assistant-launch';
 import { TextFileConfirmationCard, validTextFileReview, fileApprovalBlocked } from './ai-assistant-file-confirmation';
+import { CommandRestoreConfirmationCard, COMMAND_RESTORE_TOOL, validCommandRestoreReview } from './assistant-command-changes';
 import { AssistantInteractiveCommand, interactiveCommandItem, type InteractiveCommandContext } from './assistant-interactive-command';
 
 function needsApplicationScope(tool: string) {
@@ -189,6 +190,7 @@ export function AssistantPermissionRequest({ request, canDecide, disabled = fals
                                 {validCommandReview(commandConfirmation) && <CommandConfirmationCard value={commandConfirmation} />}
                                 {validLaunchReview(item.launchConfirmation) && <LaunchConfirmationCard value={item.launchConfirmation} />}
                                 {validTextFileReview(item.textFileConfirmation) && <TextFileConfirmationCard value={item.textFileConfirmation} />}
+                                {validCommandRestoreReview(item.commandRestoreConfirmation) && <CommandRestoreConfirmationCard value={item.commandRestoreConfirmation} />}
                                 {sendConfirmation && (
                                     <div data-testid="external-send-confirmation" className="mt-3 space-y-2 rounded-md border border-red-500/50 bg-red-500/5 p-3 text-xs">
                                         <p className="flex items-center gap-2 font-semibold text-red-700 dark:text-red-300">
@@ -229,7 +231,7 @@ export function AssistantPermissionRequest({ request, canDecide, disabled = fals
                                 )}
                                 {approvalBlocked && (
                                     <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">
-                                        {t(outputBlocked ? 'pages.aiAssistant.outputConfirmMissing' : needsApplicationScope(item.toolName) && !hasNativeUiAuthority(item) ? 'pages.aiAssistant.applicationUiScopeMissing' : fileApprovalBlocked(item) ? 'pages.aiAssistant.fileConfirmMissing'
+                                        {t(outputBlocked ? 'pages.aiAssistant.outputConfirmMissing' : needsApplicationScope(item.toolName) && !hasNativeUiAuthority(item) ? 'pages.aiAssistant.applicationUiScopeMissing' : fileApprovalBlocked(item) ? (item.toolName === COMMAND_RESTORE_TOOL ? 'pages.aiAssistant.commandRestore.missing' : 'pages.aiAssistant.fileConfirmMissing')
                                             : launchBlocked ? 'pages.aiAssistant.launchSummaryMissing' : commandBlocked ? 'pages.aiAssistant.commandSummaryMissing' : 'pages.aiAssistant.externalSendSummaryMissing')}
                                     </p>
                                 )}

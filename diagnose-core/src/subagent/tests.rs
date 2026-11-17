@@ -865,6 +865,7 @@ fn zero_exit_without_start_or_with_failure_does_not_prove_command_success() {
         },
         duration_ms: 1,
         redactions: Vec::new(),
+        file_changes: None,
     };
     assert!(facts::command_succeeded(&AgentOutcome::Ok(
         OperationOutput::Exec(output.clone())

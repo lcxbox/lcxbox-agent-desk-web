@@ -147,6 +147,8 @@ impl SignalAiAssistantTools {
             self.connections.as_ref(),
             &connection_id,
             &self.actor_id,
+            session,
+            u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| unavailable())?,
         )
         .await?;
         if policy.target_device_id != held.device_id {

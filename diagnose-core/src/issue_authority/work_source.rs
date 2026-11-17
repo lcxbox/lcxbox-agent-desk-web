@@ -335,6 +335,8 @@ mod tests {
         let mut command_policy = crate::command_confirmation::test_policy();
         command_policy.actor_id = child.actor_id.clone();
         command_policy.target_device_id = target.device_id.clone();
+        command_policy.directory_grants =
+            crate::file_scope::TrustedDirectoryGrants::from_session(&child, &target.device_id, 1);
         let registry = crate::ai_assistant::ai_assistant_provider_registry()
             .with_command_policy(command_policy);
         let call = ToolCall {

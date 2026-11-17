@@ -2,6 +2,7 @@
 #[cfg(test)]
 use desk_assistant_data_store::entity_table::EntityTableExt;
 mod completion;
+mod snapshot;
 use super::*;
 use crate::{
     agent_session_store::SignalAgentSessionStore,
@@ -163,9 +164,15 @@ async fn approved_child_with_source_on(
         max_runtime_ms: 60000,
         operator_templates: vec![],
         effective_blocklist: desk_agent_protocol::exec_policy::builtin_blocklist().to_vec(),
-        policy_version: "test:1".into(),
+        // What the OSS host policy reports for this fixture's device.
+        policy_version: "oss-owner:1".into(),
         exec_pty: false,
         exec_pty_elevation: false,
+        directory_grants: desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
+            &child,
+            &child.device_id,
+            chrono::Utc::now().timestamp_millis() as u64,
+        ),
     };
     let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
         .with_command_policy(policy.clone());
@@ -368,6 +375,7 @@ async fn newly_created_child_owner_approval_prepares_and_claims_command_once() {
                 &child.conversation_id,
                 &call.id,
                 60000,
+                &[],
                 &origin,
                 None
             )
@@ -384,6 +392,7 @@ async fn newly_created_child_owner_approval_prepares_and_claims_command_once() {
                 &child.conversation_id,
                 &call.id,
                 60000,
+                &[],
                 &origin,
                 None,
             )
@@ -607,6 +616,7 @@ async fn live_project_model_subagent_command() {
                 &child.conversation_id,
                 &call.id,
                 60000,
+                &[],
                 &origin,
                 None
             )

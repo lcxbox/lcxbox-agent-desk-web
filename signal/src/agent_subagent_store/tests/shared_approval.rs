@@ -58,6 +58,10 @@ fn stale_command_policy() -> desk_diagnose_core::command_confirmation::CommandPo
         policy_version: "owner-policy".into(),
         exec_pty: false,
         exec_pty_elevation: false,
+        directory_grants: desk_diagnose_core::file_scope::TrustedDirectoryGrants::for_test(
+            "1",
+            vec![],
+        ),
     }
 }
 

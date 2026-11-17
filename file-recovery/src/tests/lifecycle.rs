@@ -668,12 +668,12 @@ fn other_ledger_formats_are_wiped_and_corruption_is_not_recreated() {
         error.to_string().contains("could not be decoded"),
         "{error}"
     );
-    fs::write(&index, br#"{"format_version":3}"#).unwrap();
+    fs::write(&index, br#"{"format_version":4}"#).unwrap();
     let error = vault.lock().err().unwrap();
     assert!(error.to_string().contains("missing field"), "{error}");
-    assert_eq!(fs::read(&index).unwrap(), br#"{"format_version":3}"#);
+    assert_eq!(fs::read(&index).unwrap(), br#"{"format_version":4}"#);
     // The previous storage format and its material are replaced.
-    fs::write(&index, br#"{"format_version":2,"records":{}}"#).unwrap();
+    fs::write(&index, br#"{"format_version":3,"records":{}}"#).unwrap();
     let legacy = root
         .path()
         .join(format!("file-recovery/{}.body", "a".repeat(64)));
