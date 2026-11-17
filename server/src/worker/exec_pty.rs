@@ -681,9 +681,15 @@ mod platform {
         let stream_state = std::sync::Arc::new(AtomicU8::new(STREAM_OK));
         let reader_state = std::sync::Arc::clone(&stream_state);
         let reader_tx = live_tx.clone();
-        let reader_stream_id = stream_id.clone();
-        let reader_generation = plan.execution_generation.clone();
-        let reader_session_target_id = opened.session_target_id.clone();
+        let frame_header = PtyOutputFrame {
+            stream_id: stream_id.clone(),
+            execution_generation: plan.execution_generation.clone(),
+            session_target_id: opened.session_target_id.clone(),
+            registration_generation,
+            worker_incarnation,
+            sequence: 0,
+            data: Vec::new(),
+        };
         let result_cap =
             (plan.max_stdout_bytes as usize).saturating_add(plan.max_stderr_bytes as usize);
         let drain_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -694,11 +700,7 @@ mod platform {
                 poll_fd,
                 reader_stop,
                 reader_tx,
-                reader_stream_id,
-                reader_generation,
-                reader_session_target_id,
-                registration_generation,
-                worker_incarnation,
+                frame_header,
                 result_cap,
                 reader_state,
             )
@@ -885,11 +887,8 @@ mod platform {
         poll_fd: std::os::fd::OwnedFd,
         drain_stop: Arc<std::sync::atomic::AtomicBool>,
         live_tx: mpsc::Sender<WorkerToService>,
-        stream_id: String,
-        generation: String,
-        session_target_id: String,
-        registration_generation: u64,
-        worker_incarnation: u64,
+        // Identifies the stream; each frame copies it with its own sequence and data.
+        frame_header: PtyOutputFrame,
         result_cap: usize,
         stream_state: std::sync::Arc<AtomicU8>,
     ) -> ReaderResult {
@@ -946,13 +945,9 @@ mod platform {
             }
             result.overflowed |= result.total_bytes > result_cap as u64;
             let frame = PtyOutputFrame {
-                stream_id: stream_id.clone(),
-                execution_generation: generation.clone(),
-                session_target_id: session_target_id.clone(),
-                registration_generation,
-                worker_incarnation,
                 sequence,
                 data: chunk[..count].to_vec(),
+                ..frame_header.clone()
             };
             sequence = match sequence.checked_add(1) {
                 Some(next) => next,
@@ -977,16 +972,16 @@ mod platform {
     }
 
     fn reclaim_group(pgid: Option<libc::pid_t>) -> Result<(), NativeDiagnostic> {
-        if let Some(pgid) = pgid {
-            if unsafe { libc::kill(-pgid, libc::SIGKILL) } != 0 {
-                let error = std::io::Error::last_os_error();
-                if error.raw_os_error() != Some(libc::ESRCH) {
-                    return Err(NativeDiagnostic::from_io(
-                        DiagnosticStage::ProcessCleanup,
-                        "kill PTY process group",
-                        &error,
-                    ));
-                }
+        if let Some(pgid) = pgid
+            && unsafe { libc::kill(-pgid, libc::SIGKILL) } != 0
+        {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(NativeDiagnostic::from_io(
+                    DiagnosticStage::ProcessCleanup,
+                    "kill PTY process group",
+                    &error,
+                ));
             }
         }
         Ok(())

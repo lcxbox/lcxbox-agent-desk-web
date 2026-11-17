@@ -71,12 +71,14 @@ fn run_impl<T: Send + 'static>(
         })?;
     executor.run_classified(Duration::from_secs(10), operation, guard)
 }
+#[cfg(any(windows, target_os = "macos", test))]
 pub(super) trait NativeElement {
     fn same_element(&self, other: &Self) -> bool;
     /// Transient permission/transport errors must never count as destruction.
     fn definitely_destroyed(&self) -> bool;
 }
 
+#[cfg(any(windows, target_os = "macos", test))]
 struct Entry<T> {
     process_id: u32,
     process_start: u64,
@@ -85,12 +87,14 @@ struct Entry<T> {
     id: String,
 }
 
+#[cfg(any(windows, target_os = "macos", test))]
 pub(super) struct IdentityStore<T> {
     entries: Vec<Entry<T>>,
     limit: usize,
     sweep: usize,
 }
 
+#[cfg(any(windows, target_os = "macos", test))]
 impl<T: NativeElement> IdentityStore<T> {
     pub(super) fn new(limit: usize) -> Self {
         Self {
@@ -114,6 +118,7 @@ impl<T: NativeElement> IdentityStore<T> {
         Some(self.entries[index].element.clone())
     }
 
+    #[cfg(any(windows, target_os = "macos"))]
     pub(super) fn retained_ids(&self) -> std::collections::HashSet<String> {
         self.entries.iter().map(|entry| entry.id.clone()).collect()
     }

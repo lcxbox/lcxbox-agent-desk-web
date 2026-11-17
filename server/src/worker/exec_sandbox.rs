@@ -197,6 +197,7 @@ pub(crate) struct SandboxRoot {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub handle: File,
     /// The real path of the handle, never re-resolved from a string.
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub path: PathBuf,
 }
 

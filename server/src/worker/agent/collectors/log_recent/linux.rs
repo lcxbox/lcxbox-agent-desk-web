@@ -94,7 +94,7 @@ fn parse_journal_line(line: &str) -> Option<LogEvent> {
         .unwrap_or(6);
     let timestamp = string_field(object, "__REALTIME_TIMESTAMP")
         .and_then(|value| value.parse::<i64>().ok())
-        .and_then(|micros| DateTime::<Utc>::from_timestamp_micros(micros))
+        .and_then(DateTime::<Utc>::from_timestamp_micros)
         .map(|value| value.to_rfc3339())
         .unwrap_or_default();
     let source = string_field(object, "_SYSTEMD_UNIT")

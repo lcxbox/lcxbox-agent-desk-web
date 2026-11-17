@@ -187,6 +187,10 @@ pub(crate) async fn prepare(
     })
 }
 
+#[allow(
+    clippy::result_large_err,
+    reason = "platform launch error carries its full diagnostic; boxing would change every caller"
+)]
 fn resolve_identity(
     request: &LaunchApplicationRequest,
     home: &Path,

@@ -162,6 +162,7 @@ pub(crate) enum ResolvedObject {
         document_url_hash: String,
         address: String,
     },
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     IworkNumbersCell {
         document_identity_sha256: String,
         sheet_name: String,
@@ -169,16 +170,19 @@ pub(crate) enum ResolvedObject {
         cell_address: String,
         before_sha256: String,
     },
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     IworkPagesDocument {
         document_identity_sha256: String,
         before_sha256: String,
     },
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     IworkKeynoteSlide {
         document_identity_sha256: String,
         slide_number: i64,
         title_before_sha256: String,
         notes_before_sha256: String,
     },
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     IworkNumbersBatch {
         source_file: ObjectRef,
         source_sha256: String,
@@ -189,6 +193,7 @@ pub(crate) enum ResolvedObject {
         cell_address: String,
         before_sha256: String,
     },
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     IworkPagesBatch {
         source_file: ObjectRef,
         source_sha256: String,
@@ -196,6 +201,7 @@ pub(crate) enum ResolvedObject {
         document_identity_sha256: String,
         before_sha256: String,
     },
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     IworkKeynoteBatch {
         source_file: ObjectRef,
         source_sha256: String,
@@ -813,12 +819,12 @@ impl ComputerUseBroker {
                 &fingerprint,
                 action,
             )?;
-            return Ok(SemanticActionResult {
+            Ok(SemanticActionResult {
                 changed: result.changed,
                 verified: result.verified,
                 summary: result.summary,
                 output: None,
-            });
+            })
         }
         #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
         Err(error(
@@ -3995,11 +4001,16 @@ impl ComputerUseBroker {
 }
 
 pub(crate) struct ScreenCapturePermit {
+    // Linux refuses window capture before issuing a permit, so the window
+    // fields are only read on other platforms.
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     window_ref: Option<ObjectRef>,
     broker: Arc<ComputerUseBroker>,
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     window_target: Option<super::collectors::screen_capture::WindowCaptureTarget>,
 }
 
+#[cfg(not(target_os = "linux"))]
 impl ScreenCapturePermit {
     pub(crate) fn validate_window_after_capture(&self) -> Result<(), AgentError> {
         if let Some(reference) = &self.window_ref {
@@ -4112,6 +4123,7 @@ fn admit_screen_capture(
 
 // Window capture contains only the selected window, so unrelated foreground
 // surfaces must not gate it. The window branch checks the selected application.
+#[cfg(any(not(target_os = "linux"), test))]
 fn check_capture_foreground(
     params: &ScreenCaptureParams,
     check: impl FnOnce() -> Result<(), AgentError>,
@@ -4123,6 +4135,7 @@ fn check_capture_foreground(
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 fn ensure_screen_capture_safe() -> Result<(), AgentError> {
     let observed = observe_interactive_desktop()?;
     let Some(application) = observed.foreground_application else {
@@ -4495,7 +4508,7 @@ fn observe_interactive_desktop() -> Result<ObservedDesktop, AgentError> {
     super::macos_accessibility_observer::observe_interactive_desktop()
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn observe_interactive_desktop() -> Result<ObservedDesktop, AgentError> {
     Err(error(
         AgentErrorKind::UnsupportedPlatform,
@@ -4569,6 +4582,7 @@ fn ui_matching_terms(
     )
 }
 
+#[cfg(any(not(target_os = "linux"), test))]
 pub(super) fn ui_query_matches(
     query: Option<&desk_agent_protocol::computer_use::UiInspectQuery>,
     node: &CollectedUiNode,

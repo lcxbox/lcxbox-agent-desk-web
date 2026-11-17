@@ -1,4 +1,5 @@
 //! Platform-specific capture and coordinate metadata for one selected window.
+#[cfg(any(not(target_os = "linux"), test))]
 use super::*;
 
 #[cfg(target_os = "macos")]
@@ -9,6 +10,7 @@ pub(crate) use desk_capture_engine::image_capture::windows_window_capture::Windo
 #[derive(Clone, PartialEq)]
 pub(crate) struct WindowCaptureTarget;
 
+#[cfg(any(not(target_os = "linux"), test))]
 pub(super) struct CapturedWindow {
     pub frame: Box<dyn ImageInfo + Send + Sync>,
     pub geometry: Option<desk_agent_protocol::background_input::WindowInputGeometry>,
@@ -61,7 +63,10 @@ pub(super) fn capture(target: WindowCaptureTarget) -> Result<CapturedWindow, Age
     })
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(all(
+    not(any(windows, target_os = "macos")),
+    any(not(target_os = "linux"), test)
+))]
 pub(super) fn capture(_: WindowCaptureTarget) -> Result<CapturedWindow, AgentError> {
     Err(internal(
         "independent window capture is unavailable on this platform",

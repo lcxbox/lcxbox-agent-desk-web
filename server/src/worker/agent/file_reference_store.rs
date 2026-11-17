@@ -275,22 +275,6 @@ fn issue_durable_artifact(path: &Path) -> Result<ObjectRef, AgentError> {
     issue_with_lifetime(path, DURABLE_ARTIFACT_REF_TTL_SECS, true)
 }
 
-#[cfg(target_os = "linux")]
-fn issue_durable_artifact_with_identity(
-    path: &Path,
-    expected_identity: &FileIdentity,
-) -> Result<ObjectRef, AgentError> {
-    let opened = open_verified(path)?;
-    if &opened.identity != expected_identity || !opened.metadata.is_file() {
-        return Err(error(
-            AgentErrorKind::InvalidInput,
-            "artifact identity changed before durable reference issuance",
-            false,
-        ));
-    }
-    issue_opened_with_lifetime(path, opened, DURABLE_ARTIFACT_REF_TTL_SECS, true)
-}
-
 fn issue_with_lifetime(
     path: &Path,
     ttl_seconds: i64,

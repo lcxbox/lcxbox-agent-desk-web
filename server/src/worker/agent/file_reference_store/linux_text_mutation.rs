@@ -765,7 +765,7 @@ mod test_support {
             after_commit,
             commit_guard,
             context,
-            |from, from_name, to, to_name, flags| renameat2(from, from_name, to, to_name, flags),
+            renameat2,
         )
     }
 

@@ -43,18 +43,18 @@ impl Routes {
             .revision
             .checked_add(1)
             .expect("Native route revision exhausted");
-        if let Some(route) = self.shells.get(&id) {
-            if let Some(sender) = &route.sender {
-                let path = route
-                    .endpoint
-                    .as_ref()
-                    .filter(|e| e.live())
-                    .map(|e| e.path.clone());
-                let _ = sender.send(HostControlMessage::LinuxAiInputEndpoint {
-                    revision: self.revision,
-                    path,
-                });
-            }
+        if let Some(route) = self.shells.get(&id)
+            && let Some(sender) = &route.sender
+        {
+            let path = route
+                .endpoint
+                .as_ref()
+                .filter(|e| e.live())
+                .map(|e| e.path.clone());
+            let _ = sender.send(HostControlMessage::LinuxAiInputEndpoint {
+                revision: self.revision,
+                path,
+            });
         }
     }
 }

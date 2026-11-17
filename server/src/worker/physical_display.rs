@@ -53,6 +53,7 @@ pub struct PhysicalDisplaySnapshot {
 /// A successful OS write still needs a readback of the selected mode and
 /// surrounding topology. If that readback fails or disagrees, try to restore
 /// the previous mode while the caller still owns the topology operation.
+#[cfg(any(windows, target_os = "macos", test))]
 fn verify_after_apply(
     before: &PhysicalDisplaySnapshot,
     after: Result<PhysicalDisplaySnapshot, String>,

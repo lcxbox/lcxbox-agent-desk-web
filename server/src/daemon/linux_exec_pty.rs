@@ -25,11 +25,11 @@ use zbus::zvariant::{OwnedObjectPath, Value};
 
 use crate::daemon::exec_pty_carrier::ExecPtyCarrierRegistry;
 use crate::host_control::session_shell::RegisteredSessionShell;
+use desk_agent_protocol::AgentOutcome;
 use desk_agent_protocol::exec_pty::{
     MAX_PTY_DATA_FRAME_BYTES, PtyCloseReason, PtyOutputFrame, PtyStreamClosed, PtyStreamOpened,
 };
 use desk_agent_protocol::exec_pty_wire::PtyWireFrame;
-use desk_agent_protocol::{AgentErrorKind, AgentOutcome};
 use desk_ipc_protocol::message::ExecPtyStartPayload;
 use tokio::io::AsyncWriteExt as _;
 

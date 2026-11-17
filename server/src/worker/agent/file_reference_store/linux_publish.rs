@@ -235,8 +235,7 @@ mod tests {
             "text.txt",
             std::str::from_utf8(&bytes).unwrap(),
         )
-        .err()
-        .expect("text limit must remain four MiB");
+        .expect_err("text limit must remain four MiB");
         assert_eq!(rejected.class, ComputerActionResultClass::Failed);
         assert!(!root.path().join("text.txt").exists());
         let created =
@@ -258,8 +257,7 @@ mod tests {
             "uncertain.pdf",
             b"approved document",
         )
-        .err()
-        .expect("replacement inode must not verify a document publication");
+        .expect_err("replacement inode must not verify a document publication");
         assert_eq!(failure.class, ComputerActionResultClass::OutcomeUnknown);
     }
 
@@ -275,8 +273,7 @@ mod tests {
         let name = std::ffi::CString::new(selected.as_os_str().as_bytes()).unwrap();
         assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
         let failure = publication::create_text_artifact(&directory, "artifact.txt", "approved")
-            .err()
-            .expect("substituted directory must be rejected");
+            .expect_err("substituted directory must be rejected");
         assert_eq!(failure.class, ComputerActionResultClass::Failed);
         assert_eq!(std::fs::read_dir(moved).unwrap().count(), 0);
     }
@@ -293,8 +290,7 @@ mod tests {
             std::fs::rename(replacement, path).unwrap();
         }));
         let failure = publication::create_text_artifact(&directory, "artifact.txt", "approved")
-            .err()
-            .expect("a different inode must not verify the submitted artifact");
+            .expect_err("a different inode must not verify the submitted artifact");
         assert_eq!(failure.class, ComputerActionResultClass::OutcomeUnknown);
         assert_eq!(
             std::fs::read(root.path().join("artifact.txt")).unwrap(),
@@ -315,9 +311,7 @@ mod tests {
             assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
         }));
         let result = publication::create_text_artifact(&directory, "artifact.txt", "approved");
-        let failure = result
-            .err()
-            .expect("FIFO must not produce an artifact receipt");
+        let failure = result.expect_err("FIFO must not produce an artifact receipt");
         assert_eq!(failure.class, ComputerActionResultClass::OutcomeUnknown);
         use std::os::unix::fs::FileTypeExt;
         assert!(

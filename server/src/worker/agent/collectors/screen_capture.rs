@@ -10,6 +10,7 @@ use desk_agent_protocol::{
     AgentError, AgentErrorKind, ImageFormat, ScreenCaptureOutput, ScreenCaptureParams,
 };
 use desk_capture_engine::error::CaptureError;
+#[cfg(any(not(target_os = "linux"), test))]
 use desk_capture_engine::image_capture::image_capture_factory::create_image_capture;
 use desk_capture_engine::model::image_capture::{
     CaptureRequest, CursorCaptureMode, ImageInfo, ImageType,
@@ -34,6 +35,9 @@ mod window;
 mod windows_display;
 pub(crate) use window::WindowCaptureTarget;
 
+// Linux captures through the Wayland service; this path serves other
+// platforms and the shared tests.
+#[cfg(any(not(target_os = "linux"), test))]
 /// Capture one fresh frame of the configured display or selected window as PNG.
 pub(crate) fn collect(
     params: &ScreenCaptureParams,
@@ -84,6 +88,7 @@ pub(crate) fn collect(
     })
 }
 
+#[cfg(any(not(target_os = "linux"), test))]
 fn capture_display_once(
     settings: &DeskSettings,
 ) -> Result<Box<dyn ImageInfo + Send + Sync>, CaptureError> {
@@ -107,7 +112,7 @@ fn capture_dpi() -> (u32, u32) {
     if dpi == 0 { (96, 96) } else { (dpi, dpi) }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), any(not(target_os = "linux"), test)))]
 fn capture_dpi() -> (u32, u32) {
     // The Windows raw-input beta is the only consumer today. Other platform
     // capture adapters still return an explicit neutral value instead of

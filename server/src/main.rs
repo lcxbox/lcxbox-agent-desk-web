@@ -363,6 +363,15 @@ fn main() {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn linux_service_exit_code(error: &(dyn std::error::Error + 'static)) -> i32 {
+    if error.is::<lcxl_remote_desk_server::daemon::linux_service::ServiceOperationBusy>() {
+        lcxl_remote_desk_server::daemon::linux_service::SERVICE_OPERATION_BUSY_EXIT_CODE
+    } else {
+        1
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(target_os = "linux")]
@@ -442,14 +451,5 @@ mod tests {
             AccessCommand::Disconnect { connection_id } if connection_id == "peer-1"
         ));
         assert!(AccessCli::try_parse_from(["access", "--unknown"]).is_err());
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn linux_service_exit_code(error: &(dyn std::error::Error + 'static)) -> i32 {
-    if error.is::<lcxl_remote_desk_server::daemon::linux_service::ServiceOperationBusy>() {
-        lcxl_remote_desk_server::daemon::linux_service::SERVICE_OPERATION_BUSY_EXIT_CODE
-    } else {
-        1
     }
 }

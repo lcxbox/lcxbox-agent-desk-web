@@ -111,7 +111,7 @@ mod tests {
             Duration::from_secs(1),
             observe(
                 futures_util::stream::repeat_with(|| Ok(true)),
-                || std::future::pending::<Result<()>>(),
+                std::future::pending::<Result<()>>,
                 || {
                     changes += 1;
                     Ok(())

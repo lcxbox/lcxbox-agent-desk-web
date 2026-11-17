@@ -5,6 +5,10 @@ use desk_agent_protocol::native_diagnostic::{DiagnosticStage, NativeDiagnostic};
 use std::time::Duration;
 use zbus::zvariant::OwnedObjectPath;
 
+#[allow(
+    clippy::result_large_err,
+    reason = "platform launch error carries its full diagnostic; boxing would change every caller"
+)]
 pub(super) fn current_identity() -> Result<String, LaunchError> {
     let identity = read_process_identity(std::process::id()).map_err(|error| LaunchError {
         reason: LaunchFailureReason::SessionUnavailable,
@@ -200,6 +204,10 @@ pub(super) async fn verify(
     })?
 }
 
+#[allow(
+    clippy::result_large_err,
+    reason = "platform launch error carries its full diagnostic; boxing would change every caller"
+)]
 fn same_credentials(
     current: &UnixProcessIdentity,
     manager: &UnixProcessIdentity,
