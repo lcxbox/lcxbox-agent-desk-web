@@ -380,7 +380,7 @@ impl WorkerSession {
         let file_recovery_quota = super::file_recovery_quota::QuotaClient::new(writer_tx.clone());
         // Held for the worker's lifetime: the executor lock tells other workers
         // that this one's pending command snapshots are still running.
-        let exec_snapshots = {
+        let (exec_snapshots, exec_sandbox) = {
             let user_session = worker_profile == WorkerProfile::SessionUser;
             let data_root = worker_data_dir.clone();
             let quota = file_recovery_quota.clone();
@@ -390,15 +390,36 @@ impl WorkerSession {
                 .cloned()
                 .collect();
             tokio::task::spawn_blocking(move || {
-                crate::worker::exec_snapshot::ExecSnapshots::start(
+                let protected =
+                    crate::worker::exec_snapshot::ProtectedRoots::current(product.iter().cloned());
+                // Per-execution sandbox temporary directories live in the
+                // worker's private data directory, which is the user's own
+                // storage for every user-session worker (a Linux ServiceDaemon
+                // worker uses `$XDG_DATA_HOME/lcxl-remote-desk`).
+                let sandbox = crate::worker::exec_sandbox::ExecSandbox::start(
+                    data_root.clone(),
+                    protected.clone(),
+                    crate::worker::exec_sandbox::read_protected_directories(product),
+                );
+                let snapshots = crate::worker::exec_snapshot::ExecSnapshots::start(
                     user_session,
                     data_root,
                     quota,
-                    crate::worker::exec_snapshot::ProtectedRoots::current(product),
-                )
+                    protected,
+                );
+                (snapshots, Arc::new(sandbox))
             })
             .await
-            .unwrap_or_else(|_| crate::worker::exec_snapshot::ExecSnapshots::unavailable())
+            .unwrap_or_else(|_| {
+                (
+                    crate::worker::exec_snapshot::ExecSnapshots::unavailable(),
+                    Arc::new(crate::worker::exec_sandbox::ExecSandbox::start(
+                        None,
+                        Default::default(),
+                        Vec::new(),
+                    )),
+                )
+            })
         };
         #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         let file_recovery_maintenance = if worker_profile == WorkerProfile::SessionUser {
@@ -3092,6 +3113,7 @@ impl WorkerSession {
                                     let (cancel, registration) =
                                         exec_registry.register(&payload.plan.execution_generation);
                                     let snapshots = exec_snapshots.clone();
+                                    let sandbox = Arc::clone(&exec_sandbox);
                                     tokio::spawn(async move {
                                         // Held for the whole run; dropping it
                                         // deregisters however the command ends.
@@ -3145,9 +3167,10 @@ impl WorkerSession {
                                         // spawn and after the command ends; the
                                         // scans are not part of its timeout.
                                         let outcome = snapshots
-                                            .run(&payload.plan, payload.file_recovery.clone(), |started| {
+                                            .run(&payload.plan, payload.file_recovery.clone(), &sandbox, |started, launch| {
                                                 crate::worker::exec::execute_plan_cancellable(
                                                     &payload.plan,
+                                                    launch,
                                                     move |report| {
                                                         if matches!(report, desk_ipc_protocol::message::ExecSpawnReport::Started { .. }) {
                                                             started.store(true, std::sync::atomic::Ordering::Release);
@@ -3253,6 +3276,7 @@ impl WorkerSession {
                                     let (cancel, registration) =
                                         registry.register(&payload.plan.execution_generation);
                                     let snapshots = exec_snapshots.clone();
+                                    let sandbox = Arc::clone(&exec_sandbox);
                                     tokio::spawn(async move {
                                         let _registration = registration;
                                         let heartbeat = {
@@ -3290,9 +3314,10 @@ impl WorkerSession {
                                         let spawn_request_id = payload.request_id.clone();
                                         let spawn_connection_id = payload.connection_id.clone();
                                         let outcome = snapshots
-                                            .run(&payload.plan, payload.file_recovery.clone(), |started| {
+                                            .run(&payload.plan, payload.file_recovery.clone(), &sandbox, |started, launch| {
                                                 crate::worker::exec_pty::execute_pty_plan_cancellable(
                                                     &payload.plan,
+                                                    launch,
                                                     payload.exec_pty,
                                                     payload.exec_pty_elevation,
                                                     payload.stream_id.clone(),

@@ -23,6 +23,12 @@ fn readiness() -> ComputerUseReadiness {
         interactive_session_incarnation: "worker-1".into(),
         local_ceiling_revision: 1,
         unattended_command_execution: false,
+        exec_sandbox: desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+        exec_identity: desk_agent_protocol::exec::ExecIdentity {
+            elevated: false,
+            system: false,
+            root: false,
+        },
         capabilities: TOOLS
             .iter()
             .map(|name| ComputerUseCapabilityReadiness {

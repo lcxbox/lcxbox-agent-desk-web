@@ -1053,6 +1053,33 @@ pub fn require_current_read_target(
     }))
 }
 
+/// A device's command sandbox support and execution identity as projected
+/// into REQUEST DEVICES. A SYSTEM or root identity is reported as
+/// unsupported, matching command policy resolution.
+fn command_sandbox_entry(
+    readiness: &desk_agent_protocol::computer_use::ComputerUseReadiness,
+) -> (serde_json::Value, serde_json::Value) {
+    use desk_agent_protocol::exec::ExecSandboxSupport;
+    let device = crate::command_confirmation::DeviceExecSandbox::from_readiness(readiness);
+    let sandbox = match device.effective_support() {
+        ExecSandboxSupport::Supported => serde_json::json!("supported"),
+        ExecSandboxSupport::Unsupported(reason) => {
+            serde_json::json!({"unsupported": reason})
+        }
+    };
+    let identity = device.identity();
+    let identity = if identity.system {
+        "system"
+    } else if identity.root {
+        "root"
+    } else if identity.elevated {
+        "administrator"
+    } else {
+        "standard_user"
+    };
+    (sandbox, serde_json::json!(identity))
+}
+
 pub fn platform_name(platform: &str) -> Option<&'static str> {
     match platform.to_ascii_lowercase().as_str() {
         "windows" => Some("Windows"),
@@ -1093,6 +1120,11 @@ pub(crate) fn catalogue(
         .iter()
         .map(|device| {
             let mut entry = serde_json::json!(device);
+            if can_request_command && let Some(readiness) = &device.native_readiness {
+                let (sandbox, identity) = command_sandbox_entry(readiness);
+                entry["command_sandbox"] = sandbox;
+                entry["command_identity"] = identity;
+            }
             entry["ready_read_tools"] = serde_json::json!(
                 reads
                     .iter()
@@ -1129,6 +1161,7 @@ pub(crate) fn catalogue(
     prompt.push_str(&serde_json::json!({ "request_devices": catalogue }).to_string());
     prompt.push_str("\nWhen advertised, use read_system_info to check current CPU, memory, and disk capacity. Use the online field for device connectivity and the advertised tools for operations available in this conversation.");
     if can_request_command {
+        prompt.push_str(" command_sandbox reports whether exec_command can run in that device's write sandbox (supported, or unsupported with a reason); command_identity is the account its commands run as.");
         prompt.push_str(" If process-level CPU or disk details require an OS command, call exec_command with target_ref, shell, command and timeout_ms; each command is approved when called. Choose a bounded, non-modifying command for the device's platform. Run cheap diagnostics first and narrow expensive recursive scans to one relevant directory at a time. If a scan times out, use its partial output and narrow the scan before running another command. Do not ask for a separate chat confirmation.");
     }
     cites

@@ -296,7 +296,7 @@ mod tests {
                 id: "call".into(),
                 name: crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME.into(),
                 arguments_json: serde_json::json!({"items":[{"item_id":"command","tool_name":"exec_command",
-                    "exact_input":{"schema_version":1,"shell":"bash","command":"df -h","timeout_ms":1000},
+                    "exact_input":{"schema_version":2,"shell":"bash","command":"df -h","timeout_ms":1000},
                     "reason":"Check available disk space"}]}).to_string(),
             },
             &registry, "request".into(), 1, time.into(),

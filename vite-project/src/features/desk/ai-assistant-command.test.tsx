@@ -9,6 +9,7 @@ const review: CommandReview = {
     shell: 'bash', cwd: null, targetDeviceId: 'device-1', targetSessionId: 'connection:session',
     timeoutMs: 10000, maxStdoutBytes: 65536, maxStderrBytes: 65536,
     executionBasis: 'owner_blocklist_only', oneShot: true,
+    sandbox: { mode: 'unrestricted', attention: 'neutral', writableRoots: [], implicitWritable: [], identity: null },
 };
 
 describe('exact command confirmation', () => {
@@ -17,7 +18,8 @@ describe('exact command confirmation', () => {
         for (const invalid of [null, undefined, {}, { command: 123 }, { ...review, command: ' ' },
             { ...review, targetSessionId: '' }, { ...review, oneShot: false },
             { ...review, timeoutMs: 0 }, { ...review, maxStdoutBytes: NaN },
-            { ...review, maxStderrBytes: -1 }, { ...review, executionBasis: 'unknown' }]) {
+            { ...review, maxStderrBytes: -1 }, { ...review, executionBasis: 'unknown' },
+            { ...review, sandbox: undefined }, { ...review, sandbox: { ...review.sandbox, attention: 'sandboxed' } }]) {
             expect(validCommandReview(invalid)).toBe(false);
         }
     });
@@ -29,5 +31,6 @@ describe('exact command confirmation', () => {
         expect(container.textContent).toContain(value.targetSessionId);
         expect(container.textContent).toContain('commandFreeformWarning');
         expect(container.textContent).toContain('commandDefaultCwd');
+        expect(container.textContent).toContain('commandSandbox.neutral');
     });
 });

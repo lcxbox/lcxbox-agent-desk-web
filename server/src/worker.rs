@@ -6,6 +6,7 @@ pub mod exec;
 pub mod exec_containment;
 pub mod exec_pty;
 pub mod exec_registry;
+pub mod exec_sandbox;
 pub mod exec_snapshot;
 pub mod file_transfer_dispatcher;
 pub mod input_dispatcher;

@@ -365,6 +365,12 @@ async fn run_desktop_history_case(
                 server_api_version: 1,
                 os: "macos".into(),
                 interactive_user_home: None,
+                exec_sandbox: desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+                exec_identity: desk_agent_protocol::exec::ExecIdentity {
+                    elevated: false,
+                    system: false,
+                    root: false,
+                },
                 interactive_session_incarnation: "worker".into(),
                 local_ceiling_revision: 1,
                 unattended_command_execution: false,
@@ -1478,6 +1484,15 @@ async fn seed_command_history(db: &crate::config::connection::DatabaseConnection
             &session,
             &session.device_id,
             chrono::Utc::now().timestamp_millis() as u64,
+        ),
+        exec_sandbox: desk_diagnose_core::command_confirmation::DeviceExecSandbox::for_test(
+            desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+            desk_agent_protocol::exec::ExecIdentity {
+                elevated: false,
+                system: false,
+                root: false,
+            },
+            "linux",
         ),
     };
     let registry = ai_assistant_provider_registry().with_command_policy(policy.clone());

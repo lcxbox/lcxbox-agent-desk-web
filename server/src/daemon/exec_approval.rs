@@ -226,6 +226,7 @@ mod tests {
             max_stdout_bytes: 65_536,
             max_stderr_bytes: 65_536,
             snapshot_roots: Vec::new(),
+            sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
         }
     }
 
@@ -245,6 +246,7 @@ mod tests {
             max_stderr_bytes: 65_536,
             containment: Default::default(),
             snapshot_roots: Vec::new(),
+            sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
         }
     }
 

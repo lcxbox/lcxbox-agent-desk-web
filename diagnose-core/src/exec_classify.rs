@@ -29,7 +29,7 @@ use desk_agent_protocol::command_blocklist::{BlocklistRule, blocklist_match};
 use desk_agent_protocol::command_template::SyncedCommandTemplate;
 use desk_agent_protocol::exec::{
     CommandClassification, ExecContainmentSnapshot, ExecDecision, ExecEffect, ExecExecutionBasis,
-    ExecIoMode, ExecPlanDraft, ExecShellKind, ExecSnapshotRoot,
+    ExecIoMode, ExecPlanDraft, ExecSandboxMode, ExecShellKind,
 };
 use desk_agent_protocol::exec_policy::{
     build_exact_argv_draft_with_io_mode, builtin_blocklist, fingerprint_with_io_mode,
@@ -224,6 +224,7 @@ fn classify_command_core_with_policy(
             &containment,
             input.io_mode,
             &input.snapshot_roots,
+            input.sandbox_mode,
         );
 
         let impact = if m.bound.is_empty() {
@@ -247,6 +248,7 @@ fn classify_command_core_with_policy(
             max_stderr_bytes: limits.max_stderr_bytes,
             containment,
             snapshot_roots: input.snapshot_roots.clone(),
+            sandbox_mode: input.sandbox_mode,
         };
 
         return ClassifyOutcome {
@@ -277,7 +279,7 @@ fn classify_command_core_with_policy(
         // so a background-whitelisted template can still resolve past 60 s. Output
         // caps stay clamped.
         let request_wall = (input.timeout_ms != 0).then_some(input.timeout_ms);
-        let draft = with_snapshot_roots(
+        let draft = with_write_scope(
             build_exact_argv_draft_with_io_mode(
                 t,
                 request_wall,
@@ -286,7 +288,7 @@ fn classify_command_core_with_policy(
                 input.cwd.clone(),
                 input.io_mode,
             ),
-            &input.snapshot_roots,
+            input,
         );
         let risk = interactive_risk(t.risk(), input.io_mode);
         return ClassifyOutcome {
@@ -355,6 +357,7 @@ fn freeform_draft(input: &ExecInput, shell: &str) -> ClassifyOutcome {
         &containment,
         input.io_mode,
         &input.snapshot_roots,
+        input.sandbox_mode,
     );
     let draft = ExecPlanDraft {
         program,
@@ -371,6 +374,7 @@ fn freeform_draft(input: &ExecInput, shell: &str) -> ClassifyOutcome {
         max_stderr_bytes: limits.max_stderr_bytes,
         containment,
         snapshot_roots: input.snapshot_roots.clone(),
+        sandbox_mode: input.sandbox_mode,
     };
 
     ClassifyOutcome {
@@ -387,13 +391,15 @@ fn freeform_draft(input: &ExecInput, shell: &str) -> ClassifyOutcome {
     }
 }
 
-/// Seal the input's snapshot roots into an operator-template draft and
-/// refingerprint it. Rootless drafts are returned unchanged.
-fn with_snapshot_roots(mut draft: ExecPlanDraft, roots: &[ExecSnapshotRoot]) -> ExecPlanDraft {
-    if roots.is_empty() {
+/// Seal the input's snapshot roots and sandbox mode into an operator-template
+/// draft and refingerprint it. A rootless, unrestricted draft is returned
+/// unchanged.
+fn with_write_scope(mut draft: ExecPlanDraft, input: &ExecInput) -> ExecPlanDraft {
+    if input.snapshot_roots.is_empty() && input.sandbox_mode == ExecSandboxMode::Unrestricted {
         return draft;
     }
-    draft.snapshot_roots = roots.to_vec();
+    draft.snapshot_roots = input.snapshot_roots.clone();
+    draft.sandbox_mode = input.sandbox_mode;
     draft.fingerprint = fingerprint_with_io_mode(
         &draft.program,
         &draft.argv,
@@ -405,7 +411,8 @@ fn with_snapshot_roots(mut draft: ExecPlanDraft, roots: &[ExecSnapshotRoot]) -> 
         },
         &draft.containment,
         draft.io_mode,
-        roots,
+        &draft.snapshot_roots,
+        draft.sandbox_mode,
     );
     draft
 }
@@ -461,6 +468,7 @@ fn classify_interactive_elevation(
         max_stdout_bytes: input.max_stdout_bytes,
         max_stderr_bytes: input.max_stderr_bytes,
         snapshot_roots: Vec::new(),
+        sandbox_mode: ExecSandboxMode::Unrestricted,
     };
     let inner = classify_command_core_with_policy(
         &inner_input,
@@ -496,6 +504,7 @@ fn classify_interactive_elevation(
         &inner_draft.containment,
         input.io_mode,
         &input.snapshot_roots,
+        input.sandbox_mode,
     );
     let template_id = format!("interactive_elevation:{}", inner_draft.template_id);
     let draft = ExecPlanDraft {
@@ -513,6 +522,7 @@ fn classify_interactive_elevation(
         max_stderr_bytes: limits.max_stderr_bytes,
         containment: inner_draft.containment,
         snapshot_roots: input.snapshot_roots.clone(),
+        sandbox_mode: input.sandbox_mode,
     };
     ClassifyOutcome {
         classification: CommandClassification {
@@ -632,6 +642,7 @@ mod tests {
             max_stdout_bytes: 0,
             max_stderr_bytes: 0,
             snapshot_roots: Vec::new(),
+            sandbox_mode: ExecSandboxMode::Unrestricted,
         }
     }
 
@@ -944,6 +955,7 @@ mod tests {
             max_stdout_bytes: 0,
             max_stderr_bytes: 0,
             snapshot_roots: Vec::new(),
+            sandbox_mode: ExecSandboxMode::Unrestricted,
         };
         let out = classify_command(&input);
         assert_eq!(out.classification.decision, ExecDecision::NotExecutable);
@@ -1043,13 +1055,13 @@ mod tests {
     }
 
     #[test]
-    fn every_classification_path_seals_the_input_snapshot_roots() {
+    fn every_classification_path_seals_the_input_write_scope() {
         let ops = [operator_template(
             "net_stop",
             &["net", "stop", "spooler"],
             ExecEffect::Mutating,
         )];
-        let roots = vec![ExecSnapshotRoot::Cwd {
+        let roots = vec![desk_agent_protocol::exec::ExecSnapshotRoot::Cwd {
             path: "/repo".into(),
         }];
         for (command, policy) in [
@@ -1068,10 +1080,31 @@ mod tests {
                     .draft
                     .expect("draft")
             };
+            let mut sandboxed = rooted.clone();
+            sandboxed.sandbox_mode = ExecSandboxMode::Sandboxed;
+            let mut temp_only = plain.clone();
+            temp_only.sandbox_mode = ExecSandboxMode::Sandboxed;
+            let (sandboxed, temp_only) = (classify(&sandboxed), classify(&temp_only));
             let (plain, rooted) = (classify(&plain), classify(&rooted));
             assert!(plain.snapshot_roots.is_empty(), "{command}");
+            assert_eq!(plain.sandbox_mode, ExecSandboxMode::Unrestricted);
             assert_eq!(rooted.snapshot_roots, roots, "{command}");
             assert_ne!(plain.fingerprint, rooted.fingerprint, "{command}");
+            assert_eq!(sandboxed.snapshot_roots, roots, "{command}");
+            assert_eq!(sandboxed.sandbox_mode, ExecSandboxMode::Sandboxed);
+            assert_eq!(temp_only.sandbox_mode, ExecSandboxMode::Sandboxed);
+            assert!(temp_only.snapshot_roots.is_empty());
+            let prints = [
+                &plain.fingerprint,
+                &rooted.fingerprint,
+                &sandboxed.fingerprint,
+                &temp_only.fingerprint,
+            ];
+            for (i, a) in prints.iter().enumerate() {
+                for b in &prints[i + 1..] {
+                    assert_ne!(a, b, "{command}");
+                }
+            }
             assert_eq!(
                 rooted.fingerprint,
                 fingerprint_with_io_mode(
@@ -1086,6 +1119,7 @@ mod tests {
                     &rooted.containment,
                     rooted.io_mode,
                     &roots,
+                    ExecSandboxMode::Unrestricted,
                 ),
                 "{command}"
             );

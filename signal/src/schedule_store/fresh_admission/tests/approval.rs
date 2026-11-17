@@ -60,7 +60,7 @@ async fn approved_fresh_task_claim_releases_the_held_call_for_the_server_to_run(
     // The loop held the one call the request covers, as the task pause does.
     let arguments = desk_diagnose_core::permission_tools::canonical_tool_permission_input_json(
         TOOL,
-        serde_json::json!({"schema_version":1,"shell":"bash","command":"pwd","timeout_ms":10000}),
+        serde_json::json!({"schema_version":2,"shell":"bash","command":"pwd","timeout_ms":10000}),
     )
     .unwrap();
     session.conversation.push(

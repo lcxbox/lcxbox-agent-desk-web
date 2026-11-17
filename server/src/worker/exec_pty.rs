@@ -23,6 +23,7 @@ use tokio::sync::watch;
 use crate::agent_adapter::redaction::{Redactor, RegexRedactor};
 use crate::model::settings::AiExecutionPolicy;
 use crate::worker::exec_registry::ExecRegistry;
+use crate::worker::exec_sandbox::ExecLaunch;
 
 /// A small queue is deliberate: terminal bytes are ordered and may not be
 /// dropped. If the event transport cannot keep up, the reader cancels the
@@ -246,8 +247,9 @@ fn project_terminal_text(bytes: &[u8]) -> String {
     clippy::too_many_arguments,
     reason = "explicit per-call inputs shared by platform backends; grouping them is a separate refactor"
 )]
-pub async fn execute_pty_plan_cancellable(
+pub(crate) async fn execute_pty_plan_cancellable(
     plan: &ExecPlan,
+    launch: ExecLaunch,
     exec_pty_enabled: bool,
     exec_pty_elevation_enabled: bool,
     stream_id: String,
@@ -309,6 +311,7 @@ pub async fn execute_pty_plan_cancellable(
     let outcome = tokio::task::spawn_blocking(move || {
         platform::run(
             owned_plan,
+            launch,
             stream_id,
             session_target_id,
             registration_generation,
@@ -439,6 +442,8 @@ mod platform {
     use crate::worker::exec_pty::project_terminal_text;
     use crate::worker::exec_pty::{agent_error, finish_stopped_result, native_io};
     use crate::worker::exec_registry::ExecRegistry;
+    use crate::worker::exec_sandbox::ExecLaunch;
+    use desk_agent_protocol::ExecOutputStreams;
 
     const REDACTION_MARGIN: usize = 8 * 1024;
     const CHILD_POLL_INTERVAL: Duration = Duration::from_millis(15);
@@ -449,6 +454,7 @@ mod platform {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn run(
         plan: ExecPlan,
+        launch: ExecLaunch,
         stream_id: String,
         session_target_id: String,
         registration_generation: u64,
@@ -458,6 +464,25 @@ mod platform {
         live_tx: mpsc::Sender<WorkerToService>,
         on_spawn: impl FnOnce(ExecSpawnReport),
     ) -> AgentOutcome {
+        let sandbox = match launch {
+            ExecLaunch::Unrestricted => None,
+            ExecLaunch::SandboxedTerminal { sandbox, roots } => Some((sandbox, roots)),
+            ExecLaunch::Sandboxed(_) | ExecLaunch::Refused(_) => {
+                let reason = match launch {
+                    ExecLaunch::Refused(error) => {
+                        format!("the command sandbox is unavailable: {error}")
+                    }
+                    _ => "a pipe launch requires the pipe executor".to_owned(),
+                };
+                on_spawn(ExecSpawnReport::Failed {
+                    reason: reason.clone(),
+                });
+                return AgentOutcome::Err(agent_error(
+                    AgentErrorKind::UnsupportedCapability,
+                    format!("Command was not started: {reason}"),
+                ));
+            }
+        };
         let (rows, cols) = match plan.io_mode {
             ExecIoMode::Pty {
                 initial_rows,
@@ -561,6 +586,26 @@ mod platform {
                 ));
             }
         };
+        // Kept until the process group was reclaimed: dropping it removes
+        // the execution's temporary directory.
+        let prepared = match &sandbox {
+            None => None,
+            Some((sandbox, roots)) => {
+                match sandbox.prepare(roots, pair.master.tty_name().as_deref()) {
+                    Ok(prepared) => Some(prepared),
+                    Err(error) => {
+                        let reason = format!("the command sandbox is unavailable: {error}");
+                        on_spawn(ExecSpawnReport::Failed {
+                            reason: reason.clone(),
+                        });
+                        return AgentOutcome::Err(agent_error(
+                            AgentErrorKind::UnsupportedCapability,
+                            format!("Command was not started: {reason}"),
+                        ));
+                    }
+                }
+            }
+        };
         let mut command = CommandBuilder::new(&plan.program);
         command.args(&plan.argv);
         command.env("TERM", "xterm-256color");
@@ -568,7 +613,25 @@ mod platform {
             command.cwd(cwd);
         }
         let started = Instant::now();
-        let mut child = match pair.slave.spawn_command(command) {
+        let slave = pair.slave;
+        let spawned = match &prepared {
+            None => slave.spawn_command(command),
+            Some(prepared) => {
+                for (name, value) in prepared.environment() {
+                    command.env(name, value);
+                }
+                // The spawn thread restricts itself first; the slave is
+                // closed there so this thread never holds it afterwards.
+                prepared
+                    .spawn_restricted(move || {
+                        let spawned = slave.spawn_command(command);
+                        drop(slave);
+                        spawned
+                    })
+                    .unwrap_or_else(|error| Err(error.into()))
+            }
+        };
+        let mut child = match spawned {
             Ok(child) => child,
             Err(error) => {
                 on_spawn(ExecSpawnReport::Failed {
@@ -580,7 +643,6 @@ mod platform {
                 ));
             }
         };
-        drop(pair.slave);
         let pgid = pair.master.process_group_leader();
 
         let containment_identity = pgid.map(|value| format!("pgid:{value}"));
@@ -795,7 +857,18 @@ mod platform {
                 ));
             }
             output.diagnostics.extend(diagnostics);
+            if prepared.is_some()
+                && output.failure.is_some()
+                && let ExecOutputStreams::PtyCombined { terminal, .. } = &output.streams
+                && let Some(hint) = crate::worker::exec_sandbox::unavailable_program_hint(
+                    output.exit_code,
+                    terminal,
+                )
+            {
+                output.diagnostics.push(hint);
+            }
         }
+        drop(prepared);
         outcome
     }
 
@@ -963,6 +1036,7 @@ mod platform {
                 max_stderr_bytes: 4096,
                 containment: ExecContainmentSnapshot::default(),
                 snapshot_roots: Vec::new(),
+                sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
             };
             let registry = ExecRegistry::new();
             let (cancel, _registration) = registry.register(&generation);
@@ -972,6 +1046,7 @@ mod platform {
             let task = tokio::task::spawn_blocking(move || {
                 run(
                     task_plan,
+                    ExecLaunch::Unrestricted,
                     "pty-test-stream".into(),
                     "pty-test-session".into(),
                     7,
@@ -1059,6 +1134,105 @@ mod platform {
             assert!(terminal.contains("accepted"), "{terminal:?}");
             assert!(!terminal.contains("lcxl-pty-input-canary-93f1"));
         }
+
+        /// A sandboxed PTY command writes its root and its own terminal but
+        /// nothing outside the root; the restriction is applied by the
+        /// dedicated spawn thread, so the executor keeps working afterwards.
+        #[tokio::test]
+        async fn a_sandboxed_pty_command_is_restricted_to_its_root_and_terminal() {
+            use crate::worker::exec_sandbox::{ExecSandbox, sandbox_support};
+            if sandbox_support() != desk_agent_protocol::exec::ExecSandboxSupport::Supported {
+                eprintln!("command sandbox unavailable here, skipping");
+                return;
+            }
+            let scratch = tempfile::tempdir().unwrap();
+            let base = std::fs::canonicalize(scratch.path()).unwrap();
+            let (private, root, outside) = (
+                base.join("private"),
+                base.join("root"),
+                base.join("outside"),
+            );
+            for directory in [&private, &root, &outside] {
+                std::fs::create_dir(directory).unwrap();
+            }
+            let sandbox = std::sync::Arc::new(ExecSandbox::start(
+                Some(private.clone()),
+                crate::worker::exec_snapshot::ProtectedRoots::default(),
+                Vec::new(),
+            ));
+            let handle = std::fs::File::open(&root).unwrap();
+            let roots = sandbox.check_roots(vec![handle]).unwrap();
+            let launch = ExecLaunch::SandboxedTerminal { sandbox, roots };
+            let generation = format!("pty-sandbox-{}", uuid::Uuid::new_v4());
+            let script = format!(
+                "printf in > in.txt; (printf x > '{}/escape' 2>/dev/null && echo escaped || echo denied); \
+                 (printf y > \"$(tty)\" && echo tty-ok); echo \"tmp=$TMPDIR\"",
+                outside.display()
+            );
+            let plan = ExecPlan {
+                exec_request_id: ExecRequestId("pty-sandbox-request".into()),
+                execution_generation: generation.clone(),
+                program: "/bin/sh".into(),
+                argv: vec!["-c".into(), script],
+                cwd: Some(root.to_str().unwrap().to_owned()),
+                shell: ExecShellKind::Native,
+                risk: RiskLevel::Low,
+                io_mode: ExecIoMode::Pty {
+                    initial_rows: 24,
+                    initial_cols: 80,
+                },
+                execution_basis: ExecExecutionBasis::Template,
+                template_id: "pty-test".into(),
+                approval_id: ApprovalId("pty-sandbox-approval".into()),
+                authorization: Default::default(),
+                fingerprint: "pty-sandbox-fingerprint".into(),
+                timeout_ms: 5_000,
+                max_stdout_bytes: 4096,
+                max_stderr_bytes: 4096,
+                containment: ExecContainmentSnapshot::default(),
+                snapshot_roots: Vec::new(),
+                sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Sandboxed,
+            };
+            let registry = ExecRegistry::new();
+            let (cancel, _registration) = registry.register(&generation);
+            let (live_tx, mut live_rx) = mpsc::channel(8);
+            let drain = tokio::spawn(async move { while live_rx.recv().await.is_some() {} });
+            let outcome = tokio::task::spawn_blocking(move || {
+                run(
+                    plan,
+                    launch,
+                    "pty-sandbox-stream".into(),
+                    "pty-test-session".into(),
+                    7,
+                    11,
+                    registry,
+                    cancel.subscribe(),
+                    live_tx,
+                    |_| {},
+                )
+            })
+            .await
+            .unwrap();
+            drain.await.unwrap();
+            let terminal = match outcome {
+                AgentOutcome::Ok(OperationOutput::Exec(ExecOutput {
+                    streams: ExecOutputStreams::PtyCombined { terminal, .. },
+                    ..
+                })) => terminal,
+                other => panic!("expected PTY result, got {other:?}"),
+            };
+            assert!(terminal.contains("denied"), "{terminal:?}");
+            assert!(!terminal.contains("escaped"), "{terminal:?}");
+            assert!(terminal.contains("tty-ok"), "{terminal:?}");
+            assert!(
+                terminal.contains(&format!("tmp={}", private.join("exec-tmp").display())),
+                "{terminal:?}"
+            );
+            assert!(root.join("in.txt").exists());
+            assert!(!outside.join("escape").exists());
+            // The executor thread itself stays unrestricted.
+            std::fs::write(outside.join("worker.txt"), "ok").unwrap();
+        }
     }
 }
 
@@ -1071,10 +1245,12 @@ mod platform {
 
     use crate::worker::exec_pty::agent_error;
     use crate::worker::exec_registry::ExecRegistry;
+    use crate::worker::exec_sandbox::ExecLaunch;
 
     #[allow(clippy::too_many_arguments)]
     pub(super) fn run(
         _plan: ExecPlan,
+        _launch: ExecLaunch,
         _stream_id: String,
         _session_target_id: String,
         _registration_generation: u64,

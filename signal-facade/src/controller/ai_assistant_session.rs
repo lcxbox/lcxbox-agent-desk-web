@@ -2013,6 +2013,51 @@ pub struct CommandConfirmationDto {
     /// directories, exclusions, limits and unprotected areas. Absent for a
     /// read-only command or when there is nothing to snapshot.
     pub snapshot: Option<desk_agent_protocol::exec::ExecSnapshotNotice>,
+    /// How the command runs: sandboxed with its writable locations, or
+    /// unrestricted with a prominent or neutral mark.
+    pub sandbox: CommandSandboxDto,
+}
+
+/// Owner-visible execution mode of a pending command, from its frozen
+/// sandbox notice.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandSandboxDto {
+    pub mode: desk_agent_protocol::exec::ExecSandboxMode,
+    /// `sandboxed`, or for an unrestricted command `prominent` (changes
+    /// outside the snapshot directories cannot be undone) or `neutral`.
+    pub attention: desk_agent_protocol::exec::ExecSandboxAttention,
+    /// Write roots of a sandboxed command (its snapshot directories); empty
+    /// when it may write only temporary locations or runs unrestricted.
+    pub writable_roots: Vec<desk_agent_protocol::exec::ExecSnapshotRootLabel>,
+    /// Locations a sandboxed command may always write: its own temporary
+    /// directory and, per platform, the macOS user temporary directory or
+    /// Linux `/dev/shm`.
+    pub implicit_writable: Vec<desk_agent_protocol::exec::ExecSandboxImplicitWritable>,
+    /// The account an unrestricted command runs as, present when it is an
+    /// administrator, SYSTEM or root.
+    pub identity: Option<desk_agent_protocol::exec::ExecIdentity>,
+}
+
+impl CommandSandboxDto {
+    fn project(
+        confirmation: &desk_diagnose_core::command_confirmation::CommandConfirmation,
+    ) -> Self {
+        let notice = &confirmation.sandbox;
+        let sandboxed = notice.mode == desk_agent_protocol::exec::ExecSandboxMode::Sandboxed;
+        Self {
+            mode: notice.mode,
+            attention: notice.attention,
+            writable_roots: confirmation
+                .snapshot
+                .as_deref()
+                .filter(|_| sandboxed)
+                .map(|snapshot| snapshot.roots.clone())
+                .unwrap_or_default(),
+            implicit_writable: notice.implicit_writable.clone(),
+            identity: notice.displayed_identity(),
+        }
+    }
 }
 
 /// Binding a client needs to prepare the terminal carrier of a pending
@@ -2228,6 +2273,7 @@ impl From<desk_diagnose_core::dynamic_run::PermissionRequest> for PermissionRequ
                                     }
                                 }),
                                 snapshot: confirmation.snapshot.as_deref().cloned(),
+                                sandbox: CommandSandboxDto::project(confirmation),
                             });
                     let application_scope = desk_diagnose_core::application_ui::from_canonical(
                         &item.tool_name,
@@ -3627,7 +3673,7 @@ mod command_snapshot_card_tests {
             }],
         );
         let canonical =
-            r#"{"command":"make fmt","schema_version":1,"shell":"bash","timeout_ms":30000}"#;
+            r#"{"command":"make fmt","schema_version":2,"shell":"bash","timeout_ms":30000}"#;
         let confirmation = policy.prepare(canonical, 1).unwrap();
         let mut command = item(
             desk_diagnose_core::command_confirmation::COMMAND_TOOL,
@@ -3654,6 +3700,97 @@ mod command_snapshot_card_tests {
             json["items"][0]["commandConfirmation"]["snapshot"]["roots"][0]["path"],
             "/work/repo"
         );
+    }
+
+    #[test]
+    fn command_card_shows_the_execution_mode_writable_locations_and_identity() {
+        use desk_agent_protocol::exec::{
+            ExecIdentity, ExecSandboxAttention, ExecSandboxImplicitWritable, ExecSandboxMode,
+            ExecSandboxSupport, ExecSandboxUnsupportedReason,
+        };
+        use desk_diagnose_core::command_confirmation::DeviceExecSandbox;
+        let card = |support, identity, os: &str, grants: bool, sandbox: &str| {
+            let mut policy = desk_diagnose_core::command_confirmation::test_policy();
+            policy.exec_sandbox = DeviceExecSandbox::for_test(support, identity, os);
+            if grants {
+                policy.directory_grants = TrustedDirectoryGrants::for_test(
+                    "device-1",
+                    vec![TrustedDirectoryGrant {
+                        directory_request_id: "r1".into(),
+                        canonical_path: "/work/repo".into(),
+                        directory: directory(),
+                    }],
+                );
+            }
+            let canonical = format!(
+                r#"{{"command":"make fmt","schema_version":2,"shell":"bash"{sandbox},"timeout_ms":30000}}"#
+            );
+            let confirmation = policy.prepare(&canonical, 1).unwrap();
+            let mut command = item(
+                desk_diagnose_core::command_confirmation::COMMAND_TOOL,
+                desk_diagnose_core::ai_assistant::SYSTEM_COMMAND_PROVIDER_ID,
+                canonical,
+            );
+            command.expected_effect = CapabilityEffect::ExecuteCommand;
+            command.resource_scope = confirmation.resource_scope().unwrap();
+            command.command_confirmation = Some(confirmation);
+            let dto = PermissionRequestDto::with_file_evidence(request(command), "run", &[]);
+            serde_json::to_value(&dto).unwrap()["items"][0]["commandConfirmation"]["sandbox"]
+                .clone()
+        };
+        let standard = ExecIdentity {
+            elevated: false,
+            system: false,
+            root: false,
+        };
+        let admin = ExecIdentity {
+            elevated: true,
+            ..standard
+        };
+        // Sandboxed: write roots plus the platform's implicit locations.
+        let sandboxed = card(ExecSandboxSupport::Supported, admin, "macos", true, "");
+        assert_eq!(
+            sandboxed,
+            serde_json::json!({
+                "mode": ExecSandboxMode::Sandboxed,
+                "attention": ExecSandboxAttention::Sandboxed,
+                "writableRoots": [{"kind":"grant","path":"/work/repo"}],
+                "implicitWritable": [
+                    ExecSandboxImplicitWritable::ExecTempDir,
+                    ExecSandboxImplicitWritable::UserTempDir
+                ],
+                "identity": null
+            })
+        );
+        let linux = card(
+            ExecSandboxSupport::Supported,
+            standard,
+            "linux",
+            false,
+            r#","sandbox":true"#,
+        );
+        assert_eq!(linux["writableRoots"], serde_json::json!([]));
+        assert_eq!(
+            linux["implicitWritable"],
+            serde_json::json!(["exec_temp_dir", "dev_shm"])
+        );
+        // Unrestricted with roots on an unsupported device: prominent and
+        // the administrator identity is shown.
+        let unsupported =
+            ExecSandboxSupport::Unsupported(ExecSandboxUnsupportedReason::NotImplemented);
+        let prominent = card(unsupported, admin, "windows", true, "");
+        assert_eq!(prominent["mode"], "unrestricted");
+        assert_eq!(prominent["attention"], "prominent");
+        assert_eq!(prominent["writableRoots"], serde_json::json!([]));
+        assert_eq!(prominent["implicitWritable"], serde_json::json!([]));
+        assert_eq!(
+            prominent["identity"],
+            serde_json::json!({"elevated":true,"system":false,"root":false})
+        );
+        // Rootless omitted: neutral, and a standard user is not called out.
+        let neutral = card(unsupported, standard, "windows", false, "");
+        assert_eq!(neutral["attention"], "neutral");
+        assert_eq!(neutral["identity"], serde_json::Value::Null);
     }
 
     #[test]

@@ -445,7 +445,7 @@ mod protocol_version_tests {
     #[test]
     fn permission_exact_inputs_use_each_target_tools_schema() {
         let mut input = json!({"items":[
-            {"tool_name":crate::exec_tools::EXEC_TOOL_NAME,"exact_input":{"shell":"bash","command":"pwd","timeout_ms":10000,"schema_version":1}},
+            {"tool_name":crate::exec_tools::EXEC_TOOL_NAME,"exact_input":{"shell":"bash","command":"pwd","timeout_ms":10000,"schema_version":2}},
             {"tool_name":"prepare_outlook_draft","exact_input":{"draft":{"schema_version":desk_agent_protocol::communication::COMMUNICATION_SCHEMA_VERSION,"body_plain_text":"unchanged","recipients":[]}}},
             {"tool_name":"unknown","exact_input":{"schema_version":1}}
         ]});
@@ -1481,11 +1481,17 @@ mod tests {
         );
         let mut command = json!({"shell":"bash","command":"pwd","timeout_ms":10000});
         fill_versions("exec_command", &mut command);
-        assert_eq!(command["schema_version"], 1);
+        assert_eq!(
+            command["schema_version"],
+            desk_agent_protocol::exec::COMMAND_DRAFT_SCHEMA_VERSION
+        );
         let grant = json!({"items":[{"tool_name":"exec_command","exact_input":{"shell":"bash","command":"pwd","timeout_ms":10000}}]});
         let mut resolved = grant.clone();
         fill_versions("request_permissions", &mut resolved);
-        assert_eq!(resolved["items"][0]["exact_input"]["schema_version"], 1);
+        assert_eq!(
+            resolved["items"][0]["exact_input"]["schema_version"],
+            desk_agent_protocol::exec::COMMAND_DRAFT_SCHEMA_VERSION
+        );
         assert!(crate::ui_model_ids::same_call_input(
             "request_permissions",
             &grant.to_string(),
@@ -1512,7 +1518,7 @@ mod tests {
             &original,
             &canonical.replace("pwd", "date")
         ));
-        let error = validate_format("exec_command", &json!({"schema_version":1,"command":"pwd"}))
+        let error = validate_format("exec_command", &json!({"schema_version":2,"command":"pwd"}))
             .unwrap_err();
         assert!(error.contains("$.shell"));
         assert!(error.contains("Structural example"));

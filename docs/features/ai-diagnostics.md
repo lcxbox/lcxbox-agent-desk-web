@@ -197,7 +197,7 @@ The sidebar **AI Assistant** entry opens an overview with **AI Assistant attenti
 
 - **AI review** is the default for eligible requests on devices you own, including web reads and web searches in a multi-device conversation. Configure an independent approval model on the host. While the model is unavailable, eligible requests remain available for manual approval. A failed review records that the action was not executed.
 - **Manual approval** sends each request to the device owner. Devices available through an organization still follow the device owner's manual approval. Interactive terminal commands always require the owner.
-- **No review** can authorize new, eligible non-interactive commands in work you assign directly. The current host and device policies must both allow unattended execution. Read the warning and confirm again before enabling it. Instructions embedded in a web page, issue, file, or log can still induce unintended changes or data loss. Subscription-triggered device actions use AI review or manual approval according to the current setting and model availability.
+- **No review** can authorize new, eligible non-interactive commands in work you assign directly. The current host and device policies must both allow unattended execution. Read the warning and confirm again before enabling it. Instructions embedded in a web page, issue, file, or log can still induce unintended changes or data loss, including a request to run a command outside the [command sandbox](#command-sandbox). Subscription-triggered device actions use AI review or manual approval according to the current setting and model availability.
 
 The Assistant and its Workers continue to use each request's original source and operation limits, with devices following the main conversation's current selection. Enabling no review affects new eligible proposals. Already dispatched actions continue under their original receipts. Scheduled tasks use their own authorization. Permission history identifies whether the owner, the approval model, or the conversation setting authorized a command.
 
@@ -353,7 +353,7 @@ After the command ends, including after a timeout or cancellation, its result li
 | Paths matched by `.gitignore` or `.ignore` (rules read before the command runs), and `.git`, `node_modules`, `target`, `dist`, `build`, `.venv`, `__pycache__` | Not checked or protected; for example, commits lost through `git reset` cannot be restored |
 | Anything outside the snapshot folders | Not detected |
 
-The snapshot is skipped, and the command runs unprotected, when a scan finds more than 20,000 files or takes longer than 10 seconds; when a folder cannot be opened or is a drive or file system root, your home directory itself, a system directory, or one of this product's configuration, data or log directories; when the device runs commands as SYSTEM or root; or when backup storage is unavailable. The result then states that the command ran without protection. If backup capacity runs out during a scan, files that no longer fit are listed as unprotected.
+The snapshot is skipped, and the command runs unprotected, when a scan finds more than 20,000 files or takes longer than 10 seconds; when a folder cannot be opened or is a drive or file system root, your home directory itself, a system directory, or one of this product's configuration, data, log or runtime folders or a folder that contains one, such as the system temporary folder; when the device runs commands as SYSTEM or root; or when backup storage is unavailable. The result then states that the command ran without protection. If backup capacity runs out during a scan, files that no longer fit are listed as unprotected. For a command that runs in the [command sandbox](#command-sandbox), a folder that cannot be opened or is not allowed refuses the command instead; the other cases still only skip the snapshot.
 
 If the device restarts or the command's worker stops while the command runs, the snapshot remains and can be exported from backup management, but it cannot be restored through the assistant, because the device cannot tell which changes the command made.
 
@@ -366,6 +366,77 @@ Each file is handled on its own:
 - A deleted file is recreated, together with any missing parent folders.
 
 A restore is not atomic across files; the result reports each file as restored, conflicting, failed or unknown. Authorization is checked again at restore time: a folder that came from a directory approval needs that approval to still be valid in this conversation, and a folder that came from the working directory needs the device's command execution policy to still allow modifying commands. The current content is backed up before the restore and the restore result has its own change list, so a restore can be undone the same way. Snapshots keep file content only: on macOS and Linux a replaced file keeps its permission bits and a recreated file gets the current user's default permissions; on Windows restored files inherit the parent folder's permissions, and explicit permissions on a replaced file are lost.
+
+### Command sandbox {#command-sandbox}
+
+On macOS and Linux devices that support it, a command that may change files runs in a write sandbox: it can change files only in its snapshot folders and a few temporary locations, and writes anywhere else fail with a permission error. Windows devices do not support the sandbox yet; commands there run without it, and the approval card says so.
+
+The assistant chooses with the optional `sandbox` parameter of `exec_command`. The approval covers the value exactly as written, including when it is omitted.
+
+| `sandbox` | How the command runs |
+|---|---|
+| Omitted | A command outside the read-only templates runs in the sandbox when it has a working directory, or the conversation has approved directories on that device, and the device supports the sandbox. Other commands, including read-only template commands and interactive commands that need elevation, run without it. |
+| `true` | Always runs in the sandbox. Without a working directory or approved directories, only the command's temporary directory is writable. On a device that cannot sandbox commands, the request is refused before the approval card with the reason. An interactive command that elevates with `sudo` or `doas` is refused. |
+| `false` | Runs without the sandbox. |
+
+A sandboxed command can write to:
+
+- its snapshot folders: the working directory or, when it is omitted, every directory approved in this conversation on that device. Approving a directory for a conversation therefore lets a sandboxed command without a working directory write anywhere inside it;
+- a new temporary directory created for the command and deleted when it ends. `TMPDIR`, `TEMP` and `TMP` point to it;
+- on macOS, the user's temporary directory, where tools such as `mktemp` create files, except this product's own files there. On Linux, `/tmp` is not writable but `/dev/shm` is, for tools such as Python `multiprocessing`; other programs of the same user also keep shared memory there;
+- device files the command needs, such as `/dev/null` and its own terminal.
+
+Reading files and network access are not restricted. A working directory must be an absolute path.
+
+Programs in the sandbox cannot gain privileges. On Linux, setuid programs such as `sudo` stop working. On macOS, setuid and other restricted programs refuse to start, including `ps`, `top`, `log`, `su`, `at` and `crontab`. When a sandboxed command fails this way, the result suggests requesting it again with `sandbox=false`.
+
+File metadata is handled differently by platform. On macOS, permission, timestamp and extended-attribute changes outside the writable locations fail like writes. On Linux, `chmod`, `touch` and similar metadata changes are not restricted. On both, snapshots do not restore metadata changes inside the snapshot folders.
+
+Common commands that fail in the sandbox:
+
+- package managers that write a cache in your home folder, for example `npm install`. Point the cache at the temporary directory, for example `npm_config_cache=$TMPDIR/npm`;
+- tools that write global or user configuration;
+- `git` in a submodule or worktree whose Git directory is outside the working directory. Use the main repository folder as the working directory.
+
+When a command really needs to write elsewhere, the assistant can request it again with `sandbox=false` and explain why; that request needs its own approval.
+
+Before a sandboxed command starts, the device opens each snapshot folder and checks it. The command is refused and does not run when a folder cannot be opened, is no longer the folder that was approved (for example, it was replaced), or is one of these:
+
+- a drive or file system root, your home folder, or a folder that contains your home folder;
+- a system folder, such as `/usr`, `/etc` or `/System`;
+- this product's configuration, data, log or runtime folders, or a folder that contains one, such as the system temporary folder;
+- `~/.ssh`, `~/.config/systemd/user`, `~/.config/autostart`, `~/Library/LaunchAgents`, or a folder inside or containing them;
+- a folder that is, or contains, a directory in the device's program search path (`PATH`).
+
+Most of these are reported before the approval card; the device checks the rest when the command is about to start, and the result then says the command did not start. Choose a narrower project folder as the working directory. Problems with the snapshot itself, such as the file-count limit or unavailable backup storage, still only skip the snapshot; the command runs in the sandbox.
+
+The approval card shows how the command will run:
+
+- A sandboxed command lists its writable locations, including the temporary ones above.
+- A prominent warning says the command is not restricted by the sandbox and changes outside the snapshot folders cannot be undone. It appears for a possibly modifying command with `sandbox=false`, and for a command with a working directory or approved directories on a device that cannot sandbox it.
+- Other commands that run without the sandbox carry a neutral label.
+- When the device runs commands as an administrator, SYSTEM or root, every card for a command outside the sandbox shows that account.
+
+An approved command needs approval again if, before it runs, the device's sandbox support or command account changes or the device's command worker restarts, for example after a service restart or a user switch. AI review is told when a command carries the prominent warning. **No review** follows the same rules; its risk warning notes that the assistant can ask to run commands outside the sandbox.
+
+#### What the sandbox does not cover
+
+The sandbox limits mistakes and stray writes. It is not isolation and does not stop a command written to get around it:
+
+- A command can ask programs that run as the same user outside the sandbox to act for it. On Linux this includes `systemd-run --user` and other D-Bus services, running tmux or screen servers, and the Docker or Podman socket; under WSL2, Windows programs started from Linux are not restricted and can write to `/mnt/c` and the rest of the Windows file system. On macOS this includes launchd, `open` and Apple Events.
+- Files written inside the snapshot folders can later run outside the sandbox, for example Git hooks, build scripts or `Makefile` targets.
+- Because reading is not restricted, a command can read and send any file the command account can read.
+- On Linux in Default or DeskServer mode, a sandboxed command can read this product's configuration file (`config.toml`). It holds the local access tokens and the connection token for the signaling server or manager, and these can be used to sign in to the device's local console and change its settings, including AI policy. In ServiceDaemon mode on Linux the system configuration is readable only by root. On macOS, sandboxed commands cannot read this product's configuration and data folders.
+
+#### Requirements
+
+| Platform | Sandbox available when |
+|---|---|
+| Linux | The kernel has Landlock enabled with ABI 3 or later (upstream 6.2 or later), and commands do not run as root. Verified: Ubuntu 24.04, Debian 13, RHEL 9.10 and 10, Fedora, Arch, and WSL2 with Microsoft kernel 6.6 or later. Not available: Ubuntu 22.04 with its original kernel, Debian 12, kernels that do not list Landlock among the enabled security modules, and containers whose seccomp profile blocks Landlock. |
+| macOS | `/usr/bin/sandbox-exec` exists and passes the device's startup check. Tested on macOS 15.6.1. Commands must not run as root. |
+| Windows | Not supported yet. |
+
+On WSL2, if Windows programs must not be reachable from AI commands, turn off interoperability in `/etc/wsl.conf` (`[interop]` `enabled = false`) and restart WSL. On a device without sandbox support, `sandbox=true` is refused with the reason, for example that the Linux kernel does not provide Landlock ABI 3.
 
 ## Key Properties
 

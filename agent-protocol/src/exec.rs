@@ -31,14 +31,17 @@ use wincode::{SchemaRead, SchemaWrite};
 
 use crate::{AgentOperation, AgentOutcome, RiskLevel};
 
+mod sandbox;
 mod snapshot;
+pub use sandbox::*;
 pub use snapshot::*;
 
-/// Model-facing [`CommandDraft`] shape. Snapshot roots are server-derived and
-/// never part of the draft.
-pub const COMMAND_DRAFT_SCHEMA_VERSION: u16 = 1;
+/// Model-facing [`CommandDraft`] shape. Snapshot roots and the resolved
+/// sandbox mode are server-derived and never part of the draft; the model's
+/// literal `sandbox` choice is.
+pub const COMMAND_DRAFT_SCHEMA_VERSION: u16 = 2;
 /// Shape of the sealed command identity and its frozen [`ExecPlanDraft`].
-pub const COMMAND_PLAN_SCHEMA_VERSION: u16 = 2;
+pub const COMMAND_PLAN_SCHEMA_VERSION: u16 = 3;
 pub const MAX_COMMAND_DRAFT_BYTES: usize = 16 * 1024;
 pub const MAX_COMMAND_DRAFT_CWD_BYTES: usize = 4096;
 pub const MAX_COMMAND_DRAFT_TIMEOUT_MS: u32 = 7_200_000;
@@ -329,6 +332,22 @@ pub struct CommandDraft {
     /// attached to the approving owner's live terminal carrier.
     #[serde(default, skip_serializing_if = "CommandIoMode::is_non_interactive")]
     pub io_mode: CommandIoMode,
+    /// The model's literal sandbox choice: omitted, `true` or `false`. The
+    /// three forms resolve differently and are never normalized into each
+    /// other; `null` is rejected.
+    #[serde(
+        default,
+        deserialize_with = "strict_optional_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sandbox: Option<bool>,
+}
+
+/// A present field must be a boolean; only omission means "not chosen".
+fn strict_optional_bool<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(deserializer).map(Some)
 }
 
 /// Model-facing terminal mode of a [`CommandDraft`].
@@ -442,6 +461,13 @@ impl CanonicalCommandIdentity {
             return Err(CommandContractError::InvalidSealedPlan);
         }
         ExecSnapshotRoot::validate_all(&self.plan.snapshot_roots)?;
+        // An interactive elevation runs in the root daemon, which cannot
+        // apply a sandbox.
+        if self.plan.sandbox_mode == ExecSandboxMode::Sandboxed
+            && self.plan.requires_root_pty_containment()
+        {
+            return Err(CommandContractError::InvalidSealedPlan);
+        }
         validate_sha256(&self.canonical_input_digest_sha256)?;
         Ok(())
     }
@@ -671,6 +697,10 @@ pub struct ExecPlanDraft {
     /// read-only or non-AI command.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub snapshot_roots: Vec<ExecSnapshotRoot>,
+    /// How the device runs the command, copied from the classified
+    /// [`crate::ExecInput`] and fingerprinted. A sandboxed plan's write roots
+    /// are its `snapshot_roots`.
+    pub sandbox_mode: ExecSandboxMode,
 }
 
 impl ExecPlanDraft {
@@ -764,6 +794,9 @@ pub struct ExecPlan {
     /// Copied verbatim from the sealed draft.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub snapshot_roots: Vec<ExecSnapshotRoot>,
+    /// Copied verbatim from the sealed draft. An executor that cannot apply
+    /// the sandbox must refuse a [`ExecSandboxMode::Sandboxed`] plan.
+    pub sandbox_mode: ExecSandboxMode,
 }
 
 impl ExecPlan {
@@ -789,6 +822,7 @@ impl ExecPlan {
             && draft.max_stderr_bytes == self.max_stderr_bytes
             && draft.containment == self.containment
             && draft.snapshot_roots == self.snapshot_roots
+            && draft.sandbox_mode == self.sandbox_mode
     }
 }
 
@@ -831,6 +865,7 @@ impl ExecPlan {
             max_stderr_bytes: draft.max_stderr_bytes,
             containment: draft.containment,
             snapshot_roots: draft.snapshot_roots,
+            sandbox_mode: draft.sandbox_mode,
         }
     }
 }
@@ -888,6 +923,7 @@ mod tests {
             max_stderr_bytes: 65_536,
             containment: ExecContainmentSnapshot::default(),
             snapshot_roots: vec![],
+            sandbox_mode: ExecSandboxMode::Unrestricted,
         }
     }
 
@@ -916,6 +952,7 @@ mod tests {
             cwd: None,
             timeout_ms: 10_000,
             io_mode: CommandIoMode::NonInteractive,
+            sandbox: None,
         };
         draft.validate().unwrap();
         // The default mode is omitted on the wire and restored on decode.
@@ -935,6 +972,91 @@ mod tests {
             draft.validate(),
             Err(CommandContractError::InvalidField("command"))
         );
+    }
+
+    #[test]
+    fn command_draft_keeps_the_literal_sandbox_choice_and_rejects_null() {
+        let base = serde_json::json!({
+            "schema_version": COMMAND_DRAFT_SCHEMA_VERSION,
+            "shell": "bash",
+            "command": "make fmt",
+            "cwd": null,
+            "timeout_ms": 1000
+        });
+        let decode = |sandbox: Option<serde_json::Value>| {
+            let mut value = base.clone();
+            if let Some(sandbox) = sandbox {
+                value["sandbox"] = sandbox;
+            }
+            serde_json::from_value::<CommandDraft>(value)
+        };
+        assert_eq!(decode(None).unwrap().sandbox, None);
+        assert_eq!(
+            decode(Some(serde_json::json!(true))).unwrap().sandbox,
+            Some(true)
+        );
+        assert_eq!(
+            decode(Some(serde_json::json!(false))).unwrap().sandbox,
+            Some(false)
+        );
+        assert!(decode(Some(serde_json::Value::Null)).is_err());
+        assert!(decode(Some(serde_json::json!("true"))).is_err());
+        // Each form round-trips to itself; omission stays omitted.
+        for sandbox in [None, Some(true), Some(false)] {
+            let draft = decode(sandbox.map(serde_json::Value::Bool)).unwrap();
+            let encoded = serde_json::to_value(&draft).unwrap();
+            assert_eq!(encoded.get("sandbox").and_then(|v| v.as_bool()), sandbox);
+            assert_eq!(
+                serde_json::from_value::<CommandDraft>(encoded).unwrap(),
+                draft
+            );
+        }
+    }
+
+    #[test]
+    fn sandbox_mode_is_sealed_compared_and_refused_for_root_elevation() {
+        let mut draft = sample_draft();
+        draft.sandbox_mode = ExecSandboxMode::Sandboxed;
+        let plan = ExecPlan::from_draft(
+            ExecRequestId("exec_1".into()),
+            "gen_1",
+            ApprovalId("appr_1".into()),
+            draft.clone(),
+        );
+        assert_eq!(plan.sandbox_mode, ExecSandboxMode::Sandboxed);
+        assert!(plan.matches_draft(&draft));
+        let mut unrestricted = draft.clone();
+        unrestricted.sandbox_mode = ExecSandboxMode::Unrestricted;
+        assert!(!plan.matches_draft(&unrestricted));
+        // The mode is always on the wire and required on decode.
+        let mut encoded = serde_json::to_value(&plan).unwrap();
+        assert_eq!(encoded["sandbox_mode"], "sandboxed");
+        encoded.as_object_mut().unwrap().remove("sandbox_mode");
+        assert!(serde_json::from_value::<ExecPlan>(encoded).is_err());
+        let bytes = wincode::config::serialize(&plan, unbounded_config()).unwrap();
+        let back: ExecPlan = wincode::config::deserialize(&bytes, unbounded_config()).unwrap();
+        assert_eq!(back, plan);
+
+        let mut identity = CanonicalCommandIdentity {
+            schema_version: COMMAND_PLAN_SCHEMA_VERSION,
+            target_device_id: "device-1".into(),
+            policy_revision: 1,
+            input_revision: 1,
+            plan: draft,
+            canonical_input_digest_sha256: "a".repeat(64),
+        };
+        identity.validate().unwrap();
+        identity.plan.program = "sudo".into();
+        identity.plan.io_mode = ExecIoMode::Pty {
+            initial_rows: 24,
+            initial_cols: 80,
+        };
+        assert_eq!(
+            identity.validate(),
+            Err(CommandContractError::InvalidSealedPlan)
+        );
+        identity.plan.sandbox_mode = ExecSandboxMode::Unrestricted;
+        identity.validate().unwrap();
     }
 
     #[test]

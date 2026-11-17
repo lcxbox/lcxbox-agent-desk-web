@@ -3,7 +3,7 @@
 use crate::config::connection::DatabaseConnection;
 use desk_agent_protocol::authz::ExecAdmissionPolicy;
 use desk_agent_protocol::{AgentError, AgentErrorKind, RiskLevel};
-use desk_diagnose_core::command_confirmation::CommandPolicyContext;
+use desk_diagnose_core::command_confirmation::{CommandPolicyContext, DeviceExecSandbox};
 use desk_diagnose_core::file_scope::TrustedDirectoryGrants;
 use desk_diagnose_core::session::PersistedAgentSession;
 use desk_signal_facade::model::connection::SharedConnectionMap;
@@ -79,6 +79,7 @@ pub(crate) async fn current(
         policy_version: format!("oss-owner:{}", readiness.readiness.local_ceiling_revision),
         exec_pty,
         exec_pty_elevation,
+        exec_sandbox: DeviceExecSandbox::from_readiness(&readiness.readiness),
     })
 }
 

@@ -2160,6 +2160,65 @@ export type InteractiveCommandDto = {
     targetConnectionId: string;
 };
 
+export const execSandboxAttentionEnum = {
+    sandboxed: "sandboxed",
+    neutral: "neutral",
+    prominent: "prominent"
+} as const;
+
+export type ExecSandboxAttentionEnumKey = (typeof execSandboxAttentionEnum)[keyof typeof execSandboxAttentionEnum];
+
+/**
+ * @description How an approval card marks a command\'s execution mode.
+*/
+export type ExecSandboxAttention = ExecSandboxAttentionEnumKey;
+
+/**
+ * @description The account a worker runs commands as, reported with its readiness and\nconstant for the worker\'s lifetime.
+*/
+export type ExecIdentity = {
+    /**
+     * @description A Windows elevated (administrator) token.
+     * @type boolean
+    */
+    elevated: boolean;
+    /**
+     * @description Effective uid 0 on Linux or macOS.
+     * @type boolean
+    */
+    root: boolean;
+    /**
+     * @description The Windows SYSTEM account.
+     * @type boolean
+    */
+    system: boolean;
+};
+
+export const execSandboxImplicitWritableEnum = {
+    exec_temp_dir: "exec_temp_dir",
+    user_temp_dir: "user_temp_dir",
+    dev_shm: "dev_shm"
+} as const;
+
+export type ExecSandboxImplicitWritableEnumKey = (typeof execSandboxImplicitWritableEnum)[keyof typeof execSandboxImplicitWritableEnum];
+
+/**
+ * @description Locations a sandboxed command may write besides its write roots.
+*/
+export type ExecSandboxImplicitWritable = ExecSandboxImplicitWritableEnumKey;
+
+export const execSandboxModeEnum = {
+    unrestricted: "unrestricted",
+    sandboxed: "sandboxed"
+} as const;
+
+export type ExecSandboxModeEnumKey = (typeof execSandboxModeEnum)[keyof typeof execSandboxModeEnum];
+
+/**
+ * @description How the device runs a sealed command.
+*/
+export type ExecSandboxMode = ExecSandboxModeEnumKey;
+
 export const execSnapshotRootKindEnum = {
     cwd: "cwd",
     grant: "grant"
@@ -2185,6 +2244,33 @@ export type ExecSnapshotRootLabel = {
      * @type string
     */
     path: string;
+};
+
+/**
+ * @description Owner-visible execution mode of a pending command, from its frozen\nsandbox notice.
+*/
+export type CommandSandboxDto = {
+    /**
+     * @description How an approval card marks a command\'s execution mode.
+     * @type string
+    */
+    attention: ExecSandboxAttention;
+    identity?: (null | ExecIdentity);
+    /**
+     * @description Locations a sandboxed command may always write: its own temporary\ndirectory and, per platform, the macOS user temporary directory or\nLinux `/dev/shm`.
+     * @type array
+    */
+    implicitWritable: ExecSandboxImplicitWritable[];
+    /**
+     * @description How the device runs a sealed command.
+     * @type string
+    */
+    mode: ExecSandboxMode;
+    /**
+     * @description Write roots of a sandboxed command (its snapshot directories); empty\nwhen it may write only temporary locations or runs unrestricted.
+     * @type array
+    */
+    writableRoots: ExecSnapshotRootLabel[];
 };
 
 export const execSnapshotGapEnum = {
@@ -2281,6 +2367,11 @@ export type CommandConfirmationDto = {
      * @type boolean
     */
     oneShot: boolean;
+    /**
+     * @description Owner-visible execution mode of a pending command, from its frozen\nsandbox notice.
+     * @type object
+    */
+    sandbox: CommandSandboxDto;
     /**
      * @type string
     */

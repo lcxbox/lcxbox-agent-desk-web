@@ -147,6 +147,7 @@ windows-service = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio-util = { workspace = true, features = ["rt"] }
+landlock = { workspace = true }
 x11rb = { workspace = true }
 libc = { workspace = true }
 alsa = { workspace = true }

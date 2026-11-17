@@ -22,8 +22,8 @@ use crate::ExecInput;
 use crate::command_blocklist::{BlocklistMatcher, BlocklistRule, blocklist_match};
 use crate::command_template::SyncedCommandTemplate;
 use crate::exec::{
-    ExecContainmentSnapshot, ExecExecutionBasis, ExecIoMode, ExecPlanDraft, ExecShellKind,
-    ExecSnapshotRoot,
+    ExecContainmentSnapshot, ExecExecutionBasis, ExecIoMode, ExecPlanDraft, ExecSandboxMode,
+    ExecShellKind, ExecSnapshotRoot,
 };
 
 // ============================ Execution limits ============================
@@ -209,8 +209,8 @@ pub fn build_exact_argv_draft_with_io_mode(
         max_stdout_bytes,
         max_stderr_bytes,
     };
-    // Operator templates seal no snapshot roots: fleet and other non-AI
-    // executions are never snapshotted.
+    // Operator templates seal no snapshot roots and run unrestricted: fleet
+    // and other non-AI executions are never snapshotted or sandboxed.
     let fingerprint = fingerprint_with_io_mode(
         &program,
         &argv,
@@ -219,6 +219,7 @@ pub fn build_exact_argv_draft_with_io_mode(
         &containment,
         io_mode,
         &[],
+        ExecSandboxMode::Unrestricted,
     );
     ExecPlanDraft {
         program,
@@ -236,6 +237,7 @@ pub fn build_exact_argv_draft_with_io_mode(
         max_stderr_bytes,
         containment,
         snapshot_roots: Vec::new(),
+        sandbox_mode: ExecSandboxMode::Unrestricted,
     }
 }
 
@@ -273,11 +275,13 @@ pub fn fingerprint(
         containment,
         ExecIoMode::NonInteractive,
         &[],
+        ExecSandboxMode::Unrestricted,
     )
 }
 
-/// Fingerprint a plan including its sealed standard-I/O contract and the
-/// snapshot roots of a mutating AI command.
+/// Fingerprint a plan including its sealed standard-I/O contract, the
+/// snapshot roots of a mutating AI command and its sandbox mode.
+#[allow(clippy::too_many_arguments)]
 pub fn fingerprint_with_io_mode(
     program: &str,
     argv: &[String],
@@ -286,6 +290,7 @@ pub fn fingerprint_with_io_mode(
     containment: &ExecContainmentSnapshot,
     io_mode: ExecIoMode,
     snapshot_roots: &[ExecSnapshotRoot],
+    sandbox_mode: ExecSandboxMode,
 ) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let mut feed = |bytes: &[u8]| {
@@ -350,6 +355,12 @@ pub fn fingerprint_with_io_mode(
         for root in snapshot_roots {
             root.feed_fingerprint(&mut feed);
         }
+    }
+    // Likewise only a sandboxed plan feeds its mode, after a marker that a
+    // root's variant byte never precedes directly.
+    if let Some(mode) = sandbox_mode.fingerprint_byte() {
+        feed(b"sandbox");
+        feed(&[mode]);
     }
     format!("{hash:016x}")
 }
@@ -608,6 +619,7 @@ mod tests {
             max_stdout_bytes: 0,
             max_stderr_bytes: 0,
             snapshot_roots: vec![],
+            sandbox_mode: ExecSandboxMode::Unrestricted,
         }
     }
 

@@ -157,8 +157,9 @@ mod tests {
         ];
         eprintln!("session/confirmation/exec layout bytes: {sizes:?}");
         // The exec input and the frozen plan each carry the sealed snapshot
-        // root list; the owner-facing snapshot notice stays boxed.
-        for (actual, maximum) in sizes.into_iter().zip([3568, 632, 144]) {
+        // root list and sandbox mode; the owner-facing snapshot notice stays
+        // boxed and the small sandbox notice is inline.
+        for (actual, maximum) in sizes.into_iter().zip([3568, 664, 144]) {
             assert!(
                 actual <= maximum,
                 "security state layout grew to {actual} bytes (budget {maximum})"

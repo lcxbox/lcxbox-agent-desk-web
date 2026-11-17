@@ -1427,3 +1427,82 @@ fn a_copied_device_selector_on_a_native_ui_action_must_match_the_observed_applic
     // Device tools keep their own selector.
     assert!(!implies_target("inspect_desktop_ui", &session));
 }
+
+#[test]
+fn each_request_device_reports_its_command_sandbox_and_identity() {
+    use desk_agent_protocol::computer_use::{COMPUTER_USE_SCHEMA_VERSION, ComputerUseReadiness};
+    use desk_agent_protocol::exec::{
+        ExecIdentity, ExecSandboxSupport, ExecSandboxUnsupportedReason,
+    };
+    let readiness = |exec_sandbox, exec_identity| ComputerUseReadiness {
+        schema_version: COMPUTER_USE_SCHEMA_VERSION,
+        revision: 1,
+        observed_at: "2026-08-31T00:00:00Z".into(),
+        expires_at: "2026-08-31T00:01:00Z".into(),
+        server_api_version: 1,
+        os: "linux".into(),
+        interactive_user_home: None,
+        interactive_session_incarnation: "worker-1".into(),
+        local_ceiling_revision: 1,
+        unattended_command_execution: false,
+        exec_sandbox,
+        exec_identity,
+        capabilities: vec![],
+        context_references: vec![],
+    };
+    let standard = ExecIdentity {
+        elevated: false,
+        system: false,
+        root: false,
+    };
+    let mut supported = device("a", vec![]);
+    supported.native_readiness = Some(readiness(ExecSandboxSupport::Supported, standard));
+    let mut root = device("b", vec![]);
+    // A root worker cannot be sandboxed even when the probe reports support.
+    root.native_readiness = Some(readiness(
+        ExecSandboxSupport::Supported,
+        ExecIdentity {
+            root: true,
+            ..standard
+        },
+    ));
+    let mut old_kernel = device("c", vec![]);
+    old_kernel.native_readiness = Some(readiness(
+        ExecSandboxSupport::Unsupported(ExecSandboxUnsupportedReason::KernelUnsupported),
+        standard,
+    ));
+    let devices = [supported, root, old_kernel];
+    let prompt = catalogue(&session(), &devices, &[], None, true);
+    let text = prompt.text();
+    assert!(text.contains("command_sandbox reports whether exec_command"));
+    let json = text
+        .split_once("{\"request_devices\":")
+        .map(|(_, rest)| format!("{{\"request_devices\":{rest}"))
+        .unwrap();
+    let catalogue: Value = serde_json::Deserializer::from_str(&json)
+        .into_iter::<Value>()
+        .next()
+        .unwrap()
+        .unwrap();
+    let entries = catalogue["request_devices"].as_array().unwrap();
+    assert_eq!(entries[0]["command_sandbox"], "supported");
+    assert_eq!(entries[0]["command_identity"], "standard_user");
+    assert_eq!(
+        entries[1]["command_sandbox"],
+        serde_json::json!({"unsupported":"system_identity"})
+    );
+    assert_eq!(entries[1]["command_identity"], "root");
+    assert_eq!(
+        entries[2]["command_sandbox"],
+        serde_json::json!({"unsupported":"kernel_unsupported"})
+    );
+    // Without command permissions nothing about commands is projected.
+    let text = catalogue_text(&devices);
+    assert!(!text.contains("command_sandbox"));
+}
+
+fn catalogue_text(devices: &[RequestDevice]) -> String {
+    catalogue(&session(), devices, &[], None, false)
+        .text()
+        .to_owned()
+}

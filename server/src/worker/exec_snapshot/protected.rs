@@ -3,6 +3,12 @@
 //! itself, system directories and everything below them, and this product's
 //! configuration, data and log directories together with their ancestors and
 //! descendants.
+//!
+//! A sandboxed command's write root is refused on a wider list
+//! ([`ProtectedRoots::refuses_write_root`]): additionally every ancestor of the
+//! home directory, the user-level persistence and credential directories with
+//! their ancestors and descendants, and every directory that equals or
+//! contains a `PATH` entry of the worker.
 use std::path::{Component, Path, PathBuf, Prefix};
 
 #[derive(Clone, Debug, Default)]
@@ -10,7 +16,21 @@ pub(crate) struct ProtectedRoots {
     home: Option<Vec<String>>,
     system: Vec<Vec<String>>,
     product: Vec<Vec<String>>,
+    /// User-level persistence and credential directories.
+    persistence: Vec<Vec<String>>,
+    /// Absolute `PATH` entries of the worker.
+    executables: Vec<Vec<String>>,
 }
+
+/// Home-relative directories whose content another process later runs or
+/// trusts: SSH keys and configuration, systemd user units, XDG autostart
+/// entries and launchd agents.
+const PERSISTENCE_DIRECTORIES: &[&str] = &[
+    ".ssh",
+    ".config/systemd/user",
+    ".config/autostart",
+    "Library/LaunchAgents",
+];
 
 /// Case-folded components; Windows drive and verbatim prefixes compare equal.
 fn normalize(path: &Path) -> Vec<String> {
@@ -71,24 +91,41 @@ impl ProtectedRoots {
         system: impl IntoIterator<Item = PathBuf>,
         product: impl IntoIterator<Item = PathBuf>,
     ) -> Self {
-        let absolute = |paths: &mut dyn Iterator<Item = PathBuf>| {
-            paths
-                .filter(|path| path.is_absolute())
-                .map(|path| canonical(&path))
-                .collect::<Vec<_>>()
-        };
+        let home = home.filter(|home| home.is_absolute());
+        let persistence = home.iter().flat_map(|home| {
+            PERSISTENCE_DIRECTORIES
+                .iter()
+                .map(move |relative| home.join(relative))
+        });
         Self {
-            home: home
-                .filter(|home| home.is_absolute())
-                .map(|home| canonical(&home)),
-            system: absolute(&mut system.into_iter()),
-            product: absolute(&mut product.into_iter()),
+            persistence: absolute(persistence),
+            home: home.map(|home| canonical(&home)),
+            system: absolute(system),
+            product: absolute(product),
+            executables: Vec::new(),
         }
     }
 
-    /// The protected directories of this device: the current user's home,
-    /// the platform's system directories, and `product` plus every default
-    /// configuration, data and log location of this product.
+    /// Add persistence directories outside the home-relative defaults, such
+    /// as those below `XDG_CONFIG_HOME`.
+    pub(crate) fn with_persistence(mut self, paths: impl IntoIterator<Item = PathBuf>) -> Self {
+        self.persistence.extend(absolute(paths));
+        self
+    }
+
+    /// Protect the directories of a `PATH` value. Empty and relative entries
+    /// (`.`, `::`) name no fixed directory and are ignored.
+    pub(crate) fn with_executable_search_path(mut self, path: &std::ffi::OsStr) -> Self {
+        self.executables
+            .extend(absolute(std::env::split_paths(path)));
+        self
+    }
+
+    /// The protected directories of this device: the current user's home
+    /// and its persistence directories, the platform's system directories,
+    /// `product` plus every default configuration, data and log location and
+    /// the temporary-directory entries of this product, and the worker's
+    /// `PATH`.
     pub(crate) fn current(product: impl IntoIterator<Item = PathBuf>) -> Self {
         use desk_utils::host_data_paths::{HostDataPaths, HostDataScope};
         let mut directories: Vec<PathBuf> = product.into_iter().collect();
@@ -104,11 +141,24 @@ impl ProtectedRoots {
                 directories.extend(paths.runtime_root().map(Path::to_path_buf));
             }
         }
-        Self::new(
+        directories.extend(temporary_product_entries());
+        let xdg_config = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute());
+        let protected = Self::new(
             crate::user_home::current().map(PathBuf::from),
             system_directories(),
             directories,
         )
+        .with_persistence(
+            xdg_config
+                .iter()
+                .flat_map(|config| [config.join("systemd/user"), config.join("autostart")]),
+        );
+        match std::env::var_os("PATH") {
+            Some(path) => protected.with_executable_search_path(&path),
+            None => protected,
+        }
     }
 
     /// Whether the opened root at canonical `path` must not be snapshotted.
@@ -124,6 +174,49 @@ impl ProtectedRoots {
                 .iter()
                 .any(|product| within(&path, product) || within(product, &path))
     }
+
+    /// Whether the opened root at canonical `path` must not become a write
+    /// root of a sandboxed command.
+    pub(crate) fn refuses_write_root(&self, path: &Path) -> bool {
+        if self.refuses(path) {
+            return true;
+        }
+        let path = normalize(path);
+        self.home.as_ref().is_some_and(|home| within(home, &path))
+            || self
+                .persistence
+                .iter()
+                .any(|directory| within(&path, directory) || within(directory, &path))
+            || self
+                .executables
+                .iter()
+                .any(|directory| within(directory, &path))
+    }
+}
+
+fn absolute(paths: impl IntoIterator<Item = PathBuf>) -> Vec<Vec<String>> {
+    paths
+        .into_iter()
+        .filter(|path| path.is_absolute())
+        .map(|path| canonical(&path))
+        .collect()
+}
+
+/// This product's files directly in the user's temporary directory: the
+/// single-instance lock and the worker socket directory.
+#[cfg(unix)]
+fn temporary_product_entries() -> Vec<PathBuf> {
+    let temp = std::env::temp_dir();
+    let euid = unsafe { libc::geteuid() };
+    vec![
+        temp.join("lcxl_remote_desk_server.lock"),
+        temp.join(format!("lcxl-rd-{euid}")),
+    ]
+}
+
+#[cfg(not(unix))]
+fn temporary_product_entries() -> Vec<PathBuf> {
+    Vec::new()
 }
 
 #[cfg(target_os = "linux")]
@@ -207,6 +300,77 @@ mod tests {
         // canonical location it will have.
         let pending = ProtectedRoots::new(None, Vec::new(), [home.path().join("code/data")]);
         assert!(pending.refuses(&std::fs::canonicalize(home.path().join("code")).unwrap()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_roots_also_refuse_home_ancestors_persistence_and_path_directories() {
+        let home = tempfile::tempdir().unwrap();
+        let home_path = std::fs::canonicalize(home.path()).unwrap();
+        for directory in [".ssh/keys", ".config/autostart", "Library/LaunchAgents"] {
+            std::fs::create_dir_all(home_path.join(directory)).unwrap();
+        }
+        std::fs::create_dir_all(home_path.join("tools/bin")).unwrap();
+        std::fs::create_dir_all(home_path.join("code/repo")).unwrap();
+        let search_path = std::env::join_paths([
+            home_path.join("tools/bin"),
+            PathBuf::from("."),
+            PathBuf::from(""),
+            PathBuf::from("relative/bin"),
+        ])
+        .unwrap();
+        let protected = ProtectedRoots::new(Some(home_path.clone()), Vec::new(), Vec::new())
+            .with_executable_search_path(&search_path);
+        let refused = |relative: &str| protected.refuses_write_root(&home_path.join(relative));
+
+        let parent = home_path.parent().unwrap();
+        assert!(protected.refuses_write_root(parent), "an ancestor of home");
+        assert!(
+            !protected.refuses(parent),
+            "snapshots keep their narrower list"
+        );
+        assert!(refused(".ssh"));
+        assert!(refused(".ssh/keys"), "below a credential directory");
+        assert!(refused(".config"), "above a persistence directory");
+        assert!(refused(".config/autostart"));
+        assert!(refused("Library"));
+        assert!(refused("Library/LaunchAgents"));
+        assert!(refused("tools/bin"), "a PATH directory");
+        assert!(refused("tools"), "a directory containing a PATH directory");
+        assert!(!refused("tools/bin/sub"), "below a PATH directory");
+        assert!(!refused("code/repo"), "an ordinary project");
+        assert!(!refused("code"));
+        // `.`, empty and relative PATH entries do not protect the directory a
+        // command happens to run in.
+        let working = std::env::current_dir().unwrap();
+        assert!(
+            !ProtectedRoots::new(None, Vec::new(), Vec::new())
+                .with_executable_search_path(&search_path)
+                .refuses_write_root(&std::fs::canonicalize(home_path.join("code/repo")).unwrap()),
+        );
+        assert!(
+            !ProtectedRoots::new(None, Vec::new(), Vec::new())
+                .with_executable_search_path(std::ffi::OsStr::new(".::relative"))
+                .refuses_write_root(&working.join("child-of-cwd")),
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_roots_refuse_xdg_persistence_and_temporary_product_entries() {
+        let config = tempfile::tempdir().unwrap();
+        let config_path = std::fs::canonicalize(config.path()).unwrap();
+        let protected = ProtectedRoots::new(None, Vec::new(), temporary_product_entries())
+            .with_persistence([config_path.join("systemd/user")]);
+        assert!(protected.refuses_write_root(&config_path.join("systemd")));
+        assert!(protected.refuses_write_root(&config_path.join("systemd/user/x")));
+        assert!(!protected.refuses_write_root(&config_path.join("other")));
+        let temp = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        assert!(
+            protected.refuses_write_root(&temp),
+            "the temporary directory holds this product's lock and sockets"
+        );
+        assert!(!protected.refuses_write_root(&temp.join("some-project")));
     }
 
     #[test]

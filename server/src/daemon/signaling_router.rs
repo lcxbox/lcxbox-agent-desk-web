@@ -598,6 +598,11 @@ fn pty_dispatch_refusal(
         Some("interactive execution is not enabled on this host")
     } else if plan.requires_root_pty_containment() && !capabilities.exec_pty_elevation {
         Some("interactive elevation is not enabled on this host")
+    } else if plan.requires_root_pty_containment()
+        && plan.sandbox_mode != desk_agent_protocol::exec::ExecSandboxMode::Unrestricted
+    {
+        // The daemon-owned root terminal cannot apply the command sandbox.
+        Some("an elevated terminal cannot run a sandboxed command")
     } else {
         None
     }

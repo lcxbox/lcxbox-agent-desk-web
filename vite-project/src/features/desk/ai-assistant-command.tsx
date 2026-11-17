@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { CommandSnapshotNotice, validSnapshotNotice, type SnapshotNotice } from './assistant-command-changes';
+import { CommandSandboxNotice, sandboxMatchesSnapshot, validCommandSandbox, type CommandSandbox } from './assistant-command-sandbox';
 
 export interface CommandReview {
     command: string;
@@ -13,6 +14,8 @@ export interface CommandReview {
     executionBasis: string;
     oneShot: boolean;
     snapshot?: SnapshotNotice | null;
+    /** How the command runs; a card without a consistent block cannot be approved. */
+    sandbox: CommandSandbox;
 }
 
 export function validCommandReview(input: unknown): input is CommandReview {
@@ -27,7 +30,8 @@ export function validCommandReview(input: unknown): input is CommandReview {
         && Number.isInteger(value.maxStdoutBytes) && value.maxStdoutBytes > 0
         && Number.isInteger(value.maxStderrBytes) && value.maxStderrBytes > 0
         && ['template', 'owner_blocklist_only'].includes(value.executionBasis)
-        && (value.snapshot == null || validSnapshotNotice(value.snapshot)));
+        && (value.snapshot == null || validSnapshotNotice(value.snapshot))
+        && validCommandSandbox(value.sandbox) && sandboxMatchesSnapshot(value.sandbox, value.snapshot?.roots));
 }
 
 export function CommandConfirmationCard({ value }: { value: CommandReview }) {
@@ -47,6 +51,7 @@ export function CommandConfirmationCard({ value }: { value: CommandReview }) {
                     seconds: value.timeoutMs / 1000, stdout: value.maxStdoutBytes, stderr: value.maxStderrBytes,
                 })}</dd>
             </dl>
+            <CommandSandboxNotice value={value.sandbox} />
             {value.snapshot && <CommandSnapshotNotice value={value.snapshot} />}
         </div>
     );

@@ -24,7 +24,7 @@ use crate::{
     data_lineage::ContentRef,
 };
 
-pub const COMPUTER_USE_SCHEMA_VERSION: u16 = 1;
+pub const COMPUTER_USE_SCHEMA_VERSION: u16 = 2;
 pub const MAX_COMPUTER_ACTIONS: usize = 32;
 pub const MAX_COMPUTER_ACTION_PLAN_BYTES: usize = 256 * 1024;
 pub const MAX_COMPUTER_ACTION_TIMEOUT_MS: u32 = 120_000;
@@ -2760,6 +2760,13 @@ pub struct ComputerUseReadiness {
     /// Stamped by the host daemon from its current command ceiling.
     #[serde(default)]
     pub unattended_command_execution: bool,
+    /// Whether this worker can run commands in the write sandbox, probed once
+    /// at worker start. No default: a missing report must not read as
+    /// supported or unsupported by accident.
+    pub exec_sandbox: crate::exec::ExecSandboxSupport,
+    /// The account this worker runs commands as. No default: a missing
+    /// report must never read as an unprivileged identity.
+    pub exec_identity: crate::exec::ExecIdentity,
     pub capabilities: Vec<ComputerUseCapabilityReadiness>,
     #[serde(default)]
     pub context_references: Vec<ComputerUseContextReference>,
@@ -3544,6 +3551,12 @@ mod tests {
             interactive_session_incarnation: "session-1".to_string(),
             local_ceiling_revision: 1,
             unattended_command_execution: false,
+            exec_sandbox: crate::exec::ExecSandboxSupport::Supported,
+            exec_identity: crate::exec::ExecIdentity {
+                elevated: false,
+                system: false,
+                root: false,
+            },
             capabilities: vec![ComputerUseCapabilityReadiness {
                 capability: Capability::DesktopUiInspect,
                 adapter: ComputerUseAdapterRef {
@@ -3574,6 +3587,14 @@ mod tests {
             interactive_session_incarnation: "session-1".into(),
             local_ceiling_revision: 1,
             unattended_command_execution: false,
+            exec_sandbox: crate::exec::ExecSandboxSupport::Unsupported(
+                crate::exec::ExecSandboxUnsupportedReason::NotImplemented,
+            ),
+            exec_identity: crate::exec::ExecIdentity {
+                elevated: true,
+                system: false,
+                root: false,
+            },
             capabilities: vec![ComputerUseCapabilityReadiness {
                 capability: Capability::OfficeDocumentInspect,
                 adapter: ComputerUseAdapterRef {
@@ -3590,6 +3611,20 @@ mod tests {
             }],
         };
         readiness.validate().unwrap();
+        // The sandbox capability and identity are required on the wire.
+        let encoded = serde_json::to_value(&readiness).unwrap();
+        assert_eq!(
+            encoded["exec_sandbox"],
+            serde_json::json!({"state":"unsupported","reason":"not_implemented"})
+        );
+        for field in ["exec_sandbox", "exec_identity"] {
+            let mut missing = encoded.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(
+                serde_json::from_value::<ComputerUseReadiness>(missing).is_err(),
+                "{field}"
+            );
+        }
         readiness.context_references[0].object_ref.object_kind = ObjectKind::File;
         assert!(readiness.validate().is_err());
     }

@@ -24,6 +24,22 @@ impl Platform {
         cmd.process_group(0);
     }
 
+    pub fn apply_new_session(&self, cmd: &mut Command) {
+        // `setsid` fails for a process that already leads a group, so it
+        // replaces `process_group(0)` rather than following it.
+        // SAFETY: `setsid` is async-signal-safe and the error is built from
+        // errno without allocating.
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            });
+        }
+    }
+
     pub fn adopt(&mut self, child: &Child) -> Result<(), ContainmentError> {
         let pid = child.id().ok_or_else(|| {
             ContainmentError::message("the child exited before it could be contained")

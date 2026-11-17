@@ -96,7 +96,7 @@ mod tests {
             office_batch,
         };
         let mut readiness = ComputerUseReadiness {
-            schema_version: 1,
+            schema_version: desk_agent_protocol::computer_use::COMPUTER_USE_SCHEMA_VERSION,
             revision: 7,
             observed_at: "2026-09-14T00:00:00Z".into(),
             expires_at: "2026-09-14T00:01:00Z".into(),
@@ -106,6 +106,12 @@ mod tests {
             interactive_session_incarnation: "1:worker".into(),
             local_ceiling_revision: 3,
             unattended_command_execution: false,
+            exec_sandbox: desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+            exec_identity: desk_agent_protocol::exec::ExecIdentity {
+                elevated: false,
+                system: false,
+                root: false,
+            },
             context_references: vec![],
             capabilities: vec![ComputerUseCapabilityReadiness {
                 capability: Capability::DocumentLiveInspect,

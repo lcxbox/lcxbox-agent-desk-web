@@ -98,7 +98,7 @@ fn roots_participate_in_the_fingerprint() {
         max_stdout_bytes: 10,
         max_stderr_bytes: 10,
     };
-    let print = |roots: &[ExecSnapshotRoot]| {
+    let print_with = |roots: &[ExecSnapshotRoot], mode: crate::exec::ExecSandboxMode| {
         fingerprint_with_io_mode(
             "bash",
             &["-lc".into(), "make".into()],
@@ -107,8 +107,11 @@ fn roots_participate_in_the_fingerprint() {
             &ExecContainmentSnapshot::default(),
             ExecIoMode::NonInteractive,
             roots,
+            mode,
         )
     };
+    let print =
+        |roots: &[ExecSnapshotRoot]| print_with(roots, crate::exec::ExecSandboxMode::Unrestricted);
     let none = print(&[]);
     let cwd = print(&[ExecSnapshotRoot::Cwd {
         path: "/repo".into(),
@@ -117,7 +120,24 @@ fn roots_participate_in_the_fingerprint() {
     let other_grant = print(&[grant("r2")]);
     let both = print(&[grant("r1"), grant("r2")]);
     let swapped = print(&[grant("r2"), grant("r1")]);
-    let all = [&none, &cwd, &grants, &other_grant, &both, &swapped];
+    // The sandbox mode is fingerprinted, with and without roots.
+    let sandboxed = print_with(&[], crate::exec::ExecSandboxMode::Sandboxed);
+    let sandboxed_cwd = print_with(
+        &[ExecSnapshotRoot::Cwd {
+            path: "/repo".into(),
+        }],
+        crate::exec::ExecSandboxMode::Sandboxed,
+    );
+    let all = [
+        &none,
+        &cwd,
+        &grants,
+        &other_grant,
+        &both,
+        &swapped,
+        &sandboxed,
+        &sandboxed_cwd,
+    ];
     for (i, a) in all.iter().enumerate() {
         for b in &all[i + 1..] {
             assert_ne!(a, b);

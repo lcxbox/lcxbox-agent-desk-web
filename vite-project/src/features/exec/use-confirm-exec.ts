@@ -270,6 +270,9 @@ export function useConfirmExec({
                             command: input.command,
                             cwd: input.cwd,
                             io_mode: input.ioMode,
+                            // ConfirmExec is an owner-typed command; hosts reject any
+                            // other execution mode on this path.
+                            sandbox_mode: 'unrestricted',
                             timeout_ms: 0,
                             max_stdout_bytes: 0,
                             max_stderr_bytes: 0,

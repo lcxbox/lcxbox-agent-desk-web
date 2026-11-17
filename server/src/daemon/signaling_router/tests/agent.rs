@@ -190,7 +190,8 @@ async fn invoke_agent_capability_exec_is_unsupported_on_the_generic_route() {
                     "io_mode": { "type": "non_interactive" },
                     "timeout_ms": 1000,
                     "max_stdout_bytes": 1024,
-                    "max_stderr_bytes": 1024
+                    "max_stderr_bytes": 1024,
+                    "sandbox_mode": "unrestricted"
                 }
             }
         },

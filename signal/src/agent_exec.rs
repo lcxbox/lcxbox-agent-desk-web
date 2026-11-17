@@ -1531,7 +1531,7 @@ mod tests {
                 },
             }],
         );
-        let input = serde_json::json!({"schema_version":1, "shell":shell,
+        let input = serde_json::json!({"schema_version":2, "shell":shell,
             "command":command, "timeout_ms":1000})
         .to_string();
         let confirmation = policy.prepare(&input, 1).unwrap();

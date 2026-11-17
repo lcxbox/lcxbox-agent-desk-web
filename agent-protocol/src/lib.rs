@@ -1063,6 +1063,11 @@ pub struct ExecInput {
     /// execution path keeps this empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub snapshot_roots: Vec<exec::ExecSnapshotRoot>,
+    /// Server-resolved execution mode of an AI command, copied into the
+    /// classified draft and fingerprinted. Every non-AI execution path sets
+    /// [`exec::ExecSandboxMode::Unrestricted`] explicitly; there is no
+    /// default.
+    pub sandbox_mode: exec::ExecSandboxMode,
 }
 
 /// Open-ended exec target. `Shell` carries shell commands; `Domain` reserves
@@ -1661,6 +1666,7 @@ mod tests {
             max_stdout_bytes: 65_536,
             max_stderr_bytes: 65_536,
             snapshot_roots: vec![],
+            sandbox_mode: exec::ExecSandboxMode::Unrestricted,
         });
         assert_eq!(input.capability(), None);
     }

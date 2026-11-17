@@ -554,7 +554,7 @@ mod tests {
         policy.max_runtime_ms = 600_000;
         call.name = crate::command_confirmation::COMMAND_TOOL.into();
         call.arguments_json = crate::permission_tools::canonical_tool_permission_input_json(&call.name,
-            serde_json::json!({"schema_version":1,"shell":"bash","command":"du -d 1 /tmp","timeout_ms":600000})).unwrap();
+            serde_json::json!({"schema_version":2,"shell":"bash","command":"du -d 1 /tmp","timeout_ms":600000})).unwrap();
         let confirmation = policy
             .prepare(&call.arguments_json, session.input_revision)
             .unwrap();

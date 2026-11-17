@@ -154,6 +154,8 @@ fn same_material_readiness(left: &ComputerUseReadiness, right: &ComputerUseReadi
         && left.interactive_session_incarnation == right.interactive_session_incarnation
         && left.local_ceiling_revision == right.local_ceiling_revision
         && left.capabilities == right.capabilities
+        && left.exec_sandbox == right.exec_sandbox
+        && left.exec_identity == right.exec_identity
         && left
             .context_references
             .iter()
@@ -272,6 +274,12 @@ mod tests {
             server_api_version: desk_server_version::SERVER_API_VERSION,
             os: "windows".to_string(),
             interactive_user_home: None,
+            exec_sandbox: desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+            exec_identity: desk_agent_protocol::exec::ExecIdentity {
+                elevated: false,
+                system: false,
+                root: false,
+            },
             interactive_session_incarnation: incarnation.to_string(),
             local_ceiling_revision: 1,
             unattended_command_execution: false,
@@ -400,6 +408,86 @@ mod tests {
                 .update("connection", changed, heartbeat_now)
                 .unwrap_err()
                 .contains("without advancing revision")
+        );
+    }
+
+    #[test]
+    fn same_revision_cannot_change_sandbox_support_or_execution_identity() {
+        use desk_agent_protocol::exec::{ExecSandboxSupport, ExecSandboxUnsupportedReason};
+        let heartbeat_now = DateTime::parse_from_rfc3339("2026-08-23T12:00:10Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let heartbeat = || {
+            let mut report = readiness(10, "worker-a");
+            report.observed_at = "2026-08-23T12:00:05Z".into();
+            report.expires_at = "2026-08-23T12:00:40Z".into();
+            report
+        };
+        let mut unsupported = heartbeat();
+        unsupported.exec_sandbox =
+            ExecSandboxSupport::Unsupported(ExecSandboxUnsupportedReason::KernelUnsupported);
+        let mut elevated = heartbeat();
+        elevated.exec_identity.elevated = true;
+        for changed in [unsupported, elevated] {
+            let cache = ComputerUseReadinessCache::default();
+            cache
+                .update("connection", readiness(10, "worker-a"), now())
+                .unwrap();
+            assert!(
+                cache
+                    .update("connection", changed, heartbeat_now)
+                    .unwrap_err()
+                    .contains("without advancing revision")
+            );
+        }
+        let cache = ComputerUseReadinessCache::default();
+        cache
+            .update("connection", readiness(10, "worker-a"), now())
+            .unwrap();
+        assert_eq!(
+            cache.update("connection", heartbeat(), heartbeat_now),
+            Ok(CacheUpdateOutcome::Stored)
+        );
+    }
+
+    #[actix_web::test]
+    async fn readiness_without_sandbox_or_identity_is_dropped_as_unavailable() {
+        use desk_signal_facade::model::signal::SignalingType;
+        let cache = Arc::new(ComputerUseReadinessCache::default());
+        let observer = SignalComputerUseReadinessObserver::new(cache.clone());
+        let source =
+            crate::command_policy::tests::owner_host("old-worker", "old-device", &["bash"], None)
+                .await;
+        let now = Utc::now();
+        let mut current = readiness(1, "worker-a");
+        current.server_api_version = 1;
+        current.observed_at = now.to_rfc3339();
+        current.expires_at = (now + Duration::seconds(60)).to_rfc3339();
+        let frame = |data: serde_json::Value| {
+            SignalingModel::new(
+                "readiness",
+                SignalingType::ComputerUseReadinessUpdated,
+                Some("old-worker".to_string()),
+                None,
+                Some(data),
+                None,
+            )
+        };
+        let mut old_shape = serde_json::to_value(&current).unwrap();
+        let fields = old_shape.as_object_mut().unwrap();
+        assert!(fields.remove("exec_sandbox").is_some());
+        assert!(fields.remove("exec_identity").is_some());
+        observer
+            .on_computer_use_readiness(&source, &frame(old_shape))
+            .await;
+        assert!(cache.get_fresh("old-worker", now).is_none());
+
+        observer
+            .on_computer_use_readiness(&source, &frame(serde_json::to_value(&current).unwrap()))
+            .await;
+        assert_eq!(
+            cache.get_fresh("old-worker", now).unwrap().readiness,
+            current
         );
     }
 

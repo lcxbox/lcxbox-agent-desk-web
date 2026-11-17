@@ -7,7 +7,8 @@ use crate::worker::agent::file_reference_store::{
 };
 use desk_agent_protocol::computer_use::FilePatchAction;
 use desk_agent_protocol::exec::{
-    CommandChangeRestore, CommandChangeRestoreOutcome, ExecShellKind, ExecSnapshotRoot,
+    CommandChangeRestore, CommandChangeRestoreOutcome, ExecSandboxMode, ExecShellKind,
+    ExecSnapshotRoot,
 };
 use desk_agent_protocol::{AgentErrorKind, ExecOutput, RiskLevel};
 use desk_file_recovery::{ChangeState, ScanLimits, Scope, Vault};
@@ -17,8 +18,21 @@ use std::time::Duration;
 
 struct Fixture {
     data: tempfile::TempDir,
+    /// Below `/tmp`, outside the macOS user temporary directory that a
+    /// sandboxed command may write.
     work: tempfile::TempDir,
+    outside: tempfile::TempDir,
     snapshots: ExecSnapshots,
+    /// The worker's sandbox, with the data directory as its private
+    /// directory, as in a running worker.
+    sandbox: Arc<ExecSandbox>,
+}
+
+fn scratch_in_tmp(prefix: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(prefix)
+        .tempdir_in("/tmp")
+        .unwrap()
 }
 
 impl Fixture {
@@ -28,14 +42,22 @@ impl Fixture {
 
     fn with(limits: ScanLimits, protected: impl FnOnce(&Path) -> ProtectedRoots) -> Self {
         let data = tempfile::tempdir().unwrap();
-        let work = tempfile::tempdir().unwrap();
+        let work = scratch_in_tmp("exec-snapshot-work");
+        let outside = scratch_in_tmp("exec-snapshot-outside");
+        let protected = protected(work.path());
         let enabled =
-            vault::Enabled::for_test(data.path().to_path_buf(), protected(work.path()), limits)
-                .unwrap();
+            vault::Enabled::for_test(data.path().to_path_buf(), protected.clone(), limits).unwrap();
+        let sandbox = ExecSandbox::start(
+            Some(data.path().to_path_buf()),
+            protected,
+            vec![data.path().to_path_buf()],
+        );
         Self {
             data,
             work,
+            outside,
             snapshots: ExecSnapshots(Availability::Enabled(Arc::new(enabled))),
+            sandbox: Arc::new(sandbox),
         }
     }
 
@@ -71,6 +93,13 @@ impl Fixture {
         }
     }
 
+    fn sandboxed_plan(&self, script: &str) -> ExecPlan {
+        ExecPlan {
+            sandbox_mode: ExecSandboxMode::Sandboxed,
+            ..self.plan(script, 10_000)
+        }
+    }
+
     fn plan(&self, script: &str, timeout_ms: u32) -> ExecPlan {
         let cwd = self.work.path().to_str().unwrap().to_owned();
         ExecPlan {
@@ -92,6 +121,7 @@ impl Fixture {
             max_stderr_bytes: 4096,
             containment: Default::default(),
             snapshot_roots: vec![ExecSnapshotRoot::Cwd { path: cwd }],
+            sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
         }
     }
 
@@ -100,22 +130,38 @@ impl Fixture {
         plan: &ExecPlan,
         cancel: Option<tokio::sync::watch::Receiver<bool>>,
     ) -> ExecOutput {
+        self.run_with(plan, Some(binding()), cancel).await.0
+    }
+
+    /// Run through the worker's snapshot and sandbox path; also returns the
+    /// spawn report.
+    async fn run_with(
+        &self,
+        plan: &ExecPlan,
+        binding: Option<ExecFileRecoveryBinding>,
+        cancel: Option<tokio::sync::watch::Receiver<bool>>,
+    ) -> (ExecOutput, ExecSpawnReport) {
+        let report = Arc::new(std::sync::Mutex::new(None));
+        let sink = Arc::clone(&report);
         let outcome = self
             .snapshots
-            .run(plan, Some(binding()), |started| {
+            .run(plan, binding, &self.sandbox, |started, launch| {
                 crate::worker::exec::execute_plan_cancellable(
                     plan,
+                    launch,
                     move |report| {
                         if matches!(report, ExecSpawnReport::Started { .. }) {
                             started.store(true, Ordering::Release);
                         }
+                        *sink.lock().unwrap() = Some(report);
                     },
                     cancel,
                 )
             })
             .await;
+        let report = report.lock().unwrap().take().expect("a spawn report");
         match outcome {
-            AgentOutcome::Ok(OperationOutput::Exec(output)) => output,
+            AgentOutcome::Ok(OperationOutput::Exec(output)) => (output, report),
             other => panic!("expected exec output, got {other:?}"),
         }
     }
@@ -307,13 +353,15 @@ async fn a_crashed_executor_leaves_an_unknown_outcome_that_cannot_be_restored() 
     };
     // The worker dies after the pre-run scan: neither finish nor abandon
     // runs, and its executor lock goes away with it.
-    let pending = enabled.prepare(&plan, Some(binding())).unwrap();
+    let pending = enabled.prepare(&plan, Some(binding()), None).unwrap();
     let recovery_id = pending.recovery_id().to_owned();
     drop(pending);
     let Fixture {
         data,
         work: _work,
+        outside: _outside,
         snapshots,
+        sandbox: _sandbox,
     } = fixture;
     drop(snapshots);
     let vault = Vault::open(data.path()).unwrap();
@@ -370,8 +418,8 @@ async fn system_identity_and_root_pty_take_no_snapshot() {
     let snapshots = ExecSnapshots(Availability::SystemIdentity);
     let plan = fixture.plan("printf 'x\\n' > x.txt", 10_000);
     let outcome = snapshots
-        .run(&plan, Some(binding()), |_| {
-            crate::worker::exec::execute_plan_cancellable(&plan, |_| {}, None)
+        .run(&plan, Some(binding()), &fixture.sandbox, |_, launch| {
+            crate::worker::exec::execute_plan_cancellable(&plan, launch, |_| {}, None)
         })
         .await;
     let AgentOutcome::Ok(OperationOutput::Exec(output)) = outcome else {
@@ -403,19 +451,7 @@ async fn a_plan_without_roots_or_binding_is_handled_without_storage() {
     assert_eq!(fixture.run(&plan, None).await.file_changes, None);
 
     let plan = fixture.plan("true", 10_000);
-    let outcome = fixture
-        .snapshots
-        .run(&plan, None, |started| {
-            crate::worker::exec::execute_plan_cancellable(
-                &plan,
-                move |_| started.store(true, Ordering::Release),
-                None,
-            )
-        })
-        .await;
-    let AgentOutcome::Ok(OperationOutput::Exec(output)) = outcome else {
-        panic!("expected exec output")
-    };
+    let (output, _) = fixture.run_with(&plan, None, None).await;
     assert_eq!(
         changes_of(&output, &plan).snapshot,
         ExecSnapshotOutcome::Skipped(ExecSnapshotSkipReason::StorageUnavailable)
@@ -586,4 +622,256 @@ fn the_report_is_bounded_and_marks_truncation() {
         vec![change(0, "ok.txt".into())],
     );
     assert!(!report.truncated);
+}
+
+/// Whether this host can run the command sandbox; Linux CI kernels below
+/// Landlock ABI 3 and root runners skip the sandbox behaviour tests.
+fn sandbox_available() -> bool {
+    use desk_agent_protocol::exec::ExecSandboxSupport;
+    match crate::worker::exec_sandbox::sandbox_support() {
+        ExecSandboxSupport::Supported => true,
+        other => {
+            assert!(
+                !cfg!(target_os = "macos") || unsafe { libc::geteuid() } == 0,
+                "sandbox-exec must work on macOS: {other:?}"
+            );
+            eprintln!("command sandbox unavailable here, skipping: {other:?}");
+            false
+        }
+    }
+}
+
+fn stdout_of(output: &ExecOutput) -> &str {
+    match &output.streams {
+        desk_agent_protocol::ExecOutputStreams::Split { stdout, .. } => stdout,
+        other => panic!("expected split streams, got {other:?}"),
+    }
+}
+
+fn assert_refused(output: &ExecOutput, report: &ExecSpawnReport, needle: &str) {
+    assert!(!output.started, "{output:?}");
+    assert_eq!(output.file_changes, None);
+    let failure = output.failure.as_ref().expect("a refusal");
+    assert_eq!(failure.kind, AgentErrorKind::UnsupportedCapability);
+    assert!(failure.message.contains(needle), "{failure:?}");
+    assert!(
+        matches!(report, ExecSpawnReport::Failed { reason } if reason.contains(needle)),
+        "{report:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_sandboxed_command_writes_its_root_and_temp_only_and_is_snapshotted() {
+    if !sandbox_available() {
+        return;
+    }
+    let _store = file_store_test_lock();
+    let fixture = Fixture::new();
+    fixture.write("a.txt", "a 1\n");
+    let outside = fixture.outside.path().join("escape.txt");
+    let script = format!(
+        "printf 'a 2\\n' > a.txt && printf 'n\\n' > new.txt && \
+         (printf x > '{}' 2>/dev/null && echo escaped || echo denied) && \
+         printf t > \"$TMPDIR/t\" && echo \"tmp=$TMPDIR\"",
+        outside.display()
+    );
+    let plan = fixture.sandboxed_plan(&script);
+    let (output, report) = fixture.run_with(&plan, Some(binding()), None).await;
+    assert!(matches!(report, ExecSpawnReport::Started { .. }));
+    assert_eq!(output.exit_code, Some(0), "{output:?}");
+    let stdout = stdout_of(&output);
+    assert!(
+        stdout.contains("denied") && !stdout.contains("escaped"),
+        "{stdout}"
+    );
+    assert!(!outside.exists(), "a write outside the root must fail");
+    assert_eq!(fixture.read("a.txt").as_deref(), Some("a 2\n"));
+    assert_eq!(fixture.read("new.txt").as_deref(), Some("n\n"));
+
+    // The temporary directory is private to this execution, below the
+    // worker's data directory, and removed afterwards.
+    let temp = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("tmp="))
+        .map(std::path::PathBuf::from)
+        .expect("TMPDIR is set");
+    let private = std::fs::canonicalize(fixture.data.path()).unwrap();
+    assert!(temp.starts_with(private.join("exec-tmp")), "{temp:?}");
+    assert!(!temp.exists(), "the temporary directory is removed");
+
+    // The snapshot covers exactly the write root.
+    let changes = changes_of(&output, &plan);
+    assert_eq!(changes.snapshot, ExecSnapshotOutcome::Taken);
+    assert_eq!(changes.roots.len(), 1);
+    assert_eq!(changes.roots[0].root, plan.snapshot_roots[0]);
+    assert_eq!(
+        listed(&changes),
+        vec![
+            ("a.txt", ExecFileChangeKind::Modified, true),
+            ("new.txt", ExecFileChangeKind::Added, true),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_snapshot_problem_does_not_lift_the_sandbox() {
+    if !sandbox_available() {
+        return;
+    }
+    let _store = file_store_test_lock();
+    let fixture = Fixture::new();
+    let outside = fixture.outside.path().join("escape.txt");
+    let plan = fixture.sandboxed_plan(&format!(
+        "printf 'n\\n' > new.txt; printf x > '{}'",
+        outside.display()
+    ));
+    // Without a recovery binding the snapshot is skipped; the command still
+    // runs in the sandbox.
+    let (output, _) = fixture.run_with(&plan, None, None).await;
+    assert!(output.started);
+    assert_ne!(output.exit_code, Some(0), "{output:?}");
+    assert!(!outside.exists());
+    assert_eq!(fixture.read("new.txt").as_deref(), Some("n\n"));
+    assert_eq!(
+        changes_of(&output, &plan).snapshot,
+        ExecSnapshotOutcome::Skipped(ExecSnapshotSkipReason::StorageUnavailable)
+    );
+}
+
+#[tokio::test]
+async fn forbidden_or_unopenable_write_roots_refuse_the_command() {
+    if !sandbox_available() {
+        return;
+    }
+    let _store = file_store_test_lock();
+    // A write root holding product data.
+    let fixture = Fixture::with(ScanLimits::default(), |work| {
+        ProtectedRoots::new(None, Vec::new(), [work.join("data")])
+    });
+    let plan = fixture.sandboxed_plan("printf 'c\\n' > c.txt");
+    let (output, report) = fixture.run_with(&plan, Some(binding()), None).await;
+    assert_refused(&output, &report, "cannot be a writable directory");
+    assert_eq!(fixture.read("c.txt"), None);
+
+    // A working directory that does not exist.
+    let fixture = Fixture::new();
+    let mut plan = fixture.sandboxed_plan("printf 'c\\n' > c.txt");
+    let missing = fixture.work.path().join("missing");
+    plan.cwd = Some(missing.to_str().unwrap().to_owned());
+    plan.snapshot_roots = vec![ExecSnapshotRoot::Cwd {
+        path: missing.to_str().unwrap().to_owned(),
+    }];
+    let (output, report) = fixture.run_with(&plan, Some(binding()), None).await;
+    assert_refused(&output, &report, "write root is unavailable");
+
+    // A granted directory replaced after it was granted.
+    let fixture = Fixture::new();
+    let granted = fixture.work.path().join("granted");
+    std::fs::create_dir(&granted).unwrap();
+    let reference = crate::worker::agent::file_reference_store::issue(&granted).unwrap();
+    std::fs::rename(&granted, fixture.work.path().join("moved")).unwrap();
+    std::fs::create_dir(&granted).unwrap();
+    let mut plan = fixture.sandboxed_plan("printf 'c\\n' > granted/c.txt");
+    plan.snapshot_roots = vec![ExecSnapshotRoot::Grant {
+        directory_request_id: "grant".into(),
+        directory: reference,
+    }];
+    let (output, report) = fixture.run_with(&plan, Some(binding()), None).await;
+    assert_refused(&output, &report, "write root is unavailable");
+    assert!(!granted.join("c.txt").exists());
+}
+
+#[tokio::test]
+async fn a_worker_without_sandbox_support_refuses_sandboxed_plans() {
+    let _store = file_store_test_lock();
+    let mut fixture = Fixture::new();
+    fixture.sandbox = Arc::new(ExecSandbox::start(
+        None,
+        ProtectedRoots::default(),
+        Vec::new(),
+    ));
+    let plan = fixture.sandboxed_plan("printf 'c\\n' > c.txt");
+    let (output, report) = fixture.run_with(&plan, Some(binding()), None).await;
+    assert_refused(&output, &report, "cannot sandbox commands");
+    assert_eq!(fixture.read("c.txt"), None);
+
+    // An unrestricted plan on the same worker runs as before.
+    let plan = fixture.plan("printf 'c\\n' > c.txt", 10_000);
+    let output = fixture.run(&plan, None).await;
+    assert_eq!(output.exit_code, Some(0), "{output:?}");
+    assert_eq!(fixture.read("c.txt").as_deref(), Some("c\n"));
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn a_setuid_program_refused_in_the_sandbox_carries_the_hint() {
+    if !sandbox_available() {
+        return;
+    }
+    let _store = file_store_test_lock();
+    let fixture = Fixture::new();
+    let mut plan = fixture.sandboxed_plan("/bin/ps -p $$");
+    plan.snapshot_roots.clear();
+    let (output, _) = fixture.run_with(&plan, Some(binding()), None).await;
+    assert_eq!(output.exit_code, Some(126), "{output:?}");
+    assert!(
+        output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.domain == "exec_sandbox"
+                && diagnostic.message.contains("sandbox=false")),
+        "{output:?}"
+    );
+
+    // The same failure outside the sandbox carries no hint.
+    let mut plan = fixture.plan("exit 126", 10_000);
+    plan.snapshot_roots.clear();
+    let output = fixture.run(&plan, None).await;
+    assert!(
+        output
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.domain != "exec_sandbox")
+    );
+}
+
+/// On macOS a sandboxed command cannot read the content of this product's
+/// configuration and data directories (credentials such as the
+/// `config.toml` tokens), while its own temporary directory below the
+/// worker's data directory stays usable. The real worker passes every
+/// default configuration directory.
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn product_configuration_and_data_are_unreadable_in_the_sandbox() {
+    if !sandbox_available() {
+        return;
+    }
+    let defaults = crate::worker::exec_sandbox::read_protected_directories(Vec::new());
+    let user = desk_utils::host_data_paths::HostDataPaths::resolve(
+        desk_utils::host_data_paths::HostDataScope::User,
+        None,
+    )
+    .unwrap();
+    assert!(defaults.contains(&user.config_file().parent().unwrap().to_path_buf()));
+    assert!(defaults.contains(&user.data_root().to_path_buf()));
+
+    let _store = file_store_test_lock();
+    let fixture = Fixture::new();
+    let secret = fixture.data.path().join("config.toml");
+    std::fs::write(&secret, "tauri_ipc_token = \"secret\"\n").unwrap();
+    let mut plan = fixture.sandboxed_plan(&format!(
+        "(cat '{}' 2>/dev/null && echo leaked || echo unreadable) && \
+         printf t > \"$TMPDIR/t\" && cat \"$TMPDIR/t\"",
+        secret.display()
+    ));
+    plan.snapshot_roots.clear();
+    let output = fixture.run(&plan, None).await;
+    let stdout = stdout_of(&output);
+    assert_eq!(output.exit_code, Some(0), "{output:?}");
+    assert!(stdout.contains("unreadable"), "{stdout}");
+    assert!(
+        !stdout.contains("secret") && !stdout.contains("leaked"),
+        "{stdout}"
+    );
+    assert!(stdout.ends_with('t') || stdout.ends_with("t\n"), "{stdout}");
 }

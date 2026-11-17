@@ -2465,7 +2465,7 @@ mod tests {
             .is_err()
         );
 
-        let exact = r#"{"items":[{"item_id":"command","provider_id":"system.command","tool_name":"exec_command","expected_effect":"execute_command","exact_input":{"schema_version":1,"shell":"powershell","command":"Restart-Service -Name Spooler","timeout_ms":10000},"suggested_ttl_seconds":60,"suggested_max_uses":9,"reason":"Restart the requested service"}]}"#;
+        let exact = r#"{"items":[{"item_id":"command","provider_id":"system.command","tool_name":"exec_command","expected_effect":"execute_command","exact_input":{"schema_version":2,"shell":"powershell","command":"Restart-Service -Name Spooler","timeout_ms":10000},"suggested_ttl_seconds":60,"suggested_max_uses":9,"reason":"Restart the requested service"}]}"#;
         let request = build_permission_request(
             &call(exact),
             &registry,
@@ -2506,7 +2506,7 @@ mod tests {
             crate::request_devices::command_input(&command_call(equivalent), false).unwrap();
         assert_ne!(changed, runtime_input);
 
-        let off_template = r#"{"items":[{"item_id":"command","provider_id":"system.command","tool_name":"exec_command","expected_effect":"execute_command","exact_input":{"schema_version":1,"shell":"powershell","command":"Remove-Item C:\\temp\\anything","timeout_ms":10000},"suggested_ttl_seconds":60,"suggested_max_uses":1,"reason":"Delete files"}]}"#;
+        let off_template = r#"{"items":[{"item_id":"command","provider_id":"system.command","tool_name":"exec_command","expected_effect":"execute_command","exact_input":{"schema_version":2,"shell":"powershell","command":"Remove-Item C:\\temp\\anything","timeout_ms":10000},"suggested_ttl_seconds":60,"suggested_max_uses":1,"reason":"Delete files"}]}"#;
         let error = build_permission_request(
             &call(off_template),
             &registry,
@@ -2522,7 +2522,7 @@ mod tests {
     fn interactive_commands_must_be_requested_alone() {
         let registry = crate::ai_assistant::ai_assistant_provider_registry()
             .with_command_policy(crate::command_confirmation::test_policy());
-        let item = |id: &str, command: &str, io_mode: &str| serde_json::json!({"item_id":id,"provider_id":"system.command","tool_name":"exec_command","expected_effect":"execute_command","exact_input":{"schema_version":1,"shell":"bash","command":command,"timeout_ms":10000,"io_mode":io_mode},"suggested_ttl_seconds":60,"suggested_max_uses":1,"reason":"Run it"});
+        let item = |id: &str, command: &str, io_mode: &str| serde_json::json!({"item_id":id,"provider_id":"system.command","tool_name":"exec_command","expected_effect":"execute_command","exact_input":{"schema_version":2,"shell":"bash","command":command,"timeout_ms":10000,"io_mode":io_mode},"suggested_ttl_seconds":60,"suggested_max_uses":1,"reason":"Run it"});
         let build = |items: Vec<serde_json::Value>| {
             build_permission_request(
                 &call(&serde_json::json!({ "items": items }).to_string()),
@@ -2572,7 +2572,7 @@ mod tests {
             .with_command_policy(crate::command_confirmation::test_policy());
         let request_for = |io_mode: &str| {
             build_permission_request(
-                &call(&serde_json::json!({"items":[{"item_id":"command","provider_id":"system.command","tool_name":"exec_command","expected_effect":"execute_command","exact_input":{"schema_version":1,"shell":"bash","command":"top","timeout_ms":10000,"io_mode":io_mode},"suggested_ttl_seconds":60,"suggested_max_uses":1,"reason":"Run it"}]}).to_string()),
+                &call(&serde_json::json!({"items":[{"item_id":"command","provider_id":"system.command","tool_name":"exec_command","expected_effect":"execute_command","exact_input":{"schema_version":2,"shell":"bash","command":"top","timeout_ms":10000,"io_mode":io_mode},"suggested_ttl_seconds":60,"suggested_max_uses":1,"reason":"Run it"}]}).to_string()),
                 &registry,
                 "permission-pty".into(),
                 1,

@@ -3,7 +3,10 @@ use desk_agent_protocol::computer_use::{
     COMPUTER_USE_SCHEMA_VERSION, ComputerUseAdapterKind, ComputerUseAdapterRef,
     ComputerUseCapabilityReadiness, ComputerUseReadiness, ObjectKind, ObjectRef,
 };
-use desk_agent_protocol::exec::ExecSnapshotRoot;
+use desk_agent_protocol::exec::{
+    ExecIdentity, ExecSandboxAttention, ExecSandboxMode, ExecSandboxSupport,
+    ExecSandboxUnsupportedReason, ExecSnapshotRoot,
+};
 use desk_diagnose_core::file_scope::DelegatedDirectory;
 use desk_signal_facade::model::auth_context::AuthContext;
 use desk_signal_facade::model::connection::{ConnectionModel, ConnectionState};
@@ -81,11 +84,37 @@ pub(crate) async fn owner_host(
     }
 }
 
-/// Fresh readiness of `connection_id` for the given device capabilities.
+/// A standard (non-elevated, non-root) execution identity.
+pub(crate) const STANDARD_USER: ExecIdentity = ExecIdentity {
+    elevated: false,
+    system: false,
+    root: false,
+};
+
+/// Fresh readiness of `connection_id` for the given device capabilities, on a
+/// worker that supports the command sandbox and runs as a standard user.
 pub(crate) fn mark_ready(
     connection_id: &str,
     incarnation: &str,
     capabilities: &[desk_agent_protocol::Capability],
+) {
+    mark_ready_with(
+        connection_id,
+        incarnation,
+        capabilities,
+        ExecSandboxSupport::Supported,
+        STANDARD_USER,
+    );
+}
+
+/// Fresh readiness of `connection_id` reporting the given sandbox support
+/// and execution identity.
+pub(crate) fn mark_ready_with(
+    connection_id: &str,
+    incarnation: &str,
+    capabilities: &[desk_agent_protocol::Capability],
+    exec_sandbox: ExecSandboxSupport,
+    exec_identity: ExecIdentity,
 ) {
     let now = chrono::Utc::now();
     let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
@@ -101,6 +130,8 @@ pub(crate) fn mark_ready(
                 server_api_version: 1,
                 os: "linux".into(),
                 interactive_user_home: None,
+                exec_sandbox,
+                exec_identity,
                 interactive_session_incarnation: incarnation.into(),
                 local_ceiling_revision: 1,
                 unattended_command_execution: false,
@@ -209,7 +240,7 @@ impl Fixture {
 fn command(shell: &str, command: &str) -> String {
     desk_diagnose_core::permission_tools::canonical_tool_permission_input_json(
         "exec_command",
-        serde_json::json!({"schema_version":1, "shell":shell, "command":command, "timeout_ms":1000}),
+        serde_json::json!({"schema_version":2, "shell":shell, "command":command, "timeout_ms":1000}),
     )
     .unwrap()
 }
@@ -287,6 +318,164 @@ async fn a_read_only_command_keeps_its_approval_across_directory_approval_change
     }
 }
 
+const PLAN_CHANGED: &str = "the command plan, target or policy changed; request permission again";
+
+fn command_with_sandbox(command: &str, sandbox: bool) -> String {
+    desk_diagnose_core::permission_tools::canonical_tool_permission_input_json(
+        "exec_command",
+        serde_json::json!({"schema_version":2, "shell":"bash", "command":command,
+            "sandbox":sandbox, "timeout_ms":1000}),
+    )
+    .unwrap()
+}
+
+#[actix_web::test]
+async fn current_policy_resolves_the_sandbox_from_the_cached_readiness() {
+    let fixture = fixture().await;
+    let approved_with = session(&["a"]);
+    let input = command("bash", "touch notes.txt");
+    let sandboxed = fixture
+        .policy(&approved_with)
+        .await
+        .prepare(&input, 1)
+        .unwrap();
+    assert_eq!(sandboxed.plan.sandbox_mode, ExecSandboxMode::Sandboxed);
+    assert_eq!(sandboxed.sandbox.mode, ExecSandboxMode::Sandboxed);
+    assert_eq!(
+        sandboxed.sandbox.device_support,
+        ExecSandboxSupport::Supported
+    );
+
+    let kernel = ExecSandboxSupport::Unsupported(ExecSandboxUnsupportedReason::KernelUnsupported);
+    mark_ready_with(
+        &fixture.connection_id,
+        "desktop",
+        &[],
+        kernel,
+        STANDARD_USER,
+    );
+    let unrestricted = fixture
+        .policy(&approved_with)
+        .await
+        .prepare(&input, 1)
+        .unwrap();
+    assert_eq!(
+        unrestricted.plan.sandbox_mode,
+        ExecSandboxMode::Unrestricted
+    );
+    assert_eq!(
+        unrestricted.sandbox.attention,
+        ExecSandboxAttention::Prominent
+    );
+    assert_eq!(unrestricted.sandbox.device_support, kernel);
+
+    // Root cannot be sandboxed: an explicit request is refused before the card.
+    mark_ready_with(
+        &fixture.connection_id,
+        "desktop",
+        &[],
+        ExecSandboxSupport::Supported,
+        ExecIdentity {
+            root: true,
+            ..STANDARD_USER
+        },
+    );
+    let error = fixture
+        .policy(&approved_with)
+        .await
+        .prepare(&command_with_sandbox("touch notes.txt", true), 1)
+        .unwrap_err();
+    assert!(
+        error.message.starts_with("sandbox=true cannot be honored"),
+        "{}",
+        error.message
+    );
+}
+
+#[actix_web::test]
+async fn an_approved_command_needs_new_approval_after_a_sandbox_identity_or_worker_change() {
+    let fixture = fixture().await;
+    let approved_with = session(&["a"]);
+    // A sandboxed mutating command, an explicitly unrestricted one and a
+    // read-only template that runs unrestricted.
+    let inputs = [
+        command("bash", "touch notes.txt"),
+        command_with_sandbox("touch notes.txt", false),
+        command("powershell", "Get-Service -Name Spooler"),
+    ];
+    let policy = fixture.policy(&approved_with).await;
+    let confirmations: Vec<_> = inputs
+        .iter()
+        .map(|input| policy.prepare(input, 1).unwrap())
+        .collect();
+    assert_eq!(
+        confirmations
+            .iter()
+            .map(|confirmation| confirmation.plan.sandbox_mode)
+            .collect::<Vec<_>>(),
+        [
+            ExecSandboxMode::Sandboxed,
+            ExecSandboxMode::Unrestricted,
+            ExecSandboxMode::Unrestricted,
+        ]
+    );
+    let revalidate = |policy: &CommandPolicyContext| {
+        inputs
+            .iter()
+            .zip(&confirmations)
+            .map(|(input, confirmation)| {
+                policy
+                    .revalidate(confirmation, input, 1)
+                    .map_err(|error| error.message)
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // A new readiness report that changes nothing the policy reads keeps
+    // every approval current.
+    mark_ready(
+        &fixture.connection_id,
+        "desktop",
+        &[desk_agent_protocol::Capability::ShellExecConfirmed],
+    );
+    assert!(
+        revalidate(&fixture.policy(&approved_with).await)
+            .iter()
+            .all(Result::is_ok)
+    );
+
+    let changes = [
+        (
+            "desktop",
+            ExecSandboxSupport::Unsupported(ExecSandboxUnsupportedReason::KernelUnsupported),
+            STANDARD_USER,
+        ),
+        (
+            "desktop",
+            ExecSandboxSupport::Supported,
+            ExecIdentity {
+                elevated: true,
+                ..STANDARD_USER
+            },
+        ),
+        (
+            "desktop-restarted",
+            ExecSandboxSupport::Supported,
+            STANDARD_USER,
+        ),
+    ];
+    for (incarnation, support, identity) in changes {
+        mark_ready_with(&fixture.connection_id, incarnation, &[], support, identity);
+        for result in revalidate(&fixture.policy(&approved_with).await) {
+            assert_eq!(
+                result.unwrap_err(),
+                PLAN_CHANGED,
+                "{incarnation} {support:?} {identity:?}"
+            );
+        }
+    }
+}
+
 #[actix_web::test]
 async fn stored_session_reads_the_subject_row_only() {
     use crate::entity::agent_session;
@@ -356,9 +545,18 @@ fn frozen_macos_disk_scan_plan_executes_the_original_multiline_script_in_an_isol
         exec_pty: false,
         exec_pty_elevation: false,
         directory_grants: TrustedDirectoryGrants::for_test("fixture-device", vec![]),
+        exec_sandbox: desk_diagnose_core::command_confirmation::DeviceExecSandbox::for_test(
+            desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+            desk_agent_protocol::exec::ExecIdentity {
+                elevated: false,
+                system: false,
+                root: false,
+            },
+            "macos",
+        ),
     };
     let script = "du -k -d 1 . | sort -n\ndf -k .";
-    let input = serde_json::json!({"schema_version":1, "shell":"bash", "command":script,
+    let input = serde_json::json!({"schema_version":2, "shell":"bash", "command":script,
         "cwd":fixture.path().to_str().unwrap(), "timeout_ms":10000})
     .to_string();
     let confirmation = policy.prepare(&input, 1).unwrap();

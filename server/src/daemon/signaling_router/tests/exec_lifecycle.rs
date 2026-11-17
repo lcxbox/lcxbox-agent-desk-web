@@ -672,6 +672,7 @@ pub(super) async fn invoke_agent_capability_plane_permanently_rejects_exec() {
         max_stdout_bytes: 0,
         max_stderr_bytes: 0,
         snapshot_roots: Vec::new(),
+        sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
     };
     let req = AgentRequestData {
         operation: AgentOperation {
@@ -757,6 +758,7 @@ pub(super) async fn confirm_exec_local_mode_caps_manager_authorization() {
                 max_stdout_bytes: 0,
                 max_stderr_bytes: 0,
                 snapshot_roots: Vec::new(),
+                sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
             }),
         },
         reason: None,

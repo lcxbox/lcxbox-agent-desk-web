@@ -553,3 +553,6 @@ async fn resume_permission_decision(
     });
     true
 }
+
+#[cfg(test)]
+mod tests;

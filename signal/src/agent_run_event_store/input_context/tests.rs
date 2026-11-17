@@ -90,13 +90,19 @@ async fn select_live_document(store: &SignalAgentRunEventStore) {
         reason: None,
     }];
     let readiness = ComputerUseReadiness {
-        schema_version: 1,
+        schema_version: desk_agent_protocol::computer_use::COMPUTER_USE_SCHEMA_VERSION,
         revision: 1,
         observed_at: now.to_rfc3339(),
         expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
         server_api_version: 1,
         os: "macos".into(),
         interactive_user_home: None,
+        exec_sandbox: desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+        exec_identity: desk_agent_protocol::exec::ExecIdentity {
+            elevated: false,
+            system: false,
+            root: false,
+        },
         interactive_session_incarnation: "worker-1".into(),
         local_ceiling_revision: 1,
         unattended_command_execution: false,

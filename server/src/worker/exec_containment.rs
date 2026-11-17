@@ -110,6 +110,15 @@ impl Containment {
         self.inner.apply(cmd);
     }
 
+    /// As [`Self::apply`], for a sandboxed command: the child calls `setsid()`
+    /// instead of joining a new process group, so it leads a new session
+    /// without a controlling terminal. Its process group id is still its pid,
+    /// so reclamation is unchanged.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub fn apply_new_session(&self, cmd: &mut Command) {
+        self.inner.apply_new_session(cmd);
+    }
+
     /// Bind the spawned child to the container and fill in the identity where it
     /// only becomes knowable now.
     ///

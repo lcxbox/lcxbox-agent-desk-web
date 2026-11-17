@@ -648,7 +648,7 @@ fn owner_freeform_approval_is_exact_one_shot_and_rechecks_the_frozen_policy() {
     session.scope_snapshot.mode = ExecutionMode::ConfirmEachAction;
     session.turn_start_scope.mode = ExecutionMode::ConfirmEachAction;
     let policy = crate::command_confirmation::test_policy();
-    let canonical = serde_json::json!({"schema_version":1,"shell":"bash",
+    let canonical = serde_json::json!({"schema_version":2,"shell":"bash",
         "command":"du -d 1 \"a directory\" | sort -n\ndf -h", "timeout_ms":20000})
     .to_string();
     let snapshot = policy.prepare(&canonical, 1).unwrap();

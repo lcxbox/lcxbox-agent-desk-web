@@ -153,6 +153,15 @@ describe('useConfirmExec', () => {
         expect(payload.operation.input.params.cwd).toBe('/var/log');
     });
 
+    it('always sends an owner-typed ConfirmExec as unrestricted', () => {
+        const { hook } = render();
+        act(() => hook.result.current.requestPreview(0, input));
+        const payload = sendMessage.mock.calls[0][1] as {
+            operation: { input: { params: { sandbox_mode: string } } };
+        };
+        expect(payload.operation.input.params.sandbox_mode).toBe('unrestricted');
+    });
+
     it('carries the org hint in the ConfirmExec payload when set, and omits it otherwise', () => {
         // Org view: org_id rides the wire so a non-owner is adjudicated against it.
         const org = render(9);

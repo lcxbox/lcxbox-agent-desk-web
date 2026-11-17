@@ -184,6 +184,12 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
                 server_api_version: desk_server_version::SERVER_API_VERSION,
                 os: "macos".into(),
                 interactive_user_home: None,
+                exec_sandbox: desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+                exec_identity: desk_agent_protocol::exec::ExecIdentity {
+                    elevated: false,
+                    system: false,
+                    root: false,
+                },
                 interactive_session_incarnation: "live-worker".into(),
                 local_ceiling_revision: 1,
                 unattended_command_execution: false,

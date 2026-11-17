@@ -85,20 +85,22 @@ pub(super) async fn handle_confirm_exec_inbound(
         return Ok(());
     };
 
-    // Snapshot roots are derived by the trusted central for AI commands only;
-    // a control end can never supply them.
-    if !exec_input.snapshot_roots.is_empty() {
+    // Snapshot roots and the sandbox mode are resolved by the trusted central
+    // for AI commands only; a control end can supply neither.
+    let refusal = if !exec_input.snapshot_roots.is_empty() {
+        Some("ConfirmExec must not carry snapshot roots")
+    } else if exec_input.sandbox_mode != desk_agent_protocol::exec::ExecSandboxMode::Unrestricted {
+        Some("ConfirmExec must run unrestricted")
+    } else {
+        None
+    };
+    if let Some(refusal) = refusal {
         ctx.audit
             .record(AuditEvent::task_failed_for_request(
                 new_audit_event_id(),
                 audit_now(),
                 &request_id,
-                &agent_error(
-                    AgentErrorKind::InvalidInput,
-                    "ConfirmExec must not carry snapshot roots",
-                    false,
-                    true,
-                ),
+                &agent_error(AgentErrorKind::InvalidInput, refusal, false, true),
             ))
             .await;
         send_exec_preview(
@@ -111,7 +113,7 @@ pub(super) async fn handle_confirm_exec_inbound(
                 exec_input.cwd.clone(),
                 0,
                 desk_agent_protocol::RiskLevel::High,
-                Some("ConfirmExec must not carry snapshot roots".to_string()),
+                Some(refusal.to_string()),
             ),
         );
         return Ok(());

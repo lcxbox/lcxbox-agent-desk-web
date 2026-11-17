@@ -1,0 +1,1 @@
+{"type":"string","description":"How an approval card marks a command's execution mode.","enum":["sandboxed","neutral","prominent"],"x-readme-ref-name":"ExecSandboxAttention"}

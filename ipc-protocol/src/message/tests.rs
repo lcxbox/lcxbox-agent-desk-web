@@ -2511,6 +2511,12 @@ fn sample_computer_use_readiness() -> desk_agent_protocol::computer_use::Compute
         interactive_session_incarnation: "session-1".to_string(),
         local_ceiling_revision: 1,
         unattended_command_execution: false,
+        exec_sandbox: desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+        exec_identity: desk_agent_protocol::exec::ExecIdentity {
+            elevated: false,
+            system: false,
+            root: false,
+        },
         capabilities: vec![ComputerUseCapabilityReadiness {
             capability: desk_agent_protocol::Capability::DesktopUiInspect,
             adapter: ComputerUseAdapterRef {
@@ -2545,6 +2551,7 @@ fn sample_exec_plan() -> desk_agent_protocol::exec::ExecPlan {
         authorization: Default::default(),
         fingerprint: "fp".to_string(),
         snapshot_roots: Vec::new(),
+        sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Sandboxed,
         timeout_ms: 30_000,
         max_stdout_bytes: 65_536,
         max_stderr_bytes: 65_536,
@@ -2673,6 +2680,7 @@ fn exec_snapshot_binding_and_file_changes_round_trip_wincode() {
     })) {
         ServiceToWorker::ExecPlan(payload) => {
             assert_eq!(payload.plan.snapshot_roots, plan.snapshot_roots);
+            assert_eq!(payload.plan.sandbox_mode, plan.sandbox_mode);
             let binding = payload.file_recovery.expect("binding survives the wire");
             assert_eq!(binding.recovery.conversation_id, "conversation");
             assert_eq!(binding.recovery.execution_epoch, 3);
@@ -2807,6 +2815,7 @@ fn invoke_agent_capability_cannot_decode_an_exec_envelope() {
         max_stdout_bytes: 65_536,
         max_stderr_bytes: 65_536,
         snapshot_roots: Vec::new(),
+        sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
     });
     // Deliberately decoding bytes as a different schema may turn payload bytes
     // into an arbitrary collection length. Bound this negative test's decoder;

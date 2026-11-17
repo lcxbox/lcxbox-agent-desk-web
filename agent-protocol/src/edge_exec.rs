@@ -511,6 +511,7 @@ mod tests {
                 max_stderr_bytes: 65_536,
                 containment: crate::exec::ExecContainmentSnapshot::default(),
                 snapshot_roots: vec![],
+                sandbox_mode: crate::exec::ExecSandboxMode::Unrestricted,
             },
         )
     }
@@ -528,6 +529,7 @@ mod tests {
             max_stdout_bytes: 65_536,
             max_stderr_bytes: 65_536,
             snapshot_roots: vec![],
+            sandbox_mode: crate::exec::ExecSandboxMode::Unrestricted,
         }
     }
 

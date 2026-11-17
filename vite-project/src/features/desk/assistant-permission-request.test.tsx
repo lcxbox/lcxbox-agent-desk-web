@@ -206,6 +206,7 @@ describe('shared permission review', () => {
                 command: 'sudo docker ps', shell: 'bash', cwd: null, targetDeviceId: 'd',
                 targetSessionId: 'host:1', timeoutMs: 1000, maxStdoutBytes: 1, maxStderrBytes: 1,
                 executionBasis: 'template', oneShot: true,
+                sandbox: { mode: 'unrestricted', attention: 'neutral', writableRoots: [], implicitWritable: [], identity: null },
                 interactive: { execRequestId: 'exec_pty_1', targetConnectionId: 'host', elevated: true },
             },
         })]);

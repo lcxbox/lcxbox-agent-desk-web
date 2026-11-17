@@ -9,7 +9,7 @@ async fn fixture(db: DatabaseConnection) -> (ScheduleStore, String, String) {
     let mut call = ToolCall {
         id: "original-command".into(),
         name: desk_diagnose_core::command_confirmation::COMMAND_TOOL.into(),
-        arguments_json: r#"{"schema_version":1,"shell":"bash","command":"pwd","timeout_ms":60000}"#
+        arguments_json: r#"{"schema_version":2,"shell":"bash","command":"pwd","timeout_ms":60000}"#
             .into(),
     };
     call.arguments_json =

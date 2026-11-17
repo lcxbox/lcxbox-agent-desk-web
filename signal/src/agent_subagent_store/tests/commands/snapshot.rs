@@ -13,11 +13,23 @@ use desk_diagnose_core::provider_preflight::text_file::COMMAND_RESTORE_TOOL;
 use desk_signal_facade::model::connection::SharedConnectionMap;
 use std::sync::Arc;
 
-const PLAN_CHANGED: &str = "the command plan, target or policy changed; request permission again";
+pub(super) const PLAN_CHANGED: &str =
+    "the command plan, target or policy changed; request permission again";
+
+/// Serializes tests that report readiness for the shared `host` connection
+/// in the process-wide readiness cache.
+static HOST_READINESS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// The owner host the harness approval was prepared for: connection `host`,
-/// interactive session `session-1`, bash only, 60 s ceiling.
-async fn owner_host_for(child: &PersistedAgentSession) -> Arc<SharedConnectionMap> {
+/// interactive session `session-1`, bash only, 60 s ceiling. The guard keeps
+/// other tests from reporting a different `host` readiness meanwhile.
+pub(super) async fn owner_host_for(
+    child: &PersistedAgentSession,
+) -> (
+    tokio::sync::MutexGuard<'static, ()>,
+    Arc<SharedConnectionMap>,
+) {
+    let guard = HOST_READINESS.lock().await;
     let connections = Arc::new(SharedConnectionMap::new_oss());
     connections.write().await.insert(
         "host".into(),
@@ -25,10 +37,10 @@ async fn owner_host_for(child: &PersistedAgentSession) -> Arc<SharedConnectionMa
     );
     mark_ready("host", "session-1", &[Capability::ShellExecConfirmed]);
     crate::ai_assistant_gate::enable_test_host();
-    connections
+    (guard, connections)
 }
 
-fn assistant_tools(
+pub(super) fn assistant_tools(
     db: &DatabaseConnection,
     child: &PersistedAgentSession,
     connections: Arc<SharedConnectionMap>,
@@ -62,7 +74,7 @@ fn assistant_tools(
     )
 }
 
-fn context(child: &PersistedAgentSession, call: &ToolCall) -> ExecContext {
+pub(super) fn context(child: &PersistedAgentSession, call: &ToolCall) -> ExecContext {
     let mut scope = child.scope_snapshot.clone();
     scope.mode = desk_agent_protocol::ExecutionMode::ConfirmEachAction;
     ExecContext {
@@ -78,14 +90,14 @@ fn context(child: &PersistedAgentSession, call: &ToolCall) -> ExecContext {
     }
 }
 
-fn approved(child: &PersistedAgentSession, call: &ToolCall) -> CommandConfirmation {
+pub(super) fn approved(child: &PersistedAgentSession, call: &ToolCall) -> CommandConfirmation {
     CommandConfirmation::approved_request_for_call(child, &child.device_id, &call.arguments_json)
         .unwrap()
         .1
         .clone()
 }
 
-async fn assert_still_current(
+pub(super) async fn assert_still_current(
     db: &DatabaseConnection,
     connections: &SharedConnectionMap,
     child: &PersistedAgentSession,
@@ -112,7 +124,7 @@ async fn assert_still_current(
 #[actix_web::test]
 async fn an_approved_mutating_command_is_not_sent_after_a_directory_approval_is_added() {
     let (db, _, mut child, call, _) = approved_child().await;
-    let connections = owner_host_for(&child).await;
+    let (_host, connections) = owner_host_for(&child).await;
     // With unchanged approvals the approval matches the current policy.
     assert_still_current(&db, &connections, &child, &call).await;
     child
@@ -131,7 +143,7 @@ async fn an_approved_mutating_command_is_not_sent_after_a_directory_approval_is_
 #[actix_web::test]
 async fn dispatch_revalidates_the_plan_against_the_sessions_directory_approvals() {
     let (db, _, child, call, _) = approved_child().await;
-    let connections = owner_host_for(&child).await;
+    let (_host, connections) = owner_host_for(&child).await;
     let confirmation = approved(&child, &call);
     let tools = crate::agent_exec::SignalAgentTools::new(
         db.clone(),
@@ -439,7 +451,7 @@ async fn a_working_directory_restore_follows_the_devices_current_execution_mode(
     // Under the owner's ConfirmEachAction mode the restore passes its
     // preflight and targets the snapshot directory; this host has not
     // reported file mutations as ready.
-    let connections = owner_host_for(&child).await;
+    let (_host, connections) = owner_host_for(&child).await;
     let error = assistant_tools(&db, &child, connections)
         .confirm_and_exec(&call, &context(&child, &call))
         .await

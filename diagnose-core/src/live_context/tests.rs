@@ -7,7 +7,7 @@ use desk_agent_protocol::{
 
 fn readiness() -> ComputerUseReadiness {
     ComputerUseReadiness {
-        schema_version: 1,
+        schema_version: desk_agent_protocol::computer_use::COMPUTER_USE_SCHEMA_VERSION,
         revision: 1,
         observed_at: "2026-08-31T00:00:00Z".into(),
         expires_at: "2026-08-31T00:01:00Z".into(),
@@ -17,6 +17,12 @@ fn readiness() -> ComputerUseReadiness {
         interactive_session_incarnation: "worker-1".into(),
         local_ceiling_revision: 1,
         unattended_command_execution: false,
+        exec_sandbox: desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+        exec_identity: desk_agent_protocol::exec::ExecIdentity {
+            elevated: false,
+            system: false,
+            root: false,
+        },
         capabilities: vec![],
         context_references: vec![],
     }

@@ -5,14 +5,17 @@ use desk_agent_protocol::command_blocklist::BlocklistRule;
 use desk_agent_protocol::command_template::SyncedCommandTemplate;
 use desk_agent_protocol::exec::{
     COMMAND_PLAN_SCHEMA_VERSION, CommandDraft, CommandIoMode, ExecDecision, ExecEffect,
-    ExecPlanDraft, ExecSnapshotNotice, ExecSnapshotRoot, ExecSnapshotRootKind,
-    ExecSnapshotRootLabel, MAX_EXEC_SNAPSHOT_ROOTS,
+    ExecPlanDraft, ExecSandboxMode, ExecSandboxNotice, ExecSnapshotNotice, ExecSnapshotRoot,
+    ExecSnapshotRootKind, ExecSnapshotRootLabel, MAX_EXEC_SNAPSHOT_ROOTS,
 };
 use desk_agent_protocol::{
     AgentError, AgentErrorKind, ExecInput, ExecTarget, ExecutionMode, RiskLevel,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+mod sandbox;
+pub use sandbox::{DeviceExecSandbox, identity_name};
 
 pub const COMMAND_TOOL: &str = crate::exec_tools::EXEC_TOOL_NAME;
 
@@ -42,6 +45,9 @@ pub struct CommandPolicyContext {
     /// [`crate::file_scope::TrustedDirectoryGrants::from_session`]. A caller
     /// without an authoritative session cannot build a policy.
     pub directory_grants: crate::file_scope::TrustedDirectoryGrants,
+    /// The target worker's sandbox support and execution identity, from
+    /// [`DeviceExecSandbox::from_readiness`] on its current readiness.
+    pub exec_sandbox: DeviceExecSandbox,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -62,42 +68,54 @@ pub fn test_policy() -> CommandPolicyContext {
         exec_pty: true,
         exec_pty_elevation: true,
         directory_grants: crate::file_scope::TrustedDirectoryGrants::for_test("device-1", vec![]),
+        exec_sandbox: DeviceExecSandbox::for_test(
+            desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+            desk_agent_protocol::exec::ExecIdentity {
+                elevated: false,
+                system: false,
+                root: false,
+            },
+            "linux",
+        ),
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use desk_agent_protocol::exec::ExecIoMode;
     fn input(command: &str) -> String {
         input_with(command, CommandIoMode::NonInteractive)
     }
 
-    fn input_with(command: &str, io_mode: CommandIoMode) -> String {
-        serde_json::to_string(&CommandDraft {
-            schema_version: 1,
-            shell: "bash".into(),
-            command: command.into(),
-            cwd: None,
-            timeout_ms: 30_000,
-            io_mode,
-        })
-        .unwrap()
+    pub(super) fn input_with(command: &str, io_mode: CommandIoMode) -> String {
+        draft_input("bash", command, None, io_mode, None)
     }
 
-    fn shell_input(shell: &str, command: &str, cwd: Option<&str>) -> String {
+    pub(super) fn shell_input(shell: &str, command: &str, cwd: Option<&str>) -> String {
+        draft_input(shell, command, cwd, CommandIoMode::NonInteractive, None)
+    }
+
+    pub(super) fn draft_input(
+        shell: &str,
+        command: &str,
+        cwd: Option<&str>,
+        io_mode: CommandIoMode,
+        sandbox: Option<bool>,
+    ) -> String {
         serde_json::to_string(&CommandDraft {
-            schema_version: 1,
+            schema_version: desk_agent_protocol::exec::COMMAND_DRAFT_SCHEMA_VERSION,
             shell: shell.into(),
             command: command.into(),
             cwd: cwd.map(Into::into),
             timeout_ms: 30_000,
-            io_mode: CommandIoMode::NonInteractive,
+            io_mode,
+            sandbox,
         })
         .unwrap()
     }
 
-    fn grant(id: &str) -> crate::file_scope::TrustedDirectoryGrant {
+    pub(super) fn grant(id: &str) -> crate::file_scope::TrustedDirectoryGrant {
         crate::file_scope::TrustedDirectoryGrant {
             directory_request_id: id.into(),
             canonical_path: format!("/work/{id}"),
@@ -110,7 +128,7 @@ mod tests {
         }
     }
 
-    fn policy_with(grants: &[&str]) -> CommandPolicyContext {
+    pub(super) fn policy_with(grants: &[&str]) -> CommandPolicyContext {
         let mut policy = test_policy();
         policy.directory_grants = crate::file_scope::TrustedDirectoryGrants::for_test(
             "device-1",
@@ -139,11 +157,14 @@ mod tests {
             assert_eq!(sealed.plan.snapshot_roots.len(), 1, "{command}");
             assert_eq!(sealed.snapshot.as_ref().unwrap().roots[0].path, "/work/r1");
         }
-        // Without a cwd or approved directory nothing is snapshotted.
+        // Without a cwd or approved directory nothing is snapshotted, and an
+        // omitted sandbox keeps the command unrestricted with a neutral mark.
         let none = test_policy()
             .prepare(&shell_input("bash", "make fmt", None), 1)
             .unwrap();
         assert!(none.plan.snapshot_roots.is_empty() && none.snapshot.is_none());
+        assert_eq!(none.plan.sandbox_mode, ExecSandboxMode::Unrestricted);
+        assert!(!none.unsandboxed());
         // Elevated PTY commands run as root and are never snapshotted.
         let elevated = policy
             .prepare(
@@ -428,6 +449,21 @@ pub struct CommandConfirmation {
     /// What the owner is shown about the plan's snapshot roots; present iff
     /// the plan has roots.
     pub snapshot: Option<Box<ExecSnapshotNotice>>,
+    /// How the command runs, the device facts that decided it and the
+    /// execution identity; the card and the AI review read it from here.
+    pub sandbox: ExecSandboxNotice,
+}
+
+/// A classified, executable plan and its effect.
+struct AdmittedPlan {
+    effect: ExecEffect,
+    plan: ExecPlanDraft,
+}
+
+impl AdmittedPlan {
+    fn requires_root_pty_containment(&self) -> bool {
+        self.plan.requires_root_pty_containment()
+    }
 }
 
 fn denied(message: impl Into<String>) -> AgentError {
@@ -492,44 +528,40 @@ impl CommandPolicyContext {
             max_stdout_bytes: 65_536,
             max_stderr_bytes: 65_536,
             snapshot_roots: Vec::new(),
+            sandbox_mode: ExecSandboxMode::Unrestricted,
         };
         crate::exec_tools::apply_exec_runtime_ceiling(&mut input, self.max_runtime_ms);
-        let mut classified = crate::exec_classify::classify_command_with_policy(
-            &input,
-            &self.operator_templates,
-            &self.effective_blocklist,
-            self.admission_policy,
-        );
-        // A mutating command is snapshotted; the classifier seals the roots
-        // into the draft, so the edge reproduces them from the input.
-        let mut snapshot = None;
-        if classified.classification.effect == Some(ExecEffect::Mutating)
-            && classified
-                .draft
-                .as_ref()
-                .is_some_and(|plan| !plan.requires_root_pty_containment())
-        {
-            let (roots, labels) = self.snapshot_roots(input.cwd.as_deref())?;
-            if !roots.is_empty() {
-                input.snapshot_roots = roots;
-                snapshot = Some(Box::new(ExecSnapshotNotice::new(labels)));
-                classified = crate::exec_classify::classify_command_with_policy(
-                    &input,
-                    &self.operator_templates,
-                    &self.effective_blocklist,
-                    self.admission_policy,
-                );
-            }
+        let classified = self.admitted_plan(&input)?;
+        let elevated = classified.requires_root_pty_containment();
+        let mutating = classified.effect == ExecEffect::Mutating;
+        // A mutating command's write roots: snapshotted, and the only
+        // writable directories when it runs sandboxed. An interactive
+        // elevation runs as root in the daemon and has none.
+        let (roots, labels) = if mutating && !elevated {
+            self.snapshot_roots(input.cwd.as_deref())?
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let sandbox = sandbox::resolve(
+            &self.exec_sandbox,
+            proposal.sandbox,
+            mutating,
+            elevated,
+            !roots.is_empty(),
+        )?;
+        if sandbox.mode == ExecSandboxMode::Sandboxed {
+            sandbox::check_sandboxed_paths(&self.exec_sandbox, input.cwd.as_deref(), &labels)?;
         }
-        if classified.classification.decision != ExecDecision::ConfirmRequired {
-            return Err(denied(format!(
-                "command rejected by current policy: {}",
-                classified.classification.impact
-            )));
-        }
-        let plan = classified
-            .draft
-            .ok_or_else(|| denied("command has no executable plan"))?;
+        // The classifier seals the roots and the mode into the draft, so the
+        // edge reproduces them from the input.
+        let snapshot = (!roots.is_empty()).then(|| Box::new(ExecSnapshotNotice::new(labels)));
+        let plan = if roots.is_empty() && sandbox.mode == ExecSandboxMode::Unrestricted {
+            classified.plan
+        } else {
+            input.snapshot_roots = roots;
+            input.sandbox_mode = sandbox.mode;
+            self.admitted_plan(&input)?.plan
+        };
         if plan.risk > self.max_risk {
             return Err(denied("command exceeds the current risk policy"));
         }
@@ -552,9 +584,35 @@ impl CommandPolicyContext {
             plan,
             canonical_input_digest_sha256: format!("{:x}", Sha256::digest(canonical.as_bytes())),
             snapshot,
+            sandbox,
         };
         confirmation.validate(canonical)?;
         Ok(confirmation)
+    }
+
+    /// Classify `input` under this policy and require an executable plan.
+    fn admitted_plan(&self, input: &ExecInput) -> Result<AdmittedPlan, AgentError> {
+        let classified = crate::exec_classify::classify_command_with_policy(
+            input,
+            &self.operator_templates,
+            &self.effective_blocklist,
+            self.admission_policy,
+        );
+        if classified.classification.decision != ExecDecision::ConfirmRequired {
+            return Err(denied(format!(
+                "command rejected by current policy: {}",
+                classified.classification.impact
+            )));
+        }
+        Ok(AdmittedPlan {
+            effect: classified
+                .classification
+                .effect
+                .unwrap_or(ExecEffect::Mutating),
+            plan: classified
+                .draft
+                .ok_or_else(|| denied("command has no executable plan"))?,
+        })
     }
 
     /// Snapshot roots of a mutating command: its `cwd`, or else every
@@ -717,6 +775,13 @@ impl CommandConfirmation {
         self.plan.requires_root_pty_containment()
     }
 
+    /// A mutating command that runs outside the sandbox where it could have
+    /// been sandboxed or was explicitly taken out of it. Derived from the
+    /// frozen notice; the AI review receives it as `unsandboxed`.
+    pub fn unsandboxed(&self) -> bool {
+        self.sandbox.unsandboxed()
+    }
+
     /// The approved confirmation for this exact call together with the id of
     /// the permission request that approved it.
     pub fn approved_request_for_call<'a>(
@@ -789,6 +854,10 @@ impl CommandConfirmation {
             || self.policy_version.is_empty()
             || self.plan.io_mode != self.proposal.io_mode.exec_io_mode()
             || self.plan.snapshot_roots != self.validation_input.snapshot_roots
+            || self.plan.sandbox_mode != self.validation_input.sandbox_mode
+            || self.sandbox.mode != self.plan.sandbox_mode
+            || !self.sandbox.is_consistent()
+            || (self.sandbox.mode == ExecSandboxMode::Sandboxed && self.is_elevated())
             || self.snapshot.as_ref().map(|notice| notice.roots.len())
                 != (!self.plan.snapshot_roots.is_empty()).then_some(self.plan.snapshot_roots.len())
             || serde_json::from_str::<CommandDraft>(canonical)
@@ -817,6 +886,7 @@ impl CommandConfirmation {
                 &self.plan.containment,
                 self.plan.io_mode,
                 &self.plan.snapshot_roots,
+                self.plan.sandbox_mode,
             )
         {
             return Err(denied("command plan fingerprint mismatch"));

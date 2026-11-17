@@ -62,11 +62,20 @@ fn stale_command_policy() -> desk_diagnose_core::command_confirmation::CommandPo
             "1",
             vec![],
         ),
+        exec_sandbox: desk_diagnose_core::command_confirmation::DeviceExecSandbox::for_test(
+            desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+            desk_agent_protocol::exec::ExecIdentity {
+                elevated: false,
+                system: false,
+                root: false,
+            },
+            "linux",
+        ),
     }
 }
 
 fn command_item(item: &mut desk_diagnose_core::dynamic_run::GrantRequestItem, input_revision: u64) {
-    let canonical = serde_json::json!({"schema_version":1,"shell":"bash","command":"printf healthy","timeout_ms":1000}).to_string();
+    let canonical = serde_json::json!({"schema_version":2,"shell":"bash","command":"printf healthy","timeout_ms":1000}).to_string();
     let confirmation = stale_command_policy()
         .prepare(&canonical, input_revision)
         .unwrap();

@@ -83,11 +83,13 @@ impl Enabled {
         Ok(enabled)
     }
 
-    /// Open the plan's roots and scan them. Blocking.
+    /// Open the plan's roots (unless a sandboxed launch already opened them,
+    /// in plan order) and scan them. Blocking.
     pub(super) fn prepare(
         &self,
         plan: &ExecPlan,
         binding: Option<ExecFileRecoveryBinding>,
+        opened: Option<Vec<CommandDirectory>>,
     ) -> Result<Pending, ExecSnapshotSkipReason> {
         let binding = binding.ok_or(ExecSnapshotSkipReason::StorageUnavailable)?;
         let os_user = crate::file_recovery_service::platform_user::current()
@@ -95,10 +97,17 @@ impl Enabled {
         if binding.recovery.os_user != os_user {
             return Err(ExecSnapshotSkipReason::StorageUnavailable);
         }
-        let mut directories = Vec::with_capacity(plan.snapshot_roots.len());
-        for root in &plan.snapshot_roots {
-            let directory =
-                open_snapshot_root(root).map_err(|_| ExecSnapshotSkipReason::RootUnavailable)?;
+        let opened = match opened {
+            Some(opened) => opened,
+            None => plan
+                .snapshot_roots
+                .iter()
+                .map(open_snapshot_root)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| ExecSnapshotSkipReason::RootUnavailable)?,
+        };
+        let mut directories = Vec::with_capacity(opened.len());
+        for directory in opened {
             if self.protected.refuses(&directory.path) {
                 return Err(ExecSnapshotSkipReason::ProtectedRoot);
             }

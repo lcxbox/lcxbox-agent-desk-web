@@ -56,9 +56,10 @@ describe('best-effort snapshot notice', () => {
 
     it('makes the whole command review invalid when its snapshot notice is malformed', () => {
         const review = { command: 'npm run fix', shell: 'bash', cwd: '/work/repo', targetDeviceId: 'd', targetSessionId: 's', timeoutMs: 1000,
-            maxStdoutBytes: 1, maxStderrBytes: 1, executionBasis: 'template', oneShot: true };
+            maxStdoutBytes: 1, maxStderrBytes: 1, executionBasis: 'template', oneShot: true,
+            sandbox: { mode: 'sandboxed', attention: 'sandboxed', writableRoots: notice.roots, implicitWritable: ['exec_temp_dir'], identity: null } };
         expect(validCommandReview({ ...review, snapshot: notice })).toBe(true);
-        expect(validCommandReview({ ...review, snapshot: null })).toBe(true);
+        expect(validCommandReview({ ...review, snapshot: null, sandbox: { mode: 'unrestricted', attention: 'neutral', writableRoots: [], implicitWritable: [] } })).toBe(true);
         expect(validCommandReview({ ...review, snapshot: { ...notice, roots: [] } })).toBe(false);
         render(<CommandConfirmationCard value={{ ...review, snapshot: notice } as never} />);
         expect(screen.getByTestId('command-snapshot')).toBeTruthy();

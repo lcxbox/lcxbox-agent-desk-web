@@ -1,0 +1,1 @@
+{"type":"string","description":"Locations a sandboxed command may write besides its write roots.","enum":["exec_temp_dir","user_temp_dir","dev_shm"],"x-readme-ref-name":"ExecSandboxImplicitWritable"}

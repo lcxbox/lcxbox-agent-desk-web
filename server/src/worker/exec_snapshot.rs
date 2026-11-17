@@ -4,7 +4,8 @@
 //! command. Around the spawn the worker:
 //! 1. opens every root without following its final component (a granted
 //!    directory through its device-issued reference, the working directory by
-//!    its canonical path) and refuses protected roots;
+//!    its canonical path) and refuses protected roots; a sandboxed plan's
+//!    roots are already opened and checked as its write roots and are reused;
 //! 2. scans the roots and stores their text files before the command is
 //!    spawned (`begin_snapshot`); the scan is not part of `timeout_ms`;
 //! 3. after the command exited, timed out or was cancelled, rescans the roots
@@ -23,11 +24,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use desk_agent_protocol::exec::{
     ExecFileChange, ExecFileChangeKind, ExecFileChangeRoot, ExecFileChanges, ExecPlan,
-    ExecSnapshotOutcome, ExecSnapshotSkipReason, MAX_EXEC_FILE_CHANGES_BYTES,
+    ExecSandboxMode, ExecSnapshotOutcome, ExecSnapshotSkipReason, MAX_EXEC_FILE_CHANGES_BYTES,
     is_snapshot_relative_path,
 };
 use desk_agent_protocol::{AgentOutcome, OperationOutput};
 use desk_ipc_protocol::message::ExecFileRecoveryBinding;
+
+use crate::worker::exec_sandbox::{ExecLaunch, ExecSandbox, SandboxError};
 
 mod protected;
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
@@ -86,32 +89,52 @@ impl ExecSnapshots {
         }
     }
 
-    /// Run `execute` around the plan's snapshot and attach the change report
-    /// to its output. `execute` sets the flag it receives once the command
-    /// was spawned.
+    /// Run `execute` around the plan's sandbox and snapshot and attach the
+    /// change report to its output. `execute` receives how to launch the
+    /// command and sets the flag it receives once the command was spawned.
+    ///
+    /// A sandboxed plan opens and checks its write roots first, independently
+    /// of the recovery binding; a failure there is handed to `execute` as a
+    /// refusal and no snapshot is taken. The snapshot then reuses the opened
+    /// directories, so its roots are the write roots by identity; its own
+    /// problems only skip it.
     pub(crate) async fn run<F, Fut>(
         &self,
         plan: &ExecPlan,
         binding: Option<ExecFileRecoveryBinding>,
+        sandbox: &Arc<ExecSandbox>,
         execute: F,
     ) -> AgentOutcome
     where
-        F: FnOnce(Arc<AtomicBool>) -> Fut,
+        F: FnOnce(Arc<AtomicBool>, ExecLaunch) -> Fut,
         Fut: Future<Output = AgentOutcome>,
     {
         let started = Arc::new(AtomicBool::new(false));
+        let (launch, opened) = match plan.sandbox_mode {
+            ExecSandboxMode::Unrestricted => (ExecLaunch::Unrestricted, None),
+            ExecSandboxMode::Sandboxed => match launch_sandboxed(sandbox, plan).await {
+                Ok((launch, opened)) => (launch, Some(opened)),
+                Err(error) => {
+                    log::warn!(
+                        "sandboxed command refused: template={} error={error}",
+                        plan.template_id
+                    );
+                    return execute(started, ExecLaunch::Refused(error)).await;
+                }
+            },
+        };
         if plan.snapshot_roots.is_empty() {
-            return execute(started).await;
+            return execute(started, launch).await;
         }
         let begun_at = now_ms();
-        match self.prepare(plan, binding).await {
+        match self.prepare(plan, binding, opened).await {
             Err(reason) => {
-                let outcome = execute(started).await;
+                let outcome = execute(started, launch).await;
                 attach(outcome, Some(skipped(reason, begun_at)))
             }
             #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
             Ok(pending) => {
-                let outcome = execute(Arc::clone(&started)).await;
+                let outcome = execute(Arc::clone(&started), launch).await;
                 let ran = started.load(Ordering::Acquire);
                 let report = tokio::task::spawn_blocking(move || pending.finish(ran))
                     .await
@@ -131,6 +154,7 @@ impl ExecSnapshots {
         &self,
         plan: &ExecPlan,
         binding: Option<ExecFileRecoveryBinding>,
+        opened: Option<Vec<OpenedRoot>>,
     ) -> Result<vault::Pending, ExecSnapshotSkipReason> {
         let enabled = match &self.0 {
             Availability::Unavailable => return Err(ExecSnapshotSkipReason::StorageUnavailable),
@@ -138,7 +162,7 @@ impl ExecSnapshots {
             Availability::Enabled(enabled) => Arc::clone(enabled),
         };
         let plan = plan.clone();
-        tokio::task::spawn_blocking(move || enabled.prepare(&plan, binding))
+        tokio::task::spawn_blocking(move || enabled.prepare(&plan, binding, opened))
             .await
             .unwrap_or(Err(ExecSnapshotSkipReason::StorageUnavailable))
     }
@@ -148,12 +172,41 @@ impl ExecSnapshots {
         &self,
         _plan: &ExecPlan,
         _binding: Option<ExecFileRecoveryBinding>,
+        _opened: Option<Vec<OpenedRoot>>,
     ) -> Result<std::convert::Infallible, ExecSnapshotSkipReason> {
         Err(match self.0 {
             Availability::SystemIdentity => ExecSnapshotSkipReason::SystemIdentity,
             Availability::Unavailable => ExecSnapshotSkipReason::StorageUnavailable,
         })
     }
+}
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+type OpenedRoot = crate::worker::agent::file_reference_store::command_changes::CommandDirectory;
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+type OpenedRoot = std::convert::Infallible;
+
+/// Open, check and prepare the write roots of a sandboxed plan.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+async fn launch_sandboxed(
+    sandbox: &Arc<ExecSandbox>,
+    plan: &ExecPlan,
+) -> Result<(ExecLaunch, Vec<OpenedRoot>), SandboxError> {
+    let sandbox = Arc::clone(sandbox);
+    let plan = plan.clone();
+    tokio::task::spawn_blocking(move || sandbox.launch(&plan))
+        .await
+        .unwrap_or_else(|error| Err(SandboxError::Restriction(error.to_string())))
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+async fn launch_sandboxed(
+    _sandbox: &Arc<ExecSandbox>,
+    _plan: &ExecPlan,
+) -> Result<(ExecLaunch, Vec<OpenedRoot>), SandboxError> {
+    Err(SandboxError::Unsupported(
+        desk_agent_protocol::exec::ExecSandboxUnsupportedReason::NotImplemented,
+    ))
 }
 
 #[cfg(unix)]

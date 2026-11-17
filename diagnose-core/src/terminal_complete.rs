@@ -335,6 +335,7 @@ fn classify_full_command(command: &str, shell: &str) -> FullClassification {
         max_stdout_bytes: 0,
         max_stderr_bytes: 0,
         snapshot_roots: Vec::new(),
+        sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
     };
     let c = classify_command(&input).classification;
     FullClassification {

@@ -332,6 +332,12 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
                 server_api_version: 1,
                 os: if live { "macos" } else { "fixture" }.into(),
                 interactive_user_home: None,
+                exec_sandbox: desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+                exec_identity: desk_agent_protocol::exec::ExecIdentity {
+                    elevated: false,
+                    system: false,
+                    root: false,
+                },
                 interactive_session_incarnation: "worker".into(),
                 local_ceiling_revision: 1,
                 unattended_command_execution: false,

@@ -38,6 +38,7 @@ use tokio::sync::watch;
 
 use crate::agent_adapter::redaction::{Redactor, RegexRedactor};
 use crate::worker::exec_containment::Containment;
+use crate::worker::exec_sandbox::ExecLaunch;
 use desk_ipc_protocol::message::ExecSpawnReport;
 
 /// Extra bytes read and retained past the payload cap so a secret that straddles
@@ -133,7 +134,7 @@ pub async fn execute_plan_reporting(
     plan: &ExecPlan,
     on_spawn: impl FnOnce(ExecSpawnReport),
 ) -> AgentOutcome {
-    execute_plan_cancellable(plan, on_spawn, None).await
+    execute_plan_cancellable(plan, ExecLaunch::Unrestricted, on_spawn, None).await
 }
 
 /// As [`execute_plan_reporting`], but stoppable through `cancel`.
@@ -142,8 +143,14 @@ pub async fn execute_plan_reporting(
 /// [`AgentErrorKind::Cancelled`] rather than a success or a failure, because the
 /// command did start: how much of its effect landed before it was stopped is not
 /// something the host can know, and reporting either extreme would be a guess.
-pub async fn execute_plan_cancellable(
+///
+/// `launch` says whether the command runs in the write sandbox. A sandboxed
+/// command leads a new session (no controlling terminal) instead of only a
+/// new process group, and its prepared restriction is kept until the process
+/// tree was reclaimed. A refused launch never spawns.
+pub(crate) async fn execute_plan_cancellable(
     plan: &ExecPlan,
+    launch: ExecLaunch,
     on_spawn: impl FnOnce(ExecSpawnReport),
     cancel: Option<watch::Receiver<bool>>,
 ) -> AgentOutcome {
@@ -201,16 +208,53 @@ pub async fn execute_plan_cancellable(
         }
     };
 
-    let mut cmd = Command::new(&plan.program);
-    cmd.args(&plan.argv)
-        .stdin(Stdio::null())
+    let mut cmd = match &launch {
+        ExecLaunch::Unrestricted => {
+            let mut cmd = Command::new(&plan.program);
+            cmd.args(&plan.argv);
+            containment.apply(&mut cmd);
+            cmd
+        }
+        ExecLaunch::Sandboxed(prepared) => {
+            #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(unused_mut))]
+            let mut cmd = prepared.pipe_command(&plan.program, &plan.argv);
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            containment.apply_new_session(&mut cmd);
+            cmd
+        }
+        ExecLaunch::SandboxedTerminal { .. } | ExecLaunch::Refused(_) => {
+            let reason = match &launch {
+                ExecLaunch::Refused(error) => {
+                    format!("the command sandbox is unavailable: {error}")
+                }
+                _ => "a terminal launch requires the dedicated PTY executor".to_owned(),
+            };
+            on_spawn(ExecSpawnReport::Failed {
+                reason: reason.clone(),
+            });
+            return failed_start(
+                false,
+                err(
+                    AgentErrorKind::UnsupportedCapability,
+                    format!("Command was not started: {reason}"),
+                ),
+                NativeDiagnostic::new(
+                    DiagnosticStage::Environment,
+                    "prepare command sandbox",
+                    "exec_sandbox",
+                    None,
+                    &reason,
+                ),
+            );
+        }
+    };
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     if let Some(cwd) = &plan.cwd {
         cmd.current_dir(cwd);
     }
-    containment.apply(&mut cmd);
 
     let started = Instant::now();
     let mut child = match cmd.spawn() {
@@ -415,13 +459,21 @@ pub async fn execute_plan_cancellable(
 
     let (stdout_text, stdout_truncated) = finalize(stdout.text, out_cap, stdout_overflowed);
     let (stderr_text, stderr_truncated) = finalize(stderr.text, err_cap, stderr_overflowed);
+    let exit_code = status.as_ref().and_then(|s| s.code());
+    if launch.is_sandboxed()
+        && failure.is_some()
+        && let Some(hint) =
+            crate::worker::exec_sandbox::unavailable_program_hint(exit_code, &stderr_text)
+    {
+        diagnostics.push(hint);
+    }
 
     AgentOutcome::Ok(OperationOutput::Exec(ExecOutput {
         started: true,
         termination_signal,
         failure,
         diagnostics,
-        exit_code: status.as_ref().and_then(|s| s.code()),
+        exit_code,
         streams: ExecOutputStreams::Split {
             stdout: stdout_text,
             stderr: stderr_text,
@@ -663,6 +715,7 @@ mod tests {
                 30_000,
                 4096,
             ),
+            ExecLaunch::Unrestricted,
             |_| {},
             Some(watcher),
         )
@@ -695,6 +748,7 @@ mod tests {
         cancel.cancel();
         let outcome = execute_plan_cancellable(
             &plan("sleep 30", 30_000, 4096),
+            ExecLaunch::Unrestricted,
             |_| {},
             Some(cancel.subscribe()),
         )
@@ -729,7 +783,8 @@ mod tests {
         p.shell = ExecShellKind::Powershell;
 
         let started = Instant::now();
-        let outcome = execute_plan_cancellable(&p, |_| {}, Some(watcher)).await;
+        let outcome =
+            execute_plan_cancellable(&p, ExecLaunch::Unrestricted, |_| {}, Some(watcher)).await;
         assert!(
             matches!(&outcome, AgentOutcome::Ok(OperationOutput::Exec(o)) if o.failure.as_ref().is_some_and(|e| e.kind == AgentErrorKind::Cancelled)),
             "expected a cancellation, got {outcome:?}"
@@ -749,8 +804,13 @@ mod tests {
         let cancel = ExecCancel::new();
         let watcher = cancel.subscribe();
         drop(cancel);
-        let outcome =
-            execute_plan_cancellable(&plan("echo hi", 5_000, 4096), |_| {}, Some(watcher)).await;
+        let outcome = execute_plan_cancellable(
+            &plan("echo hi", 5_000, 4096),
+            ExecLaunch::Unrestricted,
+            |_| {},
+            Some(watcher),
+        )
+        .await;
         assert!(matches!(outcome, AgentOutcome::Ok(_)), "{outcome:?}");
     }
 
@@ -816,6 +876,7 @@ mod tests {
             max_stderr_bytes: max_out,
             containment: Default::default(),
             snapshot_roots: Vec::new(),
+            sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
         }
     }
 
@@ -856,6 +917,7 @@ mod tests {
         let output = exec_output(
             execute_plan_cancellable(
                 &plan("echo must-not-run", 5000, 4096),
+                ExecLaunch::Unrestricted,
                 |report| assert!(matches!(report, ExecSpawnReport::Failed { .. })),
                 Some(cancelled.subscribe()),
             )
@@ -874,8 +936,13 @@ mod tests {
             token.cancel();
         });
         let output = exec_output(
-            execute_plan_cancellable(&plan(script, 5000, 4096), |_| {}, Some(stop.subscribe()))
-                .await,
+            execute_plan_cancellable(
+                &plan(script, 5000, 4096),
+                ExecLaunch::Unrestricted,
+                |_| {},
+                Some(stop.subscribe()),
+            )
+            .await,
         );
         cancel_task.await.unwrap();
         assert!(output.started);

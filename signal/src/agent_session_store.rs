@@ -4130,7 +4130,7 @@ mod tests {
                 id: "matrix-unknown-call".into(),
                 name: "exec_command".into(),
                 arguments_json:
-                    r#"{"schema_version":1,"shell":"bash","command":"printf safe","timeout_ms":1000}"#
+                    r#"{"schema_version":2,"shell":"bash","command":"printf safe","timeout_ms":1000}"#
                         .into(),
             }],
         );

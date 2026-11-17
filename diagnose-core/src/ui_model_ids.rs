@@ -1287,7 +1287,7 @@ mod tests {
     fn protocol_versions_are_hidden_in_history_without_changing_authority() {
         use crate::{chat::ToolCallRef, prompt::ResponseFormatSpec, seam::ModelRequest};
         let canonical =
-            json!({"schema_version":1,"shell":"bash","command":"pwd","timeout_ms":10000});
+            json!({"schema_version":2,"shell":"bash","command":"pwd","timeout_ms":10000});
         let history = ChatMessage::assistant_tool_calls(
             "history",
             "",
@@ -1367,7 +1367,7 @@ mod tests {
     #[test]
     fn approval_candidates_hide_versions_without_requiring_ui_aliases() {
         use crate::{model_profile::ModelUseCase, prompt::ResponseFormatSpec, seam::ModelRequest};
-        let action = json!({"schema_version":1,"shell":"bash","command":"pwd","timeout_ms":10000});
+        let action = json!({"schema_version":2,"shell":"bash","command":"pwd","timeout_ms":10000});
         let candidate = json!({"tool_name":"exec_command","input_kind":"concrete_call","action_json":action.to_string(),"context":{}});
         let message = ChatMessage::text(
             "review",

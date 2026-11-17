@@ -817,6 +817,7 @@ pub(super) fn agentic_input(
         max_stdout_bytes: 0,
         max_stderr_bytes: 0,
         snapshot_roots: Vec::new(),
+        sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
     }
 }
 
@@ -1984,12 +1985,51 @@ pub(super) fn agentic_plan_snapshot_roots_and_io_mode_are_compared() {
             path: "C:/other".into(),
         });
     assert!(validate(&widened).is_some());
+    let mut sandboxed = plan.clone();
+    sandboxed.sandbox_mode = desk_agent_protocol::exec::ExecSandboxMode::Sandboxed;
+    assert!(validate(&sandboxed).is_some());
     let mut interactive = plan;
     interactive.io_mode = desk_agent_protocol::exec::ExecIoMode::Pty {
         initial_rows: 24,
         initial_cols: 80,
     };
     assert!(validate(&interactive).is_some());
+}
+
+/// The daemon-owned root terminal cannot apply the command sandbox, so its
+/// dispatch refuses a sandboxed elevation plan; a sandboxed ordinary PTY and
+/// an unrestricted elevation plan are dispatched.
+#[test]
+pub(super) fn root_pty_dispatch_refuses_a_sandboxed_plan() {
+    let capabilities = crate::worker::exec_pty::ExecPtyCapabilities {
+        exec_pty: true,
+        exec_pty_elevation: true,
+    };
+    let mut plan = agentic_plan_from_input(
+        &agentic_input("Get-Service -Name Spooler", None, 5_000),
+        &[],
+        "a1",
+    );
+    plan.io_mode = desk_agent_protocol::exec::ExecIoMode::Pty {
+        initial_rows: 24,
+        initial_cols: 80,
+    };
+    plan.program = "sudo".into();
+    assert!(plan.requires_root_pty_containment());
+    assert_eq!(
+        super::super::pty_dispatch_refusal(&plan, capabilities),
+        None
+    );
+    plan.sandbox_mode = desk_agent_protocol::exec::ExecSandboxMode::Sandboxed;
+    assert_eq!(
+        super::super::pty_dispatch_refusal(&plan, capabilities),
+        Some("an elevated terminal cannot run a sandboxed command")
+    );
+    plan.program = "bash".into();
+    assert_eq!(
+        super::super::pty_dispatch_refusal(&plan, capabilities),
+        None
+    );
 }
 
 /// A plan with snapshot roots carries the frame's backup scope to the worker:

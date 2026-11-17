@@ -2,6 +2,7 @@
 #[cfg(test)]
 use desk_assistant_data_store::entity_table::EntityTableExt;
 mod completion;
+mod sandbox;
 mod snapshot;
 use super::*;
 use crate::{
@@ -120,7 +121,7 @@ async fn approved_child_with_source_on(
         id: "child-command".into(),
         name: "exec_command".into(),
         arguments_json: desk_diagnose_core::permission_tools::canonical_tool_permission_input_json(
-            "exec_command", serde_json::json!({"schema_version":1,"shell":"bash","command":"sleep 60","timeout_ms":60000}),
+            "exec_command", serde_json::json!({"schema_version":2,"shell":"bash","command":"sleep 60","timeout_ms":60000}),
         ).unwrap(),
     });
     call.arguments_json =
@@ -172,6 +173,15 @@ async fn approved_child_with_source_on(
             &child,
             &child.device_id,
             chrono::Utc::now().timestamp_millis() as u64,
+        ),
+        exec_sandbox: desk_diagnose_core::command_confirmation::DeviceExecSandbox::for_test(
+            desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+            desk_agent_protocol::exec::ExecIdentity {
+                elevated: false,
+                system: false,
+                root: false,
+            },
+            "linux",
         ),
     };
     let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()

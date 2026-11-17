@@ -8,6 +8,7 @@ import { AssistantFileResult, parseFileReceipt, parseTextFileChange } from './as
 import { hasUnknownActionResult } from './action-result-status';
 import { AssistantLaunchResult, parseLaunchReceipt } from './assistant-launch-result';
 import { CommandFileChangesView, CommandRestoreReceiptView, parseCommandRestoreReceipt, parseFileChanges, type FileChanges } from './assistant-command-changes';
+import { CommandSandboxDiagnostic, sandboxDiagnostic, type SandboxDiagnostic } from './assistant-command-sandbox';
 
 type CommandReceipt = {
     exit_code: number | null;
@@ -19,6 +20,8 @@ type CommandReceipt = {
     redactions?: string[];
     /** Files changed under the snapshot roots of a mutating command. */
     fileChanges: FileChanges | null;
+    /** Command-sandbox note the device attached to the result. */
+    sandboxNote: SandboxDiagnostic | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -45,7 +48,7 @@ export function parseCommandReceipt(text: string): CommandReceipt | null {
         } else return null;
         const fileChanges = value.file_changes == null ? null : parseFileChanges(value.file_changes);
         if (value.file_changes != null && !fileChanges) return null;
-        return { ...value, fileChanges } as CommandReceipt;
+        return { ...value, fileChanges, sandboxNote: sandboxDiagnostic(value.diagnostics, value.failure) } as CommandReceipt;
     } catch {
         return null;
     }
@@ -135,6 +138,7 @@ export function AssistantCommandResult({ text, tool, onLocateCall, onExportBacku
                             <div><dt className="text-muted-foreground">{t('pages.aiAssistant.commandReceipt.duration')}</dt><dd>{duration}</dd></div>
                         </dl>
                         {receipt.failure && <p role="alert" className="whitespace-pre-wrap break-words text-destructive">{receipt.failure.message}</p>}
+                        {receipt.sandboxNote && <CommandSandboxDiagnostic value={receipt.sandboxNote} />}
                         {receipt.fileChanges && <CommandFileChangesView value={receipt.fileChanges} />}
                         {receipt.streams.type === 'split' ? <>
                             {output(t('pages.aiAssistant.commandReceipt.stdout'), receipt.streams.stdout, receipt.streams.stdout_truncated)}

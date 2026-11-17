@@ -107,7 +107,7 @@ async fn published_parent_on(
 pub(super) fn command_fixture_input() -> String {
     desk_diagnose_core::permission_tools::canonical_tool_permission_input_json(
         desk_diagnose_core::command_confirmation::COMMAND_TOOL,
-        serde_json::json!({"schema_version":1,"shell":"bash","command":"pwd","timeout_ms":10000}),
+        serde_json::json!({"schema_version":2,"shell":"bash","command":"pwd","timeout_ms":10000}),
     )
     .unwrap()
 }

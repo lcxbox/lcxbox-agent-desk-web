@@ -4522,7 +4522,7 @@ async fn projection_metrics_preserve_history_and_keep_capability_catalog_bounded
             vec![ToolCallRef {
                 id: "unknown-call".into(),
                 name: "exec_command".into(),
-                arguments_json: r#"{"schema_version":1,"shell":"bash","command":"printf safe","timeout_ms":1000}"#.into(),
+                arguments_json: r#"{"schema_version":2,"shell":"bash","command":"printf safe","timeout_ms":1000}"#.into(),
             }],
         );
         unknown_call.replay_disposition = Some(ReplayDisposition::NotRequired {
@@ -6306,7 +6306,7 @@ async fn streams_awaiting_approval_event() {
     assert_eq!(
         *log.borrow(),
         vec![
-            r#"approval:exec_command:c1:{"command":"pwd","schema_version":1,"shell":"bash","timeout_ms":10000}"#
+            r#"approval:exec_command:c1:{"command":"pwd","schema_version":2,"shell":"bash","timeout_ms":10000}"#
                 .to_string(),
             "finished:c1:true:exit_code=0".to_string(),
             "answer:ok".to_string(),

@@ -345,7 +345,7 @@ mod tests {
             arguments_json: serde_json::json!({"items":[{
                 "item_id":"command","provider_id":"system.command","tool_name":"exec_command",
                 "expected_effect":"execute_command",
-                "exact_input":{"schema_version":1,"shell":"bash","command":"df -h","timeout_ms":10000},
+                "exact_input":{"schema_version":2,"shell":"bash","command":"df -h","timeout_ms":10000},
                 "suggested_ttl_seconds":60,"suggested_max_uses":1,"reason":"Check free disk space"
             }]}).to_string(),
         };

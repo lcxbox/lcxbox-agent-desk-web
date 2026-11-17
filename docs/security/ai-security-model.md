@@ -32,6 +32,8 @@ The approved draft is reclassified before dispatch and must match field-for-fiel
 
 For agentic execution, the edge cannot observe the browser click itself. It trusts the authenticated central stamp to mean that the central consumed a valid one-shot approval; compromising manager or the owner's OSS signal therefore compromises that approval boundary. The edge still prevents untrusted-source forgery and transport/plan drift, but resisting a compromised central would require a separate host-local approval proof.
 
+The sandbox mode is part of the frozen plan. On Linux (Landlock) and macOS (Seatbelt), a possibly modifying command with a working directory or approved directories runs in a write sandbox by default; the worker opens and checks each writable folder before starting it and refuses forbidden or replaced folders. The sandbox is defense in depth against mistaken writes, not isolation: programs running as the same user outside the sandbox can act for a command, reading is unrestricted, and on Linux Default or DeskServer hosts a sandboxed command can read the host's `config.toml` tokens. Windows does not provide the sandbox yet. See [Command sandbox](/features/ai-diagnostics#command-sandbox).
+
 ## The device's own concurrency ceiling
 
 A host also caps how many commands may run **at the same time**

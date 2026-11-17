@@ -291,7 +291,9 @@ fn windows_peer(
 }
 
 #[cfg(target_os = "windows")]
-fn windows_token_identity(process: windows::Win32::Foundation::HANDLE) -> Result<(String, bool)> {
+pub(crate) fn windows_token_identity(
+    process: windows::Win32::Foundation::HANDLE,
+) -> Result<(String, bool)> {
     use std::ffi::c_void;
     use windows::Win32::Foundation::{CloseHandle, HANDLE, HLOCAL, LocalFree};
     use windows::Win32::Security::Authorization::ConvertSidToStringSidW;

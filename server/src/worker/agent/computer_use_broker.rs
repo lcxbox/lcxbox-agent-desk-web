@@ -49,6 +49,7 @@ use desk_agent_protocol::computer_use::{
     RawInputAction, UiInspectOutput, UiInspectParams, UiNodeProjection, UiSemanticAction,
     UiWindowProjection,
 };
+use desk_agent_protocol::exec::{ExecIdentity, ExecSandboxSupport};
 use desk_agent_protocol::{AgentError, AgentErrorKind, Capability, ScreenCaptureParams};
 #[cfg(target_os = "linux")]
 use desk_diagnose_core::ai_assistant::LINUX_ATSPI_ADAPTER_ID;
@@ -222,6 +223,8 @@ struct ReadinessFingerprint {
     interactive_user_home: Option<String>,
     interactive_session_incarnation: String,
     local_ceiling_revision: u64,
+    exec_sandbox: ExecSandboxSupport,
+    exec_identity: ExecIdentity,
     capabilities: Vec<ComputerUseCapabilityReadiness>,
     context_capabilities: Vec<Capability>,
     browser_adapter: Option<BrowserAdapterRef>,
@@ -1723,6 +1726,8 @@ impl ComputerUseBroker {
             interactive_session_incarnation,
             local_ceiling_revision: ceiling.revision,
             unattended_command_execution: false,
+            exec_sandbox: crate::worker::exec_sandbox::sandbox_support(),
+            exec_identity: crate::worker::exec_sandbox::execution_identity(),
             capabilities: vec![
                 ComputerUseCapabilityReadiness {
                     capability: Capability::SystemInfo,
@@ -2347,6 +2352,8 @@ impl ComputerUseBroker {
             interactive_user_home: readiness.interactive_user_home.clone(),
             interactive_session_incarnation: readiness.interactive_session_incarnation.clone(),
             local_ceiling_revision: readiness.local_ceiling_revision,
+            exec_sandbox: readiness.exec_sandbox,
+            exec_identity: readiness.exec_identity,
             capabilities: readiness.capabilities.clone(),
             context_capabilities: readiness
                 .context_references
@@ -5941,6 +5948,43 @@ mod tests {
         };
         let second = broker.readiness(&changed, false, false);
         assert!(second.revision > first.revision);
+    }
+
+    /// The worker reports its command sandbox support and execution identity
+    /// as probed once for its lifetime, and both are part of the material
+    /// state behind the readiness revision.
+    #[test]
+    fn readiness_reports_the_command_sandbox_and_execution_identity() {
+        let broker = ComputerUseBroker::new();
+        let readiness = broker.readiness(&ComputerUseSettings::default(), false, false);
+        assert_eq!(
+            readiness.exec_sandbox,
+            crate::worker::exec_sandbox::sandbox_support()
+        );
+        assert_eq!(
+            readiness.exec_identity,
+            crate::worker::exec_sandbox::execution_identity()
+        );
+        #[cfg(target_os = "macos")]
+        if unsafe { libc::geteuid() } != 0 {
+            assert_eq!(readiness.exec_sandbox, ExecSandboxSupport::Supported);
+            assert!(!readiness.exec_identity.is_notable());
+        }
+        #[cfg(windows)]
+        assert!(matches!(
+            readiness.exec_sandbox,
+            ExecSandboxSupport::Unsupported(_)
+        ));
+
+        let mut changed = readiness.clone();
+        changed.exec_sandbox = ExecSandboxSupport::Unsupported(
+            desk_agent_protocol::exec::ExecSandboxUnsupportedReason::KernelUnsupported,
+        );
+        let sandbox_revision = broker.stable_readiness_revision(&changed);
+        assert!(sandbox_revision > readiness.revision);
+        let mut changed = readiness.clone();
+        changed.exec_identity.root = !changed.exec_identity.root;
+        assert!(broker.stable_readiness_revision(&changed) > sandbox_revision);
     }
 
     #[test]

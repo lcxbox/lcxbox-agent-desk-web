@@ -126,6 +126,12 @@ async fn finished_command_continues_with_history_and_tools_then_drains_its_trigg
                 server_api_version: 1,
                 os: "macos".into(),
                 interactive_user_home: Some("/Users/fixture".into()),
+                exec_sandbox: desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+                exec_identity: desk_agent_protocol::exec::ExecIdentity {
+                    elevated: false,
+                    system: false,
+                    root: false,
+                },
                 interactive_session_incarnation: "continuation-worker".into(),
                 local_ceiling_revision: 1,
                 unattended_command_execution: false,

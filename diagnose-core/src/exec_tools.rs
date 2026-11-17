@@ -290,6 +290,7 @@ pub fn build_exec_input(call: &ToolCall) -> Result<(OperationInput, Option<Strin
         max_stdout_bytes: DEFAULT_EXEC_MAX_STDOUT_BYTES,
         max_stderr_bytes: DEFAULT_EXEC_MAX_STDERR_BYTES,
         snapshot_roots: Vec::new(),
+        sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
     };
     Ok((OperationInput::Exec(input), params.reason))
 }

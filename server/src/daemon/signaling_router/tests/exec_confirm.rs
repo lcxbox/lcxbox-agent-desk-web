@@ -17,6 +17,7 @@ pub(super) fn confirm_exec_model(request_id: &str, command: &str) -> SignalingMo
         max_stdout_bytes: 0,
         max_stderr_bytes: 0,
         snapshot_roots: Vec::new(),
+        sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
     };
     let data = desk_agent_protocol::exec::ConfirmExecData {
         operation: AgentOperation {
@@ -585,6 +586,42 @@ pub(super) async fn confirm_exec_with_controller_snapshot_roots_is_rejected() {
             .blocked_reason
             .as_deref()
             .is_some_and(|reason| reason.contains("snapshot roots")),
+        "{preview:?}"
+    );
+}
+
+/// The sandbox mode is resolved by the trusted central for AI commands only.
+/// A control end that asks for anything but an unrestricted run gets a
+/// non-executable preview and nothing is parked for approval.
+#[tokio::test]
+pub(super) async fn confirm_exec_with_controller_sandbox_mode_is_rejected() {
+    let (ctx, mut rx) = exec_enabled_ctx(ExecutionMode::Automated).await;
+    let mut data = confirm_exec_model("r-sandbox", "Get-Service -Name Spooler")
+        .get_data::<desk_agent_protocol::exec::ConfirmExecData>()
+        .unwrap();
+    let OperationInput::Exec(input) = &mut data.operation.input else {
+        unreachable!()
+    };
+    input.sandbox_mode = desk_agent_protocol::exec::ExecSandboxMode::Sandboxed;
+    let model = SignalingModel::new(
+        "r-sandbox",
+        SignalingType::PreviewExecution,
+        Some("conn-1".to_string()),
+        None,
+        Some(serde_json::to_value(data).unwrap()),
+        None,
+    );
+    super::super::exec_lifecycle::handle_confirm_exec_inbound(&ctx, &model)
+        .await
+        .unwrap();
+    let preview = read_preview(&mut rx);
+    assert!(!preview.executable);
+    assert_eq!(preview.exec_request_id, None);
+    assert!(
+        preview
+            .blocked_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("unrestricted")),
         "{preview:?}"
     );
 }

@@ -689,6 +689,7 @@ mod tests {
                 max_stderr_bytes: 4096,
                 containment: ExecContainmentSnapshot::default(),
                 snapshot_roots: Vec::new(),
+                sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
             },
             audit_source_request_id: None,
             file_recovery: None,
