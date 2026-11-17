@@ -10,6 +10,8 @@ lcxl-remote-desk-server = { workspace = true }
 desk-signal = { workspace = true }
 desk-signal-facade = { workspace = true }
 desk-utils = { workspace = true }
+# Registers the document parsing service for sandbox children of this binary.
+desk-document-conversion = { workspace = true, features = ["typst"] }
 desk-input-injection = { workspace = true }
 
 clap = { workspace = true }

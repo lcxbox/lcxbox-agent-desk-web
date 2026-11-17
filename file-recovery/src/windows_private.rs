@@ -108,7 +108,6 @@ enum OpenKind {
     NewDirectory,
     Directory,
     Lock,
-    #[cfg(test)]
     NewFile,
     ReadFile,
     Temporary,
@@ -269,9 +268,10 @@ impl PrivateDirectoryLock {
     }
 
     /// Creates new material only. A failure can leave an incomplete private
-    /// item, so recovery objects are never written this way; it remains for
-    /// exercising private-file validation.
-    #[cfg(test)]
+    /// item, so recovery objects are never written this way (they go through
+    /// rename publication). It serves single-use scratch files whose readers
+    /// validate the content and fail closed, such as the Windows Office
+    /// helper's per-invocation workspace, and tests of private-file validation.
     pub fn create_new(&self, leaf: &str, bytes: &[u8]) -> io::Result<()> {
         if self.write_uncertain.get() {
             return Err(io::Error::other("private index publication is unresolved"));
@@ -359,7 +359,6 @@ fn open_relative(parent: &File, leaf: &str, user: &str, kind: OpenKind) -> io::R
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             FILE_OPEN_IF,
         ),
-        #[cfg(test)]
         OpenKind::NewFile => (
             FILE_GENERIC_READ | FILE_GENERIC_WRITE,
             FILE_SHARE_READ,

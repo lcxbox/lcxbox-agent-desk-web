@@ -123,6 +123,9 @@ mod tests {
         write(&path, b"first secret", [1; 16]).unwrap();
         let file = open(&path, false).unwrap();
         validate(&file).unwrap();
+        // Windows refuses to rename over a target that still has an open handle
+        // (STATUS_ACCESS_DENIED); callers read and close before publishing.
+        drop(file);
         write(&path, b"second secret", [2; 16]).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"second secret");
         validate(&open(&path, false).unwrap()).unwrap();

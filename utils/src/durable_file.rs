@@ -73,6 +73,9 @@ pub fn durable_atomic_write(path: &Path, contents: &[u8], mode: FileMode) -> io:
         //
         // Ownership goes first: changing it drops the set-user/group-ID bits on
         // most unices, so the permissions have to be applied after it to survive.
+        // Both modes behave alike elsewhere: `ReplaceFileW` keeps the target's ACL.
+        #[cfg(not(unix))]
+        let _ = mode;
         #[cfg(unix)]
         if mode == FileMode::Preserve
             && let Ok(existing) = fs::metadata(path)

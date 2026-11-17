@@ -3,6 +3,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const APP_DIR_UNIX: &str = "lcxl-remote-desk";
 #[cfg(target_os = "windows")]
 const APP_DIR_WINDOWS: &str = "LCXL Remote Desktop";
@@ -420,6 +421,7 @@ fn absolute_path(path: &Path) -> Result<PathBuf, HostDataPathError> {
     Ok(std::path::absolute(path)?)
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn absolute_environment_path(name: &'static str) -> Option<PathBuf> {
     let value = std::env::var_os(name)?;
     let path = PathBuf::from(value);

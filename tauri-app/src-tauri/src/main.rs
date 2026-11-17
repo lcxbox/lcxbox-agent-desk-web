@@ -4,12 +4,33 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     // Before anything else: the sandbox child's stdout carries only its frame.
-    if let Some(code) = lcxl_remote_desk_server::typst_sandbox::run_child_if_requested() {
+    // Same dispatch as the server binary: sandbox children and helpers are
+    // re-launched from `current_exe`, which is this binary in the desktop app.
+    if let Some(code) = desk_utils::process_sandbox::run_child_if_requested(&[
+        desk_document_conversion::sandbox::SERVICE,
+    ]) {
         return ExitCode::from(code as u8);
     }
     #[cfg(windows)]
     if let Some(code) = lcxl_remote_desk_server::windows_application_host::run_if_requested() {
         return ExitCode::from(code as u8);
+    }
+    #[cfg(windows)]
+    {
+        let mut args = std::env::args_os();
+        let _ = args.next();
+        if args.next().as_deref()
+            == Some(std::ffi::OsStr::new(
+                lcxl_remote_desk_server::windows_office_helper::MODE,
+            ))
+        {
+            if args.next().is_some() {
+                return ExitCode::from(2);
+            }
+            return ExitCode::from(
+                lcxl_remote_desk_server::windows_office_helper::run_stdio() as u8
+            );
+        }
     }
     let run_result = lcxl_remote_desk_tauri::run();
     match run_result {

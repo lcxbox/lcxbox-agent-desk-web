@@ -465,7 +465,7 @@ mod tests {
                 batch.clone(),
             );
         let now = Utc::now().timestamp_millis() as u64;
-        desk_diagnose_core::provider_preflight::batch_document::validate_pptx_completion(
+        super::super::super::windows_office_batch::validate_pptx_receipt(
             &output.adapter,
             &batch_action,
             &receipt,
@@ -507,7 +507,7 @@ mod tests {
                     .unwrap()
                     .contains("private native detail")
             );
-            desk_diagnose_core::provider_preflight::batch_document::validate_pptx_completion(
+            super::super::super::windows_office_batch::validate_pptx_receipt(
                 &output.adapter,
                 &batch_action,
                 &receipt,

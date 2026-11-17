@@ -67,12 +67,7 @@ pub fn after_spawn(child: &Child, spec: &SandboxSpec) -> Result<Containment, Str
     }
     .map_err(|error| error.message())?;
     // SAFETY: the process handle stays valid while `child` is borrowed.
-    unsafe {
-        AssignProcessToJobObject(
-            containment.job,
-            HANDLE(child.as_raw_handle() as *mut core::ffi::c_void),
-        )
-    }
-    .map_err(|error| error.message())?;
+    unsafe { AssignProcessToJobObject(containment.job, HANDLE(child.as_raw_handle())) }
+        .map_err(|error| error.message())?;
     Ok(containment)
 }

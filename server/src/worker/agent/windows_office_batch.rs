@@ -136,6 +136,23 @@ pub(crate) fn publication_receipt(
     )
 }
 
+/// Test-side check of a PowerPoint batch receipt. diagnose-core keeps its
+/// `validate_pptx_completion` test-only, so compose the same public pieces.
+#[cfg(test)]
+pub(crate) fn validate_pptx_receipt(
+    adapter: &desk_agent_protocol::computer_use::ComputerUseAdapterRef,
+    action: &desk_agent_protocol::computer_use::ComputerActionKind,
+    completed: &desk_agent_protocol::computer_use::ComputerActionCompleted,
+    now: u64,
+) -> Result<(), desk_agent_protocol::AgentError> {
+    assert!(desk_agent_protocol::computer_use::office_batch::is_pptx(
+        adapter
+    ));
+    desk_diagnose_core::provider_preflight::office_file_completion::validate(
+        adapter, action, completed, now,
+    )
+}
+
 fn publication_receipt_for(
     media_type: &'static str,
     work_id: String,
@@ -473,7 +490,7 @@ mod tests {
             assert_eq!(receipt.work_id, plan.work_id);
             assert_eq!(receipt.action_request_id, plan.action_request_id);
             assert_eq!(receipt.execution_generation, plan.execution_generation);
-            desk_diagnose_core::provider_preflight::batch_document::validate_pptx_completion(
+            super::validate_pptx_receipt(
                 &plan.adapter,
                 &plan.actions[0].action,
                 &receipt,

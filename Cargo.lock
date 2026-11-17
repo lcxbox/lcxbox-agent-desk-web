@@ -5929,6 +5929,7 @@ dependencies = [
  "config",
  "core-foundation 0.9.4",
  "core-graphics 0.23.2",
+ "desk-document-conversion",
  "desk-input-injection",
  "desk-signal",
  "desk-signal-facade",
