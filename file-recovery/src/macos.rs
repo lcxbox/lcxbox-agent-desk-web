@@ -250,21 +250,41 @@ mod tests {
         let vault = crate::Vault::open(&root.path().join("private")).unwrap();
         let mut locked = vault.lock().unwrap();
         let record = locked
-            .backup(crate::BackupRequest {
-                scope: scope.clone(),
-                conversation: "c",
-                operation: "op",
-                generation: "g",
-                file_name: "source.txt",
-                content: b"before",
-                metadata: &metadata,
-                now_ms: 1000,
-            })
+            .backup(
+                crate::BackupRequest {
+                    scope: scope.clone(),
+                    conversation: "c",
+                    operation: "op",
+                    generation: "g",
+                    kind: crate::RecordKind::TextDelete,
+                    directory_identity: "directory",
+                    entries: vec![crate::EntryInput {
+                        rel_path: "source.txt",
+                        before: Some(b"before"),
+                        after: None,
+                        metadata: Some(&metadata),
+                    }],
+                    transaction: None,
+                    now_ms: 1000,
+                },
+                0,
+                |_, _| Ok(()),
+            )
             .unwrap();
-        assert!(record.bytes >= metadata.len() as u64 + 6);
         std::fs::write(&path, b"later").unwrap();
-        let package = locked.export_package(&scope, &record.id, 1001).unwrap();
-        let mut archive = zip::ZipArchive::new(io::Cursor::new(package)).unwrap();
+        let chunk = locked
+            .export_chunk(
+                &mut crate::ExportCache::new(),
+                &scope,
+                "c",
+                &record.id,
+                0,
+                0,
+                1001,
+            )
+            .unwrap();
+        assert_eq!(chunk.total_size, chunk.data.len() as u64);
+        let mut archive = zip::ZipArchive::new(io::Cursor::new(chunk.data)).unwrap();
         let mut text = String::new();
         archive
             .by_name("before.txt")

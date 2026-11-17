@@ -2,6 +2,7 @@
 //! Only a host-authenticated local user may access backups across authorities.
 use desk_agent_protocol::file_recovery::{
     FileRecoveryCleanupDto, FileRecoveryCommand, FileRecoveryFailure, FileRecoveryPageDto,
+    MAX_EXPORT_PACKAGE_BYTES,
 };
 use serde::{Deserialize, Serialize};
 use wincode::{SchemaRead, SchemaWrite};
@@ -48,8 +49,11 @@ pub enum LocalFileRecoveryCommand {
         displayed_time_unix_ms: u64,
         confirmed: bool,
     },
+    /// One chunk of the package of one record entry, from `offset`.
     Export {
         recovery_id: String,
+        entry: u32,
+        offset: u64,
     },
 }
 
@@ -79,7 +83,14 @@ impl LocalFileRecoveryCommand {
                 displayed_time_unix_ms: *displayed_time_unix_ms,
                 confirmed: *confirmed,
             },
-            Self::Export { recovery_id } => {
+            Self::Export {
+                recovery_id,
+                offset,
+                ..
+            } => {
+                if *offset >= MAX_EXPORT_PACKAGE_BYTES {
+                    return Err("Invalid file recovery command fields");
+                }
                 // A cursor uses the same record ID format without requiring a
                 // conversation that local historical export does not have.
                 FileRecoveryCommand::Query {
@@ -100,7 +111,17 @@ impl LocalFileRecoveryCommand {
 pub enum LocalFileRecoveryOutcome {
     Page(FileRecoveryPageDto),
     Cleanup(FileRecoveryCleanupDto),
-    Export(Vec<u8>),
+    ExportChunk(LocalExportChunk),
+}
+
+/// One chunk of a local export package. Every chunk of one download carries
+/// the same revision and total size.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, SchemaRead, SchemaWrite)]
+pub struct LocalExportChunk {
+    pub package_revision: u64,
+    pub total_size: u64,
+    pub offset: u64,
+    pub data: Vec<u8>,
 }
 
 impl LocalFileRecoveryOutcome {
@@ -116,9 +137,9 @@ impl LocalFileRecoveryOutcome {
             _ => Err("Unexpected local recovery response"),
         }
     }
-    pub fn into_export(self) -> Result<Vec<u8>, &'static str> {
+    pub fn into_export_chunk(self) -> Result<LocalExportChunk, &'static str> {
         match self {
-            Self::Export(bytes) => Ok(bytes),
+            Self::ExportChunk(chunk) => Ok(chunk),
             _ => Err("Unexpected local recovery response"),
         }
     }

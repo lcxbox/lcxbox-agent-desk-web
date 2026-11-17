@@ -211,7 +211,11 @@ pub fn validate_device_artifact_scope(
 ) -> Result<(), FileScopeError> {
     let expected_resources = if tool_name == crate::tool_names::CONVERT_DOCUMENT {
         2
-    } else if crate::provider_preflight::ArtifactCallPreflight::supports(tool_name) {
+    } else if crate::provider_preflight::ArtifactCallPreflight::supports(tool_name)
+        || tool_name == crate::provider_preflight::text_file::RESTORE_TEXT_TOOL
+    {
+        // A restore acts on its original directory only; the file is named
+        // by the frozen backup record, not by a separate reference.
         1
     } else if crate::provider_preflight::text_file::TextMutationPreflight::supports(tool_name)
         || matches!(

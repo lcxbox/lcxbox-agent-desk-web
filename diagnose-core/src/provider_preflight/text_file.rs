@@ -1,13 +1,18 @@
 //! Exact text mutation input compilation. Hosts supply authenticated device
 //! evidence from their durable receipt store, never model-supplied file refs.
 use super::*;
+pub mod read_window;
+mod restore;
 pub mod selection;
 use desk_agent_protocol::computer_use::{
-    CreatedFileArtifactOutput, FileContentReadOutput, FilePatchAction, TextFileChange,
+    CreatedFileArtifactOutput, FileContentReadOutput, FilePatchAction, MAX_TEXT_CHANGE_FIELD_BYTES,
+    MAX_TEXT_EDITS, MAX_TEXT_FILE_BYTES, TextFileChange,
 };
+pub use restore::{RestoreReview, TextChangeReview, review_exact_input};
 
 pub const UPDATE_TEXT_TOOL: &str = "update_text_file";
 pub const DELETE_TEXT_TOOL: &str = "delete_text_file";
+pub const RESTORE_TEXT_TOOL: &str = "restore_text_file";
 
 #[cfg(test)]
 /// Owner-only recovery projection. This is evidence, not a terminal result or
@@ -16,7 +21,7 @@ pub fn unknown_text_recovery_receipt(json: &str) -> Option<String> {
     use desk_agent_protocol::computer_use::{
         ComputerActionCompleted, ComputerActionOutput, ComputerActionResultClass,
     };
-    if json.len() > 16_384 {
+    if json.len() > crate::dynamic_run::MAX_PERMISSION_EXACT_INPUT_BYTES {
         return None;
     }
     let completed: ComputerActionCompleted = serde_json::from_str(json).ok()?;
@@ -26,15 +31,17 @@ pub fn unknown_text_recovery_receipt(json: &str) -> Option<String> {
     if completed.result != ComputerActionResultClass::OutcomeUnknown
         || output.verified
         || output.updated_file.is_some()
+        || output.updated_sha256.is_some()
         || output.original_file_name.is_empty()
         || output.original_file_name.len() > 512
-        || output.original_size_bytes > 65_536
+        || output.original_size_bytes > MAX_TEXT_FILE_BYTES
         || !output.recovery.is_valid()
-        || output.original_sha256.len() != 64
-        || !output
-            .original_sha256
-            .bytes()
-            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        || output.original_sha256.as_deref().is_some_and(|sha256| {
+            sha256.len() != 64
+                || !sha256
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        })
     {
         return None;
     }
@@ -50,44 +57,98 @@ fn unavailable() -> AgentError {
     )
 }
 
+/// The canonical exact input is the one budget for text changes: the same
+/// measure the permission request and the approval review apply.
+fn check_input_budget(canonical_input_json: &str) -> Result<(), AgentError> {
+    if canonical_input_json.len() > crate::dynamic_run::MAX_PERMISSION_EXACT_INPUT_BYTES {
+        return Err(error(
+            AgentErrorKind::InvalidInput,
+            format!(
+                "The canonical tool input is {} bytes, over the {} byte limit (escaped JSON counts). Split the change into several smaller update_text_file calls. No approval card was created.",
+                canonical_input_json.len(),
+                crate::dynamic_run::MAX_PERMISSION_EXACT_INPUT_BYTES
+            ),
+            false,
+            true,
+        ));
+    }
+    Ok(())
+}
+
+fn change_schema() -> serde_json::Value {
+    serde_json::json!({"oneOf":[
+        {"type":"object","properties":{
+            "kind":{"const":"write"},
+            "content_utf8":{"type":"string","maxLength":MAX_TEXT_CHANGE_FIELD_BYTES,"description":"Complete new file content."}
+        },"required":["kind","content_utf8"],"additionalProperties":false},
+        {"type":"object","properties":{
+            "kind":{"const":"edit"},
+            "edits":{"type":"array","minItems":1,"maxItems":MAX_TEXT_EDITS,"items":{"type":"object","properties":{
+                "old_text":{"type":"string","minLength":1,"maxLength":MAX_TEXT_CHANGE_FIELD_BYTES,"description":"Exact existing text, matched in the result of the previous edits."},
+                "new_text":{"type":"string","maxLength":MAX_TEXT_CHANGE_FIELD_BYTES},
+                "replace_all":{"type":"boolean","default":false,"description":"Replace every non-overlapping match; false requires exactly one match."}
+            },"required":["old_text","new_text"],"additionalProperties":false}}
+        },"required":["kind","edits"],"additionalProperties":false}
+    ]})
+}
+
 pub fn registered_tools() -> Vec<crate::registry::RegisteredTool> {
     use crate::chat::ToolSpec;
     use crate::registry::{RegisteredTool, ToolEffect};
-    [false, true].into_iter().map(|delete| {
+    let version = |delete: bool| {
         let mut properties = serde_json::json!({
             "directory_request_id": {"type":"string", "minLength":1, "maxLength":256},
-            "file_result_call_id": {"type":"string", "minLength":1, "maxLength":256, "description":"Exact tool call id of a verified text-file creation, read, or update result in this conversation."},
+            "file_result_call_id": {"type":"string", "minLength":1, "maxLength":256, "description":"Exact tool call id of a verified text-file creation, read, update or restore result in this conversation."},
             "expected_sha256": {"type":"string", "pattern":"^[0-9a-f]{64}$", "description":"Complete file SHA-256 copied from that device result; never a digest of truncated text."}
         });
         let mut required = vec!["file_result_call_id", "expected_sha256"];
         if !delete {
-            properties["change"] = serde_json::json!({"oneOf":[
-                {"type":"object","properties":{"kind":{"const":"replace_all"},"content_utf8":{"type":"string","maxLength":65536}},"required":["kind","content_utf8"],"additionalProperties":false},
-                {"type":"object","properties":{"kind":{"const":"replace_once"},"before":{"type":"string","minLength":1,"maxLength":65536},"after":{"type":"string","maxLength":65536}},"required":["kind","before","after"],"additionalProperties":false}
-            ]});
+            properties["change"] = change_schema();
             required.push("change");
         }
-        RegisteredTool {
-            spec: ToolSpec {
-                name: if delete { DELETE_TEXT_TOOL } else { UPDATE_TEXT_TOOL }.into(),
-                description: if delete {
-                    "Delete exactly one verified text file on the controlled device after saving its previous content in device-private backup storage. Requires a currently approved conversation directory and one exact server approval, from the owner or a valid delegated approval AI decision. Reuse a verified creation/read/update result and its file_version_id; a separate read is not required just to obtain a version. Bounded UTF-8 text files only, not installers or arbitrary binary files. Never recursive, never permanent deletion. Preserve the recovery receipt; an unknown result must not be retried."
-                } else {
-                    "Update exactly one verified UTF-8 text file on the controlled device using full replacement or exactly one unambiguous text match, within 64 KiB. Requires a currently approved conversation directory and one exact server approval, from the owner or a valid delegated approval AI decision. Reuse a verified creation/read/update result: use its file_version_id; the server binds the original file identity and content digest. If the content needed for the edit is already known, request this update directly; do not list the directory or read again merely to obtain a version. The device checks the original identity and full SHA-256, retains recovery material and reports the filesystem operation result without rereading the written bytes. Conflict means read again and request new approval, never retry automatically."
-                }.into(),
-                parameters_schema: serde_json::json!({"type":"object","properties":properties,"required":required,"additionalProperties":false}),
-            },
-            required_device_capability: Some(if delete { Capability::FileDeleteConfirmed } else { Capability::FilePatchConfirmed }),
-            effect: ToolEffect::Mutating,
-        }
-    }).collect()
+        serde_json::json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
+    };
+    let tool = |name: &str, description: &str, parameters_schema, capability| RegisteredTool {
+        spec: ToolSpec {
+            name: name.into(),
+            description: description.into(),
+            parameters_schema,
+        },
+        required_device_capability: Some(capability),
+        effect: ToolEffect::Mutating,
+    };
+    vec![
+        tool(
+            UPDATE_TEXT_TOOL,
+            "Update exactly one verified UTF-8 text file of up to 16 MiB on the controlled device. change is either write (complete new content) or edit: 1 to 32 exact edits applied in order to the result of the previous edit, all or nothing. Each old_text must match exactly once unless replace_all=true; a failure reports the failing edit and its match count and writes nothing. Requires a currently approved conversation directory and one exact server approval, from the owner or a valid delegated approval AI decision. Reuse a verified creation/read/update/restore result: use its file_version_id; the server binds the original file identity and content digest. A windowed or search read also supplies a usable file_version_id. If the content needed for the edit is already known, request this update directly; do not list the directory or read again merely to obtain a version. The device checks the original identity and full SHA-256, saves the previous version so restore_text_file can undo the change, and reports the filesystem operation result without rereading the written bytes. Conflict means read again and request new approval, never retry automatically.",
+            version(false),
+            Capability::FilePatchConfirmed,
+        ),
+        tool(
+            DELETE_TEXT_TOOL,
+            "Delete exactly one verified text file of up to 16 MiB on the controlled device after saving its previous content in device-private backup storage; restore_text_file can recreate it. Requires a currently approved conversation directory and one exact server approval, from the owner or a valid delegated approval AI decision. Reuse a verified creation/read/update/restore result and its file_version_id; a separate read is not required just to obtain a version. Bounded UTF-8 text files only, not installers or arbitrary binary files. Never recursive, never permanent deletion. Preserve the recovery receipt; an unknown result must not be retried.",
+            version(true),
+            Capability::FileDeleteConfirmed,
+        ),
+        tool(
+            RESTORE_TEXT_TOOL,
+            "Put one text file back to its state before a recorded AI update_text_file, delete_text_file or restore_text_file, in the same approved directory and file name. The device first saves the current state, so a restore can itself be undone. By default the file must still be exactly the version that operation produced (a deleted file must still be absent). If the file changed since, read it and pass that read's file_version_id: the restore then overwrites that version, and the approval card warns the owner. An operation with an unknown outcome also requires file_version_id. Needs a currently approved directory and one exact approval; it is never retried automatically.",
+            serde_json::json!({"type":"object","properties":{
+                "mutation_result_call_id":{"type":"string","minLength":1,"maxLength":256,"description":"Exact tool call id of the update, delete or restore result to undo."},
+                "file_result_call_id":{"type":"string","minLength":1,"maxLength":256,"description":"Optional exact tool call id of a verified read of the file's current version."}
+            },"required":["mutation_result_call_id"],"additionalProperties":false}),
+            Capability::FilePatchConfirmed,
+        ),
+    ]
 }
 
 pub fn is_text_mutation(action: &ComputerActionKind) -> bool {
     matches!(
         action,
         ComputerActionKind::File(
-            FilePatchAction::UpdateText { .. } | FilePatchAction::DeleteText { .. }
+            FilePatchAction::UpdateText { .. }
+                | FilePatchAction::DeleteText { .. }
+                | FilePatchAction::RestoreText { .. }
         )
     )
 }
@@ -102,7 +163,7 @@ pub fn frozen_resources(
     let ComputerActionKind::File(action) = action else {
         return Err(unavailable());
     };
-    let (id, directory) = match (call.name.as_str(), action) {
+    let (id, resources) = match (call.name.as_str(), action) {
         (
             UPDATE_TEXT_TOOL,
             FilePatchAction::UpdateText {
@@ -116,7 +177,10 @@ pub fn frozen_resources(
             if args.expected_sha256 != *expected_sha256 || args.change != *change {
                 return Err(unavailable());
             }
-            (args.file_result_call_id, directory)
+            (
+                args.file_result_call_id,
+                vec![directory.clone(), target.clone()],
+            )
         }
         (
             DELETE_TEXT_TOOL,
@@ -130,18 +194,31 @@ pub fn frozen_resources(
             if args.expected_sha256 != *expected_sha256 {
                 return Err(unavailable());
             }
-            (args.file_result_call_id, directory)
+            (
+                args.file_result_call_id,
+                vec![directory.clone(), target.clone()],
+            )
+        }
+        (RESTORE_TEXT_TOOL, FilePatchAction::RestoreText { directory, .. }) => {
+            let args: restore::RestoreArgs =
+                serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?;
+            if directory != target {
+                return Err(unavailable());
+            }
+            (args.mutation_result_call_id, vec![directory.clone()])
         }
         _ => return Err(unavailable()),
     };
-    if id.is_empty() || id.len() > 256 || target.object_kind != ObjectKind::File {
+    let expected_kind = if call.name == RESTORE_TEXT_TOOL {
+        ObjectKind::Directory
+    } else {
+        ObjectKind::File
+    };
+    if id.is_empty() || id.len() > 256 || target.object_kind != expected_kind {
         return Err(unavailable());
     }
     action.validate_text_mutation().map_err(|_| unavailable())?;
-    Ok(fresh_object_resource_scope(&[
-        directory.clone(),
-        target.clone(),
-    ]))
+    Ok(fresh_object_resource_scope(&resources))
 }
 
 /// Identical receipt interpretation for OSS and Manager. Unknown commits retain
@@ -154,15 +231,12 @@ pub fn validate_completion(
     use desk_agent_protocol::computer_use::{
         ComputerActionOutput, ComputerActionResultClass as Class,
     };
+    if !is_text_mutation(action) {
+        return Err(unavailable());
+    }
     let ComputerActionKind::File(action) = action else {
         return Err(unavailable());
     };
-    if !matches!(
-        action,
-        FilePatchAction::UpdateText { .. } | FilePatchAction::DeleteText { .. }
-    ) {
-        return Err(unavailable());
-    }
     let Some(ComputerActionOutput::TextFileMutation(output)) = &completed.output else {
         return if completed.output.is_none()
             && matches!(
@@ -195,17 +269,22 @@ pub fn validate_completion(
     {
         return Err(unavailable());
     }
-    if let (
-        FilePatchAction::UpdateText {
-            change: TextFileChange::ReplaceAll { content_utf8 },
-            ..
-        },
-        Some(file),
-    ) = (action, &output.updated_file)
-        && (file.size_bytes != content_utf8.len() as u64
-            || file.digest_sha256 != format!("{:x}", Sha256::digest(content_utf8.as_bytes())))
+    if let FilePatchAction::UpdateText {
+        change: TextFileChange::Write { content_utf8 },
+        ..
+    } = action
     {
-        return Err(unavailable());
+        let digest = format!("{:x}", Sha256::digest(content_utf8.as_bytes()));
+        if output
+            .updated_sha256
+            .as_ref()
+            .is_some_and(|sha256| *sha256 != digest)
+            || output.updated_file.as_ref().is_some_and(|file| {
+                file.size_bytes != content_utf8.len() as u64 || file.digest_sha256 != digest
+            })
+        {
+            return Err(unavailable());
+        }
     }
     Ok(())
 }
@@ -236,6 +315,8 @@ pub struct VerifiedTextFile {
     result_call_id: String,
     source_envelope_id: Option<String>,
     reference: ObjectRef,
+    /// Leaf name reported by the device; empty for a directory-entry selector.
+    file_name: String,
     sha256: String,
 }
 
@@ -271,7 +352,10 @@ pub(crate) fn resolve_file_result_from_history(
     let supported = source_call.name == crate::tool_names::READ_TEXT_FILE
         || matches!(
             source_call.name.as_str(),
-            crate::tool_names::CREATE_TEXT_FILE | "create_local_message_draft" | UPDATE_TEXT_TOOL
+            crate::tool_names::CREATE_TEXT_FILE
+                | "create_local_message_draft"
+                | UPDATE_TEXT_TOOL
+                | RESTORE_TEXT_TOOL
         );
     if !supported {
         return Err(unavailable());
@@ -317,14 +401,17 @@ pub(crate) fn resolve_file_result_from_history(
             if completion.result != ComputerActionResultClass::Verified {
                 continue;
             }
+            let mutation = matches!(
+                source_call.name.as_str(),
+                UPDATE_TEXT_TOOL | RESTORE_TEXT_TOOL
+            );
             match completion.output {
-                Some(ComputerActionOutput::FileArtifact(output))
-                    if source_call.name != UPDATE_TEXT_TOOL =>
-                {
+                Some(ComputerActionOutput::FileArtifact(output)) if !mutation => {
                     VerifiedTextFile::from_artifact(result_call_id, &output)?
                 }
+                // A restore that removed the file leaves no version to reuse.
                 Some(ComputerActionOutput::TextFileMutation(output))
-                    if source_call.name == UPDATE_TEXT_TOOL && output.verified =>
+                    if mutation && output.verified =>
                 {
                     VerifiedTextFile::from_artifact(
                         result_call_id,
@@ -349,24 +436,26 @@ impl VerifiedTextFile {
     pub(crate) fn sha256(&self) -> &str {
         &self.sha256
     }
+    pub(crate) fn file_name(&self) -> &str {
+        &self.file_name
+    }
     pub fn reference(&self) -> &ObjectRef {
         &self.reference
     }
     pub fn source_envelope_id(&self) -> Option<&str> {
         self.source_envelope_id.as_deref()
     }
+    /// A whole read proves its digest here. A window or search binds the
+    /// device-reported digest as a version only; dispatch makes the device
+    /// compare the complete file against it.
     pub fn from_read(
         result_call_id: &str,
         output: &FileContentReadOutput,
     ) -> Result<Self, AgentError> {
-        if output.byte_len != output.content_utf8.len() as u64
-            || output.byte_len > 65_536
-            || output.content_utf8.contains('\0')
-            || format!("{:x}", Sha256::digest(output.content_utf8.as_bytes())) != output.sha256
-        {
-            return Err(unavailable());
-        }
-        Self::new(result_call_id, &output.file, &output.sha256)
+        read_window::validate_version(output).map_err(|_| unavailable())?;
+        let mut evidence = Self::new(result_call_id, &output.file, &output.sha256)?;
+        evidence.file_name = output.display_name.clone();
+        Ok(evidence)
     }
 
     pub fn from_artifact(
@@ -374,10 +463,13 @@ impl VerifiedTextFile {
         output: &CreatedFileArtifactOutput,
     ) -> Result<Self, AgentError> {
         output.validate().map_err(|_| unavailable())?;
-        if output.media_type != TEXT_ARTIFACT_MEDIA_TYPE || output.size_bytes > 65_536 {
+        if output.media_type != TEXT_ARTIFACT_MEDIA_TYPE || output.size_bytes > MAX_TEXT_FILE_BYTES
+        {
             return Err(unavailable());
         }
-        Self::new(result_call_id, &output.file, &output.digest_sha256)
+        let mut evidence = Self::new(result_call_id, &output.file, &output.digest_sha256)?;
+        evidence.file_name = output.file_name.clone();
+        Ok(evidence)
     }
 
     fn new(result_call_id: &str, reference: &ObjectRef, sha256: &str) -> Result<Self, AgentError> {
@@ -394,6 +486,7 @@ impl VerifiedTextFile {
             result_call_id: result_call_id.into(),
             reference: reference.clone(),
             source_envelope_id: None,
+            file_name: String::new(),
             sha256: sha256.into(),
         })
     }
@@ -405,15 +498,8 @@ pub fn read_result_id(call: &ToolCall) -> Result<Option<String>, AgentError> {
     if call.name != crate::tool_names::READ_TEXT_FILE {
         return Ok(None);
     }
-    #[derive(serde::Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Args {
-        #[serde(default)]
-        file_result_call_id: Option<String>,
-        #[serde(default)]
-        entry_name: Option<String>,
-    }
-    let args: Args = serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?;
+    let args = read_window::ReadArgs::parse(call)?;
+    args.selection()?;
     if args
         .file_result_call_id
         .as_ref()
@@ -472,6 +558,9 @@ pub fn validate_mutation_permission_input(
     };
     let input: serde_json::Value =
         serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?;
+    if tool_name == RESTORE_TEXT_TOOL {
+        return restore::build(session, &session.device_id, &call, now).map(|_| ());
+    }
     let id = input
         .get("file_result_call_id")
         .and_then(|value| value.as_str())
@@ -631,6 +720,7 @@ fn validate_read_selector(
             | "create_local_message_draft"
             | crate::tool_names::READ_TEXT_FILE
             | UPDATE_TEXT_TOOL
+            | RESTORE_TEXT_TOOL
             | crate::tool_names::CONVERT_DOCUMENT
     );
     if direct_file && has_entry {
@@ -801,6 +891,8 @@ pub struct ResultFileRead {
     tool_name: String,
     file_name: Option<String>,
     paginated: bool,
+    /// Window of a text read; `None` for every other read.
+    text_window: Option<desk_agent_protocol::computer_use::TextReadSelection>,
     pub source_envelope_id: String,
     pub valid_until_unix_ms: u64,
 }
@@ -1087,6 +1179,7 @@ impl ResultFileRead {
                 tool_name: call.name.clone(),
                 file_name,
                 paginated,
+                text_window: None,
                 source_envelope_id: owner.envelope_id.clone(),
                 valid_until_unix_ms: now.saturating_add(120_000),
             });
@@ -1136,6 +1229,9 @@ impl ResultFileRead {
             tool_name: call.name.clone(),
             file_name: None,
             paginated: false,
+            text_window: (call.name == crate::tool_names::READ_TEXT_FILE)
+                .then(|| read_window::selection(call))
+                .transpose()?,
             source_envelope_id: source_id.into(),
             valid_until_unix_ms,
         })
@@ -1204,7 +1300,9 @@ impl ResultFileRead {
             return Err(unavailable());
         };
         params.file = self.file.clone();
-        params.max_bytes = params.max_bytes.min(65_536);
+        params.max_bytes = params
+            .max_bytes
+            .min(desk_agent_protocol::computer_use::MAX_TEXT_READ_OUTPUT_BYTES);
         Ok(())
     }
     pub fn validate_output(&self, output: &crate::seam::ToolRunOutput) -> Result<(), AgentError> {
@@ -1303,10 +1401,8 @@ impl ResultFileRead {
         else {
             return Err(unavailable());
         };
-        if read.file != self.file
-            || read.content_utf8.len() > 65_536
-            || read.byte_len < read.content_utf8.len() as u64
-        {
+        let window = self.text_window.as_ref().ok_or_else(unavailable)?;
+        if read.file != self.file || read_window::validate_output(window, &read).is_err() {
             return Err(unavailable());
         }
         Ok(())
@@ -1324,6 +1420,7 @@ pub struct TextMutationPreflight {
     canonical_input_digest_sha256: String,
     resource_scope: Vec<String>,
     valid_until_unix_ms: u64,
+    restore: Option<RestoreReview>,
 }
 
 impl TextMutationPreflight {
@@ -1343,6 +1440,28 @@ impl TextMutationPreflight {
         call: &ToolCall,
         now_unix_ms: u64,
     ) -> Result<Self, AgentError> {
+        let mut result = if call.name == RESTORE_TEXT_TOOL {
+            restore::build(session, device_id, call, now_unix_ms)?
+        } else {
+            Self::from_file_version(session, device_id, call, now_unix_ms)?
+        };
+        if !matches!(
+            surface,
+            ProductSurface::OssPersonalOwner | ProductSurface::ManagerPersonalOwner
+        ) || !result.capability.wire.surfaces.contains(&surface)
+        {
+            return Err(unavailable());
+        }
+        result.surface = surface;
+        Ok(result)
+    }
+
+    fn from_file_version(
+        session: &crate::session::PersistedAgentSession,
+        device_id: &str,
+        call: &ToolCall,
+        now_unix_ms: u64,
+    ) -> Result<Self, AgentError> {
         let args: serde_json::Value =
             serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?;
         let id = args
@@ -1355,16 +1474,7 @@ impl TextMutationPreflight {
             arguments_json: serde_json::json!({"file_result_call_id":id}).to_string(),
         };
         let evidence = read_evidence_on_device(session, device_id, &selector, now_unix_ms)?;
-        let mut result = Self::build_on_device(session, device_id, call, &evidence, now_unix_ms)?;
-        if !matches!(
-            surface,
-            ProductSurface::OssPersonalOwner | ProductSurface::ManagerPersonalOwner
-        ) || !result.capability.wire.surfaces.contains(&surface)
-        {
-            return Err(unavailable());
-        }
-        result.surface = surface;
-        Ok(result)
+        Self::build_on_device(session, device_id, call, &evidence, now_unix_ms)
     }
 
     pub fn required_capability(&self) -> Capability {
@@ -1428,7 +1538,19 @@ impl TextMutationPreflight {
     pub fn valid_until_unix_ms(&self) -> u64 {
         self.valid_until_unix_ms
     }
+    /// What a restore puts back and whether it overwrites a non-AI version.
+    pub fn restore(&self) -> Option<&RestoreReview> {
+        self.restore.as_ref()
+    }
     pub fn supports(tool: &str) -> bool {
+        matches!(
+            tool,
+            UPDATE_TEXT_TOOL | DELETE_TEXT_TOOL | RESTORE_TEXT_TOOL
+        )
+    }
+    /// Tools whose input names a file version and selects its directory. A
+    /// restore instead inherits the directory of the operation it undoes.
+    pub(crate) fn selects_directory(tool: &str) -> bool {
         matches!(tool, UPDATE_TEXT_TOOL | DELETE_TEXT_TOOL)
     }
 
@@ -1455,11 +1577,15 @@ impl TextMutationPreflight {
         let provider = registry
             .provider_for_capability(&capability.wire.capability_id)
             .ok_or_else(unavailable)?;
-        if call.arguments_json.len() > capability.wire.limits.max_input_bytes as usize
-            || now_unix_ms == 0
-        {
+        if now_unix_ms == 0 {
             return Err(unavailable());
         }
+        let canonical_input_json = canonical_tool_permission_input_json(
+            &call.name,
+            serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?,
+        )
+        .map_err(|_| unavailable())?;
+        check_input_budget(&canonical_input_json)?;
         let directory =
             crate::file_scope::select_device_directory(session, device_id, call, now_unix_ms)
                 .map_err(|_| unavailable())?;
@@ -1515,11 +1641,6 @@ impl TextMutationPreflight {
                 .ok_or_else(unavailable)
         };
         let valid_until_unix_ms = expiry(&directory)?.min(expiry(&evidence.reference)?);
-        let canonical_input_json = canonical_tool_permission_input_json(
-            &call.name,
-            serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?,
-        )
-        .map_err(|_| unavailable())?;
         Ok(Self {
             capability: capability.clone(),
             provider_id: provider.wire.provider_id.clone(),
@@ -1539,6 +1660,7 @@ impl TextMutationPreflight {
             canonical_input_json,
             resource_scope: fresh_object_resource_scope(&[directory, evidence.reference.clone()]),
             valid_until_unix_ms,
+            restore: None,
         })
     }
 }
@@ -1550,7 +1672,16 @@ mod tests {
     use crate::session::{AgentSessionSurface, PersistedAgentSession};
     use desk_agent_protocol::{AgentScope, ExecutionMode};
 
-    fn fixture() -> (PersistedAgentSession, VerifiedTextFile, ToolCall) {
+    pub(super) fn root_directory() -> ObjectRef {
+        ObjectRef {
+            token: "root".into(),
+            snapshot_id: "root-snapshot".into(),
+            object_kind: ObjectKind::Directory,
+            expires_at: String::new(),
+        }
+    }
+
+    pub(super) fn fixture() -> (PersistedAgentSession, VerifiedTextFile, ToolCall) {
         let mut session = PersistedAgentSession::new(
             "conversation",
             "owner",
@@ -1582,12 +1713,7 @@ mod tests {
                     canonical_path: "/private/tmp/text-test".into(),
                     purpose: "requested text changes".into(),
                     source: DirectoryConsentSource::ModelProposal,
-                    directory: ObjectRef {
-                        token: "root".into(),
-                        snapshot_id: "root-snapshot".into(),
-                        object_kind: ObjectKind::Directory,
-                        expires_at: String::new(),
-                    },
+                    directory: root_directory(),
                 },
                 1,
             )
@@ -1609,14 +1735,120 @@ mod tests {
                 content_utf8: "old".into(),
                 byte_len: 3,
                 sha256: format!("{:x}", Sha256::digest(b"old")),
+                total_lines: 1,
+                start_line: 1,
+                end_line: 1,
+                truncated: false,
+                next_start_byte: None,
+                matches: vec![],
             },
         )
         .unwrap();
         let call = ToolCall { id: "update-call".into(), name: UPDATE_TEXT_TOOL.into(), arguments_json: serde_json::json!({
             "directory_request_id": "directory", "file_result_call_id": "read-call", "expected_sha256": evidence.sha256,
-            "change": {"kind": "replace_all", "content_utf8": "new"}
+            "change": {"kind": "write", "content_utf8": "new"}
         }).to_string() };
         (session, evidence, call)
+    }
+
+    fn with_change(call: &ToolCall, change: serde_json::Value) -> ToolCall {
+        let mut input: serde_json::Value = serde_json::from_str(&call.arguments_json).unwrap();
+        input["change"] = change;
+        ToolCall {
+            arguments_json: input.to_string(),
+            ..call.clone()
+        }
+    }
+
+    #[test]
+    fn canonical_input_budget_counts_worst_case_escaping_once() {
+        use crate::dynamic_run::MAX_PERMISSION_EXACT_INPUT_BYTES;
+        let (session, evidence, call) = fixture();
+        let canonical = |call: &ToolCall| {
+            canonical_tool_permission_input_json(
+                UPDATE_TEXT_TOOL,
+                serde_json::from_str(&call.arguments_json).unwrap(),
+            )
+            .unwrap()
+        };
+        let empty = canonical(&with_change(
+            &call,
+            serde_json::json!({"kind":"write","content_utf8":""}),
+        ))
+        .len();
+        let fits = with_change(
+            &call,
+            serde_json::json!({"kind":"write","content_utf8":"a".repeat(MAX_PERMISSION_EXACT_INPUT_BYTES - empty)}),
+        );
+        assert_eq!(canonical(&fits).len(), MAX_PERMISSION_EXACT_INPUT_BYTES);
+        assert!(TextMutationPreflight::build(&session, &fits, &evidence, 1).is_ok());
+        let over = with_change(
+            &call,
+            serde_json::json!({"kind":"write","content_utf8":"a".repeat(MAX_PERMISSION_EXACT_INPUT_BYTES - empty + 1)}),
+        );
+        assert!(TextMutationPreflight::build(&session, &over, &evidence, 1).is_err());
+        // Control characters escape to six bytes each: 11,000 raw bytes in
+        // edits exceed the budget although every field is far below its own
+        // limit, and the error explains how to proceed.
+        let escaped = with_change(
+            &call,
+            serde_json::json!({"kind":"edit","edits":[
+                {"old_text":"old","new_text":"\u{1}".repeat(5_500)},
+                {"old_text":"x","new_text":"\u{1}".repeat(5_500)}
+            ]}),
+        );
+        assert!(escaped.arguments_json.len() > MAX_PERMISSION_EXACT_INPUT_BYTES);
+        let error = TextMutationPreflight::build(&session, &escaped, &evidence, 1)
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, AgentErrorKind::InvalidInput);
+        assert!(error.message.contains("Split the change"));
+    }
+
+    #[test]
+    fn omitted_replace_all_and_explicit_default_bind_the_same_approval() {
+        let (session, evidence, call) = fixture();
+        let digest = |edit: serde_json::Value| {
+            TextMutationPreflight::build(
+                &session,
+                &with_change(&call, serde_json::json!({"kind":"edit","edits":[edit]})),
+                &evidence,
+                1,
+            )
+            .unwrap()
+            .canonical_input_digest_sha256()
+            .to_owned()
+        };
+        let omitted = digest(serde_json::json!({"old_text":"old","new_text":"new"}));
+        assert_eq!(
+            omitted,
+            digest(serde_json::json!({"old_text":"old","new_text":"new","replace_all":false}))
+        );
+        assert_ne!(
+            omitted,
+            digest(serde_json::json!({"old_text":"old","new_text":"new","replace_all":true}))
+        );
+        // The permission planner canonicalizes the omitted form identically.
+        let mut exact: serde_json::Value = serde_json::from_str(
+            &with_change(
+                &call,
+                serde_json::json!({"kind":"edit","edits":[{"old_text":"old","new_text":"new"}]}),
+            )
+            .arguments_json,
+        )
+        .unwrap();
+        crate::model_input::fill_versions(UPDATE_TEXT_TOOL, &mut exact);
+        assert_eq!(
+            format!(
+                "{:x}",
+                Sha256::digest(
+                    canonical_tool_permission_input_json(UPDATE_TEXT_TOOL, exact)
+                        .unwrap()
+                        .as_bytes()
+                )
+            ),
+            omitted
+        );
     }
 
     #[test]
@@ -1681,7 +1913,7 @@ mod tests {
     }
 
     #[test]
-    fn complete_read_evidence_rejects_truncated_or_substituted_content() {
+    fn read_evidence_checks_whole_content_and_binds_window_versions() {
         let mut output = FileContentReadOutput {
             file: ObjectRef {
                 token: "file".into(),
@@ -1693,12 +1925,32 @@ mod tests {
             content_utf8: "完整".into(),
             byte_len: 6,
             sha256: format!("{:x}", Sha256::digest("完整".as_bytes())),
+            total_lines: 1,
+            start_line: 1,
+            end_line: 1,
+            truncated: false,
+            next_start_byte: None,
+            matches: vec![],
         };
-        assert!(VerifiedTextFile::from_read("read-call", &output).is_ok());
+        let whole = VerifiedTextFile::from_read("read-call", &output).unwrap();
+        assert_eq!(whole.file_name(), "notes.txt");
+        // A window of a larger file binds the device digest as its version.
         output.byte_len = 100;
-        assert!(VerifiedTextFile::from_read("read-call", &output).is_err());
+        output.truncated = true;
+        output.sha256 = "b".repeat(64);
+        assert_eq!(
+            VerifiedTextFile::from_read("read-call", &output)
+                .unwrap()
+                .sha256(),
+            "b".repeat(64)
+        );
+        // Complete content must hash to the reported digest.
         output.byte_len = 6;
-        output.sha256 = "a".repeat(64);
+        output.truncated = false;
+        assert!(VerifiedTextFile::from_read("read-call", &output).is_err());
+        output.byte_len = 3;
+        assert!(VerifiedTextFile::from_read("read-call", &output).is_err());
+        output.byte_len = MAX_TEXT_FILE_BYTES + 1;
         assert!(VerifiedTextFile::from_read("read-call", &output).is_err());
     }
 
@@ -1727,9 +1979,11 @@ mod tests {
                 TextFileMutationOutput {
                     operation: desk_agent_protocol::computer_use::TextFileMutationOperation::Update,
                     original: evidence.reference.clone(),
+                    directory: root_directory(),
                     original_file_name: "notes.txt".into(),
                     original_size_bytes: 3,
-                    original_sha256: evidence.sha256.clone(),
+                    original_sha256: Some(evidence.sha256.clone()),
+                    updated_sha256: None,
                     recovery: desk_agent_protocol::computer_use::FileRecoveryDescriptor {
                         recovery_id: "a".repeat(64),
                         created_at_unix_ms: 1,
@@ -1779,6 +2033,12 @@ mod tests {
             content_utf8: "old".into(),
             byte_len: 3,
             sha256: evidence.sha256,
+            total_lines: 1,
+            start_line: 1,
+            end_line: 1,
+            truncated: false,
+            next_start_byte: None,
+            matches: vec![],
         };
         let text = serde_json::to_string(&desk_agent_protocol::OperationOutput::ReadContext(
             desk_agent_protocol::ReadContextOutput::FileContentRead(output),

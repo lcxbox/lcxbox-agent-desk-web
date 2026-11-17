@@ -19,6 +19,7 @@ pub(super) fn adapter(providers: &ProviderRegistry) -> EdgeAdapterDescriptor {
         capability_ids: vec![
             TEXT_FILE_UPDATE_CAPABILITY_ID.into(),
             TEXT_FILE_DELETE_CAPABILITY_ID.into(),
+            TEXT_FILE_RESTORE_CAPABILITY_ID.into(),
         ],
         limits: providers
             .capability(TEXT_FILE_UPDATE_CAPABILITY_ID)
@@ -41,6 +42,7 @@ mod tests {
         for (id, tool) in [
             (TEXT_FILE_UPDATE_CAPABILITY_ID, "update_text_file"),
             (TEXT_FILE_DELETE_CAPABILITY_ID, "delete_text_file"),
+            (TEXT_FILE_RESTORE_CAPABILITY_ID, "restore_text_file"),
         ] {
             let capability = providers.capability(id).unwrap();
             assert_eq!(capability.wire.tool_name, tool);

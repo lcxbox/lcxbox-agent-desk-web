@@ -15,30 +15,23 @@ pub(crate) fn project_record(vault: &LockedVault, r: Record, now: u64) -> FileRe
             Some("temporary_file_pending".into())
         } else if r.cleanup_error.is_some() {
             Some("storage_unavailable".into())
-        } else if r.material == MaterialState::Purged && r.device_quota_pending {
-            Some("quota_pending".into())
-        } else if r.device_quota_managed
-            && !r.device_quota_settled
-            && r.material == MaterialState::Saved
-        {
-            Some("quota_settlement_pending".into())
         } else {
             None
         },
-        cleanup_pending: (r.material == MaterialState::Purged && r.device_quota_pending)
-            || r.cleanup_error.is_some()
+        cleanup_pending: r.cleanup_error.is_some()
             || r.transaction.is_some()
             || vault.is_deleted(&r.scope, &r.conversation),
         export_available: r.material == MaterialState::Saved
             && (r.expires_at_ms > now || r.change == ChangeState::OutcomeUnknown)
             && !r.discard_requested
             && !vault.is_deleted(&r.scope, &r.conversation),
+        file_name: r.file_name().unwrap_or_default().to_owned(),
+        entry_count: u32::try_from(r.entry_count()).unwrap_or(u32::MAX),
         recovery_id: r.id,
         conversation_id: r.conversation,
-        file_name: r.file_name,
         created_at_unix_ms: r.created_at_ms,
         expires_at_unix_ms: r.expires_at_ms,
-        size_bytes: r.bytes,
+        size_bytes: r.published_bytes,
         change_state: match r.change {
             ChangeState::Preparing => "preparing",
             ChangeState::BackupReady => "backup_ready",
@@ -48,13 +41,30 @@ pub(crate) fn project_record(vault: &LockedVault, r: Record, now: u64) -> FileRe
         }
         .into(),
         material_state: match r.material {
-            MaterialState::Preparing => "preparing",
             MaterialState::Saved => "saved",
-            MaterialState::Purging => "purging",
             MaterialState::Purged => "purged",
         }
         .into(),
     }
+}
+/// One package cache per worker process; it bounds concurrent export
+/// streams.
+fn export_cache() -> &'static std::sync::Mutex<desk_file_recovery::ExportCache> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<desk_file_recovery::ExportCache>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+pub(crate) fn export_chunk(
+    vault: &LockedVault,
+    produce: impl FnOnce(
+        &LockedVault,
+        &mut desk_file_recovery::ExportCache,
+    ) -> io::Result<desk_file_recovery::ExportChunk>,
+) -> io::Result<desk_file_recovery::ExportChunk> {
+    let mut cache = export_cache()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    produce(vault, &mut cache)
 }
 fn policy(vault: &LockedVault) -> FileRecoveryPolicyDto {
     FileRecoveryPolicyDto {
@@ -157,50 +167,24 @@ pub(crate) fn execute(
             }
             Some((used, reserved))
         };
-        let mut outcome = execute_locked_with_quota(
-            &mut locked,
-            &scope,
-            &payload.request.command,
-            chrono::Utc::now().timestamp_millis().max(1) as u64,
-            true,
-        )?;
-        if matches!(
-            payload.request.command,
+        let now = chrono::Utc::now().timestamp_millis().max(1) as u64;
+        let mut outcome = execute_locked(&mut locked, &scope, &payload.request.command, now)?;
+        match &payload.request.command {
+            FileRecoveryCommand::RetryCleanup => {
+                locked
+                    .reconcile(&os_user, &mut quota.clone())
+                    .map_err(storage_failure)?;
+                locked
+                    .maintain_epoch_indexes(&os_user, &mut quota.clone(), 1)
+                    .map_err(storage_failure)?;
+            }
             FileRecoveryCommand::DeleteConversation { .. }
-                | FileRecoveryCommand::RetryCleanup
-                | FileRecoveryCommand::Discard { .. }
-        ) {
-            quota.reconcile_settlements(&mut locked);
-            for record in locked.pending_quota_cleanup().into_iter().take(32) {
-                match quota.release(&record) {
-                    Ok(()) => locked
-                        .acknowledge_quota_cleanup(&record.scope, &record.id)
-                        .map_err(storage_failure)?,
-                    Err(error) => {
-                        tracing::warn!(error_kind = ?error.kind(), "File recovery quota cleanup unconfirmed; retaining retry record")
-                    }
+            | FileRecoveryCommand::Discard { .. } => {
+                if let Err(error) = quota.settle_vault(&mut locked, None) {
+                    tracing::warn!(error_kind = ?error.kind(), "File recovery quota settlement unconfirmed; deletion stays pending");
                 }
             }
-            for namespace in locked.pending_quota_namespaces().into_iter().take(32) {
-                match quota.release_namespace(
-                    &namespace,
-                    locked
-                        .namespace_epoch(&namespace)
-                        .map_err(storage_failure)?,
-                ) {
-                    Ok(()) => locked
-                        .acknowledge_quota_namespace(&namespace)
-                        .map_err(storage_failure)?,
-                    Err(error) => {
-                        tracing::warn!(error_kind = ?error.kind(), "File recovery namespace quota cleanup unconfirmed; retaining retry record")
-                    }
-                }
-            }
-        }
-        if matches!(payload.request.command, FileRecoveryCommand::RetryCleanup) {
-            locked
-                .maintain_epoch_indexes(&os_user, &mut quota.clone(), 1)
-                .map_err(storage_failure)?;
+            _ => (),
         }
         match &mut outcome {
             FileRecoveryOutcome::Page { page } => {
@@ -275,21 +259,13 @@ pub(crate) fn storage_failure(error: io::Error) -> FileRecoveryFailure {
     tracing::warn!(error_kind = ?error.kind(), ?reason, "File recovery management storage operation failed");
     reason
 }
-#[cfg(test)]
+/// Vault-only part of a management command. Quota settlement and
+/// reconciliation follow in `execute` under the same lock.
 fn execute_locked(
     vault: &mut LockedVault,
     scope: &Scope,
     command: &FileRecoveryCommand,
     now: u64,
-) -> Result<FileRecoveryOutcome, FileRecoveryFailure> {
-    execute_locked_with_quota(vault, scope, command, now, false)
-}
-fn execute_locked_with_quota(
-    vault: &mut LockedVault,
-    scope: &Scope,
-    command: &FileRecoveryCommand,
-    now: u64,
-    shared_quota: bool,
 ) -> Result<FileRecoveryOutcome, FileRecoveryFailure> {
     match command {
         FileRecoveryCommand::ConfirmClock {
@@ -392,12 +368,9 @@ fn execute_locked_with_quota(
         }
         FileRecoveryCommand::DeleteConversation { conversation_id } => {
             let foreign = vault.has_foreign_conversation(scope, conversation_id);
-            if shared_quota {
-                vault.delete_conversation_with_quota(scope, conversation_id, now)
-            } else {
-                vault.delete_conversation(scope, conversation_id, now)
-            }
-            .map_err(storage_failure)?;
+            vault
+                .delete_conversation(scope, conversation_id, now)
+                .map_err(storage_failure)?;
             if foreign {
                 return Err(FileRecoveryFailure::IdentityChanged);
             }
@@ -407,16 +380,13 @@ fn execute_locked_with_quota(
         }
         FileRecoveryCommand::RetryCleanup => {
             vault.recover_interrupted(now).map_err(storage_failure)?;
+            vault.sweep(now).map_err(storage_failure)?;
             let records = vault.list(scope, None);
             Ok(FileRecoveryOutcome::Cleanup {
                 report: FileRecoveryCleanupDto {
                     pending_files: records
                         .iter()
-                        .filter(|r| {
-                            r.transaction.is_some()
-                                || r.cleanup_error.is_some()
-                                || (r.material == MaterialState::Purged && r.device_quota_pending)
-                        })
+                        .filter(|r| r.transaction.is_some() || r.cleanup_error.is_some())
                         .count() as u64,
                     unknown_outcomes: records
                         .iter()
@@ -433,47 +403,156 @@ fn execute_locked_with_quota(
         FileRecoveryCommand::Export {
             recovery_id,
             conversation_id,
+            entry,
+            offset,
         } => {
-            if !vault
-                .list(scope, Some(conversation_id))
-                .iter()
-                .any(|r| &r.id == recovery_id)
-            {
-                return Err(FileRecoveryFailure::MaterialUnavailable);
-            }
             use base64::Engine;
-            let bytes = vault
-                .export_package(scope, recovery_id, now)
+            let chunk = export_chunk(vault, |vault, cache| {
+                vault.export_chunk(
+                    cache,
+                    scope,
+                    conversation_id,
+                    recovery_id,
+                    u64::from(*entry),
+                    *offset,
+                    now,
+                )
+            })
+            .map_err(storage_failure)?;
+            Ok(FileRecoveryOutcome::ExportChunk {
+                package_revision: chunk.package_revision,
+                total_size: chunk.total_size,
+                offset: chunk.offset,
+                data_base64: base64::engine::general_purpose::STANDARD.encode(chunk.data),
+            })
+        }
+        FileRecoveryCommand::QueryEntries {
+            recovery_id,
+            conversation_id,
+            offset,
+        } => {
+            let page = vault
+                .query_entries(scope, conversation_id, recovery_id, u64::from(*offset))
                 .map_err(storage_failure)?;
-            Ok(FileRecoveryOutcome::Export {
-                zip_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+            Ok(FileRecoveryOutcome::Entries {
+                page: FileRecoveryEntryPageDto {
+                    entries: page
+                        .entries
+                        .into_iter()
+                        .map(|entry| FileRecoveryEntryDto {
+                            entry: u32::try_from(entry.index).unwrap_or(u32::MAX),
+                            path: entry.rel_path,
+                            export_available: entry.before_sha256.is_some(),
+                        })
+                        .collect(),
+                    next_offset: page
+                        .next_offset
+                        .map(|next| u32::try_from(next).unwrap_or(u32::MAX)),
+                },
             })
         }
     }
 }
 
+#[cfg(test)]
+pub(crate) mod test_support {
+    use desk_file_recovery::{
+        BackupRequest, ChangeState, EntryInput, LockedVault, Record, RecordKind, Scope,
+    };
+    /// A deletion backup of `before` left at BackupReady, as an in-flight change.
+    pub(crate) fn prepare(
+        vault: &mut LockedVault,
+        scope: &Scope,
+        conversation: &str,
+        operation: &str,
+        before: &[u8],
+        now_ms: u64,
+    ) -> Record {
+        vault
+            .backup(
+                BackupRequest {
+                    scope: scope.clone(),
+                    conversation,
+                    operation,
+                    generation: "generation",
+                    kind: RecordKind::TextDelete,
+                    directory_identity: "1:2",
+                    entries: vec![EntryInput {
+                        rel_path: "notes.txt",
+                        before: Some(before),
+                        after: None,
+                        metadata: Some(b"{}"),
+                    }],
+                    transaction: None,
+                    now_ms,
+                },
+                vault.execution_epoch(),
+                |_, _| Ok(()),
+            )
+            .unwrap()
+    }
+    /// A settled single-file backup of `before`, as a completed deletion.
+    pub(crate) fn backup(
+        vault: &mut LockedVault,
+        scope: &Scope,
+        conversation: &str,
+        operation: &str,
+        before: &[u8],
+    ) -> Record {
+        let now = chrono::Utc::now().timestamp_millis().max(1) as u64;
+        let record = prepare(vault, scope, conversation, operation, before, now);
+        vault
+            .transition(scope, &record.id, ChangeState::CommitIntent)
+            .unwrap();
+        vault
+            .finish(scope, &record.id, ChangeState::Succeeded)
+            .unwrap();
+        vault.record(scope, &record.id).unwrap().clone()
+    }
+}
+
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod tests {
+    use super::test_support::{backup, prepare};
     use super::*;
-    #[test]
-    fn management_rejects_changed_os_user_before_opening_storage() {
-        let payload = desk_ipc_protocol::message::FileRecoveryRequestPayload {
+    use desk_ipc_protocol::message::*;
+    fn payload(scope: &Scope, command: FileRecoveryCommand) -> FileRecoveryRequestPayload {
+        FileRecoveryRequestPayload {
             request_id: "request".into(),
             connection_id: None,
-            authority: "a".repeat(64),
-            actor_id: "1".into(),
-            device_id: "device".into(),
+            authority: scope.authority.clone(),
+            actor_id: scope.owner.clone(),
+            device_id: scope.device.clone(),
             request: FileRecoveryRequest {
                 expected_authority: None,
-                expected_os_user: Some("different-user".into()),
-                command: FileRecoveryCommand::SetPolicy {
-                    retention_days: 7,
-                    max_bytes: 1_048_576,
-                },
+                expected_os_user: Some(scope.os_user.clone()),
+                command,
             },
-        };
+        }
+    }
+    fn local_scope() -> Scope {
+        Scope {
+            os_user: unsafe { libc::geteuid() }.to_string(),
+            ..scope()
+        }
+    }
+    #[test]
+    fn management_rejects_changed_os_user_before_opening_storage() {
+        let mut changed = scope();
+        changed.os_user = "different-user".into();
         assert!(matches!(
-            execute(None, &payload, None).outcome,
+            execute(
+                None,
+                &payload(
+                    &changed,
+                    FileRecoveryCommand::SetPolicy {
+                        retention_days: 7,
+                        max_bytes: 1_048_576,
+                    }
+                ),
+                None
+            )
+            .outcome,
             FileRecoveryOutcome::Unavailable {
                 reason: FileRecoveryFailure::IdentityChanged
             }
@@ -481,26 +560,18 @@ mod tests {
     }
     #[test]
     fn remote_query_uses_shared_policy_and_usage_without_exposing_other_user_records() {
-        use desk_ipc_protocol::message::*;
         let root = tempfile::tempdir().unwrap();
-        let mut scope = scope();
-        scope.os_user = unsafe { libc::geteuid() }.to_string();
-        let now = chrono::Utc::now().timestamp_millis().max(1) as u64;
-        desk_file_recovery::Vault::open(root.path())
-            .unwrap()
-            .lock()
-            .unwrap()
-            .backup(desk_file_recovery::BackupRequest {
-                scope: scope.clone(),
-                conversation: "conversation",
-                operation: "operation",
-                generation: "generation",
-                file_name: "notes.txt",
-                content: b"before",
-                metadata: b"{}",
-                now_ms: now,
-            })
-            .unwrap();
+        let scope = local_scope();
+        let record = backup(
+            &mut desk_file_recovery::Vault::open(root.path())
+                .unwrap()
+                .lock()
+                .unwrap(),
+            &scope,
+            "conversation",
+            "operation",
+            b"before",
+        );
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let client = crate::worker::session::QuotaClient::new(tx);
         let responder = client.clone();
@@ -508,21 +579,13 @@ mod tests {
         let worker = std::thread::spawn(move || {
             execute(
                 Some(&path),
-                &FileRecoveryRequestPayload {
-                    request_id: "query".into(),
-                    connection_id: None,
-                    authority: scope.authority,
-                    actor_id: scope.owner,
-                    device_id: scope.device,
-                    request: FileRecoveryRequest {
-                        expected_authority: None,
-                        expected_os_user: Some(scope.os_user),
-                        command: FileRecoveryCommand::Query {
-                            conversation_id: Some("conversation".into()),
-                            after: None,
-                        },
+                &payload(
+                    &scope,
+                    FileRecoveryCommand::Query {
+                        conversation_id: Some("conversation".into()),
+                        after: None,
                     },
-                },
+                ),
                 Some(&client),
             )
         });
@@ -547,102 +610,78 @@ mod tests {
         assert_eq!(page.used_bytes, 999999);
         assert_eq!(page.reserved_bytes, 123456);
         assert_eq!(page.records.len(), 1);
-        assert_eq!(page.records[0].conversation_id, "conversation");
-        assert_eq!(page.records[0].expires_at_unix_ms, now + 12 * 86_400_000);
+        let projected = &page.records[0];
+        assert_eq!(projected.conversation_id, "conversation");
+        assert_eq!(
+            projected.expires_at_unix_ms,
+            record.created_at_ms + 12 * 86_400_000
+        );
+        assert_eq!(projected.file_name, "notes.txt");
+        assert_eq!(projected.entry_count, 1);
+        assert_eq!(projected.size_bytes, record.published_bytes);
+        assert!(projected.size_bytes > 0 && projected.size_bytes % 4096 == 0);
     }
     #[test]
-    fn deletion_waits_for_record_and_namespace_quota_cleanup_acknowledgments() {
-        use desk_ipc_protocol::message::*;
+    fn deletion_settles_absolute_usage_before_reporting_completion() {
         let root = tempfile::tempdir().unwrap();
-        let mut scope = scope();
-        scope.os_user = unsafe { libc::geteuid() }.to_string();
-        let vault = desk_file_recovery::Vault::open(root.path()).unwrap();
-        let mut locked = vault.lock().unwrap();
-        let record = locked
-            .backup_with_reservation_in_epoch(
-                desk_file_recovery::BackupRequest {
-                    scope: scope.clone(),
-                    conversation: "conversation",
-                    operation: "operation",
-                    generation: "generation",
-                    file_name: "notes.txt",
-                    content: b"before",
-                    metadata: b"{}",
-                    now_ms: 1,
-                },
-                0,
-                |_| Ok(()),
-            )
-            .unwrap();
-        locked
-            .transition(&scope, &record.id, ChangeState::Aborted)
-            .unwrap();
-        drop(locked);
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let client = crate::worker::session::QuotaClient::new(tx);
-        let responder = client.clone();
-        let path = root.path().to_owned();
-        let payload_scope = scope.clone();
-        let worker = std::thread::spawn(move || {
-            execute(
-                Some(&path),
-                &FileRecoveryRequestPayload {
-                    request_id: "delete".into(),
-                    connection_id: None,
-                    authority: payload_scope.authority,
-                    actor_id: payload_scope.owner,
-                    device_id: payload_scope.device,
-                    request: FileRecoveryRequest {
-                        expected_authority: None,
-                        expected_os_user: Some(payload_scope.os_user),
-                        command: FileRecoveryCommand::DeleteConversation {
-                            conversation_id: "conversation".into(),
+        let scope = local_scope();
+        for applied in [false, true] {
+            let conversation = format!("conversation-{applied}");
+            let vault = desk_file_recovery::Vault::open(root.path()).unwrap();
+            backup(
+                &mut vault.lock().unwrap(),
+                &scope,
+                &conversation,
+                "operation",
+                b"before",
+            );
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            let client = crate::worker::session::QuotaClient::new(tx);
+            let responder = client.clone();
+            let path = root.path().to_owned();
+            let payload_scope = scope.clone();
+            let deleted = conversation.clone();
+            let worker = std::thread::spawn(move || {
+                execute(
+                    Some(&path),
+                    &payload(
+                        &payload_scope,
+                        FileRecoveryCommand::DeleteConversation {
+                            conversation_id: deleted,
                         },
-                    },
-                },
-                Some(&client),
-            )
-        });
-        for stage in 0..2 {
+                    ),
+                    Some(&client),
+                )
+            });
             let WorkerToService::FileRecoveryQuotaRequested(request) = next_quota_request(&mut rx)
             else {
-                panic!("quota cleanup expected")
+                panic!("quota settlement expected")
             };
-            match (stage, request.command) {
-                (
-                    0,
-                    FileRecoveryQuotaCommand::Release {
-                        retained_index_bytes,
-                        ..
-                    },
-                ) => assert!(retained_index_bytes > 0),
-                (1, FileRecoveryQuotaCommand::ReleaseNamespace { namespace, .. }) => {
-                    assert_eq!(namespace.len(), 128)
-                }
-                _ => panic!("cleanup stages out of order"),
-            }
+            let FileRecoveryQuotaCommand::Settle { identity, usage } = request.command else {
+                panic!("settlement expected")
+            };
+            assert!(identity.is_none());
+            assert!(usage.namespaces.is_empty(), "deleted objects were swept");
             responder.complete(FileRecoveryQuotaReply {
                 request_id: request.request_id,
-                outcome: FileRecoveryQuotaOutcome::Applied {
-                    retention_days: 7,
-                    max_bytes: 1048576,
-                    used_bytes: 1024,
-                    reserved_bytes: 0,
-                },
+                outcome: FileRecoveryQuotaOutcome::Settled { applied },
             });
+            assert!(matches!(
+                worker.join().unwrap().outcome,
+                FileRecoveryOutcome::Deleted { complete } if complete == applied
+            ));
+            assert_eq!(
+                vault
+                    .lock()
+                    .unwrap()
+                    .cleanup_complete(&scope, &conversation),
+                applied
+            );
         }
-        assert!(matches!(
-            worker.join().unwrap().outcome,
-            FileRecoveryOutcome::Deleted { complete: true }
-        ));
-        let locked = vault.lock().unwrap();
-        assert!(locked.cleanup_complete(&scope, "conversation"));
-        assert!(locked.pending_quota_cleanup().is_empty());
-        assert!(locked.pending_quota_namespaces().is_empty());
     }
     fn next_quota_request(
-        rx: &mut tokio::sync::mpsc::UnboundedReceiver<desk_ipc_protocol::message::WorkerToService>,
-    ) -> desk_ipc_protocol::message::WorkerToService {
+        rx: &mut tokio::sync::mpsc::UnboundedReceiver<WorkerToService>,
+    ) -> WorkerToService {
         tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .build()
@@ -716,18 +755,14 @@ mod tests {
         let vault = desk_file_recovery::Vault::open(root.path()).unwrap();
         let mut locked = vault.lock().unwrap();
         let scope = scope();
-        let record = locked
-            .backup(desk_file_recovery::BackupRequest {
-                scope: scope.clone(),
-                conversation: "conversation",
-                operation: "operation",
-                generation: "generation",
-                file_name: "notes.txt",
-                content: b"before",
-                metadata: b"{}",
-                now_ms: 1000,
-            })
-            .unwrap();
+        let record = prepare(
+            &mut locked,
+            &scope,
+            "conversation",
+            "operation",
+            b"before",
+            1000,
+        );
         locked
             .transition(&scope, &record.id, ChangeState::CommitIntent)
             .unwrap();
@@ -801,31 +836,21 @@ mod tests {
         let vault = desk_file_recovery::Vault::open(root.path()).unwrap();
         let mut locked = vault.lock().unwrap();
         let scope = scope();
-        let record = locked
-            .backup(desk_file_recovery::BackupRequest {
-                scope: scope.clone(),
-                conversation: "conversation",
-                operation: "operation",
-                generation: "generation",
-                file_name: "notes.txt",
-                content: b"before",
-                metadata: b"{}",
-                now_ms: 1000,
-            })
-            .unwrap();
+        let record = prepare(
+            &mut locked,
+            &scope,
+            "conversation",
+            "operation",
+            b"before",
+            1000,
+        );
         locked
             .transition(&scope, &record.id, ChangeState::CommitIntent)
             .unwrap();
-        locked
-            .recover_interrupted(record.expires_at_ms + 1)
-            .unwrap();
+        let later = record.expires_at_ms + 1;
+        locked.recover_interrupted(later).unwrap();
         assert!(
-            project_record(
-                &locked,
-                locked.list(&scope, None)[0].clone(),
-                record.expires_at_ms + 1
-            )
-            .export_available
+            project_record(&locked, locked.list(&scope, None)[0].clone(), later).export_available
         );
         let mut command = FileRecoveryCommand::Discard {
             recovery_id: record.id.clone(),
@@ -833,70 +858,25 @@ mod tests {
             confirmed: false,
         };
         assert!(matches!(
-            execute_locked(&mut locked, &scope, &command, record.expires_at_ms + 1),
+            execute_locked(&mut locked, &scope, &command, later),
             Err(FileRecoveryFailure::InvalidRequest)
         ));
         assert!(
             locked
-                .export(&scope, &record.id, record.expires_at_ms + 1)
+                .entry_material(&scope, "conversation", &record.id, 0, later)
                 .is_ok()
         );
         if let FileRecoveryCommand::Discard { confirmed, .. } = &mut command {
             *confirmed = true;
         }
         assert!(matches!(
-            execute_locked(&mut locked, &scope, &command, record.expires_at_ms + 1),
+            execute_locked(&mut locked, &scope, &command, later),
             Ok(FileRecoveryOutcome::Cleanup { .. })
         ));
         let retained = locked.list(&scope, None)[0].clone();
         assert_eq!(retained.change, ChangeState::OutcomeUnknown);
         assert_eq!(retained.material, MaterialState::Purged);
-        assert!(!project_record(&locked, retained, record.expires_at_ms + 1).export_available);
-    }
-    #[test]
-    fn settlement_pending_is_visible_without_claiming_material_needs_deletion() {
-        let root = tempfile::tempdir().unwrap();
-        let vault = desk_file_recovery::Vault::open(root.path()).unwrap();
-        let mut locked = vault.lock().unwrap();
-        let scope = scope();
-        let record = locked
-            .backup_with_reservation_in_epoch(
-                desk_file_recovery::BackupRequest {
-                    scope: scope.clone(),
-                    conversation: "c",
-                    operation: "op",
-                    generation: "g",
-                    file_name: "notes.txt",
-                    content: b"before",
-                    metadata: b"{}",
-                    now_ms: 1000,
-                },
-                0,
-                |_| Ok(()),
-            )
-            .unwrap();
-        let oldest = locked
-            .oldest_pending_record(Some(&scope), Some("c"))
-            .unwrap();
-        assert_eq!(oldest.id, record.id);
-        let projected = project_record(&locked, oldest, 1001);
-        assert_eq!(
-            projected.cleanup_reason.as_deref(),
-            Some("quota_settlement_pending")
-        );
-        assert!(!projected.cleanup_pending);
-        assert!(projected.export_available);
-        locked
-            .acknowledge_quota_settlement(&scope, &record.id)
-            .unwrap();
-        assert!(
-            locked
-                .oldest_pending_record(Some(&scope), Some("c"))
-                .is_none()
-        );
-        let projected = project_record(&locked, locked.list(&scope, Some("c"))[0].clone(), 1001);
-        assert!(projected.cleanup_reason.is_none());
-        assert!(projected.export_available);
+        assert!(!project_record(&locked, retained, later).export_available);
     }
     #[test]
     fn export_failures_keep_material_categories() {
@@ -928,30 +908,122 @@ mod tests {
             );
         }
     }
+    fn export(
+        vault: &mut LockedVault,
+        scope: &Scope,
+        conversation: &str,
+        id: &str,
+        offset: u64,
+        now: u64,
+    ) -> Result<(u64, u64, u64, Vec<u8>), FileRecoveryFailure> {
+        use base64::Engine;
+        match execute_locked(
+            vault,
+            scope,
+            &FileRecoveryCommand::Export {
+                recovery_id: id.into(),
+                conversation_id: conversation.into(),
+                entry: 0,
+                offset,
+            },
+            now,
+        )? {
+            FileRecoveryOutcome::ExportChunk {
+                package_revision,
+                total_size,
+                offset,
+                data_base64,
+            } => Ok((
+                package_revision,
+                total_size,
+                offset,
+                base64::engine::general_purpose::STANDARD
+                    .decode(data_base64)
+                    .unwrap(),
+            )),
+            _ => panic!("export chunk expected"),
+        }
+    }
+    /// Pull every chunk; a finished stream frees its export slot.
+    fn download(vault: &mut LockedVault, scope: &Scope, id: &str, now: u64) -> (u64, Vec<u8>) {
+        let mut package = Vec::new();
+        let mut first = None;
+        loop {
+            let (revision, total, offset, data) =
+                export(vault, scope, "conversation", id, package.len() as u64, now).unwrap();
+            assert_eq!(offset, package.len() as u64);
+            assert!(data.len() <= MAX_EXPORT_CHUNK_BYTES);
+            assert_eq!(*first.get_or_insert((revision, total)), (revision, total));
+            package.extend(data);
+            if package.len() as u64 == total {
+                return (revision, package);
+            }
+        }
+    }
+    #[test]
+    fn chunked_export_reassembles_one_revision_and_lists_entries() {
+        use std::io::Read;
+        let root = tempfile::tempdir().unwrap();
+        let vault = desk_file_recovery::Vault::open(root.path()).unwrap();
+        let mut v = vault.lock().unwrap();
+        let s = scope();
+        // Incompressible text forces a package larger than one chunk.
+        let mut state = 0x9e37_79b9_u32;
+        let content: Vec<u8> = (0..1_200_000)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                b'a' + (state % 26) as u8
+            })
+            .collect();
+        let saved = backup(&mut v, &s, "conversation", "op", &content);
+        let now = saved.created_at_ms + 1;
+        let (revision, package) = download(&mut v, &s, &saved.id, now);
+        assert!(package.len() > MAX_EXPORT_CHUNK_BYTES);
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(package)).unwrap();
+        let mut before = Vec::new();
+        archive
+            .by_name("before.txt")
+            .unwrap()
+            .read_to_end(&mut before)
+            .unwrap();
+        assert_eq!(before, content);
+        let FileRecoveryOutcome::Entries { page } = execute_locked(
+            &mut v,
+            &s,
+            &FileRecoveryCommand::QueryEntries {
+                recovery_id: saved.id.clone(),
+                conversation_id: "conversation".into(),
+                offset: 0,
+            },
+            now,
+        )
+        .unwrap() else {
+            panic!("entries expected")
+        };
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(page.entries[0].path, "notes.txt");
+        assert!(page.entries[0].export_available);
+        assert!(page.next_offset.is_none());
+        // A retention change bumps the package revision between chunks.
+        v.set_policy(desk_file_recovery::Policy {
+            retention_days: 30,
+            max_bytes: desk_file_recovery::Policy::default().max_bytes,
+        })
+        .unwrap();
+        assert_ne!(download(&mut v, &s, &saved.id, now).0, revision);
+    }
     #[test]
     fn remote_recovery_keeps_old_authorities_and_binds_exports_to_conversations() {
         let root = tempfile::tempdir().unwrap();
         let vault = desk_file_recovery::Vault::open(root.path()).unwrap();
         let mut v = vault.lock().unwrap();
         let s = scope();
-        let saved = v
-            .backup(desk_file_recovery::BackupRequest {
-                scope: s.clone(),
-                conversation: "conversation",
-                operation: "op",
-                generation: "g",
-                file_name: "notes.txt",
-                content: b"before",
-                metadata: b"{}",
-                now_ms: 1000,
-            })
-            .unwrap();
-        let wrong_conversation = FileRecoveryCommand::Export {
-            recovery_id: saved.id.clone(),
-            conversation_id: "other".into(),
-        };
+        let saved = backup(&mut v, &s, "conversation", "op", b"before");
+        let now = saved.created_at_ms;
         assert!(matches!(
-            execute_locked(&mut v, &s, &wrong_conversation, 1001),
+            export(&mut v, &s, "other", &saved.id, 0, now + 1),
             Err(FileRecoveryFailure::MaterialUnavailable)
         ));
         let mut changed = s.clone();
@@ -963,19 +1035,11 @@ mod tests {
                 &FileRecoveryCommand::DeleteConversation {
                     conversation_id: "conversation".into()
                 },
-                1001
+                now + 1
             ),
             Err(FileRecoveryFailure::IdentityChanged)
         ));
-        assert!(v.export_package(&s, &saved.id, 1002).is_ok());
-        let download = FileRecoveryCommand::Export {
-            recovery_id: saved.id.clone(),
-            conversation_id: "conversation".into(),
-        };
-        assert!(matches!(
-            execute_locked(&mut v, &s, &download, 1002),
-            Ok(FileRecoveryOutcome::Export { .. })
-        ));
+        assert!(export(&mut v, &s, "conversation", &saved.id, 0, now + 2).is_ok());
         assert!(matches!(
             execute_locked(
                 &mut v,
@@ -983,12 +1047,16 @@ mod tests {
                 &FileRecoveryCommand::DeleteConversation {
                     conversation_id: "conversation".into()
                 },
-                1003
+                now + 3
             ),
-            Ok(FileRecoveryOutcome::Deleted { complete: true })
+            Ok(FileRecoveryOutcome::Deleted { complete: false })
         ));
+        // Completion waits for the device quota to accept the swept usage.
+        let usage = v.usage_report();
+        v.acknowledge_settlement(&usage).unwrap();
+        assert!(v.cleanup_complete(&s, "conversation"));
         assert!(matches!(
-            execute_locked(&mut v, &s, &download, 1004),
+            export(&mut v, &s, "conversation", &saved.id, 0, now + 4),
             Err(FileRecoveryFailure::MaterialUnavailable)
         ));
     }

@@ -490,74 +490,89 @@ fn private_index_failure_after_rename_attempt_blocks_writes_until_reopen() {
 }
 
 #[test]
-fn record_cleanup_removes_only_selected_material_and_can_resume() {
+fn objects_are_published_by_rename_into_private_subdirectories() {
     let root = tempfile::tempdir().unwrap();
     let parent = directory(root.path());
     let vault = PrivateDirectory::open_or_create(&parent, "vault").unwrap();
     let lock = vault.try_lock().unwrap().unwrap();
-    let id = "a".repeat(64);
-    let other = format!("{}.body", "b".repeat(64));
-    lock.write_index(b"purging record").unwrap();
-    lock.create_new(&other, b"other record").unwrap();
-    lock.create_new("index-pending-retained", b"unresolved index")
-        .unwrap();
-    for suffix in ["body", "metadata", "body.tmp", "metadata.tmp"] {
-        lock.create_new(&format!("{id}.{suffix}"), b"backup")
-            .unwrap();
-    }
-    let metadata = root.path().join(format!("vault/{id}.metadata"));
-    let writer = OpenOptions::new().write(true).open(&metadata).unwrap();
-    assert!(lock.remove_record_material(&id).is_err());
-    // A failure after deleting the body must preserve the remaining materials.
-    assert!(!root.path().join(format!("vault/{id}.body")).exists());
-    assert_eq!(fs::read(&metadata).unwrap(), b"backup");
-    drop(writer);
-    let reader = OpenOptions::new()
-        .read(true)
-        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
-        .open(&metadata)
-        .unwrap();
-    // Even a delete-sharing reader must not outlive a successful cleanup receipt.
-    assert!(lock.remove_record_material(&id).is_err());
-    assert_eq!(fs::read(&metadata).unwrap(), b"backup");
-    drop(reader);
-    lock.remove_record_material(&id).unwrap();
-    lock.remove_record_material(&id).unwrap();
-    for suffix in ["body", "metadata", "body.tmp", "metadata.tmp"] {
-        assert!(!root.path().join(format!("vault/{id}.{suffix}")).exists());
-    }
-    assert_eq!(lock.read("index.json", 100).unwrap(), b"purging record");
-    assert_eq!(lock.read(&other, 100).unwrap(), b"other record");
+    let namespace = "b".repeat(128);
+    let name = "a".repeat(64);
+    assert!(lock.list_namespaces().unwrap().is_empty());
     assert_eq!(
-        lock.read("index-pending-retained", 100).unwrap(),
-        b"unresolved index"
+        lock.publish_object(&namespace, &name, b"first").unwrap(),
+        None
     );
-    for invalid in ["index", "../index.json", "", &"A".repeat(64)] {
-        assert!(lock.remove_record_material(invalid).is_err());
+    // Republishing an unreferenced name replaces it through the same rename.
+    assert_eq!(
+        lock.publish_object(&namespace, &name, b"second").unwrap(),
+        Some(5)
+    );
+    assert_eq!(lock.read_object(&namespace, &name, 100).unwrap(), b"second");
+    assert!(lock.read_object(&namespace, &name, 3).is_err());
+    let user = security::current_user().unwrap();
+    let objects = root.path().join("vault/objects");
+    let namespace_path = objects.join(&namespace);
+    for path in [&objects, &namespace_path, &namespace_path.join("tmp")] {
+        security::validate_private(&directory(path), &user).unwrap();
     }
+    security::validate_private_file(&File::open(namespace_path.join(&name)).unwrap(), &user)
+        .unwrap();
+    assert_eq!(fs::read_dir(namespace_path.join("tmp")).unwrap().count(), 0);
+    assert_eq!(lock.list_namespaces().unwrap(), vec![namespace.clone()]);
+    assert_eq!(
+        lock.list_objects(&namespace).unwrap(),
+        vec![(name.clone(), 6)]
+    );
+    fs::write(namespace_path.join("tmp/leftover"), b"partial").unwrap();
+    lock.clear_temporary(&namespace).unwrap();
+    assert_eq!(fs::read_dir(namespace_path.join("tmp")).unwrap().count(), 0);
+    assert_eq!(lock.read_object(&namespace, &name, 100).unwrap(), b"second");
+    lock.remove_object(&namespace, &name).unwrap();
+    assert!(lock.list_objects(&namespace).unwrap().is_empty());
+    assert_eq!(
+        lock.read_object(&namespace, &name, 100).unwrap_err().kind(),
+        std::io::ErrorKind::NotFound
+    );
+    for invalid in ["", "../escape", &"A".repeat(64)] {
+        assert!(lock.publish_object(&namespace, invalid, b"x").is_err());
+    }
+    assert!(lock.publish_object("namespace", &name, b"x").is_err());
 }
 
 #[test]
-fn record_cleanup_rejects_hardlinked_or_untrusted_material() {
+fn object_reads_and_removal_reject_linked_busy_or_untrusted_material() {
     let root = tempfile::tempdir().unwrap();
     let parent = directory(root.path());
     let vault = PrivateDirectory::open_or_create(&parent, "vault").unwrap();
     let lock = vault.try_lock().unwrap().unwrap();
-    let id = "a".repeat(64);
-    let name = format!("{id}.body");
-    lock.create_new(&name, b"backup").unwrap();
-    let path = root.path().join("vault").join(&name);
+    let namespace = "c".repeat(128);
+    let name = "d".repeat(64);
+    lock.publish_object(&namespace, &name, b"backup").unwrap();
+    let path = root
+        .path()
+        .join("vault/objects")
+        .join(&namespace)
+        .join(&name);
     fs::hard_link(&path, root.path().join("alias")).unwrap();
-    assert!(lock.remove_record_material(&id).is_err());
-    assert_eq!(fs::read(&path).unwrap(), b"backup");
+    assert!(lock.read_object(&namespace, &name, 100).is_err());
+    assert!(lock.remove_object(&namespace, &name).is_err());
     assert_eq!(fs::read(root.path().join("alias")).unwrap(), b"backup");
     fs::remove_file(root.path().join("alias")).unwrap();
-    lock.remove_record_material(&id).unwrap();
+    let reader = OpenOptions::new()
+        .read(true)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
+        .open(&path)
+        .unwrap();
+    assert!(lock.remove_object(&namespace, &name).is_err());
+    drop(reader);
+    lock.remove_object(&namespace, &name).unwrap();
     let outside = root.path().join("outside");
     fs::write(&outside, b"not a private backup").unwrap();
     fs::rename(&outside, &path).unwrap();
-    assert!(lock.remove_record_material(&id).is_err());
-    assert_eq!(fs::read(&path).unwrap(), b"not a private backup");
+    assert!(lock.read_object(&namespace, &name, 100).is_err());
+    // Publication replaces a foreign entry with a private object.
+    lock.publish_object(&namespace, &name, b"backup").unwrap();
+    assert_eq!(lock.read_object(&namespace, &name, 100).unwrap(), b"backup");
 }
 
 #[test]

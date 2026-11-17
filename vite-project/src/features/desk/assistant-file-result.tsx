@@ -6,8 +6,9 @@ import { useTranslation } from 'react-i18next';
 import { useRef, useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { TextFileChangeView, validTextEdits, type TextEditReview } from './ai-assistant-file-confirmation';
 
-type FileReceipt = { operation: 'create' | 'update' | 'delete'; verified: boolean; fileName?: string; bytes?: number; digest?: string; referenceUnavailable?: boolean; recovery?: { id: string; expiresAt: number; cleanupPending: boolean } };
+type FileReceipt = { operation: 'create' | 'update' | 'delete' | 'restore'; verified: boolean; fileName?: string; bytes?: number; digest?: string; referenceUnavailable?: boolean; recovery?: { id: string; expiresAt: number; cleanupPending: boolean } };
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const digest = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 
@@ -28,10 +29,12 @@ export function parseFileReceipt(text: string): FileReceipt | null {
             && Number.isSafeInteger(value.size_bytes) && (value.size_bytes as number) >= 0) {
             return { operation: 'create', verified: true, fileName: value.file_name, bytes: value.size_bytes as number, digest: value.digest_sha256 };
         }
-        if (completion.output.kind !== 'text_file_mutation' || !['update', 'delete'].includes(String(value.operation))
+        // Only a restore that recreated a missing file has no previous content.
+        const recreated = value.operation === 'restore' && value.original_sha256 == null && value.original_size_bytes === 0;
+        if (completion.output.kind !== 'text_file_mutation' || !['update', 'delete', 'restore'].includes(String(value.operation))
             || typeof value.original_file_name !== 'string' || !value.original_file_name
             || !Number.isSafeInteger(value.original_size_bytes) || (value.original_size_bytes as number) < 0
-            || typeof value.verified !== 'boolean' || !digest(value.original_sha256)
+            || typeof value.verified !== 'boolean' || !(recreated || digest(value.original_sha256))
             || !record(value.recovery) || !digest(value.recovery.recovery_id)
             || !Number.isSafeInteger(value.recovery.created_at_unix_ms) || (value.recovery.created_at_unix_ms as number) <= 0
             || !Number.isSafeInteger(value.recovery.expires_at_unix_ms) || (value.recovery.expires_at_unix_ms as number) > 8.64e15
@@ -40,18 +43,34 @@ export function parseFileReceipt(text: string): FileReceipt | null {
             || completion.result !== (value.verified ? 'verified' : 'outcome_unknown')) return null;
         const recovery = { id: value.recovery.recovery_id, expiresAt: value.recovery.expires_at_unix_ms as number, cleanupPending: value.recovery.cleanup_pending };
         const updated = value.updated_file;
-        if (value.verified && value.operation === 'update') {
-            if (updated === null || updated === undefined) return { operation: 'update', verified: true, fileName: value.original_file_name, recovery, referenceUnavailable: true };
+        const operation = value.operation as 'update' | 'delete' | 'restore';
+        if (value.verified && operation !== 'delete' && updated != null) {
             if (!record(updated) || typeof updated.file_name !== 'string' || !digest(updated.digest_sha256)
                 || !Number.isSafeInteger(updated.size_bytes) || (updated.size_bytes as number) < 0) return null;
-            return { operation: 'update', verified: true, fileName: updated.file_name, bytes: updated.size_bytes as number, digest: updated.digest_sha256, recovery };
+            return { operation, verified: true, fileName: updated.file_name, bytes: updated.size_bytes as number, digest: updated.digest_sha256, recovery };
         }
-        if (updated !== null && updated !== undefined) return null;
-        return { operation: value.operation as 'update' | 'delete', verified: value.verified, fileName: value.original_file_name, bytes: value.original_size_bytes as number, digest: value.original_sha256, recovery };
+        if (value.verified && operation === 'update') return { operation, verified: true, fileName: value.original_file_name, recovery, referenceUnavailable: true };
+        if (updated != null) return null;
+        return { operation, verified: value.verified, fileName: value.original_file_name, recovery,
+            ...(recreated ? {} : { bytes: value.original_size_bytes as number, digest: value.original_sha256 as string }) };
     } catch { return null; }
 }
 
-export function AssistantFileResult({ receipt, text, onExportBackup }: { receipt: FileReceipt; text: string; onExportBackup?: (id: string) => Promise<void> }) {
+export type TextFileChange = { edits?: TextEditReview[]; write?: string };
+
+/** The exact change of an `update_text_file` call, from its arguments. */
+export function parseTextFileChange(argumentsJson: string): TextFileChange | null {
+    try {
+        const args: unknown = JSON.parse(argumentsJson);
+        if (!record(args) || !record(args.change)) return null;
+        const change = args.change;
+        if (change.kind === 'edit') return validTextEdits(change.edits) ? { edits: change.edits } : null;
+        if (change.kind === 'write') return typeof change.content_utf8 === 'string' ? { write: change.content_utf8 } : null;
+        return null;
+    } catch { return null; }
+}
+
+export function AssistantFileResult({ receipt, text, change, onExportBackup }: { receipt: FileReceipt; text: string; change?: TextFileChange | null; onExportBackup?: (id: string) => Promise<void> }) {
     const { t } = useTranslation();
     const busyRef = useRef(false);
     const [exporting, setExporting] = useState(false);
@@ -71,6 +90,8 @@ export function AssistantFileResult({ receipt, text, onExportBackup }: { receipt
             {receipt.bytes !== undefined && <div><dt>{t('pages.aiAssistant.fileReceipt.bytes')}</dt><dd>{receipt.bytes}</dd></div>}
             {receipt.digest && <div><dt>SHA-256</dt><dd className="break-all font-mono text-xs">{receipt.digest}</dd></div>}
             {receipt.referenceUnavailable && <p>{t('pages.aiAssistant.fileReceipt.referenceUnavailable')}</p>}
+            {change && receipt.operation === 'update' && <TextFileChangeView edits={change.edits} write={change.write} />}
+            {receipt.recovery && receipt.verified && <p>{t('pages.aiAssistant.fileReceipt.restorable')}</p>}
             {receipt.recovery && <div><dt>{t('pages.aiAssistant.fileReceipt.recovery')}</dt><dd>{t('pages.aiAssistant.fileReceipt.backupUntil', { time: formatLocalTime(new Date(receipt.recovery.expiresAt).toISOString()) })}</dd><p className="mt-1 text-xs text-muted-foreground">{t('pages.aiAssistant.fileReceipt.recoveryHint')}</p>{receipt.recovery.cleanupPending && <p className="text-amber-700 dark:text-amber-300">{t('pages.aiAssistant.fileReceipt.cleanupPending')}</p>}</div>}
             {!receipt.verified && <p className="text-amber-700 dark:text-amber-300">{t('pages.aiAssistant.fileReceipt.unknownHint')}</p>}
         </dl>

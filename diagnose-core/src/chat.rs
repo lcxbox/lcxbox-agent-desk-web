@@ -147,6 +147,7 @@ pub fn frame_file_tool_result(message: &ChatMessage) -> String {
                 | crate::tool_names::CREATE_TEXT_FILE
                 | crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
                 | crate::provider_preflight::text_file::DELETE_TEXT_TOOL
+                | crate::provider_preflight::text_file::RESTORE_TEXT_TOOL
         )
     ) && let Some(id) = &message.tool_call_id
     {

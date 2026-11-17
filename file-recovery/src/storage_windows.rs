@@ -32,12 +32,6 @@ impl Locked {
     pub fn write_index(&self, bytes: &[u8]) -> io::Result<()> {
         self.0.write_index(bytes).map_err(io::Error::other)
     }
-    pub fn write_material(&self, leaf: &str, bytes: &[u8]) -> io::Result<()> {
-        self.0.create_new(leaf, bytes)
-    }
-    pub fn remove_record_material(&self, id: &str) -> io::Result<()> {
-        self.0.remove_record_material(id)
-    }
     pub fn extra_used_bytes(&self) -> io::Result<u64> {
         Ok(self.0.pending_index_inventory()?.bytes)
     }
@@ -48,6 +42,35 @@ impl Locked {
             ));
         }
         Ok(())
+    }
+    pub fn publish_object(
+        &self,
+        namespace: &str,
+        name: &str,
+        bytes: &[u8],
+    ) -> io::Result<Option<u64>> {
+        self.0.publish_object(namespace, name, bytes)
+    }
+    pub fn object_exists(&self, namespace: &str, name: &str) -> io::Result<bool> {
+        self.0.object_exists(namespace, name)
+    }
+    pub fn read_object(&self, namespace: &str, name: &str, limit: u64) -> io::Result<Vec<u8>> {
+        self.0.read_object(namespace, name, limit)
+    }
+    pub fn remove_object(&self, namespace: &str, name: &str) -> io::Result<()> {
+        self.0.remove_object(namespace, name)
+    }
+    pub fn list_namespaces(&self) -> io::Result<Vec<String>> {
+        self.0.list_namespaces()
+    }
+    pub fn list_objects(&self, namespace: &str) -> io::Result<Vec<(String, u64)>> {
+        self.0.list_objects(namespace)
+    }
+    pub fn clear_temporary(&self, namespace: &str) -> io::Result<()> {
+        self.0.clear_temporary(namespace)
+    }
+    pub fn remove_legacy_material(&self) -> io::Result<()> {
+        self.0.remove_legacy_material()
     }
 }
 
@@ -92,7 +115,8 @@ mod tests {
         let baseline = locked.used_bytes();
         locked
             .storage
-            .write_material("index-pending-retained", b"retained")
+            .0
+            .create_new("index-pending-retained", b"retained")
             .unwrap();
         assert_eq!(locked.used_bytes(), baseline + 8);
         drop(locked);

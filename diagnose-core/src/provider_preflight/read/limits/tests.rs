@@ -67,6 +67,12 @@ fn read_output_limits_count_wire_bytes_and_actual_projections() {
         content_utf8: "中文".into(),
         byte_len: 6,
         sha256: "a".repeat(64),
+        total_lines: 1,
+        start_line: 1,
+        end_line: 1,
+        truncated: false,
+        next_start_byte: None,
+        matches: vec![],
     }));
     let text_call = call("read_text_file");
     let bytes = text.content.len() as u64;

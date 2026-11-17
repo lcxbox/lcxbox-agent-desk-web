@@ -140,6 +140,8 @@ fn local_recovery_stays_in_user_worker_ipc_and_redacts_export_debug() {
         deadline_unix_ms: 30_000,
         command: LocalFileRecoveryCommand::Export {
             recovery_id: "a".repeat(64),
+            entry: 0,
+            offset: 524_288,
         },
     });
     assert!(request.allowed_for_profile(WorkerProfile::SessionUser));
@@ -150,11 +152,32 @@ fn local_recovery_stays_in_user_worker_ipc_and_redacts_export_debug() {
     assert_eq!(decoded.session_id, 4);
     assert_eq!(decoded.os_user, "S-1-5-21-100-200-300-1001");
     assert!(decoded.command.validate().is_ok());
+    assert!(matches!(
+        decoded.command,
+        LocalFileRecoveryCommand::Export {
+            entry: 0,
+            offset: 524_288,
+            ..
+        }
+    ));
+    assert!(
+        LocalFileRecoveryCommand::Export {
+            recovery_id: "a".repeat(64),
+            entry: 0,
+            offset: desk_agent_protocol::file_recovery::MAX_EXPORT_PACKAGE_BYTES,
+        }
+        .validate()
+        .is_err()
+    );
+    let chunk = LocalExportChunk {
+        package_revision: 3,
+        total_size: 600_000,
+        offset: 524_288,
+        data: b"private backup material".to_vec(),
+    };
     let reply = WorkerToService::LocalFileRecoveryManaged(LocalFileRecoveryReply {
         request_id: decoded.request_id,
-        outcome: Ok(LocalFileRecoveryOutcome::Export(
-            b"private backup material".to_vec(),
-        )),
+        outcome: Ok(LocalFileRecoveryOutcome::ExportChunk(chunk.clone())),
     });
     assert!(reply.connection_id().is_none());
     assert!(reply.allowed_for_profile(WorkerProfile::SessionUser));
@@ -163,10 +186,7 @@ fn local_recovery_stays_in_user_worker_ipc_and_redacts_export_debug() {
     let WorkerToService::LocalFileRecoveryManaged(decoded) = wincode_round_trip(&reply) else {
         panic!("wrong reply variant")
     };
-    assert_eq!(
-        decoded.outcome.unwrap().into_export().unwrap(),
-        b"private backup material"
-    );
+    assert!(decoded.outcome.unwrap().into_export_chunk().unwrap() == chunk);
 }
 
 #[test]
@@ -2968,21 +2988,20 @@ fn file_recovery_ipc_carries_only_daemon_bound_owner_context() {
 
 #[test]
 fn file_recovery_quota_rpc_round_trip_preserves_identity_and_never_allows_restricted_desktops() {
+    let identity = FileRecoveryQuotaIdentity {
+        execution_epoch: 0,
+        authority: "authority".into(),
+        device: "device".into(),
+        owner: "owner".into(),
+        conversation: "conversation".into(),
+        operation: "operation".into(),
+    };
     let request = WorkerToService::FileRecoveryQuotaRequested(FileRecoveryQuotaRequest {
         request_id: "quota".into(),
         os_user: "501".into(),
         command: FileRecoveryQuotaCommand::Reserve {
-            identity: FileRecoveryQuotaIdentity {
-                execution_epoch: 0,
-                authority: "authority".into(),
-                device: "device".into(),
-                owner: "owner".into(),
-                conversation: "conversation".into(),
-                operation: "operation".into(),
-                generation: "generation".into(),
-            },
+            identity: identity.clone(),
             bytes: 123,
-            execution_deadline_ms: 456,
         },
     });
     assert!(!request.allowed_for_profile(WorkerProfile::RestrictedDesktop));
@@ -2990,6 +3009,53 @@ fn file_recovery_quota_rpc_round_trip_preserves_identity_and_never_allows_restri
     assert!(
         matches!(wincode_round_trip(&request), WorkerToService::FileRecoveryQuotaRequested(FileRecoveryQuotaRequest { os_user, command: FileRecoveryQuotaCommand::Reserve { bytes: 123, .. }, .. }) if os_user == "501")
     );
+    let usage = FileRecoveryUsage {
+        vault_instance_id: "v".repeat(64),
+        revision: 9,
+        ledger_bytes: 700,
+        namespaces: BTreeMap::from([("n".repeat(128), 8192)]),
+    };
+    let settle = WorkerToService::FileRecoveryQuotaRequested(FileRecoveryQuotaRequest {
+        request_id: "settle".into(),
+        os_user: "501".into(),
+        command: FileRecoveryQuotaCommand::Settle {
+            identity: Some(identity),
+            usage: usage.clone(),
+        },
+    });
+    let WorkerToService::FileRecoveryQuotaRequested(FileRecoveryQuotaRequest {
+        command:
+            FileRecoveryQuotaCommand::Settle {
+                identity: Some(decoded_identity),
+                usage: decoded_usage,
+            },
+        ..
+    }) = wincode_round_trip(&settle)
+    else {
+        panic!("settlement expected")
+    };
+    assert_eq!(decoded_identity.operation, "operation");
+    assert_eq!(decoded_usage, usage);
+    let finish = WorkerToService::FileRecoveryQuotaRequested(FileRecoveryQuotaRequest {
+        request_id: "finish".into(),
+        os_user: "501".into(),
+        command: FileRecoveryQuotaCommand::FinishEpochCleanup {
+            epoch: 2,
+            vault_instance_id: usage.vault_instance_id.clone(),
+            revision: 9,
+        },
+    });
+    assert!(matches!(
+        wincode_round_trip(&finish),
+        WorkerToService::FileRecoveryQuotaRequested(FileRecoveryQuotaRequest {
+            command: FileRecoveryQuotaCommand::FinishEpochCleanup {
+                epoch: 2,
+                revision: 9,
+                ..
+            },
+            ..
+        })
+    ));
     let reply = ServiceToWorker::FileRecoveryQuotaReplied(FileRecoveryQuotaReply {
         request_id: "quota".into(),
         outcome: FileRecoveryQuotaOutcome::CapacityExceeded,
@@ -2998,6 +3064,17 @@ fn file_recovery_quota_rpc_round_trip_preserves_identity_and_never_allows_restri
         wincode_round_trip(&reply),
         ServiceToWorker::FileRecoveryQuotaReplied(FileRecoveryQuotaReply {
             outcome: FileRecoveryQuotaOutcome::CapacityExceeded,
+            ..
+        })
+    ));
+    let settled = ServiceToWorker::FileRecoveryQuotaReplied(FileRecoveryQuotaReply {
+        request_id: "settle".into(),
+        outcome: FileRecoveryQuotaOutcome::Settled { applied: true },
+    });
+    assert!(matches!(
+        wincode_round_trip(&settled),
+        ServiceToWorker::FileRecoveryQuotaReplied(FileRecoveryQuotaReply {
+            outcome: FileRecoveryQuotaOutcome::Settled { applied: true },
             ..
         })
     ));

@@ -147,6 +147,8 @@ pub const BRAVE_WEB_SEARCH_CONNECTOR_ID: &str = crate::web_research::BRAVE_WEB_S
 pub const FILE_ARTIFACT_CREATE_CAPABILITY_ID: &str = "file.artifact.create";
 pub const TEXT_FILE_UPDATE_CAPABILITY_ID: &str = "file.text.update";
 pub const TEXT_FILE_DELETE_CAPABILITY_ID: &str = "file.text.delete";
+/// Restores reuse the update device capability: both rewrite one approved file.
+pub const TEXT_FILE_RESTORE_CAPABILITY_ID: &str = "file.text.restore";
 pub const DOCUMENT_PREVIEW_CAPABILITY_ID: &str = "document.preview";
 pub const DOCUMENT_CONVERT_CAPABILITY_ID: &str = "document.convert.confirmed";
 pub const LOCAL_COMMUNICATION_DRAFT_CREATE_CAPABILITY_ID: &str = "communication.local_draft.create";
@@ -878,6 +880,15 @@ pub fn provider_readiness_reports(
             adapter_id,
             &entry.adapter.version,
         )?);
+        if entry.capability == Capability::FilePatchConfirmed {
+            reports.push(make_report(
+                entry,
+                TEXT_FILE_PROVIDER_ID,
+                TEXT_FILE_RESTORE_CAPABILITY_ID,
+                adapter_id,
+                &entry.adapter.version,
+            )?);
+        }
     }
     Ok(reports)
 }
@@ -3205,6 +3216,31 @@ fn build_ai_assistant_provider_registry() -> ProviderRegistry {
             text_tools.next().expect("delete text tool"),
         ),
     );
+    let text_files = merge_provider_capabilities(
+        text_files,
+        provider_for_tool(
+            TargetBinding::RequestDevice,
+            crate::tool_exposure::ExposureRequirement::NoAttachment,
+            TEXT_FILE_PROVIDER_ID,
+            TEXT_FILE_RESTORE_CAPABILITY_ID,
+            "assistant.capability.fileTextRestore",
+            vec![
+                TEXT_FILE_ADAPTER_ID.into(),
+                windows_text::ADAPTER_ID.into(),
+                linux::TEXT_ADAPTER_ID.into(),
+            ],
+            ExecutionLocality::Edge,
+            CapabilityEffect::WriteArtifact,
+            1,
+            Vec::new(),
+            vec![
+                CapabilityDataCategory::UserRequest,
+                CapabilityDataCategory::FileMetadata,
+            ],
+            vec![AuthorizationResourceKind::FreshObjectReference],
+            text_tools.next().expect("restore text tool"),
+        ),
+    );
     let local_communication_draft = provider_for_tool(
         TargetBinding::RequestDevice,
         crate::tool_exposure::ExposureRequirement::NoAttachment,
@@ -3789,6 +3825,7 @@ pub fn ai_assistant_edge_adapter_registry() -> EdgeAdapterRegistry {
             capability_ids: vec![
                 TEXT_FILE_UPDATE_CAPABILITY_ID.into(),
                 TEXT_FILE_DELETE_CAPABILITY_ID.into(),
+                TEXT_FILE_RESTORE_CAPABILITY_ID.into(),
             ],
             limits: providers
                 .capability(TEXT_FILE_UPDATE_CAPABILITY_ID)
@@ -3938,6 +3975,7 @@ const FILES: &[&str] = &[
     crate::tool_names::READ_TEXT_FILE,
     crate::provider_preflight::text_file::UPDATE_TEXT_TOOL,
     crate::provider_preflight::text_file::DELETE_TEXT_TOOL,
+    crate::provider_preflight::text_file::RESTORE_TEXT_TOOL,
 ];
 const SHEETS: &[&str] = &[
     crate::tool_names::INSPECT_SPREADSHEETS,
@@ -3973,6 +4011,7 @@ const FILE_OPS: &[&str] = &[
     crate::tool_names::READ_TEXT_FILE,
     crate::provider_preflight::text_file::UPDATE_TEXT_TOOL,
     crate::provider_preflight::text_file::DELETE_TEXT_TOOL,
+    crate::provider_preflight::text_file::RESTORE_TEXT_TOOL,
     crate::tool_names::CREATE_TEXT_FILE,
     "create_workbook",
     "create_formula_workbook",
@@ -4083,7 +4122,7 @@ const PROMPT_FRAGMENTS: &[(Option<&[&str]>, &str)] = &[
     ),
     (
         Some(FILE_OPS),
-        "\n\nFile operations require the device Computer Use master switch and a currently approved conversation directory. Use request_directory to propose a missing directory; the owner can also add one in this conversation. Directory consent is not file read, write, delete, or export permission: each operation is approved when called. Use only current server directory metadata, never infer approval from old messages. File creation allows empty UTF-8 content, is limited to 64 KiB, and never overwrites existing files. Read only for missing content or a reported version conflict; metadata grants do not authorize content reading. Device verification already checks a successful update, so do not offer another read solely to confirm that success.",
+        "\n\nFile operations require the device Computer Use master switch and a currently approved conversation directory. Use request_directory to propose a missing directory; the owner can also add one in this conversation. Directory consent is not file read, write, delete, or export permission: each operation is approved when called. Use only current server directory metadata, never infer approval from old messages. File creation allows empty UTF-8 content, is limited to 64 KiB, and never overwrites existing files. Existing text files up to 16 MiB are read in 64 KiB windows (line range, byte continuation or search) and changed with up to 32 exact edits per update_text_file call. Every AI update, deletion and restore keeps a backup; restore_text_file with that result's mutation_result_id puts the file back when the owner asks to undo. Read only for missing content or a reported version conflict; metadata grants do not authorize content reading. Device verification already checks a successful update, so do not offer another read solely to confirm that success.",
     ),
     (Some(DESKTOP), linux::PROMPT_GUIDANCE),
     (None, crate::wait_tools::BACKGROUND_TASK_GUIDANCE),
@@ -4589,7 +4628,7 @@ mod tests {
     #[test]
     fn registry_contains_reads_preview_and_bounded_artifact_create() {
         let tools = ai_assistant_provider_registry().registered_tools();
-        assert_eq!(tools.len(), 63);
+        assert_eq!(tools.len(), 64);
         assert_eq!(
             tools
                 .iter()
@@ -4627,6 +4666,7 @@ mod tests {
                     "replace_live_document_body",
                     "replace_pages_copy_body",
                     "replace_word_copy_body",
+                    "restore_text_file",
                     "send_gmail_message",
                     "send_slack_message",
                     "update_text_file",
@@ -5280,6 +5320,7 @@ mod tests {
                 "read_text_file",
                 "read_service_status",
                 "read_system_info",
+                "restore_text_file",
                 "search_public_web",
                 "update_text_file",
             ];
@@ -5334,6 +5375,7 @@ mod tests {
                 "read_text_file",
                 "read_service_status",
                 "read_system_info",
+                "restore_text_file",
                 "search_public_web",
                 "update_text_file",
             ];

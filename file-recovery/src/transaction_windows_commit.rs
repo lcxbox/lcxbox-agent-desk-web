@@ -14,7 +14,6 @@ pub struct WindowsCommitRequest<'a> {
     pub directory: &'a PrivateDirectory,
     pub source: &'a SourceSnapshot,
     pub replacement: Option<&'a StagedReplacement>,
-    pub now_ms: u64,
 }
 #[derive(Debug)]
 pub struct WindowsCommitError {
@@ -35,6 +34,10 @@ impl std::error::Error for WindowsCommitError {
 impl LockedVault {
     /// The caller holds its device quota, execution epoch and exact authorization
     /// lane throughout. `guard` rechecks that lane before each visible move.
+    /// Success means both moves completed; the caller then drops its source,
+    /// staging and directory handles and calls `finish(Succeeded)`, which
+    /// records the outcome and removes the transaction directory in one ledger
+    /// write. Until then the durable CommitIntent recovers as an unknown outcome.
     pub fn commit_windows_transaction(
         &mut self,
         request: WindowsCommitRequest<'_>,
@@ -47,7 +50,6 @@ impl LockedVault {
             directory,
             source,
             replacement,
-            now_ms,
         } = request;
         let mut attempted = false;
         let result = (|| -> io::Result<()> {
@@ -55,16 +57,18 @@ impl LockedVault {
             guard()?;
             source.revalidate()?;
             directory.validate()?;
-            let (record, content, metadata) = self.export(scope, id, now_ms)?;
+            let record = self
+                .record(scope, id)
+                .ok_or_else(|| invalid("Windows commit backup is unavailable"))?
+                .clone();
             if record.change != ChangeState::BackupReady
-                || record.file_name != source.file_name()
-                || content != source.content()
-                || metadata != source.metadata()?
+                || record.file_name() != Some(source.file_name())
             {
                 return Err(invalid(
                     "Windows commit backup no longer matches its source",
                 ));
             }
+            let file_name = source.file_name().to_owned();
             let tx = record
                 .transaction
                 .as_ref()
@@ -118,7 +122,7 @@ impl LockedVault {
                     staged.identity(),
                     parent,
                     parent_identity,
-                    &record.file_name,
+                    &file_name,
                 )
                 .map_err(io::Error::other)?;
                 source.finish_replacement_metadata(staged)?;
@@ -126,7 +130,7 @@ impl LockedVault {
             parent.sync_all()?;
             directory.validate()?;
             source.revalidate_after_owned_move()?;
-            self.transition(scope, id, ChangeState::Succeeded)
+            Ok(())
         })();
         result.map_err(|source| WindowsCommitError {
             outcome: if attempted {

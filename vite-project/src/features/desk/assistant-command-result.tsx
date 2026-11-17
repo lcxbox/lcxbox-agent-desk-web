@@ -4,7 +4,7 @@ import { AssistantCodeBlock } from './assistant-code-block';
 import { Disclosure } from '@/components/ui/disclosure';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AssistantFileResult, parseFileReceipt } from './assistant-file-result';
+import { AssistantFileResult, parseFileReceipt, parseTextFileChange } from './assistant-file-result';
 import { hasUnknownActionResult } from './action-result-status';
 import { AssistantLaunchResult, parseLaunchReceipt } from './assistant-launch-result';
 
@@ -46,6 +46,25 @@ export function parseCommandReceipt(text: string): CommandReceipt | null {
     }
 }
 
+type ReadWindow = { fileName: string; totalLines: number; startLine: number; endLine: number; truncated: boolean; matches: number | null };
+
+/** Window facts of a `read_text_file` result: the selected lines or the search matches. */
+export function parseReadWindow(text: string): ReadWindow | null {
+    try {
+        const envelope: unknown = JSON.parse(text);
+        const value = isRecord(envelope) && isRecord(envelope.ReadContext) ? envelope.ReadContext.FileContentRead : null;
+        if (!isRecord(value) || typeof value.display_name !== 'string' || typeof value.content_utf8 !== 'string'
+            || typeof value.truncated !== 'boolean' || !Array.isArray(value.matches)
+            || ![value.total_lines, value.start_line, value.end_line].every(n => Number.isSafeInteger(n) && (n as number) >= 0)) return null;
+        // A search returns no window; its matches carry the text.
+        const search = value.start_line === 0 && value.content_utf8 === '' && (value.matches.length > 0 || (value.total_lines as number) > 0);
+        return { fileName: value.display_name, totalLines: value.total_lines as number, startLine: value.start_line as number,
+            endLine: value.end_line as number, truncated: value.truncated, matches: search ? value.matches.length : null };
+    } catch {
+        return null;
+    }
+}
+
 export function AssistantCommandResult({ text, tool, onLocateCall, onExportBackup }: {
     text: string;
     tool?: AiAssistantToolActivity;
@@ -63,10 +82,12 @@ export function AssistantCommandResult({ text, tool, onLocateCall, onExportBacku
     }, [tool]);
     const receipt = useMemo(() => parseCommandReceipt(text), [text]);
     const fileReceipt = useMemo(() => parseFileReceipt(text), [text]);
+    const fileChange = useMemo(() => tool?.name === 'update_text_file' ? parseTextFileChange(tool.argumentsJson) : null, [tool]);
     const launchReceipt = useMemo(() => parseLaunchReceipt(text), [text]);
     const outcomeUnknown = useMemo(() => hasUnknownActionResult(text), [text]);
+    const readWindow = useMemo(() => parseReadWindow(text), [text]);
     if (launchReceipt) return <AssistantLaunchResult receipt={launchReceipt} text={text} />;
-    if (fileReceipt) return <AssistantFileResult receipt={fileReceipt} text={text} onExportBackup={onExportBackup} />;
+    if (fileReceipt) return <AssistantFileResult receipt={fileReceipt} text={text} change={fileChange} onExportBackup={onExportBackup} />;
     const output = (label: string, content: string, truncated: boolean) => (
         <div className="min-w-0 space-y-1">
             <AssistantCodeBlock label={label} text={content || t('pages.aiAssistant.commandReceipt.empty')} format="text" />
@@ -88,6 +109,10 @@ export function AssistantCommandResult({ text, tool, onLocateCall, onExportBacku
             </div>}
             <Disclosure className="min-w-0" title={<>
                     {t('pages.aiAssistant.commandResultTitle')}
+                    {readWindow && <span data-testid="read-window" className="font-normal text-muted-foreground"> · {readWindow.fileName} · {readWindow.matches !== null
+                        ? t('pages.aiAssistant.readWindow.matches', { count: readWindow.matches })
+                        : t('pages.aiAssistant.readWindow.lines', { start: readWindow.startLine, end: readWindow.endLine, total: readWindow.totalLines })}
+                        {readWindow.truncated && <> · {t('pages.aiAssistant.readWindow.truncated')}</>}</span>}
                     {outcomeUnknown && <> · {t('pages.aiAssistant.toolCall.inspectBeforeRetry')}</>}
                 </>} summaryClassName="cursor-pointer rounded font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
 

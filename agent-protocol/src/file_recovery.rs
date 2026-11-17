@@ -4,6 +4,13 @@ use utoipa::ToSchema;
 use wincode::{SchemaRead, SchemaWrite};
 
 pub const MANAGEMENT_GRANT: &str = "file.recovery.manage";
+/// Most raw bytes of one export chunk; its base64 form stays well inside one
+/// signaling frame.
+pub const MAX_EXPORT_CHUNK_BYTES: usize = 512 * 1024;
+/// Largest export package a host streams.
+pub const MAX_EXPORT_PACKAGE_BYTES: u64 = 17 * 1024 * 1024;
+/// Entries one entry page lists.
+pub const MAX_ENTRY_PAGE: usize = 100;
 
 #[derive(Debug, Clone, Serialize, Deserialize, SchemaRead, SchemaWrite, ToSchema)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
@@ -29,9 +36,18 @@ pub enum FileRecoveryCommand {
         conversation_id: String,
         confirmed: bool,
     },
+    /// One chunk of the package of one record entry, from `offset`.
     Export {
         recovery_id: String,
         conversation_id: String,
+        entry: u32,
+        offset: u64,
+    },
+    /// One page of a record's entries, from entry index `offset`.
+    QueryEntries {
+        recovery_id: String,
+        conversation_id: String,
+        offset: u32,
     },
 }
 impl FileRecoveryCommand {
@@ -74,6 +90,17 @@ impl FileRecoveryCommand {
             Self::Export {
                 recovery_id,
                 conversation_id,
+                offset,
+                ..
+            } => {
+                record_id(recovery_id)
+                    && identity(conversation_id)
+                    && *offset < MAX_EXPORT_PACKAGE_BYTES
+            }
+            Self::QueryEntries {
+                recovery_id,
+                conversation_id,
+                ..
             } => record_id(recovery_id) && identity(conversation_id),
         };
         if valid {
@@ -107,7 +134,11 @@ pub struct FileRecoveryRecordDto {
     pub file_name: String,
     pub created_at_unix_ms: u64,
     pub expires_at_unix_ms: u64,
+    /// Bytes of objects this record newly stored; objects can be shared with
+    /// other records, so discarding it may free less.
     pub size_bytes: u64,
+    /// Files this record covers; each exports separately.
+    pub entry_count: u32,
     pub change_state: String,
     pub material_state: String,
     pub cleanup_pending: bool,
@@ -128,6 +159,19 @@ pub struct FileRecoveryPageDto {
     pub oldest_pending_at_unix_ms: Option<u64>,
     pub oldest_pending_record: Option<FileRecoveryRecordDto>,
 }
+/// One file of a record.
+#[derive(Debug, Clone, Serialize, Deserialize, SchemaRead, SchemaWrite, ToSchema)]
+pub struct FileRecoveryEntryDto {
+    pub entry: u32,
+    /// Path relative to the record's directory.
+    pub path: String,
+    pub export_available: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, SchemaRead, SchemaWrite, ToSchema)]
+pub struct FileRecoveryEntryPageDto {
+    pub entries: Vec<FileRecoveryEntryDto>,
+    pub next_offset: Option<u32>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, SchemaRead, SchemaWrite, ToSchema)]
 pub struct FileRecoveryCleanupDto {
     pub pending_files: u64,
@@ -139,12 +183,32 @@ pub struct FileRecoveryCleanupDto {
 #[derive(Clone, Serialize, Deserialize, SchemaRead, SchemaWrite, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FileRecoveryOutcome {
-    Page { page: FileRecoveryPageDto },
-    Policy { policy: FileRecoveryPolicyDto },
-    Cleanup { report: FileRecoveryCleanupDto },
-    Deleted { complete: bool },
-    Export { zip_base64: String },
-    Unavailable { reason: FileRecoveryFailure },
+    Page {
+        page: FileRecoveryPageDto,
+    },
+    Policy {
+        policy: FileRecoveryPolicyDto,
+    },
+    Cleanup {
+        report: FileRecoveryCleanupDto,
+    },
+    Deleted {
+        complete: bool,
+    },
+    /// One package chunk. Every chunk of one download carries the same
+    /// revision and total size; a change between chunks ends the download.
+    ExportChunk {
+        package_revision: u64,
+        total_size: u64,
+        offset: u64,
+        data_base64: String,
+    },
+    Entries {
+        page: FileRecoveryEntryPageDto,
+    },
+    Unavailable {
+        reason: FileRecoveryFailure,
+    },
 }
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, SchemaRead, SchemaWrite, ToSchema,
@@ -178,7 +242,8 @@ impl std::fmt::Debug for FileRecoveryOutcome {
             Self::Policy { .. } => "FileRecoveryPolicy",
             Self::Cleanup { .. } => "FileRecoveryCleanup",
             Self::Deleted { .. } => "FileRecoveryDeleted",
-            Self::Export { .. } => "FileRecoveryExport(<private>)",
+            Self::ExportChunk { .. } => "FileRecoveryExportChunk(<private>)",
+            Self::Entries { .. } => "FileRecoveryEntries(<private>)",
             Self::Unavailable { .. } => "FileRecoveryUnavailable",
         })
     }
@@ -253,7 +318,9 @@ mod tests {
         assert!(
             FileRecoveryCommand::Export {
                 recovery_id: "a".repeat(64),
-                conversation_id: String::new()
+                conversation_id: String::new(),
+                entry: 0,
+                offset: 0,
             }
             .validate()
             .is_err()
@@ -261,16 +328,31 @@ mod tests {
         assert!(
             FileRecoveryCommand::Export {
                 recovery_id: "a".repeat(64),
-                conversation_id: "conversation".into()
+                conversation_id: "conversation".into(),
+                entry: 0,
+                offset: 0,
             }
             .validate()
             .is_ok()
         );
+        assert!(
+            FileRecoveryCommand::Export {
+                recovery_id: "a".repeat(64),
+                conversation_id: "conversation".into(),
+                entry: 0,
+                offset: MAX_EXPORT_PACKAGE_BYTES,
+            }
+            .validate()
+            .is_err()
+        );
     }
     #[test]
     fn debug_output_never_includes_backup_content() {
-        let outcome = FileRecoveryOutcome::Export {
-            zip_base64: "private-backup-bytes".into(),
+        let outcome = FileRecoveryOutcome::ExportChunk {
+            package_revision: 1,
+            total_size: 20,
+            offset: 0,
+            data_base64: "private-backup-bytes".into(),
         };
         assert!(!format!("{outcome:?}").contains("private-backup-bytes"));
     }

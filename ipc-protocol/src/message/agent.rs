@@ -1,6 +1,7 @@
 //! Agent capability and sealed execution IPC payloads.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use wincode::{SchemaRead, SchemaWrite};
 
 #[cfg(doc)]
@@ -234,6 +235,8 @@ pub struct FileRecoveryReplyPayload {
 }
 
 /// Private worker/daemon quota RPC. These fields never become model arguments.
+/// The daemon derives the quota key from its authenticated OS user and these
+/// scope fields; `operation` is the vault operation id, not a record id.
 #[derive(Debug, Clone, Serialize, Deserialize, SchemaWrite, SchemaRead)]
 pub struct FileRecoveryQuotaIdentity {
     pub execution_epoch: u64,
@@ -242,32 +245,46 @@ pub struct FileRecoveryQuotaIdentity {
     pub owner: String,
     pub conversation: String,
     pub operation: String,
-    pub generation: String,
 }
+/// Absolute usage of one OS user's vault at `(vault_instance_id, revision)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub struct FileRecoveryUsage {
+    pub vault_instance_id: String,
+    pub revision: u64,
+    pub ledger_bytes: u64,
+    /// Namespace -> block-rounded object bytes plus record bytes.
+    pub namespaces: BTreeMap<String, u64>,
+}
+/// Quota requests are sent while the worker holds its vault lock; the worker
+/// waits for the reply before releasing it.
 #[derive(Debug, Clone, Serialize, Deserialize, SchemaWrite, SchemaRead)]
 pub enum FileRecoveryQuotaCommand {
+    /// Idempotent cumulative reservation of one operation; only grows.
     Reserve {
         identity: FileRecoveryQuotaIdentity,
         bytes: u64,
-        execution_deadline_ms: u64,
     },
+    /// Clearing the reservation always applies; the usage applies only when
+    /// it is newer than the stored report.
     Settle {
-        identity: FileRecoveryQuotaIdentity,
-        bytes: u64,
+        identity: Option<FileRecoveryQuotaIdentity>,
+        usage: FileRecoveryUsage,
     },
-    Release {
-        identity: FileRecoveryQuotaIdentity,
-        retained_index_bytes: u64,
-    },
-    ReleaseNamespace {
-        namespace: String,
+    /// Replace the user's usage and clear reservations not listed as live.
+    Reconcile {
         execution_epoch: u64,
+        usage: FileRecoveryUsage,
+        /// Record ids of operations still in flight.
+        live_operations: Vec<String>,
     },
     BeginEpochCleanup {
         expected_epoch: u64,
     },
+    /// Completes once a reconciliation at or after this vault revision applied.
     FinishEpochCleanup {
-        execution_epoch: u64,
+        epoch: u64,
+        vault_instance_id: String,
+        revision: u64,
     },
     Read,
     SetPolicy {
@@ -286,6 +303,10 @@ pub enum FileRecoveryQuotaOutcome {
     Epoch {
         execution_epoch: u64,
         cleanup_pending: bool,
+    },
+    /// Reply to `Settle`: whether the absolute usage was applied.
+    Settled {
+        applied: bool,
     },
     Applied {
         retention_days: u32,

@@ -36,13 +36,16 @@ const MAX_DIRECTORY_ENTRIES: usize = 256;
 const MAX_DIRECTORY_SCAN_ENTRIES: usize = 100_000;
 const MAX_DIRECTORY_PAGE_CURSORS: usize = 512;
 const DIRECTORY_PAGE_CURSOR_TTL_SECONDS: i64 = 120;
-const MAX_TEXT_READ_BYTES: u32 = 64 * 1024;
+use desk_agent_protocol::computer_use::{MAX_TEXT_FILE_BYTES, MAX_TEXT_READ_OUTPUT_BYTES};
 #[cfg(target_os = "linux")]
 mod linux_publish;
 #[cfg(target_os = "macos")]
 mod macos_publish;
 pub(crate) mod publication;
 
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[path = "file_reference_store/text_edit.rs"]
+mod text_edit;
 #[cfg(target_os = "macos")]
 pub(crate) mod text_mutation;
 #[cfg(windows)]
@@ -52,11 +55,11 @@ pub(crate) mod text_mutation;
 #[path = "file_reference_store/linux_text_mutation.rs"]
 pub(crate) mod text_mutation;
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[path = "file_reference_store/text_read.rs"]
+mod text_read;
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[path = "file_reference_store/text_recovery_context.rs"]
 mod text_recovery_context;
-#[cfg(any(windows, target_os = "macos"))]
-#[path = "file_reference_store/text_replace.rs"]
-mod text_replace;
 
 #[cfg(windows)]
 pub mod windows_batch;
@@ -1078,12 +1081,15 @@ fn enumerate_directory_from(
     ))
 }
 
+/// Reads a window of a UTF-8 text file of at most 16 MiB. Every read reports
+/// the whole file's size, line count and SHA-256, so a later edit binds to the
+/// full version even when only a window was returned.
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 pub fn read_text(params: &FileContentReadParams) -> Result<FileContentReadOutput, AgentError> {
-    if params.max_bytes == 0 || params.max_bytes > MAX_TEXT_READ_BYTES {
+    if params.max_bytes == 0 || params.max_bytes > MAX_TEXT_READ_OUTPUT_BYTES {
         return Err(error(
             AgentErrorKind::InvalidInput,
-            "selected text read exceeds the 64 KiB ceiling",
+            "selected text read exceeds the 64 KiB output ceiling",
             false,
         ));
     }
@@ -1106,20 +1112,19 @@ pub fn read_text(params: &FileContentReadParams) -> Result<FileContentReadOutput
             false,
         ));
     }
-    if opened.metadata.len() > params.max_bytes as u64 {
+    if opened.metadata.len() > MAX_TEXT_FILE_BYTES {
         return Err(error(
             AgentErrorKind::InvalidInput,
             format!(
-                "selected file is {} bytes; maximum text read is {} bytes",
+                "selected file is {} bytes; text files are limited to {MAX_TEXT_FILE_BYTES} bytes",
                 opened.metadata.len(),
-                params.max_bytes
             ),
             false,
         ));
     }
     let mut bytes = Vec::with_capacity(opened.metadata.len() as usize);
     Read::by_ref(&mut opened.handle)
-        .take(params.max_bytes as u64 + 1)
+        .take(MAX_TEXT_FILE_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|cause| io_error("read selected file handle", cause))?;
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -1133,10 +1138,10 @@ pub fn read_text(params: &FileContentReadParams) -> Result<FileContentReadOutput
             false,
         ));
     }
-    if bytes.len() > params.max_bytes as usize {
+    if bytes.len() as u64 > MAX_TEXT_FILE_BYTES {
         return Err(error(
             AgentErrorKind::InvalidInput,
-            "selected file grew beyond the text read ceiling while it was being read",
+            "selected file grew beyond the text file limit while it was being read",
             false,
         ));
     }
@@ -1147,13 +1152,16 @@ pub fn read_text(params: &FileContentReadParams) -> Result<FileContentReadOutput
             false,
         ));
     }
-    let content_utf8 = String::from_utf8(bytes.clone()).map_err(|_| {
+    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    let byte_len = bytes.len() as u64;
+    let text = String::from_utf8(bytes).map_err(|_| {
         error(
             AgentErrorKind::InvalidInput,
             "selected file is not valid UTF-8 text",
             false,
         )
     })?;
+    let window = text_read::select(&text, &params.selection, params.max_bytes as usize)?;
     Ok(FileContentReadOutput {
         file: params.file.clone(),
         display_name: stored
@@ -1161,9 +1169,15 @@ pub fn read_text(params: &FileContentReadParams) -> Result<FileContentReadOutput
             .file_name()
             .map(|name| name.to_string_lossy().chars().take(512).collect())
             .unwrap_or_else(|| "selected-file".into()),
-        content_utf8,
-        byte_len: bytes.len() as u64,
-        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        content_utf8: window.content,
+        byte_len,
+        sha256,
+        total_lines: text_read::total_lines(&text),
+        start_line: window.start_line,
+        end_line: window.end_line,
+        truncated: window.truncated,
+        next_start_byte: window.next_start_byte,
+        matches: window.matches,
     })
 }
 
@@ -2456,6 +2470,7 @@ fn run_artifact_after_close_hook() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use desk_agent_protocol::computer_use::TextReadSelection;
 
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     #[test]
@@ -2830,7 +2845,8 @@ mod tests {
             assert_eq!(
                 read_text(&FileContentReadParams {
                     file: reference.clone(),
-                    max_bytes: 1024
+                    max_bytes: 1024,
+                    selection: TextReadSelection::Whole,
                 })
                 .unwrap()
                 .content_utf8,
@@ -2849,7 +2865,8 @@ mod tests {
             assert!(
                 read_text(&FileContentReadParams {
                     file: reference.clone(),
-                    max_bytes: 1024
+                    max_bytes: 1024,
+                    selection: TextReadSelection::Whole,
                 })
                 .is_err()
             );
@@ -2869,6 +2886,7 @@ mod tests {
                 read_text(&FileContentReadParams {
                     file: reference.clone(),
                     max_bytes: 1024,
+                    selection: TextReadSelection::Whole,
                 })
                 .unwrap()
                 .content_utf8,
@@ -2890,6 +2908,7 @@ mod tests {
                 read_text(&FileContentReadParams {
                     file: reference,
                     max_bytes: 1024,
+                    selection: TextReadSelection::Whole,
                 })
                 .is_err()
             );
@@ -3081,7 +3100,8 @@ mod tests {
         create_junction(&parent, outside.path());
         let error = read_text(&FileContentReadParams {
             file: selected,
-            max_bytes: MAX_TEXT_READ_BYTES,
+            max_bytes: MAX_TEXT_READ_OUTPUT_BYTES,
+            selection: TextReadSelection::Whole,
         })
         .expect_err("the stored path must not rebind through a replacement junction");
         assert!(matches!(
@@ -3108,7 +3128,8 @@ mod tests {
         std::fs::write(parent.join("selected.txt"), b"replacement bytes").unwrap();
         let error = read_text(&FileContentReadParams {
             file: selected,
-            max_bytes: MAX_TEXT_READ_BYTES,
+            max_bytes: MAX_TEXT_READ_OUTPUT_BYTES,
+            selection: TextReadSelection::Whole,
         })
         .expect_err("the stored path must not rebind through a replacement parent");
         assert_eq!(error.kind, AgentErrorKind::InvalidInput);
@@ -3228,6 +3249,7 @@ mod tests {
         let output = read_text(&FileContentReadParams {
             file: selected.clone(),
             max_bytes: 64 * 1024,
+            selection: TextReadSelection::Whole,
         })
         .unwrap();
         assert_eq!(output.display_name, "selected.txt");
@@ -3246,6 +3268,7 @@ mod tests {
                 read_text(&FileContentReadParams {
                     file: selected.clone(),
                     max_bytes: 64 * 1024,
+                    selection: TextReadSelection::Whole,
                 })
                 .is_err()
             );
@@ -3254,6 +3277,7 @@ mod tests {
                 read_text(&FileContentReadParams {
                     file: selected.clone(),
                     max_bytes: 64 * 1024,
+                    selection: TextReadSelection::Whole,
                 })
                 .is_ok()
             );
@@ -3266,6 +3290,7 @@ mod tests {
             read_text(&FileContentReadParams {
                 file: binary,
                 max_bytes: 64 * 1024,
+                selection: TextReadSelection::Whole,
             })
             .is_err()
         );
@@ -3275,6 +3300,7 @@ mod tests {
         let error = read_text(&FileContentReadParams {
             file: selected,
             max_bytes: 64 * 1024,
+            selection: TextReadSelection::Whole,
         })
         .unwrap_err();
         assert_eq!(error.kind, AgentErrorKind::InvalidInput);

@@ -2913,6 +2913,7 @@ dependencies = [
  "tempfile",
  "windows 0.61.3",
  "zip",
+ "zstd",
 ]
 
 [[package]]
@@ -3054,6 +3055,7 @@ dependencies = [
  "actix-web",
  "actix-ws",
  "async-trait",
+ "base64 0.22.1",
  "bytes",
  "bytestring",
  "chrono",
@@ -5847,6 +5849,7 @@ dependencies = [
  "libproc",
  "log",
  "lru",
+ "memchr",
  "mime",
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",

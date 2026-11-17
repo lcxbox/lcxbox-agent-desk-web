@@ -1606,6 +1606,7 @@ mod tests {
                         expires_at: "2026-08-23T12:00:00Z".to_string(),
                     },
                     max_bytes: 65_536,
+                    selection: computer_use::TextReadSelection::Whole,
                 }),
                 Capability::FileContentRead,
             ),

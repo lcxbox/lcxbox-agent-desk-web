@@ -114,14 +114,13 @@ pub(crate) fn clean_transaction(
             "aborted transaction still contains its original",
         ));
     }
-    if let Some(original) = &original {
-        if original.content() != content
-            || normalized(&original.metadata()?)? != normalized(metadata)?
-        {
-            return Err(crate::invalid(
-                "retained original differs from saved recovery material",
-            ));
-        }
+    if let Some(original) = &original
+        && (original.content() != content
+            || normalized(&original.metadata()?)? != normalized(metadata)?)
+    {
+        return Err(crate::invalid(
+            "retained original differs from saved recovery material",
+        ));
     }
     let replacement = match open_relative(&directory, "replacement", &user, OpenKind::DeleteFile) {
         Ok(file) => {

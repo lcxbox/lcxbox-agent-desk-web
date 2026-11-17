@@ -1,0 +1,1 @@
+{"type":"object","description":"One file of a record.","required":["entry","path","export_available"],"properties":{"entry":{"type":"integer","format":"int32","minimum":0},"export_available":{"type":"boolean"},"path":{"type":"string","description":"Path relative to the record's directory."}},"x-readme-ref-name":"FileRecoveryEntryDto"}

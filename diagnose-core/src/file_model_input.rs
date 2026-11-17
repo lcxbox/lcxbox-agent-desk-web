@@ -349,7 +349,7 @@ pub(crate) fn complete_device_input(
     }
     let directory_tool = tool == crate::tool_names::INSPECT_FILES
         || crate::provider_preflight::ArtifactCallPreflight::supports(tool)
-        || crate::provider_preflight::text_file::TextMutationPreflight::supports(tool);
+        || crate::provider_preflight::text_file::TextMutationPreflight::selects_directory(tool);
     if !directory_tool {
         return Ok(());
     }
@@ -408,7 +408,7 @@ pub(crate) fn complete_comparison(tool: &str, original: &mut Value, resolved: &V
     }
     let directory_tool = tool == crate::tool_names::INSPECT_FILES
         || crate::provider_preflight::ArtifactCallPreflight::supports(tool)
-        || crate::provider_preflight::text_file::TextMutationPreflight::supports(tool);
+        || crate::provider_preflight::text_file::TextMutationPreflight::selects_directory(tool);
     if directory_tool
         && original.get("directory_request_id").is_none()
         && let Some(id) = resolved.get("directory_request_id")

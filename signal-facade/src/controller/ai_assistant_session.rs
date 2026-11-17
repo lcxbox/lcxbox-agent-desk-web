@@ -1804,7 +1804,7 @@ mod wayland_output_confirmation;
 pub use wayland_output_confirmation::WaylandOutputConfirmationDto;
 
 mod text_file_confirmation;
-pub use text_file_confirmation::TextFileConfirmationDto;
+pub use text_file_confirmation::{TextFileConfirmationDto, TextFileRestoreDto};
 
 impl PermissionRequestDto {
     pub fn with_decision(

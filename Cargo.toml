@@ -84,6 +84,7 @@ webrtc-util = "0.17"
 hmac = "0.12"
 sha1 = "0.10"
 sha2 = "0.10"
+memchr = "2.8"
 base64 = "0.22"
 async-trait = "0.1"
 futures = "0.3"
@@ -182,6 +183,7 @@ png = "0.17"
 image = "0.25"
 quick-xml = "0.41"
 zip = { version = "6.0.0", default-features = false, features = ["deflate"] }
+zstd = { version = "0.13.3", default-features = false }
 yaml-rust2 = { version = "=0.10.4", default-features = false }
 
 sysinfo = "0.37"

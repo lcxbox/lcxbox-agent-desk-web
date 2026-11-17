@@ -2629,6 +2629,9 @@ fn requested_artifact_registry_projection(
                 TextFileMutationOperation::Delete => {
                     crate::provider_preflight::text_file::DELETE_TEXT_TOOL
                 }
+                TextFileMutationOperation::Restore => {
+                    crate::provider_preflight::text_file::RESTORE_TEXT_TOOL
+                }
             };
             if output.verified
                 && !output.original_file_name.is_empty()
@@ -2642,6 +2645,12 @@ fn requested_artifact_registry_projection(
                         })
                     }
                     TextFileMutationOperation::Delete => output.updated_file.is_none(),
+                    // A restore either writes the file back or removes it.
+                    TextFileMutationOperation::Restore => {
+                        output.updated_file.as_ref().is_none_or(|file| {
+                            file.validate().is_ok() && file.file_name == output.original_file_name
+                        })
+                    }
                 }
                 && latest_user.text.contains(&output.original_file_name)
                 && source.provenance.source_provider_id

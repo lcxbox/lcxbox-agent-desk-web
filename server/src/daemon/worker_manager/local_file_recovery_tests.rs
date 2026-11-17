@@ -46,7 +46,14 @@ async fn reply_requires_original_live_worker_session_and_user() {
     );
     let reply = || LocalFileRecoveryReply {
         request_id: id.clone(),
-        outcome: Ok(LocalFileRecoveryOutcome::Export(vec![1, 2, 3])),
+        outcome: Ok(LocalFileRecoveryOutcome::ExportChunk(
+            desk_ipc_protocol::local_file_recovery::LocalExportChunk {
+                package_revision: 1,
+                total_size: 3,
+                offset: 0,
+                data: vec![1, 2, 3],
+            },
+        )),
     };
     manager
         .complete_local_file_recovery(None, incarnation, reply())
@@ -94,7 +101,7 @@ async fn reply_requires_original_live_worker_session_and_user() {
         .complete_local_file_recovery(Some(&key), incarnation, reply())
         .await;
     assert_eq!(
-        rx.await.unwrap().unwrap().into_export().unwrap(),
+        rx.await.unwrap().unwrap().into_export_chunk().unwrap().data,
         vec![1, 2, 3]
     );
     manager

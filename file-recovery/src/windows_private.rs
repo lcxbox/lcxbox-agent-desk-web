@@ -29,8 +29,8 @@ pub use publish::{IndexWriteError, IndexWriteOutcome};
 #[path = "windows_inventory.rs"]
 mod inventory;
 pub use inventory::{PendingIndexFile, PendingIndexInventory};
-#[path = "windows_cleanup.rs"]
-mod cleanup;
+#[path = "windows_objects.rs"]
+mod objects;
 #[path = "windows_root.rs"]
 mod root;
 #[path = "windows_transaction_location.rs"]
@@ -103,9 +103,11 @@ enum OpenKind {
     Anchor,
     StateParent,
     InspectDirectory,
+    ExistingDirectory,
     NewDirectory,
     Directory,
     Lock,
+    #[cfg(test)]
     NewFile,
     ReadFile,
     Temporary,
@@ -266,7 +268,9 @@ impl PrivateDirectoryLock {
     }
 
     /// Creates new material only. A failure can leave an incomplete private
-    /// item; callers must not publish it or treat a retry as an overwrite.
+    /// item, so recovery objects are never written this way; it remains for
+    /// exercising private-file validation.
+    #[cfg(test)]
     pub fn create_new(&self, leaf: &str, bytes: &[u8]) -> io::Result<()> {
         if self.write_uncertain.get() {
             return Err(io::Error::other("private index publication is unresolved"));
@@ -319,6 +323,7 @@ fn open_relative(parent: &File, leaf: &str, user: &str, kind: OpenKind) -> io::R
             | OpenKind::Anchor
             | OpenKind::StateParent
             | OpenKind::InspectDirectory
+            | OpenKind::ExistingDirectory
             | OpenKind::NewDirectory
             | OpenKind::DeleteDirectory
     );
@@ -343,11 +348,17 @@ fn open_relative(parent: &File, leaf: &str, user: &str, kind: OpenKind) -> io::R
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             FILE_OPEN,
         ),
+        OpenKind::ExistingDirectory => (
+            FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_OPEN,
+        ),
         OpenKind::Directory | OpenKind::Lock => (
             FILE_GENERIC_READ | FILE_GENERIC_WRITE,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             FILE_OPEN_IF,
         ),
+        #[cfg(test)]
         OpenKind::NewFile => (
             FILE_GENERIC_READ | FILE_GENERIC_WRITE,
             FILE_SHARE_READ,

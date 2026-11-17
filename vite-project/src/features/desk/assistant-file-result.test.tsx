@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { parseFileReceipt, AssistantFileResult } from './assistant-file-result';
-import { AssistantCommandResult } from './assistant-command-result';
+import { parseFileReceipt, parseTextFileChange, AssistantFileResult } from './assistant-file-result';
+import { AssistantCommandResult, parseReadWindow } from './assistant-command-result';
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 const mutation = (verified = true, operation = 'delete') => ({ result: verified ? 'verified' : 'outcome_unknown', output: { kind: 'text_file_mutation', value: { operation, original_file_name: 'notes.txt', original_size_bytes: 3, original_sha256: 'a'.repeat(64), recovery: { recovery_id: 'b'.repeat(64), created_at_unix_ms: 1, expires_at_unix_ms: 1000, cleanup_pending: false }, verified, updated_file: null } } });
 describe('native file receipts', () => {
@@ -82,5 +82,47 @@ describe('native file receipts', () => {
         expect(withoutReference?.digest).toBeUndefined();
         expect(withoutReference?.bytes).toBeUndefined();
         expect(parseFileReceipt('{bad')).toBeNull();
+    });
+    it('accepts restores, including one that recreated a missing file without previous content', () => {
+        const recreated = mutation(true, 'restore');
+        Object.assign(recreated.output.value, { original_sha256: null, original_size_bytes: 0 });
+        const receipt = parseFileReceipt(JSON.stringify(recreated));
+        expect(receipt).toMatchObject({ operation: 'restore', verified: true, fileName: 'notes.txt' });
+        expect(receipt?.digest).toBeUndefined();
+        expect(receipt?.bytes).toBeUndefined();
+        const written = mutation(true, 'restore');
+        Object.assign(written.output.value, { updated_file: { file_name: 'notes.txt', size_bytes: 9, digest_sha256: 'c'.repeat(64) } });
+        expect(parseFileReceipt(JSON.stringify(written))).toMatchObject({ operation: 'restore', bytes: 9, digest: 'c'.repeat(64) });
+        for (const value of [{ original_sha256: null }, { original_sha256: null, operation: 'update' }, { original_sha256: null, original_size_bytes: 0, operation: 'delete' }]) {
+            const invalid = mutation(true, 'restore');
+            Object.assign(invalid.output.value, value);
+            expect(parseFileReceipt(JSON.stringify(invalid))).toBeNull();
+        }
+    });
+    it('shows the update diff from the call arguments and that the previous version can be restored', () => {
+        const args = JSON.stringify({ file_result_call_id: 'read', expected_sha256: 'a'.repeat(64),
+            change: { kind: 'edit', edits: [{ old_text: 'port = 80', new_text: 'port = 8080', replace_all: false }] } });
+        const text = JSON.stringify(mutation(true, 'update'));
+        const { container } = render(<AssistantCommandResult text={text} tool={{ callId: 'call', name: 'update_text_file', argumentsJson: args } as never} />);
+        expect(container.querySelector('pre[data-diff="removed"]')?.textContent).toBe('port = 80');
+        expect(container.querySelector('pre[data-diff="added"] mark')?.textContent).toBe('8080');
+        expect(container.textContent).toContain('pages.aiAssistant.fileReceipt.restorable');
+        expect(parseTextFileChange(JSON.stringify({ change: { kind: 'write', content_utf8: '' } }))).toEqual({ write: '' });
+        for (const invalid of ['{bad', '{}', JSON.stringify({ change: { kind: 'edit', edits: [] } }), JSON.stringify({ change: { kind: 'replace_all' } })]) {
+            expect(parseTextFileChange(invalid)).toBeNull();
+        }
+        const { container: unknown } = render(<AssistantFileResult receipt={parseFileReceipt(JSON.stringify(mutation(false, 'update')))!} text="" />);
+        expect(unknown.textContent).not.toContain('fileReceipt.restorable');
+    });
+    it('summarizes the window of a text read or search', () => {
+        const read = (value: Record<string, unknown>) => JSON.stringify({ ReadContext: { FileContentRead: {
+            display_name: 'app.log', content_utf8: 'x', byte_len: 10, sha256: 'a'.repeat(64), total_lines: 500,
+            start_line: 101, end_line: 200, truncated: true, next_start_byte: null, matches: [], ...value } } });
+        expect(parseReadWindow(read({}))).toEqual({ fileName: 'app.log', totalLines: 500, startLine: 101, endLine: 200, truncated: true, matches: null });
+        expect(parseReadWindow(read({ content_utf8: '', start_line: 0, end_line: 0, truncated: false, matches: [{ line: 3, byte_offset: 9, text: 'err' }] }))?.matches).toBe(1);
+        expect(parseReadWindow(read({ total_lines: -1 }))).toBeNull();
+        expect(parseReadWindow('{"Exec":{}}')).toBeNull();
+        render(<AssistantCommandResult text={read({})} />);
+        expect(screen.getByTestId('read-window').textContent).toContain('app.log · pages.aiAssistant.readWindow.lines · pages.aiAssistant.readWindow.truncated');
     });
 });

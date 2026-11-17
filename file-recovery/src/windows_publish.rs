@@ -146,6 +146,69 @@ impl PrivateDirectoryLock {
     }
 }
 
+fn temporary_name() -> io::Result<String> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let sequence = NEXT
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
+        .map_err(|_| io::Error::other("private temporary sequence exhausted"))?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_nanos();
+    // FILE_CREATE, not name unpredictability, guarantees non-overwrite.
+    Ok(format!(
+        "index-pending-{}-{now:x}-{sequence:x}",
+        std::process::id()
+    ))
+}
+
+fn replace_index(file: &File, parent: &File) -> io::Result<()> {
+    let encoded = leaf_name("index.json")?;
+    let size = size_of::<FILE_RENAME_INFORMATION>() + encoded.len() * 2 + 2;
+    let mut storage = vec![0usize; size.div_ceil(size_of::<usize>())];
+    let info = storage.as_mut_ptr().cast::<FILE_RENAME_INFORMATION>();
+    let mut status = IO_STATUS_BLOCK::default();
+    let result = unsafe {
+        (*info).Anonymous.ReplaceIfExists = true;
+        (*info).RootDirectory = HANDLE(parent.as_raw_handle());
+        (*info).FileNameLength = (encoded.len() * 2) as u32;
+        std::ptr::copy_nonoverlapping(
+            encoded.as_ptr(),
+            std::ptr::addr_of_mut!((*info).FileName).cast(),
+            encoded.len(),
+        );
+        NtSetInformationFile(
+            HANDLE(file.as_raw_handle()),
+            &mut status,
+            info.cast(),
+            size as u32,
+            FileRenameInformation,
+        )
+    };
+    if result.0 < 0 {
+        return Err(io::Error::other(format!(
+            "private index rename NTSTATUS {:#x}",
+            result.0
+        )));
+    }
+    Ok(())
+}
+
+fn delete_unpublished(file: &File, user: &str) -> io::Result<()> {
+    file_identity(file, FileKind::File)?;
+    security::validate_private_file(file, user)?;
+    let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
+    unsafe {
+        SetFileInformationByHandle(
+            HANDLE(file.as_raw_handle()),
+            FileDispositionInfo,
+            (&disposition as *const FILE_DISPOSITION_INFO).cast(),
+            size_of::<FILE_DISPOSITION_INFO>() as u32,
+        )
+    }
+    .map_err(io::Error::other)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,70 +275,7 @@ mod tests {
         assert_eq!(fs::read_dir(root.path().join("vault")).unwrap().count(), 3);
         assert!(lock.write_index(b"must not replay").is_err());
         assert!(lock.create_new("must-not-exist", b"x").is_err());
-        assert!(lock.remove_record_material(&id).is_err());
+        assert!(lock.publish_object(&"b".repeat(128), &id, b"x").is_err());
         assert_eq!(lock.read(&backup, 100).unwrap(), b"must retain backup");
     }
-}
-
-fn temporary_name() -> io::Result<String> {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let sequence = NEXT
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
-        .map_err(|_| io::Error::other("private temporary sequence exhausted"))?;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(io::Error::other)?
-        .as_nanos();
-    // FILE_CREATE, not name unpredictability, guarantees non-overwrite.
-    Ok(format!(
-        "index-pending-{}-{now:x}-{sequence:x}",
-        std::process::id()
-    ))
-}
-
-fn replace_index(file: &File, parent: &File) -> io::Result<()> {
-    let encoded = leaf_name("index.json")?;
-    let size = size_of::<FILE_RENAME_INFORMATION>() + encoded.len() * 2 + 2;
-    let mut storage = vec![0usize; size.div_ceil(size_of::<usize>())];
-    let info = storage.as_mut_ptr().cast::<FILE_RENAME_INFORMATION>();
-    let mut status = IO_STATUS_BLOCK::default();
-    let result = unsafe {
-        (*info).Anonymous.ReplaceIfExists = true;
-        (*info).RootDirectory = HANDLE(parent.as_raw_handle());
-        (*info).FileNameLength = (encoded.len() * 2) as u32;
-        std::ptr::copy_nonoverlapping(
-            encoded.as_ptr(),
-            std::ptr::addr_of_mut!((*info).FileName).cast(),
-            encoded.len(),
-        );
-        NtSetInformationFile(
-            HANDLE(file.as_raw_handle()),
-            &mut status,
-            info.cast(),
-            size as u32,
-            FileRenameInformation,
-        )
-    };
-    if result.0 < 0 {
-        return Err(io::Error::other(format!(
-            "private index rename NTSTATUS {:#x}",
-            result.0
-        )));
-    }
-    Ok(())
-}
-
-fn delete_unpublished(file: &File, user: &str) -> io::Result<()> {
-    file_identity(file, FileKind::File)?;
-    security::validate_private_file(file, user)?;
-    let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
-    unsafe {
-        SetFileInformationByHandle(
-            HANDLE(file.as_raw_handle()),
-            FileDispositionInfo,
-            (&disposition as *const FILE_DISPOSITION_INFO).cast(),
-            size_of::<FILE_DISPOSITION_INFO>() as u32,
-        )
-    }
-    .map_err(io::Error::other)
 }

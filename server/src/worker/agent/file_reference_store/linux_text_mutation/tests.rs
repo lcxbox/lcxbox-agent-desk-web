@@ -16,9 +16,9 @@ fn commit_io_error_retains_recovery_before_or_after_namespace_change() {
                 target: &target,
                 expected_sha256: &digest(b"original"),
                 change: if deletion {
-                    TextChange::Trash
+                    TextChange::Delete
                 } else {
-                    TextChange::ReplaceAll("new")
+                    TextChange::Write("new")
                 },
             },
             || {},
@@ -62,7 +62,7 @@ fn commit_io_error_retains_recovery_before_or_after_namespace_change() {
                 }
             );
         }
-        assert_eq!(std::fs::read(&receipt.backup_path).unwrap(), b"original");
+        assert_eq!(receipt.backup.clone().unwrap(), b"original");
         let vault = desk_file_recovery::Vault::open(&context.data_root).unwrap();
         let locked = vault.lock().unwrap();
         let records = locked.list(&context.scope, Some(&context.conversation_id));
@@ -89,7 +89,7 @@ fn concurrent_target_change_after_submit_does_not_publish_intended_artifact() {
             directory: &directory,
             target: &target,
             expected_sha256: &digest(b"original"),
-            change: TextChange::ReplaceAll("intended"),
+            change: TextChange::Write("intended"),
         },
         || {},
         || {},
@@ -153,7 +153,7 @@ fn hard_link_is_rejected_without_changing_either_name() {
             &directory,
             &file,
             &digest(b"original"),
-            TextChange::ReplaceAll("new")
+            TextChange::Write("new")
         )
         .is_err()
     );
@@ -180,18 +180,18 @@ fn update_and_delete_verify_content_and_keep_original_backup() {
             &target,
             &digest(b"version one"),
             if delete {
-                TextChange::Trash
+                TextChange::Delete
             } else {
-                TextChange::ReplaceOnce {
-                    before: "one",
-                    after: "two",
+                TextChange::Replace {
+                    old: "one",
+                    new: "two",
                 }
             },
         )
         .unwrap();
         assert!(receipt.verified);
         assert!(!receipt.recovery.cleanup_pending);
-        assert_eq!(std::fs::read(&receipt.backup_path).unwrap(), b"version one");
+        assert_eq!(receipt.backup.clone().unwrap(), b"version one");
         if delete {
             assert!(!path.exists());
             assert!(receipt.file.is_none());
@@ -233,7 +233,7 @@ fn precommit_file_changes_never_reach_native_submission() {
                 directory: &directory,
                 target: &target,
                 expected_sha256: &digest(b"original"),
-                change: TextChange::ReplaceAll("must not publish"),
+                change: TextChange::Write("must not publish"),
             },
             || match change {
                 "inode" => std::fs::rename(&other, &path).unwrap(),
@@ -295,7 +295,7 @@ fn revoked_commit_guard_preserves_target_and_aborts_intent() {
             directory: &directory,
             target: &target,
             expected_sha256: &digest(b"original"),
-            change: TextChange::Trash,
+            change: TextChange::Delete,
         },
         || {},
         || {},
@@ -337,7 +337,7 @@ fn replaced_parent_is_rejected_and_cleanup_does_not_touch_the_new_directory() {
             directory: &directory,
             target: &target,
             expected_sha256: &digest(b"original"),
-            change: TextChange::ReplaceAll("new"),
+            change: TextChange::Write("new"),
         },
         || {
             std::fs::rename(&selected, &moved).unwrap();
@@ -388,7 +388,7 @@ fn last_moment_inode_replacement_retains_both_versions_without_claiming_success(
             directory: &directory,
             target: &target,
             expected_sha256: &digest(b"original"),
-            change: TextChange::ReplaceAll("intended"),
+            change: TextChange::Write("intended"),
         },
         || {},
         || {},
@@ -418,7 +418,7 @@ fn last_moment_inode_replacement_retains_both_versions_without_claiming_success(
     assert!(receipt.file.is_none());
     assert!(receipt.recovery.cleanup_pending);
     assert_eq!(std::fs::read(&path).unwrap(), b"intended");
-    assert_eq!(std::fs::read(&receipt.backup_path).unwrap(), b"original");
+    assert_eq!(receipt.backup.clone().unwrap(), b"original");
     let vault = desk_file_recovery::Vault::open(&context.data_root).unwrap();
     let locked = vault.lock().unwrap();
     let records = locked.list(&context.scope, Some(&context.conversation_id));

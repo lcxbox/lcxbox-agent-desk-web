@@ -26,28 +26,14 @@ async fn cancelled_export_releases_locks_and_cleanup_does_not_rewrite_response()
         owner: "owner".into(),
         os_user: crate::file_recovery_service::platform_user::current().unwrap(),
     };
-    let now = chrono::Utc::now().timestamp_millis() as u64;
-    let record = vault
-        .lock()
-        .unwrap()
-        .backup(desk_file_recovery::BackupRequest {
-            scope: scope.clone(),
-            conversation: "conversation",
-            operation: "operation",
-            generation: "generation",
-            file_name: "notes.txt",
-            content: b"before",
-            metadata: b"{}",
-            now_ms: now,
-        })
-        .unwrap();
-    // Seed settled, exportable material. A live preparation is intentionally
-    // not discardable and is not the state this cancellation test exercises.
-    vault
-        .lock()
-        .unwrap()
-        .transition(&scope, &record.id, desk_file_recovery::ChangeState::Aborted)
-        .unwrap();
+    let record = crate::file_recovery_service::test_support::backup(
+        &mut vault.lock().unwrap(),
+        &scope,
+        "conversation",
+        "operation",
+        b"before",
+    );
+    let now = record.created_at_ms;
     let app = test::init_service(
         App::new()
             .wrap(SessionMiddleware::new(
@@ -102,7 +88,11 @@ async fn cancelled_export_releases_locks_and_cleanup_does_not_rewrite_response()
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if let Some(locked) = vault.try_lock().unwrap() {
-                assert!(locked.export_package(&scope, &record.id, now).is_ok());
+                assert!(
+                    locked
+                        .entry_material(&scope, "conversation", &record.id, 0, now)
+                        .is_ok()
+                );
                 break;
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
@@ -153,4 +143,85 @@ async fn cancelled_export_releases_locks_and_cleanup_does_not_rewrite_response()
         test::read_body_json(test::call_service(&app, export_request()).await).await;
     assert_eq!(refused["success"], false);
     assert_eq!(refused["data"], "material_cleaned");
+}
+
+#[actix_web::test]
+async fn large_exports_stream_every_chunk_under_the_declared_length() {
+    let directory = tempfile::tempdir().unwrap();
+    let settings = SharedSettings::from(crate::model::settings::Settings::for_test_config(
+        &directory.path().join("config"),
+    ));
+    let root = settings.read().await.paths().data_root().to_path_buf();
+    let vault = desk_file_recovery::Vault::open(&root).unwrap();
+    let scope = desk_file_recovery::Scope {
+        authority: "a".repeat(64),
+        device: "fixture".into(),
+        owner: "owner".into(),
+        os_user: crate::file_recovery_service::platform_user::current().unwrap(),
+    };
+    // Incompressible letters make a package of several chunks.
+    let mut state = 0x9e37_79b9_u32;
+    let content: Vec<u8> = (0..3_000_000)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            b'a' + (state % 26) as u8
+        })
+        .collect();
+    let record = crate::file_recovery_service::test_support::backup(
+        &mut vault.lock().unwrap(),
+        &scope,
+        "conversation",
+        "operation",
+        &content,
+    );
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .app_data(web::Data::new(settings))
+            .route("/login", web::post().to(login))
+            .service(
+                web::scope("/api/desk")
+                    .wrap(from_fn(crate::controller::user::enforce_device_scope))
+                    .service(export_local_file_recovery),
+            ),
+    )
+    .await;
+    let response =
+        test::call_service(&app, test::TestRequest::post().uri("/login").to_request()).await;
+    let cookie = response.response().cookies().next().unwrap().into_owned();
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/desk/file-recovery/export")
+            .cookie(cookie)
+            .peer_addr("127.0.0.1:1234".parse().unwrap())
+            .insert_header((header::HOST, "localhost"))
+            .insert_header((header::ORIGIN, "http://localhost"))
+            .set_json(serde_json::json!({"recovery_id": record.id, "entry": 0}))
+            .to_request(),
+    )
+    .await;
+    // The declared size becomes the Content-Length header on the wire.
+    let actix_web::body::BodySize::Sized(declared) =
+        actix_web::body::MessageBody::size(response.response().body())
+    else {
+        panic!("export must declare its full length")
+    };
+    let declared = declared as usize;
+    let bytes = test::read_body(response).await;
+    assert_eq!(bytes.len(), declared);
+    assert!(declared > 2 * desk_agent_protocol::file_recovery::MAX_EXPORT_CHUNK_BYTES);
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut before = Vec::new();
+    archive
+        .by_name("before.txt")
+        .unwrap()
+        .read_to_end(&mut before)
+        .unwrap();
+    assert_eq!(before, content);
 }

@@ -4,7 +4,18 @@ use std::process::{Child, Command, Stdio};
 
 const ROOT_ENV: &str = "LCXL_TEXT_WRITE_LIMIT_FIXTURE";
 const CHANGE_ENV: &str = "LCXL_TEXT_WRITE_LIMIT_CHANGE";
-const ORIGINAL: &[u8] = &[b'a'; 64 * 1024];
+/// 64 KiB of letters that compress to far more than the 4 KiB write limit.
+fn original_text() -> Vec<u8> {
+    let mut state = 0x2545_f491_u32;
+    (0..64 * 1024)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            b'a' + (state % 26) as u8
+        })
+        .collect()
+}
 
 struct Process(Child);
 impl Drop for Process {
@@ -31,10 +42,11 @@ fn limited_write_child() {
     );
     let change = std::env::var(CHANGE_ENV).unwrap();
     assert!(["update", "delete", "stage"].contains(&change.as_str()));
+    let large = original_text();
     let original = if change == "stage" {
         b"before".as_slice()
     } else {
-        ORIGINAL
+        large.as_slice()
     };
     let replacement = "b".repeat(64 * 1024);
     let selected = root.join("selected");
@@ -54,7 +66,7 @@ fn limited_write_child() {
     // Prove the kernel is enforcing EFBIG, independently of the mutation result.
     let probe = root.join("write-probe");
     assert_eq!(
-        std::fs::write(&probe, ORIGINAL).unwrap_err().raw_os_error(),
+        std::fs::write(&probe, &large).unwrap_err().raw_os_error(),
         Some(libc::EFBIG)
     );
     std::fs::remove_file(probe).unwrap();
@@ -65,11 +77,11 @@ fn limited_write_child() {
             target: &target,
             expected_sha256: &digest(original),
             change: if change == "delete" {
-                TextChange::Trash
+                TextChange::Delete
             } else if change == "stage" {
-                TextChange::ReplaceAll(&replacement)
+                TextChange::Write(&replacement)
             } else {
-                TextChange::ReplaceAll("intended")
+                TextChange::Write("intended")
             },
         },
         || {},
@@ -99,31 +111,20 @@ fn limited_write_child() {
     assert_eq!(records[0].change, desk_file_recovery::ChangeState::Aborted);
     assert_eq!(
         records[0].material,
-        if change == "stage" {
-            desk_file_recovery::MaterialState::Saved
-        } else {
-            desk_file_recovery::MaterialState::Preparing
-        }
+        desk_file_recovery::MaterialState::Saved
     );
     assert!(records[0].transaction.is_none());
-    assert_eq!(
-        context
-            .data_root
-            .join("file-recovery")
-            .join(format!("{}.body", records[0].id))
-            .exists(),
-        change == "stage"
-    );
 }
 
 #[test]
 fn kernel_write_failures_preserve_target() {
     let _guard = file_store_test_lock();
     for change in ["update", "delete", "stage"] {
+        let large = original_text();
         let original = if change == "stage" {
             b"before".as_slice()
         } else {
-            ORIGINAL
+            large.as_slice()
         };
         let root = tempfile::Builder::new()
             .prefix("lcxl-text-limit-")

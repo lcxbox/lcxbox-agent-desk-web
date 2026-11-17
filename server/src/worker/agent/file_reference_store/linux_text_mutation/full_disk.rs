@@ -15,7 +15,16 @@ fn full_backup_filesystem_preserves_target() {
     let stat = unsafe { stat.assume_init() };
     assert_eq!(stat.f_type, libc::TMPFS_MAGIC);
     assert!(stat.f_blocks * stat.f_bsize as u64 <= 2 * 1024 * 1024);
-    let original = vec![b'a'; MAX_TEXT_READ_BYTES as usize];
+    // Letters that compress to more than the space left for the backup.
+    let mut state = 0x2545_f491_u32;
+    let original: Vec<u8> = (0..64 * 1024)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            b'a' + (state % 26) as u8
+        })
+        .collect();
     let _guard = file_store_test_lock();
     for change in ["update", "delete"] {
         let selected = Path::new("/fixture").join(change);
@@ -59,9 +68,9 @@ fn full_backup_filesystem_preserves_target() {
                 target: &target,
                 expected_sha256: &digest(&original),
                 change: if change == "delete" {
-                    TextChange::Trash
+                    TextChange::Delete
                 } else {
-                    TextChange::ReplaceAll("intended")
+                    TextChange::Write("intended")
                 },
             },
             || {},
@@ -92,18 +101,7 @@ fn full_backup_filesystem_preserves_target() {
         let records = locked.list(&context.scope, Some(&context.conversation_id));
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].change, desk_file_recovery::ChangeState::Aborted);
-        assert_eq!(
-            records[0].material,
-            desk_file_recovery::MaterialState::Preparing
-        );
         assert!(records[0].transaction.is_none());
-        assert!(
-            !context
-                .data_root
-                .join("file-recovery")
-                .join(format!("{}.body", records[0].id))
-                .exists()
-        );
         drop(locked);
         drop(vault);
         drop(filler);
@@ -182,7 +180,7 @@ fn full_target_filesystem_preserves_target() {
                 "directory failure must be inode exhaustion"
             );
         }
-        let replacement = "b".repeat(MAX_TEXT_READ_BYTES as usize);
+        let replacement = "b".repeat(64 * 1024);
         let mut submissions = 0;
         let result = mutate_text_with_submit(
             TextMutationRequest {
@@ -190,9 +188,9 @@ fn full_target_filesystem_preserves_target() {
                 target: &target,
                 expected_sha256: &digest(b"before"),
                 change: if change == "delete" {
-                    TextChange::Trash
+                    TextChange::Delete
                 } else {
-                    TextChange::ReplaceAll(&replacement)
+                    TextChange::Write(&replacement)
                 },
             },
             || {},
@@ -233,13 +231,17 @@ fn full_target_filesystem_preserves_target() {
         );
         assert!(records[0].transaction.is_none());
         assert_eq!(
-            std::fs::read(
-                context
-                    .data_root
-                    .join("file-recovery")
-                    .join(format!("{}.body", records[0].id))
-            )
-            .unwrap(),
+            locked
+                .entry_material(
+                    &context.scope,
+                    &context.conversation_id,
+                    &records[0].id,
+                    0,
+                    records[0].created_at_ms,
+                )
+                .unwrap()
+                .before
+                .unwrap(),
             b"before"
         );
         drop((locked, vault));
@@ -281,9 +283,9 @@ fn full_target_after_staging_verifies_real_commit() {
                 target: &target,
                 expected_sha256: &digest(b"before"),
                 change: if deletion {
-                    TextChange::Trash
+                    TextChange::Delete
                 } else {
-                    TextChange::ReplaceAll("after")
+                    TextChange::Write("after")
                 },
             },
             || {
@@ -335,7 +337,7 @@ fn full_target_after_staging_verifies_real_commit() {
             desk_file_recovery::MaterialState::Saved
         );
         assert!(records[0].transaction.is_none());
-        assert_eq!(std::fs::read(&receipt.backup_path).unwrap(), b"before");
+        assert_eq!(receipt.backup.clone().unwrap(), b"before");
         drop((locked, vault));
         std::fs::remove_file("/fixture/filler").unwrap();
         std::fs::remove_dir_all(&context.data_root).unwrap();

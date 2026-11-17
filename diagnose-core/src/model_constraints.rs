@@ -77,7 +77,7 @@ fn add_byte_budgets(schema: &mut Value, tool: &str) {
     if let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) {
         for (name, field) in properties {
             let limit = match name.as_str() {
-                "body_plain_text" | "content_utf8" | "before" | "after" => Some(65536),
+                "body_plain_text" | "content_utf8" | "old_text" | "new_text" => Some(65536),
                 "subject" => Some(998),
                 "address" | "display_name" => Some(512),
                 "command" => Some(16384),

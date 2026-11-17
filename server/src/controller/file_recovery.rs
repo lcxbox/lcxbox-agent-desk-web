@@ -22,6 +22,9 @@ pub struct FileRecoveryPageBody {
 #[serde(deny_unknown_fields)]
 pub struct FileRecoveryExportBody {
     pub recovery_id: String,
+    /// Entry of a multi-file record; defaults to the first.
+    #[serde(default)]
+    pub entry: u32,
 }
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -224,16 +227,59 @@ pub async fn export_local_file_recovery(
     body: web::Json<FileRecoveryExportBody>,
 ) -> Result<HttpResponse, DeskError> {
     validate_local_mutation(&req)?;
-    let body = body.into_inner();
-    let bytes = local_operation(
-        &req,
-        &settings,
-        Command::Export {
-            recovery_id: body.recovery_id,
-        },
-        Outcome::into_export,
-    )
-    .await?;
+    let FileRecoveryExportBody { recovery_id, entry } = body.into_inner();
+    let export = move |req: HttpRequest, settings: web::Data<SharedSettings>, offset: u64| {
+        let recovery_id = recovery_id.clone();
+        async move {
+            local_operation(
+                &req,
+                &settings,
+                Command::Export {
+                    recovery_id,
+                    entry,
+                    offset,
+                },
+                Outcome::into_export_chunk,
+            )
+            .await
+        }
+    };
+    // The first chunk is validated before the headers, so a failure still
+    // returns a typed error. Later chunks repeat the owner and storage checks;
+    // a changed package or a failure aborts the stream, and the declared
+    // length makes the download visibly incomplete.
+    let first = export(req.clone(), settings.clone(), 0).await?;
+    let (revision, total) = (first.package_revision, first.total_size);
+    let chunks = futures::stream::unfold(Some(first), move |chunk| {
+        let (req, settings, export) = (req.clone(), settings.clone(), export.clone());
+        async move {
+            let chunk = chunk?;
+            let next_offset = chunk.offset + chunk.data.len() as u64;
+            let data = web::Bytes::from(chunk.data);
+            if next_offset >= total {
+                return Some((Ok(data), None));
+            }
+            let next = match export(req, settings, next_offset).await {
+                Ok(next)
+                    if next.package_revision == revision
+                        && next.total_size == total
+                        && next.offset == next_offset
+                        && !next.data.is_empty() =>
+                {
+                    next
+                }
+                _ => {
+                    return Some((
+                        Err(std::io::Error::other(
+                            "file recovery package changed or became unavailable",
+                        )),
+                        None,
+                    ));
+                }
+            };
+            Some((Ok(data), Some(next)))
+        }
+    });
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .insert_header((header::CONTENT_TYPE, "application/zip"))
@@ -245,7 +291,7 @@ pub async fn export_local_file_recovery(
             header::HeaderName::from_static("x-content-type-options"),
             "nosniff",
         ))
-        .body(bytes))
+        .body(actix_web::body::SizedStream::new(total, chunks)))
 }
 
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
@@ -423,14 +469,10 @@ mod tests {
             os_user: "other-user".into(),
             owner: "owner".into(),
         };
-        let key = desk_file_recovery::quota::QuotaKey::new(
-            &scope,
-            "other-conversation",
-            "operation",
-            "generation",
-        )
-        .unwrap();
-        quota.reserve(key, 1200, 100, 1).unwrap();
+        let key =
+            desk_file_recovery::quota::QuotaKey::new(&scope, "other-conversation", "operation", 0)
+                .unwrap();
+        quota.reserve(&key, 1200).unwrap();
         let used = quota.used_bytes();
         drop(quota);
         let queried = test::call_service(

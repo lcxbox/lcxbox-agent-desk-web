@@ -1725,6 +1725,12 @@ fn conversion_permission_freezes_source_and_directory_for_manual_and_ai_on_both_
                 content_utf8: "text".into(),
                 byte_len: 4,
                 sha256: format!("{:x}", Sha256::digest(b"text")),
+                total_lines: 1,
+                start_line: 1,
+                end_line: 1,
+                truncated: false,
+                next_start_byte: None,
+                matches: vec![],
             },
         ));
         let text = serde_json::to_string(&output).unwrap();

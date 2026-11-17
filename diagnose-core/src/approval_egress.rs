@@ -221,7 +221,8 @@ pub fn validate_permission_review_current(
         .find(|item| &item.item_id == item_id)
         .ok_or(ApprovalReviewError::InvalidContext)?;
     if candidate.tool_name != item.tool_name
-        || candidate.action_json != permission_item_action_json(item, candidate.input_kind)?
+        || candidate.action_json
+            != permission_item_action_json(&session.conversation, item, candidate.input_kind)?
     {
         return Err(ApprovalReviewError::InvalidContext);
     }

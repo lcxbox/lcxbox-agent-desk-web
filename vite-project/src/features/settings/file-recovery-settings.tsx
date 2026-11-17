@@ -38,7 +38,7 @@ function ScopedFileRecoverySettings({ target }: RecoverySettingsProps) {
     };
     const [page, setPage] = useState<FileRecoveryPageDto | null>(null);
     const [days, setDays] = useState('7');
-    const [capacity, setCapacity] = useState('100');
+    const [capacity, setCapacity] = useState('512');
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState<string | null>(null);
     const [confirm, setConfirm] = useState(false);

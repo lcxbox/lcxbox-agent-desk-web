@@ -1514,7 +1514,7 @@ pub fn permission_review_candidate(
     {
         return Err(ApprovalReviewError::InvalidCandidate);
     }
-    let action_json = permission_item_action_json(item, input_kind)?;
+    let action_json = permission_item_action_json(&session.conversation, item, input_kind)?;
     let source = ApprovalSource::PermissionItem {
         request_id: request.request_id.clone(),
         item_id: item.item_id.clone(),
@@ -1709,26 +1709,46 @@ pub fn source_review_candidate_for_device(
 /// Rebuild the exact candidate action from the persisted request. The egress
 /// gate uses this as an independent check before any candidate text leaves the
 /// process; no model-authored rendering of the action can widen it.
+///
+/// A text mutation is reviewed as its per-file change, resolved from the
+/// conversation's immutable results, instead of result IDs and digests.
 pub fn permission_item_action_json(
+    history: &[crate::chat::ChatMessage],
     item: &crate::dynamic_run::GrantRequestItem,
     input_kind: ApprovalInputKind,
 ) -> Result<String, ApprovalReviewError> {
     Ok(match input_kind {
         ApprovalInputKind::ExactCall => {
-            let exact_input = item
+            let canonical = item
                 .canonical_input_json
                 .as_deref()
                 .ok_or(ApprovalReviewError::InvalidCandidate)?;
-            let exact_input: serde_json::Value = serde_json::from_str(exact_input)
-                .map_err(|_| ApprovalReviewError::InvalidCandidate)?;
+            let (field, input) =
+                if crate::provider_preflight::text_file::TextMutationPreflight::supports(
+                    &item.tool_name,
+                ) {
+                    let review = crate::provider_preflight::text_file::review_exact_input(
+                        &item.tool_name,
+                        Some(canonical),
+                        history,
+                    )
+                    .ok_or(ApprovalReviewError::InvalidCandidate)?;
+                    ("text_change", review.projection())
+                } else {
+                    (
+                        "exact_input",
+                        serde_json::from_str(canonical)
+                            .map_err(|_| ApprovalReviewError::InvalidCandidate)?,
+                    )
+                };
             let mut action = serde_json::json!({
-                "exact_input": exact_input,
                 "command_confirmation": &item.command_confirmation,
                 "launch_confirmation": &item.launch_confirmation,
                 "resource_scope": &item.resource_scope,
                 "operation_scope": &item.operation_scope,
                 "export_destinations": &item.export_destinations,
             });
+            action[field] = input;
             if let Some(target) = &item.selected_device_target {
                 action["selected_device_target"] = serde_json::json!(target);
             }
@@ -2592,7 +2612,8 @@ pub(crate) mod tests {
         candidate.descriptor_json =
             r#"{"tool_name":"inspect_desktop_ui","provider_id":"desktop.ui"}"#.into();
         candidate.input_kind = ApprovalInputKind::Scope;
-        candidate.action_json = permission_item_action_json(&item, candidate.input_kind).unwrap();
+        candidate.action_json =
+            permission_item_action_json(&[], &item, candidate.input_kind).unwrap();
         candidate.action_sha256 = format!("{:x}", Sha256::digest(candidate.action_json.as_bytes()));
         candidate.candidate_id = permission_review_candidate_id(
             "delegation",

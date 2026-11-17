@@ -1,22 +1,30 @@
 //! Daemon-owned device quota. Workers never open this directory directly.
-//! An expired execution deadline does not prove that its backup was removed.
-use super::{hash, identity, invalid, storage};
+//!
+//! Usage is keyed by scope namespace and settled with absolute values that
+//! each OS user's vault reports with its `(vault_instance_id, revision)`.
+//! Operations hold idempotent in-flight reservations until a settlement or
+//! reconciliation clears them; elapsed time never proves that a backup was
+//! removed.
+//!
+//! Ordering: workers send reservation, settlement and reconciliation requests
+//! while holding their vault lock and wait for the reply before releasing it.
+//! A reconciliation therefore never interleaves with another worker's
+//! reservation of the same vault.
+use super::{hash, identity, invalid, namespace_user, storage, valid_id};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, io, path::Path};
 
+const FORMAT_VERSION: u32 = 1;
 const MAX_ENTRIES: usize = 10_000;
 const MAX_INDEX_BYTES: u64 = 8 * 1024 * 1024;
-// Bounded identity hashes, generation and timestamps are included in quota.
-const ENTRY_BYTES: u64 = 1024;
-const NAMESPACE_BYTES: u64 = 1024;
-const USER_EPOCH_BYTES: u64 = 1024;
 
+/// Reservation identity. The daemon derives it from the authenticated OS user
+/// and the worker-supplied scope fields; `operation` equals the record id.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuotaKey {
     pub namespace: String,
     pub os_user: String,
     pub operation: String,
-    pub generation: String,
     pub epoch: u64,
 }
 impl QuotaKey {
@@ -24,25 +32,30 @@ impl QuotaKey {
         scope: &super::Scope,
         conversation: &str,
         operation: &str,
-        generation: &str,
+        epoch: u64,
     ) -> io::Result<Self> {
         scope.validate()?;
-        for value in [conversation, operation, generation] {
-            identity(value)?;
-        }
+        identity(conversation)?;
+        identity(operation)?;
         Ok(Self {
-            namespace: scope.key(conversation),
+            namespace: scope.namespace(),
             os_user: hash(scope.os_user.as_bytes()),
-            operation: hash(&serde_json::to_vec(&(scope, conversation, operation))?),
-            generation: hash(generation.as_bytes()),
-            epoch: 0,
+            operation: super::record_id(scope, conversation, operation)?,
+            epoch,
         })
     }
+    /// The key of a vault record, for settling its reservation.
+    pub fn for_record(record: &super::Record) -> io::Result<Self> {
+        Self::new(
+            &record.scope,
+            &record.conversation,
+            &record.operation,
+            record.storage_epoch,
+        )
+    }
     fn validate(&self) -> io::Result<()> {
-        if super::namespace_user(&self.namespace) == Some(self.os_user.as_str())
-            && [&self.operation, &self.generation, &self.os_user]
-                .iter()
-                .all(|value| super::valid_id(value))
+        if namespace_user(&self.namespace) == Some(self.os_user.as_str())
+            && valid_id(&self.operation)
         {
             Ok(())
         } else {
@@ -51,40 +64,156 @@ impl QuotaKey {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct Entry {
-    key: QuotaKey,
-    bytes: u64,
-    execution_deadline_ms: u64,
-    released: bool,
-    settled: bool,
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VaultRevision {
+    pub vault_instance_id: String,
+    pub revision: u64,
 }
+impl VaultRevision {
+    /// Usage of another vault instance always replaces; otherwise only newer.
+    fn supersedes(&self, current: Option<&VaultRevision>) -> bool {
+        current.is_none_or(|current| {
+            current.vault_instance_id != self.vault_instance_id || self.revision > current.revision
+        })
+    }
+}
+
+/// Absolute usage of one OS user's vault: shared ledger bytes plus each
+/// namespace's block-rounded object bytes and record bytes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsageReport {
+    pub vault_instance_id: String,
+    pub revision: u64,
+    pub ledger_bytes: u64,
+    pub namespaces: BTreeMap<String, u64>,
+}
+impl UsageReport {
+    pub fn total(&self) -> u64 {
+        self.namespaces
+            .values()
+            .fold(self.ledger_bytes, |total, bytes| {
+                total.saturating_add(*bytes)
+            })
+    }
+    pub fn vault(&self) -> VaultRevision {
+        VaultRevision {
+            vault_instance_id: self.vault_instance_id.clone(),
+            revision: self.revision,
+        }
+    }
+    fn validate(&self, user: &str) -> io::Result<()> {
+        if !valid_id(&self.vault_instance_id)
+            || self.namespaces.len() > MAX_ENTRIES
+            || self
+                .namespaces
+                .keys()
+                .any(|namespace| namespace_user(namespace) != Some(user))
+        {
+            return Err(invalid("invalid device quota usage report"));
+        }
+        Ok(())
+    }
+}
+
+/// Replaces the OS user's absolute usage and clears every reservation not
+/// listed in `live_operations` (record ids). Sent after restart recovery and
+/// a sweep, and as part of epoch cleanup.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReconcileRequest {
+    pub execution_epoch: u64,
+    pub usage: UsageReport,
+    pub live_operations: Vec<String>,
+}
+
+/// Completes an epoch cleanup once a reconciliation at or after the pruned
+/// ledger revision has been applied.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinishEpochRequest {
+    pub epoch: u64,
+    pub vault: VaultRevision,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpochStatus {
     pub epoch: u64,
     pub cleanup_pending: bool,
 }
-#[derive(Clone, Serialize, Deserialize)]
-struct ClosedNamespace {
-    user: String,
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Reservation {
+    namespace: String,
     epoch: u64,
+    bytes: u64,
 }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SettledUsage {
+    vault: VaultRevision,
+    ledger_bytes: u64,
+    namespaces: BTreeMap<String, u64>,
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UserQuota {
+    epoch: u64,
+    cleanup_pending: bool,
+    usage: Option<SettledUsage>,
+    /// The newest reconciliation applied for this user.
+    reconciled: Option<VaultRevision>,
+    reservations: BTreeMap<String, Reservation>,
+}
+impl UserQuota {
+    fn used(&self) -> u64 {
+        let settled = self.usage.as_ref().map_or(0, |usage| {
+            usage
+                .namespaces
+                .values()
+                .fold(usage.ledger_bytes, |total, bytes| {
+                    total.saturating_add(*bytes)
+                })
+        });
+        self.reservations
+            .values()
+            .fold(settled, |total, reservation| {
+                total.saturating_add(reservation.bytes)
+            })
+    }
+    fn status(&self) -> EpochStatus {
+        EpochStatus {
+            epoch: self.epoch,
+            cleanup_pending: self.cleanup_pending,
+        }
+    }
+    fn apply_usage(&mut self, usage: &UsageReport) -> bool {
+        let vault = usage.vault();
+        if !vault.supersedes(self.usage.as_ref().map(|usage| &usage.vault)) {
+            return false;
+        }
+        self.usage = Some(SettledUsage {
+            vault,
+            ledger_bytes: usage.ledger_bytes,
+            namespaces: usage.namespaces.clone(),
+        });
+        true
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Ledger {
+    format_version: u32,
     max_bytes: u64,
     retention_days: u32,
-    entries: BTreeMap<String, Entry>,
-    closed_namespaces: BTreeMap<String, ClosedNamespace>,
-    user_epochs: BTreeMap<String, EpochStatus>,
+    users: BTreeMap<String, UserQuota>,
 }
 impl Default for Ledger {
     fn default() -> Self {
         Self {
+            format_version: FORMAT_VERSION,
             max_bytes: super::Policy::default().max_bytes,
             retention_days: super::Policy::default().retention_days,
-            entries: BTreeMap::new(),
-            closed_namespaces: BTreeMap::new(),
-            user_epochs: BTreeMap::new(),
+            users: BTreeMap::new(),
         }
     }
 }
@@ -106,12 +235,27 @@ impl DeviceQuota {
     }
     pub fn lock(&self) -> io::Result<LockedDeviceQuota> {
         let storage = self.storage.lock()?;
-        let ledger: Ledger = match storage.read("index.json", MAX_INDEX_BYTES) {
-            Ok(bytes) => serde_json::from_slice(&bytes)
-                .map_err(|error| super::undecodable("device quota index", &error))?,
+        let (ledger, reset) = match storage.read("index.json", MAX_INDEX_BYTES) {
+            Ok(bytes) => {
+                let value: serde_json::Value = serde_json::from_slice(&bytes)
+                    .map_err(|error| super::undecodable("device quota index", &error))?;
+                if value
+                    .get("format_version")
+                    .and_then(serde_json::Value::as_u64)
+                    == Some(u64::from(FORMAT_VERSION))
+                {
+                    let ledger = serde_json::from_value(value)
+                        .map_err(|error| super::undecodable("device quota index", &error))?;
+                    (ledger, false)
+                } else {
+                    // Unreleased format: rebuilt, not migrated. Epochs realign
+                    // through the workers' next reconciliation.
+                    (Ledger::default(), true)
+                }
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 storage.validate_missing_index()?;
-                Ledger::default()
+                (Ledger::default(), false)
             }
             Err(error) => return Err(error),
         };
@@ -120,55 +264,35 @@ impl DeviceQuota {
             max_bytes: ledger.max_bytes,
         }
         .validate()?;
-        if ledger.entries.len() > MAX_ENTRIES
-            || ledger.closed_namespaces.len() > MAX_ENTRIES
-            || ledger.user_epochs.len() > MAX_ENTRIES
-        {
+        if ledger.users.len() > MAX_ENTRIES {
             return Err(invalid("device quota index exceeds its bound"));
         }
-        for (user, state) in &ledger.user_epochs {
-            if !super::valid_id(user) || state.epoch == 0 {
-                return Err(invalid("device quota epoch index is corrupt"));
-            }
-        }
-        for (namespace, closed) in &ledger.closed_namespaces {
-            if super::namespace_user(namespace) != Some(closed.user.as_str())
-                || closed.epoch
-                    > ledger
-                        .user_epochs
-                        .get(&closed.user)
-                        .copied()
-                        .unwrap_or_default()
-                        .epoch
-            {
-                return Err(invalid("device quota namespace index is corrupt"));
-            }
-        }
-        for (operation, entry) in &ledger.entries {
-            entry.key.validate()?;
-            if operation != &entry.key.operation
-                || ledger
-                    .closed_namespaces
-                    .get(&entry.key.namespace)
-                    .is_some_and(|closed| closed.epoch == entry.key.epoch)
-                || entry.key.epoch
-                    > ledger
-                        .user_epochs
-                        .get(&entry.key.os_user)
-                        .copied()
-                        .unwrap_or_default()
-                        .epoch
-                || entry.execution_deadline_ms == 0
-                || entry.bytes < ENTRY_BYTES
+        let mut reservations = 0usize;
+        for (user, quota) in &ledger.users {
+            reservations += quota.reservations.len();
+            if !valid_id(user)
+                || quota.reservations.iter().any(|(operation, reservation)| {
+                    !valid_id(operation)
+                        || namespace_user(&reservation.namespace) != Some(user.as_str())
+                        || reservation.epoch > quota.epoch
+                })
             {
                 return Err(invalid("device quota index identity is corrupt"));
             }
         }
-        Ok(LockedDeviceQuota {
+        if reservations > MAX_ENTRIES {
+            return Err(invalid("device quota index exceeds its bound"));
+        }
+        let mut locked = LockedDeviceQuota {
             storage,
             ledger,
             failed: false,
-        })
+        };
+        if reset {
+            let ledger = locked.ledger.clone();
+            locked.persist(ledger)?;
+        }
+        Ok(locked)
     }
 }
 #[cfg(test)]
@@ -180,75 +304,78 @@ fn validate_limit(max_bytes: u64) -> io::Result<()> {
     .validate()
 }
 impl LockedDeviceQuota {
-    pub fn epoch(&self, os_user: &str) -> io::Result<EpochStatus> {
+    fn user(&self, os_user: &str) -> io::Result<(String, UserQuota)> {
         identity(os_user)?;
-        Ok(self
-            .ledger
-            .user_epochs
-            .get(&hash(os_user.as_bytes()))
-            .copied()
-            .unwrap_or_default())
+        let user = hash(os_user.as_bytes());
+        let quota = self.ledger.users.get(&user).cloned().unwrap_or_default();
+        Ok((user, quota))
     }
-    /// Close the old execution epoch before the worker removes any replay
-    /// indexes. Their quota remains charged until finish_epoch_cleanup.
+    pub fn epoch(&self, os_user: &str) -> io::Result<EpochStatus> {
+        Ok(self.user(os_user)?.1.status())
+    }
+    fn store_user(&mut self, user: String, quota: UserQuota) -> io::Result<()> {
+        if !self.ledger.users.contains_key(&user) && self.ledger.users.len() >= MAX_ENTRIES {
+            return Err(invalid("device quota user index exhausted"));
+        }
+        let mut next = self.ledger.clone();
+        next.users.insert(user, quota);
+        self.persist(next)
+    }
+    /// Close the old execution epoch before the worker prunes replay indexes.
     pub fn begin_epoch_cleanup(&mut self, os_user: &str, expected: u64) -> io::Result<EpochStatus> {
         self.require_healthy()?;
-        let current = self.epoch(os_user)?;
+        let (user, mut quota) = self.user(os_user)?;
         let epoch = expected
             .checked_add(1)
             .ok_or_else(|| invalid("quota epoch exhausted"))?;
-        if current.epoch == epoch {
-            return Ok(current);
+        if quota.epoch == epoch {
+            return Ok(quota.status());
         }
-        if current.epoch != expected {
+        if quota.epoch != expected {
             return Err(invalid("quota epoch changed"));
         }
-        if current.cleanup_pending {
+        if quota.cleanup_pending {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "quota epoch cleanup is pending",
             ));
         }
-        let user = hash(os_user.as_bytes());
-        if !self.ledger.user_epochs.contains_key(&user)
-            && self.ledger.user_epochs.len() >= MAX_ENTRIES
-        {
-            return Err(invalid("quota user epoch index exhausted"));
-        }
-        let state = EpochStatus {
-            epoch,
-            cleanup_pending: true,
-        };
-        let mut next = self.ledger.clone();
-        next.user_epochs.insert(user, state);
-        self.persist(next)?;
-        Ok(state)
+        quota.epoch = epoch;
+        quota.cleanup_pending = true;
+        let status = quota.status();
+        self.store_user(user, quota)?;
+        Ok(status)
     }
-    /// The original worker has durably pruned every eligible old local index.
-    /// Unreleased material remains charged, even when it belongs to an old epoch.
-    pub fn finish_epoch_cleanup(&mut self, os_user: &str, epoch: u64) -> io::Result<EpochStatus> {
+    /// Complete the epoch cleanup after a reconciliation of the pruned vault.
+    pub fn finish_epoch_cleanup(
+        &mut self,
+        os_user: &str,
+        request: &FinishEpochRequest,
+    ) -> io::Result<EpochStatus> {
         self.require_healthy()?;
-        let current = self.epoch(os_user)?;
-        if current.epoch != epoch || epoch == 0 {
+        let (user, mut quota) = self.user(os_user)?;
+        if quota.epoch != request.epoch || request.epoch == 0 {
             return Err(invalid("quota epoch changed"));
         }
-        if !current.cleanup_pending {
-            return Ok(current);
+        if !quota.cleanup_pending {
+            return Ok(quota.status());
         }
-        let user = hash(os_user.as_bytes());
-        let mut next = self.ledger.clone();
-        next.entries.retain(|_, entry| {
-            entry.key.os_user != user || entry.key.epoch >= epoch || !entry.released
-        });
-        next.closed_namespaces
-            .retain(|_, closed| closed.user != user || closed.epoch >= epoch);
-        let state = EpochStatus {
-            epoch,
-            cleanup_pending: false,
-        };
-        next.user_epochs.insert(user, state);
-        self.persist(next)?;
-        Ok(state)
+        if !quota.reconciled.as_ref().is_some_and(|reconciled| {
+            reconciled.vault_instance_id == request.vault.vault_instance_id
+                && reconciled.revision >= request.vault.revision
+        }) {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "quota reconciliation after epoch pruning is pending",
+            ));
+        }
+        quota.cleanup_pending = false;
+        quota
+            .reservations
+            .retain(|_, reservation| reservation.epoch >= request.epoch);
+        let status = quota.status();
+        self.store_user(user, quota)?;
+        Ok(status)
     }
     fn require_healthy(&self) -> io::Result<()> {
         if self.failed {
@@ -275,21 +402,22 @@ impl LockedDeviceQuota {
     pub fn max_bytes(&self) -> u64 {
         self.ledger.max_bytes
     }
+    /// Settled absolute usage plus in-flight reservations of all users.
     pub fn used_bytes(&self) -> u64 {
-        self.ledger.entries.values().fold(
-            self.ledger.closed_namespaces.len() as u64 * NAMESPACE_BYTES
-                + self.ledger.user_epochs.len() as u64 * USER_EPOCH_BYTES,
-            |used, entry| used.saturating_add(entry.bytes),
-        )
+        self.ledger
+            .users
+            .values()
+            .fold(0, |used, quota| used.saturating_add(quota.used()))
     }
-    /// Unsettled reservations are part of used_bytes, not additional usage.
-    /// Timeouts cannot prove that the worker has stopped using these bytes.
+    /// In-flight reservations; part of `used_bytes`, not additional usage.
     pub fn reserved_bytes(&self) -> u64 {
         self.ledger
-            .entries
+            .users
             .values()
-            .filter(|entry| !entry.released && !entry.settled)
-            .fold(0, |total, entry| total.saturating_add(entry.bytes))
+            .flat_map(|quota| quota.reservations.values())
+            .fold(0, |total, reservation| {
+                total.saturating_add(reservation.bytes)
+            })
     }
     /// Publish the new in-memory state only after its durable write succeeds.
     fn persist(&mut self, next: Ledger) -> io::Result<()> {
@@ -315,597 +443,129 @@ impl LockedDeviceQuota {
         next.max_bytes = max_bytes;
         self.persist(next)
     }
-    /// Reserve the upper bound before allowing a worker to create a backup.
-    /// An idempotent transport retry cannot increase or change a reservation.
-    pub fn reserve(
-        &mut self,
-        key: QuotaKey,
-        material_bytes: u64,
-        execution_deadline_ms: u64,
-        now_ms: u64,
-    ) -> io::Result<()> {
+    /// Reserve an upper bound before a worker publishes backup objects. The
+    /// bound is cumulative per operation: a retry with the same or a smaller
+    /// value changes nothing, a larger value grows the reservation.
+    pub fn reserve(&mut self, key: &QuotaKey, bytes: u64) -> io::Result<()> {
         self.require_healthy()?;
         key.validate()?;
-        let epoch = self
+        if bytes == 0 {
+            return Err(invalid("invalid device quota reservation"));
+        }
+        let mut quota = self
             .ledger
-            .user_epochs
+            .users
             .get(&key.os_user)
-            .copied()
+            .cloned()
             .unwrap_or_default();
-        if key.epoch != epoch.epoch || epoch.cleanup_pending {
+        if key.epoch != quota.epoch || quota.cleanup_pending {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "backup execution epoch is closed or being cleaned",
             ));
         }
-        if now_ms == 0 || execution_deadline_ms <= now_ms || material_bytes == 0 {
-            return Err(invalid("invalid device quota reservation"));
-        }
-        if self
-            .ledger
-            .closed_namespaces
-            .get(&key.namespace)
-            .is_some_and(|closed| closed.epoch == key.epoch)
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "conversation backup quota is closed",
-            ));
-        }
-        let bytes = material_bytes
-            .checked_add(ENTRY_BYTES)
-            .ok_or_else(|| invalid("device quota size overflow"))?;
-        if let Some(existing) = self.ledger.entries.get(&key.operation) {
-            return if existing.key == key
-                && existing.bytes == bytes
-                && existing.execution_deadline_ms == execution_deadline_ms
-                && !existing.released
-            {
-                Ok(())
-            } else {
-                Err(io::Error::new(
+        let existing = quota.reservations.get(&key.operation);
+        if let Some(existing) = existing {
+            if existing.namespace != key.namespace || existing.epoch != key.epoch {
+                return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
                     "device quota operation already recorded",
-                ))
-            };
+                ));
+            }
+            if bytes <= existing.bytes {
+                return Ok(());
+            }
         }
-        let mut next = self.ledger.clone();
-        // Only completed entries can expire. No amount of elapsed time proves
-        // that an unacknowledged write or backup no longer occupies disk.
-        next.entries.retain(|_, entry| {
-            !entry.released || entry.bytes > ENTRY_BYTES || entry.execution_deadline_ms >= now_ms
-        });
-        let used = next.entries.values().fold(
-            next.closed_namespaces.len() as u64 * NAMESPACE_BYTES
-                + next.user_epochs.len() as u64 * USER_EPOCH_BYTES,
-            |used, entry| used.saturating_add(entry.bytes),
-        );
-        if next.entries.len() >= MAX_ENTRIES || used.saturating_add(bytes) > next.max_bytes {
+        let growth = bytes - existing.map_or(0, |existing| existing.bytes);
+        let reservations: usize = self
+            .ledger
+            .users
+            .values()
+            .map(|quota| quota.reservations.len())
+            .sum();
+        if (existing.is_none() && reservations >= MAX_ENTRIES)
+            || self.used_bytes().saturating_add(growth) > self.ledger.max_bytes
+        {
             return Err(io::Error::new(
                 io::ErrorKind::StorageFull,
                 "device file backup capacity exhausted; file was not changed",
             ));
         }
-        next.entries.insert(
+        quota.reservations.insert(
             key.operation.clone(),
-            Entry {
-                key,
+            Reservation {
+                namespace: key.namespace.clone(),
+                epoch: key.epoch,
                 bytes,
-                execution_deadline_ms,
-                released: false,
-                settled: false,
             },
         );
-        self.persist(next)
+        self.store_user(key.os_user.clone(), quota)
     }
-    /// Settle to the measured charge from the original worker. Growing beyond
-    /// the reserved upper bound is forbidden, including during policy changes.
-    pub fn settle(&mut self, key: &QuotaKey, material_bytes: u64) -> io::Result<()> {
-        self.require_healthy()?;
-        key.validate()?;
-        let entry = self
-            .ledger
-            .entries
-            .get(&key.operation)
-            .ok_or_else(|| invalid("device quota reservation is missing"))?;
-        let bytes = material_bytes
-            .checked_add(ENTRY_BYTES)
-            .ok_or_else(|| invalid("device quota size overflow"))?;
-        if entry.key != *key || entry.released || bytes > entry.bytes {
-            return Err(invalid(
-                "device quota settlement does not match reservation",
-            ));
-        }
-        let mut next = self.ledger.clone();
-        let entry = next.entries.get_mut(&key.operation).unwrap();
-        entry.bytes = bytes;
-        entry.settled = true;
-        self.persist(next)
-    }
-    /// Caller must authenticate an explicit cleanup completion (or definite
-    /// cancellation before any material was created), never a timeout.
-    pub fn release(&mut self, key: &QuotaKey) -> io::Result<()> {
-        self.release_with_retained_index(key, 0)
-    }
-    /// A purged body may still have a replay index in the user's vault.
-    /// Keep that index charged until conversation-level cleanup is confirmed.
-    pub fn release_with_retained_index(
+    /// Two-part settlement: clearing the operation's reservation always
+    /// applies (idempotently); the absolute usage applies only when it is
+    /// newer than the stored report. Returns whether the usage was applied.
+    pub fn settle(
         &mut self,
-        key: &QuotaKey,
-        retained_bytes: u64,
-    ) -> io::Result<()> {
+        os_user: &str,
+        clear: Option<&QuotaKey>,
+        usage: &UsageReport,
+    ) -> io::Result<bool> {
         self.require_healthy()?;
-        key.validate()?;
-        let current = self
-            .ledger
-            .user_epochs
-            .get(&key.os_user)
-            .copied()
-            .unwrap_or_default();
-        if key.epoch > current.epoch {
-            return Err(invalid("quota cleanup epoch is invalid"));
-        }
-        if let Some(closed) = self
-            .ledger
-            .closed_namespaces
-            .get(&key.namespace)
-            .filter(|closed| closed.epoch == key.epoch)
-        {
-            return if closed.user == key.os_user {
-                Ok(())
-            } else {
-                Err(invalid("device quota namespace owner changed"))
-            };
-        }
-        let retained = retained_bytes
-            .checked_add(ENTRY_BYTES)
-            .ok_or_else(|| invalid("device quota size overflow"))?;
-        let Some(entry) = self.ledger.entries.get(&key.operation) else {
-            if key.epoch < current.epoch {
-                return Ok(());
-            }
-            // A cleanup RPC may overtake a delayed reservation handler. Record
-            // cancellation even when its charge has not appeared yet.
-            if self.ledger.entries.len() >= MAX_ENTRIES {
+        let (user, mut quota) = self.user(os_user)?;
+        usage.validate(&user)?;
+        if let Some(key) = clear {
+            key.validate()?;
+            if key.os_user != user {
                 return Err(io::Error::new(
-                    io::ErrorKind::StorageFull,
-                    "device quota cleanup index exhausted",
+                    io::ErrorKind::PermissionDenied,
+                    "quota operation belongs to another OS user",
                 ));
             }
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(io::Error::other)?
-                .as_millis() as u64;
-            let mut next = self.ledger.clone();
-            next.entries.insert(
-                key.operation.clone(),
-                Entry {
-                    key: key.clone(),
-                    bytes: retained,
-                    execution_deadline_ms: now.saturating_add(60_000),
-                    released: true,
-                    settled: true,
-                },
-            );
-            return self.persist(next);
-        };
-        if entry.key != *key {
-            return Err(invalid("device quota cleanup identity changed"));
+            quota.reservations.remove(&key.operation);
         }
-        if retained > entry.bytes {
-            return Err(invalid("retained quota exceeds reservation"));
+        let applied = quota.apply_usage(usage);
+        if self.ledger.users.get(&user) != Some(&quota) {
+            self.store_user(user, quota)?;
         }
-        if entry.released && entry.bytes == retained {
-            return Ok(());
-        }
-        let mut next = self.ledger.clone();
-        let entry = next.entries.get_mut(&key.operation).unwrap();
-        entry.released = true;
-        entry.bytes = retained;
-        self.persist(next)
+        Ok(applied)
     }
-    /// Called only after the original worker has removed this conversation's
-    /// material and operation indexes. The compact conversation fence remains charged.
-    #[cfg(test)]
-    fn release_namespace(&mut self, namespace: &str, os_user: &str) -> io::Result<()> {
-        self.release_namespace_at_epoch(namespace, os_user, 0)
-    }
-    pub fn release_namespace_at_epoch(
+    /// Replace the user's absolute usage, clear reservations of operations
+    /// that are no longer live and align the execution epoch, which only moves
+    /// forward: a rebuilt quota ledger adopts the vault's epoch and a rebuilt
+    /// vault adopts the returned one.
+    pub fn reconcile(
         &mut self,
-        namespace: &str,
         os_user: &str,
-        epoch: u64,
-    ) -> io::Result<()> {
+        request: &ReconcileRequest,
+    ) -> io::Result<EpochStatus> {
         self.require_healthy()?;
-        identity(os_user)?;
-        let user = hash(os_user.as_bytes());
-        if super::namespace_user(namespace) != Some(user.as_str()) {
-            return Err(invalid("quota namespace does not belong to this OS user"));
-        }
-        let current = self.epoch(os_user)?;
-        if epoch > current.epoch {
-            return Err(invalid("quota namespace epoch is invalid"));
-        }
-        if epoch < current.epoch {
-            let mut next = self.ledger.clone();
-            next.entries
-                .retain(|_, entry| entry.key.namespace != namespace || entry.key.epoch > epoch);
-            return self.persist(next);
-        }
-        if let Some(existing) = self.ledger.closed_namespaces.get(namespace) {
-            return if existing.user == user && existing.epoch == epoch {
-                Ok(())
-            } else {
-                Err(invalid("device quota namespace owner changed"))
-            };
-        }
-        if self
-            .ledger
-            .entries
-            .values()
-            .any(|entry| entry.key.namespace == namespace && entry.key.os_user != user)
+        let (user, mut quota) = self.user(os_user)?;
+        request.usage.validate(&user)?;
+        if request.live_operations.len() > MAX_ENTRIES
+            || request.live_operations.iter().any(|id| !valid_id(id))
         {
-            return Err(invalid("device quota namespace owner changed"));
+            return Err(invalid("invalid device quota reconciliation"));
         }
-        if self.ledger.closed_namespaces.len() >= MAX_ENTRIES {
-            return Err(invalid("device quota namespace index exhausted"));
+        quota.apply_usage(&request.usage);
+        let vault = request.usage.vault();
+        if vault.supersedes(quota.reconciled.as_ref()) || quota.reconciled.as_ref() == Some(&vault)
+        {
+            quota.reconciled = Some(vault);
         }
-        let mut next = self.ledger.clone();
-        next.entries
-            .retain(|_, entry| entry.key.namespace != namespace || entry.key.epoch > epoch);
-        next.closed_namespaces
-            .insert(namespace.into(), ClosedNamespace { user, epoch });
-        self.persist(next)
+        quota
+            .reservations
+            .retain(|operation, _| request.live_operations.contains(operation));
+        if !quota.cleanup_pending && request.execution_epoch > quota.epoch {
+            quota.epoch = request.execution_epoch;
+        }
+        let status = quota.status();
+        if self.ledger.users.get(&user) != Some(&quota) {
+            self.store_user(user, quota)?;
+        }
+        Ok(status)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn key(user: &str, operation: &str) -> QuotaKey {
-        key_for(user, "conversation", operation)
-    }
-    fn key_for(user: &str, conversation: &str, operation: &str) -> QuotaKey {
-        QuotaKey::new(
-            &crate::Scope {
-                authority: "authority".into(),
-                device: "device".into(),
-                os_user: user.into(),
-                owner: "owner".into(),
-            },
-            conversation,
-            operation,
-            "generation",
-        )
-        .unwrap()
-    }
-    #[test]
-    fn epoch_cleanup_fences_old_requests_before_releasing_only_pruned_index_charges() {
-        let root = tempfile::tempdir().unwrap();
-        let quota = DeviceQuota::open(root.path()).unwrap();
-        let mut locked = quota.lock().unwrap();
-        let index = key("501", "index");
-        let closed = key_for("501", "closed", "closed");
-        let retained = key_for("501", "retained", "retained");
-        let other = key("502", "other");
-        for (key, bytes) in [
-            (index.clone(), 4000),
-            (closed.clone(), 5000),
-            (retained.clone(), 7000),
-            (other.clone(), 9000),
-        ] {
-            locked.reserve(key, bytes, 100, 1).unwrap();
-        }
-        locked.release_with_retained_index(&index, 1000).unwrap();
-        locked.release_namespace(&closed.namespace, "501").unwrap();
-        let before = locked.used_bytes();
-        assert_eq!(
-            locked.begin_epoch_cleanup("501", 0).unwrap(),
-            EpochStatus {
-                epoch: 1,
-                cleanup_pending: true
-            }
-        );
-        assert_eq!(locked.used_bytes(), before + USER_EPOCH_BYTES);
-        assert!(locked.reserve(key("501", "late"), 10, 200, 101).is_err());
-        let mut fresh = key_for("501", "closed", "fresh");
-        fresh.epoch = 1;
-        assert!(locked.reserve(fresh.clone(), 500, 200, 101).is_err());
-        drop(locked);
-        let mut restarted = quota.lock().unwrap();
-        assert_eq!(
-            restarted.begin_epoch_cleanup("501", 0).unwrap(),
-            EpochStatus {
-                epoch: 1,
-                cleanup_pending: true
-            }
-        );
-        assert!(restarted.finish_epoch_cleanup("502", 1).is_err());
-        restarted.finish_epoch_cleanup("501", 1).unwrap();
-        assert_eq!(
-            restarted.used_bytes(),
-            16000 + 2 * ENTRY_BYTES + USER_EPOCH_BYTES
-        );
-        restarted.reserve(fresh.clone(), 500, 200, 101).unwrap();
-        let after = restarted.used_bytes();
-        restarted
-            .release(&key("501", "missing-old-request"))
-            .unwrap();
-        restarted
-            .release_namespace_at_epoch(&fresh.namespace, "501", 0)
-            .unwrap();
-        assert_eq!(restarted.used_bytes(), after);
-        assert!(
-            restarted
-                .reserve(key("501", "old-with-fresh-deadline"), 1, 5000, 1000)
-                .is_err()
-        );
-        assert_eq!(
-            restarted.begin_epoch_cleanup("501", 0).unwrap(),
-            EpochStatus {
-                epoch: 1,
-                cleanup_pending: false
-            }
-        );
-        restarted
-            .release_with_retained_index(&retained, 500)
-            .unwrap();
-        let before_second = restarted.used_bytes();
-        restarted.begin_epoch_cleanup("501", 1).unwrap();
-        assert_eq!(restarted.used_bytes(), before_second);
-        restarted.finish_epoch_cleanup("501", 2).unwrap();
-        assert_eq!(
-            restarted.used_bytes(),
-            9500 + 2 * ENTRY_BYTES + USER_EPOCH_BYTES
-        );
-        assert!(restarted.finish_epoch_cleanup("501", 1).is_err());
-    }
-    #[test]
-    fn reservations_are_durable_cross_user_and_separate_from_settled_usage() {
-        let root = tempfile::tempdir().unwrap();
-        let quota = DeviceQuota::open(root.path()).unwrap();
-        let first = key("501", "first");
-        let second = key("502", "second");
-        {
-            let mut locked = quota.lock().unwrap();
-            locked.reserve(first.clone(), 700_000, 100, 1).unwrap();
-            locked.reserve(second.clone(), 200_000, 100, 1).unwrap();
-            assert_eq!(locked.reserved_bytes(), 900_000 + 2 * ENTRY_BYTES);
-            locked.settle(&first, 100_000).unwrap();
-            assert_eq!(locked.reserved_bytes(), 200_000 + ENTRY_BYTES);
-            assert_eq!(locked.used_bytes(), 300_000 + 2 * ENTRY_BYTES);
-        }
-        let mut locked = quota.lock().unwrap();
-        assert_eq!(locked.reserved_bytes(), 200_000 + ENTRY_BYTES);
-        // A later request must not expire another worker's unsettled bytes.
-        locked.reserve(key("501", "later"), 100, 300, 200).unwrap();
-        assert_eq!(locked.reserved_bytes(), 200_100 + 2 * ENTRY_BYTES);
-        locked.release(&second).unwrap();
-        assert_eq!(locked.reserved_bytes(), 100 + ENTRY_BYTES);
-        assert!(locked.used_bytes() > locked.reserved_bytes());
-    }
-    #[test]
-    fn namespace_ownership_is_checked_even_after_its_index_is_gone() {
-        let root = tempfile::tempdir().unwrap();
-        let mut locked = DeviceQuota::open(root.path()).unwrap().lock().unwrap();
-        let namespace = key("501", "unseen").namespace;
-        assert!(locked.release_namespace(&namespace, "502").is_err());
-        assert_eq!(locked.used_bytes(), 0);
-    }
-    #[test]
-    fn different_users_share_durable_capacity_and_expiry_does_not_release_unknown_writes() {
-        let root = tempfile::tempdir().unwrap();
-        let quota = DeviceQuota::open(root.path()).unwrap();
-        let mut locked = quota.lock().unwrap();
-        locked.set_limit(1024 * 1024).unwrap();
-        let first = key("501", "first");
-        let second = key("502", "second");
-        locked.reserve(first.clone(), 700_000, 100, 1).unwrap();
-        locked.reserve(first.clone(), 700_000, 100, 2).unwrap();
-        assert_eq!(locked.used_bytes(), 700_000 + ENTRY_BYTES);
-        assert_eq!(
-            locked
-                .reserve(second.clone(), 400_000, 100, 3)
-                .unwrap_err()
-                .kind(),
-            io::ErrorKind::StorageFull
-        );
-        drop(locked);
-        let mut restarted = DeviceQuota::open(root.path()).unwrap().lock().unwrap();
-        assert_eq!(
-            restarted
-                .reserve(second.clone(), 400_000, 1000, 200)
-                .unwrap_err()
-                .kind(),
-            io::ErrorKind::StorageFull
-        );
-        let wrong = key("502", "first");
-        assert!(restarted.settle(&wrong, 1).is_err());
-        assert!(restarted.settle(&first, 800_000).is_err());
-        restarted.settle(&first, 100_000).unwrap();
-        restarted
-            .reserve(second.clone(), 400_000, 1000, 200)
-            .unwrap();
-        restarted.release(&first).unwrap();
-        restarted.release(&first).unwrap();
-        assert_eq!(restarted.used_bytes(), 400_000 + 2 * ENTRY_BYTES);
-        assert!(restarted.reserve(first.clone(), 700_000, 100, 200).is_err());
-    }
-    #[test]
-    fn concurrent_handles_cannot_both_spend_the_remaining_budget() {
-        let root = tempfile::tempdir().unwrap();
-        DeviceQuota::open(root.path())
-            .unwrap()
-            .lock()
-            .unwrap()
-            .set_limit(1024 * 1024)
-            .unwrap();
-        let mut threads = vec![];
-        for user in ["501", "502"] {
-            let path = root.path().to_owned();
-            threads.push(std::thread::spawn(move || {
-                DeviceQuota::open(&path)
-                    .unwrap()
-                    .lock()
-                    .unwrap()
-                    .reserve(key(user, "operation"), 700_000, 100, 1)
-                    .is_ok()
-            }));
-        }
-        assert_eq!(
-            threads
-                .into_iter()
-                .map(|thread| usize::from(thread.join().unwrap()))
-                .sum::<usize>(),
-            1
-        );
-    }
-    #[test]
-    fn corrupted_quota_is_not_recreated_and_stale_generation_cannot_release_a_new_charge() {
-        let root = tempfile::tempdir().unwrap();
-        let quota = DeviceQuota::open(root.path()).unwrap();
-        let mut locked = quota.lock().unwrap();
-        let current = key("501", "op");
-        locked.reserve(current.clone(), 100, 100, 1).unwrap();
-        let mut stale = current.clone();
-        stale.generation = hash(b"stale");
-        assert!(locked.release(&stale).is_err());
-        assert_eq!(locked.used_bytes(), 100 + ENTRY_BYTES);
-        drop(locked);
-        quota
-            .storage
-            .lock()
-            .unwrap()
-            .write_index(b"invalid")
-            .unwrap();
-        assert!(quota.lock().is_err());
-    }
-    #[test]
-    fn failed_journal_write_fences_the_handle_until_reopen() {
-        let root = tempfile::tempdir().unwrap();
-        let quota = DeviceQuota::open(root.path()).unwrap();
-        let mut locked = quota.lock().unwrap();
-        let first = key("501", "first");
-        locked.reserve(first.clone(), 100, 100, 1).unwrap();
-        #[cfg(not(windows))]
-        let temporary = root.path().join("file-recovery-quota/index.json.tmp");
-        #[cfg(not(windows))]
-        std::fs::create_dir(&temporary).unwrap();
-        #[cfg(windows)]
-        let blocker = {
-            use std::os::windows::fs::OpenOptionsExt;
-            std::fs::OpenOptions::new()
-                .read(true)
-                .share_mode(1)
-                .open(root.path().join("file-recovery-quota/index.json"))
-                .unwrap()
-        };
-        assert!(locked.reserve(key("502", "second"), 100, 100, 2).is_err());
-        #[cfg(not(windows))]
-        std::fs::remove_dir(&temporary).unwrap();
-        #[cfg(windows)]
-        drop(blocker);
-        // Even an idempotent retry must not return a permit from stale state.
-        assert!(locked.reserve(first.clone(), 100, 100, 3).is_err());
-        assert!(locked.release(&first).is_err());
-        drop(locked);
-        let mut reopened = quota.lock().unwrap();
-        reopened.reserve(first, 100, 100, 4).unwrap();
-        assert_eq!(reopened.used_bytes(), 100 + ENTRY_BYTES);
-    }
-    #[test]
-    fn lowering_the_limit_preserves_existing_material_and_only_blocks_new_reservations() {
-        let root = tempfile::tempdir().unwrap();
-        let mut locked = DeviceQuota::open(root.path()).unwrap().lock().unwrap();
-        let first = key("501", "first");
-        locked.reserve(first.clone(), 2_000_000, 100, 1).unwrap();
-        locked.set_limit(1024 * 1024).unwrap();
-        assert!(locked.reserve(key("502", "second"), 1, 100, 2).is_err());
-        locked.settle(&first, 1_500_000).unwrap();
-        assert_eq!(locked.used_bytes(), 1_500_000 + ENTRY_BYTES);
-        locked.release(&first).unwrap();
-        locked.reserve(key("502", "second"), 100, 100, 3).unwrap();
-    }
-    #[test]
-    fn cleanup_overtaking_a_delayed_reservation_fences_the_late_handler() {
-        let root = tempfile::tempdir().unwrap();
-        let quota = DeviceQuota::open(root.path()).unwrap();
-        let operation = key("501", "delayed");
-        quota.lock().unwrap().release(&operation).unwrap();
-        let mut restarted = quota.lock().unwrap();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-        assert_eq!(
-            restarted
-                .reserve(operation.clone(), 1000, now + 30_000, now)
-                .unwrap_err()
-                .kind(),
-            io::ErrorKind::AlreadyExists
-        );
-        restarted.release(&operation).unwrap();
-        assert_eq!(restarted.used_bytes(), ENTRY_BYTES);
-    }
-    #[test]
-    fn shared_retention_and_capacity_commit_together_and_survive_reopen() {
-        let root = tempfile::tempdir().unwrap();
-        let quota = DeviceQuota::open(root.path()).unwrap();
-        let expected = super::super::Policy {
-            retention_days: 12,
-            max_bytes: 1048576,
-        };
-        quota.lock().unwrap().set_policy(expected.clone()).unwrap();
-        assert_eq!(quota.lock().unwrap().policy(), expected);
-        assert!(
-            quota
-                .lock()
-                .unwrap()
-                .set_policy(super::super::Policy {
-                    retention_days: 0,
-                    max_bytes: 2097152
-                })
-                .is_err()
-        );
-        assert_eq!(quota.lock().unwrap().policy(), expected);
-    }
-    #[test]
-    fn retained_indexes_stay_charged_until_exact_user_namespace_cleanup() {
-        let root = tempfile::tempdir().unwrap();
-        let quota = DeviceQuota::open(root.path()).unwrap();
-        let a = key("501", "first");
-        let a2 = key("501", "second");
-        let b = key("502", "other");
-        let mut locked = quota.lock().unwrap();
-        locked.reserve(a.clone(), 20000, 100, 1).unwrap();
-        locked.reserve(a2.clone(), 30000, 100, 1).unwrap();
-        locked.reserve(b.clone(), 3000, 100, 1).unwrap();
-        locked.release_with_retained_index(&a, 2000).unwrap();
-        locked.release_with_retained_index(&a2, 3000).unwrap();
-        // A later reservation triggers expiry processing, but retained indexes
-        // must not disappear from accounting along with execution deadlines.
-        locked.reserve(key("502", "later"), 1, 1000, 200).unwrap();
-        assert_eq!(locked.used_bytes(), 8001 + 4 * ENTRY_BYTES);
-        assert!(locked.release_namespace(&a.namespace, "502").is_err());
-        locked.release_namespace(&a.namespace, "501").unwrap();
-        assert_eq!(
-            locked.used_bytes(),
-            3001 + 2 * ENTRY_BYTES + NAMESPACE_BYTES
-        );
-        let before = locked.used_bytes();
-        locked.release(&a).unwrap();
-        assert_eq!(locked.used_bytes(), before);
-        assert_eq!(
-            locked
-                .reserve(key("501", "late"), 100, 1000, 200)
-                .unwrap_err()
-                .kind(),
-            io::ErrorKind::PermissionDenied
-        );
-        drop(locked);
-        let mut restarted = quota.lock().unwrap();
-        restarted.release_namespace(&a.namespace, "501").unwrap();
-        assert_eq!(restarted.used_bytes(), before);
-        assert!(restarted.release_namespace(&a.namespace, "502").is_err());
-    }
-}
+#[path = "quota_tests.rs"]
+mod tests;

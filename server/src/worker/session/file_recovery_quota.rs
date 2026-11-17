@@ -1,4 +1,11 @@
 //! Blocking quota RPC for filesystem tasks. The worker event loop delivers replies.
+//! Callers send every request while holding their vault lock and wait for the
+//! reply before releasing it, so reconciliations never interleave with another
+//! worker's reservation of the same vault.
+use desk_file_recovery::{
+    LockedVault, Record,
+    quota::{EpochStatus, FinishEpochRequest, ReconcileRequest, UsageReport},
+};
 use desk_ipc_protocol::message::*;
 use std::{
     collections::HashMap,
@@ -97,10 +104,12 @@ impl QuotaClient {
         outcome: FileRecoveryQuotaOutcome,
     ) -> io::Result<(desk_file_recovery::Policy, u64, u64)> {
         match outcome {
-            FileRecoveryQuotaOutcome::Epoch { .. } => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unexpected quota epoch reply",
-            )),
+            FileRecoveryQuotaOutcome::Epoch { .. } | FileRecoveryQuotaOutcome::Settled { .. } => {
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "unexpected quota reply",
+                ))
+            }
             FileRecoveryQuotaOutcome::Applied {
                 retention_days,
                 max_bytes,
@@ -144,50 +153,45 @@ impl QuotaClient {
             max_bytes: policy.max_bytes,
         })
     }
-    pub(crate) fn reserve(&self, record: &desk_file_recovery::Record) -> io::Result<()> {
+    /// Reserve the cumulative upper bound of one backup operation.
+    pub(crate) fn reserve(&self, record: &Record, bytes: u64) -> io::Result<()> {
         self.request(FileRecoveryQuotaCommand::Reserve {
             identity: record_identity(record),
-            bytes: record.bytes,
-            execution_deadline_ms: (chrono::Utc::now().timestamp_millis().max(1) as u64)
-                .saturating_add(30_000),
+            bytes,
         })
         .map(|_| ())
     }
-    pub(crate) fn settle(&self, record: &desk_file_recovery::Record) -> io::Result<()> {
-        self.request(FileRecoveryQuotaCommand::Settle {
-            identity: record_identity(record),
-            bytes: record.bytes,
-        })
-        .map(|_| ())
-    }
-    pub(crate) fn reconcile_settlements(&self, vault: &mut desk_file_recovery::LockedVault) {
-        for record in vault.pending_quota_settlement().into_iter().take(32) {
-            let result = self
-                .settle(&record)
-                .and_then(|_| vault.acknowledge_quota_settlement(&record.scope, &record.id));
-            if let Err(error) = result {
-                tracing::warn!(error_kind = ?error.kind(), "File recovery quota settlement pending; retained for retry without replaying mutation");
-                break;
+    /// Two-part settlement; returns whether the absolute usage was applied.
+    pub(crate) fn settle(&self, clear: Option<&Record>, usage: &UsageReport) -> io::Result<bool> {
+        match self.raw_request_with_timeout(
+            FileRecoveryQuotaCommand::Settle {
+                identity: clear.map(record_identity),
+                usage: usage_message(usage),
+            },
+            Duration::from_secs(10),
+        )? {
+            FileRecoveryQuotaOutcome::Settled { applied } => Ok(applied),
+            other => {
+                Self::policy_response(other)?;
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "expected quota settlement reply",
+                ))
             }
         }
     }
-    pub(crate) fn release(&self, record: &desk_file_recovery::Record) -> io::Result<()> {
-        self.request(FileRecoveryQuotaCommand::Release {
-            identity: record_identity(record),
-            retained_index_bytes: desk_file_recovery::LockedVault::retained_index_bytes(record)?,
-        })
-        .map(|_| ())
-    }
-    pub(crate) fn release_namespace(
+    /// Settle the vault's current absolute usage, clearing `clear`'s
+    /// reservation, and acknowledge the settlement when it was applied.
+    pub(crate) fn settle_vault(
         &self,
-        namespace: &str,
-        execution_epoch: u64,
+        vault: &mut LockedVault,
+        clear: Option<&Record>,
     ) -> io::Result<()> {
-        self.request(FileRecoveryQuotaCommand::ReleaseNamespace {
-            namespace: namespace.into(),
-            execution_epoch,
-        })
-        .map(|_| ())
+        let usage = vault.usage_report();
+        if self.settle(clear, &usage)? {
+            vault.acknowledge_settlement(&usage)?;
+        }
+        Ok(())
     }
     pub(crate) fn complete(&self, reply: FileRecoveryQuotaReply) {
         if let Ok(mut pending) = self.pending.lock()
@@ -198,7 +202,7 @@ impl QuotaClient {
     }
 }
 
-fn record_identity(record: &desk_file_recovery::Record) -> FileRecoveryQuotaIdentity {
+fn record_identity(record: &Record) -> FileRecoveryQuotaIdentity {
     FileRecoveryQuotaIdentity {
         execution_epoch: record.storage_epoch,
         authority: record.scope.authority.clone(),
@@ -206,7 +210,14 @@ fn record_identity(record: &desk_file_recovery::Record) -> FileRecoveryQuotaIden
         owner: record.scope.owner.clone(),
         conversation: record.conversation.clone(),
         operation: record.operation.clone(),
-        generation: record.generation.clone(),
+    }
+}
+fn usage_message(usage: &UsageReport) -> FileRecoveryUsage {
+    FileRecoveryUsage {
+        vault_instance_id: usage.vault_instance_id.clone(),
+        revision: usage.revision,
+        ledger_bytes: usage.ledger_bytes,
+        namespaces: usage.namespaces.clone(),
     }
 }
 
@@ -214,82 +225,66 @@ fn record_identity(record: &desk_file_recovery::Record) -> FileRecoveryQuotaIden
 mod tests {
     use super::*;
     #[test]
-    fn failed_settlement_survives_restart_and_success_is_not_repeated() {
+    fn settlement_clears_the_reservation_and_acknowledges_only_applied_usage() {
         let root = tempfile::tempdir().unwrap();
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let client = QuotaClient::new(sender);
         let scope = desk_file_recovery::Scope {
             authority: "a".repeat(64),
             device: "d".into(),
-            os_user: "501".into(),
+            os_user: client.os_user.clone().unwrap(),
             owner: "1".into(),
         };
         let vault = desk_file_recovery::Vault::open(root.path()).unwrap();
-        let record = vault
+        let record = crate::file_recovery_service::test_support::backup(
+            &mut vault.lock().unwrap(),
+            &scope,
+            "c",
+            "op",
+            b"before",
+        );
+        vault
             .lock()
             .unwrap()
-            .backup_with_reservation_in_epoch(
-                desk_file_recovery::BackupRequest {
-                    scope,
-                    conversation: "c",
-                    operation: "op",
-                    generation: "g",
-                    file_name: "notes.txt",
-                    content: b"before",
-                    metadata: b"{}",
-                    now_ms: 1000,
-                },
-                0,
-                |_| Ok(()),
-            )
+            .delete_conversation(&scope, "c", record.created_at_ms + 1)
             .unwrap();
-        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let client = QuotaClient::new(sender);
-        for succeeds in [false, true] {
+        for applied in [false, true] {
             let client_worker = client.clone();
             let path = root.path().to_owned();
+            let cleared = record.clone();
             let worker = std::thread::spawn(move || {
                 let vault = desk_file_recovery::Vault::open(&path).unwrap();
-                client_worker.reconcile_settlements(&mut vault.lock().unwrap());
+                let mut locked = vault.lock().unwrap();
+                let expected = locked.usage_report();
+                client_worker
+                    .settle_vault(&mut locked, Some(&cleared))
+                    .unwrap();
+                expected
             });
             let WorkerToService::FileRecoveryQuotaRequested(request) =
                 receiver.blocking_recv().unwrap()
             else {
                 panic!("quota expected")
             };
-            let FileRecoveryQuotaCommand::Settle { identity, bytes } = request.command else {
+            let FileRecoveryQuotaCommand::Settle { identity, usage } = request.command else {
                 panic!("settlement expected")
             };
+            let identity = identity.unwrap();
             assert_eq!(identity.operation, record.operation);
-            assert_eq!(bytes, record.bytes);
+            assert_eq!(identity.conversation, "c");
             client.complete(FileRecoveryQuotaReply {
                 request_id: request.request_id,
-                outcome: if succeeds {
-                    FileRecoveryQuotaOutcome::Applied {
-                        retention_days: 7,
-                        max_bytes: 1048576,
-                        used_bytes: bytes,
-                        reserved_bytes: 0,
-                    }
-                } else {
-                    FileRecoveryQuotaOutcome::StorageUnavailable
-                },
+                outcome: FileRecoveryQuotaOutcome::Settled { applied },
             });
-            worker.join().unwrap();
+            let expected = worker.join().unwrap();
+            assert_eq!(usage, usage_message(&expected));
             assert_eq!(
-                vault.lock().unwrap().pending_quota_settlement().len(),
-                usize::from(!succeeds)
+                vault.lock().unwrap().cleanup_complete(&scope, "c"),
+                applied,
+                "a rejected settlement must keep the deletion pending"
             );
         }
-        client.reconcile_settlements(&mut vault.lock().unwrap());
         assert!(receiver.try_recv().is_err());
-        assert_eq!(
-            vault
-                .lock()
-                .unwrap()
-                .export(&record.scope, &record.id, 1001)
-                .unwrap()
-                .1,
-            b"before"
-        );
     }
     #[test]
     fn matching_reply_completes_and_timed_out_requests_discard_late_replies() {
@@ -353,6 +348,7 @@ mod tests {
     #[test]
     fn epoch_coordinator_preserves_user_epoch_and_decodes_acknowledgments() {
         use desk_file_recovery::EpochCoordinator;
+        use desk_file_recovery::quota::VaultRevision;
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         let client = QuotaClient::new(sender);
         let mut worker_client = client.clone();
@@ -363,27 +359,70 @@ mod tests {
         assert!(receiver.try_recv().is_err());
         let user = client.os_user.clone().unwrap();
         let expected_user = user.clone();
+        let usage = UsageReport {
+            vault_instance_id: "v".repeat(64),
+            revision: 12,
+            ledger_bytes: 100,
+            namespaces: Default::default(),
+        };
+        let reconcile = ReconcileRequest {
+            execution_epoch: 8,
+            usage: usage.clone(),
+            live_operations: vec!["b".repeat(64)],
+        };
         let worker = std::thread::spawn(move || {
             let advanced = worker_client.begin(&user, 7).unwrap();
             assert_eq!(advanced.epoch, 8);
             assert!(advanced.cleanup_pending);
-            let finished = worker_client.finish(&user, 8).unwrap();
+            assert_eq!(worker_client.reconcile(&user, &reconcile).unwrap().epoch, 8);
+            let finished = worker_client
+                .finish(
+                    &user,
+                    &FinishEpochRequest {
+                        epoch: 8,
+                        vault: VaultRevision {
+                            vault_instance_id: "v".repeat(64),
+                            revision: 12,
+                        },
+                    },
+                )
+                .unwrap();
             assert_eq!(finished.epoch, 8);
             assert!(!finished.cleanup_pending);
         });
-        for begin in [true, false] {
+        for stage in 0..3 {
             let WorkerToService::FileRecoveryQuotaRequested(request) =
                 receiver.blocking_recv().unwrap()
             else {
                 panic!("quota request expected");
             };
             assert_eq!(request.os_user, expected_user);
-            match request.command {
-                FileRecoveryQuotaCommand::BeginEpochCleanup { expected_epoch } if begin => {
+            match (stage, request.command) {
+                (0, FileRecoveryQuotaCommand::BeginEpochCleanup { expected_epoch }) => {
                     assert_eq!(expected_epoch, 7)
                 }
-                FileRecoveryQuotaCommand::FinishEpochCleanup { execution_epoch } if !begin => {
-                    assert_eq!(execution_epoch, 8)
+                (
+                    1,
+                    FileRecoveryQuotaCommand::Reconcile {
+                        execution_epoch,
+                        usage: sent,
+                        live_operations,
+                    },
+                ) => {
+                    assert_eq!(execution_epoch, 8);
+                    assert_eq!(sent, usage_message(&usage));
+                    assert_eq!(live_operations, vec!["b".repeat(64)]);
+                }
+                (
+                    2,
+                    FileRecoveryQuotaCommand::FinishEpochCleanup {
+                        epoch,
+                        vault_instance_id,
+                        revision,
+                    },
+                ) => {
+                    assert_eq!((epoch, revision), (8, 12));
+                    assert_eq!(vault_instance_id, "v".repeat(64));
                 }
                 _ => panic!("incorrect cleanup sequence"),
             }
@@ -391,7 +430,7 @@ mod tests {
                 request_id: request.request_id,
                 outcome: FileRecoveryQuotaOutcome::Epoch {
                     execution_epoch: 8,
-                    cleanup_pending: begin,
+                    cleanup_pending: stage < 2,
                 },
             });
         }
@@ -420,7 +459,7 @@ impl QuotaClient {
         &self,
         os_user: &str,
         command: FileRecoveryQuotaCommand,
-    ) -> io::Result<desk_file_recovery::quota::EpochStatus> {
+    ) -> io::Result<EpochStatus> {
         if self.os_user.as_deref() != Some(os_user) {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -431,7 +470,7 @@ impl QuotaClient {
             FileRecoveryQuotaOutcome::Epoch {
                 execution_epoch,
                 cleanup_pending,
-            } => Ok(desk_file_recovery::quota::EpochStatus {
+            } => Ok(EpochStatus {
                 epoch: execution_epoch,
                 cleanup_pending,
             }),
@@ -446,24 +485,30 @@ impl QuotaClient {
     }
 }
 impl desk_file_recovery::EpochCoordinator for QuotaClient {
-    fn begin(
-        &mut self,
-        os_user: &str,
-        expected_epoch: u64,
-    ) -> io::Result<desk_file_recovery::quota::EpochStatus> {
+    fn begin(&mut self, os_user: &str, expected_epoch: u64) -> io::Result<EpochStatus> {
         self.epoch_request(
             os_user,
             FileRecoveryQuotaCommand::BeginEpochCleanup { expected_epoch },
         )
     }
-    fn finish(
-        &mut self,
-        os_user: &str,
-        execution_epoch: u64,
-    ) -> io::Result<desk_file_recovery::quota::EpochStatus> {
+    fn reconcile(&mut self, os_user: &str, request: &ReconcileRequest) -> io::Result<EpochStatus> {
         self.epoch_request(
             os_user,
-            FileRecoveryQuotaCommand::FinishEpochCleanup { execution_epoch },
+            FileRecoveryQuotaCommand::Reconcile {
+                execution_epoch: request.execution_epoch,
+                usage: usage_message(&request.usage),
+                live_operations: request.live_operations.clone(),
+            },
+        )
+    }
+    fn finish(&mut self, os_user: &str, request: &FinishEpochRequest) -> io::Result<EpochStatus> {
+        self.epoch_request(
+            os_user,
+            FileRecoveryQuotaCommand::FinishEpochCleanup {
+                epoch: request.epoch,
+                vault_instance_id: request.vault.vault_instance_id.clone(),
+                revision: request.vault.revision,
+            },
         )
     }
 }

@@ -1,35 +1,45 @@
 //! Owner-only review of persisted exact file inputs. No references or grants
 //! are minted here; dispatch remains responsible for current authorization.
-use desk_agent_protocol::computer_use::{
-    ComputerActionCompleted, ComputerActionOutput, ComputerActionResultClass, TextFileChange,
-    TextFileMutationOperation,
-};
-use desk_diagnose_core::chat::{ChatMessage, ChatRole};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use desk_agent_protocol::computer_use::{TextEdit, TextFileChange, TextFileMutationOperation};
+use desk_diagnose_core::chat::ChatMessage;
+use serde::Serialize;
 use utoipa::ToSchema;
 
+/// One exact text change awaiting approval. An update carries either `edits`
+/// or `write`; a restore carries `restore`; a deletion carries neither.
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TextFileConfirmationDto {
     pub file_name: String,
-    pub file_result_call_id: String,
-    pub expected_sha256: String,
+    /// Result the change is based on: the file version an update or deletion
+    /// requires, or the operation a restore undoes.
+    pub source_result_call_id: String,
+    /// Version an update or deletion requires.
+    pub expected_sha256: Option<String>,
     pub operation: TextFileMutationOperation,
-    pub change: Option<TextFileChange>,
+    /// Exact edits, applied in order to the result of the previous edit.
+    pub edits: Option<Vec<TextEdit>>,
+    /// Complete new content of a full rewrite.
+    pub write: Option<String>,
+    pub restore: Option<TextFileRestoreDto>,
     pub one_shot: bool,
+    /// The device keeps the previous state; the change can be restored.
     pub recoverable: bool,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Input {
-    file_result_call_id: String,
-    expected_sha256: String,
-    #[serde(default)]
-    directory_request_id: Option<String>,
-    #[serde(default)]
-    change: Option<TextFileChange>,
+/// What a restore puts back.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TextFileRestoreDto {
+    /// Operation whose previous state is restored.
+    pub original_operation: TextFileMutationOperation,
+    /// When the restored backup was taken.
+    pub backup_created_at_unix_ms: u64,
+    /// The current file is not the version that operation produced; the card
+    /// must warn that it will be overwritten.
+    pub overrides_non_ai_version: bool,
+    /// The file must exist now (false: a deleted file is recreated).
+    pub file_expected_to_exist: bool,
 }
 
 pub(super) fn project(
@@ -37,115 +47,30 @@ pub(super) fn project(
     canonical: Option<&str>,
     messages: &[ChatMessage],
 ) -> Option<TextFileConfirmationDto> {
-    let operation = match tool {
-        desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL => {
-            TextFileMutationOperation::Update
-        }
-        desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL => {
-            TextFileMutationOperation::Delete
-        }
-        _ => return None,
+    let review = desk_diagnose_core::provider_preflight::text_file::review_exact_input(
+        tool, canonical, messages,
+    )?;
+    let (edits, write) = match review.change {
+        Some(TextFileChange::Edit { edits }) => (Some(edits), None),
+        Some(TextFileChange::Write { content_utf8 }) => (None, Some(content_utf8)),
+        None => (None, None),
     };
-    let canonical = canonical.filter(|text| {
-        text.len() <= desk_diagnose_core::dynamic_run::MAX_PERMISSION_EXACT_INPUT_BYTES
-    })?;
-    let input: Input = serde_json::from_str(canonical).ok()?;
-    if input.file_result_call_id.is_empty()
-        || input.file_result_call_id.len() > 256
-        || input.expected_sha256.len() != 64
-        || !input
-            .expected_sha256
-            .bytes()
-            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-        || input
-            .directory_request_id
-            .as_ref()
-            .is_some_and(|id| id.is_empty() || id.len() > 256)
-    {
-        return None;
-    }
-    let valid_text = |text: &str| text.len() <= 65_536 && !text.contains('\0');
-    match (&operation, &input.change) {
-        (TextFileMutationOperation::Delete, None) => {}
-        (TextFileMutationOperation::Update, Some(TextFileChange::ReplaceAll { content_utf8 }))
-            if valid_text(content_utf8) => {}
-        (
-            TextFileMutationOperation::Update,
-            Some(TextFileChange::ReplaceOnce { before, after }),
-        ) if !before.is_empty() && valid_text(before) && valid_text(after) => {}
-        _ => return None,
-    }
-    let mut sources = messages.iter().filter(|message| {
-        matches!(message.role, ChatRole::Tool | ChatRole::UntrustedOutput)
-            && message.tool_call_id.as_deref() == Some(input.file_result_call_id.as_str())
-    });
-    let source = sources.next()?;
-    if sources.next().is_some() {
-        return None;
-    }
-    let envelope = source.data_envelope.as_ref()?;
-    envelope.validate().ok()?;
-    if envelope.content.size_bytes() != source.text.len() as u64 {
-        return None;
-    }
-    let (file_name, digest) = if envelope.provenance.source_tool_name
-        == desk_diagnose_core::tool_names::READ_TEXT_FILE
-        && envelope.provenance.source_provider_id == "file.content"
-    {
-        let desk_agent_protocol::OperationOutput::ReadContext(
-            desk_agent_protocol::ReadContextOutput::FileContentRead(read),
-        ) = serde_json::from_str(&source.text).ok()?
-        else {
-            return None;
-        };
-        if read.byte_len != read.content_utf8.len() as u64
-            || read.sha256 != format!("{:x}", Sha256::digest(read.content_utf8.as_bytes()))
-        {
-            return None;
-        }
-        (read.display_name, read.sha256)
-    } else {
-        let completed: ComputerActionCompleted = serde_json::from_str(&source.text).ok()?;
-        if completed.result != ComputerActionResultClass::Verified {
-            return None;
-        }
-        let artifact = match completed.output? {
-            ComputerActionOutput::FileArtifact(artifact)
-                if (envelope.provenance.source_provider_id == "file.artifact"
-                    && envelope.provenance.source_tool_name
-                        == desk_diagnose_core::tool_names::CREATE_TEXT_FILE)
-                    || (envelope.provenance.source_provider_id == "communication.local_draft"
-                        && envelope.provenance.source_tool_name
-                            == "create_local_message_draft") =>
-            {
-                artifact
-            }
-            ComputerActionOutput::TextFileMutation(result)
-                if envelope.provenance.source_provider_id == "file.text"
-                    && envelope.provenance.source_tool_name
-                        == desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL
-                    && result.verified =>
-            {
-                result.updated_file?
-            }
-            _ => return None,
-        };
-        artifact.validate().ok()?;
-        (artifact.file_name, artifact.digest_sha256)
-    };
-    if file_name.is_empty()
-        || file_name.len() > 512
-        || file_name.chars().any(char::is_control)
-        || digest != input.expected_sha256
-    {
-        return None;
-    }
     Some(TextFileConfirmationDto {
-        file_name,
-        file_result_call_id: input.file_result_call_id,
-        expected_sha256: input.expected_sha256,
-        operation,
-        change: input.change,
+        file_name: review.file_name,
+        source_result_call_id: review.source_result_call_id,
+        expected_sha256: review.expected_sha256,
+        operation: review.operation,
+        edits,
+        write,
+        restore: review.restore.map(|restore| TextFileRestoreDto {
+            original_operation: restore.original_operation,
+            backup_created_at_unix_ms: restore.backup_created_at_unix_ms,
+            overrides_non_ai_version: restore.overrides_non_ai_version,
+            file_expected_to_exist: matches!(
+                restore.expected_current,
+                desk_agent_protocol::computer_use::RestoreExpectation::Sha(_)
+            ),
+        }),
         one_shot: true,
         recoverable: true,
     })
@@ -154,12 +79,15 @@ pub(super) fn project(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use desk_diagnose_core::chat::ChatRole;
+    use sha2::{Digest, Sha256};
 
     fn fixture() -> (Vec<ChatMessage>, serde_json::Value) {
         let digest = format!("{:x}", Sha256::digest("原文".as_bytes()));
         let text = serde_json::json!({"ReadContext":{"FileContentRead":{
             "file":{"token":"file","snapshot_id":"snapshot","object_kind":"file","expires_at":"2099-01-01T00:00:00Z"},
-            "display_name":"notes.txt","content_utf8":"原文","byte_len":6,"sha256":digest
+            "display_name":"notes.txt","content_utf8":"原文","byte_len":6,"sha256":digest,
+            "total_lines":1,"start_line":1,"end_line":1,"truncated":false,"next_start_byte":null,"matches":[]
         }}}).to_string();
         let owner = desk_diagnose_core::model_message_labels::model_bound_user_message(
             "owner".into(),
@@ -189,32 +117,48 @@ mod tests {
             .unwrap()
             .provenance
             .source_provider_id = "file.content".into();
+        let proposal = ChatMessage::assistant_tool_calls(
+            "proposal",
+            "",
+            vec![desk_diagnose_core::chat::ToolCallRef {
+                id: "read-call".into(),
+                name: "read_text_file".into(),
+                arguments_json: "{}".into(),
+            }],
+        );
         (
-            vec![receipt],
+            vec![proposal, receipt],
             serde_json::json!({"file_result_call_id":"read-call","expected_sha256":digest,
-            "change":{"kind":"replace_once","before":"原文","after":"新文"}}),
+            "change":{"kind":"edit","edits":[{"old_text":"原文","new_text":"新文","replace_all":false}]}}),
         )
     }
 
     #[test]
-    fn exact_file_review_preserves_change_and_uses_verified_source_name() {
+    fn exact_file_review_carries_edits_or_write_and_uses_verified_source_name() {
         let (messages, mut input) = fixture();
         let review = project("update_text_file", Some(&input.to_string()), &messages).unwrap();
         assert_eq!(review.file_name, "notes.txt");
         assert!(review.one_shot && review.recoverable);
         assert_eq!(
-            review.change,
-            Some(TextFileChange::ReplaceOnce {
-                before: "原文".into(),
-                after: "新文".into()
-            })
+            review.edits,
+            Some(vec![TextEdit {
+                old_text: "原文".into(),
+                new_text: "新文".into(),
+                replace_all: false
+            }])
         );
-        input["change"] = serde_json::json!({"kind":"replace_all","content_utf8":""});
-        assert!(project("update_text_file", Some(&input.to_string()), &messages).is_some());
+        assert!(review.write.is_none() && review.restore.is_none());
+        let json = serde_json::to_value(&review).unwrap();
+        assert_eq!(json["edits"][0]["old_text"], "原文");
+        assert_eq!(json["sourceResultCallId"], "read-call");
+        input["change"] = serde_json::json!({"kind":"write","content_utf8":""});
+        let write = project("update_text_file", Some(&input.to_string()), &messages).unwrap();
+        assert_eq!(write.write.as_deref(), Some(""));
+        assert!(write.edits.is_none());
         input.as_object_mut().unwrap().remove("change");
         let deleted = project("delete_text_file", Some(&input.to_string()), &messages).unwrap();
         assert_eq!(deleted.operation, TextFileMutationOperation::Delete);
-        assert!(deleted.change.is_none());
+        assert!(deleted.edits.is_none() && deleted.write.is_none());
     }
 
     #[test]
@@ -223,10 +167,13 @@ mod tests {
         assert!(project("update_text_file", None, &messages).is_none());
         assert!(project("delete_text_file", Some(&input.to_string()), &messages).is_none());
         assert!(project("update_text_file", Some(&input.to_string()), &[]).is_none());
-        messages[0].role = ChatRole::User;
+        let mut empty_edit = input.clone();
+        empty_edit["change"]["edits"][0]["old_text"] = "".into();
+        assert!(project("update_text_file", Some(&empty_edit.to_string()), &messages).is_none());
+        messages[1].role = ChatRole::User;
         assert!(project("update_text_file", Some(&input.to_string()), &messages).is_none());
-        messages[0].role = ChatRole::Tool;
-        messages[0].text.push(' ');
+        messages[1].role = ChatRole::Tool;
+        messages[1].text.push(' ');
         assert!(project("update_text_file", Some(&input.to_string()), &messages).is_none());
     }
 }

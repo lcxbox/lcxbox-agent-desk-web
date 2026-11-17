@@ -303,6 +303,35 @@ impl SignalCapabilityGrantStore {
         Ok(grants)
     }
 
+    /// The first of `grants` that admits this call. A text read repeating an
+    /// earlier unreleased use of a grant takes no use, so that grant stays a
+    /// candidate after its uses are spent; Prepare decides again under its
+    /// write transaction.
+    pub async fn find_candidate<'a>(
+        &self,
+        grants: &'a [CapabilityGrant],
+        call: &CapabilityGrantCall<'_>,
+    ) -> Result<Option<&'a CapabilityGrant>, DbErr> {
+        for grant in grants {
+            let earlier = live_reservations_on(&self.db, grant, None).await?;
+            let consumes_use = desk_diagnose_core::capability_grant::reservation_consumes_use(
+                grant,
+                call.canonical_input_digest_sha256,
+                earlier
+                    .iter()
+                    .map(|reservation| reservation.canonical_input_digest_sha256.as_str()),
+            );
+            if desk_diagnose_core::capability_grant::is_capability_grant_candidate_for_use(
+                grant,
+                call,
+                consumes_use,
+            ) {
+                return Ok(Some(grant));
+            }
+        }
+        Ok(None)
+    }
+
     /// Return the grant already frozen into a Prepared-or-later call. This lets
     /// a safe pre-intent replay reuse the original reservation authority instead
     /// of minting a second policy-auto grant for the same stable call id.
@@ -567,14 +596,27 @@ impl SignalCapabilityGrantStore {
             return Err(DbErr::Custom("capability grant is not active".into()));
         }
         let mut grant = decode_grant(&grant_row)?;
+        let earlier = desk_diagnose_core::future::boxed(|| async {
+            live_reservations_on(&txn, &grant, None).await
+        })
+        .await?;
+        let consumes_use = desk_diagnose_core::capability_grant::reservation_consumes_use(
+            &grant,
+            request.call.canonical_input_digest_sha256,
+            earlier
+                .iter()
+                .map(|reservation| reservation.canonical_input_digest_sha256.as_str()),
+        );
+        // A call repeating an earlier unreleased use of this grant is matched
+        // like that use's own reservation: it needs no remaining use.
         desk_diagnose_core::future::boxed(|| async {
-            task_authority::match_current_on(&txn, &grant, &request.call, false).await
+            task_authority::match_current_on(&txn, &grant, &request.call, !consumes_use).await
         })
         .await
         .map_err(|reason| {
             DbErr::Custom(format!("capability grant does not match call: {reason:?}"))
         })?;
-        if grant.remaining_uses == 0 || grant_row.remaining_uses <= 0 {
+        if consumes_use && (grant.remaining_uses == 0 || grant_row.remaining_uses <= 0) {
             desk_diagnose_core::future::boxed(|| async { txn.rollback().await })
                 .await
                 .ok();
@@ -657,7 +699,7 @@ impl SignalCapabilityGrantStore {
             .await
         })
         .await?;
-        if grant.use_policy.consumes_uses() {
+        if consumes_use {
             grant.remaining_uses -= 1;
         }
         let remaining = i32::try_from(grant.remaining_uses)
@@ -1870,7 +1912,14 @@ async fn release_before_intent<C: sea_orm::ConnectionTrait + crate::config::Conf
         .await?
         .ok_or_else(|| DbErr::Custom("reserved capability grant was not found".into()))?;
     let mut grant = decode_grant(&grant_row)?;
-    if grant.use_policy.consumes_uses() {
+    let others = live_reservations_on(db, &grant, Some(reservation.id)).await?;
+    if desk_diagnose_core::capability_grant::reservation_consumes_use(
+        &grant,
+        &reservation.canonical_input_digest_sha256,
+        others
+            .iter()
+            .map(|other| other.canonical_input_digest_sha256.as_str()),
+    ) {
         if grant.remaining_uses >= grant.limits.max_calls {
             return Err(DbErr::Custom(
                 "released grant use would exceed its issued limit".into(),
@@ -1927,6 +1976,27 @@ async fn release_before_intent<C: sea_orm::ConnectionTrait + crate::config::Conf
         ));
     }
     Ok(())
+}
+
+/// Unreleased reservations of a grant whose calls share one use per canonical
+/// input; empty for every other tool, whose reservations each take a use.
+/// Prepare and release read them inside the write transaction that reserves
+/// or releases.
+async fn live_reservations_on<C: sea_orm::ConnectionTrait + crate::config::ConfigConnection>(
+    db: &C,
+    grant: &CapabilityGrant,
+    excluding: Option<i64>,
+) -> Result<Vec<agent_grant_reservation::Model>, DbErr> {
+    if !desk_diagnose_core::capability_grant::shares_use_per_input(&grant.tool_name) {
+        return Ok(Vec::new());
+    }
+    let mut query = agent_grant_reservation::Entity::find()
+        .filter(agent_grant_reservation::Column::GrantId.eq(&grant.grant_id))
+        .filter(agent_grant_reservation::Column::State.ne(RESERVATION_STATUS_RELEASED));
+    if let Some(id) = excluding {
+        query = query.filter(agent_grant_reservation::Column::Id.ne(id));
+    }
+    query.all(db).await
 }
 
 pub(crate) fn decode_prepared_payload(
@@ -3350,6 +3420,138 @@ mod tests {
                 .unwrap(),
             2
         );
+        db.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn text_read_pages_of_one_source_version_take_one_grant_use() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = file_db(&directory.path().join("grant-read-pages.db")).await;
+        let store = SignalCapabilityGrantStore::new(db.clone());
+        let mut read_grant = grant(1);
+        read_grant.tool_name = desk_diagnose_core::tool_names::READ_TEXT_FILE.into();
+        store.issue(&read_grant).await.unwrap();
+        let scope = [vec!["root:selected".into()], vec!["create_new".into()]];
+        // Window and search arguments are not part of the canonical input, so
+        // every page and search of one source version has the same digest.
+        let source_json = r#"{"file":"notes.txt","sha256":"v1"}"#;
+        let source = format!("{:x}", Sha256::digest(source_json.as_bytes()));
+        let changed_json = r#"{"file":"notes.txt","sha256":"v2"}"#;
+        let changed = format!("{:x}", Sha256::digest(changed_json.as_bytes()));
+        fn read<'a>(
+            call_id: &'a str,
+            json: &'a str,
+            digest: &'a str,
+            [resources, operations]: &'a [Vec<String>; 2],
+        ) -> PrepareCapabilityCall<'a> {
+            let mut request = request(call_id, json, digest, resources, operations, 1);
+            request.call.tool_name = desk_diagnose_core::tool_names::READ_TEXT_FILE;
+            request
+        }
+        let remaining = || async {
+            agent_capability_grant::Entity::find()
+                .filter(agent_capability_grant::Column::GrantId.eq("grant-1"))
+                .one(&db)
+                .await
+                .unwrap()
+                .unwrap()
+                .remaining_uses
+        };
+
+        let first = store
+            .prepare(read("call-page-1", source_json, &source, &scope))
+            .await
+            .unwrap();
+        assert_eq!(remaining().await, 0);
+        let grants = store
+            .list_for_subject("run-1", "actor-1", "device-1")
+            .await
+            .unwrap();
+        let repeat = read("call-page-2", source_json, &source, &scope).call;
+        assert_eq!(
+            store
+                .find_candidate(&grants, &repeat)
+                .await
+                .unwrap()
+                .map(|grant| grant.grant_id.as_str()),
+            Some("grant-1"),
+            "a spent grant stays selectable for its own source version"
+        );
+        let other = read("call-other", changed_json, &changed, &scope).call;
+        assert!(
+            store
+                .find_candidate(&grants, &other)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let second = store
+            .prepare(read("call-page-2", source_json, &source, &scope))
+            .await
+            .unwrap();
+        let search = store
+            .prepare(read("call-search", source_json, &source, &scope))
+            .await
+            .unwrap();
+        assert_eq!(remaining().await, 0);
+        let error = store
+            .prepare(read("call-other", changed_json, &changed, &scope))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("does not match call"), "{error}");
+
+        // Releasing a page that took no use restores nothing; the source keeps
+        // costing its one use while any of its reservations remains.
+        store
+            .close_prepared_after_review("call-page-2", second.work_id, 500, "ai_review_denied")
+            .await
+            .unwrap();
+        store
+            .close_prepared_after_review("call-page-1", first.work_id, 500, "ai_review_denied")
+            .await
+            .unwrap();
+        assert_eq!(remaining().await, 0);
+        // Releasing the source's last reservation restores its use.
+        store
+            .close_prepared_after_review("call-search", search.work_id, 500, "ai_review_denied")
+            .await
+            .unwrap();
+        assert_eq!(remaining().await, 1);
+        store
+            .prepare(read("call-other", changed_json, &changed, &scope))
+            .await
+            .unwrap();
+        assert_eq!(remaining().await, 0);
+        db.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn other_tools_take_one_use_per_reservation_of_the_same_input() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = file_db(&directory.path().join("grant-same-input.db")).await;
+        let store = SignalCapabilityGrantStore::new(db.clone());
+        store.issue(&grant(1)).await.unwrap();
+        let resources = vec!["root:selected".into()];
+        let operations = vec!["create_new".into()];
+        let json = r#"{"path":"same.txt"}"#;
+        let digest = format!("{:x}", Sha256::digest(json.as_bytes()));
+        store
+            .prepare(request("call-1", json, &digest, &resources, &operations, 1))
+            .await
+            .unwrap();
+        let grants = store
+            .list_for_subject("run-1", "actor-1", "device-1")
+            .await
+            .unwrap();
+        let again = request("call-2", json, &digest, &resources, &operations, 1);
+        assert!(
+            store
+                .find_candidate(&grants, &again.call)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(store.prepare(again).await.is_err());
         db.close().await.unwrap();
     }
 

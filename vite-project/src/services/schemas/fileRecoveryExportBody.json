@@ -1,1 +1,1 @@
-{"type":"object","required":["recovery_id"],"properties":{"recovery_id":{"type":"string"}},"additionalProperties":false,"x-readme-ref-name":"FileRecoveryExportBody"}
+{"type":"object","required":["recovery_id"],"properties":{"entry":{"type":"integer","format":"int32","description":"Entry of a multi-file record; defaults to the first.","minimum":0},"recovery_id":{"type":"string"}},"additionalProperties":false,"x-readme-ref-name":"FileRecoveryExportBody"}

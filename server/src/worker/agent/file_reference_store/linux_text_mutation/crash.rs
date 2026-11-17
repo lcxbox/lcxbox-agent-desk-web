@@ -63,9 +63,9 @@ fn subprocess_crash_point() {
             target: &target,
             expected_sha256: &digest(b"original"),
             change: if change == "delete" {
-                TextChange::Trash
+                TextChange::Delete
             } else {
-                TextChange::ReplaceAll("intended")
+                TextChange::Write("intended")
             },
         },
         || {
@@ -192,11 +192,16 @@ fn interrupted_transactions_preserve_target_and_fence_replay() {
                     records[0].material,
                     desk_file_recovery::MaterialState::Saved
                 );
-                let body = context
-                    .data_root
-                    .join("file-recovery")
-                    .join(format!("{}.body", records[0].id));
-                assert_eq!(std::fs::read(body).unwrap(), b"original");
+                let material = locked
+                    .entry_material(
+                        &context.scope,
+                        &context.conversation_id,
+                        &records[0].id,
+                        0,
+                        records[0].created_at_ms,
+                    )
+                    .unwrap();
+                assert_eq!(material.before.unwrap(), b"original");
             }
             drop(locked);
             // Even a newly selected current version cannot reuse the interrupted operation identity.
@@ -211,7 +216,7 @@ fn interrupted_transactions_preserve_target_and_fence_replay() {
                     directory: &directory,
                     target: &target,
                     expected_sha256: &digest(&current),
-                    change: TextChange::ReplaceAll("must not replay"),
+                    change: TextChange::Write("must not replay"),
                 },
                 || {},
                 || {},

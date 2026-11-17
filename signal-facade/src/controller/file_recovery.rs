@@ -89,6 +89,9 @@ pub struct FileRecoveryDownloadBody {
     pub device_id: Option<String>,
     pub conversation_id: String,
     pub recovery_id: String,
+    /// Which file of the record; records of one file have only entry 0.
+    #[serde(default)]
+    pub entry: u32,
     pub expected_authority: Option<String>,
     pub expected_os_user: Option<String>,
 }

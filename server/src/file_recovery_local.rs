@@ -3,7 +3,7 @@
 //! Callers must authenticate the local OS user before opening that user's vault.
 //! These operations intentionally span historical authorities; remote device
 //! recovery must continue using the scoped executor in file_recovery_service.
-use super::local_quota::LocalQuota;
+use super::local_quota::{LocalQuota, settle_usage};
 use desk_agent_protocol::file_recovery::{
     FileRecoveryCleanupDto, FileRecoveryPageDto, FileRecoveryPolicyDto,
 };
@@ -79,9 +79,11 @@ pub(crate) fn execute<Q: LocalQuota>(
             confirmed,
         } => confirm_clock(vault, displayed_time_unix_ms, confirmed)
             .map(LocalFileRecoveryOutcome::Cleanup),
-        LocalFileRecoveryCommand::Export { recovery_id } => {
-            export(vault, &recovery_id).map(LocalFileRecoveryOutcome::Export)
-        }
+        LocalFileRecoveryCommand::Export {
+            recovery_id,
+            entry,
+            offset,
+        } => export(vault, &recovery_id, entry, offset).map(LocalFileRecoveryOutcome::ExportChunk),
     })
 }
 
@@ -154,24 +156,17 @@ pub(crate) fn query(
     })
 }
 
+/// Restart recovery, a recount sweep and a reconciliation that also clears
+/// reservations of operations that are no longer live.
 pub(crate) fn cleanup(
     vault: &mut LockedVault,
     quota: &mut impl LocalQuota,
 ) -> io::Result<FileRecoveryCleanupDto> {
     let os_user = crate::file_recovery_service::platform_user::current()?;
-    let unknown = vault.recover_interrupted(now_ms())?;
-    for record in vault.pending_quota_settlement().into_iter().take(32) {
-        quota.settle_record(&record)?;
-        vault.acknowledge_quota_settlement(&record.scope, &record.id)?;
-    }
-    for record in vault.pending_quota_cleanup().into_iter().take(32) {
-        quota.release_record(&record)?;
-        vault.acknowledge_quota_cleanup(&record.scope, &record.id)?;
-    }
-    for namespace in vault.pending_quota_namespaces().into_iter().take(32) {
-        quota.release_user_namespace(&namespace, &os_user, vault.namespace_epoch(&namespace)?)?;
-        vault.acknowledge_quota_namespace(&namespace)?;
-    }
+    let now = now_ms();
+    let unknown = vault.recover_interrupted(now)?;
+    vault.sweep(now)?;
+    vault.reconcile(&os_user, quota)?;
     vault.maintain_epoch_indexes(&os_user, quota, 1)?;
     Ok(FileRecoveryCleanupDto {
         pending_files: vault.pending_cleanup_count(),
@@ -193,14 +188,8 @@ pub(crate) fn discard(
         ));
     }
     vault.discard_local(conversation_id, recovery_id, now_ms())?;
-    for record in vault
-        .pending_quota_cleanup()
-        .into_iter()
-        .filter(|record| record.id == recovery_id)
-    {
-        quota.release_record(&record)?;
-        vault.acknowledge_quota_cleanup(&record.scope, &record.id)?;
-    }
+    let os_user = crate::file_recovery_service::platform_user::current()?;
+    settle_usage(vault, quota, &os_user)?;
     Ok(FileRecoveryCleanupDto {
         pending_files: vault.pending_cleanup_count(),
         unknown_outcomes: vault.unknown_outcome_count(None),
@@ -225,6 +214,19 @@ pub(crate) fn confirm_clock(
     })
 }
 
-pub(crate) fn export(vault: &mut LockedVault, recovery_id: &str) -> io::Result<Vec<u8>> {
-    vault.export_local_package(recovery_id, now_ms())
+pub(crate) fn export(
+    vault: &mut LockedVault,
+    recovery_id: &str,
+    entry: u32,
+    offset: u64,
+) -> io::Result<desk_ipc_protocol::local_file_recovery::LocalExportChunk> {
+    let chunk = crate::file_recovery_service::export_chunk(vault, |vault, cache| {
+        vault.export_local_chunk(cache, recovery_id, u64::from(entry), offset, now_ms())
+    })?;
+    Ok(desk_ipc_protocol::local_file_recovery::LocalExportChunk {
+        package_revision: chunk.package_revision,
+        total_size: chunk.total_size,
+        offset: chunk.offset,
+        data: chunk.data,
+    })
 }

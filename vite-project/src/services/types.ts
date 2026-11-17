@@ -2469,48 +2469,30 @@ export type LaunchConfirmationDto = {
     targetSessionId: string;
 };
 
-export const textFileChangeKindEnum = {
-    replace_all: "replace_all"
-} as const;
-
-export type TextFileChangeKindEnumKey = (typeof textFileChangeKindEnum)[keyof typeof textFileChangeKindEnum];
-
-export const textFileChangeKindEnum2 = {
-    replace_once: "replace_once"
-} as const;
-
-export type TextFileChangeKindEnum2Key = (typeof textFileChangeKindEnum2)[keyof typeof textFileChangeKindEnum2];
-
 /**
- * @description Closed UTF-8 edits. No shell, executable patch format, or implicit overwrite.
+ * @description One exact edit, matched in the result of the edits before it.
 */
-export type TextFileChange = ({
+export type TextEdit = {
     /**
      * @type string
     */
-    content_utf8: string;
+    new_text: string;
     /**
+     * @description Non-empty text to find.
      * @type string
     */
-    kind: TextFileChangeKindEnumKey;
-} | {
+    old_text: string;
     /**
-     * @type string
+     * @description Replace every non-overlapping match; otherwise exactly one must match.
+     * @type boolean | undefined
     */
-    after: string;
-    /**
-     * @type string
-    */
-    before: string;
-    /**
-     * @type string
-    */
-    kind: TextFileChangeKindEnum2Key;
-});
+    replace_all?: boolean;
+};
 
 export const textFileMutationOperationEnum = {
     update: "update",
-    delete: "delete"
+    delete: "delete",
+    restore: "restore"
 } as const;
 
 export type TextFileMutationOperationEnumKey = (typeof textFileMutationOperationEnum)[keyof typeof textFileMutationOperationEnum];
@@ -2520,20 +2502,51 @@ export type TextFileMutationOperationEnumKey = (typeof textFileMutationOperation
 */
 export type TextFileMutationOperation = TextFileMutationOperationEnumKey;
 
-export type TextFileConfirmationDto = {
-    change?: (null | TextFileChange);
+/**
+ * @description What a restore puts back.
+*/
+export type TextFileRestoreDto = {
     /**
+     * @description When the restored backup was taken.
+     * @minLength 0
+     * @type integer, int64
+    */
+    backupCreatedAtUnixMs: number;
+    /**
+     * @description The file must exist now (false: a deleted file is recreated).
+     * @type boolean
+    */
+    fileExpectedToExist: boolean;
+    /**
+     * @description Device facts, not authorization. A recovery location must be retained even\nwhen a mutation crossed the commit point but could not be verified.
      * @type string
     */
-    expectedSha256: string;
+    originalOperation: TextFileMutationOperation;
+    /**
+     * @description The current file is not the version that operation produced; the card\nmust warn that it will be overwritten.
+     * @type boolean
+    */
+    overridesNonAiVersion: boolean;
+};
+
+/**
+ * @description One exact text change awaiting approval. An update carries either `edits`\nor `write`; a restore carries `restore`; a deletion carries neither.
+*/
+export type TextFileConfirmationDto = {
+    /**
+     * @description Exact edits, applied in order to the result of the previous edit.
+     * @type array,null
+    */
+    edits?: TextEdit[] | null;
+    /**
+     * @description Version an update or deletion requires.
+     * @type string,null
+    */
+    expectedSha256?: string | null;
     /**
      * @type string
     */
     fileName: string;
-    /**
-     * @type string
-    */
-    fileResultCallId: string;
     /**
      * @type boolean
     */
@@ -2544,9 +2557,21 @@ export type TextFileConfirmationDto = {
     */
     operation: TextFileMutationOperation;
     /**
+     * @description The device keeps the previous state; the change can be restored.
      * @type boolean
     */
     recoverable: boolean;
+    restore?: (null | TextFileRestoreDto);
+    /**
+     * @description Result the change is based on: the file version an update or deletion\nrequires, or the operation a restore undoes.
+     * @type string
+    */
+    sourceResultCallId: string;
+    /**
+     * @description Complete new content of a full rewrite.
+     * @type string,null
+    */
+    write?: string | null;
 };
 
 /**
@@ -7703,6 +7728,12 @@ export const fileRecoveryCommandOperationEnum7 = {
 
 export type FileRecoveryCommandOperationEnum7Key = (typeof fileRecoveryCommandOperationEnum7)[keyof typeof fileRecoveryCommandOperationEnum7];
 
+export const fileRecoveryCommandOperationEnum8 = {
+    query_entries: "query_entries"
+} as const;
+
+export type FileRecoveryCommandOperationEnum8Key = (typeof fileRecoveryCommandOperationEnum8)[keyof typeof fileRecoveryCommandOperationEnum8];
+
 export type FileRecoveryCommand = ({
     /**
      * @type string,null
@@ -7782,9 +7813,37 @@ export type FileRecoveryCommand = ({
     */
     conversation_id: string;
     /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    entry: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    offset: number;
+    /**
      * @type string
     */
     operation: FileRecoveryCommandOperationEnum7Key;
+    /**
+     * @type string
+    */
+    recovery_id: string;
+} | {
+    /**
+     * @type string
+    */
+    conversation_id: string;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    offset: number;
+    /**
+     * @type string
+    */
+    operation: FileRecoveryCommandOperationEnum8Key;
     /**
      * @type string
     */
@@ -7820,6 +7879,12 @@ export type FileRecoveryDownloadBody = {
     */
     device_id?: string | null;
     /**
+     * @description Which file of the record; records of one file have only entry 0.
+     * @minLength 0
+     * @type integer | undefined, int32
+    */
+    entry?: number;
+    /**
      * @type string,null
     */
     expected_authority?: string | null;
@@ -7833,7 +7898,45 @@ export type FileRecoveryDownloadBody = {
     recovery_id: string;
 };
 
+/**
+ * @description One file of a record.
+*/
+export type FileRecoveryEntryDto = {
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    entry: number;
+    /**
+     * @type boolean
+    */
+    export_available: boolean;
+    /**
+     * @description Path relative to the record\'s directory.
+     * @type string
+    */
+    path: string;
+};
+
+export type FileRecoveryEntryPageDto = {
+    /**
+     * @type array
+    */
+    entries: FileRecoveryEntryDto[];
+    /**
+     * @minLength 0
+     * @type integer,null, int32
+    */
+    next_offset?: number | null;
+};
+
 export type FileRecoveryExportBody = {
+    /**
+     * @description Entry of a multi-file record; defaults to the first.
+     * @minLength 0
+     * @type integer | undefined, int32
+    */
+    entry?: number;
     /**
      * @type string
     */
@@ -7912,6 +8015,12 @@ export type FileRecoveryRecordDto = {
     */
     created_at_unix_ms: number;
     /**
+     * @description Files this record covers; each exports separately.
+     * @minLength 0
+     * @type integer, int32
+    */
+    entry_count: number;
+    /**
      * @minLength 0
      * @type integer, int64
     */
@@ -7933,6 +8042,7 @@ export type FileRecoveryRecordDto = {
     */
     recovery_id: string;
     /**
+     * @description Bytes of objects this record newly stored; objects can be shared with\nother records, so discarding it may free less.
      * @minLength 0
      * @type integer, int64
     */
@@ -8020,16 +8130,22 @@ export const fileRecoveryOutcomeKindEnum4 = {
 export type FileRecoveryOutcomeKindEnum4Key = (typeof fileRecoveryOutcomeKindEnum4)[keyof typeof fileRecoveryOutcomeKindEnum4];
 
 export const fileRecoveryOutcomeKindEnum5 = {
-    export: "export"
+    export_chunk: "export_chunk"
 } as const;
 
 export type FileRecoveryOutcomeKindEnum5Key = (typeof fileRecoveryOutcomeKindEnum5)[keyof typeof fileRecoveryOutcomeKindEnum5];
 
 export const fileRecoveryOutcomeKindEnum6 = {
-    unavailable: "unavailable"
+    entries: "entries"
 } as const;
 
 export type FileRecoveryOutcomeKindEnum6Key = (typeof fileRecoveryOutcomeKindEnum6)[keyof typeof fileRecoveryOutcomeKindEnum6];
+
+export const fileRecoveryOutcomeKindEnum7 = {
+    unavailable: "unavailable"
+} as const;
+
+export type FileRecoveryOutcomeKindEnum7Key = (typeof fileRecoveryOutcomeKindEnum7)[keyof typeof fileRecoveryOutcomeKindEnum7];
 
 export type FileRecoveryOutcome = ({
     /**
@@ -8071,16 +8187,40 @@ export type FileRecoveryOutcome = ({
     /**
      * @type string
     */
-    kind: FileRecoveryOutcomeKindEnum5Key;
+    data_base64: string;
     /**
      * @type string
     */
-    zip_base64: string;
+    kind: FileRecoveryOutcomeKindEnum5Key;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    offset: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    package_revision: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    total_size: number;
 } | {
     /**
      * @type string
     */
     kind: FileRecoveryOutcomeKindEnum6Key;
+    /**
+     * @type object
+    */
+    page: FileRecoveryEntryPageDto;
+} | {
+    /**
+     * @type string
+    */
+    kind: FileRecoveryOutcomeKindEnum7Key;
     /**
      * @type string
     */

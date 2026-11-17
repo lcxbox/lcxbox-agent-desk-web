@@ -80,6 +80,12 @@ fn read_history() -> Vec<ChatMessage> {
         content_utf8: "old".into(),
         byte_len: 3,
         sha256: format!("{:x}", Sha256::digest(b"old")),
+        total_lines: 1,
+        start_line: 1,
+        end_line: 1,
+        truncated: false,
+        next_start_byte: None,
+        matches: vec![],
     };
     evidence(
         "read_text_file",
@@ -99,7 +105,7 @@ fn file_version_recovers_exact_hash_and_approval_input() {
     let output: Value = serde_json::from_str(&projected.text).unwrap();
     assert!(output["file_version_id"].as_str().unwrap().len() < 32);
     assert!(!projected.text.contains("sha256"));
-    let input = json!({"file_version_id":output["file_version_id"],"change":{"kind":"replace_all","content_utf8":"新内容"}});
+    let input = json!({"file_version_id":output["file_version_id"],"change":{"kind":"write","content_utf8":"新内容"}});
     let call = ToolCall {
         id: "change".into(),
         name: "update_text_file".into(),
@@ -599,7 +605,7 @@ fn result_ids_are_presented_and_accepted_as_session_aliases() {
     assert!(!projected.text.contains("\"receipt\""));
 
     let mut input =
-        json!({"file_version_id":"res1","change":{"kind":"replace_all","content_utf8":"new"}});
+        json!({"file_version_id":"res1","change":{"kind":"write","content_utf8":"new"}});
     references.expand_result_ids(&mut input).unwrap();
     assert_eq!(input["file_version_id"], "receipt");
     let call = ToolCall {
@@ -627,4 +633,122 @@ fn result_ids_are_presented_and_accepted_as_session_aliases() {
     let mut recorded = json!({"source":{"file_result_call_id":"receipt"}});
     references.alias_result_ids(&mut recorded);
     assert_eq!(recorded["source"]["file_result_call_id"], "res1");
+}
+
+#[test]
+fn mutation_results_are_offered_and_resolved_as_restore_sources() {
+    use desk_agent_protocol::computer_use::{
+        ComputerActionStepFact, FileRecoveryDescriptor, TextFileMutationOperation,
+        TextFileMutationOutput,
+    };
+    let directory = ObjectRef {
+        token: "root".into(),
+        snapshot_id: "root-snapshot".into(),
+        object_kind: ObjectKind::Directory,
+        expires_at: String::new(),
+    };
+    let completed = ComputerActionCompleted {
+        work_id: "work".into(),
+        action_request_id: "update".into(),
+        execution_generation: "generation".into(),
+        result: ComputerActionResultClass::OutcomeUnknown,
+        facts: vec![ComputerActionStepFact {
+            index: 0,
+            changed: true,
+            verified: false,
+            summary: "unknown".into(),
+        }],
+        message: None,
+        output: Some(ComputerActionOutput::TextFileMutation(
+            TextFileMutationOutput {
+                operation: TextFileMutationOperation::Update,
+                original: ObjectRef {
+                    token: "file".into(),
+                    snapshot_id: "file-snapshot".into(),
+                    object_kind: ObjectKind::File,
+                    expires_at: "2099-01-01T00:00:00Z".into(),
+                },
+                directory,
+                original_file_name: "notes.txt".into(),
+                original_size_bytes: 3,
+                original_sha256: Some("a".repeat(64)),
+                recovery: FileRecoveryDescriptor {
+                    recovery_id: "b".repeat(64),
+                    created_at_unix_ms: 1,
+                    expires_at_unix_ms: 2,
+                    cleanup_pending: false,
+                },
+                verified: false,
+                updated_sha256: None,
+                updated_file: None,
+            },
+        )),
+    };
+    let mut history = read_history();
+    history.extend(evidence(
+        "update_text_file",
+        "update-call-long",
+        json!({}),
+        json!(completed),
+    ));
+    history[4].message_id = "update-source".into();
+    history[5].message_id = "update-receipt".into();
+    let mut projected = history.last().unwrap().clone();
+    crate::ui_model_ids::project_tool_message(&mut projected);
+    let output: Value = serde_json::from_str(&projected.text).unwrap();
+    let mutation_id = output["mutation_result_id"].as_str().unwrap().to_owned();
+    // An unknown outcome is no reusable file version.
+    assert!(output.get("file_version_id").is_none());
+    let mut read = history[2].clone();
+    crate::ui_model_ids::project_tool_message(&mut read);
+    let read: Value = serde_json::from_str(&read.text).unwrap();
+    let input = json!({"mutation_result_id":mutation_id,"file_version_id":read["file_version_id"]});
+    let call = ToolCall {
+        id: "restore".into(),
+        name: "restore_text_file".into(),
+        arguments_json: input.to_string(),
+    };
+    let resolved = crate::ui_model_ids::resolve_call(&call, &history, 1).unwrap();
+    let native: Value = serde_json::from_str(&resolved.arguments_json).unwrap();
+    assert_eq!(
+        native,
+        json!({"mutation_result_call_id":"update-call-long","file_result_call_id":"provider-call-long"})
+    );
+    assert!(same_input(
+        &call.name,
+        &call.arguments_json,
+        &resolved.arguments_json,
+        &history,
+    ));
+    for invalid in [
+        json!({"mutation_result_id":"unknown"}),
+        json!({"file_version_id":read["file_version_id"]}),
+        json!({"mutation_result_id":mutation_id,"mutation_result_call_id":"update-call-long"}),
+    ] {
+        let call = ToolCall {
+            arguments_json: invalid.to_string(),
+            ..call.clone()
+        };
+        assert!(
+            crate::ui_model_ids::resolve_call(&call, &history, 1).is_err(),
+            "{invalid}"
+        );
+    }
+    let mut tool = crate::ai_assistant::ai_assistant_provider_registry()
+        .registered_tools()
+        .into_iter()
+        .find(|tool| tool.name() == "restore_text_file")
+        .unwrap()
+        .spec;
+    project_tool(&mut tool);
+    assert_eq!(
+        tool.parameters_schema["required"],
+        json!(["mutation_result_id"])
+    );
+    assert!(tool.parameters_schema["properties"]["file_version_id"].is_object());
+    assert!(
+        tool.parameters_schema["properties"]
+            .get("mutation_result_call_id")
+            .is_none()
+    );
 }

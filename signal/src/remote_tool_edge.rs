@@ -71,7 +71,6 @@ use desk_diagnose_core::ai_assistant::{
 };
 use desk_diagnose_core::capability_grant::{
     CapabilityGrantCall, canonical_compiled_scope, fresh_object_resource_scope,
-    is_capability_grant_candidate,
 };
 use desk_diagnose_core::chat::ToolCall;
 use desk_diagnose_core::chunk::ByteReassembler;
@@ -1726,10 +1725,20 @@ impl SignalAiAssistantTools {
                 == desk_diagnose_core::session::TriggerOrigin::ScheduledTask
             {
                 crate::capability_grant_store::task_grant::identity(&self.run_id, &server_call_id)
-            } else if let Some(grant) = available_grants
-                .iter()
-                .find(|grant| is_capability_grant_candidate(grant, &call_authority))
-            {
+            } else if let Some(grant) = desk_diagnose_core::future::boxed(|| async {
+                store
+                    .find_candidate(&available_grants, &call_authority)
+                    .await
+            })
+            .await
+            .map_err(|db_error| {
+                error(
+                    AgentErrorKind::Internal,
+                    format!("failed to load Provider grant uses: {db_error}"),
+                    false,
+                    false,
+                )
+            })? {
                 grant.grant_id.clone()
             } else if risk_tier == CapabilityRiskTier::R0 {
                 let grant_id = format!(
@@ -3002,18 +3011,26 @@ impl SignalAiAssistantTools {
                 .await?
             }
             desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL
-            | desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL => {
+            | desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL
+            | desk_diagnose_core::provider_preflight::text_file::RESTORE_TEXT_TOOL => {
                 desk_diagnose_core::future::boxed(|| async {
                     Ok::<_, AgentError>(Box::new({
                         let input = shared_text.as_ref().expect("text mutation preflight");
-                        let directory = match input.action() {
+                        // A restore targets its directory; the file name is
+                        // part of the frozen action.
+                        let resources = match input.action() {
                             FilePatchAction::UpdateText { directory, .. }
-                            | FilePatchAction::DeleteText { directory, .. } => directory.clone(),
+                            | FilePatchAction::DeleteText { directory, .. } => {
+                                vec![directory.clone(), input.target().clone()]
+                            }
+                            FilePatchAction::RestoreText { directory, .. } => {
+                                vec![directory.clone()]
+                            }
                             _ => unreachable!(),
                         };
                         (
                             input.target().clone(),
-                            vec![directory, input.target().clone()],
+                            resources,
                             ComputerActionKind::File(input.action().clone()),
                             input.required_capability(),
                             ComputerUseAdapterKind::FileSystem,
@@ -6293,7 +6310,11 @@ impl SignalAiAssistantTools {
             input = OperationInput::ReadContext(ReadContextInput {
                 kind: ContextKind::FileContentRead(FileContentReadParams {
                     file: files[0].clone(),
-                    max_bytes: 64 * 1024,
+                    max_bytes: desk_agent_protocol::computer_use::MAX_TEXT_READ_OUTPUT_BYTES,
+                    selection:
+                        desk_diagnose_core::provider_preflight::text_file::read_window::selection(
+                            call,
+                        )?,
                 }),
             });
         }
@@ -7011,6 +7032,7 @@ impl ToolSeam for SignalAiAssistantTools {
                 | "patch_excel_copy"
                 | desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL
                 | desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL
+                | desk_diagnose_core::provider_preflight::text_file::RESTORE_TEXT_TOOL
                 | "launch_application"
         ) {
             return self.authorize_and_execute_semantic_action(call, ctx).await;

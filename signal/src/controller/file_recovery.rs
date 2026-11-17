@@ -3,14 +3,16 @@ use crate::{
     control_authorizer::SINGLE_ACCOUNT_USER_ID, entity::agent_session, error::DeskSignalError,
 };
 use actix_web::{HttpResponse, get, http::header, post, web};
-use base64::Engine;
 use desk_agent_protocol::file_recovery::*;
 use desk_signal_facade::{
     controller::file_recovery::*,
     model::{auth_context::AuthKind, connection::SharedConnectionMap, signal::RemoteDeskTypeEnum},
-    service::file_recovery::request_authorized,
+    service::file_recovery::{
+        ExportError, FetchChunk, StillAllowed, request_authorized, start_export,
+    },
 };
 use desk_utils::{error::DeskErrorCode, rest::RestResponse};
+use futures_util::StreamExt as _;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 fn unavailable() -> DeskSignalError {
     DeskSignalError::new_custom_error(
@@ -134,6 +136,10 @@ pub async fn manage_device_file_recovery(
     | FileRecoveryCommand::Discard {
         conversation_id: id,
         ..
+    }
+    | FileRecoveryCommand::QueryEntries {
+        conversation_id: id,
+        ..
     } = &body.request.command
         && !live_conversations(&device, vec![id.clone()])
             .await?
@@ -190,40 +196,54 @@ pub async fn export_device_file_recovery(
     {
         return Err(unavailable());
     }
-    let reply = request_authorized(
-        &connections,
-        &body.connection,
-        SINGLE_ACCOUNT_USER_ID,
-        None,
-        FileRecoveryRequest {
-            expected_authority: body.expected_authority,
-            expected_os_user: body.expected_os_user,
-            command: FileRecoveryCommand::Export {
-                recovery_id: body.recovery_id,
-                conversation_id: body.conversation_id.clone(),
-            },
-        },
-    )
-    .await;
-    // Deletion may race the network download. Never return bytes for a removed conversation.
-    if !live_conversations(&device, vec![body.conversation_id.clone()])
-        .await?
-        .contains(&body.conversation_id)
-    {
-        return Err(unavailable());
-    }
-    let reply = match reply {
-        Ok(reply) => reply,
-        Err(error) => return Ok(download_request_failure(error)),
+    let connections = connections.into_inner();
+    let fetch: FetchChunk = {
+        let connections = connections.clone();
+        let body = body.clone();
+        Box::new(move |offset| {
+            let connections = connections.clone();
+            let body = body.clone();
+            Box::pin(async move {
+                request_authorized(
+                    &connections,
+                    &body.connection,
+                    SINGLE_ACCOUNT_USER_ID,
+                    None,
+                    FileRecoveryRequest {
+                        expected_authority: body.expected_authority,
+                        expected_os_user: body.expected_os_user,
+                        command: FileRecoveryCommand::Export {
+                            recovery_id: body.recovery_id,
+                            conversation_id: body.conversation_id,
+                            entry: body.entry,
+                            offset,
+                        },
+                    },
+                )
+                .await
+            })
+        })
     };
-    let zip_base64 = match reply.outcome {
-        FileRecoveryOutcome::Export { zip_base64 } => zip_base64,
-        FileRecoveryOutcome::Unavailable { reason } => return Ok(download_failure(reason)),
-        _ => return Err(unavailable()),
+    // Deletion may race the download: every chunk is released only while the
+    // conversation still exists.
+    let allowed: StillAllowed = {
+        let conversation = body.conversation_id.clone();
+        Box::new(move || {
+            let device = device.clone();
+            let conversation = conversation.clone();
+            Box::pin(async move {
+                live_conversations(&device, vec![conversation.clone()])
+                    .await
+                    .is_ok_and(|live| live.contains(&conversation))
+            })
+        })
     };
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(zip_base64)
-        .map_err(|_| unavailable())?;
+    let stream = match start_export(fetch, allowed).await {
+        Ok(stream) => stream,
+        Err(ExportError::Request(error)) => return Ok(download_request_failure(error)),
+        Err(ExportError::Unavailable(reason)) => return Ok(download_failure(reason)),
+        Err(ExportError::Rejected) => return Err(unavailable()),
+    };
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .insert_header((header::CONTENT_TYPE, "application/zip"))
@@ -235,5 +255,9 @@ pub async fn export_device_file_recovery(
             header::HeaderName::from_static("x-content-type-options"),
             "nosniff",
         ))
-        .body(bytes))
+        // A declared length makes a stopped stream an incomplete download.
+        .no_chunking(stream.total_size)
+        .streaming(stream.body.map(|chunk| {
+            chunk.map_err(|_| actix_web::error::ErrorServiceUnavailable("export stopped"))
+        })))
 }

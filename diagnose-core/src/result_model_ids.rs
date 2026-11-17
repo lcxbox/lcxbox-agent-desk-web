@@ -197,6 +197,7 @@ pub(crate) fn supports(tool: &str) -> bool {
         tool,
         crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
             | crate::provider_preflight::text_file::DELETE_TEXT_TOOL
+            | crate::provider_preflight::text_file::RESTORE_TEXT_TOOL
             | "prepare_gmail_draft"
             | "send_gmail_message"
             | "send_slack_message"
@@ -396,6 +397,39 @@ pub(crate) fn resolve(
         }
         object.insert("expected_sha256".into(), json!(evidence.sha256()));
     }
+    if tool == crate::provider_preflight::text_file::RESTORE_TEXT_TOOL {
+        // The receipt of the undone operation stays usable after its model
+        // window ends: the restore never sends its content anywhere.
+        for (model, native) in [
+            ("mutation_result_id", "mutation_result_call_id"),
+            ("file_version_id", "file_result_call_id"),
+        ] {
+            let Some(id) = object.remove(model) else {
+                continue;
+            };
+            if object.contains_key(native) {
+                return Err(invalid("use only mutation_result_id and file_version_id"));
+            }
+            let id = id
+                .as_str()
+                .ok_or_else(|| invalid("result ID must be a string"))?;
+            let call = if model == "mutation_result_id" {
+                selected_call(&source_locators, id)
+                    .ok_or_else(|| invalid("mutation_result_id is unavailable"))?
+                    .to_owned()
+            } else {
+                unique_result(&results, |call, _| {
+                    selected_call(&source_locators, id) == Some(call.id.as_str())
+                })?
+                .0
+                .id
+            };
+            object.insert(native.into(), json!(call));
+        }
+        if !object.contains_key("mutation_result_call_id") {
+            return Err(invalid("mutation_result_id is required"));
+        }
+    }
     if tool == "prepare_gmail_draft" {
         if let Some(attachment) = object.get_mut("attachment").and_then(Value::as_object_mut)
             && let Some(id) = attachment.remove("artifact_result_id")
@@ -542,6 +576,17 @@ pub(crate) fn project_arguments(tool: &str, value: &mut Value, locators: &[Resul
         object.insert("file_version_id".into(), json!(id));
         object.remove("expected_sha256");
     }
+    if tool == crate::provider_preflight::text_file::RESTORE_TEXT_TOOL {
+        for (native, model) in [
+            ("mutation_result_call_id", "mutation_result_id"),
+            ("file_result_call_id", "file_version_id"),
+        ] {
+            if let Some(call) = object.remove(native) {
+                let id = call.as_str().and_then(|call| message_id(locators, call));
+                object.insert(model.into(), json!(id));
+            }
+        }
+    }
     if tool == "prepare_gmail_draft"
         && let Some(attachment) = object.get_mut("attachment").and_then(Value::as_object_mut)
         && let Some(artifact) = attachment.remove("artifact")
@@ -672,6 +717,15 @@ pub(crate) fn project_tool(tool: &mut ToolSpec) {
                     "use its file_version_id; the server restores the original full SHA-256",
                 )
                 .replace("and its full SHA-256", "using its file_version_id");
+        }
+        crate::provider_preflight::text_file::RESTORE_TEXT_TOOL => {
+            if let Some(properties) = tool.parameters_schema["properties"].as_object_mut() {
+                properties.remove("mutation_result_call_id");
+                properties.remove("file_result_call_id");
+                properties.insert("mutation_result_id".into(), json!({"type":"string","minLength":1,"maxLength":32,"description":"mutation_result_id of the update, delete or restore result to undo."}));
+                properties.insert("file_version_id".into(), json!({"type":"string","minLength":1,"maxLength":32,"description":"Optional file_version_id of a verified read of the file's current version."}));
+            }
+            tool.parameters_schema["required"] = json!(["mutation_result_id"]);
         }
         "prepare_gmail_draft" => {
             if let Some(attachment) = tool.parameters_schema.pointer_mut("/properties/attachment") {
@@ -959,6 +1013,7 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
             | crate::tool_names::CREATE_TEXT_FILE
             | "create_local_message_draft"
             | crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
+            | crate::provider_preflight::text_file::RESTORE_TEXT_TOOL
     ) {
         let verified = created.as_ref().is_some_and(|artifact| {
             artifact.media_type == crate::provider_preflight::TEXT_ARTIFACT_MEDIA_TYPE
@@ -978,6 +1033,23 @@ pub(crate) fn project_result_message(message: &mut ChatMessage) {
         || created.is_some()
     {
         value["file_result_call_id"] = json!(message.message_id);
+    }
+    // Any recorded text mutation, verified or with an unknown outcome, can be
+    // named by a later restore_text_file.
+    if matches!(
+        source.as_str(),
+        crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
+            | crate::provider_preflight::text_file::DELETE_TEXT_TOOL
+            | crate::provider_preflight::text_file::RESTORE_TEXT_TOOL
+    ) && serde_json::from_value::<ComputerActionCompleted>(original.clone()).is_ok_and(
+        |completed| {
+            matches!(
+                completed.output,
+                Some(ComputerActionOutput::TextFileMutation(_))
+            )
+        },
+    ) {
+        value["mutation_result_id"] = json!(message.message_id);
     }
     if let Some(handoff) = handoff(&original) {
         value = json!({"handoff_result_id":message.message_id,"verification":handoff.verification,"send_authority":handoff.send_authority,"surface":handoff.surface,"business_effect":"draft_prepared","message_sent":false});

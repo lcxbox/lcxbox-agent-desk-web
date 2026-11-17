@@ -286,6 +286,30 @@ pub fn select_grant<'a>(
     }
 }
 
+/// Whether calls of this tool with an equal canonical input share one grant
+/// use. Hosts look up earlier reservations only for these tools.
+pub fn shares_use_per_input(tool_name: &str) -> bool {
+    tool_name == crate::tool_names::READ_TEXT_FILE
+}
+
+/// Whether reserving a call takes one of the grant's uses. A text read binds
+/// its file source, not its window, so paging and searching one source version
+/// under one grant count once: a host passes the canonical input digests of
+/// this grant's earlier unreleased reservations and skips both the decrement
+/// and the exhaustion check when this returns false. Releasing a reservation
+/// restores a use only when this holds against the grant's other unreleased
+/// reservations, so a source keeps costing one use while any of its
+/// reservations remains.
+pub fn reservation_consumes_use<'a>(
+    grant: &CapabilityGrant,
+    canonical_input_digest_sha256: &str,
+    mut reserved_digests: impl Iterator<Item = &'a str>,
+) -> bool {
+    grant.use_policy.consumes_uses()
+        && !(shares_use_per_input(&grant.tool_name)
+            && reserved_digests.any(|digest| digest == canonical_input_digest_sha256))
+}
+
 /// Filter a stored candidate before the runtime opens its admission transaction.
 /// This checks scope only: a task or AI review provenance copied from the grant
 /// is not current authority here.
@@ -295,6 +319,17 @@ pub fn is_capability_grant_candidate(
     grant: &CapabilityGrant,
     call: &CapabilityGrantCall<'_>,
 ) -> bool {
+    is_capability_grant_candidate_for_use(grant, call, true)
+}
+
+/// [`is_capability_grant_candidate`] for a call whose reservation may take no
+/// use ([`reservation_consumes_use`] returned false): such a call repeats an
+/// earlier use of the grant, so an exhausted grant still admits it.
+pub fn is_capability_grant_candidate_for_use(
+    grant: &CapabilityGrant,
+    call: &CapabilityGrantCall<'_>,
+    consumes_use: bool,
+) -> bool {
     let (task, approval, no_review) = match &grant.issued_by {
         CapabilityGrantIssuer::ScheduledRun(parent) => (Some(parent), None, None),
         CapabilityGrantIssuer::AiApproval(parent) => (None, Some(parent), None),
@@ -303,7 +338,7 @@ pub fn is_capability_grant_candidate(
             (None, None, None)
         }
     };
-    match_capability_grant_inner(grant, call, true, task, approval, no_review).is_ok()
+    match_capability_grant_inner(grant, call, consumes_use, task, approval, no_review).is_ok()
 }
 
 /// Revalidate a call that already owns a durable reservation. The reservation
@@ -484,6 +519,56 @@ mod tests {
 
     fn digest(byte: char) -> String {
         std::iter::repeat_n(byte, 64).collect()
+    }
+
+    #[test]
+    fn paging_one_text_read_source_counts_one_use() {
+        let mut read = grant();
+        read.tool_name = crate::tool_names::READ_TEXT_FILE.into();
+        read.use_policy = CapabilityGrantUsePolicy::Reusable;
+        let source = digest('b');
+        assert!(reservation_consumes_use(&read, &source, std::iter::empty()));
+        assert!(!reservation_consumes_use(
+            &read,
+            &source,
+            [digest('c').as_str(), source.as_str()].into_iter()
+        ));
+        assert!(reservation_consumes_use(
+            &read,
+            &source,
+            [digest('c').as_str()].into_iter()
+        ));
+        // Other tools keep one use per reservation.
+        let other = grant();
+        assert!(reservation_consumes_use(
+            &other,
+            &digest('a'),
+            [digest('a').as_str()].into_iter()
+        ));
+    }
+
+    #[test]
+    fn exhausted_grant_admits_only_a_call_that_takes_no_use() {
+        let resources = vec!["root:selected".into()];
+        let operations = vec!["create_new".into()];
+        let envelopes = vec!["envelope-1".into()];
+        let canonical = digest('a');
+        let current = call(&resources, &operations, &envelopes, &canonical);
+        let mut spent = grant();
+        spent.remaining_uses = 0;
+        assert!(!is_capability_grant_candidate(&spent, &current));
+        assert!(!is_capability_grant_candidate_for_use(
+            &spent, &current, true
+        ));
+        assert!(is_capability_grant_candidate_for_use(
+            &spent, &current, false
+        ));
+        // Every other check still applies to a repeated use.
+        spent.revoked_at_unix_ms = Some(120);
+        spent.revoked_reason = Some("owner revoked".into());
+        assert!(!is_capability_grant_candidate_for_use(
+            &spent, &current, false
+        ));
     }
 
     fn grant() -> CapabilityGrant {

@@ -1,6 +1,6 @@
 //! Cleanup through Unix directory handles and registered inode identities.
 use super::*;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 pub(super) fn clean(tx: &Transaction) -> io::Result<()> {
     let files = tx.identity.inodes()?;
     use std::{

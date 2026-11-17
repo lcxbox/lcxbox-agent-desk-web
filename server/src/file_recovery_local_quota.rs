@@ -2,31 +2,33 @@
 use crate::worker::session::QuotaClient;
 use desk_file_recovery::{
     EpochCoordinator, LockedVault, Policy, Record,
-    quota::{LockedDeviceQuota, QuotaKey},
+    quota::{LockedDeviceQuota, QuotaKey, UsageReport},
 };
 use std::io;
 
 pub(crate) trait LocalQuota: EpochCoordinator {
     fn usage(&mut self) -> io::Result<(Policy, u64, u64)>;
-    fn settle_record(&mut self, record: &Record) -> io::Result<()>;
-    fn release_record(&mut self, record: &Record) -> io::Result<()>;
-    fn release_user_namespace(
+    /// Two-part settlement; returns whether the absolute usage was applied.
+    fn settle(
         &mut self,
-        namespace: &str,
         os_user: &str,
-        epoch: u64,
-    ) -> io::Result<()>;
+        clear: Option<&Record>,
+        usage: &UsageReport,
+    ) -> io::Result<bool>;
 }
 
-fn key(record: &Record) -> io::Result<QuotaKey> {
-    let mut key = QuotaKey::new(
-        &record.scope,
-        &record.conversation,
-        &record.operation,
-        &record.generation,
-    )?;
-    key.epoch = record.storage_epoch;
-    Ok(key)
+/// Settle the vault's current absolute usage and acknowledge it when applied.
+/// Runs while the vault lock is held, like every quota request.
+pub(crate) fn settle_usage(
+    vault: &mut LockedVault,
+    quota: &mut impl LocalQuota,
+    os_user: &str,
+) -> io::Result<()> {
+    let usage = vault.usage_report();
+    if quota.settle(os_user, None, &usage)? {
+        vault.acknowledge_settlement(&usage)?;
+    }
+    Ok(())
 }
 
 impl LocalQuota for LockedDeviceQuota {
@@ -34,32 +36,15 @@ impl LocalQuota for LockedDeviceQuota {
         Ok((self.policy(), self.used_bytes(), self.reserved_bytes()))
     }
 
-    fn settle_record(&mut self, record: &Record) -> io::Result<()> {
-        self.settle(&key(record)?, record.bytes)
-    }
-
-    fn release_record(&mut self, record: &Record) -> io::Result<()> {
-        self.release_with_retained_index(&key(record)?, LockedVault::retained_index_bytes(record)?)
-    }
-
-    fn release_user_namespace(
+    fn settle(
         &mut self,
-        namespace: &str,
         os_user: &str,
-        epoch: u64,
-    ) -> io::Result<()> {
-        self.release_namespace_at_epoch(namespace, os_user, epoch)
+        clear: Option<&Record>,
+        usage: &UsageReport,
+    ) -> io::Result<bool> {
+        let key = clear.map(QuotaKey::for_record).transpose()?;
+        LockedDeviceQuota::settle(self, os_user, key.as_ref(), usage)
     }
-}
-
-fn require_user(expected: &str) -> io::Result<()> {
-    if super::platform_user::current()? != expected {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "backup quota user changed",
-        ));
-    }
-    Ok(())
 }
 
 impl LocalQuota for QuotaClient {
@@ -67,23 +52,18 @@ impl LocalQuota for QuotaClient {
         self.policy()
     }
 
-    fn settle_record(&mut self, record: &Record) -> io::Result<()> {
-        require_user(&record.scope.os_user)?;
-        self.settle(record)
-    }
-
-    fn release_record(&mut self, record: &Record) -> io::Result<()> {
-        require_user(&record.scope.os_user)?;
-        self.release(record)
-    }
-
-    fn release_user_namespace(
+    fn settle(
         &mut self,
-        namespace: &str,
         os_user: &str,
-        epoch: u64,
-    ) -> io::Result<()> {
-        require_user(os_user)?;
-        self.release_namespace(namespace, epoch)
+        clear: Option<&Record>,
+        usage: &UsageReport,
+    ) -> io::Result<bool> {
+        if super::platform_user::current()? != os_user {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "backup quota user changed",
+            ));
+        }
+        QuotaClient::settle(self, clear, usage)
     }
 }

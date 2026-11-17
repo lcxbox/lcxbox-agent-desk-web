@@ -247,41 +247,6 @@ fn sid_text(sid: PSID) -> io::Result<String> {
     unsafe { text.to_string() }.map_err(io::Error::other)
 }
 
-#[cfg(test)]
-mod replacement_tests {
-    use super::replacement_permissions_preserved;
-
-    #[test]
-    fn protected_dacl_allows_only_added_auto_inherited_bookkeeping() {
-        let original = "O:SYG:SYD:P(A;;FA;;;SY)(A;;FR;;;BA)";
-        let inherited = "O:SYG:SYD:PAI(A;;FA;;;SY)(A;;FR;;;BA)";
-        assert!(replacement_permissions_preserved(original, original).unwrap());
-        assert!(replacement_permissions_preserved(original, inherited).unwrap());
-        assert!(!replacement_permissions_preserved(inherited, original).unwrap());
-        for changed in [
-            "O:BAG:SYD:PAI(A;;FA;;;SY)(A;;FR;;;BA)",
-            "O:SYG:BAD:PAI(A;;FA;;;SY)(A;;FR;;;BA)",
-            "O:SYG:SYD:AI(A;;FA;;;SY)(A;;FR;;;BA)",
-            "O:SYG:SYD:PAI(A;;FA;;;SY)(A;;FA;;;BA)",
-            "O:SYG:SYD:PAI(A;;FA;;;SY)(D;;FR;;;BA)",
-            "O:SYG:SYD:PAI(A;;FR;;;BA)(A;;FA;;;SY)",
-            "O:SYG:SYD:PAI(A;;FA;;;SY)(A;ID;FR;;;BA)",
-        ] {
-            assert!(
-                !replacement_permissions_preserved(original, changed).unwrap(),
-                "{changed}"
-            );
-        }
-        assert!(
-            !replacement_permissions_preserved(
-                "O:SYG:SYD:(A;;FA;;;SY)",
-                "O:SYG:SYD:AI(A;;FA;;;SY)",
-            )
-            .unwrap()
-        );
-    }
-}
-
 pub(super) fn current_user() -> io::Result<String> {
     process_user(unsafe { GetCurrentProcess() })
 }
@@ -423,4 +388,39 @@ fn validate_permissions(file: &File, user: &str, flags: u8) -> io::Result<()> {
         return Err(denied());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod replacement_tests {
+    use super::replacement_permissions_preserved;
+
+    #[test]
+    fn protected_dacl_allows_only_added_auto_inherited_bookkeeping() {
+        let original = "O:SYG:SYD:P(A;;FA;;;SY)(A;;FR;;;BA)";
+        let inherited = "O:SYG:SYD:PAI(A;;FA;;;SY)(A;;FR;;;BA)";
+        assert!(replacement_permissions_preserved(original, original).unwrap());
+        assert!(replacement_permissions_preserved(original, inherited).unwrap());
+        assert!(!replacement_permissions_preserved(inherited, original).unwrap());
+        for changed in [
+            "O:BAG:SYD:PAI(A;;FA;;;SY)(A;;FR;;;BA)",
+            "O:SYG:BAD:PAI(A;;FA;;;SY)(A;;FR;;;BA)",
+            "O:SYG:SYD:AI(A;;FA;;;SY)(A;;FR;;;BA)",
+            "O:SYG:SYD:PAI(A;;FA;;;SY)(A;;FA;;;BA)",
+            "O:SYG:SYD:PAI(A;;FA;;;SY)(D;;FR;;;BA)",
+            "O:SYG:SYD:PAI(A;;FR;;;BA)(A;;FA;;;SY)",
+            "O:SYG:SYD:PAI(A;;FA;;;SY)(A;ID;FR;;;BA)",
+        ] {
+            assert!(
+                !replacement_permissions_preserved(original, changed).unwrap(),
+                "{changed}"
+            );
+        }
+        assert!(
+            !replacement_permissions_preserved(
+                "O:SYG:SYD:(A;;FA;;;SY)",
+                "O:SYG:SYD:AI(A;;FA;;;SY)",
+            )
+            .unwrap()
+        );
+    }
 }

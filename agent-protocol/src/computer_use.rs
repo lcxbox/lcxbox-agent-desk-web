@@ -710,6 +710,55 @@ pub struct TerminalOutputInspectOutput {
 pub struct FileContentReadParams {
     pub file: ObjectRef,
     pub max_bytes: u32,
+    pub selection: TextReadSelection,
+}
+
+/// Which part of a text file one read returns. Every read reports the whole
+/// file's size, line count and SHA-256.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
+)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TextReadSelection {
+    /// From the start of the file.
+    Whole,
+    /// Lines from `start_line` (1-based); without `max_lines`, as many as
+    /// fit the output budget.
+    Lines {
+        start_line: u64,
+        max_lines: Option<u64>,
+    },
+    /// Continue inside one long line from a UTF-8 boundary byte offset.
+    Bytes { start_byte: u64 },
+    /// Literal matches with surrounding lines.
+    Search {
+        query: String,
+        case_sensitive: bool,
+        context_lines: u32,
+        max_matches: u32,
+    },
+}
+
+/// Largest file a text tool reads, edits, deletes, backs up or restores.
+pub const MAX_TEXT_FILE_BYTES: u64 = 16 * 1024 * 1024;
+/// Most UTF-8 bytes one text read returns.
+pub const MAX_TEXT_READ_OUTPUT_BYTES: u32 = 64 * 1024;
+/// Most edits one text update applies.
+pub const MAX_TEXT_EDITS: usize = 32;
+/// Most UTF-8 bytes of any one edit field or a full replacement; the
+/// canonical tool input budget is the effective bound.
+pub const MAX_TEXT_CHANGE_FIELD_BYTES: usize = 64 * 1024;
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
+)]
+pub struct TextReadMatch {
+    /// 1-based line of the match.
+    pub line: u64,
+    /// Byte offset of the match in the file.
+    pub byte_offset: u64,
+    /// The match line with its context lines.
+    pub text: String,
 }
 
 #[derive(
@@ -718,9 +767,21 @@ pub struct FileContentReadParams {
 pub struct FileContentReadOutput {
     pub file: ObjectRef,
     pub display_name: String,
+    /// The selected window; empty for a search.
     pub content_utf8: String,
+    /// Size and SHA-256 of the whole file.
     pub byte_len: u64,
     pub sha256: String,
+    /// Lines in the whole file, counted by `\n`; a final newline adds no line.
+    pub total_lines: u64,
+    /// Lines covered by `content_utf8`; zero when it is empty.
+    pub start_line: u64,
+    pub end_line: u64,
+    /// The selection did not fit the output budget.
+    pub truncated: bool,
+    /// Where to continue a line cut by the output budget.
+    pub next_start_byte: Option<u64>,
+    pub matches: Vec<TextReadMatch>,
 }
 
 #[derive(
@@ -1221,6 +1282,14 @@ pub enum FilePatchAction {
         directory: ObjectRef,
         expected_sha256: String,
     },
+    /// Put a file back to the state before a recorded AI update, deletion or
+    /// restore. The current state is backed up first.
+    RestoreText {
+        directory: ObjectRef,
+        file_name: String,
+        recovery_id: String,
+        expected_current: RestoreExpectation,
+    },
 }
 
 /// Closed UTF-8 edits. No shell, executable patch format, or implicit overwrite.
@@ -1229,8 +1298,36 @@ pub enum FilePatchAction {
 )]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TextFileChange {
-    ReplaceAll { content_utf8: String },
-    ReplaceOnce { before: String, after: String },
+    /// Full replacement, bounded by the canonical tool-input budget.
+    Write { content_utf8: String },
+    /// Sequential exact edits applied in memory; all or nothing.
+    Edit { edits: Vec<TextEdit> },
+}
+
+/// One exact edit, matched in the result of the edits before it.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct TextEdit {
+    /// Non-empty text to find.
+    pub old_text: String,
+    pub new_text: String,
+    /// Replace every non-overlapping match; otherwise exactly one must match.
+    #[serde(default)]
+    pub replace_all: bool,
+}
+
+/// The state a restore expects the file to be in now.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
+)]
+#[serde(tag = "kind", content = "sha256", rename_all = "snake_case")]
+pub enum RestoreExpectation {
+    /// The file exists with this SHA-256.
+    Sha(String),
+    /// The file does not exist.
+    Absent,
 }
 
 /// Device facts, not authorization. A recovery location must be retained even
@@ -1242,6 +1339,7 @@ pub enum TextFileChange {
 pub enum TextFileMutationOperation {
     Update,
     Delete,
+    Restore,
 }
 
 #[derive(
@@ -1272,14 +1370,41 @@ impl FileRecoveryDescriptor {
 #[serde(deny_unknown_fields)]
 pub struct TextFileMutationOutput {
     pub operation: TextFileMutationOperation,
+    /// The file an update or deletion acted on, or the directory of a restore.
     pub original: ObjectRef,
+    /// The approved directory of the dispatched action. A later restore
+    /// re-selects this directory by its approval; the device echoes it only.
+    pub directory: ObjectRef,
     pub original_file_name: String,
+    /// The state before this operation; absent only when a restore recreated
+    /// a missing file.
     pub original_size_bytes: u64,
-    pub original_sha256: String,
+    pub original_sha256: Option<String>,
+    /// The backup of the state before this operation.
     pub recovery: FileRecoveryDescriptor,
     pub verified: bool,
+    /// Content SHA-256 after an update, or after a restore that wrote the
+    /// file; absent when the file was removed or the outcome is unverified.
+    pub updated_sha256: Option<String>,
     // Reference registration may fail after a successful filesystem commit.
     pub updated_file: Option<CreatedFileArtifactOutput>,
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn is_file_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 512
+        && value != "."
+        && value != ".."
+        && !value
+            .chars()
+            .any(|c| c.is_control() || c == '/' || c == '\\')
 }
 
 impl TextFileMutationOutput {
@@ -1294,41 +1419,79 @@ impl TextFileMutationOutput {
             )
         };
         action.validate_text_mutation()?;
-        let (expected_sha256, update) = match action {
+        let directory = match action {
+            FilePatchAction::UpdateText { directory, .. }
+            | FilePatchAction::DeleteText { directory, .. }
+            | FilePatchAction::RestoreText { directory, .. } => directory,
+            _ => return Err(invalid()),
+        };
+        if &self.directory != directory {
+            return Err(invalid());
+        }
+        let writes = match action {
             FilePatchAction::UpdateText {
                 expected_sha256, ..
-            } => (expected_sha256, true),
+            } => {
+                if self.operation != TextFileMutationOperation::Update
+                    || target.object_kind != ObjectKind::File
+                    || self.original_sha256.as_ref() != Some(expected_sha256)
+                {
+                    return Err(invalid());
+                }
+                true
+            }
             FilePatchAction::DeleteText {
                 expected_sha256, ..
-            } => (expected_sha256, false),
+            } => {
+                if self.operation != TextFileMutationOperation::Delete
+                    || target.object_kind != ObjectKind::File
+                    || self.original_sha256.as_ref() != Some(expected_sha256)
+                    || self.updated_sha256.is_some()
+                {
+                    return Err(invalid());
+                }
+                false
+            }
+            FilePatchAction::RestoreText {
+                directory,
+                file_name,
+                expected_current,
+                ..
+            } => {
+                let current = match expected_current {
+                    RestoreExpectation::Sha(sha256) => Some(sha256),
+                    RestoreExpectation::Absent => None,
+                };
+                if self.operation != TextFileMutationOperation::Restore
+                    || target != directory
+                    || &self.original_file_name != file_name
+                    || self.original_sha256.as_ref() != current
+                    || (current.is_none() && self.original_size_bytes != 0)
+                {
+                    return Err(invalid());
+                }
+                true
+            }
             _ => return Err(invalid()),
         };
         if &self.original != target
-            || self.operation
-                != if update {
-                    TextFileMutationOperation::Update
-                } else {
-                    TextFileMutationOperation::Delete
-                }
-            || target.object_kind != ObjectKind::File
-            || self.original_file_name.is_empty()
-            || self.original_file_name.len() > 512
-            || self
-                .original_file_name
-                .chars()
-                .any(|c| c.is_control() || c == '/' || c == '\\')
-            || self.original_size_bytes > 65_536
-            || &self.original_sha256 != expected_sha256
+            || !is_file_name(&self.original_file_name)
+            || self.original_size_bytes > MAX_TEXT_FILE_BYTES
             || !self.recovery.is_valid()
-            || (self.updated_file.is_some() && !(self.verified && update))
+            || self
+                .updated_sha256
+                .as_deref()
+                .is_some_and(|sha256| !is_sha256(sha256) || !writes || !self.verified)
+            || (self.updated_file.is_some() && !(self.verified && writes))
         {
             return Err(invalid());
         }
         if let Some(file) = &self.updated_file {
             file.validate()?;
             if file.media_type != "text/plain;charset=utf-8"
-                || file.size_bytes > 65_536
+                || file.size_bytes > MAX_TEXT_FILE_BYTES
                 || file.file == *target
+                || self.updated_sha256.as_ref() != Some(&file.digest_sha256)
             {
                 return Err(invalid());
             }
@@ -1339,36 +1502,59 @@ impl TextFileMutationOutput {
 
 impl FilePatchAction {
     pub fn validate_text_mutation(&self) -> Result<(), ComputerUseValidationError> {
+        let invalid =
+            || ComputerUseValidationError::InvalidContextReference("invalid exact text mutation");
         let (directory, digest, change) = match self {
             Self::UpdateText {
                 directory,
                 expected_sha256,
                 change,
-            } => (directory, expected_sha256, Some(change)),
+            } => (directory, Some(expected_sha256), Some(change)),
             Self::DeleteText {
                 directory,
                 expected_sha256,
-            } => (directory, expected_sha256, None),
+            } => (directory, Some(expected_sha256), None),
+            Self::RestoreText {
+                directory,
+                file_name,
+                recovery_id,
+                expected_current,
+            } => {
+                let current = match expected_current {
+                    RestoreExpectation::Sha(sha256) => Some(sha256),
+                    RestoreExpectation::Absent => None,
+                };
+                if !is_file_name(file_name)
+                    || !is_sha256(recovery_id)
+                    || current.is_some_and(|sha256| !is_sha256(sha256))
+                {
+                    return Err(invalid());
+                }
+                (directory, None, None)
+            }
             _ => return Ok(()),
         };
-        let invalid =
-            || ComputerUseValidationError::InvalidContextReference("invalid exact text mutation");
         if directory.object_kind != ObjectKind::Directory
             || directory.token.is_empty()
             || directory.snapshot_id.is_empty()
-            || digest.len() != 64
-            || !digest
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || digest.is_some_and(|digest| !is_sha256(digest))
         {
             return Err(invalid());
         }
         match change {
-            Some(TextFileChange::ReplaceAll { content_utf8 }) if content_utf8.len() > 65_536 => {
+            Some(TextFileChange::Write { content_utf8 })
+                if content_utf8.len() > MAX_TEXT_CHANGE_FIELD_BYTES =>
+            {
                 Err(invalid())
             }
-            Some(TextFileChange::ReplaceOnce { before, after })
-                if before.is_empty() || before.len() > 65_536 || after.len() > 65_536 =>
+            Some(TextFileChange::Edit { edits })
+                if edits.is_empty()
+                    || edits.len() > MAX_TEXT_EDITS
+                    || edits.iter().any(|edit| {
+                        edit.old_text.is_empty()
+                            || edit.old_text.len() > MAX_TEXT_CHANGE_FIELD_BYTES
+                            || edit.new_text.len() > MAX_TEXT_CHANGE_FIELD_BYTES
+                    }) =>
             {
                 Err(invalid())
             }
@@ -1451,7 +1637,9 @@ impl ComputerActionKind {
                 Capability::CommunicationLocalDraftCreateConfirmed
             }
             Self::File(FilePatchAction::DeleteText { .. }) => Capability::FileDeleteConfirmed,
-            Self::File(FilePatchAction::UpdateText { .. }) => Capability::FilePatchConfirmed,
+            Self::File(
+                FilePatchAction::UpdateText { .. } | FilePatchAction::RestoreText { .. },
+            ) => Capability::FilePatchConfirmed,
             Self::Browser(request) => match &request.action {
                 BrowserAction::TakeSnapshot { .. } | BrowserAction::WaitFor { .. } => {
                     Capability::BrowserPageObserve
@@ -1884,6 +2072,7 @@ fn validate_actions(
                             | FilePatchAction::CreateSpreadsheetFormulaArtifact { .. }
                             | FilePatchAction::CreateWordReportArtifact { .. }
                             | FilePatchAction::CreateLocalCommunicationDraftArtifact { .. }
+                            | FilePatchAction::RestoreText { .. }
                     ),
                     ObjectKind::Directory
                 )
@@ -2907,28 +3096,65 @@ mod tests {
             expected_sha256: "a".repeat(64),
             change,
         };
+        let edit = |old_text: &str, new_text: &str| TextEdit {
+            old_text: old_text.into(),
+            new_text: new_text.into(),
+            replace_all: false,
+        };
         assert!(
-            update(TextFileChange::ReplaceAll {
+            update(TextFileChange::Write {
                 content_utf8: String::new()
             })
             .validate_text_mutation()
             .is_ok()
         );
         assert!(
-            update(TextFileChange::ReplaceAll {
+            update(TextFileChange::Write {
                 content_utf8: "界".repeat(21_846)
             })
             .validate_text_mutation()
             .is_err()
         );
         assert!(
-            update(TextFileChange::ReplaceOnce {
-                before: String::new(),
-                after: "new".into()
+            update(TextFileChange::Edit {
+                edits: vec![edit("old", "new"); MAX_TEXT_EDITS]
             })
             .validate_text_mutation()
-            .is_err()
+            .is_ok()
         );
+        for edits in [
+            vec![],
+            vec![edit("old", "new"); MAX_TEXT_EDITS + 1],
+            vec![edit("", "new")],
+        ] {
+            assert!(
+                update(TextFileChange::Edit { edits })
+                    .validate_text_mutation()
+                    .is_err()
+            );
+        }
+        // An omitted replace_all is the same edit as an explicit false.
+        assert_eq!(
+            serde_json::from_str::<TextEdit>(r#"{"old_text":"a","new_text":"b"}"#).unwrap(),
+            edit("a", "b")
+        );
+        let restore = |file_name: &str, expected_current| FilePatchAction::RestoreText {
+            directory: directory.clone(),
+            file_name: file_name.into(),
+            recovery_id: "b".repeat(64),
+            expected_current,
+        };
+        assert!(
+            restore("notes.txt", RestoreExpectation::Absent)
+                .validate_text_mutation()
+                .is_ok()
+        );
+        for (name, expected) in [
+            ("../notes.txt", RestoreExpectation::Absent),
+            ("notes.txt", RestoreExpectation::Sha("short".into())),
+        ] {
+            assert!(restore(name, expected).validate_text_mutation().is_err());
+        }
         let deletion = FilePatchAction::DeleteText {
             directory,
             expected_sha256: "partial-read".into(),
@@ -2936,7 +3162,7 @@ mod tests {
         assert!(deletion.validate_text_mutation().is_err());
         assert!(
             serde_json::from_str::<TextFileChange>(
-                r#"{"kind":"replace_all","content_utf8":"new","script":"rm"}"#
+                r#"{"kind":"write","content_utf8":"new","script":"rm"}"#
             )
             .is_err()
         );

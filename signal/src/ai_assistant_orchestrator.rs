@@ -2173,6 +2173,7 @@ async fn prepare_composed_turn(
                             desk_diagnose_core::tool_names::INSPECT_FILES,
                             desk_diagnose_core::provider_preflight::text_file::UPDATE_TEXT_TOOL,
                             desk_diagnose_core::provider_preflight::text_file::DELETE_TEXT_TOOL,
+                            desk_diagnose_core::provider_preflight::text_file::RESTORE_TEXT_TOOL,
                         ]
                         .into_iter()
                         .map(str::to_string),

@@ -1,6 +1,7 @@
 //! Real process/OS-lock coverage for Linux export versus material cleanup.
 use super::*;
 use std::{
+    fs,
     io::{Read, Write},
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -60,21 +61,51 @@ fn finish(child: &mut Peer) {
 fn seed(vault: &Vault) -> String {
     let mut locked = vault.lock().unwrap();
     let record = locked
-        .backup(BackupRequest {
-            scope: scope(),
-            conversation: "conversation",
-            operation: "operation",
-            generation: "generation",
-            file_name: "fixture.txt",
-            content: b"synthetic original",
-            metadata: b"{}",
-            now_ms: 1000,
-        })
+        .backup(
+            BackupRequest {
+                scope: scope(),
+                conversation: "conversation",
+                operation: "operation",
+                generation: "generation",
+                kind: RecordKind::TextEdit,
+                directory_identity: "fixture-directory",
+                entries: vec![EntryInput {
+                    rel_path: "fixture.txt",
+                    before: Some(b"synthetic original"),
+                    after: Some(b"synthetic replacement"),
+                    metadata: Some(b"{}"),
+                }],
+                transaction: None,
+                now_ms: 1000,
+            },
+            0,
+            |_, _| Ok(()),
+        )
         .unwrap();
     locked
         .transition(&scope(), &record.id, ChangeState::Aborted)
         .unwrap();
     record.id
+}
+/// The whole package of the record's single entry, pulled chunk by chunk.
+fn export_package(locked: &LockedVault, id: &str, now_ms: u64) -> io::Result<Vec<u8>> {
+    let mut cache = ExportCache::new();
+    let mut package = Vec::new();
+    loop {
+        let chunk = locked.export_chunk(
+            &mut cache,
+            &scope(),
+            "conversation",
+            id,
+            0,
+            package.len() as u64,
+            now_ms,
+        )?;
+        package.extend_from_slice(&chunk.data);
+        if package.len() as u64 == chunk.total_size {
+            return Ok(package);
+        }
+    }
 }
 fn original(package: Vec<u8>) {
     let mut archive = zip::ZipArchive::new(io::Cursor::new(package)).unwrap();
@@ -112,7 +143,7 @@ fn export_cleanup_peer() {
         }
         "export" => {
             let locked = vault.lock().unwrap();
-            original(locked.export_package(&scope(), &id, 1001).unwrap());
+            original(export_package(&locked, &id, 1001).unwrap());
             fs::write(root.join("peer-ready"), b"export-held").unwrap();
             // The parent kills this process while it still owns the OS lock.
             std::io::stdin().read_exact(&mut [0u8; 1]).unwrap();
@@ -130,16 +161,12 @@ fn cleanup_cannot_interrupt_export_and_completed_bytes_survive_purge() {
     let locked = vault.lock().unwrap();
     let mut child = peer(root.path(), &id, "cleanup");
     ready(root.path(), &mut child);
-    let package = locked.export_package(&scope(), &id, 1001).unwrap();
+    let package = export_package(&locked, &id, 1001).unwrap();
     drop(locked);
     child.0.stdin.take().unwrap().write_all(b"x").unwrap();
     finish(&mut child);
     original(package);
-    let error = vault
-        .lock()
-        .unwrap()
-        .export_package(&scope(), &id, 1003)
-        .unwrap_err();
+    let error = export_package(&vault.lock().unwrap(), &id, 1003).unwrap_err();
     assert_eq!(
         error.get_ref().unwrap().downcast_ref::<ExportError>(),
         Some(&ExportError::Cleaned)
@@ -160,7 +187,7 @@ fn killed_exporter_releases_lock_and_preserves_material_until_explicit_cleanup()
         .try_lock()
         .unwrap()
         .expect("dead exporter kept OS lock");
-    original(locked.export_package(&scope(), &id, 1002).unwrap());
+    original(export_package(&locked, &id, 1002).unwrap());
     locked.discard(&scope(), "conversation", &id, 1003).unwrap();
     assert_eq!(
         locked.list(&scope(), None)[0].material,

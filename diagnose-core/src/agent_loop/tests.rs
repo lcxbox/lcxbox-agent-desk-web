@@ -4709,7 +4709,7 @@ async fn projection_metrics_preserve_history_and_keep_capability_catalog_bounded
         long.loaded_capability_detail_utf8_bytes
     );
     assert_eq!(short.loaded_capability_count, long.loaded_capability_count);
-    assert_eq!(long.capability_registry_count, 63);
+    assert_eq!(long.capability_registry_count, 64);
     assert!(long.conversation_message_count > short.conversation_message_count);
     assert!(long.session_snapshot_json_bytes > short.session_snapshot_json_bytes);
     println!(
@@ -8004,7 +8004,8 @@ fn requested_file_operation_projection_requires_current_verified_device_evidence
     );
     let text = serde_json::json!({"work_id":"1","action_request_id":"action","execution_generation":"generation","result":"verified","facts":[],
         "output":{"kind":"text_file_mutation","value":{"operation":"delete","original":{"token":"file","snapshot_id":"snapshot","object_kind":"file","expires_at":"2099-01-01T00:00:00Z"},
-        "original_file_name":"notes.txt","original_size_bytes":3,"original_sha256":"a".repeat(64),"recovery":{"recovery_id":"a".repeat(64),"created_at_unix_ms":1,"expires_at_unix_ms":1000,"cleanup_pending":false},"verified":true,"updated_file":null}}}).to_string();
+        "directory":{"token":"root","snapshot_id":"root-snapshot","object_kind":"directory","expires_at":""},
+        "original_file_name":"notes.txt","original_size_bytes":3,"original_sha256":"a".repeat(64),"recovery":{"recovery_id":"a".repeat(64),"created_at_unix_ms":1,"expires_at_unix_ms":1000,"cleanup_pending":false},"verified":true,"updated_sha256":null,"updated_file":null}}}).to_string();
     let mut receipt = ChatMessage::tool_result("receipt", "delete-call", text.clone());
     receipt.data_envelope = crate::model_message_labels::named_envelope(
         &crate::model_content::ModelContent::builder()
