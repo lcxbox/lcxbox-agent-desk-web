@@ -452,7 +452,7 @@ pub(super) fn test_context() -> RecoveryContext {
 }
 
 /// The content a recovery record saved for its file.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(super) fn backed_up(context: &RecoveryContext, recovery_id: &str) -> Option<Vec<u8>> {
     let vault = desk_file_recovery::Vault::open(&context.data_root).unwrap();
     let locked = vault.lock().unwrap();

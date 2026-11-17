@@ -447,3 +447,6 @@ mod storage_failure;
 
 #[path = "full_disk.rs"]
 mod full_disk;
+
+#[path = "restore.rs"]
+mod restore;
