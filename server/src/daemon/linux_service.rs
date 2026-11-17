@@ -164,7 +164,7 @@ fn render_unit(executable: &Path, install_dir: &Path) -> String {
          Restart=on-failure\n\
          RestartSec=2s\n\
          RuntimeDirectory=lcxl-remote-desk\n\
-         RuntimeDirectoryMode=0700\n\
+         RuntimeDirectoryMode=0711\n\
          StateDirectory=lcxl-remote-desk\n\
          StateDirectoryMode=0700\n\
          LogsDirectory=lcxl-remote-desk\n\
@@ -656,7 +656,7 @@ mod tests {
             "ExecStart=/usr/lib/lcxl-remote-desk/lcxl-remote-desk-server --startup-mode service-daemon"
         ));
         assert!(unit.contains("User=root"));
-        assert!(unit.contains("RuntimeDirectoryMode=0700"));
+        assert!(unit.contains("RuntimeDirectoryMode=0711"));
         assert!(!unit.contains("Environment="));
         assert!(!unit.contains("PrivateTmp=true"));
     }

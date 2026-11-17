@@ -39,14 +39,15 @@ pub(super) fn allocate_worker_socket_path_for(
         // Unix socket path must fit `sun_path` (104 bytes on macOS).
         std::env::temp_dir().join(format!("lcxl-rd-{effective_uid}"))
     };
+    let (root_mode, forbidden_bits) = worker_runtime_root_mode(effective_uid);
     std::fs::create_dir_all(&runtime_root)?;
-    std::fs::set_permissions(&runtime_root, std::fs::Permissions::from_mode(0o700))?;
+    std::fs::set_permissions(&runtime_root, std::fs::Permissions::from_mode(root_mode))?;
 
     let metadata = std::fs::symlink_metadata(&runtime_root)?;
     if !metadata.file_type().is_dir()
         || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid
-        || metadata.mode() & 0o077 != 0
+        || metadata.mode() & forbidden_bits != 0
     {
         return Err(format!("unsafe worker runtime directory {}", runtime_root.display()).into());
     }
@@ -67,6 +68,18 @@ pub(super) fn allocate_worker_socket_path_for(
         chown_path(&worker_dir, uid, gid)?;
     }
     Ok(worker_dir.join("event.sock").to_string_lossy().into_owned())
+}
+
+/// The mode of the worker runtime root and the bits it must never carry. A
+/// root daemon's workers run as the session user and reach their own directory
+/// by path, so the root may be traversed by others but never listed or written.
+#[cfg(not(target_os = "windows"))]
+fn worker_runtime_root_mode(effective_uid: u32) -> (u32, u32) {
+    if effective_uid == 0 {
+        (0o711, 0o066)
+    } else {
+        (0o700, 0o077)
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -342,6 +355,19 @@ pub(super) async fn run_pipe_server(
 mod tests {
     use super::*;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    #[test]
+    fn a_root_daemon_lets_session_workers_traverse_but_not_list_the_runtime_root() {
+        let (mode, forbidden) = worker_runtime_root_mode(0);
+        // Others may search the directory to reach their own worker directory...
+        assert_eq!(mode & 0o011, 0o011);
+        // ...but can neither list nor create entries in it.
+        assert_eq!(mode & forbidden, 0);
+        assert_eq!(mode & 0o066, 0);
+        assert_eq!(forbidden & 0o011, 0);
+        // A daemon that is not root keeps its runtime root private.
+        assert_eq!(worker_runtime_root_mode(1000), (0o700, 0o077));
+    }
 
     #[test]
     fn allocated_worker_socket_path_is_absolute_and_private() {
