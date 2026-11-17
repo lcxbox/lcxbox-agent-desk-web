@@ -512,6 +512,11 @@ impl LockedVault {
         })();
         if let Err(error) = result {
             self.abort_record(&id, request.now_ms);
+            // The caller creates the planned transaction directory only after
+            // a successful backup, so nothing is left for cleanup to remove.
+            if let Some(record) = self.ledger.records.get_mut(&id) {
+                record.transaction = None;
+            }
             let _ = self.persist();
             return Err(error);
         }

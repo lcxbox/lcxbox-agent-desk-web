@@ -269,8 +269,16 @@ fn late_reservation_after_conversation_deletion_is_fenced_by_the_tombstone() {
 fn failed_reservation_aborts_before_any_object_is_published() {
     let (root, vault) = fixture();
     let mut v = vault.lock().unwrap();
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut backup = edit("c", "op", b"a", b"b");
+    // The planned transaction directory is created only after a successful
+    // backup, so an aborted backup must not keep it as pending cleanup.
+    #[cfg(unix)]
+    {
+        backup.transaction = Some(TransactionPlan::unix("/planned-parent", 1, 2, 3).unwrap());
+    }
     let error = v
-        .backup(edit("c", "op", b"a", b"b"), 0, |_, _| {
+        .backup(backup, 0, |_, _| {
             Err(io::Error::new(
                 io::ErrorKind::StorageFull,
                 "device quota exhausted",
@@ -281,7 +289,9 @@ fn failed_reservation_aborts_before_any_object_is_published() {
     assert!(objects(root.path(), &scope()).is_empty());
     drop(v);
     let v = vault.lock().unwrap();
-    assert_eq!(v.list(&scope(), None)[0].change, ChangeState::Aborted);
+    let stored = &v.list(&scope(), None)[0];
+    assert_eq!(stored.change, ChangeState::Aborted);
+    assert!(stored.transaction.is_none());
 }
 
 #[cfg(unix)]
