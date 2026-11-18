@@ -695,7 +695,6 @@ export function AiModelSettings() {
                                             <FormLabel>{t("pages.aiModel.settings.maxContextBytes")}</FormLabel>
                                             <FormControl>
                                                 <Input
-                                                    key={`max-context-${field.value ?? "empty"}`}
                                                     type="number"
                                                     min={4096}
                                                     max={16777216}

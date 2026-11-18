@@ -154,7 +154,6 @@ export function LogSettings() {
                                                 <FormLabel>{t("pages.system.settings.logCleanup.logRetentionDays")}</FormLabel>
                                                 <FormControl>
                                                     <Input
-                                                        key={`log-retention-${field.value ?? "empty"}`}
                                                         type="number"
                                                         {...field}
                                                         value={field.value ?? ""}
@@ -173,7 +172,6 @@ export function LogSettings() {
                                                 <FormLabel>{t("pages.system.settings.logCleanup.logCleanupThresholdPercent")}</FormLabel>
                                                 <FormControl>
                                                     <Input
-                                                        key={`log-threshold-${field.value ?? "empty"}`}
                                                         type="number"
                                                         {...field}
                                                         value={field.value ?? ""}
@@ -192,7 +190,6 @@ export function LogSettings() {
                                                 <FormLabel>{t("pages.system.settings.logCleanup.logCleanupIntervalHours")}</FormLabel>
                                                 <FormControl>
                                                     <Input
-                                                        key={`log-interval-${field.value ?? "empty"}`}
                                                         type="number"
                                                         {...field}
                                                         value={field.value ?? ""}

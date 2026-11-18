@@ -85,6 +85,22 @@ beforeEach(() => {
 })
 
 describe("AiModelSettings", () => {
+    it("keeps the context byte budget field focused while a value is typed", async () => {
+        render(<AiModelSettings />)
+        await waitFor(() => expect(screen.getByDisplayValue("gpt-4o-mini")).toBeInTheDocument())
+        const field = screen.getByLabelText("Local request byte budget (bytes)")
+        field.focus()
+        for (const value of ["1", "12", "120", "1200", "12000", "120000"]) {
+            fireEvent.change(field, { target: { value } })
+            // The same input stays mounted and focused, so the next keystroke lands in it.
+            expect(screen.getByLabelText("Local request byte budget (bytes)")).toBe(field)
+            expect(document.activeElement).toBe(field)
+        }
+        fireEvent.click(screen.getAllByText("Save Settings")[0])
+        await waitFor(() => expect(h.providerMutateAsync).toHaveBeenCalledOnce())
+        expect(lastProviderPayload().max_context_bytes).toBe(120000)
+    })
+
     it("uses the saved revisions on subsequent saves without refetching or losing edits", async () => {
         h.providerMutateAsync.mockResolvedValueOnce({
             success: true,

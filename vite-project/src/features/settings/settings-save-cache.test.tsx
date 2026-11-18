@@ -205,6 +205,20 @@ describe.each(scenarios)('$name cache after saving', (scenario) => {
     })
 })
 
+it('keeps the log cleanup number fields focused while a value is typed', async () => {
+    mount(LogSettings)
+    for (const label of ['Log Retention Days', 'Disk Threshold (%)', 'Cleanup Interval (Hours)']) {
+        const field = await screen.findByLabelText(label)
+        field.focus()
+        for (const value of ['1', '12']) {
+            change(label, value)
+            expect(screen.getByLabelText(label)).toBe(field)
+            expect(document.activeElement).toBe(field)
+        }
+        expect(field).toHaveValue(12)
+    }
+})
+
 it('updates an untouched form when a fresh query replaces a cached snapshot', async () => {
     client.setDefaultOptions({ queries: { retry: false, staleTime: 0 } })
     client.setQueryData([{ url: url('log') }], { success: true, data: { ...saved[url('log')] } })
