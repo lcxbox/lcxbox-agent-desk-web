@@ -15,6 +15,15 @@ use desk_agent_protocol::computer_use::{
 };
 pub use restore::{RestoreReview, TextChangeReview, review_exact_input};
 
+/// Sources a `restore_text_file` call binds to; see [`restore::source_envelope_ids`].
+pub(crate) fn restore_source_envelope_ids(
+    session: &crate::session::PersistedAgentSession,
+    device_id: &str,
+    call: &ToolCall,
+) -> Result<Vec<String>, AgentError> {
+    restore::source_envelope_ids(session, device_id, call)
+}
+
 pub const UPDATE_TEXT_TOOL: &str = "update_text_file";
 pub const DELETE_TEXT_TOOL: &str = "delete_text_file";
 pub const RESTORE_TEXT_TOOL: &str = "restore_text_file";

@@ -78,6 +78,8 @@ impl TextChangeReview {
 /// The original operation's facts from its immutable receipt.
 struct MutationReceipt {
     output: TextFileMutationOutput,
+    /// Envelope of the result being undone: the authenticated source of a restore.
+    envelope_id: String,
     /// State the operation left the file in, when its outcome is known.
     resulting_state: Option<RestoreExpectation>,
 }
@@ -122,7 +124,7 @@ fn mutation_receipt(
     if calls.next().is_some() {
         return Err(not_found());
     }
-    let mut selected: Option<(ComputerActionResultClass, TextFileMutationOutput)> = None;
+    let mut selected: Option<(ComputerActionResultClass, TextFileMutationOutput, String)> = None;
     for message in history {
         if !matches!(message.role, ChatRole::Tool | ChatRole::UntrustedOutput)
             || message.tool_call_id.as_deref() != Some(call_id)
@@ -167,13 +169,13 @@ fn mutation_receipt(
         }
         if selected
             .as_ref()
-            .is_some_and(|(prior_class, prior)| *prior_class != class || *prior != output)
+            .is_some_and(|(prior_class, prior, _)| *prior_class != class || *prior != output)
         {
             return Err(not_found());
         }
-        selected = Some((class, output));
+        selected = Some((class, output, envelope.envelope_id.clone()));
     }
-    let (_, output) = selected.ok_or_else(not_found)?;
+    let (_, output, envelope_id) = selected.ok_or_else(not_found)?;
     let resulting_state = if !output.verified {
         None
     } else {
@@ -192,8 +194,43 @@ fn mutation_receipt(
     };
     Ok(MutationReceipt {
         output,
+        envelope_id,
         resulting_state,
     })
+}
+
+/// The authenticated sources a restore binds to: the result of the operation
+/// it undoes and, when it overwrites a later version, that version's read. A
+/// restore names no file version of its own, unlike an update or deletion.
+pub(super) fn source_envelope_ids(
+    session: &crate::session::PersistedAgentSession,
+    device_id: &str,
+    call: &ToolCall,
+) -> Result<Vec<String>, AgentError> {
+    // `target_ref` only routes the call to its device.
+    let mut arguments: serde_json::Value =
+        serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?;
+    if let Some(arguments) = arguments.as_object_mut() {
+        arguments.remove("target_ref");
+    }
+    let args: RestoreArgs = serde_json::from_value(arguments).map_err(|_| unavailable())?;
+    let selected_device = session.device_id.is_empty().then_some(device_id);
+    let receipt = mutation_receipt(
+        &session.conversation,
+        selected_device,
+        &args.mutation_result_call_id,
+    )?;
+    let mut ids = vec![receipt.envelope_id];
+    if let Some(version) = &args.file_result_call_id {
+        // Expiry and consent are revalidated by preflight and dispatch.
+        ids.push(
+            resolve_file_result_from_history(&session.conversation, version, 1)?
+                .source_envelope_id()
+                .ok_or_else(unavailable)?
+                .to_string(),
+        );
+    }
+    Ok(ids)
 }
 
 /// Expected current state: the state the undone operation produced, or the
@@ -669,6 +706,58 @@ mod tests {
             .file_scope
             .decide(&subject, revision, request_id, true, 1)
             .unwrap();
+    }
+
+    #[test]
+    fn a_restore_binds_its_lineage_to_the_result_it_undoes() {
+        let (mut session, _, _) = fixture();
+        record_mutation(
+            &mut session,
+            "update-call",
+            mutation(TextFileMutationOperation::Update, true, Some("new")),
+        );
+        let undone = session
+            .conversation
+            .iter()
+            .find(|message| message.tool_call_id.as_deref() == Some("update-call"))
+            .and_then(|message| message.data_envelope.as_ref())
+            .unwrap()
+            .envelope_id
+            .clone();
+        let device = session.device_id.clone();
+        // The routing field a fixed-device conversation may still carry.
+        let call = restore_call(
+            serde_json::json!({"mutation_result_call_id":"update-call","target_ref":device}),
+        );
+        assert_eq!(
+            source_envelope_ids(&session, &device, &call).unwrap(),
+            vec![undone.clone()]
+        );
+
+        // The recorded lineage of the dispatched restore, which freezing the
+        // original transport needs; a restore names no file version itself.
+        let owner = owner();
+        let mut result = crate::model_message_labels::named_envelope(
+            &crate::model_content::ModelContent::builder()
+                .unverified(&crate::model_content::Unverified::new("restored"))
+                .build(),
+            owner.data_envelope.as_ref(),
+            &call.id,
+            RESTORE_TEXT_TOOL,
+            false,
+        )
+        .unwrap();
+        crate::agent_loop::bind_tool_input_envelopes(&session, &call, &mut result).unwrap();
+        assert!(
+            result
+                .unwrap()
+                .provenance
+                .source_envelope_ids
+                .contains(&undone)
+        );
+
+        let unknown = restore_call(serde_json::json!({"mutation_result_call_id":"missing"}));
+        assert!(source_envelope_ids(&session, &device, &unknown).is_err());
     }
 
     #[test]

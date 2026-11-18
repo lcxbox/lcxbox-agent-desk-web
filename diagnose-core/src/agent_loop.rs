@@ -3591,7 +3591,15 @@ pub(crate) fn bind_tool_input_envelopes(
             .map_err(|_| crate::directory_tools::unavailable())
     };
 
-    if crate::provider_preflight::text_file::TextMutationPreflight::supports(&call.name)
+    if call.name == crate::provider_preflight::text_file::RESTORE_TEXT_TOOL {
+        source_ids.extend(
+            crate::provider_preflight::text_file::restore_source_envelope_ids(
+                session,
+                file_source_device()?,
+                call,
+            )?,
+        );
+    } else if crate::provider_preflight::text_file::TextMutationPreflight::supports(&call.name)
         || crate::provider_preflight::text_file::read_result_id(call)?.is_some()
     {
         let id = arguments
