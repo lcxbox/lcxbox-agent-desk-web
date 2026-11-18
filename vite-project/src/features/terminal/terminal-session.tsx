@@ -27,7 +27,7 @@ import {
     type TerminalCompletionContext,
 } from "./use-terminal-complete"
 import { terminalWelcomeBanner } from "./terminal-welcome"
-import { terminalStartFailure } from "./terminal-start-result"
+import { terminalStartOutcome } from "./terminal-start-result"
 import { useTerminalSessionGuard } from "./use-terminal-session-guard"
 import { useGetCurrentUser } from '@/services/hooks/userController/useGetCurrentUser';
 import type { OperationSystemEnum } from "@/services/types"
@@ -54,7 +54,6 @@ const SIGNALING_TYPE_CODE_RESIZE = 10009
 const SIGNALING_TYPE_CODE_TERMINAL_STARTED = 10013
 const SIGNALING_TYPE_CODE_TERMINAL_CLOSED = 10014
 const SIGNALING_TYPE_CODE_SEND_HEARTBEAT = 1
-const SIGNALING_TYPE_CODE_ERROR = -1
 const TERMINAL_HEARTBEAT_INTERVAL_MS = 30_000
 
 export function TerminalView({ connectionId, deviceId, command, operationSystem, onClose, orgId }: { connectionId: string; deviceId?: string; command: string; operationSystem?: OperationSystemEnum; onClose: () => void; orgId?: number }) {
@@ -340,6 +339,9 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
                         if (typeof event.data === 'string') {
                             try {
                                 const msg = JSON.parse(event.data)
+                                const startOutcome = terminalStarted.current
+                                    ? null
+                                    : terminalStartOutcome(t, msg.signaling_type, msg.response_state)
                                 if (
                                     !terminalStarted.current
                                     && (
@@ -365,11 +367,7 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
                                     } else {
                                         term.write(`\r\n\x1b[31m${t('pages.sessionTarget.unavailable')}\x1b[0m\r\n`)
                                     }
-                                } else if (
-                                    msg.signaling_type === SIGNALING_TYPE_CODE_ERROR
-                                    && !terminalStarted.current
-                                    && msg.response_state?.error_code === deskErrorCodeEnum.ACTION_NEED_RETRY
-                                ) {
+                                } else if (startOutcome?.kind === 'retry') {
                                     const delay = admissionRetry.nextDelay();
                                     ws!.onclose = null;
                                     ws!.close();
@@ -400,13 +398,10 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
                                     ) {
                                         setAssistantObjectRef(assistantRef)
                                     }
-                                } else if (
-                                    msg.signaling_type === SIGNALING_TYPE_CODE_TERMINAL_STARTED
-                                    && terminalStartFailure(t, msg.response_state) !== null
-                                ) {
+                                } else if (startOutcome?.kind === 'failed') {
                                     // The device refused the start, e.g. its security
                                     // policy denied the terminal or no local user approved it.
-                                    term.write(`\r\n\x1b[31m${terminalStartFailure(t, msg.response_state)}\x1b[0m\r\n`)
+                                    term.write(`\r\n\x1b[31m${startOutcome.message}\x1b[0m\r\n`)
                                     // Keep the reason on screen: no reconnect spinner and no
                                     // automatic return to the shell selection.
                                     terminalStarted.current = false
