@@ -151,6 +151,8 @@ pub async fn run_service_daemon_inner(
     shutdown_signal: Option<oneshot::Receiver<()>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let settings = Settings::new(&args).map_err(|e| format!("Failed to load settings: {e}"))?;
+    // Keep this service's device quota apart from a portable run's ledger.
+    crate::file_recovery_service::use_service_quota_ledger();
     let paths = settings.paths().clone();
     let shared_settings = Arc::new(SharedSettings::from(settings.clone()));
     let shared_settings_data = web::Data::from(shared_settings.clone());

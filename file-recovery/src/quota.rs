@@ -226,11 +226,26 @@ pub struct LockedDeviceQuota {
     ledger: Ledger,
     failed: bool,
 }
+/// Ledger directory of a daemon that runs as the signed-in user.
+pub const USER_LEDGER: &str = "file-recovery-quota";
+/// Ledger directory of the system service. A separate name keeps the two
+/// owners apart: switching between portable and service mode never asks one
+/// identity to open a private directory the other one owns.
+pub const SERVICE_LEDGER: &str = "file-recovery-quota-service";
+
 impl DeviceQuota {
     /// Root belongs to the daemon's trusted runtime, never a worker-supplied path.
     pub fn open(daemon_data_root: &Path) -> io::Result<Self> {
+        Self::open_named(daemon_data_root, USER_LEDGER)
+    }
+    /// Open the ledger kept in `ledger` (one of [`USER_LEDGER`] and
+    /// [`SERVICE_LEDGER`]) under the daemon's data root.
+    pub fn open_named(daemon_data_root: &Path, ledger: &str) -> io::Result<Self> {
+        if ![USER_LEDGER, SERVICE_LEDGER].contains(&ledger) {
+            return Err(invalid("unknown device quota ledger"));
+        }
         Ok(Self {
-            storage: storage::Root::open_named(daemon_data_root, "file-recovery-quota")?,
+            storage: storage::Root::open_named(daemon_data_root, ledger)?,
         })
     }
     pub fn lock(&self) -> io::Result<LockedDeviceQuota> {

@@ -78,7 +78,7 @@ async fn local_operation<T: Send + 'static>(
         }
         local::execute(
             &root,
-            || desk_file_recovery::quota::DeviceQuota::open(&root)?.lock(),
+            || crate::file_recovery_service::open_device_quota(&root)?.lock(),
             command,
         )
         .and_then(|outcome| {
@@ -126,7 +126,7 @@ pub async fn update_local_file_recovery_policy(
     let body = body.into_inner();
     let root = settings.read().await.paths().data_root().to_path_buf();
     let value = tokio::task::spawn_blocking(move || -> std::io::Result<FileRecoveryPolicyDto> {
-        let mut quota = desk_file_recovery::quota::DeviceQuota::open(&root)?.lock()?;
+        let mut quota = crate::file_recovery_service::open_device_quota(&root)?.lock()?;
         quota.set_policy(desk_file_recovery::Policy {
             retention_days: body.retention_days,
             max_bytes: body.max_bytes,
@@ -458,7 +458,7 @@ mod tests {
         let saved: serde_json::Value = test::read_body_json(saved).await;
         assert_eq!(saved["data"]["retention_days"], 12);
         let root = shared.read().await.paths().data_root().to_path_buf();
-        let mut quota = desk_file_recovery::quota::DeviceQuota::open(&root)
+        let mut quota = crate::file_recovery_service::open_device_quota(&root)
             .unwrap()
             .lock()
             .unwrap();

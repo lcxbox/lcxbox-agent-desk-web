@@ -1,6 +1,6 @@
 //! The shared device ledger is opened only under the daemon's data root.
 use super::*;
-use desk_file_recovery::quota::{DeviceQuota, QuotaKey};
+use desk_file_recovery::quota::QuotaKey;
 use desk_ipc_protocol::message::*;
 
 impl WorkerManager {
@@ -49,7 +49,13 @@ impl WorkerManager {
             };
             (worker.ipc_tx.clone(), os_user)
         };
+        let worker_user_known = os_user.is_some();
         let Some(os_user) = os_user.filter(|user| user == &request.os_user) else {
+            // The outcome sent to the worker carries no text, so keep the reason here.
+            tracing::warn!(
+                worker_user_known,
+                "Device file recovery quota request refused: the worker's OS user does not match"
+            );
             let _ = reply_tx.send(ServiceToWorker::FileRecoveryQuotaReplied(
                 FileRecoveryQuotaReply {
                     request_id: request.request_id,
@@ -105,7 +111,7 @@ fn apply(
         cleanup_pending: status.cleanup_pending,
     };
     let result = (|| -> io::Result<_> {
-        let mut quota = DeviceQuota::open(root)?.lock()?;
+        let mut quota = crate::file_recovery_service::open_device_quota(root)?.lock()?;
         let key = |identity: FileRecoveryQuotaIdentity| {
             QuotaKey::new(
                 &desk_file_recovery::Scope {
@@ -178,7 +184,10 @@ fn apply(
         })
     })();
     result.unwrap_or_else(|error| match error.kind() {
-        io::ErrorKind::PermissionDenied => FileRecoveryQuotaOutcome::IdentityChanged,
+        io::ErrorKind::PermissionDenied => {
+            tracing::warn!(%error, "Device file recovery quota request refused");
+            FileRecoveryQuotaOutcome::IdentityChanged
+        }
         io::ErrorKind::StorageFull => FileRecoveryQuotaOutcome::CapacityExceeded,
         io::ErrorKind::InvalidInput | io::ErrorKind::AlreadyExists => {
             // The outcome sent to the worker carries no text, so keep the reason here.

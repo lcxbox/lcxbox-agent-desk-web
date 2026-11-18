@@ -9,6 +9,37 @@ mod local_quota;
 #[path = "file_recovery_user.rs"]
 pub(crate) mod platform_user;
 
+static SERVICE_LEDGER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Mark this process as the system ServiceDaemon. Called once at its start,
+/// before anything opens the device quota.
+pub(crate) fn use_service_quota_ledger() {
+    SERVICE_LEDGER.store(true, std::sync::atomic::Ordering::Release);
+}
+
+/// The device quota ledger of this process's mode. The ServiceDaemon and a
+/// daemon running as the user keep separate ledgers, so switching modes never
+/// needs one identity to open a private directory the other one owns.
+pub(crate) fn open_device_quota(
+    data_root: &Path,
+) -> io::Result<desk_file_recovery::quota::DeviceQuota> {
+    open_device_quota_for(
+        data_root,
+        SERVICE_LEDGER.load(std::sync::atomic::Ordering::Acquire),
+    )
+}
+
+fn open_device_quota_for(
+    data_root: &Path,
+    service: bool,
+) -> io::Result<desk_file_recovery::quota::DeviceQuota> {
+    use desk_file_recovery::quota::{DeviceQuota, SERVICE_LEDGER, USER_LEDGER};
+    DeviceQuota::open_named(
+        data_root,
+        if service { SERVICE_LEDGER } else { USER_LEDGER },
+    )
+}
+
 pub(crate) fn project_record(vault: &LockedVault, r: Record, now: u64) -> FileRecoveryRecordDto {
     FileRecoveryRecordDto {
         cleanup_reason: if r.transaction.is_some() && r.cleanup_error.is_some() {
@@ -1060,5 +1091,38 @@ mod tests {
             export(&mut v, &s, "conversation", &saved.id, 0, now + 4),
             Err(FileRecoveryFailure::MaterialUnavailable)
         ));
+    }
+}
+
+#[cfg(test)]
+mod ledger_tests {
+    use super::open_device_quota_for;
+
+    #[test]
+    fn the_service_and_a_portable_run_keep_separate_quota_ledgers() {
+        let root = tempfile::tempdir().unwrap();
+        let mut portable = open_device_quota_for(root.path(), false)
+            .unwrap()
+            .lock()
+            .unwrap();
+        portable
+            .set_policy(desk_file_recovery::Policy {
+                retention_days: 3,
+                max_bytes: 64 * 1024 * 1024,
+            })
+            .unwrap();
+        drop(portable);
+        // The service never reads the portable ledger, and its own starts fresh.
+        let service = open_device_quota_for(root.path(), true)
+            .unwrap()
+            .lock()
+            .unwrap();
+        assert_ne!(service.policy().retention_days, 3);
+        drop(service);
+        assert!(root.path().join("file-recovery-quota").is_dir());
+        assert!(root.path().join("file-recovery-quota-service").is_dir());
+        assert!(
+            desk_file_recovery::quota::DeviceQuota::open_named(root.path(), "elsewhere").is_err()
+        );
     }
 }

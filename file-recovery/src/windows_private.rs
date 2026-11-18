@@ -385,9 +385,7 @@ fn open_relative(parent: &File, leaf: &str, user: &str, kind: OpenKind) -> io::R
     };
     let flags = if directory { "OICI" } else { "" };
     let mut name = leaf_name(leaf)?;
-    let descriptor = security::Descriptor::from_sddl(&format!(
-        "O:{user}D:P(A;{flags};FA;;;{user})(A;{flags};FA;;;SY)"
-    ))?;
+    let descriptor = security::Descriptor::from_sddl(&security::private_sddl(user, flags))?;
     let text = UNICODE_STRING {
         Length: (name.len() * 2) as u16,
         MaximumLength: (name.len() * 2) as u16,

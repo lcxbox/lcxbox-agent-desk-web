@@ -315,6 +315,29 @@ pub(super) fn validate_private_file(file: &File, user: &str) -> io::Result<()> {
     Ok(())
 }
 
+const SYSTEM_SID: &str = "S-1-5-18";
+
+/// The principals of a private object's DACL: its user and SYSTEM, each with
+/// full access. A SYSTEM process (the ServiceDaemon) is both, so its objects
+/// carry the single SYSTEM entry.
+fn private_principals(user: &str) -> Vec<String> {
+    let mut principals = vec![user.to_owned()];
+    if user != SYSTEM_SID {
+        principals.push(SYSTEM_SID.to_owned());
+    }
+    principals
+}
+
+/// SDDL creating a private object owned by `user`; `flags` are the ACE
+/// inheritance flags ("OICI" for a directory).
+pub(super) fn private_sddl(user: &str, flags: &str) -> String {
+    let aces: String = private_principals(user)
+        .iter()
+        .map(|principal| format!("(A;{flags};FA;;;{principal})"))
+        .collect();
+    format!("O:{user}D:P{aces}")
+}
+
 fn validate_permissions(file: &File, user: &str, flags: u8) -> io::Result<()> {
     let mut owner = PSID::default();
     let mut dacl = std::ptr::null_mut::<ACL>();
@@ -355,7 +378,9 @@ fn validate_permissions(file: &File, user: &str, flags: u8) -> io::Result<()> {
         )
     }
     .map_err(win)?;
-    if info.AceCount != 2 {
+    let mut expected = private_principals(user);
+    expected.sort();
+    if info.AceCount as usize != expected.len() {
         return Err(denied());
     }
     let mut principals = Vec::new();
@@ -382,12 +407,35 @@ fn validate_permissions(file: &File, user: &str, flags: u8) -> io::Result<()> {
         principals.push(sid_text(sid)?);
     }
     principals.sort();
-    let mut expected = vec![user.to_owned(), "S-1-5-18".into()];
-    expected.sort();
     if principals != expected {
         return Err(denied());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod private_principal_tests {
+    use super::{private_principals, private_sddl};
+
+    #[test]
+    fn a_system_process_owns_private_objects_with_one_system_entry() {
+        assert_eq!(private_principals("S-1-5-18"), ["S-1-5-18"]);
+        assert_eq!(
+            private_sddl("S-1-5-18", "OICI"),
+            "O:S-1-5-18D:P(A;OICI;FA;;;S-1-5-18)"
+        );
+    }
+
+    #[test]
+    fn a_user_process_shares_private_objects_only_with_system() {
+        let user = "S-1-5-21-1-2-3-1001";
+        assert_eq!(private_principals(user), [user, "S-1-5-18"]);
+        // The user's entry comes first, as before SYSTEM processes were handled.
+        assert_eq!(
+            private_sddl(user, ""),
+            format!("O:{user}D:P(A;;FA;;;{user})(A;;FA;;;S-1-5-18)")
+        );
+    }
 }
 
 #[cfg(test)]
