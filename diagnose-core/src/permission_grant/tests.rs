@@ -1039,6 +1039,39 @@ fn compiler_rejects_incomplete_duplicate_widened_stale_and_unready_decisions() {
 }
 
 #[test]
+fn a_target_whose_readiness_moved_on_turns_an_owner_approval_into_a_system_refusal() {
+    use super::{StaleApprovalTarget, record_outdated_owner_approval};
+    use crate::dynamic_run::PermissionDecisionSource;
+    let (session, mut request, decisions) = decision_fixture();
+    // The request froze revision 6; the device now reports revision 7.
+    request.items[0]
+        .selected_device_target
+        .as_mut()
+        .unwrap()
+        .readiness_revision = 6;
+    for surface in [
+        ProductSurface::OssPersonalOwner,
+        ProductSurface::ManagerPersonalOwner,
+    ] {
+        let error = compile(surface, &session, &request, &decisions, true).unwrap_err();
+        assert_eq!(error.kind, AgentErrorKind::PermissionDenied);
+        assert!(!error.retryable);
+        let mut approved = decisions.clone();
+        let mut source = PermissionDecisionSource::UserDecision;
+        assert!(record_outdated_owner_approval(
+            &mut approved,
+            &mut source,
+            &error
+        ));
+        assert!(matches!(
+            &source,
+            PermissionDecisionSource::SystemDecision { reason_code, .. }
+                if reason_code == StaleApprovalTarget::STATE_CHANGED_CODE
+        ));
+    }
+}
+
+#[test]
 fn denial_creates_no_grant_even_when_provider_is_unready() {
     let (session, request, mut decisions) = decision_fixture();
     decisions[0].decision = PermissionItemDecision::Deny;

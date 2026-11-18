@@ -366,13 +366,23 @@ pub fn build_permission_grants(
         .clone()
         .apply_user_decision(decisions)
         .map_err(|error| internal(format!("invalid permission decision: {error}")))?;
-    if context.readiness_revision == 0
-        || context.now_unix_ms == 0
-        || request
-            .selected_device_target()
-            .is_some_and(|target| target.readiness_revision != context.readiness_revision)
-    {
+    if context.readiness_revision == 0 || context.now_unix_ms == 0 {
         return Err(internal("invalid grant issuance readiness or clock"));
+    }
+    if request
+        .selected_device_target()
+        .is_some_and(|target| target.readiness_revision != context.readiness_revision)
+    {
+        // The device's readiness moved on since the request froze its target,
+        // for example its session worker restarted: the approval no longer
+        // applies, and an owner's approval becomes a system refusal.
+        return Err(AgentError {
+            kind: AgentErrorKind::PermissionDenied,
+            message: "the device state changed since this request; request permission again".into(),
+            retryable: false,
+            safe_for_model: true,
+            error_code: None,
+        });
     }
     let decisions = decisions
         .iter()
