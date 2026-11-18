@@ -323,7 +323,7 @@ impl ComputerUseBroker {
             incarnation_nonce: uuid::Uuid::new_v4().to_string(),
             worker_generation: AtomicU64::new(1),
             snapshot_counter: AtomicU64::new(0),
-            readiness_revision: AtomicU64::new(0),
+            readiness_revision: AtomicU64::new(first_readiness_revision_base()),
             readiness_revision_state: Mutex::new(None),
             readiness_changed,
             active_session_incarnation: Mutex::new(None),
@@ -4636,6 +4636,21 @@ fn reference_storage_key(token: &str, snapshot_id: &str) -> String {
     format!("{}:{token}{snapshot_id}", token.len())
 }
 
+/// Revisions of a replacement worker process continue above its
+/// predecessor's. A ServiceDaemon keeps one signaling connection while its
+/// session worker restarts, and the host rejects a revision that does not
+/// advance on that connection, so a per-process counter starting at zero would
+/// leave the device without readiness until it reconnects. Starting from the
+/// wall clock in milliseconds keeps the fence monotonic: a process advances it
+/// only on material changes, far fewer than the milliseconds between starts.
+fn first_readiness_revision_base() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5950,6 +5965,34 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_replacement_worker_continues_above_its_predecessors_revisions() {
+        let first = ComputerUseBroker::new();
+        let mut last = first
+            .readiness(&ComputerUseSettings::default(), false, false)
+            .revision;
+        for revision in 1..=3 {
+            let changed = ComputerUseSettings {
+                revision,
+                ..ComputerUseSettings::default()
+            };
+            let next = first.readiness(&changed, false, false).revision;
+            assert!(next > last);
+            last = next;
+        }
+        drop(first);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        // The next worker process on the same connection must not report a
+        // revision the host has already seen.
+        let replacement = ComputerUseBroker::new();
+        let first_report = replacement
+            .readiness(&ComputerUseSettings::default(), false, false)
+            .revision;
+        assert!(first_report > last, "{first_report} <= {last}");
+        // A JavaScript client still reads the revision exactly.
+        assert!(first_report < 1 << 53);
     }
 
     #[test]
