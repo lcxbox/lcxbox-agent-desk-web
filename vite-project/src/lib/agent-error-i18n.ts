@@ -32,6 +32,7 @@ const CODE_TO_KEY: ErrorCodeKeyMap = {
     [deskErrorCodeEnum.AI_CONTEXT_SUMMARY_OUTPUT_TRUNCATED]:
         'pages.agentError.aiContextSummaryOutputTruncated',
     [deskErrorCodeEnum.AI_PLATFORM_BUSY]: 'pages.agentError.aiPlatformBusy',
+    [deskErrorCodeEnum.REMOTE_DESK_OFFLINE]: 'pages.agentError.remoteDeskOffline',
     [deskErrorCodeEnum.AI_MODEL_IMAGE_INPUT_UNSUPPORTED]:
         'pages.agentError.aiModelImageInputUnsupported',
     [deskErrorCodeEnum.AI_CONTENT_BLOCKED]: 'pages.agentError.aiContentBlocked',

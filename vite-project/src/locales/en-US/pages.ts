@@ -1953,6 +1953,9 @@ export default {
   'pages.aiAssistant.permissionSystemReason.approval_policy': 'Platform policy blocked the approval call',
   'pages.aiAssistant.permissionSystemReason.approval_revoked': 'Approval authority was revoked',
   'pages.aiAssistant.permissionSystemReason.approval_source_changed': 'Request authority changed during review',
+  'pages.aiAssistant.permissionSystemReason.approval_target_reconnected': 'The device reconnected, so the approval no longer applies; the assistant will request again',
+  'pages.aiAssistant.permissionSystemReason.approval_target_state_changed': 'The device state changed, so the approval no longer applies; the assistant will request again',
+  'pages.aiAssistant.permissionDecisionUnavailable': 'This approval cannot be submitted now: the conversation changed or the assistant is still working. Refresh and try again.',
   'pages.aiAssistant.permissionSystemReason.approval_expired': 'Current review attempt expired',
   'pages.aiAssistant.permissionSystemReason.approval_processing': 'A trustworthy decision could not be recorded',
   'pages.aiAssistant.permissionSystemReason.approval_context_capacity': 'Required approval context exceeds configured capacity',
@@ -2468,6 +2471,8 @@ export default {
   'pages.agentError.scheduleModelBudgetExceeded': 'The scheduled task has insufficient model-token budget remaining. This model request was not sent. Review the task budget before running it again.',
   'pages.agentError.aiPlatformBusy':
     'The free AI queue is full right now. Please try again later.',
+  'pages.agentError.remoteDeskOffline':
+    'The device disconnected or reconnected. Reopen its session and send again.',
   'pages.agentError.aiModelImageInputUnsupported':
     'The selected AI model does not support screenshot input. Choose a model with image input enabled, or turn off the screenshot option.',
   'pages.agentError.aiContentBlocked':

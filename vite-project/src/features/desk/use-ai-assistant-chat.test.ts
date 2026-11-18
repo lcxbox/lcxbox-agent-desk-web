@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+    SIGNALING_TYPE_CODE_ERROR,
     SIGNALING_TYPE_CODE_ASK_AI_ASSISTANT,
     SIGNALING_TYPE_CODE_CONTROL_EXECUTION,
     SIGNALING_TYPE_CODE_AI_ASSISTANT_CONTEXT_UPDATED,
@@ -488,6 +489,24 @@ describe('useAiAssistantChat', () => {
         expect(sendMessage).toHaveBeenCalledTimes(1);
         act(() => { expect(result.current.start('Corrected requirement')).toBe(true); });
         expect(sendMessage.mock.calls.at(-1)?.[3]).not.toBe(original[3]);
+        unmount();
+    });
+    it('reports a refused input frame instead of waiting for a receipt', async () => {
+        let subscriber: SignalingSubscriber | null = null;
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: null }) }));
+        const sendMessage = vi.fn((_type: number, _data: unknown, _to?: string, id?: string) => id!);
+        const { result, unmount } = renderHook(() => useAiAssistantChat({ deskId: 'reconnected-device',
+            subscribe: handler => { subscriber = handler; return () => undefined; }, sendMessage }));
+        act(() => { result.current.start('Restore a.txt'); });
+        const sent = sendMessage.mock.calls.at(-1)!;
+        await act(async () => subscriber?.({ request_id: 'another-request', signaling_type: SIGNALING_TYPE_CODE_ERROR,
+            response_state: { error_code: deskErrorCodeEnum.REMOTE_DESK_OFFLINE, message: 'target host is not connected' } }));
+        expect(result.current.deliveryState).toBe('sending');
+        await act(async () => subscriber?.({ request_id: sent[3], signaling_type: SIGNALING_TYPE_CODE_ERROR,
+            response_state: { error_code: deskErrorCodeEnum.REMOTE_DESK_OFFLINE, message: 'target host is not connected' } }));
+        expect(result.current.deliveryState).toBeNull();
+        expect(result.current.error).toBe('The device disconnected or reconnected. Reopen its session and send again.');
+        act(() => { expect(result.current.start('Restore a.txt')).toBe(true); });
         unmount();
     });
     it('bounds the snapshot lookup before retrying an unconfirmed message', async () => {
@@ -2593,6 +2612,16 @@ describe('useAiAssistantChat', () => {
             '/api/my/ai-assistant-session/permission-decision',
             expect.objectContaining({ method: 'POST' }),
         );
+        // A card that is no longer pending explains why it cannot be decided.
+        await act(async () => {
+            expect(await result.current.decidePermissionItems(
+                { ...request, state: 'pending' } as never,
+                [{ itemId: 'inspect', decision: 'deny' }, { itemId: 'inspect-ui', decision: 'deny' }],
+            )).toBe(false);
+        });
+        expect(result.current.error).toBe(
+            'This approval cannot be submitted now: the conversation changed or the assistant is still working. Refresh and try again.');
+        expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/permission-decision'))).toHaveLength(1);
     });
 
     it('shows and revokes a durable capability grant without dispatching a tool', async () => {

@@ -28,6 +28,7 @@ import type { SkillProposalView } from '@/services/types';
 import { deskErrorCodeEnum } from '@/services/types';
 import type { AiAssistantDocumentPreview, AiAssistantDocumentPreviewPageResponse, AiAssistantEvent, AiAssistantVisualEvidence } from './ai-assistant-event';
 import {
+    SIGNALING_TYPE_CODE_ERROR,
     SIGNALING_TYPE_CODE_ASK_AI_ASSISTANT,
     SIGNALING_TYPE_CODE_AI_ASSISTANT_CONTEXT_UPDATED,
     SIGNALING_TYPE_CODE_AI_ASSISTANT_OBJECT_CONTEXT_UPDATED,
@@ -1306,6 +1307,21 @@ export function useAiAssistantChat({
         // Inbound frames name this client's own signaling connection; an
         // interactive command's terminal carrier is bound to it.
         if (message.to_connection_id) setBrowserConnectionId(message.to_connection_id);
+        // The server refused the input frame itself (for example, the device
+        // reconnected): it will never be accepted, so report it instead of
+        // waiting for a receipt.
+        if (message.signaling_type === SIGNALING_TYPE_CODE_ERROR && message.request_id
+            && pendingDelivery.current?.requestId === message.request_id) {
+            const rejected = pendingDelivery.current;
+            const failure = agentErrorMessage(translate.current, message.response_state?.error_code,
+                message.response_state?.message, 'The message could not be delivered.');
+            deliveryFailure.current = failure;
+            pendingDelivery.current = null;
+            setDeliveryState(null);
+            removeSentInputs(item => item.id === rejected.id);
+            setError(failure);
+            return;
+        }
         if (message.signaling_type === SIGNALING_TYPE_CODE_DOCUMENT_PREVIEW_PAGE_UPDATED) {
             if (!message.request_id) return;
             const pending = documentPreviewPageRequests.current.get(message.request_id);
@@ -1809,12 +1825,16 @@ export function useAiAssistantChat({
         carrierId?: string,
     ) => {
         const currentConversationId = conversationId.current;
-        if (!currentConversationId || connected === false || hydrating || remoteActive || activeRequest.current
-            || request.state !== 'pending' || permissionUpdating
+        if (!currentConversationId || hydrating || permissionUpdating
+            || permissionSubmission.current?.epoch === snapshotEpoch.current) {
+            return false;
+        }
+        if (connected === false || remoteActive || activeRequest.current
+            || request.state !== 'pending'
             || request.inputRevision !== snapshotWatermark.current?.inputRevision
-            || permissionSubmission.current?.epoch === snapshotEpoch.current
             || !permissionRequests.some(current => current.requestId === request.requestId
                 && current.inputRevision === request.inputRevision && current.state === 'pending')) {
+            setError(translate.current('pages.aiAssistant.permissionDecisionUnavailable'));
             return false;
         }
         const submission = { epoch: snapshotEpoch.current };
@@ -1840,7 +1860,8 @@ export function useAiAssistantChat({
             const result = response.ok ? await response.json() : null;
             if (!isCurrent()) return false;
             if (!response.ok || !result?.success || !result?.data?.state) {
-                throw new Error(result?.message ?? 'Permission decision was rejected.');
+                throw new Error(agentErrorMessage(translate.current, result?.code, result?.message,
+                    'Permission decision was rejected.'));
             }
             await loadSnapshot(currentConversationId);
             return isCurrent();

@@ -824,6 +824,10 @@ pub(crate) async fn decide_permission_on(
         };
         Some((device, connection))
     });
+    // A device that went offline, reconnected or restarted its session since the
+    // request turns the owner's approval into a system refusal the model sees,
+    // so the conversation continues instead of keeping an undecidable card.
+    let mut stale_target = None;
     let connection = if let Some((device, connection)) = selected_device {
         if body
             .connection
@@ -832,20 +836,45 @@ pub(crate) async fn decide_permission_on(
         {
             return Ok(not_accessible());
         }
-        let map = connection_map.read().await;
-        let available = map.current_oss_server(device).is_some_and(|state| {
-            state.model.connection_id == connection
-                && !state.lifecycle.is_retired()
-                && state
-                    .model
-                    .ai_assistant_settings
-                    .as_ref()
-                    .is_some_and(|settings| settings.enabled)
+        let current = {
+            let map = connection_map.read().await;
+            match map
+                .current_oss_server(device)
+                .filter(|state| !state.lifecycle.is_retired())
+            {
+                Some(state)
+                    if !state
+                        .model
+                        .ai_assistant_settings
+                        .as_ref()
+                        .is_some_and(|settings| settings.enabled) =>
+                {
+                    return Ok(not_accessible());
+                }
+                state => state.map(|state| state.model.connection_id.clone()),
+            }
+        };
+        let readiness = current.as_deref().and_then(|current| {
+            crate::computer_use_readiness::global_computer_use_readiness_cache()
+                .get_fresh(current, chrono::Utc::now())
         });
-        if !available {
-            return Ok(not_accessible());
-        }
-        Some(connection)
+        stale_target = personal_request.as_ref().and_then(|request| {
+            desk_diagnose_core::permission_grant::stale_approval_target(
+                request,
+                current.as_deref().map(|connection_id| {
+                    desk_diagnose_core::permission_grant::CurrentApprovalTarget {
+                        connection_id,
+                        readiness: readiness.as_ref().map(|record| {
+                            (
+                                record.readiness.revision,
+                                record.readiness.interactive_session_incarnation.as_str(),
+                            )
+                        }),
+                    }
+                }),
+            )
+        });
+        stale_target.is_none().then_some(connection)
     } else {
         body.connection.as_deref()
     };
@@ -853,7 +882,12 @@ pub(crate) async fn decide_permission_on(
         String::new()
     } else {
         let Some(audience) = permission_device(&connection_map, connection).await else {
-            return Ok(not_accessible());
+            // A device conversation is found through the device's current
+            // connection; after a reconnect the page must reopen it.
+            return Ok(HttpResponse::Ok().json(RestResponse::<()>::failed(
+                DeskErrorCode::REMOTE_DESK_OFFLINE,
+                "The device disconnected or reconnected; reopen its conversation".to_string(),
+            )));
         };
         audience
     };
@@ -865,7 +899,7 @@ pub(crate) async fn decide_permission_on(
     ) else {
         return Ok(not_accessible());
     };
-    if connection.is_none() && body.carrier_id.is_some() {
+    if connection.is_none() && stale_target.is_none() && body.carrier_id.is_some() {
         return Ok(HttpResponse::Ok().json(RestResponse::<()>::failed(
             DeskErrorCode::INVALID_PARAMS,
             "carrierId is only valid when approving an interactive command".into(),
@@ -1006,14 +1040,18 @@ pub(crate) async fn decide_permission_on(
                     .find(|request| request.request_id == body.request_id)
             })
     };
-    let interactive = match pending_request.as_ref().map(|request| {
-        desk_diagnose_core::command_confirmation::interactive_approval(
-            &session_id,
-            request,
-            &decisions,
-            body.carrier_id.as_deref(),
-        )
-    }) {
+    // A stale request is refused and binds no terminal carrier.
+    let interactive = match pending_request
+        .as_ref()
+        .filter(|_| stale_target.is_none())
+        .map(|request| {
+            desk_diagnose_core::command_confirmation::interactive_approval(
+                &session_id,
+                request,
+                &decisions,
+                body.carrier_id.as_deref(),
+            )
+        }) {
         None if body.carrier_id.is_some() => {
             return Ok(HttpResponse::Ok().json(RestResponse::<()>::failed(
                 DeskErrorCode::INVALID_PARAMS,
@@ -1075,6 +1113,7 @@ pub(crate) async fn decide_permission_on(
             },
             &now,
             body.expected_run_request_id.as_deref(),
+            stale_target,
         )
         .await
         .map_err(|error| {

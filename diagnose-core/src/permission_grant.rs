@@ -55,6 +55,100 @@ pub fn apply_automatic_grant_failure(
     true
 }
 
+/// Why a pending request's frozen device target no longer matches the device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StaleApprovalTarget {
+    /// The device went offline or reconnected, or its interactive session
+    /// restarted.
+    Reconnected,
+    /// The device is the same but its readiness changed, for example after a
+    /// window opened or a local ceiling changed.
+    StateChanged,
+}
+
+impl StaleApprovalTarget {
+    pub const RECONNECTED_CODE: &'static str = "approval_target_reconnected";
+    pub const STATE_CHANGED_CODE: &'static str = "approval_target_state_changed";
+
+    fn reason(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Reconnected => (
+                Self::RECONNECTED_CODE,
+                "The device reconnected after this request, so its approval no longer applies. Nothing ran. Request it again with the same parameters if it is still needed.",
+            ),
+            Self::StateChanged => (
+                Self::STATE_CHANGED_CODE,
+                "The device state changed after this request, so its approval no longer applies. Nothing ran. Request it again with the same parameters if it is still needed.",
+            ),
+        }
+    }
+}
+
+/// The device's current state as the deciding host sees it.
+#[derive(Debug, Clone, Copy)]
+pub struct CurrentApprovalTarget<'a> {
+    pub connection_id: &'a str,
+    /// Readiness revision and interactive session incarnation, when the host
+    /// holds a fresh readiness record. Without one nothing beyond the
+    /// connection is compared.
+    pub readiness: Option<(u64, &'a str)>,
+}
+
+/// Compare a pending device request with the device's current connection
+/// (`None` when it is offline). Requests without a frozen device target are
+/// never stale.
+pub fn stale_approval_target(
+    request: &crate::dynamic_run::PermissionRequest,
+    current: Option<CurrentApprovalTarget<'_>>,
+) -> Option<StaleApprovalTarget> {
+    let command = request.exact_command();
+    let read = request.selected_device_target();
+    let frozen = command
+        .map(|command| command.target_connection_id())
+        .or_else(|| read.map(|target| target.connection_id.as_str()))?;
+    let Some(current) = current else {
+        return Some(StaleApprovalTarget::Reconnected);
+    };
+    if current.connection_id != frozen {
+        return Some(StaleApprovalTarget::Reconnected);
+    }
+    let (revision, incarnation) = current.readiness?;
+    if command.is_some_and(|command| {
+        command.target_session_id != format!("{}:{incarnation}", current.connection_id)
+    }) {
+        return Some(StaleApprovalTarget::Reconnected);
+    }
+    read.is_some_and(|target| target.readiness_revision != revision)
+        .then_some(StaleApprovalTarget::StateChanged)
+}
+
+/// An owner's approval of a stale request becomes a system refusal the model
+/// sees, so the turn resumes and the model can request again; nothing is
+/// granted. An owner's refusal stays theirs. Returns whether the owner had
+/// approved, for the host's audit record.
+pub fn record_stale_target_decision(
+    decisions: &mut [crate::dynamic_run::PermissionDecisionItem],
+    source: &mut crate::dynamic_run::PermissionDecisionSource,
+    stale: StaleApprovalTarget,
+) -> bool {
+    use crate::dynamic_run::{PermissionDecisionSource, PermissionItemDecision};
+    if !decisions
+        .iter()
+        .any(|item| matches!(item.decision, PermissionItemDecision::Approve { .. }))
+    {
+        return false;
+    }
+    for item in decisions {
+        item.decision = PermissionItemDecision::Deny;
+    }
+    let (reason_code, reason) = stale.reason();
+    *source = PermissionDecisionSource::SystemDecision {
+        reason_code: reason_code.into(),
+        reason: reason.into(),
+    };
+    true
+}
+
 /// Bind grants compiled from a complete AI-reviewed permission decision to the
 /// current owner delegation. The caller must commit the decision, review rows,
 /// grants and resume in one fenced transaction. The generic grant matcher will

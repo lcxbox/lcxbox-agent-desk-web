@@ -57,7 +57,11 @@ pub(crate) const LEASE_TTL_SECS: i64 = 90;
 const CLAIM_ATTEMPTS: usize = 5;
 
 enum PermissionDecisionAuthority<'a> {
-    Owner,
+    /// `stale_target` is set when the deciding host found the request's frozen
+    /// device target no longer current.
+    Owner {
+        stale_target: Option<desk_diagnose_core::permission_grant::StaleApprovalTarget>,
+    },
     NoReview {
         device_allows_unattended: bool,
     },
@@ -302,12 +306,14 @@ impl SignalAgentSessionStore {
             grant_context,
             now,
             None,
+            None,
         )
         .await
     }
 
     /// Fence both new decisions and replays to the caller's displayed input or
     /// scheduled occurrence. The session CAS keeps this check atomic with grants.
+    #[allow(clippy::too_many_arguments)]
     pub async fn decide_permission_request_with_expected_request(
         &self,
         subject: PermissionDecisionSubject<'_>,
@@ -316,6 +322,7 @@ impl SignalAgentSessionStore {
         grant_context: PermissionGrantIssuanceContext<'_>,
         now: &str,
         expected_run_request_id: Option<&str>,
+        stale_target: Option<desk_diagnose_core::permission_grant::StaleApprovalTarget>,
     ) -> Result<PermissionDecisionOutcome, AgentError> {
         self.decide_permission_request_with_authority(
             subject,
@@ -324,7 +331,7 @@ impl SignalAgentSessionStore {
             grant_context,
             now,
             expected_run_request_id,
-            PermissionDecisionAuthority::Owner,
+            PermissionDecisionAuthority::Owner { stale_target },
         )
         .await
     }
@@ -427,7 +434,7 @@ impl SignalAgentSessionStore {
                 ));
             }
             permission_receipt::check_expected_request(&session, expected_run_request_id)?;
-            if matches!(&authority, PermissionDecisionAuthority::Owner)
+            if matches!(&authority, PermissionDecisionAuthority::Owner { .. })
                 && let Some(state) =
                     permission_receipt::replay_on(&txn, &session, request_id, &decisions).await?
             {
@@ -454,7 +461,9 @@ impl SignalAgentSessionStore {
                     "delegated permission request is no longer current",
                 ));
             }
-            if !matches!(&authority, PermissionDecisionAuthority::Owner) && session.main_stopped {
+            if !matches!(&authority, PermissionDecisionAuthority::Owner { .. })
+                && session.main_stopped
+            {
                 return Err(internal("Automatic review source was stopped"));
             }
             if session.turn_state.is_active() {
@@ -483,14 +492,14 @@ impl SignalAgentSessionStore {
                 ));
             }
             permission_resume::validate_permission_device_on(&txn, &session, &requested).await?;
-            if !matches!(&authority, PermissionDecisionAuthority::Owner)
+            if !matches!(&authority, PermissionDecisionAuthority::Owner { .. })
                 && !permission_resume::permission_work_current(&txn, &session, &requested).await?
             {
                 return Err(internal("subscription work is unavailable"));
             }
 
             let reviewed = match &authority {
-                PermissionDecisionAuthority::Owner
+                PermissionDecisionAuthority::Owner { .. }
                 | PermissionDecisionAuthority::NoReview { .. } => None,
                 PermissionDecisionAuthority::Ai {
                     candidates,
@@ -530,7 +539,7 @@ impl SignalAgentSessionStore {
                 &format!("{}:{}:{}", session.conversation_id, event_seq, request_id),
             );
             let (mut decision_items, mut decision_source) = match &authority {
-                PermissionDecisionAuthority::Owner => (
+                PermissionDecisionAuthority::Owner { .. } => (
                     decisions.clone(),
                     desk_diagnose_core::dynamic_run::PermissionDecisionSource::UserDecision,
                 ),
@@ -584,13 +593,33 @@ impl SignalAgentSessionStore {
             } else {
                 None
             };
-            let mut grants = match build_permission_grants(
-                &session,
-                &requested,
-                &decision_items,
-                &grant_context,
-                original_reads.as_ref(),
-            ) {
+            let stale_target = match &authority {
+                PermissionDecisionAuthority::Owner { stale_target } => *stale_target,
+                _ => None,
+            };
+            if let Some(stale) = stale_target
+                && desk_diagnose_core::permission_grant::record_stale_target_decision(
+                    &mut decision_items,
+                    &mut decision_source,
+                    stale,
+                )
+            {
+                log::info!(
+                    "[ai-assistant] owner approval of permission request {request_id} recorded as a system refusal: its device target is no longer current ({stale:?})"
+                );
+            }
+            // A stale target issues nothing: the decision is a refusal either way.
+            let mut grants = match if stale_target.is_some() {
+                Ok(Vec::new())
+            } else {
+                build_permission_grants(
+                    &session,
+                    &requested,
+                    &decision_items,
+                    &grant_context,
+                    original_reads.as_ref(),
+                )
+            } {
                 Ok(grants) => grants,
                 Err(error)
                     if desk_diagnose_core::permission_grant::apply_automatic_grant_failure(

@@ -205,6 +205,7 @@ async fn approved_fresh_task_claim_releases_the_held_call_for_the_server_to_run(
             },
             &chrono::Utc::now().to_rfc3339(),
             None,
+            None,
         )
         .await
         .unwrap();

@@ -2141,7 +2141,11 @@ pub fn system_review_reason_from_code(code: &str) -> crate::approval_observation
         "approval_task_expired" => ReviewReason::TaskExpired,
         "approval_policy" | "approval_context_capacity" => ReviewReason::Policy,
         "approval_revoked" => ReviewReason::Revoked,
-        "approval_source_changed" => ReviewReason::SourceChanged,
+        "approval_source_changed"
+        | crate::permission_grant::StaleApprovalTarget::RECONNECTED_CODE
+        | crate::permission_grant::StaleApprovalTarget::STATE_CHANGED_CODE => {
+            ReviewReason::SourceChanged
+        }
         "approval_expired" => ReviewReason::CandidateExpired,
         _ => ReviewReason::Processing,
     }
@@ -2151,7 +2155,9 @@ pub fn system_review_outcome(code: &str) -> &'static str {
     match code {
         "approval_budget" | "approval_policy" | "approval_context_capacity" => "policy_blocked",
         "approval_revoked" => "cancelled",
-        "approval_source_changed" => "superseded",
+        "approval_source_changed"
+        | crate::permission_grant::StaleApprovalTarget::RECONNECTED_CODE
+        | crate::permission_grant::StaleApprovalTarget::STATE_CHANGED_CODE => "superseded",
         "approval_expired" => "expired",
         _ => "fault",
     }

@@ -1950,6 +1950,9 @@ export default {
   'pages.aiAssistant.permissionSystemReason.approval_policy': '平台策略阻止审批调用',
   'pages.aiAssistant.permissionSystemReason.approval_revoked': '审批授权已撤销',
   'pages.aiAssistant.permissionSystemReason.approval_source_changed': '审批期间申请依据发生变化',
+  'pages.aiAssistant.permissionSystemReason.approval_target_reconnected': '设备已重新连接，原授权失效，助手会重新申请',
+  'pages.aiAssistant.permissionSystemReason.approval_target_state_changed': '设备状态已变化，原授权失效，助手会重新申请',
+  'pages.aiAssistant.permissionDecisionUnavailable': '会话状态已变化或助手仍在处理，暂时无法提交这项审批，请刷新后重试。',
   'pages.aiAssistant.permissionSystemReason.approval_expired': '当前审批尝试已到期',
   'pages.aiAssistant.permissionSystemReason.approval_processing': '无法记录可信审批结果',
   'pages.aiAssistant.permissionSystemReason.approval_context_capacity': '审批必需上下文超过配置容量',
@@ -2458,6 +2461,7 @@ export default {
   'pages.agentError.aiContextSummaryOutputTruncated': '上下文摘要输出被截断，本轮已停止，原始历史已保留。请在“上下文管理”中提高“摘要最大输出 token”，并检查模型运行时输出上限后继续。Manager 用户可联系平台管理员调整。',
   'pages.agentError.scheduleModelBudgetExceeded': '定时任务剩余的模型 token 预算不足，本次模型请求未发出。请审阅任务预算后再运行。',
   'pages.agentError.aiPlatformBusy': '免费 AI 队列当前已满，请稍后重试。',
+  'pages.agentError.remoteDeskOffline': '设备已断开或重新连接，请重新打开设备会话后再发送。',
   'pages.agentError.aiModelImageInputUnsupported':
     '当前选择的 AI 模型不支持截图输入。请选择已启用图片输入能力的模型，或关闭截图选项。',
   'pages.agentError.aiContentBlocked': '此请求因内容安全策略无法处理。',

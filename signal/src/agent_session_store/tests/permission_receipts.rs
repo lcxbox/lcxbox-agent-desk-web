@@ -142,11 +142,114 @@ async fn owner_scoped_decision_projection_keeps_the_recorded_source_and_items() 
     );
 }
 
+/// The device reconnected after the request: the owner's approval is recorded
+/// as a system refusal the model sees, nothing is granted, and the turn resumes.
+/// Readiness for the old connection is gone, which the refusal does not need.
+#[tokio::test]
+async fn approving_a_stale_device_request_records_a_system_refusal() {
+    use desk_diagnose_core::dynamic_run::PermissionDecisionSource;
+    use desk_diagnose_core::permission_grant::StaleApprovalTarget;
+    let (store, decisions) = seed(
+        crate::config::test_support::Database::connect("sqlite::memory:")
+            .await
+            .unwrap(),
+    )
+    .await;
+    let decided = decide_target(
+        &store,
+        &decisions,
+        false,
+        None,
+        Some(StaleApprovalTarget::Reconnected),
+    )
+    .await
+    .unwrap();
+    assert!(decided.newly_recorded);
+    assert_eq!(decided.state, PermissionRequestState::Denied);
+    let event = store
+        .permission_decision_event(
+            PermissionDecisionSubject {
+                conversation_id: "conversation-1",
+                actor_id: "1",
+                device_id: "device-1",
+            },
+            "permission-1",
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        &event.decision_source,
+        PermissionDecisionSource::SystemDecision { reason_code, .. }
+            if reason_code == StaleApprovalTarget::RECONNECTED_CODE
+    ));
+    assert!(
+        event
+            .items
+            .iter()
+            .all(|item| item.decision == PermissionItemDecision::Deny)
+    );
+}
+
+/// An owner who refuses a stale request keeps their own refusal.
+#[tokio::test]
+async fn refusing_a_stale_device_request_stays_the_owners_decision() {
+    use desk_diagnose_core::dynamic_run::PermissionDecisionSource;
+    let (store, decisions) = seed(
+        crate::config::test_support::Database::connect("sqlite::memory:")
+            .await
+            .unwrap(),
+    )
+    .await;
+    let refusals = decisions
+        .iter()
+        .map(|item| PermissionDecisionItem {
+            item_id: item.item_id.clone(),
+            decision: PermissionItemDecision::Deny,
+        })
+        .collect::<Vec<_>>();
+    decide_target(
+        &store,
+        &refusals,
+        false,
+        None,
+        Some(desk_diagnose_core::permission_grant::StaleApprovalTarget::StateChanged),
+    )
+    .await
+    .unwrap();
+    let event = store
+        .permission_decision_event(
+            PermissionDecisionSubject {
+                conversation_id: "conversation-1",
+                actor_id: "1",
+                device_id: "device-1",
+            },
+            "permission-1",
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        event.decision_source,
+        PermissionDecisionSource::UserDecision
+    ));
+}
+
 async fn decide_expected(
     store: &SignalAgentSessionStore,
     decisions: &[PermissionDecisionItem],
     ready: bool,
     expected: Option<&str>,
+) -> Result<PermissionDecisionOutcome, AgentError> {
+    decide_target(store, decisions, ready, expected, None).await
+}
+
+async fn decide_target(
+    store: &SignalAgentSessionStore,
+    decisions: &[PermissionDecisionItem],
+    ready: bool,
+    expected: Option<&str>,
+    stale: Option<desk_diagnose_core::permission_grant::StaleApprovalTarget>,
 ) -> Result<PermissionDecisionOutcome, AgentError> {
     let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
     let inventory = [CapabilityAvailability {
@@ -178,6 +281,7 @@ async fn decide_expected(
             },
             &Utc::now().to_rfc3339(),
             expected,
+            stale,
         )
         .await
 }

@@ -1941,3 +1941,91 @@ fn automatic_grant_failure_keeps_transient_and_internal_errors_retryable() {
         assert_eq!(source, before);
     }
 }
+
+#[test]
+fn a_request_is_stale_when_its_device_reconnected_or_changed_state() {
+    use super::{CurrentApprovalTarget, StaleApprovalTarget, stale_approval_target};
+    let (_, read, _) = decision_fixture();
+    let current = |connection_id, readiness| {
+        Some(CurrentApprovalTarget {
+            connection_id,
+            readiness,
+        })
+    };
+    // The read card froze connection "host" at readiness revision 7.
+    assert_eq!(
+        stale_approval_target(&read, current("host", Some((7, "s")))),
+        None
+    );
+    assert_eq!(stale_approval_target(&read, current("host", None)), None);
+    assert_eq!(
+        stale_approval_target(&read, None),
+        Some(StaleApprovalTarget::Reconnected)
+    );
+    assert_eq!(
+        stale_approval_target(&read, current("host-2", Some((7, "s")))),
+        Some(StaleApprovalTarget::Reconnected)
+    );
+    assert_eq!(
+        stale_approval_target(&read, current("host", Some((8, "s")))),
+        Some(StaleApprovalTarget::StateChanged)
+    );
+
+    // A command card froze "host:session-1"; a restarted worker on the same
+    // connection has a new incarnation.
+    let mut canonical = serde_json::json!({"shell":"bash","command":"ls","timeout_ms":1000});
+    crate::model_input::fill_versions(crate::command_confirmation::COMMAND_TOOL, &mut canonical);
+    let canonical = canonical.to_string();
+    let confirmation = crate::command_confirmation::test_policy()
+        .prepare(&canonical, 1)
+        .unwrap();
+    let mut command = read.clone();
+    command.items[0].selected_device_target = None;
+    command.items[0].tool_name = crate::command_confirmation::COMMAND_TOOL.into();
+    command.items[0].command_confirmation = Some(confirmation);
+    assert_eq!(
+        stale_approval_target(&command, current("host", Some((99, "session-1")))),
+        None
+    );
+    assert_eq!(
+        stale_approval_target(&command, current("host", Some((7, "session-2")))),
+        Some(StaleApprovalTarget::Reconnected)
+    );
+}
+
+#[test]
+fn only_an_owners_approval_of_a_stale_request_becomes_a_system_refusal() {
+    use super::{StaleApprovalTarget, record_stale_target_decision};
+    use crate::dynamic_run::PermissionDecisionSource;
+    let (_, _, mut approved) = decision_fixture();
+    let mut source = PermissionDecisionSource::UserDecision;
+    assert!(record_stale_target_decision(
+        &mut approved,
+        &mut source,
+        StaleApprovalTarget::StateChanged
+    ));
+    assert!(
+        approved
+            .iter()
+            .all(|item| item.decision == PermissionItemDecision::Deny)
+    );
+    assert!(matches!(
+        &source,
+        PermissionDecisionSource::SystemDecision { reason_code, reason }
+            if reason_code == StaleApprovalTarget::STATE_CHANGED_CODE
+                && reason.contains("Request it again")
+    ));
+    assert_eq!(
+        crate::approval_review::system_review_outcome(StaleApprovalTarget::STATE_CHANGED_CODE),
+        "superseded"
+    );
+
+    let mut refused = approved.clone();
+    let mut source = PermissionDecisionSource::UserDecision;
+    assert!(!record_stale_target_decision(
+        &mut refused,
+        &mut source,
+        StaleApprovalTarget::Reconnected
+    ));
+    assert!(matches!(source, PermissionDecisionSource::UserDecision));
+}
