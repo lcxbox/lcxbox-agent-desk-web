@@ -326,27 +326,31 @@ fn main() {
         StartupMode::Default | StartupMode::Signaling | StartupMode::DeskServer => {
             // telemetry::init_telemetry() inside run() owns all logging for this path.
             // Do NOT initialise any logger here — it would conflict.
-            let system = actix_web::rt::System::new();
-            let exit_code = system.block_on(async {
-                match lcxl_remote_desk_server::run().await {
-                    Ok((server, _telemetry_guard)) => {
-                        // Hold _telemetry_guard until server.await completes;
-                        // dropping earlier closes the non-blocking log writer
-                        // thread and silently discards all subsequent lines.
-                        let result = server.await;
-                        desk_signal::model_metrics::runtime::shutdown().await;
-                        if let Err(e) = result {
-                            eprintln!("Server error: {e}");
+            // The embedded signal polls on the system thread; a Windows main
+            // thread has only 1 MiB of stack.
+            let exit_code = lcxl_remote_desk_server::daemon::run_daemon_system(|| {
+                let system = actix_web::rt::System::new();
+                system.block_on(async {
+                    match lcxl_remote_desk_server::run().await {
+                        Ok((server, _telemetry_guard)) => {
+                            // Hold _telemetry_guard until server.await completes;
+                            // dropping earlier closes the non-blocking log writer
+                            // thread and silently discards all subsequent lines.
+                            let result = server.await;
+                            desk_signal::model_metrics::runtime::shutdown().await;
+                            if let Err(e) = result {
+                                eprintln!("Server error: {e}");
+                                1
+                            } else {
+                                0
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to start server: {e}");
                             1
-                        } else {
-                            0
                         }
                     }
-                    Err(e) => {
-                        eprintln!("Failed to start server: {e}");
-                        1
-                    }
-                }
+                })
             });
             std::process::exit(exit_code);
         }

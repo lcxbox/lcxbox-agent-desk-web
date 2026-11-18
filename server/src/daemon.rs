@@ -66,8 +66,35 @@ pub fn run_service_daemon(args: Args) -> Result<(), Box<dyn std::error::Error>> 
         }
     }
 
-    let system = actix_web::rt::System::new();
-    system.block_on(async { run_service_daemon_inner(args, None).await })
+    run_daemon_system(move || {
+        let system = actix_web::rt::System::new();
+        system.block_on(async {
+            run_service_daemon_inner(args, None)
+                .await
+                .map_err(|e| e.to_string())
+        })
+    })
+    .map_err(Into::into)
+}
+
+/// Stack of the thread that runs the daemon's actix system. The embedded
+/// signal and every task spawned on the system poll on this thread; Windows
+/// gives the main and SCM service threads only 1 MiB, while a Linux main
+/// thread has 8 MiB.
+const DAEMON_THREAD_STACK: usize = 8 * 1024 * 1024;
+
+/// Run `daemon` on a thread with [`DAEMON_THREAD_STACK`] and wait for it.
+pub fn run_daemon_system<T: Send + 'static>(daemon: impl FnOnce() -> T + Send + 'static) -> T {
+    match std::thread::Builder::new()
+        .name("service-daemon".into())
+        .stack_size(DAEMON_THREAD_STACK)
+        .spawn(daemon)
+        .expect("the service daemon thread must start")
+        .join()
+    {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
 }
 
 /// Start the local API on the daemon's actix system. The API spawns its
@@ -759,7 +786,21 @@ mod linux_ai_input_route;
 
 #[cfg(test)]
 mod tests {
-    use super::spawn_local_api_task;
+    use super::{run_daemon_system, spawn_local_api_task};
+
+    /// The daemon's system thread holds deeper frames than a test thread
+    /// (2 MiB) or a Windows main thread (1 MiB) could.
+    #[test]
+    fn the_daemon_system_thread_has_room_for_deep_frames() {
+        let used = run_daemon_system(|| {
+            let frame = [1u8; 3 * 1024 * 1024];
+            std::hint::black_box(&frame)
+                .iter()
+                .map(|b| *b as usize)
+                .sum::<usize>()
+        });
+        assert_eq!(used, 3 * 1024 * 1024);
+    }
 
     #[test]
     fn the_local_api_task_can_spawn_actix_tasks() {

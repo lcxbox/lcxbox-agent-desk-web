@@ -122,7 +122,11 @@ pub(super) async fn run_pipe_server(
             os_session_id: session_id,
             desktop_name,
             config_json,
-            log_dir: (!restricted).then_some(log_dir),
+            // Every out-of-process worker initialises its own log before it
+            // runs; a restricted worker without one exits silently and is
+            // restarted forever. Its log is the daemon's own SYSTEM log
+            // directory.
+            log_dir: Some(log_dir),
             data_dir: (!restricted).then_some(data_dir),
             signaling_url: None,
             auth_token: (!restricted).then_some(ipc_token).flatten(),

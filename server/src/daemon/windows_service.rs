@@ -63,16 +63,18 @@ mod windows_impl {
 
         info!("[WindowsService] Service Running");
 
-        let system = actix_web::rt::System::new();
-        system.block_on(async {
-            use crate::daemon::run_service_daemon_inner;
-            use clap::Parser;
-            let args = crate::model::settings::Args::parse();
-            // Pass the shutdown receiver directly so the daemon can reach
-            // shutdown_all() before we set the Stopped status.
-            if let Err(e) = run_service_daemon_inner(args, Some(stop_rx)).await {
-                error!("[WindowsService] Daemon error: {e}");
-            }
+        crate::daemon::run_daemon_system(move || {
+            let system = actix_web::rt::System::new();
+            system.block_on(async {
+                use crate::daemon::run_service_daemon_inner;
+                use clap::Parser;
+                let args = crate::model::settings::Args::parse();
+                // Pass the shutdown receiver directly so the daemon can reach
+                // shutdown_all() before we set the Stopped status.
+                if let Err(e) = run_service_daemon_inner(args, Some(stop_rx)).await {
+                    error!("[WindowsService] Daemon error: {e}");
+                }
+            })
         });
 
         status_handle.set_service_status(ServiceStatus {
