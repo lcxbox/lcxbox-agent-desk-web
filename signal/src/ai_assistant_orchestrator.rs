@@ -628,6 +628,63 @@ pub(crate) async fn reject_live_context(
     }
 }
 
+/// Answer a rejected object-context update the way an applied one is answered,
+/// echoing the request's correlation fields so the browser can settle it.
+pub(crate) async fn reject_object_context(
+    actor: &ConnectionState,
+    request: &SignalingModel,
+    message: String,
+) {
+    let payload = request.get_data::<serde_json::Value>().ok();
+    let selector = |name: &str| {
+        payload
+            .as_ref()
+            .and_then(|value| value.get(name))
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty() && value.len() <= 128)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let ack = AiAssistantObjectContextUpdated {
+        conversation_id: selector("conversation_id"),
+        client_request_id: selector("client_request_id"),
+        changed: false,
+        error: Some(message),
+    };
+    let frame = SignalingModel::new(
+        &request.request_id,
+        SignalingType::AiAssistantObjectContextUpdated,
+        None,
+        Some(actor.model.connection_id.clone()),
+        serde_json::to_value(ack).ok(),
+        None,
+    );
+    if let Err(error) = send_frame(actor, &frame).await {
+        log::warn!("[ai-assistant] failed to send object context rejection: {error}");
+    }
+}
+
+/// Answer a rejected ask with the turn's error event, so the browser settles the
+/// submission instead of waiting for an acknowledgement.
+pub(crate) async fn reject_ask(
+    actor: &ConnectionState,
+    request: &SignalingModel,
+    error: AgentError,
+) {
+    let event = AgentEvent::error(&request.request_id, 0, error);
+    let frame = SignalingModel::new(
+        &request.request_id,
+        SignalingType::AiAssistantUpdated,
+        None,
+        Some(actor.model.connection_id.clone()),
+        serde_json::to_value(&event).ok(),
+        None,
+    );
+    if let Err(error) = send_frame(actor, &frame).await {
+        log::warn!("[ai-assistant] failed to send ask rejection: {error}");
+    }
+}
+
 pub(crate) async fn apply_object_context_update(
     db: DatabaseConnection,
     actor_user_id: i32,

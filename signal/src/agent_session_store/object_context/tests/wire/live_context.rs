@@ -136,10 +136,11 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
                                     actix_ws::Message::Text(text) => {
                                         let frame: SignalingModel =
                                             serde_json::from_str(&text).unwrap();
-                                        assert_eq!(
+                                        assert!(matches!(
                                             frame.signaling_type,
                                             SignalingType::UpdateAiAssistantContext
-                                        );
+                                                | SignalingType::AskAiAssistant
+                                        ));
                                         assert!(matches!(
                                             authorizer.authorize(&actor, &map, &frame).await,
                                             ControlFrameOutcome::Handled
@@ -391,6 +392,50 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
     assert_eq!(ack.client_request_id, "malformed-client");
     assert!(ack.error.is_some());
     assert_eq!(row(&store).await, saved);
+
+    // An ask for a host that has since reconnected under a new connection is
+    // answered with the turn's error event, as the manager answers it, so the
+    // browser can settle the submission and look the device up again.
+    let ask = SignalingModel::new(
+        "ask-gone-host",
+        SignalingType::AskAiAssistant,
+        None,
+        Some("gone-host".into()),
+        Some(serde_json::json!({"question": "status?"})),
+        None,
+    );
+    socket
+        .send(awc::ws::Message::Text(
+            serde_json::to_string(&ask).unwrap().into(),
+        ))
+        .await
+        .unwrap();
+    let reply = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let awc::ws::Frame::Text(bytes) = reply else {
+        panic!("expected the ask refusal")
+    };
+    let frame: SignalingModel = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(frame.request_id, "ask-gone-host");
+    assert_eq!(frame.signaling_type, SignalingType::AiAssistantUpdated);
+    assert!(frame.response_state.is_none());
+    let event = frame
+        .get_data::<desk_agent_protocol::agent_event::AgentEvent>()
+        .unwrap();
+    assert_eq!(event.request_id, "ask-gone-host");
+    assert_eq!(event.seq, 0);
+    let error = event.error.expect("an error event");
+    assert_eq!(
+        error.kind,
+        desk_agent_protocol::AgentErrorKind::TargetOffline
+    );
+    assert_eq!(
+        error.error_code,
+        Some(desk_utils::error::DeskErrorCode::REMOTE_DESK_OFFLINE.code())
+    );
     socket.send(awc::ws::Message::Close(None)).await.unwrap();
     drop(socket);
     drop(anonymous);

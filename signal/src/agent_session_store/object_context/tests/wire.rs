@@ -304,10 +304,30 @@ async fn object_wire_replays_first_receipts_after_reconnect_and_model_removal() 
         Some(serde_json::to_value(&original.update).unwrap()),
         None,
     );
+    // Refused like the manager refuses it: an error ack that echoes the
+    // correlation fields, so the browser settles the update.
     assert!(matches!(
         authorizer.authorize(&anonymous, &map, &frame).await,
-        ControlFrameOutcome::Reject { .. }
+        ControlFrameOutcome::Handled
     ));
+    let reply = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let awc::ws::Frame::Text(text) = reply else {
+        panic!("expected the refusal")
+    };
+    let reply: SignalingModel = serde_json::from_slice(&text).unwrap();
+    assert_eq!(reply.request_id, "anonymous-retry");
+    assert_eq!(
+        reply.signaling_type,
+        SignalingType::AiAssistantObjectContextUpdated
+    );
+    let ack: AiAssistantObjectContextUpdated = reply.get_data().unwrap();
+    assert!(!ack.changed && ack.error.is_some());
+    assert_eq!(ack.conversation_id, original.update.conversation_id);
+    assert_eq!(ack.client_request_id, original.update.client_request_id);
     assert_eq!(row(&store).await, saved);
     socket.send(awc::ws::Message::Close(None)).await.unwrap();
     drop(socket);

@@ -271,6 +271,9 @@ pub struct SignalControlAuthorizer {
 }
 
 impl SignalControlAuthorizer {
+    /// Refuse a frame. An AI request is answered with its own typed failure, as
+    /// the manager's authorizer answers it, so the browser settles it instead of
+    /// waiting; other frames are rejected without a reply.
     async fn reject_frame(
         &self,
         actor: &ConnectionState,
@@ -278,12 +281,43 @@ impl SignalControlAuthorizer {
         code: DeskErrorCode,
         message: String,
     ) -> ControlFrameOutcome {
-        if model.signaling_type == SignalingType::UpdateAiAssistantContext {
-            crate::ai_assistant_orchestrator::reject_live_context(actor, model, message).await;
-            ControlFrameOutcome::Handled
-        } else {
-            ControlFrameOutcome::Reject { code, message }
+        match model.signaling_type {
+            SignalingType::UpdateAiAssistantContext => {
+                crate::ai_assistant_orchestrator::reject_live_context(actor, model, message).await;
+            }
+            SignalingType::UpdateAiAssistantObjectContext => {
+                crate::ai_assistant_orchestrator::reject_object_context(actor, model, message)
+                    .await;
+            }
+            SignalingType::AskAiAssistant => {
+                crate::ai_assistant_orchestrator::reject_ask(
+                    actor,
+                    model,
+                    rejection_error(code, message),
+                )
+                .await;
+            }
+            SignalingType::AskTerminalAiAssistant => {
+                crate::terminal_orchestrator::reject_assistant(
+                    &self.connection_map,
+                    &actor.model.connection_id,
+                    &model.request_id,
+                    rejection_error(code, message),
+                )
+                .await;
+            }
+            SignalingType::GenerateTerminalCompletions => {
+                crate::terminal_orchestrator::reject_completion(
+                    &self.connection_map,
+                    &actor.model.connection_id,
+                    &model.request_id,
+                    rejection_error(code, message),
+                )
+                .await;
+            }
+            _ => return ControlFrameOutcome::Reject { code, message },
         }
+        ControlFrameOutcome::Handled
     }
     pub fn new(
         db: DatabaseConnection,
@@ -309,10 +343,14 @@ impl SignalControlAuthorizer {
         let ask = match model.get_data::<AiAssistantAsk>() {
             Ok(ask) => ask,
             Err(e) => {
-                return ControlFrameOutcome::Reject {
-                    code: DeskErrorCode::INVALID_PARAMS,
-                    message: format!("invalid AiAssistantAsk payload: {e}"),
-                };
+                return self
+                    .reject_frame(
+                        actor,
+                        model,
+                        DeskErrorCode::INVALID_PARAMS,
+                        format!("invalid AiAssistantAsk payload: {e}"),
+                    )
+                    .await;
             }
         };
         if let Err(message) = desk_diagnose_core::assistant_policy::validate_assistant_ask_scope(
@@ -332,20 +370,23 @@ impl SignalControlAuthorizer {
                 .then_some(())
                 .ok_or("invalid AI Assistant client timezone")
         }) {
-            return ControlFrameOutcome::Reject {
-                code: DeskErrorCode::INVALID_PARAMS,
-                message: message.into(),
-            };
+            return self
+                .reject_frame(actor, model, DeskErrorCode::INVALID_PARAMS, message.into())
+                .await;
         }
         if desk_diagnose_core::ai_assistant::selected_context_capabilities(
             &ask.selected_capability_ids,
         )
         .is_err()
         {
-            return ControlFrameOutcome::Reject {
-                code: DeskErrorCode::INVALID_PARAMS,
-                message: "unknown or non-context AI Assistant capability".into(),
-            };
+            return self
+                .reject_frame(
+                    actor,
+                    model,
+                    DeskErrorCode::INVALID_PARAMS,
+                    "unknown or non-context AI Assistant capability".into(),
+                )
+                .await;
         }
         let cancellation = crate::ai_assistant_orchestrator::cancellation::register(
             actor_user_id,
@@ -555,10 +596,14 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                     {
                         Ok(a) => a,
                         Err(e) => {
-                            return ControlFrameOutcome::Reject {
-                                code: DeskErrorCode::INVALID_PARAMS,
-                                message: format!("invalid TerminalCompleteAsk payload: {e}"),
-                            };
+                            return self
+                                .reject_frame(
+                                    actor,
+                                    model,
+                                    DeskErrorCode::INVALID_PARAMS,
+                                    format!("invalid TerminalCompleteAsk payload: {e}"),
+                                )
+                                .await;
                         }
                     };
                     actix_web::rt::spawn(crate::terminal_orchestrator::run_completion(
@@ -576,10 +621,14 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                     {
                         Ok(a) => a,
                         Err(e) => {
-                            return ControlFrameOutcome::Reject {
-                                code: DeskErrorCode::INVALID_PARAMS,
-                                message: format!("invalid TerminalAiAssistantAsk payload: {e}"),
-                            };
+                            return self
+                                .reject_frame(
+                                    actor,
+                                    model,
+                                    DeskErrorCode::INVALID_PARAMS,
+                                    format!("invalid TerminalAiAssistantAsk payload: {e}"),
+                                )
+                                .await;
                         }
                     };
                     actix_web::rt::spawn(crate::terminal_orchestrator::run_assistant(
@@ -654,27 +703,39 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                     let update = match model.get_data::<AiAssistantObjectContextUpdate>() {
                         Ok(update) => update,
                         Err(error) => {
-                            return ControlFrameOutcome::Reject {
-                                code: DeskErrorCode::INVALID_PARAMS,
-                                message: format!(
-                                    "invalid AiAssistantObjectContextUpdate payload: {error}"
-                                ),
-                            };
+                            return self
+                                .reject_frame(
+                                    actor,
+                                    model,
+                                    DeskErrorCode::INVALID_PARAMS,
+                                    format!(
+                                        "invalid AiAssistantObjectContextUpdate payload: {error}"
+                                    ),
+                                )
+                                .await;
                         }
                     };
                     if let Err(message) = update.validate() {
-                        return ControlFrameOutcome::Reject {
-                            code: DeskErrorCode::INVALID_PARAMS,
-                            message: message.into(),
-                        };
+                        return self
+                            .reject_frame(
+                                actor,
+                                model,
+                                DeskErrorCode::INVALID_PARAMS,
+                                message.into(),
+                            )
+                            .await;
                     }
                     if !desk_diagnose_core::conversation_key::is_valid_client_conversation_id(
                         &update.conversation_id,
                     ) {
-                        return ControlFrameOutcome::Reject {
-                            code: DeskErrorCode::INVALID_PARAMS,
-                            message: "invalid AI Assistant conversation id".into(),
-                        };
+                        return self
+                            .reject_frame(
+                                actor,
+                                model,
+                                DeskErrorCode::INVALID_PARAMS,
+                                "invalid AI Assistant conversation id".into(),
+                            )
+                            .await;
                     }
                     actix_web::rt::spawn(crate::ai_assistant_orchestrator::update_object_context(
                         self.connection_map.clone(),
@@ -728,6 +789,32 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                 },
             }
         })
+    }
+}
+
+/// The failure an AI frame's requester receives when it is refused, classified
+/// from the refusal's code as the manager classifies the same refusals.
+fn rejection_error(code: DeskErrorCode, message: String) -> desk_agent_protocol::AgentError {
+    use desk_agent_protocol::AgentErrorKind;
+    let kind = if code == DeskErrorCode::REMOTE_DESK_OFFLINE {
+        AgentErrorKind::TargetOffline
+    } else if code == DeskErrorCode::PERMISSION_ERROR {
+        AgentErrorKind::PermissionDenied
+    } else if code == DeskErrorCode::INVALID_PARAMS {
+        AgentErrorKind::InvalidInput
+    } else if code == DeskErrorCode::FEATURE_UNAVAILABLE {
+        AgentErrorKind::UnsupportedCapability
+    } else if code == DeskErrorCode::RATE_LIMITED {
+        AgentErrorKind::SessionUnavailable
+    } else {
+        AgentErrorKind::Internal
+    };
+    desk_agent_protocol::AgentError {
+        kind,
+        message,
+        retryable: false,
+        safe_for_model: true,
+        error_code: Some(code.code()),
     }
 }
 

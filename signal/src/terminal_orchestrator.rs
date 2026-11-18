@@ -102,6 +102,43 @@ async fn send_to_browser<T: serde::Serialize>(
     }
 }
 
+/// Answer a rejected Terminal AI Assistant ask with its error event: the panel only
+/// consumes `TerminalAiAssistantUpdated` frames and would otherwise keep waiting.
+pub(crate) async fn reject_assistant(
+    connection_map: &SharedConnectionMap,
+    browser_connection_id: &str,
+    request_id: &str,
+    error: AgentError,
+) {
+    let event = TerminalAiAssistantEvent::error(request_id.to_string(), 0, error);
+    send_to_browser(
+        connection_map,
+        browser_connection_id,
+        request_id,
+        SignalingType::TerminalAiAssistantUpdated,
+        &event,
+    )
+    .await;
+}
+
+/// Answer a rejected completion ask with a failed result, as a dial failure is.
+pub(crate) async fn reject_completion(
+    connection_map: &SharedConnectionMap,
+    browser_connection_id: &str,
+    request_id: &str,
+    error: AgentError,
+) {
+    let result = TerminalCompleteResult::failed(request_id.to_string(), error);
+    send_to_browser(
+        connection_map,
+        browser_connection_id,
+        request_id,
+        SignalingType::TerminalCompletionsGenerated,
+        &result,
+    )
+    .await;
+}
+
 /// Load the provider config, build the model seam, dial once over `messages`, and
 /// submit content-free usage observations. The single place every terminal model
 /// dial flows through, so the seam construction and usage accounting stay shared
