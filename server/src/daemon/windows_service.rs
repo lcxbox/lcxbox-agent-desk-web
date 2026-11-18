@@ -13,9 +13,10 @@ mod windows_impl {
     use windows_service::{
         Result as WsResult, define_windows_service,
         service::{
-            ServiceAccess, ServiceControl, ServiceControlAccept, ServiceErrorControl,
-            ServiceExitCode, ServiceInfo, ServiceStartType, ServiceState, ServiceStatus,
-            ServiceType,
+            Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl,
+            ServiceControlAccept, ServiceErrorControl, ServiceExitCode, ServiceFailureActions,
+            ServiceFailureResetPeriod, ServiceInfo, ServiceStartType, ServiceState,
+            ServiceStatus, ServiceType,
         },
         service_control_handler::{self, ServiceControlHandlerResult},
         service_dispatcher,
@@ -26,6 +27,50 @@ mod windows_impl {
     pub const SERVICE_DISPLAY_NAME: &str = "LCXL Remote Desktop Service";
 
     define_windows_service!(ffi_service_main, service_main);
+
+    /// Restart delays after the first, second and later failures. The
+    /// failure count resets after a day without failures.
+    const RESTART_DELAYS: [Duration; 3] = [
+        Duration::from_secs(5),
+        Duration::from_secs(10),
+        Duration::from_secs(30),
+    ];
+    const FAILURE_RESET_PERIOD: Duration = Duration::from_secs(24 * 60 * 60);
+
+    /// The service has no other way back after a crash than a reboot, so SCM
+    /// restarts it, also when it stops itself with a failure exit code.
+    fn failure_recovery_actions() -> ServiceFailureActions {
+        ServiceFailureActions {
+            reset_period: ServiceFailureResetPeriod::After(FAILURE_RESET_PERIOD),
+            reboot_msg: None,
+            command: None,
+            actions: Some(
+                RESTART_DELAYS
+                    .iter()
+                    .map(|&delay| ServiceAction {
+                        action_type: ServiceActionType::Restart,
+                        delay,
+                    })
+                    .collect(),
+            ),
+        }
+    }
+
+    fn configure_failure_recovery(service: &Service) -> WsResult<()> {
+        service.update_failure_actions(failure_recovery_actions())?;
+        service.set_failure_actions_on_non_crash_failures(true)
+    }
+
+    /// Installs that predate the recovery actions get them on their next
+    /// start, without a reinstall.
+    fn ensure_failure_recovery() {
+        let result = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+            .and_then(|manager| manager.open_service(SERVICE_NAME, ServiceAccess::CHANGE_CONFIG))
+            .and_then(|service| configure_failure_recovery(&service));
+        if let Err(error) = result {
+            log::warn!("[WindowsService] could not set the restart-on-failure actions: {error}");
+        }
+    }
 
     fn service_main(_args: Vec<OsString>) {
         if let Err(e) = run_service() {
@@ -62,8 +107,9 @@ mod windows_impl {
         })?;
 
         info!("[WindowsService] Service Running");
+        ensure_failure_recovery();
 
-        crate::daemon::run_daemon_system(move || {
+        let failed = crate::daemon::run_daemon_system(move || {
             let system = actix_web::rt::System::new();
             system.block_on(async {
                 use crate::daemon::run_service_daemon_inner;
@@ -71,8 +117,12 @@ mod windows_impl {
                 let args = crate::model::settings::Args::parse();
                 // Pass the shutdown receiver directly so the daemon can reach
                 // shutdown_all() before we set the Stopped status.
-                if let Err(e) = run_service_daemon_inner(args, Some(stop_rx)).await {
-                    error!("[WindowsService] Daemon error: {e}");
+                match run_service_daemon_inner(args, Some(stop_rx)).await {
+                    Ok(()) => false,
+                    Err(e) => {
+                        error!("[WindowsService] Daemon error: {e}");
+                        true
+                    }
                 }
             })
         });
@@ -81,7 +131,12 @@ mod windows_impl {
             service_type: ServiceType::OWN_PROCESS,
             current_state: ServiceState::Stopped,
             controls_accepted: ServiceControlAccept::empty(),
-            exit_code: ServiceExitCode::Win32(0),
+            // A failure exit code makes SCM apply the restart actions.
+            exit_code: if failed {
+                ServiceExitCode::ServiceSpecific(1)
+            } else {
+                ServiceExitCode::Win32(0)
+            },
             checkpoint: 0,
             wait_hint: Duration::default(),
             process_id: None,
@@ -225,8 +280,12 @@ mod windows_impl {
             account_password: None,
         };
 
-        let service = manager.create_service(&info, ServiceAccess::START)?;
+        let service = manager.create_service(
+            &info,
+            ServiceAccess::START | ServiceAccess::CHANGE_CONFIG,
+        )?;
         info!("Service '{SERVICE_NAME}' installed at '{install_dir}'");
+        configure_failure_recovery(&service)?;
         service.start(&[] as &[&std::ffi::OsStr])?;
         info!("Service '{SERVICE_NAME}' started");
         Ok(())
@@ -403,6 +462,25 @@ mod windows_impl {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn a_failed_service_is_restarted_with_growing_delays() {
+            let actions = failure_recovery_actions();
+            assert!(matches!(
+                actions.reset_period,
+                ServiceFailureResetPeriod::After(period) if period == FAILURE_RESET_PERIOD
+            ));
+            let delays: Vec<_> = actions
+                .actions
+                .unwrap()
+                .iter()
+                .map(|action| {
+                    assert_eq!(action.action_type, ServiceActionType::Restart);
+                    action.delay.as_secs()
+                })
+                .collect();
+            assert_eq!(delays, [5, 10, 30]);
+        }
         use desk_virtual_display_driver_ops::{
             DRIVER_CAT_BASENAME, DRIVER_DLL_BASENAME, DRIVER_HW_ID, DRIVER_INF_BASENAME,
             DRIVER_WUDFRD_BASENAME, DriverFiles, InstallerError,
