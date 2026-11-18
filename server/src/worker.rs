@@ -40,19 +40,27 @@ pub fn run_session_worker(args: Args, pipe_name: &str) -> Result<(), Box<dyn std
     // which aborts the whole worker process before the telemetry guard can
     // flush — leaving daemon-side restart loops with no diagnostic in the
     // worker log.
-    let system = actix_web::rt::System::new();
-    system.block_on(async {
-        match session::WorkerSession::run(args, pipe_name).await {
-            Ok(()) => {
-                info!("SessionWorker exited normally");
-                Ok(())
+    //
+    // The system runs on the daemon's 8 MiB thread: the Windows main thread
+    // has only 1 MiB, too little for the deepest worker frames.
+    let pipe_name = pipe_name.to_owned();
+    crate::daemon::run_daemon_system(move || {
+        let system = actix_web::rt::System::new();
+        system.block_on(async {
+            match session::WorkerSession::run(args, &pipe_name).await {
+                Ok(()) => {
+                    info!("SessionWorker exited normally");
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("SessionWorker error: {}", e);
+                    // The error crosses back to the main thread as text.
+                    Err(e.to_string())
+                }
             }
-            Err(e) => {
-                error!("SessionWorker error: {}", e);
-                Err(e)
-            }
-        }
+        })
     })
+    .map_err(Into::into)
 }
 
 #[cfg(test)]

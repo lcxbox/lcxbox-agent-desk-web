@@ -892,6 +892,13 @@ pub async fn run_signaling_proxy(
                     if fresh_incarnation {
                         settings_coordinator.republish().await;
                     }
+                    // The worker that owns the virtual display re-attaches
+                    // it, as the single worker does below.
+                    if worker_mgr.is_virtual_display_worker(key)
+                        && let Some(supervisor) = virtual_display.as_ref()
+                    {
+                        supervisor.on_worker_capabilities().await;
+                    }
                     continue;
                 }
                 worker_mgr.set_worker_capabilities(caps);

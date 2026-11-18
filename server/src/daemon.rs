@@ -84,9 +84,10 @@ pub fn run_service_daemon(args: Args) -> Result<(), Box<dyn std::error::Error>> 
 const DAEMON_THREAD_STACK: usize = 8 * 1024 * 1024;
 
 /// Run `daemon` on a thread with [`DAEMON_THREAD_STACK`] and wait for it.
+/// Session workers run their actix system the same way.
 pub fn run_daemon_system<T: Send + 'static>(daemon: impl FnOnce() -> T + Send + 'static) -> T {
     match std::thread::Builder::new()
-        .name("service-daemon".into())
+        .name("actix-system".into())
         .stack_size(DAEMON_THREAD_STACK)
         .spawn(daemon)
         .expect("the service daemon thread must start")

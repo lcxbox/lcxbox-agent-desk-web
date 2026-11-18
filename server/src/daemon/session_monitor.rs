@@ -15,6 +15,9 @@ pub struct WindowsSessionRegistration {
     /// False for the console session at the sign-in screen (after boot or
     /// sign-out): it gets only the restricted Winlogon worker.
     pub has_user: bool,
+    /// The session attached to the physical console. Only it can show a
+    /// virtual display.
+    pub console: bool,
 }
 
 /// One schedulable WTS session as enumerated.
@@ -26,6 +29,7 @@ pub(crate) struct ObservedWindowsSession {
     pub user: Option<String>,
     pub station_name: String,
     pub foreground: bool,
+    pub console: bool,
 }
 
 /// Assigns each WTS session the generation part of its `SessionKey`.
@@ -84,6 +88,7 @@ impl SessionGenerations {
                 station_name: observed.station_name,
                 foreground: observed.foreground,
                 has_user: observed.user.is_some(),
+                console: observed.console,
             });
         }
         self.tracked = tracked;
@@ -215,6 +220,7 @@ fn enumerate_schedulable_windows_sessions() -> Result<Vec<ObservedWindowsSession
                 station_name: query(session.SessionId, WTSWinStationName)
                     .unwrap_or_else(|| "WinSta0".to_string()),
                 foreground: session.SessionId == active_console || session.State == WTSActive,
+                console: session.SessionId == active_console,
             });
         }
         WTSFreeMemory(session_info_ptr.cast());
@@ -337,6 +343,7 @@ mod tests {
             user: user.map(str::to_string),
             station_name: "Console".into(),
             foreground: true,
+            console: true,
         }
     }
 

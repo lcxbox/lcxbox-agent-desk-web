@@ -17,6 +17,7 @@ fn registration(id: u32, generation: u64, has_user: bool) -> WindowsSessionRegis
         station_name: "Console".into(),
         foreground: true,
         has_user,
+        console: id == 1,
     }
 }
 
@@ -237,4 +238,135 @@ async fn a_restarted_worker_receives_the_ceilings_of_its_capped_connections() {
     assert_eq!(ceilings.len(), 1);
     assert_eq!(ceilings[0].connection_id, "capped");
     assert!(ceilings[0].ceiling.is_some());
+}
+
+#[cfg(target_os = "windows")]
+fn capabilities_with_display(device_name: &str) -> MediaCapabilities {
+    use desk_signal_facade::model::image_capture::{DisplayInfo, DisplayRect};
+    MediaCapabilities {
+        video_codecs: vec![desk_ipc_protocol::message::MediaCodec::H264],
+        video_device_list: std::collections::BTreeMap::from([(
+            "dxgi".to_string(),
+            vec![DisplayInfo {
+                device_name: device_name.to_string(),
+                display_device_name: None,
+                desktop_coordinates: DisplayRect {
+                    left: 0,
+                    top: 0,
+                    right: 1920,
+                    bottom: 1080,
+                },
+                resolutions: vec![],
+                attached_to_desktop: true,
+                rotation: 0,
+                current_capture_resolution: None,
+            }],
+        )]),
+        ..MediaCapabilities::default()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn resident_test_manager() -> WorkerManager {
+    let settings = web::Data::from(Arc::new(crate::model::settings::SharedSettings::from(
+        crate::model::settings::Settings::default(),
+    )));
+    let (manager, _messages) = WorkerManager::new(settings, PcRegistry::new());
+    manager.enable_session_targeting_for_test();
+    manager
+}
+
+#[cfg(target_os = "windows")]
+#[tokio::test]
+async fn the_virtual_display_is_served_by_the_signed_in_consoles_default_worker() {
+    let manager = resident_test_manager();
+    let console = session(1, 1);
+    let other = session(2, 1);
+    let (console_tx, mut console_rx) = mpsc::unbounded_channel();
+    let (winlogon_tx, mut winlogon_rx) = mpsc::unbounded_channel();
+    let (other_tx, mut other_rx) = mpsc::unbounded_channel();
+    manager
+        .install_resident_for_test(key(1, 1, DesktopTarget::WindowsDefault), console_tx)
+        .await;
+    manager
+        .install_resident_for_test(key(1, 1, DesktopTarget::WindowsWinlogon), winlogon_tx)
+        .await;
+    manager
+        .install_resident_for_test(key(2, 1, DesktopTarget::WindowsDefault), other_tx)
+        .await;
+
+    // Nobody is signed in at the console: the display is unavailable.
+    assert!(
+        manager
+            .send_to_virtual_display_worker(ServiceToWorker::RefreshCapabilities)
+            .await
+            .is_err()
+    );
+    assert!(!manager.virtual_display_serves(Some(&console)));
+
+    assert!(
+        manager
+            .set_virtual_display_session(Some(console.clone()))
+            .await
+    );
+    assert!(
+        !manager
+            .set_virtual_display_session(Some(console.clone()))
+            .await
+    );
+    manager
+        .send_to_virtual_display_worker(ServiceToWorker::RefreshCapabilities)
+        .await
+        .unwrap();
+    assert!(matches!(
+        console_rx.try_recv(),
+        Ok(ServiceToWorker::RefreshCapabilities)
+    ));
+    // Never the sign-in worker, never another session.
+    assert!(winlogon_rx.try_recv().is_err());
+    assert!(other_rx.try_recv().is_err());
+    assert!(manager.virtual_display_serves(Some(&console)));
+    assert!(!manager.virtual_display_serves(Some(&other)));
+    assert!(!manager.virtual_display_serves(None));
+}
+
+#[cfg(target_os = "windows")]
+#[tokio::test]
+async fn only_the_console_workers_capabilities_reveal_the_virtual_display() {
+    let manager = resident_test_manager();
+    let (console_tx, _console_rx) = mpsc::unbounded_channel();
+    let (other_tx, _other_rx) = mpsc::unbounded_channel();
+    manager
+        .install_resident_for_test(key(1, 1, DesktopTarget::WindowsDefault), console_tx)
+        .await;
+    manager
+        .install_resident_for_test(key(2, 1, DesktopTarget::WindowsDefault), other_tx)
+        .await;
+    manager
+        .set_virtual_display_session(Some(session(1, 1)))
+        .await;
+    let display = r"\.\DISPLAY9";
+
+    let before = manager.capabilities_version();
+    manager
+        .set_resident_worker_capabilities(
+            &key(2, 1, DesktopTarget::WindowsDefault),
+            capabilities_with_display(display),
+        )
+        .await;
+    assert!(!manager.capabilities_contains_display(display));
+    assert_eq!(manager.capabilities_version(), before);
+
+    manager
+        .set_resident_worker_capabilities(
+            &key(1, 1, DesktopTarget::WindowsDefault),
+            capabilities_with_display(display),
+        )
+        .await;
+    assert!(manager.capabilities_contains_display(display));
+    assert!(manager.capabilities_version() > before);
+
+    // The console moves to the sign-in screen: the display goes with it.
+    assert!(manager.set_virtual_display_session(None).await);
+    assert!(!manager.capabilities_contains_display(display));
 }

@@ -354,6 +354,13 @@ pub struct WorkerManager {
     /// is wrapped in `Arc` because `WorkerManager` is `Clone` and
     /// `watch::Sender` is not.
     capabilities_version_tx: Arc<watch::Sender<u64>>,
+    /// Windows resident workers: the signed-in console session, whose Default
+    /// worker owns the virtual display. `None` when the console is at the
+    /// sign-in screen or no session is scheduled.
+    virtual_display_session: Arc<StdMutex<Option<desk_ipc_protocol::message::SessionKey>>>,
+    /// Capabilities last reported by that worker; bumps
+    /// [`Self::capabilities_version`] like the single worker's do.
+    virtual_display_capabilities: Arc<StdMutex<Option<MediaCapabilities>>>,
     /// `true` once [`Self::start_inprocess_worker`] has been called.
     /// Portable / Default mode runs the worker as an `actix_web::rt::spawn`
     /// task in the same process, so the daemon must NOT fall back to
@@ -700,6 +707,8 @@ impl WorkerManager {
             capabilities_version: Arc::new(AtomicU64::new(0)),
             policy_applied_seq: Arc::new(AtomicU64::new(0)),
             capabilities_version_tx: Arc::new(cap_version_tx),
+            virtual_display_session: Arc::default(),
+            virtual_display_capabilities: Arc::default(),
             is_inprocess: Arc::new(AtomicBool::new(false)),
             media_worker_restart_required: Arc::new(AtomicBool::new(false)),
             remote_access_gate: Arc::new(StdRwLock::new(
@@ -1507,6 +1516,18 @@ impl WorkerManager {
             .cloned()
             .collect();
         let plan = plan_windows_reconcile(&current_keys, &registrations);
+        let console = registrations
+            .iter()
+            .find(|registration| registration.console && registration.has_user)
+            .map(|registration| registration.session.clone());
+        if self.set_virtual_display_session(console).await
+            && let Some(supervisor) = self.pc_registry.virtual_display_supervisor()
+        {
+            // The display follows the console to its new Default worker; one
+            // that is already running will not report capabilities again.
+            let supervisor = Arc::clone(supervisor);
+            tokio::spawn(async move { supervisor.on_worker_capabilities().await });
+        }
 
         for key in &plan.stop_sessions {
             for connection_id in self.connection_ids_for_session(key) {
@@ -2081,9 +2102,12 @@ impl WorkerManager {
             let Some(worker) = inner.resident_workers.get_mut(key) else {
                 return false;
             };
-            worker.capabilities = Some(caps);
+            worker.capabilities = Some(caps.clone());
             worker.incarnation
         };
+        if self.is_virtual_display_worker(key) {
+            self.publish_virtual_display_capabilities(Some(caps));
+        }
         let route_is_current = self
             .active_interactive_routes
             .lock()
@@ -2706,7 +2730,12 @@ impl WorkerManager {
     /// — the map key is the backend ("dxgi" / "wgc" / ...), not the
     /// display name itself.
     pub fn capabilities_contains_display(&self, display_name: &str) -> bool {
-        self.worker_capabilities
+        let source = if self.routes_virtual_display_to_session() {
+            &self.virtual_display_capabilities
+        } else {
+            &self.worker_capabilities
+        };
+        source
             .lock()
             .unwrap()
             .as_ref()
@@ -2717,6 +2746,77 @@ impl WorkerManager {
                     .any(|d| d.device_name == display_name)
             })
             .unwrap_or(false)
+    }
+
+    /// Windows resident workers serve the virtual display from the signed-in
+    /// console session's Default worker; everything else keeps the single
+    /// worker.
+    fn routes_virtual_display_to_session(&self) -> bool {
+        cfg!(target_os = "windows") && self.uses_session_targeting()
+    }
+
+    fn virtual_display_session(&self) -> Option<desk_ipc_protocol::message::SessionKey> {
+        self.virtual_display_session.lock().unwrap().clone()
+    }
+
+    pub(crate) fn is_virtual_display_worker(&self, key: &WorkerKey) -> bool {
+        key.desktop == DesktopTarget::WindowsDefault
+            && self.virtual_display_session().as_ref() == Some(&key.session)
+    }
+
+    /// Whether a remote desktop of `session` may show the virtual display.
+    /// Under Windows resident workers only the signed-in console session can.
+    pub fn virtual_display_serves(
+        &self,
+        session: Option<&desk_ipc_protocol::message::SessionKey>,
+    ) -> bool {
+        !self.routes_virtual_display_to_session()
+            || session
+                .is_some_and(|session| self.virtual_display_session().as_ref() == Some(session))
+    }
+
+    /// Send a virtual-display message (attach, detach, capability refresh,
+    /// exclusive mode) to the worker that owns the virtual display. It never
+    /// follows the interactive route, which may be the sign-in worker.
+    pub async fn send_to_virtual_display_worker(&self, msg: ServiceToWorker) -> Result<(), String> {
+        if !self.routes_virtual_display_to_session() {
+            return self.send_to_worker(msg).await;
+        }
+        let session = self
+            .virtual_display_session()
+            .ok_or_else(|| "the virtual display needs a signed-in console session".to_string())?;
+        self.send_to_session_worker(&session, msg).await
+    }
+
+    fn publish_virtual_display_capabilities(&self, caps: Option<MediaCapabilities>) {
+        *self.virtual_display_capabilities.lock().unwrap() = caps;
+        let new_version = self.capabilities_version.fetch_add(1, Ordering::SeqCst) + 1;
+        let _ = self.capabilities_version_tx.send_replace(new_version);
+    }
+
+    /// Record the signed-in console session. Returns whether it changed, so
+    /// the caller can have the virtual display re-attached to its worker.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    async fn set_virtual_display_session(
+        &self,
+        session: Option<desk_ipc_protocol::message::SessionKey>,
+    ) -> bool {
+        if self.virtual_display_session() == session {
+            return false;
+        }
+        *self.virtual_display_session.lock().unwrap() = session.clone();
+        let caps = match session {
+            Some(session) => {
+                self.resident_worker_capabilities(&WorkerKey {
+                    session,
+                    desktop: DesktopTarget::WindowsDefault,
+                })
+                .await
+            }
+            None => None,
+        };
+        self.publish_virtual_display_capabilities(caps);
+        true
     }
 
     /// Test-only: install an `ipc_tx` so `send_to_worker` has a

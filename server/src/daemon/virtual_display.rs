@@ -617,7 +617,7 @@ impl VirtualDisplaySupervisor {
                 drop(state); // Don't hold the write lock across the IPC await.
                 if let Err(e) = self
                     .worker_mgr
-                    .send_to_worker(ServiceToWorker::DetachVirtualDisplay)
+                    .send_to_virtual_display_worker(ServiceToWorker::DetachVirtualDisplay)
                     .await
                 {
                     warn!("failed to send DetachVirtualDisplay to worker: {e}");
@@ -627,7 +627,7 @@ impl VirtualDisplaySupervisor {
                 // from the dropdown.
                 if let Err(e) = self
                     .worker_mgr
-                    .send_to_worker(ServiceToWorker::RefreshCapabilities)
+                    .send_to_virtual_display_worker(ServiceToWorker::RefreshCapabilities)
                     .await
                 {
                     warn!(
@@ -654,7 +654,7 @@ impl VirtualDisplaySupervisor {
         };
         if let Err(e) = self
             .worker_mgr
-            .send_to_worker(ServiceToWorker::AttachVirtualDisplay(payload))
+            .send_to_virtual_display_worker(ServiceToWorker::AttachVirtualDisplay(payload))
             .await
         {
             warn!(
@@ -817,7 +817,7 @@ impl VirtualDisplaySupervisor {
                     // extra attach.
                     if let Err(e) = self
                         .worker_mgr
-                        .send_to_worker(ServiceToWorker::RefreshCapabilities)
+                        .send_to_virtual_display_worker(ServiceToWorker::RefreshCapabilities)
                         .await
                     {
                         warn!(
@@ -878,14 +878,14 @@ impl VirtualDisplaySupervisor {
         if send_detach {
             if let Err(e) = self
                 .worker_mgr
-                .send_to_worker(ServiceToWorker::DetachVirtualDisplay)
+                .send_to_virtual_display_worker(ServiceToWorker::DetachVirtualDisplay)
                 .await
             {
                 warn!("[virtual-display] shutdown DetachVirtualDisplay send failed: {e}");
             }
             if let Err(e) = self
                 .worker_mgr
-                .send_to_worker(ServiceToWorker::RefreshCapabilities)
+                .send_to_virtual_display_worker(ServiceToWorker::RefreshCapabilities)
                 .await
             {
                 warn!(
@@ -1432,7 +1432,7 @@ impl VirtualDisplaySupervisor {
             else {
                 return;
             };
-            match self.worker_mgr.send_to_worker(ipc).await {
+            match self.worker_mgr.send_to_virtual_display_worker(ipc).await {
                 Ok(()) => return,
                 Err(e) => {
                     warn!("[virtual-display] reconcile IPC send failed: {e}; retry in {backoff:?}");

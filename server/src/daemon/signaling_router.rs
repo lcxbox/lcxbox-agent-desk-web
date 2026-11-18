@@ -873,6 +873,7 @@ pub async fn route(model: &SignalingModel, ctx: &RouterContext) -> Result<(), Ro
             if let Some(supervisor) = ctx.virtual_display.as_ref()
                 && s.virtual_display.enabled
                 && request_remote.purpose == RemoteSessionPurpose::RemoteDesktop
+                && ctx.worker_mgr.virtual_display_serves(selected_session.as_ref())
             {
                 match supervisor
                     .ensure_attached(VIRTUAL_DISPLAY_ATTACH_TIMEOUT)
