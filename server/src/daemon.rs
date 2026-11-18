@@ -81,6 +81,38 @@ where
     actix_web::rt::spawn(task)
 }
 
+/// Resolve once the daemon is asked to stop: Ctrl-C, SIGTERM on Unix (how
+/// systemd and `kill` stop a service), or the Windows service stop channel.
+/// The daemon alone handles these signals; its HTTP API does not trap them, so
+/// a stop request always reaches the orderly shutdown below. The signal handler
+/// is installed before this returns, so a signal sent afterwards is not missed.
+fn stop_requested(
+    service_stop: Option<oneshot::Receiver<()>>,
+) -> std::io::Result<impl std::future::Future<Output = std::io::Result<&'static str>>> {
+    #[cfg(unix)]
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    Ok(async move {
+        let service_stop = async move {
+            match service_stop {
+                // A dropped sender also means the service is going away.
+                Some(rx) => {
+                    let _ = rx.await;
+                }
+                None => std::future::pending().await,
+            }
+        };
+        #[cfg(unix)]
+        let terminate = terminate.recv();
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<Option<()>>();
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => result.map(|()| "Ctrl-C"),
+            _ = terminate => Ok("SIGTERM"),
+            () = service_stop => Ok("Service stop request"),
+        }
+    })
+}
+
 /// The actual async daemon logic, shared between the interactive path and the
 /// Windows Service path (called from `windows_service::run_service()`).
 ///
@@ -397,16 +429,11 @@ pub async fn run_service_daemon_inner(
     let watchdog_handle = worker_mgr.spawn_heartbeat_watchdog();
 
     info!("ServiceDaemon running. Press Ctrl+C to stop.");
-    match shutdown_signal {
-        Some(rx) => {
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => { info!("Ctrl-C received"); }
-                _ = rx => { info!("SCM shutdown signal received"); }
-            }
-        }
-        None => {
-            tokio::signal::ctrl_c().await?;
-        }
+    match stop_requested(shutdown_signal)?.await {
+        Ok(reason) => info!("{reason} received"),
+        // Without a working stop signal the daemon could never stop cleanly;
+        // stop now rather than run on unstoppable.
+        Err(e) => error!("Waiting for a stop signal failed: {e}"),
     }
     info!("ServiceDaemon shutting down…");
 
@@ -745,5 +772,73 @@ mod tests {
             rx.await
         });
         assert!(spawned.is_ok());
+    }
+
+    const STOP_CHILD_ENV: &str = "LCXL_DAEMON_STOP_SIGNAL_CHILD";
+
+    /// Runs only as the child process of the test below, so that its SIGTERM
+    /// reaches no other test in this process.
+    #[test]
+    fn stop_signal_child() {
+        if std::env::var_os(STOP_CHILD_ENV).is_none() {
+            return;
+        }
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let reason = runtime.block_on(async {
+            let stop = super::stop_requested(None).unwrap();
+            println!("stop-handler-ready");
+            tokio::time::timeout(std::time::Duration::from_secs(10), stop)
+                .await
+                .expect("SIGTERM did not ask the daemon to stop")
+                .unwrap()
+        });
+        assert_eq!(reason, "SIGTERM");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn sigterm_asks_the_daemon_to_stop() {
+        use std::io::BufRead;
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "daemon::tests::stop_signal_child", "--nocapture"])
+            .env(STOP_CHILD_ENV, "1")
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        // Keep reading to the end, so the child never writes into a closed pipe.
+        let stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in stdout.lines().map_while(Result::ok) {
+                if line == "stop-handler-ready" {
+                    let _ = ready_tx.send(());
+                }
+            }
+        });
+        if ready_rx
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .is_err()
+        {
+            let _ = child.kill();
+            panic!("the child never installed its stop handler");
+        }
+        let pid = i32::try_from(child.id()).unwrap();
+        // SAFETY: signals only the child process spawned above.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = child.kill();
+                panic!("the child did not stop after SIGTERM");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        assert!(status.success(), "the child failed: {status}");
     }
 }

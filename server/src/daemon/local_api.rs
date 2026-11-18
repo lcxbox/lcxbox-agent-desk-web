@@ -255,6 +255,9 @@ pub async fn run_local_api(
     let server = server
         .bind(("0.0.0.0", SERVICE_API_PORT))
         .map_err(|e| format!("Failed to bind local API on port {SERVICE_API_PORT}: {e}"))?
+        // The daemon owns the process lifecycle. If the API trapped SIGTERM itself,
+        // a service stop would end only the API and leave the daemon running.
+        .disable_signals()
         .run();
 
     // Bind succeeded — release any waiter (workers can now connect upstream).
