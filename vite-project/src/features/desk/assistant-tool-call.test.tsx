@@ -77,6 +77,13 @@ describe('tool call transcript', () => {
         expect(screen.getByRole('img', { name: 'pages.aiAssistant.toolCall.failure' })).toBeTruthy();
     });
 
+    it('marks a fixed outcome-unknown text as unknown rather than failed', () => {
+        render(<AssistantToolCall running={false} tool={{ ...tool, name: 'restore_text_file', status: 'failed',
+            output: 'Execution did not return a conclusive receipt. Read the current target state before choosing the next action.' }} />);
+        expect(screen.getByRole('img', { name: 'pages.aiAssistant.toolCall.outcomeUnknown' })).toBeTruthy();
+        expect(screen.queryByRole('img', { name: 'pages.aiAssistant.toolCall.failure' })).toBeNull();
+    });
+
     it('shows accessible status icons while folded and updates from running to success or failure', () => {
         const { container, rerender } = render(<AssistantToolCall tool={tool} running />);
         expect(screen.getByRole('img', { name: 'pages.aiAssistant.toolCall.waiting' }).querySelector('.animate-spin')).toBeTruthy();

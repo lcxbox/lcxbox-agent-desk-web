@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { decisionCardId, type AssistantDecisionReceipt } from './assistant-decision-receipt';
 import type { AiAssistantToolActivity } from './use-ai-assistant-chat';
-import { hasUnknownActionResult } from './action-result-status';
+import { hasUnknownOutcome } from './action-result-status';
 import { isConfirmedNotSent } from './ai-assistant-external-send';
 
 export function isHistoricalPermissionSkip(output: string | null | undefined): boolean {
@@ -107,7 +107,7 @@ export function AssistantToolCall({ tool, running, displayName, initialOpen = fa
     const batch = batchResult(tool);
     const permissionSkip = isHistoricalPermissionSkip(tool.output);
     const permissionSubmission = isPermissionSubmissionReceipt(tool);
-    const outcomeUnknown = hasUnknownActionResult(tool.output, tool.callId);
+    const outcomeUnknown = hasUnknownOutcome(tool.output, tool.callId);
     const status = tool.status === 'running' && !running ? 'missing' : tool.status;
     const displayStatus = tool.permissionReview?.state === 'approved' ? 'ok'
         : tool.permissionReview?.state === 'denied' ? 'failed'

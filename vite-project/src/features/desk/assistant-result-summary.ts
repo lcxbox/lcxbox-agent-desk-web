@@ -97,6 +97,55 @@ function strip(text: string): string {
     return trimmed.startsWith('tool error: ') ? trimmed.slice('tool error: '.length) : trimmed;
 }
 
+function unknownKey(body: string): string | null {
+    return body.includes(DEVICE_RECONNECTED) ? 'deviceReconnected'
+        : OUTCOME_UNKNOWN.find(([prefix]) => body.startsWith(prefix))?.[1] ?? null;
+}
+
+/** Readable message of a tool result or error receipt, without opaque JSON. */
+export function failureText(output: string | null): string | null {
+    if (!output) return null;
+    try {
+        const value = JSON.parse(output);
+        if (!value || typeof value !== 'object') return null;
+        const record = value as Record<string, unknown>;
+        const nested = [record.error, record.failure, record.output].filter(
+            (item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item));
+        const message = [record.message, ...nested.map(item => item.message)].find(
+            item => typeof item === 'string' && item.trim() && !item.trim().startsWith('{'));
+        return typeof message === 'string' ? message.slice(0, 180) : null;
+    } catch {
+        const trimmed = output.trimStart();
+        return trimmed.startsWith('{') || trimmed.startsWith('[') ? null : output.slice(0, 180);
+    }
+}
+
+function outcomeUnknownKey(output: string | null): string | null {
+    if (!output) return null;
+    const text = failureText(output);
+    return unknownKey(strip(output)) ?? (text === null ? null : unknownKey(strip(text)));
+}
+
+/** A fixed outcome-unknown text, as the result itself or its error message. */
+export function isOutcomeUnknownText(output: string | null): boolean {
+    return outcomeUnknownKey(output) !== null;
+}
+
+/** Localized reason of a fixed outcome-unknown text, for a line already titled "outcome unknown". */
+export function outcomeUnknownReason(t: TFunction, output: string | null): string | null {
+    const key = outcomeUnknownKey(output);
+    return key ? t(`pages.aiAssistant.outcomeUnknown.${key}`) : null;
+}
+
+/** Summary line for a tool result: localized when fixed, else its readable message. */
+export function toolResultSummary(t: TFunction, output: string | null, toolLabel: (name: string) => string = name => name): string | null {
+    if (!output) return null;
+    const text = failureText(output);
+    return resultSummaryMessage(t, output, toolLabel)
+        ?? (text && resultSummaryMessage(t, text, toolLabel))
+        ?? text;
+}
+
 /**
  * Localized summary for a fixed "not executed" or outcome-unknown tool result
  * or error text, or null when `text` is neither. `toolLabel` names a tool
@@ -104,8 +153,7 @@ function strip(text: string): string {
  */
 export function resultSummaryMessage(t: TFunction, text: string, toolLabel: (name: string) => string = name => name): string | null {
     const body = strip(text);
-    const unknown = body.includes(DEVICE_RECONNECTED) ? 'deviceReconnected'
-        : OUTCOME_UNKNOWN.find(([prefix]) => body.startsWith(prefix))?.[1];
+    const unknown = unknownKey(body);
     if (unknown) {
         return t('pages.aiAssistant.outcomeUnknown.format', { reason: t(`pages.aiAssistant.outcomeUnknown.${unknown}`) });
     }

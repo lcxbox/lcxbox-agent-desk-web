@@ -5,7 +5,7 @@ import { Disclosure } from '@/components/ui/disclosure';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AssistantFileResult, parseFileReceipt, parseTextFileChange } from './assistant-file-result';
-import { hasUnknownActionResult } from './action-result-status';
+import { hasUnknownOutcome } from './action-result-status';
 import { AssistantLaunchResult, parseLaunchReceipt } from './assistant-launch-result';
 import { CommandFileChangesView, CommandRestoreReceiptView, parseCommandRestoreReceipt, parseFileChanges, type FileChanges } from './assistant-command-changes';
 import { CommandSandboxDiagnostic, sandboxDiagnostic, type SandboxDiagnostic } from './assistant-command-sandbox';
@@ -92,7 +92,7 @@ export function AssistantCommandResult({ text, tool, onLocateCall, onExportBacku
     const fileReceipt = useMemo(() => parseFileReceipt(text), [text]);
     const fileChange = useMemo(() => tool?.name === 'update_text_file' ? parseTextFileChange(tool.argumentsJson) : null, [tool]);
     const launchReceipt = useMemo(() => parseLaunchReceipt(text), [text]);
-    const outcomeUnknown = useMemo(() => hasUnknownActionResult(text), [text]);
+    const outcomeUnknown = useMemo(() => hasUnknownOutcome(text), [text]);
     const readWindow = useMemo(() => parseReadWindow(text), [text]);
     const restoreReceipt = useMemo(() => parseCommandRestoreReceipt(text), [text]);
     if (launchReceipt) return <AssistantLaunchResult receipt={launchReceipt} text={text} />;

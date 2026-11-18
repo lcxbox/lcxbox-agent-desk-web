@@ -3,27 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { AlertTriangle } from 'lucide-react';
 import { Disclosure } from '@/components/ui/disclosure';
 import type { AiAssistantMessage, AiAssistantToolActivity } from './use-ai-assistant-chat';
-import { hasUnknownActionResult } from './action-result-status';
+import { hasUnknownOutcome } from './action-result-status';
 import { isConfirmedNotSent } from './ai-assistant-external-send';
 import { useDecisionLabel } from './assistant-tool-call';
-import { resultSummaryMessage } from './assistant-result-summary';
-
-function failureMessage(output: string | null): string | null {
-    if (!output) return null;
-    try {
-        const value = JSON.parse(output);
-        if (!value || typeof value !== 'object') return null;
-        const record = value as Record<string, unknown>;
-        const nested = [record.error, record.failure, record.output].filter(
-            (item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item));
-        const message = [record.message, ...nested.map(item => item.message)].find(
-            item => typeof item === 'string' && item.trim() && !item.trim().startsWith('{'));
-        return typeof message === 'string' ? message.slice(0, 180) : null;
-    } catch {
-        const trimmed = output.trimStart();
-        return trimmed.startsWith('{') || trimmed.startsWith('[') ? null : output.slice(0, 180);
-    }
-}
+import { outcomeUnknownReason, toolResultSummary } from './assistant-result-summary';
 
 export function AssistantToolGroup({ messages, tools, renderMessage, displayNameForTool, focused = false }: {
     messages: AiAssistantMessage[];
@@ -35,19 +18,17 @@ export function AssistantToolGroup({ messages, tools, renderMessage, displayName
     const decisionLabel = useDecisionLabel();
     const callIds = [...new Set(messages.map(message => message.toolCallId).filter((id): id is string => Boolean(id)))];
     const entries = callIds.map(id => tools.find(tool => tool.callId === id)).filter((tool): tool is AiAssistantToolActivity => Boolean(tool));
-    const uncertain = entries.filter(tool => hasUnknownActionResult(tool.output, tool.callId));
+    const uncertain = entries.filter(tool => hasUnknownOutcome(tool.output, tool.callId));
     const known = entries.filter(tool => !uncertain.includes(tool) && !tool.permissionReview && !tool.decision);
     const reviews = [...new Set(entries.flatMap(tool => [
         ...tool.permissionReview ? [t(`pages.aiAssistant.permissionState.${tool.permissionReview.state}`)] : [],
         ...tool.decision ? [decisionLabel(tool.decision)] : [],
     ]))];
     const failed = known.filter(tool => tool.status === 'failed');
-    const firstFailureOutput = failed[0]?.output ?? null;
     const toolLabel = (name: string) => displayNameForTool?.(name) ?? name;
-    const firstFailureText = failureMessage(firstFailureOutput);
-    const firstFailureMessage = (firstFailureOutput && resultSummaryMessage(t, firstFailureOutput, toolLabel))
-        ?? (firstFailureText && resultSummaryMessage(t, firstFailureText, toolLabel))
-        ?? firstFailureText;
+    const firstFailureMessage = toolResultSummary(t, failed[0]?.output ?? null, toolLabel);
+    // Native unknown receipts have their own result view; only the fixed texts are explained here.
+    const firstUncertainMessage = outcomeUnknownReason(t, uncertain[0]?.output ?? null);
     const succeeded = known.filter(tool => tool.status === 'ok' && !isConfirmedNotSent(tool.name, tool.output)).length;
     const returned = known.filter(tool => tool.status === 'returned' || (tool.status === 'ok' && isConfirmedNotSent(tool.name, tool.output))).length;
     return <Disclosure defaultOpen={focused} className="w-full max-w-full rounded-md border bg-muted/30 px-3 py-2 sm:max-w-[90%]"
@@ -70,6 +51,7 @@ export function AssistantToolGroup({ messages, tools, renderMessage, displayName
             {uncertain.length > 0 && <span className="flex items-start gap-1 text-xs text-amber-700 dark:text-amber-300">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 {t('pages.aiAssistant.workspace.toolGroupOutcomeUnknown', { count: uncertain.length })}
+                {firstUncertainMessage && <span>{firstUncertainMessage}</span>}
             </span>}
         </span>}>
         <div className="mt-2 space-y-2 border-t pt-2">

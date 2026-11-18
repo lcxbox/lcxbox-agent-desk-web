@@ -1,3 +1,5 @@
+import { isOutcomeUnknownText } from './assistant-result-summary';
+
 /** Display-only projection; this never authorizes retry or further execution. */
 export function hasUnknownActionResult(text: string | null, expectedCallId?: string): boolean {
     if (!text) return false;
@@ -12,4 +14,12 @@ export function hasUnknownActionResult(text: string | null, expectedCallId?: str
             && typeof result.execution_generation === 'string' && result.execution_generation.length > 0
             && Array.isArray(result.facts);
     } catch { return false; }
+}
+
+/**
+ * A result whose outcome is unknown: a native unknown receipt, or a fixed
+ * outcome-unknown text the server wrote for the model. Display-only.
+ */
+export function hasUnknownOutcome(text: string | null, expectedCallId?: string): boolean {
+    return hasUnknownActionResult(text, expectedCallId) || isOutcomeUnknownText(text);
 }
