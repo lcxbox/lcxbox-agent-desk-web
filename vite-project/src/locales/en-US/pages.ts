@@ -1904,6 +1904,7 @@ export default {
   'pages.aiAssistant.imageTimeUnrecorded': 'Time not recorded',
   'pages.aiAssistant.deliverySending': 'Sending; waiting for server confirmation…',
   'pages.aiAssistant.selectedContextExpired': 'Selected context has expired. Re-select or remove it before sending again. Your input is retained.',
+  'pages.aiAssistant.deviceReconnectedInputKept': "The device disconnected or reconnected. Your input is kept.",
   'pages.aiAssistant.deliveryUnconfirmed': 'Receipt is unconfirmed. Your input is retained. Retrying reuses the same message.',
   'pages.aiAssistant.deliveryRetry': 'Check and retry',
   'pages.aiAssistant.imageEarlier': 'Earlier screenshots (associated messages are not loaded or have been compacted)',

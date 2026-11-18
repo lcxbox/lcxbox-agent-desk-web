@@ -1,4 +1,4 @@
-import { deskErrorCodeEnum } from '@/services/types';
+import { needsTargetRefresh } from './target-refresh';
 import { useOptionalDeviceTarget } from './device-target-context';
 import { appendBrowserPeerReport } from '@/features/desk/browser-peer-report';
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -229,10 +229,7 @@ export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolea
         ws.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data) as SignalingMessage;
-                const code = message.response_state?.error_code;
-                if (code === deskErrorCodeEnum.TARGET_CONNECTION_CHANGED
-                    || code === deskErrorCodeEnum.REMOTE_DESK_OFFLINE
-                    || code === deskErrorCodeEnum.DEVICE_NOT_FOUND) void refreshTarget?.();
+                if (needsTargetRefresh(message)) void refreshTarget?.();
 
                 // Track heartbeat responses
                 if (message.signaling_type === SIGNALING_TYPE_CODE_HEARTBEAT_ACKNOWLEDGED) {

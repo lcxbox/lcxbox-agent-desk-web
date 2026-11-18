@@ -1901,6 +1901,7 @@ export default {
   'pages.aiAssistant.imageTimeUnrecorded': '时间未记录',
   'pages.aiAssistant.deliverySending': '正在发送，等待服务端确认…',
   'pages.aiAssistant.selectedContextExpired': '所选上下文已过期。请重新选择或移除该上下文后再发送，输入已保留。',
+  'pages.aiAssistant.deviceReconnectedInputKept': "设备已断开或重新连接，输入已保留。",
   'pages.aiAssistant.deliveryUnconfirmed': '尚未确认接收，输入已保留。重试不会重复创建消息。',
   'pages.aiAssistant.deliveryRetry': '查询并重试',
   'pages.aiAssistant.imageEarlier': '较早的截图（对应消息尚未加载或已压缩）',

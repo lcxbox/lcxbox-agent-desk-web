@@ -6,6 +6,8 @@ import type { AssistantFileScopeView, AssistantDirectoryOperation } from './assi
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { agentErrorMessage } from '@/lib/agent-error-i18n';
+import { useToast } from '@/hooks/use-toast';
+import { isTargetGoneCode } from './target-refresh';
 import { v4 } from 'uuid';
 import { assistantMessageId } from './assistant-native-ids';
 
@@ -476,6 +478,9 @@ export function useAiAssistantChat({
     const { t } = useTranslation();
     // Changing language must not reset the conversation or its snapshot requests.
     const translate = useRef(t);
+    const { toast } = useToast();
+    const toastRef = useRef(toast);
+    toastRef.current = toast;
     translate.current = t;
     const targetSelectionEnabled = Boolean(deskId) && connected !== undefined;
     const temporaryConversationRef = useRef(false);
@@ -1441,6 +1446,11 @@ export function useAiAssistantChat({
             && event.kind === 'error' && event.seq <= 1 && !stopPending.current) {
             const failure = agentErrorMessage(translate.current, event.error?.error_code,
                 event.error?.message, 'The AI Assistant turn could not complete.');
+            // The page is about to look the device up again and remount; a
+            // global notice outlives that, and the composer text is kept.
+            if (isTargetGoneCode(event.error?.error_code)) {
+                toastRef.current({ title: translate.current('pages.aiAssistant.deviceReconnectedInputKept') });
+            }
             deliveryFailure.current = failure;
             pendingDelivery.current = null;
             setDeliveryState(null);

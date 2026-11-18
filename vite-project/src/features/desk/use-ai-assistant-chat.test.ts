@@ -23,6 +23,8 @@ import { ownerPendingDirectories } from './assistant-decision-receipt';
 import { deskErrorCodeEnum } from '@/services/types';
 
 vi.mock('react-i18next', () => import('@/test-utils/i18n-mock').then(m => m.reactI18nextMock()));
+const toastHarness = vi.hoisted(() => ({ toast: vi.fn() }));
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: toastHarness.toast }) }));
 
 const snapshotFields = { controlRevision: 1, inputRevision: 1, mainStopped: false,
     subagents: { active_tasks: [], task: null, tasks: null, parent_session_id: null, attention_tasks: [], attention_count: 0 } };
@@ -489,6 +491,31 @@ describe('useAiAssistantChat', () => {
         expect(sendMessage).toHaveBeenCalledTimes(1);
         act(() => { expect(result.current.start('Corrected requirement')).toBe(true); });
         expect(sendMessage.mock.calls.at(-1)?.[3]).not.toBe(original[3]);
+        unmount();
+    });
+    it('tells the user the device reconnected when a submission is refused for a gone target', async () => {
+        toastHarness.toast.mockClear();
+        let subscriber: SignalingSubscriber | null = null;
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: null }) }));
+        const sendMessage = vi.fn((_type: number, _data: unknown, _to?: string, id?: string) => id!);
+        const { result, unmount } = renderHook(() => useAiAssistantChat({ deskId: 'old-connection',
+            subscribe: handler => { subscriber = handler; return () => undefined; }, sendMessage }));
+        act(() => { result.current.start('What is the status?'); });
+        const sent = sendMessage.mock.calls.at(-1)!;
+        await act(async () => subscriber?.({ request_id: sent[3], signaling_type: SIGNALING_TYPE_CODE_AI_ASSISTANT_UPDATED,
+            signaling_data: { request_id: sent[3], seq: 0, kind: 'error',
+                error: { message: 'target host is not connected', error_code: deskErrorCodeEnum.REMOTE_DESK_OFFLINE } } }));
+        expect(result.current.deliveryState).toBeNull();
+        expect(result.current.error).toBeTruthy();
+        expect(toastHarness.toast).toHaveBeenCalledWith({ title: 'The device disconnected or reconnected. Your input is kept.' });
+
+        toastHarness.toast.mockClear();
+        act(() => { result.current.start('Another question'); });
+        const next = sendMessage.mock.calls.at(-1)!;
+        await act(async () => subscriber?.({ request_id: next[3], signaling_type: SIGNALING_TYPE_CODE_AI_ASSISTANT_UPDATED,
+            signaling_data: { request_id: next[3], seq: 0, kind: 'error',
+                error: { message: 'invalid', error_code: deskErrorCodeEnum.INVALID_PARAMS } } }));
+        expect(toastHarness.toast).not.toHaveBeenCalled();
         unmount();
     });
     it('reports a refused input frame instead of waiting for a receipt', async () => {

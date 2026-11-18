@@ -1,4 +1,5 @@
 import { useOptionalDeviceTarget } from './device-target-context';
+import { readAssistantDraft, writeAssistantDraft } from './assistant-draft';
 import { devicePath } from './device-target-paths';
 import { AssistantGoalProposalControls } from './assistant-goal-proposal-controls';
 import { ApprovalReviews, useOwnApprovalAccess } from '@/features/approval/reviews';
@@ -318,7 +319,9 @@ export function AiAssistantWorkspace({
     });
     const provider = useGetModelProvider();
     const providerConfig = provider.data?.data;
-    const [question, setQuestion] = useState('');
+    const draftScope = personalScope ?? stableDeviceId;
+    const [question, setQuestion] = useState(() => readAssistantDraft(draftScope));
+    useEffect(() => writeAssistantDraft(draftScope, question), [draftScope, question]);
     const [schedulesOpen, setSchedulesOpen] = useState(false);
     const [taskPanelSession, setTaskPanelSession] = useState<string | null>(null);
     const [attachmentsOpen, setAttachmentsOpen] = useState(false);
