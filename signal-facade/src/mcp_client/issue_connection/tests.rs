@@ -233,6 +233,10 @@ async fn bound_https_issue_checks_identity_signature_and_exact_reply() {
             }))
     })
     .workers(1)
+    // Each response closes its connection. A request the fixture does not route
+    // (the missing MCP endpoint) leaves its body unread, so actix closes that
+    // connection; with keep-alive the client could reuse it and fail on load.
+    .keep_alive(actix_web::http::KeepAlive::Disabled)
     .listen_rustls_0_23(listener, tls)
     .unwrap()
     .run();
