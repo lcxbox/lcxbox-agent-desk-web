@@ -69,32 +69,9 @@ pub async fn run_local_api(
     // client id, as Default and DeskServer do; without it every device lookup
     // reports the device offline.
     let connection_map = web::Data::new(SharedConnectionMap::new_oss());
-
-    desk_signal::agent_runtime::register_continuation_connections(connection_map.clone());
-    actix_web::rt::spawn(
-        desk_signal::permission_resume_executor::SignalPermissionResumeExecutor::new(
-            desk_signal::db::get_db().clone(),
-            connection_map.clone(),
-            desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
-        )
-        .run(),
-    );
-    actix_web::rt::spawn(
-        desk_signal::decision_resume::DecisionResumeExecutor::new(
-            desk_signal::db::get_db().clone(),
-            connection_map.clone(),
-            desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
-        )
-        .run(),
-    );
-    actix_web::rt::spawn(
-        desk_signal::schedule_executor::SignalScheduleExecutor::new(
-            desk_signal::db::get_db().clone(),
-            connection_map.clone(),
-            desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
-        )
-        .run(),
-    );
+    // The same background work as Default; without the main request executor
+    // every queued AI Assistant request stays queued.
+    crate::spawn_signal_background_tasks(&connection_map);
     let tauri_is_admin_data = web::Data::new(Arc::clone(&tauri_bridge.tauri_is_admin));
 
     let validator: Arc<dyn NodeTokenValidator> = Arc::new(LocalNodeTokenValidator {

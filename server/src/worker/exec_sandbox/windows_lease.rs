@@ -489,7 +489,8 @@ fn label_root(path: &Path) -> Result<(), String> {
     if !links.is_empty() {
         return Err(format!(
             "{} contains files with more than one hard link ({}); labelling it would make their \
-             other names writable too. Run the command with sandbox=false or remove the hard links",
+             other names writable too. Do not retry with sandbox set to false to write there; \
+             tell the user which files have several links and let them decide",
             path.display(),
             links
                 .iter()

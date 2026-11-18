@@ -200,6 +200,69 @@ pub async fn shutdown_model_metrics() {
     desk_signal::model_metrics::runtime::shutdown().await;
 }
 
+/// Start the embedded signal's background work for one connection registry:
+/// queued AI Assistant requests, permission and decision resumes, schedules,
+/// file recovery dispatch, cancellations and reconnected-host reconciliation.
+/// Every host that serves the signal database runs all of it (Default,
+/// Signaling and the ServiceDaemon local API), once per process.
+pub(crate) fn spawn_signal_background_tasks(connection_map: &web::Data<SharedConnectionMap>) {
+    actix_web::rt::spawn(desk_signal::file_recovery_dispatch::run(
+        desk_signal::db::get_db().clone(),
+        connection_map.clone(),
+    ));
+    desk_signal::agent_runtime::register_continuation_connections(connection_map.clone());
+    actix_web::rt::spawn(desk_signal::agent_exec::run_reconnected_host_reconciler(
+        desk_signal::db::get_db().clone(),
+        connection_map.clone(),
+    ));
+    actix_web::rt::spawn(
+        desk_signal::ai_assistant_orchestrator::main_requests::SignalMainRequestExecutor::new(
+            desk_signal::db::get_db().clone(),
+            connection_map.clone(),
+            desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
+        )
+        .run(),
+    );
+    actix_web::rt::spawn(
+        desk_signal::permission_resume_executor::SignalPermissionResumeExecutor::new(
+            desk_signal::db::get_db().clone(),
+            connection_map.clone(),
+            desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
+        )
+        .run(),
+    );
+    actix_web::rt::spawn(
+        desk_signal::decision_resume::DecisionResumeExecutor::new(
+            desk_signal::db::get_db().clone(),
+            connection_map.clone(),
+            desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
+        )
+        .run(),
+    );
+    actix_web::rt::spawn(
+        desk_signal::schedule_executor::SignalScheduleExecutor::new(
+            desk_signal::db::get_db().clone(),
+            connection_map.clone(),
+            desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
+        )
+        .run(),
+    );
+    tokio::spawn(
+        desk_signal::computer_cancel_dispatch::SignalComputerCancelDispatcher::new(
+            desk_signal::db::get_db().clone(),
+            connection_map.clone().into_inner(),
+        )
+        .run(),
+    );
+    tokio::spawn(
+        desk_signal::agent_exec::SignalCommandCancelDispatcher::new(
+            desk_signal::db::get_db().clone(),
+            connection_map.clone().into_inner(),
+        )
+        .run(),
+    );
+}
+
 pub fn startup_mode_has_signal_db(mode: &StartupMode) -> bool {
     match mode {
         StartupMode::Default | StartupMode::Signaling | StartupMode::ServiceDaemon => true,
@@ -823,61 +886,7 @@ pub async fn run_with_hub(
 
     let connection_map = web::Data::new(SharedConnectionMap::new_oss());
     if startup_mode_has_signal_db(&startup_mode) {
-        actix_web::rt::spawn(desk_signal::file_recovery_dispatch::run(
-            desk_signal::db::get_db().clone(),
-            connection_map.clone(),
-        ));
-        desk_signal::agent_runtime::register_continuation_connections(connection_map.clone());
-        actix_web::rt::spawn(desk_signal::agent_exec::run_reconnected_host_reconciler(
-            desk_signal::db::get_db().clone(),
-            connection_map.clone(),
-        ));
-        actix_web::rt::spawn(
-            desk_signal::ai_assistant_orchestrator::main_requests::SignalMainRequestExecutor::new(
-                desk_signal::db::get_db().clone(),
-                connection_map.clone(),
-                desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
-            )
-            .run(),
-        );
-        actix_web::rt::spawn(
-            desk_signal::permission_resume_executor::SignalPermissionResumeExecutor::new(
-                desk_signal::db::get_db().clone(),
-                connection_map.clone(),
-                desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
-            )
-            .run(),
-        );
-        actix_web::rt::spawn(
-            desk_signal::decision_resume::DecisionResumeExecutor::new(
-                desk_signal::db::get_db().clone(),
-                connection_map.clone(),
-                desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
-            )
-            .run(),
-        );
-        actix_web::rt::spawn(
-            desk_signal::schedule_executor::SignalScheduleExecutor::new(
-                desk_signal::db::get_db().clone(),
-                connection_map.clone(),
-                desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
-            )
-            .run(),
-        );
-        tokio::spawn(
-            desk_signal::computer_cancel_dispatch::SignalComputerCancelDispatcher::new(
-                desk_signal::db::get_db().clone(),
-                connection_map.clone().into_inner(),
-            )
-            .run(),
-        );
-        tokio::spawn(
-            desk_signal::agent_exec::SignalCommandCancelDispatcher::new(
-                desk_signal::db::get_db().clone(),
-                connection_map.clone().into_inner(),
-            )
-            .run(),
-        );
+        spawn_signal_background_tasks(&connection_map);
     }
 
     // The live connection→device binding map, shared by the signaling handlers
