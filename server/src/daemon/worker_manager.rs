@@ -4701,12 +4701,9 @@ fn worker_can_continue(
                 .video_encoders
                 .iter()
                 .any(|known| known.eq_ignore_ascii_case(encoder)))
-        && caps
-            .video_device_list
-            .iter()
-            .any(|(backend, devices)| {
-                backend.eq_ignore_ascii_case(&media.image_capture) && device_known(devices)
-            })
+        && caps.video_device_list.iter().any(|(backend, devices)| {
+            backend.eq_ignore_ascii_case(&media.image_capture) && device_known(devices)
+        })
 }
 
 #[cfg(test)]

@@ -453,7 +453,10 @@ fn a_worker_continues_only_media_it_can_serve() {
     };
     assert!(worker_can_continue(&secure, &media("dxgi", r"\.\DISPLAY1")));
     assert!(!worker_can_continue(&secure, &media("WGC", r"\.\DISPLAY1")));
-    assert!(!worker_can_continue(&secure, &media("DXGI", r"\.\DISPLAY7")));
+    assert!(!worker_can_continue(
+        &secure,
+        &media("DXGI", r"\.\DISPLAY7")
+    ));
     let mut audio_only = media("WGC", r"\.\DISPLAY7");
     audio_only.start_video = false;
     assert!(worker_can_continue(&secure, &audio_only));
