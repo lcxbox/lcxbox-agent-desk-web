@@ -224,6 +224,12 @@ pub enum ServiceToWorker {
     /// (target / actor / scope / caller / request_id) before forwarding.
     InvokeAgentCapability(AgentRequestPayload),
 
+    /// Daemon → worker: one central read call the daemon has already gated
+    /// against the envelope's scope and the local collection policy. The worker
+    /// reads as the session user, redacts and sanitizes the result, and replies
+    /// with [`WorkerToService::RemoteReadCompleted`].
+    InvokeRemoteRead(RemoteReadRequestPayload),
+
     /// Daemon → worker: an immutable, exact-owner-approved Computer Use plan.
     /// This variant is the only IPC lane that can carry Computer Use mutation.
     ComputerActionPlan(ComputerActionPlanPayload),
@@ -527,6 +533,11 @@ pub enum WorkerToService {
     /// the full structured [`desk_agent_protocol::AgentError`].
     AgentCapabilityCompleted(AgentResponsePayload),
 
+    /// Worker → daemon reply to [`ServiceToWorker::InvokeRemoteRead`]: the
+    /// redacted remote tool output, ready to chunk to the central, or the
+    /// read's error.
+    RemoteReadCompleted(RemoteReadCompletedPayload),
+
     /// Worker → daemon: reports the conservative first-side-effect boundary.
     ComputerActionStarted(ComputerActionStartedPayload),
 
@@ -671,6 +682,7 @@ impl WorkerToService {
             | Self::ComputerTurnQuery(_)
             | Self::LocalFileRecoveryManaged(_)
             | Self::ExecSandboxLabelsRevoked(_)
+            | Self::RemoteReadCompleted(_)
             | Self::FileRecoveryQuotaRequested(_)
             | Self::Ready
             | Self::Capabilities(_)

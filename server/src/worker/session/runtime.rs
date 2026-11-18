@@ -2012,6 +2012,43 @@ impl WorkerSession {
                                         }
                                     });
                                 }
+                                ServiceToWorker::InvokeRemoteRead(payload) => {
+                                    info!(
+                                        "Worker received InvokeRemoteRead req={}",
+                                        payload.request_id
+                                    );
+                                    // The daemon gated this read; it runs as the
+                                    // session user off the IPC loop, and only the
+                                    // redacted result leaves the worker.
+                                    let writer_tx = writer_tx.clone();
+                                    let agent_settings = shared_settings.clone();
+                                    let computer_use_broker = computer_use_broker.clone();
+                                    tokio::spawn(async move {
+                                        let agent = LocalDeviceAgent::with_settings_and_broker(
+                                            agent_settings,
+                                            computer_use_broker,
+                                        )
+                                        .with_audit(std::sync::Arc::new(
+                                            crate::worker::agent::audit_sink::LogAuditSink,
+                                        ));
+                                        let result = crate::agent_adapter::remote_read::read_for_daemon(
+                                            &agent,
+                                            payload.envelope.into(),
+                                        )
+                                        .await;
+                                        if writer_tx
+                                            .send(WorkerToService::RemoteReadCompleted(
+                                                desk_ipc_protocol::message::RemoteReadCompletedPayload {
+                                                    request_id: payload.request_id,
+                                                    result,
+                                                },
+                                            ))
+                                            .is_err()
+                                        {
+                                            warn!("writer task closed; dropping RemoteReadCompleted");
+                                        }
+                                    });
+                                }
                                 ServiceToWorker::FileRecoveryQuotaReplied(reply) => {
                                     file_recovery_quota.complete(reply);
                                 }

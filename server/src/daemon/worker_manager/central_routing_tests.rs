@@ -1,8 +1,10 @@
-//! Central actions may use a single worker, never an inferred resident session.
+//! Central actions use the single worker; with resident workers they need an
+//! Assistant-ready session (see `central_dispatch_tests`) and are refused here,
+//! where none is registered.
 use super::*;
 
 #[tokio::test]
-async fn central_actions_use_single_worker_but_never_guess_a_resident_session() {
+async fn central_actions_use_the_single_worker_and_need_a_ready_resident_session() {
     let settings = web::Data::from(Arc::new(crate::model::settings::SharedSettings::from(
         crate::model::settings::Settings::default(),
     )));

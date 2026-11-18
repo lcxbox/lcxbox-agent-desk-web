@@ -22,6 +22,30 @@ pub struct AgentRequestPayload {
     pub envelope: desk_agent_protocol::ReadonlyAgentEnvelope,
 }
 
+/// Payload for [`ServiceToWorker::InvokeRemoteRead`]. A central read carries no
+/// browser connection; the daemon correlates the reply by `request_id`.
+#[derive(Debug, Clone, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub struct RemoteReadRequestPayload {
+    pub request_id: String,
+    pub envelope: desk_agent_protocol::ReadonlyAgentEnvelope,
+}
+
+/// What a session worker's remote read produced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub enum RemoteReadResult {
+    /// JSON of the redacted [`desk_agent_protocol::remote_tool::RemoteToolOutput`],
+    /// within the remote tool result limit.
+    Output(Vec<u8>),
+    Error(desk_agent_protocol::AgentError),
+}
+
+/// Payload for [`WorkerToService::RemoteReadCompleted`].
+#[derive(Debug, Clone, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub struct RemoteReadCompletedPayload {
+    pub request_id: String,
+    pub result: RemoteReadResult,
+}
+
 /// Device-resolved namespace and central conversation correlation. Never accepted
 /// directly from a controller or a model argument.
 #[derive(Debug, Clone, Serialize, Deserialize, SchemaWrite, SchemaRead)]

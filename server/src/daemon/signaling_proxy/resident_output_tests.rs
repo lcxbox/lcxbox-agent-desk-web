@@ -173,7 +173,9 @@ fn connection_less_replies_need_the_recorded_route_and_type() {
             request_id,
             key("a"),
             incarnation(),
-            SignalingType::TerminalCommandsListed,
+            crate::daemon::worker_manager::resident_request_routes::ExpectedReply::single_for_test(
+                SignalingType::TerminalCommandsListed,
+            ),
         )
     };
     assert!(!admitted(&listed("t1"), &key("a"), &capacity, &requests));
@@ -230,4 +232,119 @@ fn connection_output_and_worker_requests_keep_their_own_checks() {
         command: FileRecoveryQuotaCommand::BeginEpochCleanup { expected_epoch: 1 },
     });
     assert!(admitted(&quota, &key("a"), &capacity, &requests));
+}
+
+fn route(
+    requests: &ResidentRequestRoutes,
+    request_id: &str,
+    terminal: SignalingType,
+    interim: Option<SignalingType>,
+) {
+    crate::daemon::worker_manager::resident_request_routes::record_for_test(
+        requests,
+        request_id,
+        key("a"),
+        incarnation(),
+        crate::daemon::worker_manager::resident_request_routes::ExpectedReply { terminal, interim },
+    );
+}
+
+#[test]
+fn a_central_read_answer_needs_its_route_and_worker() {
+    use desk_ipc_protocol::message::{RemoteReadCompletedPayload, RemoteReadResult};
+    let capacity = ExecCapacity::new();
+    let requests = ResidentRequestRoutes::default();
+    let answer = WorkerToService::RemoteReadCompleted(RemoteReadCompletedPayload {
+        request_id: "read-1".into(),
+        result: RemoteReadResult::Output(b"{}".to_vec()),
+    });
+    assert!(!admitted(&answer, &key("a"), &capacity, &requests));
+    route(
+        &requests,
+        "read-1",
+        SignalingType::RemoteToolOutputUpdated,
+        None,
+    );
+    assert!(!resident_output_admitted(
+        &answer,
+        &key("a"),
+        WorkerIncarnation::for_test(INCARNATION + 1),
+        |_| false,
+        &capacity,
+        &requests,
+    ));
+    assert!(!admitted(&answer, &key("b"), &capacity, &requests));
+    assert!(admitted(&answer, &key("a"), &capacity, &requests));
+    assert!(!admitted(&answer, &key("a"), &capacity, &requests));
+}
+
+#[test]
+fn a_central_action_reports_start_and_completion_and_a_stop_its_state() {
+    use desk_agent_protocol::computer_use::{
+        ComputerActionCompleted, ComputerActionPhase, ComputerActionResultClass,
+        ComputerActionStartDisposition, ComputerActionStarted, ComputerActionStateReport,
+    };
+    use desk_ipc_protocol::message::{
+        ComputerActionCompletedPayload, ComputerActionStartedPayload,
+        ComputerActionStateReportedPayload,
+    };
+    let capacity = ExecCapacity::new();
+    let requests = ResidentRequestRoutes::default();
+    let started = WorkerToService::ComputerActionStarted(ComputerActionStartedPayload {
+        request_id: "gen-1".into(),
+        connection_id: None,
+        started: ComputerActionStarted {
+            work_id: "w".into(),
+            action_request_id: "a".into(),
+            execution_generation: "gen-1".into(),
+            disposition: ComputerActionStartDisposition::MayHaveStarted,
+            executor_accepted: true,
+            reason: None,
+        },
+    });
+    let completed = WorkerToService::ComputerActionCompleted(ComputerActionCompletedPayload {
+        request_id: "gen-1".into(),
+        connection_id: None,
+        completed: ComputerActionCompleted {
+            work_id: "w".into(),
+            action_request_id: "a".into(),
+            execution_generation: "gen-1".into(),
+            result: ComputerActionResultClass::Verified,
+            facts: vec![],
+            message: None,
+            output: None,
+        },
+    });
+    let stopped =
+        WorkerToService::ComputerActionStateReported(ComputerActionStateReportedPayload {
+            request_id: "stop-1".into(),
+            connection_id: None,
+            state: ComputerActionStateReport {
+                work_id: "w".into(),
+                action_request_id: "a".into(),
+                execution_generation: "gen-1".into(),
+                phase: ComputerActionPhase::CancelRequested,
+                result: None,
+            },
+        });
+    for unrouted in [&started, &completed, &stopped] {
+        assert!(!admitted(unrouted, &key("a"), &capacity, &requests));
+    }
+    route(
+        &requests,
+        "gen-1",
+        SignalingType::ComputerActionCompleted,
+        Some(SignalingType::ComputerActionStarted),
+    );
+    route(
+        &requests,
+        "stop-1",
+        SignalingType::ComputerActionStateReported,
+        None,
+    );
+    assert!(!admitted(&started, &key("b"), &capacity, &requests));
+    assert!(admitted(&started, &key("a"), &capacity, &requests));
+    assert!(admitted(&stopped, &key("a"), &capacity, &requests));
+    assert!(admitted(&completed, &key("a"), &capacity, &requests));
+    assert!(!admitted(&completed, &key("a"), &capacity, &requests));
 }

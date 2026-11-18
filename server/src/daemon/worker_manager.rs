@@ -2826,10 +2826,10 @@ impl WorkerManager {
         msg: ServiceToWorker,
     ) -> Result<(), ()> {
         let route = resident_request_routes::central_reply_route(&msg)
-            .map(|(request_id, response)| (request_id.to_owned(), response));
-        if let Some((request_id, response)) = &route {
+            .map(|(request_id, expected)| (request_id.to_owned(), expected));
+        if let Some((request_id, expected)) = &route {
             self.resident_requests
-                .record(request_id, key.clone(), worker.incarnation, *response);
+                .record(request_id, key.clone(), worker.incarnation, *expected);
         }
         worker.ipc_tx.send(msg).map_err(|_| {
             if let Some((request_id, _)) = &route {
@@ -3002,9 +3002,9 @@ impl WorkerManager {
             .await
     }
 
-    /// Central actions have no browser peer address. Only the established
-    /// single-worker path permits that; resident workers still require the
-    /// connection's immutable session selection.
+    /// A browser's work goes to the worker of the session its connection
+    /// selected; central work, which has no browser peer address, goes through
+    /// [`Self::send_to_central_worker`].
     pub async fn send_central_or_connection_worker(
         &self,
         connection_id: Option<&str>,
@@ -3012,8 +3012,74 @@ impl WorkerManager {
     ) -> Result<(), String> {
         match connection_id {
             Some(connection_id) => self.send_to_connection_worker(connection_id, msg).await,
-            None => self.send_to_worker(msg).await,
+            None => self.send_to_central_worker(msg).await,
         }
+    }
+
+    /// Send central work, which names no desktop session. With resident session
+    /// workers, the only Assistant-ready session is chosen, as for a central
+    /// command; several sessions are refused rather than guessed between. A stop
+    /// request goes only to the worker still running its action. Without
+    /// resident workers the single worker takes it, unless that worker runs with
+    /// the daemon's SYSTEM token on a secure desktop: central work must run as
+    /// the session user.
+    pub async fn send_to_central_worker(&self, msg: ServiceToWorker) -> Result<(), String> {
+        use crate::daemon::session_target::{SessionCapability, SessionTargetSelectionError};
+        if self.session_targeting_enabled.load(Ordering::Acquire)
+            && let ServiceToWorker::ComputerActionCancel(cancel) = &msg
+        {
+            let generation = cancel.cancel.execution_generation.clone();
+            return self.send_to_action_worker(&generation, msg).await;
+        }
+        match self.resolve_session_target_for_connection(SessionCapability::Assistant, None) {
+            Ok(Some(session)) => self.send_to_session_worker(&session, msg).await,
+            Ok(None) => {
+                let inner = self.inner.lock().await;
+                let worker = inner
+                    .active_worker
+                    .as_ref()
+                    .ok_or_else(|| "No active worker".to_string())?;
+                if worker.inprocess_task.is_none()
+                    && process_launch::runs_with_system_token(worker.desktop_name.as_deref())
+                {
+                    return Err(
+                        "the desktop is on a secure screen; central device work runs only as the session user"
+                            .to_string(),
+                    );
+                }
+                worker
+                    .ipc_tx
+                    .send(msg)
+                    .map_err(|e| format!("Failed to send to worker: {e}"))
+            }
+            Err(SessionTargetSelectionError::SelectionRequired) => Err(
+                "the device has several desktop sessions; central reads and file operations are not supported yet"
+                    .to_string(),
+            ),
+            Err(error) => Err(format!("assistant session target unavailable: {error}")),
+        }
+    }
+
+    /// Deliver a stop request only to the resident worker that received the
+    /// action and still runs it, never to a replacement.
+    async fn send_to_action_worker(
+        &self,
+        generation: &str,
+        msg: ServiceToWorker,
+    ) -> Result<(), String> {
+        let inner = self.inner.lock().await;
+        let finished = || "the Computer Action has finished or its worker was replaced".to_string();
+        let (key, incarnation) = self
+            .resident_requests
+            .dispatched_action_worker(generation)
+            .ok_or_else(finished)?;
+        let worker = inner
+            .resident_workers
+            .get(&key)
+            .filter(|worker| worker.incarnation == incarnation)
+            .ok_or_else(finished)?;
+        self.deliver_to_resident(&key, worker, msg)
+            .map_err(|()| format!("failed to send to resident worker {key:?}"))
     }
 
     /// Route capture and human-input traffic through the currently active
@@ -3770,6 +3836,8 @@ mod incarnation_tests;
 #[cfg(test)]
 mod policy_tests;
 
+#[cfg(test)]
+mod central_dispatch_tests;
 #[cfg(test)]
 mod central_routing_tests;
 

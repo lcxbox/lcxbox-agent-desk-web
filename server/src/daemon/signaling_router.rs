@@ -127,6 +127,7 @@ pub use desktop_settings::{compute_desired_with_active, update_exclusive_after_c
 use edge_exec::*;
 pub(crate) use exec_lifecycle::send_edge_execution_completed;
 use exec_lifecycle::*;
+pub(crate) use external_requests::send_remote_read_result;
 use external_requests::*;
 use manager_terminal::*;
 
@@ -445,6 +446,17 @@ impl From<DeskError> for RouterError {
     }
 }
 
+/// Who runs a central read on this host. Either way the daemon gates the read
+/// against its authoritative settings first.
+#[derive(Clone)]
+pub enum RemoteReadExecutor {
+    /// The daemon process reads itself (Default / DeskServer).
+    InProcess(Arc<crate::agent_adapter::remote_read::EdgeReadInvoker>),
+    /// The session user's worker reads (ServiceDaemon); the root daemon never
+    /// reads the user's files itself.
+    SessionWorker,
+}
+
 /// Context the router needs from the calling daemon. Constructed once
 /// by `signaling_proxy` per WS connection lifetime and shared with
 /// every [`route`] invocation on that connection.
@@ -492,11 +504,9 @@ pub struct RouterContext {
     /// remote-collect edge path (`collect_for_remote`): the central server pushes a
     /// `CollectRequest` and this host streams the redacted evidence back. `None` in
     /// ServiceDaemon mode, where a `CollectRequest` replies with a wholesale error.
-    /// Serves a manager remote read tool call (§8.3) against the in-process device
-    /// agent. Present in the same modes as `diagnose_orchestrator` (an in-process
-    /// worker can read locally); `None` in ServiceDaemon, where a `RemoteToolRequest`
-    /// replies with a wholesale error.
-    pub remote_read: Option<Arc<crate::agent_adapter::remote_read::EdgeReadInvoker>>,
+    /// Who serves a central read tool call (§8.3) on this host. Always present in
+    /// production; `None` replies to every `RemoteToolRequest` with an error.
+    pub remote_read: Option<RemoteReadExecutor>,
     /// Whether direct confirmed execution is available in this startup mode. `true`
     /// only where an in-process worker can execute (Default / DeskServer). Trusted-
     /// central `EdgeExecRequest` has a separate ServiceDaemon resident-worker gate.

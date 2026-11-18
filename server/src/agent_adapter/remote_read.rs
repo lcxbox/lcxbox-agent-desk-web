@@ -15,15 +15,18 @@
 
 use std::sync::Arc;
 
-use desk_agent_protocol::remote_tool::{RemoteToolImage, RemoteToolOutput};
+use desk_agent_protocol::remote_tool::{
+    MAX_REMOTE_TOOL_RESULT_BYTES, RemoteToolImage, RemoteToolOutput,
+};
 use desk_agent_protocol::{
     AgentEnvelope, AgentError, AgentErrorKind, AgentOutcome, Capability, DeviceAgent,
 };
 
-use super::redaction::{Redactor, redact_snapshot};
-use crate::model::settings::SharedSettings;
+use super::redaction::{Redactor, RegexRedactor, redact_snapshot};
+use crate::model::settings::{CollectionPolicySettings, SharedSettings};
 use crate::worker::agent::LocalDeviceAgent;
 use crate::worker::agent::eval::EvidenceSnapshot;
+use desk_ipc_protocol::message::RemoteReadResult;
 
 /// Current time as an RFC3339 string.
 fn now_rfc3339() -> String {
@@ -202,15 +205,127 @@ fn sanitize_remote_output(
     })
 }
 
+/// The edge's final say before a central read runs, against the device's
+/// authoritative settings. The manager stamps the envelope, but the operation
+/// must be within its granted scope (`granted = [cap]` is always stamped, so a
+/// mismatch is a malformed or forged request) and the local collection policy
+/// must permit it (e.g. logs may be disabled here). Returns the read capability.
+pub fn gate_remote_read(
+    envelope: &AgentEnvelope,
+    policy: &CollectionPolicySettings,
+) -> Result<Capability, AgentError> {
+    let cap = read_capability(envelope)?;
+    if !envelope.scope.granted.contains(&cap) {
+        return Err(denied("operation is outside the granted scope"));
+    }
+    let is_log_read = matches!(
+        cap,
+        Capability::LogRecent | Capability::ContainerLogs | Capability::ContainerInspect
+    );
+    if is_log_read && !policy.allow_logs {
+        return Err(denied("this read is disabled by the device's local policy"));
+    }
+    if cap == Capability::ScreenCaptureCurrent && !policy.allow_screen {
+        return Err(denied(
+            "screen capture is disabled by the device's local policy",
+        ));
+    }
+    Ok(cap)
+}
+
+fn read_capability(envelope: &AgentEnvelope) -> Result<Capability, AgentError> {
+    envelope
+        .operation
+        .input
+        .capability()
+        .ok_or_else(|| AgentError {
+            kind: AgentErrorKind::UnsupportedCapability,
+            message: "remote tool request carries no read capability".to_string(),
+            retryable: false,
+            safe_for_model: true,
+            error_code: None,
+        })
+}
+
+/// A session worker's half of a ServiceDaemon remote read. The daemon has
+/// already gated the envelope with its authoritative settings, so the worker
+/// reads as the session user, redacts and encodes the result here; neither raw
+/// output nor an unfitted screenshot leaves this process.
+pub async fn read_for_daemon(
+    agent: &LocalDeviceAgent,
+    envelope: AgentEnvelope,
+) -> RemoteReadResult {
+    let result = async {
+        let cap = read_capability(&envelope)?;
+        let output = read_redacted(agent, &RegexRedactor::new(), envelope, cap).await?;
+        encode_remote_output(&output)
+    }
+    .await;
+    match result {
+        Ok(bytes) => RemoteReadResult::Output(bytes),
+        Err(error) => RemoteReadResult::Error(error),
+    }
+}
+
+/// Run an already gated read and return its sanitized [`RemoteToolOutput`]. The
+/// result is redacted via the same one-entry snapshot path the Direct read seam
+/// uses, so the exact send-time redaction and screenshot refit run; a redaction
+/// failure is an error, never leaked raw output. Runs wherever the reading agent
+/// lives: in process for Default / DeskServer, in the session worker for a
+/// ServiceDaemon.
+pub async fn read_redacted(
+    agent: &LocalDeviceAgent,
+    redactor: &dyn Redactor,
+    envelope: AgentEnvelope,
+    cap: Capability,
+) -> Result<RemoteToolOutput, AgentError> {
+    let output = agent.invoke(envelope).await?;
+    let mut snapshot = EvidenceSnapshot::record(
+        "live",
+        String::new(),
+        now_rfc3339(),
+        vec![(cap, AgentOutcome::Ok(output))],
+    );
+    redact_snapshot(redactor, &mut snapshot).map_err(|e| AgentError {
+        kind: AgentErrorKind::RedactionFailed,
+        message: format!("evidence redaction failed: {}", e.reason),
+        retryable: false,
+        safe_for_model: true,
+        error_code: None,
+    })?;
+    let entry = snapshot
+        .contexts
+        .into_iter()
+        .next()
+        .expect("the one entry we recorded is present");
+    sanitize_remote_output(cap, entry.outcome)
+}
+
+/// Serialize a read result for chunking to the central, refusing one over the
+/// remote tool result limit rather than sending an oversized result.
+pub fn encode_remote_output(output: &RemoteToolOutput) -> Result<Vec<u8>, AgentError> {
+    let bytes = serde_json::to_vec(output).map_err(|e| AgentError {
+        kind: AgentErrorKind::Internal,
+        message: format!("failed to encode remote tool result: {e}"),
+        retryable: false,
+        safe_for_model: true,
+        error_code: None,
+    })?;
+    if bytes.len() as u64 > MAX_REMOTE_TOOL_RESULT_BYTES {
+        return Err(AgentError {
+            kind: AgentErrorKind::OutputLimitExceeded,
+            message: "the read result exceeds the remote tool result limit".to_string(),
+            retryable: false,
+            safe_for_model: true,
+            error_code: None,
+        });
+    }
+    Ok(bytes)
+}
+
 /// Runs a single server-stamped read envelope against the in-process device agent
-/// and returns the already-redacted outcome (fail-closed). Present only where an
-/// in-process worker can read locally (Default / DeskServer), mirroring the
-/// diagnose collector's availability.
-///
-/// The manager stamps the envelope, but the edge keeps **final say**: it re-checks
-/// the operation is within the envelope's granted scope and that the device's local
-/// collection policy permits it (e.g. logs may be disabled here) before invoking,
-/// and redacts fail-closed afterward.
+/// (Default / DeskServer, where the daemon process itself reads). A ServiceDaemon
+/// gates the same way and has the session worker run [`read_redacted`].
 pub struct EdgeReadInvoker {
     agent: Arc<LocalDeviceAgent>,
     redactor: Arc<dyn Redactor>,
@@ -230,74 +345,16 @@ impl EdgeReadInvoker {
         }
     }
 
-    /// Invoke `envelope` and return its sanitized [`RemoteToolOutput`]. Re-checks the
-    /// edge's gates first (scope consistency + local policy), then invokes; a gate
-    /// / exec error or a redaction failure returns `Err` (the router turns it into a
-    /// wholesale `RemoteToolResponse::Error`, never leaking raw output). The result
-    /// is redacted via the same one-entry snapshot path the Direct read seam uses,
-    /// so the exact send-time redaction + screenshot refit run.
+    /// Gate, invoke and redact `envelope`. A gate or read error, or a redaction
+    /// failure, returns `Err` (the router turns it into a wholesale
+    /// `RemoteToolResponse::Error`, never leaking raw output).
     pub async fn invoke_redacted(
         &self,
         envelope: AgentEnvelope,
     ) -> Result<RemoteToolOutput, AgentError> {
-        let cap = envelope
-            .operation
-            .input
-            .capability()
-            .ok_or_else(|| AgentError {
-                kind: AgentErrorKind::UnsupportedCapability,
-                message: "remote tool request carries no read capability".to_string(),
-                retryable: false,
-                safe_for_model: true,
-                error_code: None,
-            })?;
-
-        // Edge re-check 1: the operation must be within the envelope's granted
-        // scope. The manager always stamps `granted = [cap]`, so a mismatch is a
-        // malformed / forged request — deny rather than run an ungranted operation.
-        if !envelope.scope.granted.contains(&cap) {
-            return Err(denied("operation is outside the granted scope"));
-        }
-
-        // Edge re-check 2: local collection policy has the final say.
-        let settings = self.settings.read().await;
-        let allow_logs = settings.collection_policy.allow_logs;
-        let allow_screen = settings.collection_policy.allow_screen;
-        drop(settings);
-        let is_log_read = matches!(
-            cap,
-            Capability::LogRecent | Capability::ContainerLogs | Capability::ContainerInspect
-        );
-        if is_log_read && !allow_logs {
-            return Err(denied("this read is disabled by the device's local policy"));
-        }
-        if cap == Capability::ScreenCaptureCurrent && !allow_screen {
-            return Err(denied(
-                "screen capture is disabled by the device's local policy",
-            ));
-        }
-
-        let output = self.agent.invoke(envelope).await?;
-
-        let mut snapshot = EvidenceSnapshot::record(
-            "live",
-            String::new(),
-            now_rfc3339(),
-            vec![(cap, AgentOutcome::Ok(output))],
-        );
-        redact_snapshot(self.redactor.as_ref(), &mut snapshot).map_err(|e| AgentError {
-            kind: AgentErrorKind::RedactionFailed,
-            message: format!("evidence redaction failed: {}", e.reason),
-            retryable: false,
-            safe_for_model: true,
-            error_code: None,
-        })?;
-        let entry = snapshot
-            .contexts
-            .into_iter()
-            .next()
-            .expect("the one entry we recorded is present");
-        sanitize_remote_output(cap, entry.outcome)
+        let policy = self.settings.read().await.collection_policy;
+        let cap = gate_remote_read(&envelope, &policy)?;
+        read_redacted(&self.agent, self.redactor.as_ref(), envelope, cap).await
     }
 }
 
@@ -432,6 +489,97 @@ mod tests {
             .expect_err("screen policy must deny before capture");
         assert_eq!(err.kind, AgentErrorKind::PermissionDenied);
         assert!(err.safe_for_model);
+    }
+
+    /// The gate a ServiceDaemon applies before handing a read to the session
+    /// worker: the granted capability passes, everything else is refused.
+    #[test]
+    fn the_gate_returns_the_granted_capability_and_refuses_the_rest() {
+        let open = CollectionPolicySettings {
+            allow_logs: true,
+            allow_screen: true,
+        };
+        let system = read_envelope(
+            ContextKind::SystemInfo(SystemInfoParams::default()),
+            Capability::SystemInfo,
+        );
+        assert_eq!(
+            gate_remote_read(&system, &open).unwrap(),
+            Capability::SystemInfo
+        );
+        let outside = read_envelope(
+            ContextKind::SystemInfo(SystemInfoParams::default()),
+            Capability::LogRecent,
+        );
+        assert_eq!(
+            gate_remote_read(&outside, &open).unwrap_err().kind,
+            AgentErrorKind::PermissionDenied
+        );
+        let logs = read_envelope(
+            ContextKind::LogRecent(LogRecentParams::default()),
+            Capability::LogRecent,
+        );
+        let no_logs = CollectionPolicySettings {
+            allow_logs: false,
+            ..open
+        };
+        assert!(gate_remote_read(&logs, &open).is_ok());
+        assert_eq!(
+            gate_remote_read(&logs, &no_logs).unwrap_err().kind,
+            AgentErrorKind::PermissionDenied
+        );
+        let screen = read_envelope(
+            ContextKind::ScreenCaptureCurrent(Default::default()),
+            Capability::ScreenCaptureCurrent,
+        );
+        let no_screen = CollectionPolicySettings {
+            allow_screen: false,
+            ..open
+        };
+        assert_eq!(
+            gate_remote_read(&screen, &no_screen).unwrap_err().kind,
+            AgentErrorKind::PermissionDenied
+        );
+    }
+
+    /// The worker's half returns the same redacted output the in-process
+    /// invoker produces, as the bytes the daemon chunks.
+    #[tokio::test]
+    async fn a_worker_read_returns_the_encoded_redacted_output() {
+        let agent = LocalDeviceAgent::with_settings(settings(false, false));
+        let envelope = read_envelope(
+            ContextKind::SystemInfo(SystemInfoParams::default()),
+            Capability::SystemInfo,
+        );
+        let RemoteReadResult::Output(bytes) = read_for_daemon(&agent, envelope).await else {
+            panic!("a system-info read succeeds on every host");
+        };
+        let output: RemoteToolOutput = serde_json::from_slice(&bytes).unwrap();
+        assert!(matches!(output.outcome, AgentOutcome::Ok(_)));
+        assert!(output.image.is_none());
+    }
+
+    #[test]
+    fn an_encoded_result_never_exceeds_the_remote_tool_limit() {
+        let small = RemoteToolOutput {
+            outcome: AgentOutcome::Err(denied("small")),
+            image: None,
+            document_preview: None,
+            document_preview_page: None,
+        };
+        let bytes = encode_remote_output(&small).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<RemoteToolOutput>(&bytes).unwrap(),
+            small
+        );
+        let large = RemoteToolOutput {
+            outcome: AgentOutcome::Err(denied("x".repeat(MAX_REMOTE_TOOL_RESULT_BYTES as usize))),
+            ..small
+        };
+        assert_eq!(
+            encode_remote_output(&large).unwrap_err().kind,
+            AgentErrorKind::OutputLimitExceeded
+        );
     }
 
     #[test]

@@ -2833,6 +2833,51 @@ fn invoke_agent_capability_round_trips_wincode() {
     }
 }
 
+/// A central read and its reply cross the daemon/worker wire unchanged, and a
+/// restricted desktop worker can never be sent one.
+#[test]
+fn remote_read_round_trips_wincode_and_stays_off_restricted_workers() {
+    let request = ServiceToWorker::InvokeRemoteRead(RemoteReadRequestPayload {
+        request_id: "read-1".to_string(),
+        envelope: sample_readonly_agent_envelope(),
+    });
+    match wincode_round_trip(&request) {
+        ServiceToWorker::InvokeRemoteRead(p) => {
+            assert_eq!(p.request_id, "read-1");
+            assert_eq!(p.envelope, sample_readonly_agent_envelope());
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+    assert!(!request.allowed_for_profile(WorkerProfile::RestrictedDesktop));
+    assert!(request.allowed_for_profile(WorkerProfile::SessionUser));
+
+    let error = desk_agent_protocol::AgentError {
+        kind: desk_agent_protocol::AgentErrorKind::OutputLimitExceeded,
+        message: "too large".to_string(),
+        retryable: false,
+        safe_for_model: true,
+        error_code: None,
+    };
+    for result in [
+        RemoteReadResult::Output(b"{\"outcome\":null}".to_vec()),
+        RemoteReadResult::Error(error),
+    ] {
+        let reply = WorkerToService::RemoteReadCompleted(RemoteReadCompletedPayload {
+            request_id: "read-1".to_string(),
+            result: result.clone(),
+        });
+        assert_eq!(reply.connection_id(), None);
+        assert!(!reply.allowed_for_profile(WorkerProfile::RestrictedDesktop));
+        match wincode_round_trip(&reply) {
+            WorkerToService::RemoteReadCompleted(p) => {
+                assert_eq!(p.request_id, "read-1");
+                assert_eq!(p.result, result);
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+}
+
 #[test]
 fn invoke_agent_capability_cannot_decode_an_exec_envelope() {
     use desk_agent_protocol::{ExecInput, ExecTarget, OperationInput};

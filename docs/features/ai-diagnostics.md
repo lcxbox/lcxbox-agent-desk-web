@@ -126,7 +126,7 @@ Independent AI reviews for a child also consume its original task budget. Pausin
 
 Main-context compaction retains durable task references and unconsumed result notifications. Child contexts can compact too. Final state is based on a deliverable report and actual dependencies/receipts, not stream closure or Idle. Cancellation expresses intent, not proof of native rollback. A replaced original worker or missing old execution record cannot redirect cancellation to a new worker or cause command replay.
 
-In portable mode, once the built-in desktop session is ready, **Add directory** works without selecting a separate desktop session. Service mode keeps directory browsing bound to the selected desktop session.
+In portable mode, once the built-in desktop session is ready, **Add directory** works without selecting a separate desktop session. Service mode keeps directory browsing bound to the selected desktop session. In service mode, when several desktop sessions are signed in at once, the AI cannot tell which one to use, so its requests to read device information, screenshots, directories and files, and to change files, fail; keep one desktop session signed in and try again.
 
 The extension offers Allow current site and Allow all HTTP and HTTPS websites. The latter requests optional access only after a click and Chrome approval. It excludes local files, and browser internal pages, and does not replace AI action authorization. Manage or revoke site access in Chrome extension settings.
 

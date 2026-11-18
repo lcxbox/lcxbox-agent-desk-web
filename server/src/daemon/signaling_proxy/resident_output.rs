@@ -30,7 +30,7 @@ pub(super) fn resident_output_admitted(
         | WorkerToService::LocalFileRecoveryManaged(_) => true,
         // An error reply to a connection-less request names no connection.
         WorkerToService::SignalingError(payload) if payload.connection_id.is_empty() => requests
-            .take_reply(
+            .admit_reply(
                 &payload.request_id,
                 key,
                 incarnation,
@@ -62,17 +62,42 @@ fn connection_less_reply_admitted(
         WorkerToService::ExecutionCompleted(payload) => {
             central_execution_of(exec_capacity, &payload.request_id, key, incarnation)
         }
-        WorkerToService::FileRecoveryManaged(payload) => requests.take_reply(
+        WorkerToService::FileRecoveryManaged(payload) => requests.admit_reply(
             &payload.request_id,
             key,
             incarnation,
             SignalingType::FileRecoveryManaged,
         ),
-        WorkerToService::TerminalCommandsListed(payload) => requests.take_reply(
+        WorkerToService::TerminalCommandsListed(payload) => requests.admit_reply(
             &payload.request_id,
             key,
             incarnation,
             SignalingType::TerminalCommandsListed,
+        ),
+        WorkerToService::RemoteReadCompleted(payload) => requests.admit_reply(
+            &payload.request_id,
+            key,
+            incarnation,
+            SignalingType::RemoteToolOutputUpdated,
+        ),
+        WorkerToService::ComputerActionStarted(payload) => requests.admit_reply(
+            &payload.request_id,
+            key,
+            incarnation,
+            SignalingType::ComputerActionStarted,
+        ),
+        WorkerToService::ComputerActionCompleted(payload) => requests.admit_reply(
+            &payload.request_id,
+            key,
+            incarnation,
+            SignalingType::ComputerActionCompleted,
+        ),
+        // A stop request's answer, under the stop request's own id.
+        WorkerToService::ComputerActionStateReported(payload) => requests.admit_reply(
+            &payload.request_id,
+            key,
+            incarnation,
+            SignalingType::ComputerActionStateReported,
         ),
         _ => false,
     }

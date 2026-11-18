@@ -108,18 +108,19 @@ pub(super) fn send_collect_error(
     );
 }
 
-/// Handle an inbound remote read-tool request from the manager (§8.3). Runs the
-/// one server-stamped capability call against the in-process device agent (which
-/// enforces the envelope's gate), redacts the result fail-closed, and streams it
-/// back as a chunked `RemoteToolResponse`. Always replies (a chunk stream or an
-/// error frame) so the manager's pending entry never hangs.
+/// Handle an inbound central read-tool request (§8.3). The daemon gates the one
+/// server-stamped capability call against its authoritative settings; the read
+/// runs in this process (Default / DeskServer) or in the session user's worker
+/// (ServiceDaemon), and its redacted result streams back as a chunked
+/// `RemoteToolResponse`. Always replies (a chunk stream or an error frame), so
+/// the central's pending entry never hangs; a worker's reply is sent from the
+/// worker message loop.
 pub(super) async fn handle_remote_tool_request_inbound(
     ctx: &RouterContext,
     model: &SignalingModel,
 ) -> Result<(), RouterError> {
-    use desk_agent_protocol::remote_tool::{
-        REMOTE_TOOL_CHUNK_PAYLOAD_LIMIT, RemoteToolRequest, RemoteToolResponse,
-    };
+    use crate::agent_adapter::remote_read::{encode_remote_output, gate_remote_read};
+    use desk_agent_protocol::remote_tool::RemoteToolRequest;
     let request: RemoteToolRequest = match model.get_data::<RemoteToolRequest>() {
         Ok(r) => r,
         Err(e) => {
@@ -140,45 +141,67 @@ pub(super) async fn handle_remote_tool_request_inbound(
         return Ok(());
     }
 
-    // The read invoker is only injected where an in-process worker can read
-    // (Default / DeskServer). Without it the edge cannot serve a remote read.
-    let Some(invoker) = ctx.remote_read.clone() else {
-        send_remote_tool_error(
+    match ctx.remote_read.clone() {
+        Some(RemoteReadExecutor::InProcess(invoker)) => {
+            let result = invoker
+                .invoke_redacted(request.envelope.into())
+                .await
+                .and_then(|output| encode_remote_output(&output));
+            send_remote_read_result(&ctx.outbound_tx, &request_id, result);
+        }
+        Some(RemoteReadExecutor::SessionWorker) => {
+            let policy = ctx.settings.read().await.collection_policy;
+            if let Err(error) = gate_remote_read(&request.envelope.clone().into(), &policy) {
+                send_remote_tool_error(&ctx.outbound_tx, &request_id, error.kind, &error.message);
+                return Ok(());
+            }
+            let read = ServiceToWorker::InvokeRemoteRead(
+                desk_ipc_protocol::message::RemoteReadRequestPayload {
+                    request_id: request_id.clone(),
+                    envelope: request.envelope,
+                },
+            );
+            if let Err(error) = ctx.worker_mgr.send_to_central_worker(read).await {
+                send_remote_tool_error(
+                    &ctx.outbound_tx,
+                    &request_id,
+                    AgentErrorKind::SessionUnavailable,
+                    &error,
+                );
+            }
+        }
+        None => send_remote_tool_error(
             &ctx.outbound_tx,
             &request_id,
             AgentErrorKind::SessionUnavailable,
             "remote read is not available on this host",
-        );
-        return Ok(());
-    };
-
-    match invoker.invoke_redacted(request.envelope.into()).await {
-        Ok(output) => match serde_json::to_vec(&output) {
-            Ok(bytes) => {
-                for chunk in desk_diagnose_core::chunk::chunk_bytes(
-                    &request_id,
-                    &bytes,
-                    REMOTE_TOOL_CHUNK_PAYLOAD_LIMIT,
-                ) {
-                    send_remote_tool_response(&ctx.outbound_tx, &RemoteToolResponse::Chunk(chunk));
-                }
-            }
-            Err(e) => {
-                send_remote_tool_error(
-                    &ctx.outbound_tx,
-                    &request_id,
-                    AgentErrorKind::Internal,
-                    &format!("failed to encode remote tool result: {e}"),
-                );
-            }
-        },
-        Err(e) => {
-            // Preserve the failure class (notably a fail-closed `RedactionFailed`
-            // or a gate `PermissionDenied`) so the central loop reports it safely.
-            send_remote_tool_error(&ctx.outbound_tx, &request_id, e.kind, &e.message);
-        }
+        ),
     }
     Ok(())
+}
+
+/// Stream a read's encoded, redacted result to the central as chunks, or its
+/// error with the failure class preserved (notably a fail-closed
+/// `RedactionFailed` or a gate `PermissionDenied`), so the central loop reports
+/// it safely.
+pub(crate) fn send_remote_read_result(
+    outbound_tx: &broadcast::Sender<String>,
+    request_id: &str,
+    result: Result<Vec<u8>, AgentError>,
+) {
+    use desk_agent_protocol::remote_tool::{REMOTE_TOOL_CHUNK_PAYLOAD_LIMIT, RemoteToolResponse};
+    match result {
+        Ok(bytes) => {
+            for chunk in desk_diagnose_core::chunk::chunk_bytes(
+                request_id,
+                &bytes,
+                REMOTE_TOOL_CHUNK_PAYLOAD_LIMIT,
+            ) {
+                send_remote_tool_response(outbound_tx, &RemoteToolResponse::Chunk(chunk));
+            }
+        }
+        Err(error) => send_remote_tool_error(outbound_tx, request_id, error.kind, &error.message),
+    }
 }
 
 /// Serialize and emit a [`RemoteToolResponse`](desk_agent_protocol::remote_tool::RemoteToolResponse)

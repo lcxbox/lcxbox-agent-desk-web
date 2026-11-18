@@ -220,10 +220,13 @@ pub async fn run_signaling_proxy(
     let command_templates = Arc::new(crate::daemon::command_templates::CommandTemplateCache::new());
     let command_blocklist =
         Arc::new(crate::daemon::command_blocklist::CommandBlocklistCache::new());
-    // The shared Provider read adapter is available wherever an in-process worker
-    // can read locally (Default / DeskServer); ServiceDaemon leaves it `None`.
+    // Default / DeskServer read in this process; a ServiceDaemon has the session
+    // user's worker read. The local diagnose orchestrator is in-process only.
     let (diagnose_orchestrator, remote_read) = match settings.read().await.args.startup_mode {
-        StartupMode::ServiceDaemon => (None, None),
+        StartupMode::ServiceDaemon => (
+            None,
+            Some(signaling_router::RemoteReadExecutor::SessionWorker),
+        ),
         _ => {
             let audit: Arc<dyn AuditSink> = Arc::new(LogAuditSink);
             let agent = Arc::new(match inprocess_computer_use_broker.clone() {
@@ -251,7 +254,10 @@ pub async fn run_signaling_proxy(
                 Arc::new(RegexRedactor::new()),
                 settings.clone().into_inner(),
             ));
-            (Some(orchestrator), Some(edge_read))
+            (
+                Some(orchestrator),
+                Some(signaling_router::RemoteReadExecutor::InProcess(edge_read)),
+            )
         }
     };
 
@@ -301,7 +307,10 @@ pub async fn run_signaling_proxy(
         remote_read: remote_read.clone(),
         // Confirmed execution is available wherever an in-process worker can
         // execute (Default / DeskServer), using the same in-process availability.
-        exec_supported: remote_read.is_some(),
+        exec_supported: matches!(
+            remote_read,
+            Some(signaling_router::RemoteReadExecutor::InProcess(_))
+        ),
         exec_approvals: Arc::new(crate::daemon::exec_approval::PendingApprovalStore::new()),
         session_approvals: Arc::new(crate::daemon::session_approval::SessionApprovalStore::new()),
         command_templates: command_templates.clone(),
@@ -1692,6 +1701,19 @@ pub async fn run_signaling_proxy(
                     &payload.connection_id,
                     SignalingType::AgentCapabilityCompleted,
                     Some(&payload.outcome),
+                );
+            }
+            // A session worker's central read (ServiceDaemon): the result is
+            // already redacted and encoded, so only chunking remains.
+            WorkerToService::RemoteReadCompleted(payload) => {
+                let result = match payload.result {
+                    desk_ipc_protocol::message::RemoteReadResult::Output(bytes) => Ok(bytes),
+                    desk_ipc_protocol::message::RemoteReadResult::Error(error) => Err(error),
+                };
+                signaling_router::send_remote_read_result(
+                    &outbound_tx,
+                    &payload.request_id,
+                    result,
                 );
             }
             // AI exec result: rebuild the outbound `SignalingType::ExecutionCompleted`
