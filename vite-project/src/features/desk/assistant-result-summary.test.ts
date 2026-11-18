@@ -120,6 +120,20 @@ describe('tool result summaries', () => {
         expect(resultSummaryMessage(enT, 'Office file copy outcome unknown')).toBe('Outcome unknown: the Office file copy outcome is unknown');
     });
 
+    it('explains a command the device refused before running it', async () => {
+        const zhT = await translator('zh-CN');
+        expect(resultSummaryMessage(zhT, 'execution error: pep_rejected:owner_interactive_mode_disabled'))
+            .toBe('设备拒绝执行：设备的执行上限为“仅建议”，只能给出命令、不能执行。可在设备的“本地执行上限”中调整。');
+        expect(resultSummaryMessage(zhT, 'tool error: execution error: pep_rejected:blocklist'))
+            .toBe('设备拒绝执行：命令命中了设备的命令黑名单。');
+        expect(resultSummaryMessage(zhT, 'execution error: pep_rejected:malformed_plan'))
+            .toBe('设备拒绝执行：设备的执行策略不允许这条命令。');
+        const enT = await translator('en-US');
+        expect(resultSummaryMessage(enT, 'execution error: pep_rejected:risk_exceeds_max'))
+            .toBe('The device refused to run it: the command’s risk exceeds what the device allows.');
+        expect(resultSummaryMessage(enT, 'execution error: the interpreter is unavailable')).toBeNull();
+    });
+
     it('keeps an unknown reason and ignores other results', async () => {
         const t = await translator('zh-CN');
         expect(resultSummaryMessage(t, 'not executed: device said no')).toBe('未执行：device said no');

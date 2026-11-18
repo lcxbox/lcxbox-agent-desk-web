@@ -93,6 +93,25 @@ const OUTCOME_UNKNOWN: ReadonlyArray<readonly [string, string]> = [
 const DEVICE_RECONNECTED = "The device restarted or reconnected, so this command's result can no longer be obtained";
 const WORKER_LOST = 'The device process that ran this command exited, so its result can no longer be obtained';
 
+// The device's policy enforcement point refuses a command before it runs with
+// "pep_rejected:<code>"; the agent loop reports it as an execution error.
+const DEVICE_REFUSAL = 'execution error: pep_rejected:';
+const DEVICE_REFUSAL_REASONS: Readonly<Record<string, string>> = {
+    owner_interactive_mode_disabled: 'executionDisabled',
+    blocklist: 'blocklisted',
+    risk_exceeds_max: 'riskTooHigh',
+    exec_unsupported_in_mode: 'unsupportedInMode',
+    unattended_command_not_authorized: 'unattendedNotAuthorized',
+    template_not_in_allowlist: 'templateNotAllowed',
+};
+
+function deviceRefusalMessage(t: TFunction, body: string): string | null {
+    if (!body.startsWith(DEVICE_REFUSAL)) return null;
+    const code = /^[a-z_]+/.exec(body.slice(DEVICE_REFUSAL.length))?.[0] ?? '';
+    const key = DEVICE_REFUSAL_REASONS[code] ?? 'policy';
+    return t('pages.aiAssistant.deviceRefused.format', { reason: t(`pages.aiAssistant.deviceRefused.${key}`) });
+}
+
 function strip(text: string): string {
     const trimmed = text.trimStart();
     return trimmed.startsWith('tool error: ') ? trimmed.slice('tool error: '.length) : trimmed;
@@ -159,7 +178,7 @@ export function resultSummaryMessage(t: TFunction, text: string, toolLabel: (nam
     if (unknown) {
         return t('pages.aiAssistant.outcomeUnknown.format', { reason: t(`pages.aiAssistant.outcomeUnknown.${unknown}`) });
     }
-    return notExecutedMessage(t, body, toolLabel);
+    return deviceRefusalMessage(t, body) ?? notExecutedMessage(t, body, toolLabel);
 }
 
 function notExecutedMessage(t: TFunction, output: string, toolLabel: (name: string) => string): string | null {
