@@ -86,6 +86,8 @@ export function AssistantRequestDevices({ selected, onChange, disabled, showStat
     }
     const connected = new Set(connections.data?.data?.map(item => item.device_id));
     const choices = new Map([...selected.map(device => [device.id, device] as const), ...available]);
+    const sameName = new Map<string, number>();
+    for (const device of choices.values()) sameName.set(device.name, (sameName.get(device.name) ?? 0) + 1);
     return <DropdownMenu>
         <DropdownMenuTrigger asChild>
             <Button type="button" variant="ghost" size="sm" className="min-w-0" disabled={disabled}>
@@ -106,7 +108,12 @@ export function AssistantRequestDevices({ selected, onChange, disabled, showStat
                         onChange(checked ? selected.filter(value => value.id !== device.id) : [...selected, device]);
                     }}>
                     <Check className={checked ? 'text-primary' : 'invisible'} aria-hidden="true" />
-                    {device.name}<span className="text-muted-foreground">{device.platform}</span>
+                    {device.name}
+                    {/* Hosts often share a machine name; a short id tells them apart. */}
+                    {(sameName.get(device.name) ?? 0) > 1 && <span className="font-mono text-xs text-muted-foreground">
+                        {device.id.slice(0, 8)}
+                    </span>}
+                    <span className="text-muted-foreground">{device.platform}</span>
                     {showStatus && connections.isSuccess && <span className="text-muted-foreground">
                         {t(connected.has(device.id) ? 'pages.aiAssistant.workbench.deviceOnline'
                             : 'pages.aiAssistant.workbench.deviceOffline')}
