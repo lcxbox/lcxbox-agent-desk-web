@@ -107,7 +107,7 @@ sudo apt install -y build-essential pkg-config libssl-dev libasound2-dev \
 
 | 连接 | 鉴权方法 |
 |---|---|
-| Desk Server → Local Signaling | `settings.system.local_signaling_token` (自动生成，仅限 `default` 模式) |
+| Desk Server → Local Signaling | `settings.system.local_signaling_token` (自动生成，`default` 与 `service-daemon` 模式) |
 | Desk Server → Remote Signaling | WebSocket URL 中传递 `?token=<settings.system.signaling_token>` |
 | Desk Server → Manager | WebSocket URL 中传递 `?token=<settings.system.manager_api_token>` |
 | Browser → Signaling / Manager | **不带 token 参数。**仅使用 Actix-Session Cookie。路由提取器必须使用 `Option<web::Query<VersionInfo>>`；并将 manager 信令路由排除在全局 Session 中间件之外。 |
