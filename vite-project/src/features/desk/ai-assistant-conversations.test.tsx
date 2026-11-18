@@ -33,8 +33,9 @@ vi.mock('@/services/hooks/userController/useGetCurrentUser', () => ({
 vi.mock('@/services/hooks/connectionController/useListConnections', () => ({
     useListConnections: () => ({ data: connections }),
 }));
+const provider = vi.hoisted(() => ({ model: 'configured' as string | null, api_key_set: true }));
 vi.mock('@/services/hooks/modelProviderController/useGetModelProvider', () => ({
-    useGetModelProvider: () => ({ data: { data: { model: 'configured', api_key_set: true } } }),
+    useGetModelProvider: () => ({ isSuccess: true, data: { data: provider } }),
 }));
 vi.mock('@/services/hooks/systemController/useQueryServerInfo', () => ({
     useQueryServerInfo: () => ({ data: { data: { ai_assistant: {
@@ -141,4 +142,21 @@ it('restores the server selection in the same conversation on another client', a
     expect(asks).toEqual([[SIGNALING_TYPE_CODE_ASK_AI_ASSISTANT,
         expect.objectContaining({ question: 'Compare these devices', target_refs: ['mac-ref'] }),
         undefined, expect.any(String)]]);
+});
+
+it('points to the model settings while no model is configured', () => {
+    provider.api_key_set = false;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    try {
+        render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/ai-assistant/conversation']}>
+            <Routes><Route path="/ai-assistant/conversation" element={<PersonalAiAssistantPage />} /></Routes>
+        </MemoryRouter></QueryClientProvider>);
+
+        expect(screen.getByRole('textbox')).toBeDisabled();
+        expect(screen.getByText(/No AI model is configured yet/)).toHaveAttribute('role', 'status');
+        expect(screen.getByRole('link', { name: 'Configure' })).toHaveAttribute('href', '/system/ai-model');
+    } finally {
+        provider.api_key_set = true;
+    }
 });

@@ -1141,6 +1141,14 @@ export function AiAssistantWorkspace({
                                 </ul>
                             </details>
                         )}
+                        {provider.isSuccess && (!providerConfig?.api_key_set || !providerConfig?.model) && (
+                            <p role="status" className="text-sm text-muted-foreground">
+                                {t('pages.aiAssistant.modelNotConfigured')}{' '}
+                                <Link to="/system/ai-model" className="text-primary underline-offset-4 hover:underline">
+                                    {t('pages.aiAssistant.configureModel')}
+                                </Link>
+                            </p>
+                        )}
                         <AssistantComposerInput
                             ref={goalReplyRef}
                             sendDisabled={sendDisabled}

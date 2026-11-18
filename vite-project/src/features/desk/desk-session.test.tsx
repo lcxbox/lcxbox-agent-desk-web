@@ -19,7 +19,13 @@ import {
   waitForVideoPresentation,
 } from './desk-session-model';
 import React from 'react';
-import { SIGNALING_TYPE_CODE_MEDIA_PIPELINE_STATE_CHANGED } from './constants';
+import {
+  SIGNALING_TYPE_CODE_CONTROL_DENIED,
+  SIGNALING_TYPE_CODE_MEDIA_PIPELINE_STATE_CHANGED,
+  SIGNALING_TYPE_CODE_REMOTE_ACCESS_INITIALIZED,
+  SIGNALING_TYPE_CODE_REQUIRE_CONTROL,
+} from './constants';
+import { deskErrorCodeEnum } from '@/services/types';
 
 const signalingHarness = vi.hoisted(() => ({
   subscribers: new Set<(message: any) => void>(),
@@ -386,6 +392,56 @@ describe('DeskSession target admission fence', () => {
     targetHarness.discoveryRevision = 2;
     view.rerender(<DeskSession />);
     expect(signalingHarness.sendMessage).toHaveBeenCalledOnce();
+  });
+});
+
+describe('DeskSession host refusals', () => {
+  beforeEach(() => {
+    signalingHarness.sendMessage.mockClear();
+    fullscreenHarness.toast.mockClear();
+    targetHarness.assertCurrent.mockReset().mockResolvedValue(undefined);
+  });
+
+  const deliver = (message: Record<string, unknown>) => act(() => {
+    signalingHarness.subscribers.forEach(handler => handler(message));
+  });
+
+  it('shows why the host refused the remote desktop instead of waiting', async () => {
+    render(<DeskSession />);
+    await waitFor(() => expect(signalingHarness.sendMessage).toHaveBeenCalledOnce());
+    expect(screen.getAllByText('pages.desk.waitingPermission').length).toBeGreaterThan(0);
+
+    deliver({
+      signaling_type: SIGNALING_TYPE_CODE_REMOTE_ACCESS_INITIALIZED,
+      request_id: 'admission-request',
+      response_state: {
+        error_code: deskErrorCodeEnum.WAYLAND_PORTAL_AUTHORIZATION_REQUIRED,
+        message: 'Wayland remote access must be enabled on the host before connecting',
+      },
+    });
+
+    expect(await screen.findByText('pages.desk.waylandAuthorizationRequiredDescription'))
+      .toHaveAttribute('role', 'alert');
+    expect(screen.queryByText('pages.desk.waitingPermission')).not.toBeInTheDocument();
+  });
+
+  it('tells the user when the host denies a control request', async () => {
+    const view = render(<DeskSession />);
+    await waitFor(() => expect(signalingHarness.sendMessage).toHaveBeenCalledOnce());
+    const control = view.container.querySelector('svg.lucide-mouse-pointer-2')?.closest('button');
+    expect(control).toBeTruthy();
+    signalingHarness.sendMessage.mockReturnValueOnce('control-request');
+    fireEvent.click(control!);
+    expect(signalingHarness.sendMessage).toHaveBeenLastCalledWith(
+      SIGNALING_TYPE_CODE_REQUIRE_CONTROL, expect.anything(), 'test-desk',
+    );
+
+    deliver({ signaling_type: SIGNALING_TYPE_CODE_CONTROL_DENIED, request_id: 'control-request' });
+
+    expect(fullscreenHarness.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'pages.desk.controlRequestDenied',
+      description: 'pages.desk.controlRequestDeniedDescription',
+    }));
   });
 });
 

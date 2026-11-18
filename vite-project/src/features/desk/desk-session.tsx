@@ -999,6 +999,11 @@ export default function DeskSession({
                     deactivateWhiteboardRef.current();
                     setHasControl(false);
                     setIsWaitingApproval(false);
+                    toast({
+                        title: t("pages.desk.controlRequestDenied"),
+                        description: t("pages.desk.controlRequestDeniedDescription"),
+                        variant: "destructive",
+                    });
                     return;
                 }
                 console.log("Remote control request ACCEPTED by peer.");
