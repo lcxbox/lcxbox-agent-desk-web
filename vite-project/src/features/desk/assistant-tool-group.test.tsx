@@ -54,6 +54,32 @@ describe('assistant tool activity summary', () => {
         expect(container.querySelector('[data-slot="disclosure"]')?.getAttribute('data-state')).toBe('closed');
     });
 
+    it('names a refused call in the folded summary instead of the model-facing English result', () => {
+        for (const [output, key] of [
+            ['not executed: the owner refused this call', 'ownerRefused'],
+            ['not executed: the owner denied this call', 'ownerRefused'],
+            ['not executed: AI review refused this call; see the approval record for the reason', 'aiReviewRefused'],
+            ['not executed: independent AI review denied this exact action. reason_code=scope. Ask the owner.', 'aiReviewRefused'],
+            ['not executed: this call was not approved', 'notApproved'],
+            ['not executed: task permission request was rejected', 'taskPermissionRejected'],
+        ]) {
+            const { unmount } = render(<AssistantToolGroup
+                messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}
+                tools={[{ callId: 'call-1', name: 'restore_command_changes', status: 'failed', argumentsJson: '{}', output }]}
+                renderMessage={() => <div>Details</div>} />);
+            expect(screen.getByText(`pages.aiAssistant.workspace.refusal.${key}`)).toBeTruthy();
+            expect(screen.queryByText(/not executed/)).toBeNull();
+            unmount();
+        }
+        // Other plain-text failures keep their own message.
+        render(<AssistantToolGroup
+            messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}
+            tools={[{ callId: 'call-1', name: 'exec_command', status: 'failed', argumentsJson: '{}',
+                output: 'not executed: a prior command in this turn was not run' }]}
+            renderMessage={() => <div>Details</div>} />);
+        expect(screen.getByText('not executed: a prior command in this turn was not run')).toBeTruthy();
+    });
+
     it('summarizes a decision receipt by its decision instead of a returned result', () => {
         render(<AssistantToolGroup
             messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}

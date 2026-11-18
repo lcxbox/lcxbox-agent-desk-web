@@ -7,6 +7,25 @@ import { hasUnknownActionResult } from './action-result-status';
 import { isConfirmedNotSent } from './ai-assistant-external-send';
 import { useDecisionLabel } from './assistant-tool-call';
 
+// Fixed refusal results the server writes for the model (diagnose-core:
+// released_dispatch, approval_review, permission_proposal, schedule
+// permission_wait). The folded summary shows them localized; the expanded
+// details keep the original text.
+const REFUSAL_RESULTS: ReadonlyArray<[string, string]> = [
+    ['not executed: the owner refused this call', 'ownerRefused'],
+    ['not executed: the owner denied this call', 'ownerRefused'],
+    ['not executed: AI review refused this call', 'aiReviewRefused'],
+    ['not executed: independent AI review denied this exact action', 'aiReviewRefused'],
+    ['not executed: this call was not approved', 'notApproved'],
+    ['not executed: task permission request was rejected', 'taskPermissionRejected'],
+];
+
+function refusalKey(output: string): string | null {
+    const text = output.trimStart();
+    const match = REFUSAL_RESULTS.find(([prefix]) => text.startsWith(prefix));
+    return match ? `pages.aiAssistant.workspace.refusal.${match[1]}` : null;
+}
+
 function failureMessage(output: string | null): string | null {
     if (!output) return null;
     try {
@@ -41,7 +60,9 @@ export function AssistantToolGroup({ messages, tools, renderMessage, displayName
         ...tool.decision ? [decisionLabel(tool.decision)] : [],
     ]))];
     const failed = known.filter(tool => tool.status === 'failed');
-    const firstFailureMessage = failureMessage(failed[0]?.output ?? null);
+    const firstFailureOutput = failed[0]?.output ?? null;
+    const firstRefusal = firstFailureOutput ? refusalKey(firstFailureOutput) : null;
+    const firstFailureMessage = firstRefusal ? t(firstRefusal) : failureMessage(firstFailureOutput);
     const succeeded = known.filter(tool => tool.status === 'ok' && !isConfirmedNotSent(tool.name, tool.output)).length;
     const returned = known.filter(tool => tool.status === 'returned' || (tool.status === 'ok' && isConfirmedNotSent(tool.name, tool.output))).length;
     return <Disclosure defaultOpen={focused} className="w-full max-w-full rounded-md border bg-muted/30 px-3 py-2 sm:max-w-[90%]"
