@@ -60,6 +60,20 @@ describe('assistant permission submission fencing', () => {
         expect(result.current.permissionUpdating).toBe(false);
     });
 
+    it('keeps a rejected approval visible while its card is still pending', async () => {
+        const fetch = vi.fn((url: RequestInfo | URL) => String(url).endsWith('/permission-decision')
+            ? Promise.resolve({ ok: true, json: async () => ({ success: false, code: 8, message: 'the device state changed' }) })
+            : Promise.resolve(snapshot()));
+        vi.stubGlobal('fetch', fetch);
+        const { result } = renderHook(() => useAiAssistantChat({ deskId: 'desk-1', connected: true, subscribe, sendMessage }));
+        await waitFor(() => expect(result.current.permissionRequests).toHaveLength(1));
+        await act(async () => expect(await result.current.decidePermission(request, true)).toBe(false));
+        expect(result.current.error).toContain('the device state changed');
+        // A later refresh still shows the same pending card; the reason must stay.
+        await act(async () => { await result.current.refreshSnapshot(); });
+        expect(result.current.error).toContain('the device state changed');
+    });
+
     it('reloads durable state after an uncertain response without repeating the decision', async () => {
         const fetch = vi.fn((url: RequestInfo | URL) => String(url).endsWith('/permission-decision')
             ? Promise.reject(new Error('response lost')) : Promise.resolve(snapshot()));

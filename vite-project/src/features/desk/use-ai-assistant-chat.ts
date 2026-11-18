@@ -493,6 +493,9 @@ export function useAiAssistantChat({
         payload: Record<string, unknown>; sentAt: number;
     } | null>(null);
     const deliveryFailure = useRef<string | null>(null);
+    // A rejected approval stays visible while its card is still pending; a
+    // snapshot refresh of that pending state must not hide why it failed.
+    const decisionFailure = useRef<{ requestId: string; message: string } | null>(null);
     const [deliveryState, setDeliveryState] = useState<'sending' | 'unconfirmed' | null>(null);
     const [acceptedInput, setAcceptedInput] = useState<{ id: string; question: string } | null>(null);
     const sentInputs = useRef<SentInput[]>([]);
@@ -1010,7 +1013,11 @@ export function useAiAssistantChat({
                 } else if (projected.permissionRequests.some((request) => request.state === 'pending')
                     || snapshot.fileScope?.directories.some(directory => directory.state === 'pending')) {
                     setStatus('permission_required');
-                    setError(null);
+                    const failure = decisionFailure.current;
+                    const failedStillPending = failure && projected.permissionRequests.some((request) =>
+                        request.requestId === failure.requestId && request.state === 'pending');
+                    if (!failedStillPending) decisionFailure.current = null;
+                    setError(failedStillPending ? failure.message : null);
                 } else if (projected.permissionRequests.some((request) =>
                     request.inputRevision === snapshot.inputRevision
                     && ['approved', 'partially_approved', 'denied'].includes(request.state),
@@ -1850,6 +1857,7 @@ export function useAiAssistantChat({
         };
         setPermissionUpdating(true);
         setError(null);
+        decisionFailure.current = null;
         try {
             const response = await fetch('/api/my/ai-assistant-session/permission-decision', {
                 method: 'POST',
@@ -1869,9 +1877,11 @@ export function useAiAssistantChat({
             if (!isCurrent()) return false;
             // An uncertain response is not a failed decision. Read durable state
             // once; never automatically repeat the approval mutation.
+            const message = reason instanceof Error ? reason.message : 'Permission decision failed.';
+            decisionFailure.current = { requestId: request.requestId, message };
             await loadSnapshot(currentConversationId);
             if (!isCurrent()) return false;
-            setError(reason instanceof Error ? reason.message : 'Permission decision failed.');
+            setError(message);
             return false;
         } finally {
             if (isCurrent()) {
