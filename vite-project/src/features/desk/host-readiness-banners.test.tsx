@@ -161,6 +161,37 @@ describe('HostReadinessBanners', () => {
         expect(harness.refetch).toHaveBeenCalledTimes(1);
     });
 
+    it('explains a failed authorization by its code, not the host diagnostic', async () => {
+        harness.info = baseInfo({
+            wayland_portal: {
+                phase: 'ready',
+                screen_ready: true,
+                input_ready: false,
+                target: 'screen_only',
+                recommended_target: 'screen_only',
+                operation_id: null,
+                generation: 7,
+                persistent_restore: true,
+                requires_local_action: false,
+                reason: null,
+            },
+        });
+        const failure = Object.assign(
+            new Error('Custom desk error(8): Could not queue Wayland authorization: no worker'),
+            { code: deskErrorCodeEnum.PRECONDITION_FAILED },
+        );
+        harness.authorize.mockRejectedValueOnce(failure);
+
+        render(<HostReadinessBanners />);
+        fireEvent.click(screen.getByText('pages.hostReadiness.wayland.enableInput'));
+
+        await waitFor(() => expect(harness.toast).toHaveBeenCalledTimes(1));
+        expect(harness.toast).toHaveBeenCalledWith(expect.objectContaining({
+            title: 'pages.hostReadiness.actionFailed',
+            description: 'pages.hostReadiness.wayland.workerUnavailable',
+        }));
+    });
+
     it('cancels only the currently reported Portal operation generation', async () => {
         harness.info = baseInfo({
             wayland_portal: {

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useToast } from "@/hooks/use-toast"
-import { deskErrorKeyOr, type ErrorCodeKeyMap } from "@/lib/desk-error-i18n"
+import { deskErrorKeyOr, errorCodeOf, type ErrorCodeKeyMap } from "@/lib/desk-error-i18n"
 import { deskErrorCodeEnum } from "@/services/types"
 import { useQueryServerInfo } from "@/services/hooks/systemController/useQueryServerInfo"
 import { useAuthorizeWayland } from "@/services/hooks/hostReadinessController/useAuthorizeWayland"
@@ -86,10 +86,14 @@ export function HostReadinessBanners() {
             await action()
             await refetch()
         } catch (error) {
+            // The host's diagnostic text stays out of the UI; the code says why.
+            const code = errorCodeOf(error)
             toast({
                 variant: "destructive",
                 title: t("pages.hostReadiness.actionFailed"),
-                description: error instanceof Error ? error.message : String(error),
+                description: t(key.startsWith("wayland")
+                    ? waylandPortalReasonKey(code)
+                    : "pages.hostReadiness.retryLater"),
             })
         } finally {
             setPendingAction(null)

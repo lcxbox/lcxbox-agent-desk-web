@@ -2703,6 +2703,7 @@ export default {
   'pages.layout.serviceBanner.installDialog.iddDriverAvailable': '已在服务端二进制目录下找到驱动文件。',
   'pages.layout.serviceBanner.installDialog.iddDriverFilesMissing': '未在服务端二进制目录下找到驱动文件，此选项不可用。',
   'pages.layout.serviceBanner.installDialog.invalidPath': '安装路径包含禁止字符（双引号或控制字符）。',
+  'pages.hostReadiness.retryLater': "请稍后重试。",
   'pages.hostReadiness.actionFailed': '宿主准备操作失败',
   'pages.hostReadiness.localOnly': '请在被控端本机通过 localhost 或桌面应用打开此页面后执行该操作。',
   'pages.hostReadiness.serviceRestart.title': '重启应用以完成服务模式切换',

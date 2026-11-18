@@ -2724,6 +2724,7 @@ export default {
   'pages.layout.serviceBanner.installDialog.iddDriverAvailable': 'Driver files found next to the server binary.',
   'pages.layout.serviceBanner.installDialog.iddDriverFilesMissing': 'Driver files not found next to the server binary; this option is disabled.',
   'pages.layout.serviceBanner.installDialog.invalidPath': 'Install path contains forbidden characters (" or control chars).',
+  'pages.hostReadiness.retryLater': "Try again later.",
   'pages.hostReadiness.actionFailed': 'Host preparation failed',
   'pages.hostReadiness.localOnly': 'Open this page on the controlled host using localhost or the desktop app to perform this action.',
   'pages.hostReadiness.serviceRestart.title': 'Restart the app to finish switching to service mode',
