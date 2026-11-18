@@ -1949,3 +1949,16 @@ fn resident_worker_readiness_reaches_the_central_without_a_bound_connection() {
     assert_eq!(message.connection_id(), None);
     assert!(resident_global_control(&message));
 }
+
+#[test]
+fn a_resident_worker_answer_to_a_label_revocation_is_not_dropped() {
+    use desk_ipc_protocol::message::{RevokeExecSandboxLabelsReply, WorkerToService};
+    let message = WorkerToService::ExecSandboxLabelsRevoked(RevokeExecSandboxLabelsReply {
+        request_id: "r".to_string(),
+        revoked: 1,
+        in_use: 0,
+        error: None,
+    });
+    assert_eq!(message.connection_id(), None);
+    assert!(resident_global_control(&message));
+}

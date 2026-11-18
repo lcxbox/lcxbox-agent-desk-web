@@ -37,6 +37,29 @@ pub(crate) struct LocalUser {
 }
 
 impl LocalUser {
+    /// The identity `authenticate` would give a loopback request from this
+    /// test process.
+    #[cfg(test)]
+    pub(crate) fn of_this_process() -> io::Result<Self> {
+        let pid = std::process::id();
+        let handle = unsafe {
+            OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                false,
+                pid,
+            )
+        }
+        .map_err(io::Error::other)?;
+        let process = unsafe { OwnedHandle::from_raw_handle(handle.0) };
+        let mut session_id = 0;
+        unsafe { ProcessIdToSessionId(pid, &mut session_id) }.map_err(io::Error::other)?;
+        Ok(Self {
+            sid: crate::file_recovery_service::platform_user::current()?,
+            session_id,
+            process,
+        })
+    }
+
     pub(crate) fn is_alive(&self) -> bool {
         let handle = HANDLE(self.process.as_raw_handle());
         if unsafe { WaitForSingleObject(handle, 0) } != WAIT_TIMEOUT {

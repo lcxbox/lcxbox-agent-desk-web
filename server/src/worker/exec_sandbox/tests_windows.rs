@@ -325,6 +325,9 @@ fn a_timed_out_sandboxed_command_takes_its_descendants_with_it() {
         marker.exists(),
         "the grandchild never ran, so the test proves nothing"
     );
+    // TerminateJobObject returns before the processes are gone; a write
+    // already in flight may still land, so let it settle before clearing.
+    std::thread::sleep(std::time::Duration::from_millis(500));
     let _ = std::fs::remove_file(&marker);
     std::thread::sleep(std::time::Duration::from_millis(1_500));
     assert!(

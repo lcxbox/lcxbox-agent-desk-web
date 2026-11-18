@@ -2109,6 +2109,9 @@ fn resident_global_control(message: &WorkerToService) -> bool {
             | WorkerToService::SecurityPolicyApplied(_)
             | WorkerToService::ComputerUseLocalPolicyApplied(_)
             | WorkerToService::ComputerUseReadinessUpdated(_)
+            // Answered only when it matches the pending request's worker and
+            // incarnation, so it needs no bound connection.
+            | WorkerToService::ExecSandboxLabelsRevoked(_)
     )
 }
 

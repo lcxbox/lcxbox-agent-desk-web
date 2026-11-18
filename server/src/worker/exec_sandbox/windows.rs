@@ -46,8 +46,13 @@ fn user_sid() -> io::Result<String> {
 /// next to it (must fail), then remove everything. Measured at 375–783 ms
 /// (research 8.8).
 pub(super) fn probe() -> ExecSandboxSupport {
+    let started = std::time::Instant::now();
     match self_test() {
         Ok(()) => {
+            log::info!(
+                "exec sandbox: the Windows self-test passed in {} ms",
+                started.elapsed().as_millis()
+            );
             windows_lease::start_reaper();
             ExecSandboxSupport::Supported
         }

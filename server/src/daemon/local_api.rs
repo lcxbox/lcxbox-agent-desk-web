@@ -246,10 +246,16 @@ pub async fn run_local_api(
                         }
                     })),
             )
-    })
-    .bind(("0.0.0.0", SERVICE_API_PORT))
-    .map_err(|e| format!("Failed to bind local API on port {SERVICE_API_PORT}: {e}"))?
-    .run();
+    });
+    // The local console's per-user operations (file recovery, sandbox label
+    // revocation) identify the calling OS user from the loopback connection,
+    // which is only recorded when the server registers this hook.
+    #[cfg(windows)]
+    let server = server.on_connect(crate::windows_local_user::on_connect);
+    let server = server
+        .bind(("0.0.0.0", SERVICE_API_PORT))
+        .map_err(|e| format!("Failed to bind local API on port {SERVICE_API_PORT}: {e}"))?
+        .run();
 
     // Bind succeeded — release any waiter (workers can now connect upstream).
     if let Some(tx) = ready_tx {

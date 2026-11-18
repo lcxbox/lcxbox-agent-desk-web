@@ -30,10 +30,21 @@ async fn revoke(req: &HttpRequest) -> Result<ExecSandboxLabelsRevoked, DeskError
             "Revoking sandbox labels requires the local OS user",
         )
     })?;
+    // A host running as the requesting user (Default, DeskServer) revokes in
+    // process. The ServiceDaemon runs as another account, so it hands the
+    // request to the worker running as that user, resident or legacy.
+    let serves_another_user = {
+        let sid = local_user.sid.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::file_recovery_service::platform_user::current().ok() != Some(sid)
+        })
+        .await
+        .map_err(|_| unavailable("The revocation task failed"))?
+    };
     if let Some(manager) = req
         .app_data::<web::Data<crate::model::settings_coordinator::SettingsCoordinator>>()
         .and_then(|coordinator| coordinator.worker_manager())
-        .filter(|manager| manager.uses_session_targeting())
+        .filter(|manager| manager.uses_session_targeting() || serves_another_user)
     {
         use crate::daemon::worker_manager::RevokeForwardError as E;
         let reply = manager

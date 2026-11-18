@@ -868,6 +868,9 @@ mod tests {
             marker.exists(),
             "the grandchild never ran, so the test proves nothing"
         );
+        // TerminateJobObject returns before the processes are gone; a write
+        // already in flight may still land, so let it settle before clearing.
+        tokio::time::sleep(Duration::from_millis(500)).await;
         let _ = std::fs::remove_file(&marker);
         tokio::time::sleep(Duration::from_millis(1_500)).await;
         assert!(
