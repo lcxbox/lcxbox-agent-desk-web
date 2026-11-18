@@ -109,6 +109,7 @@ describe('tool result summaries', () => {
             'the AI call outcome is unknown; it will not be retried to avoid duplicate charging',
             'Office file copy outcome unknown',
             'tool error: File restore outcome is unknown; recovery material has been retained and the operation will not be repeated',
+            'tool error: The device process that ran this command exited, so its result can no longer be obtained. The command may still be running or may have finished. Check the actual state on the device before running it again.',
             "exit_code=unknown\nThe device restarted or reconnected, so this command's result can no longer be obtained. It may or may not have run. Check the actual state on the device before running it again.",
         ]) {
             const message = resultSummaryMessage(t, text);

@@ -26,7 +26,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use super::worker_manager::ExecWorkerTarget;
+use desk_ipc_protocol::message::WorkerKey;
+
+use super::worker_manager::{ExecWorkerTarget, WorkerIncarnation};
 
 /// Frozen dispatch destination and controlling channel. A central cancellation
 /// has no browser channel; it must still target the originally admitted worker.
@@ -161,6 +163,38 @@ impl ExecCapacity {
             .and_then(|slot| slot.binding.clone())
     }
 
+    /// Detach the central executions a worker instance was running, now that
+    /// the instance is gone, and return their generations.
+    ///
+    /// Only the bindings go: each slot stays until its original deadline,
+    /// because the command may outlive the worker that started it and freeing
+    /// the slot early would let one more command run than the ceiling allows.
+    /// Expired slots are included, matching [`Self::binding`]. A daemon-run root
+    /// PTY and a browser-owned execution do not depend on the worker for their
+    /// result, so neither is touched.
+    pub fn take_bound_to(
+        &self,
+        worker_key: Option<&WorkerKey>,
+        incarnation: WorkerIncarnation,
+    ) -> Vec<String> {
+        let mut slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+        slots
+            .iter_mut()
+            .filter(|(_, slot)| {
+                slot.binding.as_ref().is_some_and(|binding| {
+                    !binding.daemon_pty
+                        && binding.owner_connection_id.is_none()
+                        && binding.target.worker_key.as_ref() == worker_key
+                        && binding.target.source_incarnation == incarnation
+                })
+            })
+            .map(|(generation, slot)| {
+                slot.binding = None;
+                generation.clone()
+            })
+            .collect()
+    }
+
     /// Give back a slot once the execution is accounted for — it finished, or it
     /// never started.
     pub fn release(&self, generation: &str) {
@@ -251,6 +285,103 @@ mod tests {
 
         assert_eq!(cap.in_flight(), 0, "the stale slot was not reclaimed");
         assert!(cap.try_admit("fresh", 1, T).is_ok());
+    }
+
+    fn central_binding(worker: Option<&str>, incarnation: u64) -> ExecBinding {
+        ExecBinding {
+            target: ExecWorkerTarget {
+                worker_key: worker.map(|session| WorkerKey {
+                    session: desk_ipc_protocol::message::SessionKey {
+                        platform_session_id: session.into(),
+                        session_generation: 1,
+                    },
+                    desktop: desk_ipc_protocol::message::DesktopTarget::LinuxSession,
+                }),
+                source_incarnation: WorkerIncarnation::for_test(incarnation),
+                session_target_id: worker.unwrap_or("legacy").into(),
+                registration_generation: 1,
+                wire_worker_incarnation: incarnation,
+            },
+            owner_connection_id: None,
+            daemon_pty: false,
+        }
+    }
+
+    /// Only the central executions of the departed worker instance are
+    /// detached; their slots keep counting against the ceiling until their own
+    /// deadlines, including a slot already past its deadline.
+    #[test]
+    fn a_departed_worker_releases_its_bindings_but_not_its_slots() {
+        let cap = ExecCapacity::new();
+        let lost = central_binding(Some("s1"), 7);
+        let mut root_pty = lost.clone();
+        root_pty.daemon_pty = true;
+        let mut browser = lost.clone();
+        browser.owner_connection_id = Some("browser".into());
+        let mut replacement = lost.clone();
+        replacement.target.source_incarnation = WorkerIncarnation::for_test(8);
+        let other_session = central_binding(Some("s2"), 7);
+        let legacy = central_binding(None, 7);
+        for (generation, binding) in [
+            ("lost", &lost),
+            ("expired", &lost),
+            ("root-pty", &root_pty),
+            ("browser", &browser),
+            ("replacement", &replacement),
+            ("other-session", &other_session),
+            ("legacy", &legacy),
+        ] {
+            assert!(cap.try_admit(generation, 8, T).unwrap());
+            cap.bind(generation, binding.clone()).unwrap();
+        }
+        cap.slots
+            .lock()
+            .unwrap()
+            .get_mut("expired")
+            .unwrap()
+            .deadline = Instant::now() - Duration::from_secs(1);
+
+        let mut taken = cap.take_bound_to(
+            lost.target.worker_key.as_ref(),
+            WorkerIncarnation::for_test(7),
+        );
+        taken.sort();
+        assert_eq!(taken, ["expired", "lost"]);
+        assert_eq!(cap.binding("lost"), None);
+        assert_eq!(cap.binding("expired"), None);
+        for (generation, binding) in [
+            ("root-pty", &root_pty),
+            ("browser", &browser),
+            ("replacement", &replacement),
+            ("other-session", &other_session),
+            ("legacy", &legacy),
+        ] {
+            assert_eq!(
+                cap.binding(generation).as_ref(),
+                Some(binding),
+                "{generation}"
+            );
+        }
+        assert_eq!(cap.in_flight(), 6, "the live detached slot still counts");
+        assert_eq!(
+            cap.try_admit("next", 6, T),
+            Err(CapacityFull {
+                running: 6,
+                limit: 6
+            })
+        );
+        assert!(
+            cap.take_bound_to(
+                lost.target.worker_key.as_ref(),
+                WorkerIncarnation::for_test(7)
+            )
+            .is_empty(),
+            "a generation is detached only once"
+        );
+        assert_eq!(
+            cap.take_bound_to(None, WorkerIncarnation::for_test(7)),
+            ["legacy"]
+        );
     }
 
     /// A limit of zero refuses everything rather than admitting one.

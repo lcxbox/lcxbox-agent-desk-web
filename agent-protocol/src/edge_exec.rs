@@ -192,11 +192,25 @@ impl EdgeExecDisposition {
     /// The model-facing explanation of [`Self::outcome_unavailable`].
     pub const OUTCOME_UNAVAILABLE_MESSAGE: &'static str = "The device restarted or reconnected, so this command's result can no longer be obtained. It may or may not have run. Check the actual state on the device before running it again.";
 
+    /// The model-facing explanation of [`Self::outcome_lost_with_worker`].
+    pub const OUTCOME_LOST_WITH_WORKER_MESSAGE: &'static str = "The device process that ran this command exited, so its result can no longer be obtained. The command may still be running or may have finished. Check the actual state on the device before running it again.";
+
     /// A command that started but whose result the host can no longer give: a
     /// settled answer that reads as an unknown outcome, never as a success or a
     /// failure. Hosts store it like any executed result, so every consumer
     /// settles the task.
     pub fn outcome_unavailable() -> Self {
+        Self::started_outcome_unknown(Self::OUTCOME_UNAVAILABLE_MESSAGE)
+    }
+
+    /// A command whose session worker exited while it ran: the device is still
+    /// online, but the process that would have reported the result is gone.
+    /// Settles like [`Self::outcome_unavailable`].
+    pub fn outcome_lost_with_worker() -> Self {
+        Self::started_outcome_unknown(Self::OUTCOME_LOST_WITH_WORKER_MESSAGE)
+    }
+
+    fn started_outcome_unknown(message: &'static str) -> Self {
         EdgeExecDisposition::Executed {
             outcome: AgentOutcome::Ok(crate::OperationOutput::Exec(crate::ExecOutput {
                 started: true,
@@ -204,7 +218,7 @@ impl EdgeExecDisposition {
                 termination_signal: None,
                 failure: Some(AgentError {
                     kind: AgentErrorKind::TransportError,
-                    message: Self::OUTCOME_UNAVAILABLE_MESSAGE.into(),
+                    message: message.into(),
                     retryable: false,
                     safe_for_model: true,
                     error_code: None,
@@ -654,6 +668,42 @@ mod tests {
                 .unwrap()
                 .contains("\"source\":\"agentic\"")
         );
+    }
+
+    /// A command lost with its worker settles exactly like an unavailable
+    /// result, differing only in the model-facing explanation.
+    #[test]
+    fn a_command_lost_with_its_worker_settles_as_an_unknown_outcome() {
+        let EdgeExecDisposition::Executed {
+            outcome: AgentOutcome::Ok(OperationOutput::Exec(lost)),
+        } = EdgeExecDisposition::outcome_lost_with_worker()
+        else {
+            panic!("a lost command must settle as an executed result");
+        };
+        assert!(lost.started);
+        assert_eq!(lost.exit_code, None);
+        let failure = lost
+            .failure
+            .as_ref()
+            .expect("an unknown outcome is a failure");
+        assert_eq!(failure.kind, AgentErrorKind::TransportError);
+        assert!(!failure.retryable);
+        assert!(failure.safe_for_model);
+        assert_eq!(
+            failure.message,
+            EdgeExecDisposition::OUTCOME_LOST_WITH_WORKER_MESSAGE
+        );
+        assert!(!EdgeExecDisposition::outcome_lost_with_worker().proves_not_executed());
+
+        let EdgeExecDisposition::Executed {
+            outcome: AgentOutcome::Ok(OperationOutput::Exec(mut unavailable)),
+        } = EdgeExecDisposition::outcome_unavailable()
+        else {
+            panic!("an unavailable result must settle as an executed result");
+        };
+        unavailable.failure.as_mut().unwrap().message =
+            EdgeExecDisposition::OUTCOME_LOST_WITH_WORKER_MESSAGE.into();
+        assert_eq!(lost, unavailable);
     }
 
     /// A frame without the `source` tag is rejected — there is no bare-`ExecPlan`

@@ -508,9 +508,12 @@ pub(super) async fn dispatch_fleet_exec_plan(
         )
         .await;
         if let Err(error) = dispatch {
-            if let Ok(mut pending) = ctx.edge_exec_pending.lock() {
-                pending.remove(request_id);
-            }
+            // Only the taker of the correlation answers the central: a worker lost
+            // between binding and this failure may already have been answered for.
+            let answer_owed = crate::daemon::signaling_proxy::take_edge_exec_correlation(
+                &ctx.edge_exec_pending,
+                request_id,
+            );
             match ctx
                 .exec_ledger
                 .mark_terminal(
@@ -528,18 +531,20 @@ pub(super) async fn dispatch_fleet_exec_plan(
                 ),
             }
             ctx.exec_capacity.release(request_id);
-            send_edge_execution_completed(
-                &ctx.outbound_tx,
-                request_id,
-                EdgeExecDisposition::DispatchFailedBeforeWorker {
-                    error: agent_error(
-                        AgentErrorKind::SessionUnavailable,
-                        &format!("root PTY unavailable: {error}"),
-                        true,
-                        true,
-                    ),
-                },
-            );
+            if answer_owed {
+                send_edge_execution_completed(
+                    &ctx.outbound_tx,
+                    request_id,
+                    EdgeExecDisposition::DispatchFailedBeforeWorker {
+                        error: agent_error(
+                            AgentErrorKind::SessionUnavailable,
+                            &format!("root PTY unavailable: {error}"),
+                            true,
+                            true,
+                        ),
+                    },
+                );
+            }
         }
         return;
     }
@@ -600,9 +605,12 @@ pub(super) async fn dispatch_fleet_exec_plan(
             .await
     };
     if let Err(e) = dispatch {
-        if let Ok(mut pending) = ctx.edge_exec_pending.lock() {
-            pending.remove(request_id);
-        }
+        // Only the taker of the correlation answers the central: a worker lost
+        // between binding and this failure may already have been answered for.
+        let answer_owed = crate::daemon::signaling_proxy::take_edge_exec_correlation(
+            &ctx.edge_exec_pending,
+            request_id,
+        );
         // Nothing was started, so the slot is free again immediately.
         ctx.exec_capacity.release(request_id);
         if let Err(ledger_error) = ctx
@@ -617,18 +625,20 @@ pub(super) async fn dispatch_fleet_exec_plan(
                 "[exec-ledger] could not record pre-worker dispatch failure: {ledger_error}"
             );
         }
-        send_edge_execution_completed(
-            &ctx.outbound_tx,
-            request_id,
-            EdgeExecDisposition::DispatchFailedBeforeWorker {
-                error: agent_error(
-                    AgentErrorKind::SessionUnavailable,
-                    &format!("worker unavailable: {e}"),
-                    true,
-                    true,
-                ),
-            },
-        );
+        if answer_owed {
+            send_edge_execution_completed(
+                &ctx.outbound_tx,
+                request_id,
+                EdgeExecDisposition::DispatchFailedBeforeWorker {
+                    error: agent_error(
+                        AgentErrorKind::SessionUnavailable,
+                        &format!("worker unavailable: {e}"),
+                        true,
+                        true,
+                    ),
+                },
+            );
+        }
     }
 }
 

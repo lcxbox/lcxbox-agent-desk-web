@@ -944,3 +944,70 @@ mod lanes {
         assert!(!gate.is_current());
     }
 }
+
+/// Stopping a resident worker announces that instance so its central
+/// executions can be settled; shutting the daemon down announces nothing,
+/// because the next start settles what a stopped daemon left behind.
+#[tokio::test]
+async fn stopping_a_resident_worker_announces_it_but_shutdown_does_not() {
+    let (manager, _worker_rx) = test_manager();
+    let mut retired = manager.take_retired_worker_receiver().unwrap();
+    assert!(manager.take_retired_worker_receiver().is_none());
+    let (ipc_tx, _ipc_rx) = mpsc::unbounded_channel();
+    let stopped = resident_key("session-1");
+    let incarnation = manager
+        .install_resident_for_test(stopped.clone(), ipc_tx.clone())
+        .await;
+    manager
+        .install_resident_for_test(resident_key("session-2"), ipc_tx.clone())
+        .await;
+    manager.install_active_for_test(ipc_tx).await;
+
+    manager.stop_resident_worker(&stopped).await;
+    assert_eq!(
+        retired.try_recv().unwrap(),
+        RetiredWorker {
+            worker_key: Some(stopped),
+            incarnation,
+        }
+    );
+
+    manager.shutdown_all().await;
+    assert!(retired.try_recv().is_err());
+}
+
+/// The remote-access recycle takes the in-process worker out of service on
+/// its own path and announces it before any replacement is attempted.
+#[tokio::test]
+async fn recycling_the_in_process_worker_announces_it() {
+    let (manager, _worker_rx) = test_manager();
+    let mut retired = manager.take_retired_worker_receiver().unwrap();
+    let (ipc_tx, _ipc_rx) = mpsc::unbounded_channel();
+    let incarnation = manager.install_active_for_test(ipc_tx).await;
+    {
+        let mut inner = manager.inner.lock().await;
+        let worker = inner.active_worker.as_mut().unwrap();
+        worker.inprocess_task = Some(tokio::spawn(async {}));
+        worker.inprocess_restart = Some(InprocessRestart {
+            args: Args::default(),
+            host_control_hub: Arc::new(HostControlHub::new_local()),
+            computer_use_broker: Arc::new(
+                crate::worker::agent::computer_use_broker::ComputerUseBroker::new(),
+            ),
+        });
+    }
+    // Refuses the replacement start, so the test runs no real worker.
+    manager
+        .media_worker_restart_required
+        .store(true, Ordering::Release);
+
+    assert!(manager.recycle_for_remote_access_timeout().await.is_err());
+    assert_eq!(
+        retired.try_recv().unwrap(),
+        RetiredWorker {
+            worker_key: None,
+            incarnation,
+        }
+    );
+    assert!(retired.try_recv().is_err());
+}

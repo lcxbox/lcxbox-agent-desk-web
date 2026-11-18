@@ -828,6 +828,7 @@ export default {
   'pages.aiAssistant.outcomeUnknown.noConclusiveReceipt': "执行没有返回确定的回执。请先查看目标当前状态再决定下一步，不要认定已成功或直接重复",
   'pages.aiAssistant.outcomeUnknown.noConclusiveResult': "执行没有返回确定的结果，可能已产生影响。请先查看目标当前状态再决定下一步，不要认定已成功或直接重复",
   'pages.aiAssistant.outcomeUnknown.interruptedWithoutReceipt': "本轮中断，没有可恢复的操作回执。请先查看目标当前状态再决定下一步",
+  'pages.aiAssistant.outcomeUnknown.workerLost': "执行这条命令的设备进程已退出，已无法取得结果；命令可能仍在运行，也可能已结束。再次运行前请先检查设备上的实际状态",
   'pages.aiAssistant.outcomeUnknown.deviceReconnected': "设备重启或重新连接，已无法取得这条命令的结果，可能已运行也可能没有。再次运行前请先检查设备上的实际状态",
   'pages.aiAssistant.outcomeUnknown.originalAction': "原操作的结果未知，不会自动重试",
   'pages.aiAssistant.outcomeUnknown.originalCommand': "原命令的结果未知，不会自动重试",

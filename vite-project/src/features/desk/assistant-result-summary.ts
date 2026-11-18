@@ -91,6 +91,7 @@ const OUTCOME_UNKNOWN: ReadonlyArray<readonly [string, string]> = [
 
 // Carried inside a formatted command result rather than at its start.
 const DEVICE_RECONNECTED = "The device restarted or reconnected, so this command's result can no longer be obtained";
+const WORKER_LOST = 'The device process that ran this command exited, so its result can no longer be obtained';
 
 function strip(text: string): string {
     const trimmed = text.trimStart();
@@ -99,6 +100,7 @@ function strip(text: string): string {
 
 function unknownKey(body: string): string | null {
     return body.includes(DEVICE_RECONNECTED) ? 'deviceReconnected'
+        : body.includes(WORKER_LOST) ? 'workerLost'
         : OUTCOME_UNKNOWN.find(([prefix]) => body.startsWith(prefix))?.[1] ?? null;
 }
 

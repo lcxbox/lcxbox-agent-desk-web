@@ -534,6 +534,47 @@ impl ExecPtyCarrierRegistry {
             .map(|entry| cancellation(stream_id.to_string(), entry, reason))
     }
 
+    /// Close the stream of an execution whose worker instance is gone. The
+    /// central end of an opened stream receives a final `Closed` frame with an
+    /// unknown outcome, which is what releases its carrier and the owner's
+    /// terminal; the worker that would have sent the real one no longer exists.
+    pub fn close_lost_worker_execution(
+        &self,
+        generation: &str,
+        worker_key: Option<&WorkerKey>,
+        worker_incarnation: WorkerIncarnation,
+    ) {
+        let mut inner = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+        let Some(stream_id) = inner
+            .iter()
+            .find(|(_, entry)| {
+                entry.execution_generation == generation
+                    && validate_worker(entry, worker_key, worker_incarnation).is_ok()
+            })
+            .map(|(stream_id, _)| stream_id.clone())
+        else {
+            return;
+        };
+        let Some(mut entry) = inner.remove(&stream_id) else {
+            return;
+        };
+        if entry.opened {
+            let closed = PtyStreamClosed {
+                stream_id,
+                execution_generation: entry.execution_generation.clone(),
+                session_target_id: entry.session_target_id.clone(),
+                registration_generation: entry.registration_generation,
+                worker_incarnation: entry.wire_worker_incarnation,
+                exit_status: None,
+                reason: PtyCloseReason::OutcomeUnknown,
+                input_frames: entry.next_input_sequence,
+                input_bytes: 0,
+                output_bytes: 0,
+            };
+            let _ = route_output_frame(&mut entry, PtyWireFrame::Closed(closed));
+        }
+    }
+
     pub fn contains(&self, stream_id: &str) -> bool {
         self.inner
             .lock()
@@ -741,6 +782,60 @@ mod tests {
             ),
             Err(CarrierError::StaleWorker)
         );
+    }
+
+    /// Losing the worker closes only that worker instance's stream, and the
+    /// central end of an opened stream is told it closed with an unknown outcome.
+    #[tokio::test]
+    async fn a_lost_worker_closes_its_opened_stream_toward_the_central_end() {
+        let registry = ExecPtyCarrierRegistry::new();
+        let link = PtyCarrierLinkId::new();
+        let (tx, mut rx) = mpsc::channel(CARRIER_OUTPUT_QUEUE_CAP);
+        registry
+            .bind(
+                link,
+                &start(),
+                Some(key()),
+                WorkerIncarnation::for_test(9),
+                tx,
+            )
+            .unwrap();
+        registry
+            .route_worker_opened(
+                Some(&key()),
+                WorkerIncarnation::for_test(9),
+                PtyStreamOpened {
+                    task_id: "task-1".into(),
+                    execution_generation: "generation-1".into(),
+                    stream_id: "stream-1".into(),
+                    session_target_id: "session-1".into(),
+                    registration_generation: 7,
+                    worker_incarnation: 9,
+                },
+            )
+            .unwrap();
+        assert!(rx.recv().await.is_some());
+
+        registry.close_lost_worker_execution(
+            "generation-1",
+            Some(&key()),
+            WorkerIncarnation::for_test(10),
+        );
+        assert!(registry.contains("stream-1"), "another instance's stream");
+        registry.close_lost_worker_execution(
+            "generation-1",
+            Some(&key()),
+            WorkerIncarnation::for_test(9),
+        );
+        assert!(!registry.contains("stream-1"));
+        let Ok(PtyWireFrame::Closed(closed)) = exec_pty_wire::decode(&rx.recv().await.unwrap())
+        else {
+            panic!("the central end must receive a Closed frame");
+        };
+        assert_eq!(closed.reason, PtyCloseReason::OutcomeUnknown);
+        assert_eq!(closed.exit_status, None);
+        assert_eq!(closed.execution_generation, "generation-1");
+        assert_eq!(closed.worker_incarnation, 9);
     }
 
     #[tokio::test]

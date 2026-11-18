@@ -96,6 +96,16 @@ pub struct WorkerMessage {
     pub message: WorkerToService,
 }
 
+/// A worker instance the daemon took out of service — replaced, restarted
+/// after a crash, recycled or stopped — while it may still have owed results.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetiredWorker {
+    pub worker_key: Option<WorkerKey>,
+    pub incarnation: WorkerIncarnation,
+}
+
+pub type RetiredWorkerReceiver = mpsc::UnboundedReceiver<RetiredWorker>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecWorkerTarget {
     pub worker_key: Option<WorkerKey>,
@@ -251,6 +261,11 @@ pub struct WorkerManager {
     exec_sandbox_revocations: exec_sandbox_labels::PendingRevocations,
     /// Which resident worker each connection-less central request went to.
     resident_requests: Arc<resident_request_routes::ResidentRequestRoutes>,
+    /// Worker instances taken out of service. The signaling proxy settles the
+    /// central executions each one was running; the receiver waits here until
+    /// the proxy takes it.
+    retired_workers_tx: mpsc::UnboundedSender<RetiredWorker>,
+    retired_workers_rx: Arc<StdMutex<Option<RetiredWorkerReceiver>>>,
     settings: web::Data<SharedSettings>,
     inner: Arc<Mutex<WorkerManagerInner>>,
     worker_msg_tx: Arc<mpsc::UnboundedSender<WorkerMessage>>,
@@ -644,6 +659,7 @@ impl WorkerManager {
         pc_registry: PcRegistry,
     ) -> (Self, WorkerMessageReceiver) {
         let (tx, rx) = mpsc::unbounded_channel::<WorkerMessage>();
+        let (retired_workers_tx, retired_workers_rx) = mpsc::unbounded_channel();
         let (cap_version_tx, _cap_version_rx) = watch::channel::<u64>(0);
         let mgr = WorkerManager {
             #[cfg(target_os = "linux")]
@@ -697,6 +713,8 @@ impl WorkerManager {
             #[cfg(windows)]
             exec_sandbox_revocations: exec_sandbox_labels::PendingRevocations::default(),
             resident_requests: Arc::default(),
+            retired_workers_tx,
+            retired_workers_rx: Arc::new(StdMutex::new(Some(retired_workers_rx))),
         };
         (mgr, rx)
     }
@@ -795,6 +813,22 @@ impl WorkerManager {
         if let Some(task) = worker.inprocess_task.take() {
             task.abort();
         }
+    }
+
+    /// The receiver of [`RetiredWorker`] notices. There is one per manager;
+    /// later calls get `None`.
+    pub fn take_retired_worker_receiver(&self) -> Option<RetiredWorkerReceiver> {
+        self.retired_workers_rx.lock().unwrap().take()
+    }
+
+    /// Report a worker instance taken out of service. Called where a running
+    /// instance is removed, never on daemon shutdown: executions a stopping
+    /// daemon leaves behind are settled when it next starts.
+    fn announce_retired(&self, worker_key: Option<WorkerKey>, incarnation: WorkerIncarnation) {
+        let _ = self.retired_workers_tx.send(RetiredWorker {
+            worker_key,
+            incarnation,
+        });
     }
 
     fn retire_resident_worker(&self, worker: &mut WorkerHandle) {
@@ -1321,6 +1355,7 @@ impl WorkerManager {
         }
         let _ = worker.ipc_tx.send(ServiceToWorker::Shutdown);
         self.retire_resident_worker(&mut worker);
+        self.announce_retired(Some(key.clone()), worker.incarnation);
         if let Some(mut process) = worker.process_handle.take()
             && tokio::time::timeout(Duration::from_secs(3), process.wait())
                 .await
@@ -1613,6 +1648,7 @@ impl WorkerManager {
             info!("Shutting down existing worker before starting new one");
             let _ = worker.ipc_tx.send(ServiceToWorker::Shutdown);
             self.retire_worker(&mut worker);
+            self.announce_retired(None, worker.incarnation);
             if let Some(mut proc) = worker.process_handle.take() {
                 match tokio::time::timeout(Duration::from_secs(3), proc.wait()).await {
                     Ok(()) => info!("Old worker exited gracefully"),
@@ -1793,6 +1829,7 @@ impl WorkerManager {
             info!("Shutting down existing in-process worker before starting a new one");
             let _ = worker.ipc_tx.send(ServiceToWorker::Shutdown);
             self.retire_worker(&mut worker);
+            self.announce_retired(None, worker.incarnation);
             computer_use_broker.reset_worker_incarnation();
         }
 
@@ -2921,6 +2958,7 @@ impl WorkerManager {
             for task in worker.lane_tasks.drain(..) {
                 task.abort();
             }
+            self.announce_retired(None, worker.incarnation);
             (
                 worker.session_id,
                 worker.desktop_name.clone(),
@@ -3917,6 +3955,7 @@ impl WorkerManager {
             mgr.fence_resident_worker(&key, incarnation);
             mgr.revoke_interactive_route(&key, incarnation);
             mgr.retire_resident_worker(&mut worker);
+            mgr.announce_retired(Some(key.clone()), incarnation);
             if let Some(mut process) = worker.process_handle.take() {
                 let _ = process.kill().await;
                 process.wait().await;

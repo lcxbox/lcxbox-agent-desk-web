@@ -569,7 +569,7 @@ fn remote_access_central_link_uses_service_daemon_loopback() {
     );
 }
 
-async fn make_router_ctx() -> (RouterContext, broadcast::Sender<String>) {
+pub(super) async fn make_router_ctx() -> (RouterContext, broadcast::Sender<String>) {
     let (outbound_tx, _) = broadcast::channel::<String>(16);
     let shared = SharedSettings::from(Settings::default());
     let settings = web::Data::new(shared);

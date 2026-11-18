@@ -829,6 +829,7 @@ export default {
   'pages.aiAssistant.outcomeUnknown.noConclusiveReceipt': "execution did not return a conclusive receipt. Check the current target state before the next step; do not assume success or repeat it blindly",
   'pages.aiAssistant.outcomeUnknown.noConclusiveResult': "execution did not return a conclusive result and may have had effects. Check the current target state before the next step; do not assume success or repeat it blindly",
   'pages.aiAssistant.outcomeUnknown.interruptedWithoutReceipt': "the turn was interrupted without a recoverable action receipt. Check the current target state before the next step",
+  'pages.aiAssistant.outcomeUnknown.workerLost': "the device process that ran this command exited, so its result can no longer be obtained; the command may still be running or may have finished. Check the device before running it again",
   'pages.aiAssistant.outcomeUnknown.deviceReconnected': "the device restarted or reconnected, so this command's result can no longer be obtained; it may or may not have run. Check the device before running it again",
   'pages.aiAssistant.outcomeUnknown.originalAction': "the original action outcome is unknown; it will not be retried automatically",
   'pages.aiAssistant.outcomeUnknown.originalCommand': "the original command outcome is unknown; it will not be retried automatically",

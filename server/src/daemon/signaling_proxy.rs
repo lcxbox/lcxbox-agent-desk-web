@@ -37,7 +37,10 @@ use rustls_native_certs::load_native_certs;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast, watch};
 
-fn take_edge_exec_correlation(
+/// Take a central dispatch's correlation. Whoever takes it — the worker's
+/// result, a dispatch failure, or the settlement of a departed worker — is the
+/// one that answers the central, so each dispatch is answered exactly once.
+pub(crate) fn take_edge_exec_correlation(
     pending: &std::sync::Mutex<std::collections::HashSet<String>>,
     request_id: &str,
 ) -> bool {
@@ -45,6 +48,17 @@ fn take_edge_exec_correlation(
         .lock()
         .map(|mut pending| pending.remove(request_id))
         .unwrap_or(false)
+}
+
+/// The next worker instance taken out of service; never resolves without a
+/// receiver, which only a second proxy on the same manager lacks.
+async fn next_retired_worker(
+    receiver: &mut Option<super::worker_manager::RetiredWorkerReceiver>,
+) -> Option<super::worker_manager::RetiredWorker> {
+    match receiver {
+        Some(receiver) => receiver.recv().await,
+        None => std::future::pending().await,
+    }
 }
 
 fn emit_typed_signaling<T: serde::Serialize>(
@@ -677,7 +691,19 @@ pub async fn run_signaling_proxy(
         super::worker_manager::WorkerIncarnation,
     >::new();
     let mut unkeyed_capability_incarnation = None;
-    while let Some(worker_message) = worker_rx.recv().await {
+    let mut retired_workers = worker_mgr.take_retired_worker_receiver();
+    loop {
+        let worker_message = tokio::select! {
+            message = worker_rx.recv() => match message {
+                Some(message) => message,
+                None => break,
+            },
+            Some(retired) = next_retired_worker(&mut retired_workers) => {
+                exec_completion::settle_retired_worker(&router_ctx, &exec_pty_carriers, retired)
+                    .await;
+                continue;
+            }
+        };
         // Every IPC message — heartbeat, signaling, desktop change —
         // counts as a sign of life for the watchdog. Updating before
         // the match keeps the bookkeeping in one place and avoids the
@@ -1794,102 +1820,7 @@ pub async fn run_signaling_proxy(
                 }
             }
             WorkerToService::ExecutionCompleted(payload) => {
-                // Close out the ledger entry first, so the host's own record is
-                // settled before the answer leaves the machine. The generation is
-                // the frame id the plan was dispatched under.
-                {
-                    let result_json = serde_json::to_string(&payload.result.outcome)
-                        .unwrap_or_else(|_| "null".to_string());
-                    if let Err(e) = router_ctx
-                        .exec_ledger
-                        .mark_terminal(
-                            &payload.request_id,
-                            crate::daemon::exec_ledger::Terminal::Completed(result_json),
-                        )
-                        .await
-                    {
-                        // The command did run; failing to record that is bad but
-                        // withholding the result would be worse, so log and relay.
-                        log::error!(
-                            "[exec-ledger] could not record the result of {}: {e}",
-                            payload.request_id
-                        );
-                    }
-                }
-                // The execution is accounted for; free its slot for the next one.
-                router_ctx.exec_capacity.release(&payload.request_id);
-                // Audit the completion (single-machine log sink). The summary is
-                // content-free (exit code / error kind only), never stdout.
-                {
-                    use desk_agent_protocol::AgentOutcome;
-                    let (success, summary, redactions) = match &payload.result.outcome {
-                        AgentOutcome::Ok(desk_agent_protocol::OperationOutput::Exec(o)) => {
-                            (o.succeeded(), o.audit_summary(), o.redactions.len() as i32)
-                        }
-                        AgentOutcome::Ok(_) => (true, "ok".to_string(), 0),
-                        AgentOutcome::Err(e) => (false, format!("{:?}", e.kind), 0),
-                    };
-                    router_ctx
-                        .audit
-                        .record(
-                            desk_agent_protocol::audit::AuditEvent::command_completed(
-                                uuid::Uuid::new_v4().to_string(),
-                                chrono::Utc::now().to_rfc3339(),
-                                &payload.result.exec_request_id.0,
-                                success,
-                                summary,
-                                redactions,
-                                0,
-                            )
-                            // The worker echoed back the originating ConfirmExec
-                            // frame request_id (the manager's ledger key) so this
-                            // completion is attributed to the real operator.
-                            .with_task_id(payload.audit_source_request_id.as_deref()),
-                        )
-                        .await;
-                }
-                // Fleet exec correlation: if this result is for an in-flight
-                // fleet attempt, relay it to the manager as a `EdgeExecResult`
-                // (`Executed`) instead of an `ExecutionCompleted(609)` toward a browser.
-                let is_fleet =
-                    take_edge_exec_correlation(&router_ctx.edge_exec_pending, &payload.request_id);
-                if is_fleet {
-                    signaling_router::send_edge_execution_completed(
-                        &outbound_tx,
-                        &payload.request_id,
-                        desk_agent_protocol::edge_exec::EdgeExecDisposition::Executed {
-                            outcome: payload.result.outcome.clone(),
-                        },
-                    );
-                    continue;
-                }
-                match serde_json::to_value(&payload.result) {
-                    Ok(value) => {
-                        let frame = SignalingModel::new(
-                            &payload.request_id,
-                            SignalingType::ExecutionCompleted,
-                            None,
-                            payload.connection_id.clone(),
-                            Some(value),
-                            None,
-                        );
-                        match serde_json::to_string(&frame) {
-                            Ok(text) => {
-                                let _ = outbound_tx.send(text);
-                            }
-                            Err(e) => warn!(
-                                "[SignalingProxy] Failed to serialise ExecutionCompleted frame for \
-                                 {:?}: {e} (request_id={})",
-                                payload.connection_id, payload.request_id,
-                            ),
-                        }
-                    }
-                    Err(e) => warn!(
-                        "[SignalingProxy] Failed to serialise ExecResultPayload for {:?}: {e} \
-                         (request_id={})",
-                        payload.connection_id, payload.request_id,
-                    ),
-                }
+                exec_completion::relay_execution_completed(&router_ctx, payload).await;
             }
             WorkerToService::FileRecoveryQuotaRequested(request) => {
                 worker_mgr
@@ -2041,6 +1972,8 @@ mod responses;
 
 mod resident_output;
 use responses::*;
+
+mod exec_completion;
 
 mod connection_policy;
 use connection_policy::*;
