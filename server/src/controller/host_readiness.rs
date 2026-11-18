@@ -137,7 +137,7 @@ pub async fn authorize_wayland(
     }
     let worker = current_worker(&coordinator)?;
     worker
-        .send_to_worker(ServiceToWorker::AuthorizeWaylandPortal(
+        .send_to_wayland_session_worker(ServiceToWorker::AuthorizeWaylandPortal(
             AuthorizeWaylandPortalPayload {
                 operation_id: request.operation_id,
                 target: request.target.into(),
@@ -171,7 +171,7 @@ pub async fn cancel_wayland(
     let request = request.into_inner();
     let worker = current_worker(&coordinator)?;
     worker
-        .send_to_worker(ServiceToWorker::CancelWaylandPortal(
+        .send_to_wayland_session_worker(ServiceToWorker::CancelWaylandPortal(
             CancelWaylandPortalPayload {
                 operation_id: request.operation_id,
                 generation: request.generation,

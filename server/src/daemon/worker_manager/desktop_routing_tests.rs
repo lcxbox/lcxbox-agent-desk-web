@@ -268,3 +268,56 @@ async fn a_frozen_session_is_not_reactivated_by_a_capability_refresh() {
         "a frozen session stays without an interactive route"
     );
 }
+
+#[tokio::test]
+async fn a_wayland_portal_command_reaches_the_only_linux_session_worker() {
+    let (manager, _session, _default_key, _winlogon_key) = manager_with_session();
+    let linux_key = |id: &str| WorkerKey {
+        session: SessionKey {
+            platform_session_id: id.into(),
+            session_generation: 1,
+        },
+        desktop: DesktopTarget::LinuxSession,
+    };
+    let cancel = || {
+        ServiceToWorker::CancelWaylandPortal(
+            desk_ipc_protocol::message::CancelWaylandPortalPayload {
+                operation_id: "op".into(),
+                generation: 1,
+            },
+        )
+    };
+
+    assert!(
+        manager
+            .send_to_wayland_session_worker(cancel())
+            .await
+            .is_err()
+    );
+
+    let (first_tx, mut first_rx) = mpsc::unbounded_channel();
+    manager
+        .install_resident_for_test(linux_key("2"), first_tx)
+        .await;
+    manager
+        .send_to_wayland_session_worker(cancel())
+        .await
+        .expect("the only session worker takes it");
+    assert!(matches!(
+        first_rx.try_recv(),
+        Ok(ServiceToWorker::CancelWaylandPortal(_))
+    ));
+
+    let (second_tx, mut second_rx) = mpsc::unbounded_channel();
+    manager
+        .install_resident_for_test(linux_key("4"), second_tx)
+        .await;
+    assert!(
+        manager
+            .send_to_wayland_session_worker(cancel())
+            .await
+            .is_err()
+    );
+    assert!(first_rx.try_recv().is_err());
+    assert!(second_rx.try_recv().is_err());
+}

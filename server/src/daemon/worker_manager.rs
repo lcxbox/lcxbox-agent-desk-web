@@ -3276,6 +3276,31 @@ impl WorkerManager {
         })
     }
 
+    /// Send a local-console Wayland Portal command, which names no session.
+    /// Without resident workers the single worker takes it. With them, only a
+    /// Linux session worker can hold a Portal: the only one takes it, and
+    /// several are refused rather than guessed between.
+    pub async fn send_to_wayland_session_worker(&self, msg: ServiceToWorker) -> Result<(), String> {
+        if !self.session_targeting_enabled.load(Ordering::Acquire) {
+            return self.send_to_worker(msg).await;
+        }
+        let inner = self.inner.lock().await;
+        let mut workers = inner
+            .resident_workers
+            .iter()
+            .filter(|(key, _)| key.desktop == DesktopTarget::LinuxSession);
+        match (workers.next(), workers.next()) {
+            (Some((key, worker)), None) => self
+                .deliver_to_resident(key, worker, msg)
+                .map_err(|()| format!("failed to send to resident worker {key:?}")),
+            (None, _) => Err("no desktop session worker is running".to_string()),
+            (Some(_), Some(_)) => Err(
+                "the device has several desktop sessions; enabling Wayland remote access for one of them is not supported yet"
+                    .to_string(),
+            ),
+        }
+    }
+
     pub async fn send_to_session_worker(
         &self,
         session: &desk_ipc_protocol::message::SessionKey,
