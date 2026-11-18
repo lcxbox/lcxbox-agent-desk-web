@@ -64,9 +64,32 @@ pub(super) fn probe() -> ExecSandboxSupport {
 }
 
 pub(super) fn self_test() -> io::Result<()> {
-    let base = windows_lease::worker_app_dir()
-        .ok_or_else(|| io::Error::other("the local application data folder is unavailable"))?
-        .join("exec-sandbox-probe");
+    self_test_in(&probe_local_root()?)
+}
+
+/// The folder the self-test treats as the local application data folder.
+/// Tests use a folder of their own, so they never create the user's
+/// application directory.
+#[cfg(not(test))]
+fn probe_local_root() -> io::Result<std::path::PathBuf> {
+    windows_lease::local_app_data()
+}
+
+#[cfg(test)]
+fn probe_local_root() -> io::Result<std::path::PathBuf> {
+    let dir = std::env::temp_dir().join(format!(
+        "lcxl-exec-sandbox-test-local-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Run the self-test with `local` standing for the local application data
+/// folder. The probe lives in a private child of the worker's application
+/// directory, which only the private-directory code creates.
+pub(super) fn self_test_in(local: &std::path::Path) -> io::Result<()> {
+    let base = windows_lease::private_app_child(local, "exec-sandbox-probe")?;
     let dir = base.join(format!(
         "probe-{}-{}",
         std::process::id(),

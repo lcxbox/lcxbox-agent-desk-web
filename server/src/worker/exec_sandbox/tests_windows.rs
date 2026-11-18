@@ -137,6 +137,21 @@ fn the_self_test_reports_its_cause() {
 }
 
 #[test]
+fn the_label_store_opens_after_the_self_test_in_a_fresh_profile() {
+    let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+    let local = tempfile::tempdir().unwrap();
+    if !execution_identity().is_privileged() {
+        platform::self_test_in(local.path()).expect("Windows sandbox self-test");
+    }
+    windows_lease::open_store_in(local.path()).expect("the store after the self-test");
+    // An application directory created with an inherited DACL is refused,
+    // so nothing but the private-directory code may create it.
+    let plain = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(plain.path().join("lcxl-remote-desk-worker").join("probe")).unwrap();
+    assert!(windows_lease::open_store_in(plain.path()).is_err());
+}
+
+#[test]
 fn the_self_test_passes_on_this_host() {
     let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
     let _ = available();

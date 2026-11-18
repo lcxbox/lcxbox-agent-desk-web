@@ -12,7 +12,6 @@ use actix_web::{App, HttpServer, dev::ServiceResponse, middleware::Logger, web};
 use desk_signal::model::SharedConnectionMap;
 use desk_signal_facade::service::NodeTokenValidator;
 use log::{error, info};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use utoipa_actix_web::AppExt as _;
@@ -66,7 +65,10 @@ pub async fn run_local_api(
 
     let settings_data = web::Data::from(settings.clone());
     let settings_coordinator_data = web::Data::from(settings_coordinator);
-    let connection_map = web::Data::new(SharedConnectionMap::from(BTreeMap::new()));
+    // The embedded OSS signaling indexes each device's current connection by
+    // client id, as Default and DeskServer do; without it every device lookup
+    // reports the device offline.
+    let connection_map = web::Data::new(SharedConnectionMap::new_oss());
 
     desk_signal::agent_runtime::register_continuation_connections(connection_map.clone());
     actix_web::rt::spawn(

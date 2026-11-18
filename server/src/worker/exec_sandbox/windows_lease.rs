@@ -147,19 +147,27 @@ pub(crate) struct Store {
     dir: PathBuf,
 }
 
-/// The current user's store, created on first use.
+/// The current user's store, created on first use. A failure is not kept:
+/// the next use tries again.
 pub(crate) fn store() -> Result<Arc<Store>, String> {
-    static STORE: OnceLock<Result<Arc<Store>, String>> = OnceLock::new();
-    STORE
-        .get_or_init(|| {
-            open_store()
-                .map(Arc::new)
-                .map_err(|e| format!("the sandbox label store is unavailable: {e}"))
-        })
-        .clone()
+    static STORE: OnceLock<Arc<Store>> = OnceLock::new();
+    open_once(&STORE, open_store)
+        .map_err(|e| format!("the sandbox label store is unavailable: {e}"))
 }
 
-fn local_app_data() -> io::Result<PathBuf> {
+/// Keep the first store that opens; a failed open leaves `cell` empty.
+fn open_once(
+    cell: &OnceLock<Arc<Store>>,
+    open: impl FnOnce() -> io::Result<Store>,
+) -> io::Result<Arc<Store>> {
+    if let Some(store) = cell.get() {
+        return Ok(store.clone());
+    }
+    let store = Arc::new(open()?);
+    Ok(cell.get_or_init(|| store).clone())
+}
+
+pub(super) fn local_app_data() -> io::Result<PathBuf> {
     use windows::Win32::System::Com::CoTaskMemFree;
     use windows::Win32::UI::Shell::{FOLDERID_LocalAppData, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
     let raw = unsafe { SHGetKnownFolderPath(&FOLDERID_LocalAppData, KF_FLAG_DEFAULT, None) }
@@ -174,10 +182,30 @@ fn local_app_data() -> io::Result<PathBuf> {
 /// The per-user application directory of the worker; the whole directory is
 /// refused as a write root (plan 6.5.3, part two).
 pub(crate) fn worker_app_dir() -> Option<PathBuf> {
-    local_app_data()
-        .ok()
-        .map(|local| local.join("lcxl-remote-desk-worker"))
+    local_app_data().ok().map(|local| local.join(APP_DIR))
 }
+
+const APP_DIR: &str = "lcxl-remote-desk-worker";
+
+/// Open (creating if needed) a private child of the worker's application
+/// directory below `local`. The application directory is created only here,
+/// private to the user; a directory made any other way fails validation.
+pub(super) fn private_app_child(local: &Path, leaf: &str) -> io::Result<PathBuf> {
+    use desk_file_recovery::windows::PrivateDirectory;
+    PrivateDirectory::open_data_root(local, APP_DIR)?.open_child(leaf)?;
+    Ok(local.join(APP_DIR).join(leaf))
+}
+
+pub(super) fn open_store_in(local: &Path) -> io::Result<Store> {
+    use desk_file_recovery::windows::PrivateDirectory;
+    let labels = PrivateDirectory::open_data_root(local, APP_DIR)?.open_child(STORE_DIR)?;
+    labels.open_child("locks")?;
+    Ok(Store {
+        dir: local.join(APP_DIR).join(STORE_DIR),
+    })
+}
+
+const STORE_DIR: &str = "exec-sandbox-labels";
 
 /// Unit tests use a store of their own instead of the user's.
 #[cfg(test)]
@@ -192,16 +220,7 @@ fn open_store() -> io::Result<Store> {
 
 #[cfg(not(test))]
 fn open_store() -> io::Result<Store> {
-    use desk_file_recovery::windows::PrivateDirectory;
-    let local = local_app_data()?;
-    let app = PrivateDirectory::open_data_root(&local, "lcxl-remote-desk-worker")?;
-    let labels = app.open_child("exec-sandbox-labels")?;
-    labels.open_child("locks")?;
-    Ok(Store {
-        dir: local
-            .join("lcxl-remote-desk-worker")
-            .join("exec-sandbox-labels"),
-    })
+    open_store_in(&local_app_data()?)
 }
 
 /// The store lock and the mapping it guards.
@@ -624,6 +643,23 @@ mod tests {
         assert!(covers(r"C:\Work\", r"C:\Work"));
         assert!(!covers(r"C:\Work", r"C:\Workspace"));
         assert!(!covers(r"C:\Work\repo", r"C:\Work"));
+    }
+
+    #[test]
+    fn a_failed_store_open_is_tried_again() {
+        let cell = OnceLock::new();
+        let scratch = tempfile::tempdir().unwrap();
+        assert!(open_once(&cell, || Err(io::Error::other("not yet"))).is_err());
+        let opened = open_once(&cell, || {
+            Ok(Store {
+                dir: scratch.path().to_path_buf(),
+            })
+        })
+        .unwrap();
+        assert_eq!(opened.dir, scratch.path());
+        // Once open, the store is kept.
+        let again = open_once(&cell, || Err(io::Error::other("unused"))).unwrap();
+        assert!(Arc::ptr_eq(&opened, &again));
     }
 
     #[test]
