@@ -41,6 +41,7 @@ import { useResolutionToast } from "./use-resolution-toast"
 import { isWebRtcAvailable } from "./webrtc-support"
 import { useToast } from "@/hooks/use-toast"
 import { deskErrorMessage, type ErrorCodeKeyMap } from "@/lib/desk-error-i18n"
+import { remoteAccessRefusalMessage } from "./remote-access-refusal"
 import type {
     MediaPipelineStateData,
     RemoteSessionSettings,
@@ -237,6 +238,8 @@ export default function DeskSession({
     const admittedWaylandModeRef = useRef<WaylandControlMode>("auto");
     const selectedSessionTargetRef = useRef<string | undefined>(undefined);
     const [sessionTargets, setSessionTargets] = useState<SessionTargetDescriptor[]>([]);
+    // Why the host refused the last admission; shown in place of the desktop.
+    const [admissionRefusal, setAdmissionRefusal] = useState<string | null>(null);
 
     const clearAdmissionRetry = useCallback(() => {
         const state = admissionRetryRef.current;
@@ -257,6 +260,7 @@ export default function DeskSession({
             || deviceConnectionResolution.status === "loading"
         ) return;
         if (newLogicalAttempt) clearAdmissionRetry();
+        setAdmissionRefusal(null);
         const state = admissionRetryRef.current;
         const generation = state.generation;
         hasRequestedRef.current = true;
@@ -962,14 +966,12 @@ export default function DeskSession({
                     }
                 } else {
                     clearAdmissionRetry();
-                    if (message.response_state?.error_code
-                        === deskErrorCodeEnum.WAYLAND_PORTAL_AUTHORIZATION_REQUIRED
-                    ) {
-                        toast({
-                            title: t("pages.desk.waylandAuthorizationRequiredTitle"),
-                            description: t("pages.desk.waylandAuthorizationRequiredDescription"),
-                            variant: "destructive",
-                        });
+                    if (message.response_state) {
+                        setAdmissionRefusal(remoteAccessRefusalMessage(
+                            t,
+                            message.response_state.error_code,
+                            message.response_state.message,
+                        ));
                     }
                 }
             } else if (signaling_type === SIGNALING_TYPE_CODE_OFFER
@@ -1891,11 +1893,15 @@ export default function DeskSession({
                                         ? 'pages.desk.applyingVideoSettings'
                                         : 'pages.desk.connectingVideo')}
                                 </p>
-                                {!initData && (
+                                {!initData && (admissionRefusal ? (
+                                    <p role="alert" className="mt-1 max-w-md text-center text-sm text-red-300">
+                                        {admissionRefusal}
+                                    </p>
+                                ) : (
                                     <p className="mt-1 text-sm text-white/60">
                                         {t('pages.desk.waitingPermission')}
                                     </p>
-                                )}
+                                ))}
                             </div>
                         </div>
 

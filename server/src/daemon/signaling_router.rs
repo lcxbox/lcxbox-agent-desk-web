@@ -903,19 +903,21 @@ pub async fn route(model: &SignalingModel, ctx: &RouterContext) -> Result<(), Ro
                     ctx.worker_mgr.session_worker_capabilities(session).await
                 }
             } else if request_remote.purpose == RemoteSessionPurpose::RemoteDesktop {
-                Some(
-                    ctx.worker_mgr
-                        .wait_current_worker_capabilities(
-                            REMOTE_DESKTOP_CAPABILITIES_TIMEOUT,
-                        )
-                        .await
-                        .ok_or_else(|| {
-                            DeskError::CustomError(CustomDeskError::new(
-                                DeskErrorCode::REMOTE_DESKTOP_CAPABILITIES_NOT_READY,
-                                "the current desktop worker has not published media capabilities yet",
-                            ))
-                        })?,
-                )
+                match ctx
+                    .worker_mgr
+                    .wait_current_worker_capabilities(REMOTE_DESKTOP_CAPABILITIES_TIMEOUT)
+                    .await
+                {
+                    Some(capabilities) => Some(capabilities),
+                    None => {
+                        let error = CustomDeskError::new(
+                            DeskErrorCode::REMOTE_DESKTOP_CAPABILITIES_NOT_READY,
+                            "the current desktop worker has not published media capabilities yet",
+                        );
+                        emit_error_response(ctx, model, error.error_code, &error.message);
+                        return Err(DeskError::CustomError(error).into());
+                    }
+                }
             } else {
                 ctx.worker_mgr.worker_capabilities()
             };
@@ -1001,8 +1003,15 @@ pub async fn route(model: &SignalingModel, ctx: &RouterContext) -> Result<(), Ro
             )
             .await;
 
-            if result.is_err() {
+            if let Err(error) = &result {
                 ctx.worker_mgr.clear_connection_target(connection_id);
+                // Answer the request so the browser can act on the reason
+                // (retry, Wayland authorization, ...) instead of waiting forever.
+                let message = match error {
+                    DeskError::CustomError(custom) => custom.message.as_str(),
+                    _ => "Remote access could not be initialized",
+                };
+                emit_error_response(ctx, model, error.to_error_code(), message);
             }
 
             // Release the guard before the post-handler cleanup check so

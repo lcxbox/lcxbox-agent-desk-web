@@ -82,6 +82,68 @@ pub(super) async fn request_remote_without_a_stamp_is_refused() {
     assert!(ctx.pc_registry.admission("conn-unstamped").await.is_none());
 }
 
+/// A desktop request the host cannot admit yet is answered with the reason on
+/// the request's own response, so the browser can retry instead of waiting.
+#[tokio::test]
+pub(super) async fn request_remote_before_capabilities_is_answered_with_the_reason() {
+    let (ctx, mut rx) = make_ctx_with_rx().await;
+    let model = make_request_remote_model("conn-no-caps");
+
+    assert!(route(&model, &ctx).await.is_err());
+
+    let response = read_response(&mut rx);
+    assert_eq!(
+        response.signaling_type,
+        SignalingType::RemoteAccessInitialized
+    );
+    assert_eq!(response.request_id, model.request_id);
+    let state = response.response_state.expect("missing refusal response");
+    assert_eq!(
+        state.error_code,
+        DeskErrorCode::REMOTE_DESKTOP_CAPABILITIES_NOT_READY.code()
+    );
+    assert!(ctx.pc_registry.get("conn-no-caps").await.is_none());
+}
+
+/// On Wayland a desktop request before the local user enables remote access is
+/// answered with the authorization requirement.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+pub(super) async fn request_remote_before_wayland_authorization_is_answered_with_the_reason() {
+    let (ctx, mut rx) = make_ctx_with_rx().await;
+    ctx.worker_mgr
+        .set_worker_capabilities(MediaCapabilities::default());
+    ctx.worker_mgr
+        .set_wayland_portal_snapshot(desk_wayland_portal::PortalSnapshot {
+            phase: desk_wayland_portal::PortalPhase::NeedsAuthorization,
+            capabilities: desk_wayland_portal::PortalCapabilities::default(),
+            availability: desk_wayland_portal::PortalAvailability::default(),
+            target: None,
+            operation_id: None,
+            generation: 2,
+            restore_token_persisted: false,
+            requires_local_action: true,
+            reason_code: None,
+            reason: None,
+        });
+    let model = make_request_remote_model("conn-no-portal");
+
+    assert!(route(&model, &ctx).await.is_err());
+
+    let response = read_response(&mut rx);
+    assert_eq!(
+        response.signaling_type,
+        SignalingType::RemoteAccessInitialized
+    );
+    assert_eq!(response.request_id, model.request_id);
+    let state = response.response_state.expect("missing refusal response");
+    assert_eq!(
+        state.error_code,
+        DeskErrorCode::WAYLAND_PORTAL_AUTHORIZATION_REQUIRED.code()
+    );
+    assert!(ctx.pc_registry.get("conn-no-portal").await.is_none());
+}
+
 #[tokio::test]
 pub(super) async fn tombstone_rejects_late_request_after_host_disconnect() {
     let (ctx, mut rx) = make_ctx_with_rx().await;

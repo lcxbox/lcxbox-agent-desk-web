@@ -3041,7 +3041,8 @@ export default {
   'pages.desk.waylandModeNextConnectionDescription': 'This connection keeps the input mode declared during admission. Disconnect and reconnect to apply the new mode.',
   'pages.desk.waylandModeReconnectTitle': 'Reconnecting to apply the input mode',
   'pages.desk.waylandModeReconnectDescription': 'The current remote session will be rebuilt with the newly selected Wayland input mode.',
-  'pages.desk.waylandAuthorizationRequiredTitle': 'The host is not ready for Wayland remote access',
+  'pages.desk.remoteAccessDenied': "The host refused this remote desktop connection.",
+  'pages.desk.remoteAccessFailed': "The host could not open a remote desktop connection.",
   'pages.desk.waylandAuthorizationRequiredDescription': 'Ask the local user at the host to enable Wayland remote access on the home page, then reconnect.',
   // Remote terminal session.
   'pages.deskTerminal.connect': 'Connect',

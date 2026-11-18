@@ -3029,7 +3029,8 @@ export default {
   'pages.desk.waylandModeNextConnectionDescription': '本次连接继续使用准入时声明的输入模式；断开并重新连接后将应用新模式。',
   'pages.desk.waylandModeReconnectTitle': '正在重连以应用输入模式',
   'pages.desk.waylandModeReconnectDescription': '当前远程会话将使用新选择的 Wayland 输入模式重新建立。',
-  'pages.desk.waylandAuthorizationRequiredTitle': '被控端尚未准备好 Wayland 远程访问',
+  'pages.desk.remoteAccessDenied': "被控端拒绝了这次远程桌面连接。",
+  'pages.desk.remoteAccessFailed': "被控端无法建立远程桌面连接。",
   'pages.desk.waylandAuthorizationRequiredDescription': '请让被控端的本机用户在首页启用 Wayland 远程访问，然后重新连接。',
   // Remote terminal session.
   'pages.deskTerminal.connect': '连接',
