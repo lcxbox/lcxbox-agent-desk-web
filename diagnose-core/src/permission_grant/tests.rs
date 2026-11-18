@@ -2029,3 +2029,54 @@ fn only_an_owners_approval_of_a_stale_request_becomes_a_system_refusal() {
     ));
     assert!(matches!(source, PermissionDecisionSource::UserDecision));
 }
+
+#[test]
+fn only_a_non_retryable_policy_refusal_turns_an_owner_approval_into_a_system_refusal() {
+    use super::{StaleApprovalTarget, record_outdated_owner_approval};
+    use crate::dynamic_run::PermissionDecisionSource;
+    let failure = |kind, retryable| AgentError {
+        kind,
+        message: "the command plan, target or policy changed; request permission again".into(),
+        retryable,
+        safe_for_model: true,
+        error_code: None,
+    };
+
+    let (_, _, mut approved) = decision_fixture();
+    let mut source = PermissionDecisionSource::UserDecision;
+    assert!(record_outdated_owner_approval(
+        &mut approved,
+        &mut source,
+        &failure(AgentErrorKind::PermissionDenied, false)
+    ));
+    assert!(
+        approved
+            .iter()
+            .all(|item| item.decision == PermissionItemDecision::Deny)
+    );
+    assert!(matches!(
+        &source,
+        PermissionDecisionSource::SystemDecision { reason_code, .. }
+            if reason_code == StaleApprovalTarget::STATE_CHANGED_CODE
+    ));
+
+    // Any other failure stays the caller's error and leaves the decision alone.
+    for error in [
+        failure(AgentErrorKind::Internal, false),
+        failure(AgentErrorKind::PermissionDenied, true),
+    ] {
+        let (_, _, mut approved) = decision_fixture();
+        let mut source = PermissionDecisionSource::UserDecision;
+        assert!(!record_outdated_owner_approval(
+            &mut approved,
+            &mut source,
+            &error
+        ));
+        assert!(matches!(source, PermissionDecisionSource::UserDecision));
+        assert!(
+            approved
+                .iter()
+                .all(|item| matches!(item.decision, PermissionItemDecision::Approve { .. }))
+        );
+    }
+}

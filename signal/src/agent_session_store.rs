@@ -630,6 +630,20 @@ impl SignalAgentSessionStore {
                 {
                     Vec::new()
                 }
+                Err(error)
+                    if matches!(authority, PermissionDecisionAuthority::Owner { .. })
+                        && desk_diagnose_core::permission_grant::record_outdated_owner_approval(
+                            &mut decision_items,
+                            &mut decision_source,
+                            &error,
+                        ) =>
+                {
+                    log::info!(
+                        "[ai-assistant] owner approval of permission request {request_id} recorded as a system refusal: {}",
+                        error.message
+                    );
+                    Vec::new()
+                }
                 Err(error) => {
                     return Err(error);
                 }

@@ -149,6 +149,22 @@ pub fn record_stale_target_decision(
     true
 }
 
+/// An owner's approval whose request no longer passes the current policy (the
+/// command plan, its target or the device's policy changed since the request
+/// was made) cannot be granted. Like a stale target it becomes a system refusal
+/// the model sees, so the turn resumes and the model can request again instead
+/// of the card staying pending. Only a non-retryable `PermissionDenied` from
+/// revalidation qualifies; any other failure is still the caller's error.
+pub fn record_outdated_owner_approval(
+    decisions: &mut [crate::dynamic_run::PermissionDecisionItem],
+    source: &mut crate::dynamic_run::PermissionDecisionSource,
+    error: &AgentError,
+) -> bool {
+    error.kind == AgentErrorKind::PermissionDenied
+        && !error.retryable
+        && record_stale_target_decision(decisions, source, StaleApprovalTarget::StateChanged)
+}
+
 /// Bind grants compiled from a complete AI-reviewed permission decision to the
 /// current owner delegation. The caller must commit the decision, review rows,
 /// grants and resume in one fenced transaction. The generic grant matcher will

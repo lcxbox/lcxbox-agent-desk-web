@@ -20,6 +20,19 @@ const TOOL: &str = desk_diagnose_core::command_confirmation::COMMAND_TOOL;
 
 #[actix_web::test]
 async fn approved_fresh_task_claim_releases_the_held_call_for_the_server_to_run() {
+    approve_held_command(false).await;
+}
+
+/// The device's command policy changed after the request (for example its
+/// worker restarted under a new session): the owner's approval cannot be
+/// granted, so it is recorded as a system refusal the model sees instead of
+/// failing and leaving the card pending.
+#[actix_web::test]
+async fn approving_a_command_whose_policy_changed_records_a_system_refusal() {
+    approve_held_command(true).await;
+}
+
+async fn approve_held_command(policy_changed: bool) {
     let db = crate::config::test_support::Database::connect("sqlite::memory:")
         .await
         .unwrap();
@@ -161,6 +174,22 @@ async fn approved_fresh_task_claim_releases_the_held_call_for_the_server_to_run(
     );
 
     // The owner approves through the decision path the host serves.
+    let registry = if policy_changed {
+        let mut changed = desk_diagnose_core::command_confirmation::test_policy();
+        changed.actor_id = session.actor_id.clone();
+        changed.target_device_id = session.device_id.clone();
+        changed.policy_revision = session.policy_revision;
+        changed.target_session_id = "restarted-worker".into();
+        changed.directory_grants =
+            desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
+                &session,
+                &session.device_id,
+                chrono::Utc::now().timestamp_millis() as u64,
+            );
+        registry.with_command_policy(changed)
+    } else {
+        registry
+    };
     let capability = registry.capability_for_tool(TOOL).unwrap();
     let provider = registry
         .provider_for_capability(&capability.wire.capability_id)
@@ -209,6 +238,37 @@ async fn approved_fresh_task_claim_releases_the_held_call_for_the_server_to_run(
         )
         .await
         .unwrap();
+    if policy_changed {
+        assert_eq!(decided.state, PermissionRequestState::Denied);
+        let event = sessions
+            .permission_decision_event(
+                PermissionDecisionSubject {
+                    conversation_id: &queued.run_id,
+                    actor_id: "1",
+                    device_id: &task.target_device_id,
+                },
+                &request.request_id,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            &event.decision_source,
+            desk_diagnose_core::dynamic_run::PermissionDecisionSource::SystemDecision {
+                reason_code,
+                ..
+            } if reason_code
+                == desk_diagnose_core::permission_grant::StaleApprovalTarget::STATE_CHANGED_CODE
+        ));
+        // Nothing was granted for the refused call.
+        assert!(
+            event
+                .items
+                .iter()
+                .all(|item| item.decision == PermissionItemDecision::Deny)
+        );
+        return;
+    }
     assert_eq!(decided.state, PermissionRequestState::Approved);
 
     let resumed = store

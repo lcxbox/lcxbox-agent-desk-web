@@ -1345,15 +1345,23 @@ mod tests {
 
     #[tokio::test]
     async fn selected_command_decision_keeps_the_personal_session_and_rechecks_the_device() {
-        verify_selected_command_device(false).await;
+        verify_selected_command_device(false, false).await;
+    }
+
+    /// An owner approval whose command no longer passes the device's current
+    /// policy is recorded as a system refusal the model sees; nothing is
+    /// granted and the card does not stay pending.
+    #[tokio::test]
+    async fn approving_a_command_whose_policy_changed_records_a_system_refusal() {
+        verify_selected_command_device(false, true).await;
     }
 
     #[tokio::test]
     async fn device_roster_removal_fences_an_approved_command_resume() {
-        verify_selected_command_device(true).await;
+        verify_selected_command_device(true, false).await;
     }
 
-    async fn verify_selected_command_device(managed: bool) {
+    async fn verify_selected_command_device(managed: bool, policy_changed: bool) {
         use crate::agent_session_store::{SignalAgentSessionStore, permission_resume};
         use crate::controller::ai_assistant_session::{AiAssistantDeviceRosterBody, update_roster};
         use desk_diagnose_core::{
@@ -1648,9 +1656,20 @@ mod tests {
             &input.created_at,
         )
             };
-        policy.target_device_id = "other".into();
-        let wrong = registry.clone().with_command_policy(policy);
-        assert!(decide(&wrong).await.is_err());
+        if policy_changed {
+            policy.target_device_id = "other".into();
+            let changed = registry.clone().with_command_policy(policy);
+            assert_eq!(
+                decide(&changed).await.unwrap().state,
+                PermissionRequestState::Denied
+            );
+            let grants = crate::capability_grant_store::SignalCapabilityGrantStore::new(db.clone())
+                .list_for_subject(&input.run_id, &input.actor_id, "device-1")
+                .await
+                .unwrap();
+            assert!(grants.is_empty());
+            return;
+        }
         assert_eq!(
             decide(&registry).await.unwrap().state,
             PermissionRequestState::Approved
