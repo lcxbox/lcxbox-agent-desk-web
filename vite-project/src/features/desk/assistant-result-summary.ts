@@ -66,12 +66,54 @@ const TOOL_REASONS: ReadonlyArray<readonly [RegExp, string]> = [
     [/^independent AI review already refused (\S+) \d+ times/, 'reviewRefusedRepeatedly'],
 ];
 
+// Fixed outcome-unknown results and errors the server writes for the model
+// (session recovery, released dispatch, command reconciliation, file and UI
+// providers). Matched by prefix.
+const OUTCOME_UNKNOWN: ReadonlyArray<readonly [string, string]> = [
+    ['Execution did not return a conclusive receipt', 'noConclusiveReceipt'],
+    ['Execution failed to return a conclusive result', 'noConclusiveResult'],
+    ['The turn was interrupted without a recoverable action receipt', 'interruptedWithoutReceipt'],
+    ['The original action outcome is unknown', 'originalAction'],
+    ['The original command outcome is unknown', 'originalCommand'],
+    ['Original command outcome unknown', 'originalCommand'],
+    ['The original dispatch intent was committed, but no original transport binding is available', 'noTransportBinding'],
+    ["The dispatched action's outcome is unknown", 'dispatchedAction'],
+    ['File change outcome is unknown', 'fileChange'],
+    ['File restore outcome is unknown', 'fileRestore'],
+    ['execution outcome unknown; the command may have executed', 'commandMayHaveRun'],
+    ['Provider dispatch outcome is unknown', 'providerDispatch'],
+    ['native UI request timed out after starting', 'uiTimedOut'],
+    ['AT-SPI native action has no reliable completion receipt', 'uiNoReceipt'],
+    ['browser exact send outcome is unknown', 'browserSend'],
+    ['the AI call outcome is unknown', 'aiCall'],
+    ['Office file copy outcome unknown', 'officeCopy'],
+];
+
+// Carried inside a formatted command result rather than at its start.
+const DEVICE_RECONNECTED = "The device restarted or reconnected, so this command's result can no longer be obtained";
+
+function strip(text: string): string {
+    const trimmed = text.trimStart();
+    return trimmed.startsWith('tool error: ') ? trimmed.slice('tool error: '.length) : trimmed;
+}
+
 /**
- * Localized text for a "not executed: …" tool result, or null when `output`
- * is not one. `toolLabel` names a tool mentioned in the reason.
+ * Localized summary for a fixed "not executed" or outcome-unknown tool result
+ * or error text, or null when `text` is neither. `toolLabel` names a tool
+ * mentioned in the reason.
  */
-export function notExecutedMessage(t: TFunction, output: string, toolLabel: (name: string) => string = name => name): string | null {
-    let reason = output.trimStart();
+export function resultSummaryMessage(t: TFunction, text: string, toolLabel: (name: string) => string = name => name): string | null {
+    const body = strip(text);
+    const unknown = body.includes(DEVICE_RECONNECTED) ? 'deviceReconnected'
+        : OUTCOME_UNKNOWN.find(([prefix]) => body.startsWith(prefix))?.[1];
+    if (unknown) {
+        return t('pages.aiAssistant.outcomeUnknown.format', { reason: t(`pages.aiAssistant.outcomeUnknown.${unknown}`) });
+    }
+    return notExecutedMessage(t, body, toolLabel);
+}
+
+function notExecutedMessage(t: TFunction, output: string, toolLabel: (name: string) => string): string | null {
+    let reason = output;
     if (!reason.startsWith(PREFIX)) return null;
     // A reviewed denial repeats the prefix in its own text.
     while (reason.startsWith(PREFIX)) reason = reason.slice(PREFIX.length);

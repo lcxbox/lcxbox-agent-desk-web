@@ -6,7 +6,7 @@ import type { AiAssistantMessage, AiAssistantToolActivity } from './use-ai-assis
 import { hasUnknownActionResult } from './action-result-status';
 import { isConfirmedNotSent } from './ai-assistant-external-send';
 import { useDecisionLabel } from './assistant-tool-call';
-import { notExecutedMessage } from './assistant-not-executed';
+import { resultSummaryMessage } from './assistant-result-summary';
 
 function failureMessage(output: string | null): string | null {
     if (!output) return null;
@@ -43,8 +43,11 @@ export function AssistantToolGroup({ messages, tools, renderMessage, displayName
     ]))];
     const failed = known.filter(tool => tool.status === 'failed');
     const firstFailureOutput = failed[0]?.output ?? null;
-    const firstFailureMessage = (firstFailureOutput && notExecutedMessage(t, firstFailureOutput, name => displayNameForTool?.(name) ?? name))
-        ?? failureMessage(firstFailureOutput);
+    const toolLabel = (name: string) => displayNameForTool?.(name) ?? name;
+    const firstFailureText = failureMessage(firstFailureOutput);
+    const firstFailureMessage = (firstFailureOutput && resultSummaryMessage(t, firstFailureOutput, toolLabel))
+        ?? (firstFailureText && resultSummaryMessage(t, firstFailureText, toolLabel))
+        ?? firstFailureText;
     const succeeded = known.filter(tool => tool.status === 'ok' && !isConfirmedNotSent(tool.name, tool.output)).length;
     const returned = known.filter(tool => tool.status === 'returned' || (tool.status === 'ok' && isConfirmedNotSent(tool.name, tool.output))).length;
     return <Disclosure defaultOpen={focused} className="w-full max-w-full rounded-md border bg-muted/30 px-3 py-2 sm:max-w-[90%]"

@@ -64,6 +64,21 @@ describe('assistant tool activity summary', () => {
         expect(screen.queryByText(/not executed/)).toBeNull();
     });
 
+    it('localizes an outcome-unknown result, including one inside an error receipt', () => {
+        for (const output of [
+            'Execution did not return a conclusive receipt. Read the current target state before choosing the next action.',
+            JSON.stringify({ work_id: 'work', error: { message: 'File restore outcome is unknown; recovery material has been retained and the operation will not be repeated' } }),
+        ]) {
+            const { unmount } = render(<AssistantToolGroup
+                messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}
+                tools={[{ callId: 'call-1', name: 'restore_text_file', status: 'failed', argumentsJson: '{}', output }]}
+                renderMessage={() => <div>Details</div>} />);
+            expect(screen.getByText('pages.aiAssistant.outcomeUnknown.format')).toBeTruthy();
+            expect(screen.queryByText(/conclusive receipt|recovery material/)).toBeNull();
+            unmount();
+        }
+    });
+
     it('summarizes a decision receipt by its decision instead of a returned result', () => {
         render(<AssistantToolGroup
             messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}

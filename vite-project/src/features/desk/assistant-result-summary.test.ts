@@ -2,7 +2,7 @@ import { createInstance } from 'i18next';
 import { describe, expect, it } from 'vitest';
 import zh from '@/locales/zh-CN/pages';
 import en from '@/locales/en-US/pages';
-import { notExecutedMessage } from './assistant-not-executed';
+import { resultSummaryMessage } from './assistant-result-summary';
 
 async function translator(lng: 'zh-CN' | 'en-US') {
     const i18n = createInstance();
@@ -69,11 +69,11 @@ const SERVER_RESULTS = [
     'not executed: independent AI review already refused exec_command 3 times for this request. Do not call it again.',
 ];
 
-describe('not-executed tool results', () => {
+describe('tool result summaries', () => {
     it('localizes every fixed server result without leaving English behind', async () => {
         const t = await translator('zh-CN');
         for (const output of SERVER_RESULTS) {
-            const message = notExecutedMessage(t, output);
+            const message = resultSummaryMessage(t, output);
             expect(message, output).toMatch(/^未执行：/);
             expect(message, output).not.toMatch(/\b[a-z]{4,}\b/);
         }
@@ -81,17 +81,48 @@ describe('not-executed tool results', () => {
 
     it('names the owner, the reviewer and the tool in a reason', async () => {
         const zhT = await translator('zh-CN');
-        expect(notExecutedMessage(zhT, 'not executed: the owner refused this call')).toBe('未执行：你拒绝了这次调用');
-        expect(notExecutedMessage(zhT, 'not executed: tool `exec_command` failed earlier in this group; this tool was not dispatched',
+        expect(resultSummaryMessage(zhT, 'not executed: the owner refused this call')).toBe('未执行：你拒绝了这次调用');
+        expect(resultSummaryMessage(zhT, 'not executed: tool `exec_command` failed earlier in this group; this tool was not dispatched',
             name => name === 'exec_command' ? '执行命令' : name)).toBe('未执行：同组中的 执行命令 先失败，此工具未派发');
         const enT = await translator('en-US');
-        expect(notExecutedMessage(enT, 'not executed: the owner refused this call')).toBe('Not executed: you refused this call');
+        expect(resultSummaryMessage(enT, 'not executed: the owner refused this call')).toBe('Not executed: you refused this call');
+    });
+
+    it('localizes every fixed outcome-unknown result, also as a tool error or inside a command result', async () => {
+        const t = await translator('zh-CN');
+        for (const text of [
+            'Execution did not return a conclusive receipt. Read the current target state before choosing the next action. Other authorized writes remain available, and no user acknowledgement is required. Do not infer success or blindly repeat the action.',
+            'Execution failed to return a conclusive result; effects may have occurred. Read the current target state before choosing the next action.',
+            'The turn was interrupted without a recoverable action receipt. Read the current target state before choosing the next action. Other authorized writes remain available; no user acknowledgement is required.',
+            'The original action outcome is unknown. Do not retry automatically.',
+            'The original command outcome is unknown. Do not retry automatically.',
+            'Original command outcome unknown; do not replay.',
+            'The original dispatch intent was committed, but no original transport binding is available. The action outcome is unknown. Do not retry automatically.',
+            "The dispatched action's outcome is unknown. New user input does not cancel it or authorize a retry; wait for its original result or an explicit owner disposition.",
+            'File change outcome is unknown; recovery material has been retained and the operation will not be repeated',
+            'File restore outcome is unknown; recovery material has been retained and the operation will not be repeated',
+            'execution outcome unknown; the command may have executed; do not assume success',
+            'Provider dispatch outcome is unknown and cannot be retried automatically',
+            'native UI request timed out after starting; outcome unknown; do not replay the operation',
+            'AT-SPI native action has no reliable completion receipt; outcome unknown; do not replay',
+            'browser exact send outcome is unknown and must not be retried automatically',
+            'the AI call outcome is unknown; it will not be retried to avoid duplicate charging',
+            'Office file copy outcome unknown',
+            'tool error: File restore outcome is unknown; recovery material has been retained and the operation will not be repeated',
+            "exit_code=unknown\nThe device restarted or reconnected, so this command's result can no longer be obtained. It may or may not have run. Check the actual state on the device before running it again.",
+        ]) {
+            const message = resultSummaryMessage(t, text);
+            expect(message, text).toMatch(/^结果未知：/);
+            expect(message, text).not.toMatch(/\b[a-z]{4,}\b/);
+        }
+        const enT = await translator('en-US');
+        expect(resultSummaryMessage(enT, 'Office file copy outcome unknown')).toBe('Outcome unknown: the Office file copy outcome is unknown');
     });
 
     it('keeps an unknown reason and ignores other results', async () => {
         const t = await translator('zh-CN');
-        expect(notExecutedMessage(t, 'not executed: device said no')).toBe('未执行：device said no');
-        expect(notExecutedMessage(t, 'Window closed before step 2')).toBeNull();
-        expect(notExecutedMessage(t, '{"result":"outcome_unknown"}')).toBeNull();
+        expect(resultSummaryMessage(t, 'not executed: device said no')).toBe('未执行：device said no');
+        expect(resultSummaryMessage(t, 'Window closed before step 2')).toBeNull();
+        expect(resultSummaryMessage(t, '{"result":"outcome_unknown"}')).toBeNull();
     });
 });
