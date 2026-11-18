@@ -288,7 +288,7 @@ pub async fn handle_request_remote(
             caps.audio_device_list.clone(),
             caps.video_device_list.clone(),
             caps.physical_display_capabilities.clone(),
-            caps.is_admin,
+            host_is_privileged(caps.is_admin, desk_utils::permission::is_admin()),
         )
     } else {
         {
@@ -381,6 +381,14 @@ pub async fn handle_request_remote(
     )
 }
 
+/// Whether the host can carry out privileged operations (elevation prompts,
+/// secure-desktop input). A ServiceDaemon's session worker runs as the session
+/// user by design while the daemon itself holds the privileges, so the host is
+/// privileged when either one is; portable hosts run both in one process.
+fn host_is_privileged(worker_is_admin: bool, daemon_is_admin: bool) -> bool {
+    worker_is_admin || daemon_is_admin
+}
+
 /// Whether this host can offer an audio track at all.
 ///
 /// The device map carries one key per compiled capture backend, so it stays
@@ -439,6 +447,18 @@ mod audio_capability_tests {
         devices.insert("WASAPI".to_string(), vec![device()]);
         assert!(!host_audio_capable(&[], &devices));
         assert!(!host_audio_capable(&[], &BTreeMap::new()));
+    }
+}
+
+#[cfg(test)]
+mod privilege_tests {
+    use super::host_is_privileged;
+
+    #[test]
+    fn a_service_daemon_host_is_privileged_though_its_session_worker_is_not() {
+        assert!(host_is_privileged(false, true));
+        assert!(host_is_privileged(true, false));
+        assert!(!host_is_privileged(false, false));
     }
 }
 
