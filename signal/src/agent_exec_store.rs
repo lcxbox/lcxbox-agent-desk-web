@@ -371,6 +371,50 @@ impl SignalAgentExecStore {
         if row.target_connection_id != source_connection_id {
             return Ok(None);
         }
+        self.finalize_row(row, disposition).await
+    }
+
+    /// Settle a task from the current connection of the device it was
+    /// dispatched to, after its dispatch connection went away. The caller
+    /// resolves `current_connection_id` as that device's current host.
+    pub async fn finalize_from_reconnected_host(
+        &self,
+        device_id: &str,
+        current_connection_id: &str,
+        execution_generation: &str,
+        disposition: &EdgeExecDisposition,
+    ) -> Result<Option<agent_exec_task::Model>, AgentError> {
+        let Some(row) = self.find_by_generation(execution_generation).await? else {
+            return Ok(None);
+        };
+        if row.target_device_id != device_id || row.target_connection_id == current_connection_id {
+            return Ok(None);
+        }
+        self.finalize_row(row, disposition).await
+    }
+
+    /// Tasks that have not settled yet, oldest first.
+    pub async fn unsettled(&self, limit: u64) -> Result<Vec<agent_exec_task::Model>, AgentError> {
+        agent_exec_task::Entity::find()
+            .filter(agent_exec_task::Column::Status.is_in([
+                STATUS_DISPATCHING,
+                STATUS_RUNNING,
+                STATUS_UNKNOWN,
+            ]))
+            .order_by_asc(agent_exec_task::Column::Id)
+            .limit(limit)
+            .all(&self.db)
+            .await
+            .map_err(|e| internal(format!("load unsettled agent executions: {e}")))
+    }
+
+    async fn finalize_row(
+        &self,
+        row: agent_exec_task::Model,
+        disposition: &EdgeExecDisposition,
+    ) -> Result<Option<agent_exec_task::Model>, AgentError> {
+        let execution_generation = row.execution_generation.clone();
+        let execution_generation = execution_generation.as_str();
         if row.status == STATUS_DONE
             || (row.status == STATUS_UNKNOWN
                 && matches!(

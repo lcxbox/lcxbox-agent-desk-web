@@ -35,7 +35,9 @@ pub(crate) async fn owner_host(
     )
     .await
     .unwrap();
-    let (_, socket, _) = actix_ws::handle(&request, payload).unwrap();
+    let (response, socket, _) = actix_ws::handle(&request, payload).unwrap();
+    // Keep the outbound side open so frames sent to this host are accepted.
+    std::mem::forget(response);
     let (client_id, model) = SignalingPeer {
         version_info: Some(VersionInfo {
             api_version: 1,

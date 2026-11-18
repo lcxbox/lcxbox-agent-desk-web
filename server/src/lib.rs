@@ -828,6 +828,10 @@ pub async fn run_with_hub(
             connection_map.clone(),
         ));
         desk_signal::agent_runtime::register_continuation_connections(connection_map.clone());
+        actix_web::rt::spawn(desk_signal::agent_exec::run_reconnected_host_reconciler(
+            desk_signal::db::get_db().clone(),
+            connection_map.clone(),
+        ));
         actix_web::rt::spawn(
             desk_signal::ai_assistant_orchestrator::main_requests::SignalMainRequestExecutor::new(
                 desk_signal::db::get_db().clone(),

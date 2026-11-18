@@ -57,7 +57,9 @@ const WAIT_FOR_TASK_TIMEOUT: Duration = Duration::from_secs(10);
 const WAIT_FOR_TASK_POLL: Duration = Duration::from_millis(250);
 
 mod cancel;
+mod host_reconcile;
 pub use cancel::SignalCommandCancelDispatcher;
+pub use host_reconcile::run_reconnected_host_reconciler;
 
 struct ApprovalPending {
     browser_connection_id: String,
@@ -303,6 +305,45 @@ impl SignalAgentExecPending {
             .collect();
         for id in ids {
             queries.remove(&id);
+        }
+    }
+}
+
+/// Ask one host connection for its view of an execution. `None` when another
+/// query for it is in flight or the host does not answer in time.
+async fn query_state_on(
+    pending: &SignalAgentExecPending,
+    target: &ConnectionState,
+    execution_generation: &str,
+) -> Result<Option<ExecStateReplyPayload>, AgentError> {
+    let connection_id = target.model.connection_id.clone();
+    let Some(rx) =
+        pending.register_state_query(execution_generation.to_string(), connection_id.clone())
+    else {
+        return Ok(None);
+    };
+    let payload = ExecControlPayload {
+        execution_generation: execution_generation.to_string(),
+        action: ExecControlAction::QueryState,
+    };
+    let frame = SignalingModel::new(
+        execution_generation,
+        SignalingType::ControlExecution,
+        None,
+        Some(connection_id),
+        serde_json::to_value(payload).ok(),
+        None,
+    );
+    if let Err(error) = send_frame(target, &frame).await {
+        drop(rx);
+        pending.cancel_state_query(execution_generation);
+        return Err(error);
+    }
+    match tokio::time::timeout(Duration::from_secs(5), rx).await {
+        Ok(Ok(reply)) => Ok(Some(reply)),
+        _ => {
+            pending.cancel_state_query(execution_generation);
+            Ok(None)
         }
     }
 }
@@ -584,36 +625,7 @@ impl SignalAgentTools {
         execution_generation: &str,
     ) -> Result<Option<ExecStateReplyPayload>, AgentError> {
         let target = self.connection(&self.target_connection_id).await?;
-        let Some(rx) = self.pending.register_state_query(
-            execution_generation.to_string(),
-            self.target_connection_id.clone(),
-        ) else {
-            return Ok(None);
-        };
-        let payload = ExecControlPayload {
-            execution_generation: execution_generation.to_string(),
-            action: ExecControlAction::QueryState,
-        };
-        let frame = SignalingModel::new(
-            execution_generation,
-            SignalingType::ControlExecution,
-            None,
-            Some(self.target_connection_id.clone()),
-            serde_json::to_value(payload).ok(),
-            None,
-        );
-        if let Err(error) = send_frame(&target, &frame).await {
-            drop(rx);
-            self.pending.cancel_state_query(execution_generation);
-            return Err(error);
-        }
-        match tokio::time::timeout(Duration::from_secs(5), rx).await {
-            Ok(Ok(reply)) => Ok(Some(reply)),
-            _ => {
-                self.pending.cancel_state_query(execution_generation);
-                Ok(None)
-            }
-        }
+        query_state_on(&self.pending, &target, execution_generation).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1346,6 +1358,17 @@ impl ToolSeam for SignalAgentTools {
         execution_id: &str,
     ) -> Result<WaitOutcome, AgentError> {
         let store = crate::agent_exec_store::SignalAgentExecStore::new(self.db.clone());
+        let completed = |task: crate::entity::agent_exec_task::Model| WaitOutcome::Completed {
+            output: ToolRunOutput {
+                format: crate::agent_exec_store::output_format(&task),
+                content: task
+                    .result_text
+                    .unwrap_or_else(|| "execution completed".to_string()),
+                image_data_url: None,
+                document_preview: None,
+            },
+            event_id: Some(task.event_id),
+        };
         let deadline = tokio::time::Instant::now() + WAIT_FOR_TASK_TIMEOUT;
         loop {
             let Some(task) = store.find(exec_request_id, execution_id).await? else {
@@ -1355,23 +1378,35 @@ impl ToolSeam for SignalAgentTools {
                 ));
             };
             match task.status.as_str() {
-                crate::agent_exec_store::STATUS_DONE => {
-                    return Ok(WaitOutcome::Completed {
-                        output: ToolRunOutput {
-                            format: crate::agent_exec_store::output_format(&task),
-                            content: task
-                                .result_text
-                                .unwrap_or_else(|| "execution completed".to_string()),
-                            image_data_url: None,
-                            document_preview: None,
-                        },
-                        event_id: Some(task.event_id),
-                    });
+                crate::agent_exec_store::STATUS_DONE => return Ok(completed(task)),
+                // The dispatch connection concluded unknown; a host that has
+                // since reconnected may still settle it.
+                crate::agent_exec_store::STATUS_UNKNOWN => {
+                    return Ok(host_reconcile::settle_on_reconnected_host(
+                        &self.db,
+                        &self.connections,
+                        &self.pending,
+                        &task,
+                    )
+                    .await?
+                    .map_or(WaitOutcome::Unknown, completed));
                 }
-                crate::agent_exec_store::STATUS_UNKNOWN => return Ok(WaitOutcome::Unknown),
                 _ => {}
             }
             if tokio::time::Instant::now() >= deadline {
+                // The dispatch connection is gone: its device's current host
+                // answers, or the command is still running as far as anyone
+                // can tell.
+                if self.connection(&task.target_connection_id).await.is_err() {
+                    return Ok(host_reconcile::settle_on_reconnected_host(
+                        &self.db,
+                        &self.connections,
+                        &self.pending,
+                        &task,
+                    )
+                    .await?
+                    .map_or(WaitOutcome::StillRunning, completed));
+                }
                 let Some(reply) = self.query_state(execution_id).await? else {
                     return Ok(WaitOutcome::StillRunning);
                 };
@@ -1394,17 +1429,7 @@ impl ToolSeam for SignalAgentTools {
                 if settled.status == crate::agent_exec_store::STATUS_UNKNOWN {
                     return Ok(WaitOutcome::Unknown);
                 }
-                return Ok(WaitOutcome::Completed {
-                    output: ToolRunOutput {
-                        format: crate::agent_exec_store::output_format(&settled),
-                        content: settled
-                            .result_text
-                            .unwrap_or_else(|| "execution completed".to_string()),
-                        image_data_url: None,
-                        document_preview: None,
-                    },
-                    event_id: Some(settled.event_id),
-                });
+                return Ok(completed(settled));
             }
             tokio::time::sleep(WAIT_FOR_TASK_POLL).await;
         }

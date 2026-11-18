@@ -189,6 +189,66 @@ impl EdgeExecDisposition {
         )
     }
 
+    /// The model-facing explanation of [`Self::outcome_unavailable`].
+    pub const OUTCOME_UNAVAILABLE_MESSAGE: &'static str = "The device restarted or reconnected, so this command's result can no longer be obtained. It may or may not have run. Check the actual state on the device before running it again.";
+
+    /// A command that started but whose result the host can no longer give: a
+    /// settled answer that reads as an unknown outcome, never as a success or a
+    /// failure. Hosts store it like any executed result, so every consumer
+    /// settles the task.
+    pub fn outcome_unavailable() -> Self {
+        EdgeExecDisposition::Executed {
+            outcome: AgentOutcome::Ok(crate::OperationOutput::Exec(crate::ExecOutput {
+                started: true,
+                exit_code: None,
+                termination_signal: None,
+                failure: Some(AgentError {
+                    kind: AgentErrorKind::TransportError,
+                    message: Self::OUTCOME_UNAVAILABLE_MESSAGE.into(),
+                    retryable: false,
+                    safe_for_model: true,
+                    error_code: None,
+                }),
+                diagnostics: Vec::new(),
+                streams: crate::ExecOutputStreams::Split {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    stdout_truncated: false,
+                    stderr_truncated: false,
+                },
+                duration_ms: 0,
+                redactions: Vec::new(),
+                file_changes: None,
+            })),
+        }
+    }
+
+    /// The settled disposition a host's reply proves for a background command,
+    /// or `None` while it may still report. `connection_changed`: the reply came
+    /// over another connection than the dispatch, so a dispatch frame that was
+    /// never recorded can no longer arrive and the host's silence is final.
+    pub fn settle_from_host_reply(
+        reply: &crate::exec_lifecycle::ExecStateReplyPayload,
+        connection_changed: bool,
+    ) -> Option<Self> {
+        use crate::exec_lifecycle::ExecState;
+        match reply.state {
+            ExecState::Terminal | ExecState::SpawnFailed => {
+                Some(match Self::from_reconciled_state(reply) {
+                    // A terminal result that aged out of the ledger is as final
+                    // as a lost one.
+                    EdgeExecDisposition::ExecutionStateUnknown { .. } => {
+                        Self::outcome_unavailable()
+                    }
+                    settled => settled,
+                })
+            }
+            ExecState::Indeterminate => Some(Self::outcome_unavailable()),
+            ExecState::Unknown if connection_changed => Some(Self::outcome_unavailable()),
+            ExecState::Unknown | ExecState::Reserved | ExecState::Running => None,
+        }
+    }
+
     /// Turn the host's authoritative view of a dispatch into a disposition, for an
     /// upstream whose live result never arrived (the wait elapsed, or the frame
     /// was lost). This is the move from *guessing* to *asking*: a bare timeout used
@@ -343,6 +403,38 @@ mod tests {
             detail: None,
             result_json,
         }
+    }
+
+    /// A background command settles once its host can no longer report it. The
+    /// lost result reads as an unknown outcome, never as success or failure.
+    #[test]
+    fn a_host_reply_settles_a_background_command_only_when_it_is_final() {
+        use crate::exec_lifecycle::ExecState;
+        let unavailable = |disposition: Option<EdgeExecDisposition>| match disposition {
+            Some(EdgeExecDisposition::Executed {
+                outcome: AgentOutcome::Ok(OperationOutput::Exec(output)),
+            }) => output.outcome_unknown() && !output.succeeded(),
+            _ => false,
+        };
+        let settle = |state, result, changed| {
+            EdgeExecDisposition::settle_from_host_reply(&state_reply(state, result), changed)
+        };
+        assert!(matches!(
+            settle(ExecState::Terminal, Some(ok_outcome_json()), false),
+            Some(EdgeExecDisposition::Executed {
+                outcome: AgentOutcome::Ok(_)
+            })
+        ));
+        assert!(unavailable(settle(ExecState::Terminal, None, false)));
+        assert!(unavailable(settle(ExecState::Indeterminate, None, false)));
+        assert!(unavailable(settle(ExecState::Unknown, None, true)));
+        assert!(settle(ExecState::Unknown, None, false).is_none());
+        assert!(settle(ExecState::Running, None, true).is_none());
+        assert!(settle(ExecState::Reserved, None, true).is_none());
+        assert!(matches!(
+            settle(ExecState::SpawnFailed, None, true),
+            Some(EdgeExecDisposition::DispatchFailedBeforeWorker { .. })
+        ));
     }
 
     /// A terminal state replays the host's stored result verbatim, so an upstream
