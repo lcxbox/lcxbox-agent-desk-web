@@ -453,6 +453,12 @@ fn sandboxed_paths_get_advisory_host_checks() {
             "{protected}: {}",
             error.message
         );
+        // The refusal never suggests bypassing the sandbox for this directory.
+        assert!(
+            !error.message.contains("set sandbox to false"),
+            "{protected}: {}",
+            error.message
+        );
         // Without the sandbox the worker only skips the snapshot.
         home.prepare(&mutating(Some(protected), Some(false)), 1)
             .unwrap();

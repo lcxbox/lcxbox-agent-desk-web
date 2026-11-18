@@ -182,7 +182,7 @@ pub(super) fn check_sandboxed_paths(
         .find(|root| is_protected_write_root(device, &root.path))
     {
         return Err(denied(format!(
-            "{} cannot be a writable sandbox directory: filesystem roots, the home directory and its ancestors, system directories and credential or autostart directories are refused. Set cwd to the narrower project directory the command changes, or set sandbox to false and explain why in reason",
+            "{} cannot be a writable sandbox directory: filesystem roots, the home directory and its ancestors, system directories and credential or autostart directories are refused. Set cwd to the narrower project directory the command changes. Do not retry with sandbox set to false to write there; if the task really needs that directory, explain why to the user and let them decide",
             root.path
         )));
     }
