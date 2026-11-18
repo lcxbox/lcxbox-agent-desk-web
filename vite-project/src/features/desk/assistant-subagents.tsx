@@ -185,7 +185,7 @@ export function AssistantSubagents({ agents, connected, canDecide, interactive, 
                         {!!child?.capabilityGrants?.length && <Disclosure title={t('pages.aiAssistant.grantTitle')} summaryClassName="text-sm">
                             {child.capabilityGrants.map(grant => <div key={grant.grantId} className="mt-2 space-y-2 rounded-md border p-2">
                                 <p className="break-all text-xs">{grant.grantId}</p>
-                                <p className="break-words text-xs">{permissionToolLabel(t, grant.toolName)} · {grant.operationScope.map(value => permissionOperationLabel(t, value)).join(', ')}</p>
+                                <p className="break-words text-xs">{permissionToolLabel(t, grant.toolName)} · {grant.operationScope.map(value => permissionOperationLabel(t, value, grant.toolName)).join(', ')}</p>
                                 {grant.revokedAtUnixMs == null && grant.expiresAtUnixMs > Date.now() && <Button type="button" size="sm" variant="outline"
                                     disabled={agents.updating || !canDecide || !connected} onClick={() => void agents.revokeGrant(grant.grantId)}>{t('pages.aiAssistant.grantRevoke')}</Button>}
                             </div>)}

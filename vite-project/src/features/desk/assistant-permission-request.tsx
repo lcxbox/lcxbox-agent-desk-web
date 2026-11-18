@@ -1,4 +1,4 @@
-import { permissionToolLabel, permissionEffectLabel, permissionResourceLabel, permissionOperationLabel, isReusableWebHost } from './assistant-permission-labels';
+import { permissionToolLabel, permissionEffectLabel, permissionResourceLabel, permissionOperationLabel, permissionReasonLabel, isReusableWebHost } from './assistant-permission-labels';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Check, X } from 'lucide-react';
@@ -120,7 +120,7 @@ export function AssistantPermissionRequest({ request, canDecide, disabled = fals
                     const decidedItem = decision?.items.find((entry) => entry.itemId === item.itemId);
                     const reason = item.itemId === `included-${item.toolName}`
                         && ['inspect_desktop_session', 'inspect_desktop_ui'].includes(item.toolName)
-                        ? t('pages.aiAssistant.permissionIncludedDesktopReadReason') : item.reason;
+                        ? t('pages.aiAssistant.permissionIncludedDesktopReadReason') : permissionReasonLabel(t, item.reason);
                     const defaultItemIds = request.items
                         .filter((entry) => (entry.expectedEffect !== 'send_external'
                             || Boolean(entry.externalSendConfirmation))
@@ -175,7 +175,7 @@ export function AssistantPermissionRequest({ request, canDecide, disabled = fals
                                     </p>}
                                 </div>}
                                 <p className="mt-1 break-all text-xs text-muted-foreground">
-                                    {permissionToolLabel(t, item.toolName)} · {permissionEffectLabel(t, item.expectedEffect)}
+                                    {permissionToolLabel(t, item.toolName)} · {permissionEffectLabel(t, item.expectedEffect, item.toolName)}
                                     {item.selectedReadDeviceRef && <> · {t('pages.aiAssistant.permissionReadTarget', { target: item.selectedReadDeviceRef })}</>}
                                 </p>
                                 {item.applicationScope && (
@@ -237,7 +237,7 @@ export function AssistantPermissionRequest({ request, canDecide, disabled = fals
                                 )}
                                 {!item.applicationScope && (item.resourceScope.length > 0 || item.operationScope.length > 0) && (
                                     <p className="mt-1 break-all text-xs text-muted-foreground">
-                                        {[...item.resourceScope.map((scope) => permissionResourceLabel(t, scope)), ...item.operationScope.map((scope) => permissionOperationLabel(t, scope))].join(' · ')}
+                                        {[...item.resourceScope.map((scope) => permissionResourceLabel(t, scope)), ...item.operationScope.map((scope) => permissionOperationLabel(t, scope, item.toolName))].join(' · ')}
                                     </p>
                                 )}
                                 {canDecide
@@ -284,7 +284,7 @@ export function AssistantPermissionRequest({ request, canDecide, disabled = fals
                                                                 item.operationScope,
                                                             )}
                                                         />
-                                                        <span className="break-all">{permissionOperationLabel(t, scope)}</span>
+                                                        <span className="break-all">{permissionOperationLabel(t, scope, item.toolName)}</span>
                                                     </label>
                                                 ))}
                                             </div>

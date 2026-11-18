@@ -594,7 +594,7 @@ export function AiAssistantWorkspace({
                                             })}</p>
                                             {[...grant.resourceScope, ...grant.operationScope].length > 0 && (
                                                 <p className="break-all">
-                                                    {[...grant.resourceScope.map((scope) => permissionResourceLabel(t, scope)), ...grant.operationScope.map((scope) => permissionOperationLabel(t, scope))].join(' · ')}
+                                                    {[...grant.resourceScope.map((scope) => permissionResourceLabel(t, scope)), ...grant.operationScope.map((scope) => permissionOperationLabel(t, scope, grant.toolName))].join(' · ')}
                                                 </p>
                                             )}
                                             {grant.revokedReason && <p className="break-all">{grant.revokedReason}</p>}
