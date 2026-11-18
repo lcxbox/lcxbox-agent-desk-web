@@ -47,7 +47,7 @@ Use this when the controlled device has no public IP and you want to own the who
 
 3. Harden the endpoint before relying on it: TLS on a reverse proxy, TURN interfaces and relay ports, and the `LRD_*` variables are all covered in [Deployment](/guide/deployment).
 
-4. Copy the token from the signaling server's **Signaling Access Token** page. Run the host as in Option 1, then on its **Outbound Connection** settings page set the signaling URL to `wss://<your-domain>/api/desk/signaling` and paste that token.
+4. Copy the token from the signaling server's **Signaling Access Token** page. Run the host as in Option 1, then on its **Outbound Connection** settings page set the signaling URL to `wss://<your-domain>/api/desk/signaling` and paste that token. The host then treats this server as its central: remote desktop, the terminal, and the AI Assistant all run through it.
 
 ::: warning
 Hosts refuse plaintext `ws://` dials to **public** signaling addresses by default (`require_secure_signaling` in the [config.toml reference](/config/config-toml)). Loopback, private, and LAN addresses are exempt, so a LAN-only deployment without TLS can use `ws://<vps-address>:8081/api/desk/signaling`.

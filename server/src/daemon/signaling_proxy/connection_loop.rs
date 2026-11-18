@@ -54,18 +54,17 @@ pub(super) async fn maintain_proxy_connection(
     signaling_url: String,
     auth_token: String,
     mut outbound_rx: broadcast::Receiver<String>,
-    source: InboundSignalingSource,
     // True only on the manager link (`remote_mgr_handle`); a fatal device-quota
-    // `Error` then stops auto-reconnect. Never set for the local loopback (which is
-    // also `TrustedCentral` in Default mode) or a bare remote-signaling relay.
+    // `Error` then stops auto-reconnect. Never set for the local loopback or the
+    // remote-signaling link.
     fatal_quota_reject_enabled: bool,
     // Records the fatal rejection for the host UI when the link is the manager link.
     manager_link_state: Option<Arc<ManagerLinkState>>,
     // Set only for the manager and support upstreams. When present, the current
     // connection is torn down the moment the shared `ManagerLinkGate` flips to
     // `false` (the host disabling the manager connection at runtime). `None` for
-    // the local loopback and bare remote-signaling relays, which the manager
-    // toggle does not govern.
+    // the local loopback and the remote-signaling link, which the manager toggle
+    // does not govern.
     mut manager_link_enabled_rx: Option<watch::Receiver<bool>>,
     // Candidate kind used to elect exactly one authoritative mirror dynamically:
     // manager > configured remote signal > embedded local signal.
@@ -423,7 +422,6 @@ pub(super) async fn maintain_proxy_connection(
                                 match handle_inbound_signaling_text(
                                     text_str,
                                     router_ctx,
-                                    source,
                                     fatal_quota_reject_enabled,
                                 )
                                 .await

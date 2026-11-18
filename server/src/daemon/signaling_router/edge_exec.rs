@@ -1,8 +1,7 @@
 use super::*;
 
-/// Handle an inbound `EdgeExecRequest` from a trusted central brain (manager or
-/// OSS signal). The frame has already passed the proxy's trusted-central source
-/// gate and dedicated authz gate (which
+/// Handle an inbound `EdgeExecRequest` from a central (manager or OSS signal).
+/// The frame has already passed the proxy's dedicated authz gate (which
 /// unwrapped the inner [`ExecPlan`] and set `ctx.inbound_authz`). This re-
 /// validates the plan (PEP) and, on success, dispatches it to the worker
 /// correlated as a fleet execution; every exit emits exactly one
@@ -1030,7 +1029,7 @@ pub(super) async fn handle_invoke_agent_capability_inbound(
 }
 
 /// Dispatch one immutable Computer Use mutation after re-validating the
-/// trusted-central authorization wrapper. This lane is deliberately separate
+/// central authorization wrapper. This lane is deliberately separate
 /// from `InvokeAgentCapability`, whose wire type cannot represent mutation.
 pub(super) async fn handle_computer_action_inbound(
     ctx: &RouterContext,

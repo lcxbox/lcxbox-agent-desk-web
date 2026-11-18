@@ -401,7 +401,7 @@ pub enum RequestRemoteOutcome {
 
 /// Stamps a trusted capability ceiling onto every `RequestRemoteAccess` before it is
 /// relayed to the host — the enforcement seam that lets the host drop any bare
-/// `RequestRemoteAccess` on its trusted-central upstream (defense against a grant
+/// `RequestRemoteAccess` from any upstream (defense against a grant
 /// session stripping its stamp to masquerade as an owner). The manager and the
 /// signal server each implement it (rule 22, same shape): an owner / org
 /// authorization stamps `access_ceiling: None` (full), a valid redeemed grant

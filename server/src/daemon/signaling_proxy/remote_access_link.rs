@@ -88,27 +88,3 @@ pub(super) async fn receive_remote_access_command(
         }
     }
 }
-
-/// Which upstream link an inbound signaling frame arrived on. This is the
-/// daemon-side notion of "where did this frame come from", distinct from the
-/// central-side `AuthContext` ("how did this connection authenticate"). Only the
-/// `TrustedCentral` link is a trusted policy-decision upstream that may inject an
-/// [`AuthorizedControlPayload`]; the local and remote-signaling links carry bare
-/// payloads gated by local config.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InboundSignalingSource {
-    /// The in-process / loopback signaling link (single-machine and the
-    /// service-daemon's own API). No fleet PDP.
-    Local,
-    /// A bare remote signaling relay link (WebRTC signaling only). This link is
-    /// NOT trusted as a central brain and must never be promoted to inject
-    /// authorization — doing so would let any relay signaling server gain
-    /// central-level injection rights.
-    RemoteSignaling,
-    /// The trusted central-brain link — the only authorization-injecting
-    /// upstream. Covers both the enterprise manager and an OSS signal acting as
-    /// the central brain; the edge classifies a link as trusted-central only
-    /// from the connection's authentication result (the central credential
-    /// slot), never from a bare relay.
-    TrustedCentral,
-}

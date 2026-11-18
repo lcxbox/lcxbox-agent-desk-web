@@ -99,10 +99,26 @@ async fn make_ctx() -> RouterContext {
         command_blocklist: Arc::new(crate::daemon::command_blocklist::CommandBlocklistCache::new()),
         audit: Arc::new(crate::worker::agent::audit_sink::LogAuditSink),
         inbound_authz: None,
-        inbound_request_remote_authz: None,
+        // The proxy forwards every `RequestRemoteAccess` with a validated stamp;
+        // router tests default to the owner's.
+        inbound_request_remote_authz: Some(owner_stamp()),
         inbound_start_terminal_authz: None,
         edge_exec_pending: Default::default(),
         support_link_state: Arc::new(crate::daemon::support_link_state::SupportLinkState::new()),
+    }
+}
+
+/// An owner capability stamp: no ceiling, no grant.
+fn owner_stamp() -> desk_signal_facade::model::request_remote_authz::RequestRemoteAuthz {
+    desk_signal_facade::model::request_remote_authz::RequestRemoteAuthz {
+        version: desk_signal_facade::model::request_remote_authz::REQUEST_REMOTE_AUTHZ_VERSION,
+        access_ceiling: None,
+        grant_session_id: None,
+        generation: 0,
+        actor: desk_signal_facade::model::request_remote_authz::ActorSummary::unknown(),
+        request_id: "owner".to_string(),
+        audience: "aud".to_string(),
+        expires_at: None,
     }
 }
 

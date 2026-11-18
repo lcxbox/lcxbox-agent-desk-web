@@ -10,7 +10,7 @@ After saving system, connection, log, TURN, TURN client or AI execution and coll
 - `port` — server listening port.
 - `listen_addr_ipv4` — IPv4 listening address.
 - `listen_addr_ipv6` — IPv6 listening address.
-- `signaling_url` — URL of a standalone signaling server to connect out to (leave empty to use only the embedded signaling server).
+- `signaling_url` — URL of a standalone signaling server to connect out to (leave empty to use only the embedded signaling server). The host trusts this server as its central: it can start remote desktop, terminal, and AI operations on the host, so set only a server you control. Put a manager in `manager_url`, not here.
 - `signaling_token` — node access token for the remote signaling server (passed as `?token=` on the signaling WebSocket).
 - `manager_url` — URL of an enterprise manager's signaling endpoint to connect out to.
 - `manager_api_token` — access token for the manager (passed as `?token=` on the manager signaling WebSocket).

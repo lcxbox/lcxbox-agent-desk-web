@@ -63,6 +63,25 @@ pub(super) async fn locked_gate_rejects_request_before_pc_or_session_creation() 
     );
 }
 
+/// A `RequestRemoteAccess` that reaches the router without a stamp is refused
+/// with a permission error instead of being admitted with no ceiling.
+#[tokio::test]
+pub(super) async fn request_remote_without_a_stamp_is_refused() {
+    let (mut ctx, mut rx) = make_ctx_with_rx().await;
+    ctx.inbound_request_remote_authz = None;
+    let model = make_request_remote_model("conn-unstamped");
+
+    route(&model, &ctx)
+        .await
+        .expect("unstamped request is handled");
+
+    let response = read_response(&mut rx);
+    let state = response.response_state.expect("missing refusal response");
+    assert_eq!(state.error_code, DeskErrorCode::PERMISSION_ERROR.code());
+    assert!(ctx.pc_registry.get("conn-unstamped").await.is_none());
+    assert!(ctx.pc_registry.admission("conn-unstamped").await.is_none());
+}
+
 #[tokio::test]
 pub(super) async fn tombstone_rejects_late_request_after_host_disconnect() {
     let (ctx, mut rx) = make_ctx_with_rx().await;

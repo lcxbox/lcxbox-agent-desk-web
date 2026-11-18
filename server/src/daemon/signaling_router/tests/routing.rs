@@ -483,18 +483,39 @@ pub(super) async fn route_start_terminal_owner_stamp_records_admission_and_marks
         worker_rx.try_recv(),
         Ok(ServiceToWorker::StartTerminal(_))
     ));
-    // A bare frame (owner-only relay, no stamp) admits as owner the same way.
-    let mut ctx2 = make_ctx().await;
-    let (worker_tx2, mut worker_rx2) = tokio::sync::mpsc::unbounded_channel::<ServiceToWorker>();
-    ctx2.worker_mgr.install_active_for_test(worker_tx2).await;
-    ctx2.inbound_start_terminal_authz = None;
-    route(&model, &ctx2).await.expect("ok");
-    assert!(matches!(
-        ctx2.pc_registry.admission("term-x").await,
-        Some(pc_manager::Admission::OwnerFull)
-    ));
-    assert!(matches!(
-        worker_rx2.try_recv(),
+}
+
+/// A `StartTerminal` that reaches the router without a stamp is refused: no
+/// admission is recorded, the connection is not marked as a terminal, and
+/// nothing is sent to the worker.
+#[tokio::test]
+pub(super) async fn route_start_terminal_without_a_stamp_is_refused() {
+    let mut ctx = make_ctx().await;
+    let (worker_tx, mut worker_rx) = tokio::sync::mpsc::unbounded_channel::<ServiceToWorker>();
+    ctx.worker_mgr.install_active_for_test(worker_tx).await;
+    ctx.inbound_start_terminal_authz = None;
+    let model = SignalingModel::new(
+        "rt",
+        SignalingType::StartTerminal,
+        Some("term-x".to_string()),
+        None,
+        Some(
+            serde_json::to_value(desk_signal_facade::model::terminal::StartTerminalSession {
+                org_id: None,
+                session_target_id: None,
+                command: "cmd.exe".to_string(),
+                device_id: None,
+                grant_session_id: None,
+            })
+            .unwrap(),
+        ),
+        None,
+    );
+    route(&model, &ctx).await.expect("ok");
+    assert!(ctx.pc_registry.admission("term-x").await.is_none());
+    assert!(!ctx.pc_registry.is_terminal_connection("term-x").await);
+    assert!(!matches!(
+        worker_rx.try_recv(),
         Ok(ServiceToWorker::StartTerminal(_))
     ));
 }

@@ -861,6 +861,31 @@ mod tests {
         );
     }
 
+    /// The device broadcasts every result to all of its configured centrals, so
+    /// a central also receives results of commands another central dispatched.
+    /// A result for a generation this signal never issued is ignored and leaves
+    /// no row behind.
+    #[tokio::test]
+    async fn a_result_for_a_command_another_central_issued_is_ignored() {
+        let store = store().await;
+        let disposition = EdgeExecDisposition::RejectedBeforeDispatch {
+            error: EdgeExecDisposition::safe_error(
+                AgentErrorKind::PermissionDenied,
+                "policy changed",
+                false,
+            ),
+        };
+
+        assert!(
+            store
+                .finalize("edge-a", "foreign-generation", &disposition)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(store.unsettled(10).await.unwrap().is_empty());
+    }
+
     #[tokio::test]
     async fn result_is_source_bound_and_persisted_before_delivery() {
         let store = store().await;

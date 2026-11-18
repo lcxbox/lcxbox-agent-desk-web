@@ -318,7 +318,7 @@ pub async fn run_signaling_proxy(
         // Audit sink: in fleet mode (a manager is configured) report events to
         // the manager for DB persistence; otherwise keep the local log sink.
         audit: audit_sink.clone(),
-        // Per-call trusted-central authorization is injected by the inbound
+        // Per-call central authorization is injected by the inbound
         // dispatcher; the shared base context carries none.
         inbound_authz: None,
         inbound_request_remote_authz: None,
@@ -402,8 +402,8 @@ pub async fn run_signaling_proxy(
                 };
 
                 let rx = outbound_tx.subscribe();
-                // The local loopback is `TrustedCentral` in Default mode but is NOT
-                // the manager link, so fatal device-quota rejection is disabled here.
+                // The local loopback is not the manager link, so fatal device-quota
+                // rejection is disabled here.
                 let display_url = redact_token_in_url(&local_url);
                 if let Err(_error) = maintain_proxy_connection(
                     settings.clone(),
@@ -411,7 +411,6 @@ pub async fn run_signaling_proxy(
                     local_url,
                     local_token,
                     rx,
-                    local_loopback_source(&startup_mode),
                     false,
                     None,
                     None,
@@ -450,7 +449,7 @@ pub async fn run_signaling_proxy(
                     && !token.is_empty()
                 {
                     let rx = outbound_tx.subscribe();
-                    // A bare remote-signaling relay is not the manager link; fatal
+                    // The remote-signaling link is not the manager link; fatal
                     // device-quota rejection does not apply.
                     let _ = maintain_proxy_connection(
                         settings.clone(),
@@ -458,7 +457,6 @@ pub async fn run_signaling_proxy(
                         url,
                         token.clone(),
                         rx,
-                        InboundSignalingSource::RemoteSignaling,
                         false,
                         None,
                         None,
@@ -511,7 +509,6 @@ pub async fn run_signaling_proxy(
                         url,
                         token.clone(),
                         rx,
-                        InboundSignalingSource::TrustedCentral,
                         true,
                         Some(manager_link_state.clone()),
                         Some(manager_link_gate.subscribe()),

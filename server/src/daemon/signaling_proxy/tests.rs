@@ -342,54 +342,37 @@ fn authz(ceiling: Option<SecuritySettings>) -> RequestRemoteAuthz {
 }
 
 #[test]
-fn support_code_issued_is_trusted_central_only() {
-    // A `SupportCodeIssued` is server-originated (the manager mints it), so the
-    // source gate must confine it to the trusted-central link — otherwise a
-    // bare relay could push a forged code to the host UI.
-    assert!(is_trusted_central_only(SignalingType::SupportCodeIssued));
-    // A `RevokeAccessGrant` is likewise server-originated (regeneration teardown);
-    // confining it stops a bare relay forging a teardown of a live session.
-    assert!(is_trusted_central_only(SignalingType::RevokeAccessGrant));
-    assert!(is_trusted_central_only(
-        SignalingType::UpdateAiAssistantSettings
-    ));
-    // Alongside the other central→daemon plumbing.
-    assert!(is_trusted_central_only(SignalingType::SyncCommandBlocklist));
-    // The host→manager support frames are NOT gated here (they egress, never
-    // arrive inbound), nor are ordinary session frames.
-    assert!(!is_trusted_central_only(SignalingType::RequestSupportCode));
-    assert!(!is_trusted_central_only(SignalingType::RevokeSupportCode));
-    assert!(!is_trusted_central_only(SignalingType::RequestRemoteAccess));
-    assert!(!is_trusted_central_only(SignalingType::Offer));
-}
-
-#[test]
-fn request_remote_bare_from_trusted_central_is_dropped() {
-    // Anti-downgrade anchor: the central always stamps, so a bare request on
-    // that link is forged / a stripped stamp and must be dropped.
-    match gate_request_remote_frame(
-        bare_request_remote(),
-        InboundSignalingSource::TrustedCentral,
-        RR_AUDIENCE,
-        RR_NOW,
-    ) {
-        RequestRemoteGateOutcome::Drop(_) => {}
-        RequestRemoteGateOutcome::Pass(..) => panic!("bare central RequestRemoteAccess must drop"),
+fn only_the_manager_syncs_are_manager_only() {
+    for t in [
+        SignalingType::SupportCodeIssued,
+        SignalingType::RevokeAccessGrant,
+        SignalingType::UpdateAiAssistantSettings,
+        SignalingType::SyncCommandBlocklist,
+        SignalingType::SyncCommandTemplates,
+    ] {
+        assert!(is_manager_only(t), "{t:?}");
+    }
+    // AI device operations are accepted from every configured central.
+    for t in [
+        SignalingType::ExecuteEdgePlan,
+        SignalingType::InvokeRemoteTool,
+        SignalingType::CollectEvidence,
+        SignalingType::RequestSupportCode,
+        SignalingType::RevokeSupportCode,
+        SignalingType::RequestRemoteAccess,
+        SignalingType::Offer,
+    ] {
+        assert!(!is_manager_only(t), "{t:?}");
     }
 }
 
 #[test]
-fn request_remote_stamp_from_non_central_is_dropped() {
-    // A stamp is only legitimate from the trusted-central link; injecting one
-    // from a relay is rejected.
-    match gate_request_remote_frame(
-        stamped_request_remote(authz(None)),
-        InboundSignalingSource::RemoteSignaling,
-        RR_AUDIENCE,
-        RR_NOW,
-    ) {
+fn request_remote_bare_is_dropped() {
+    // Anti-downgrade anchor: the central always stamps, so a bare request on
+    // that link is forged / a stripped stamp and must be dropped.
+    match gate_request_remote_frame(bare_request_remote(), RR_AUDIENCE, RR_NOW) {
         RequestRemoteGateOutcome::Drop(_) => {}
-        RequestRemoteGateOutcome::Pass(..) => panic!("non-central stamp must drop"),
+        RequestRemoteGateOutcome::Pass(..) => panic!("bare central RequestRemoteAccess must drop"),
     }
 }
 
@@ -398,7 +381,6 @@ fn request_remote_stamp_failing_validation_is_dropped() {
     // Wrong audience → validate() fails → drop.
     match gate_request_remote_frame(
         stamped_request_remote(authz(None)),
-        InboundSignalingSource::TrustedCentral,
         "some-other-host",
         RR_NOW,
     ) {
@@ -411,13 +393,8 @@ fn request_remote_stamp_failing_validation_is_dropped() {
 fn request_remote_valid_owner_stamp_passes_and_unwraps() {
     // A valid owner stamp (no ceiling) unwraps to a bare RequestRemoteAccess and
     // carries the validated stamp; the inner payload is restored.
-    match gate_request_remote_frame(
-        stamped_request_remote(authz(None)),
-        InboundSignalingSource::TrustedCentral,
-        RR_AUDIENCE,
-        RR_NOW,
-    ) {
-        RequestRemoteGateOutcome::Pass(unwrapped, Some(a)) => {
+    match gate_request_remote_frame(stamped_request_remote(authz(None)), RR_AUDIENCE, RR_NOW) {
+        RequestRemoteGateOutcome::Pass(unwrapped, a) => {
             assert_eq!(a.access_ceiling, None);
             // The inner frame parses back as a plain RequestRemoteModel (no
             // authz/inner wrapper left).
@@ -435,29 +412,13 @@ fn request_remote_valid_grant_stamp_passes_with_ceiling() {
     };
     match gate_request_remote_frame(
         stamped_request_remote(authz(Some(ceiling.clone()))),
-        InboundSignalingSource::TrustedCentral,
         RR_AUDIENCE,
         RR_NOW,
     ) {
-        RequestRemoteGateOutcome::Pass(_, Some(a)) => {
+        RequestRemoteGateOutcome::Pass(_, a) => {
             assert_eq!(a.access_ceiling, Some(ceiling));
         }
         _ => panic!("valid grant stamp must pass with its ceiling"),
-    }
-}
-
-#[test]
-fn request_remote_bare_from_relay_passes_unchanged() {
-    // The owner-only relay path (no central to stamp) still relays a bare
-    // request through unchanged.
-    match gate_request_remote_frame(
-        bare_request_remote(),
-        InboundSignalingSource::RemoteSignaling,
-        RR_AUDIENCE,
-        RR_NOW,
-    ) {
-        RequestRemoteGateOutcome::Pass(_, None) => {}
-        _ => panic!("bare relay RequestRemoteAccess must pass unstamped"),
     }
 }
 
@@ -498,30 +459,12 @@ fn stamped_start_terminal(authz: RequestRemoteAuthz) -> SignalingModel {
 }
 
 #[test]
-fn start_terminal_bare_from_trusted_central_is_dropped() {
+fn start_terminal_bare_is_dropped() {
     // Terminal mirrors RequestRemoteAccess: the central always stamps, so a bare
     // StartTerminal on that link is forged / a stripped stamp and must drop.
-    match gate_start_terminal_frame(
-        bare_start_terminal(),
-        InboundSignalingSource::TrustedCentral,
-        RR_AUDIENCE,
-        RR_NOW,
-    ) {
+    match gate_start_terminal_frame(bare_start_terminal(), RR_AUDIENCE, RR_NOW) {
         RequestRemoteGateOutcome::Drop(_) => {}
         RequestRemoteGateOutcome::Pass(..) => panic!("bare central StartTerminal must drop"),
-    }
-}
-
-#[test]
-fn start_terminal_stamp_from_non_central_is_dropped() {
-    match gate_start_terminal_frame(
-        stamped_start_terminal(authz(None)),
-        InboundSignalingSource::RemoteSignaling,
-        RR_AUDIENCE,
-        RR_NOW,
-    ) {
-        RequestRemoteGateOutcome::Drop(_) => {}
-        RequestRemoteGateOutcome::Pass(..) => panic!("non-central terminal stamp must drop"),
     }
 }
 
@@ -529,7 +472,6 @@ fn start_terminal_stamp_from_non_central_is_dropped() {
 fn start_terminal_stamp_failing_validation_is_dropped() {
     match gate_start_terminal_frame(
         stamped_start_terminal(authz(None)),
-        InboundSignalingSource::TrustedCentral,
         "some-other-host",
         RR_NOW,
     ) {
@@ -540,13 +482,8 @@ fn start_terminal_stamp_failing_validation_is_dropped() {
 
 #[test]
 fn start_terminal_valid_owner_stamp_passes_and_unwraps() {
-    match gate_start_terminal_frame(
-        stamped_start_terminal(authz(None)),
-        InboundSignalingSource::TrustedCentral,
-        RR_AUDIENCE,
-        RR_NOW,
-    ) {
-        RequestRemoteGateOutcome::Pass(unwrapped, Some(a)) => {
+    match gate_start_terminal_frame(stamped_start_terminal(authz(None)), RR_AUDIENCE, RR_NOW) {
+        RequestRemoteGateOutcome::Pass(unwrapped, a) => {
             assert_eq!(a.access_ceiling, None);
             // The inner frame parses back as a plain StartTerminalSession.
             assert!(
@@ -567,29 +504,13 @@ fn start_terminal_valid_grant_stamp_passes_with_ceiling() {
     };
     match gate_start_terminal_frame(
         stamped_start_terminal(authz(Some(ceiling.clone()))),
-        InboundSignalingSource::TrustedCentral,
         RR_AUDIENCE,
         RR_NOW,
     ) {
-        RequestRemoteGateOutcome::Pass(_, Some(a)) => {
+        RequestRemoteGateOutcome::Pass(_, a) => {
             assert_eq!(a.access_ceiling, Some(ceiling));
         }
         _ => panic!("valid grant terminal stamp must pass with its ceiling"),
-    }
-}
-
-#[test]
-fn start_terminal_bare_from_relay_passes_unchanged() {
-    // Owner-only relay path (no central to stamp) relays a bare StartTerminal
-    // through unchanged, admitted as owner downstream.
-    match gate_start_terminal_frame(
-        bare_start_terminal(),
-        InboundSignalingSource::RemoteSignaling,
-        RR_AUDIENCE,
-        RR_NOW,
-    ) {
-        RequestRemoteGateOutcome::Pass(_, None) => {}
-        _ => panic!("bare relay StartTerminal must pass unstamped"),
     }
 }
 
@@ -645,24 +566,6 @@ fn remote_access_central_link_uses_service_daemon_loopback() {
     assert_eq!(
         select_remote_access_central_link(true, true, &StartupMode::ServiceDaemon),
         RemoteAccessCentralLink::Manager
-    );
-}
-
-#[test]
-fn local_loopback_is_trusted_central_only_in_portable_default() {
-    // Portable Default mode: the loopback reaches the embedded central-brain
-    // signal, so the link is trusted-central (it pushes CollectRequest /
-    // wrapped AI frames the edge must accept).
-    assert_eq!(
-        local_loopback_source(&StartupMode::Default),
-        InboundSignalingSource::TrustedCentral
-    );
-    // ServiceDaemon mode: the loopback is the daemon's own internal API, not a
-    // central brain — it stays a plain Local link (the real central is remote
-    // through the central credential slot, never the loopback).
-    assert_eq!(
-        local_loopback_source(&StartupMode::ServiceDaemon),
-        InboundSignalingSource::Local
     );
 }
 
@@ -749,7 +652,7 @@ async fn drops_worker_bound_message_without_from_connection_id() {
         None,
     );
     let text = serde_json::to_string(&model).unwrap();
-    handle_inbound_signaling_text(text, &router_ctx, InboundSignalingSource::Local, false).await;
+    handle_inbound_signaling_text(text, &router_ctx, false).await;
 }
 
 /// Malformed JSON arriving on the WS is dropped with a warning
@@ -757,13 +660,7 @@ async fn drops_worker_bound_message_without_from_connection_id() {
 #[tokio::test]
 async fn drops_malformed_json() {
     let (router_ctx, _out_tx) = make_router_ctx().await;
-    handle_inbound_signaling_text(
-        "{ this is not valid json".to_string(),
-        &router_ctx,
-        InboundSignalingSource::Local,
-        false,
-    )
-    .await;
+    handle_inbound_signaling_text("{ this is not valid json".to_string(), &router_ctx, false).await;
 }
 
 fn error_frame(code: i32, msg: &str) -> String {
@@ -950,13 +847,7 @@ async fn quota_error_is_fatal_only_on_manager_link() {
     let (router_ctx, _out_tx) = make_router_ctx().await;
     let text = error_frame(DeskErrorCode::DEVICE_QUOTA_EXCEEDED.code(), "full");
 
-    let enabled = handle_inbound_signaling_text(
-        text.clone(),
-        &router_ctx,
-        InboundSignalingSource::TrustedCentral,
-        true,
-    )
-    .await;
+    let enabled = handle_inbound_signaling_text(text.clone(), &router_ctx, true).await;
     assert_eq!(
         enabled,
         InboundOutcome::FatalReject {
@@ -967,13 +858,7 @@ async fn quota_error_is_fatal_only_on_manager_link() {
 
     // Same frame, flag disabled (e.g. Default-mode loopback which is also
     // TrustedCentral): not fatal.
-    let disabled = handle_inbound_signaling_text(
-        text,
-        &router_ctx,
-        InboundSignalingSource::TrustedCentral,
-        false,
-    )
-    .await;
+    let disabled = handle_inbound_signaling_text(text, &router_ctx, false).await;
     assert_eq!(disabled, InboundOutcome::Continue);
 }
 
@@ -993,7 +878,7 @@ async fn handles_router_error_without_panic() {
         None,
     );
     let text = serde_json::to_string(&model).unwrap();
-    handle_inbound_signaling_text(text, &router_ctx, InboundSignalingSource::Local, false).await;
+    handle_inbound_signaling_text(text, &router_ctx, false).await;
 }
 
 /// Worker-bound signaling with `from_connection_id` reaches the
@@ -1014,7 +899,7 @@ async fn worker_owned_with_from_connection_id_does_not_panic() {
         None,
     );
     let text = serde_json::to_string(&model).unwrap();
-    handle_inbound_signaling_text(text, &router_ctx, InboundSignalingSource::Local, false).await;
+    handle_inbound_signaling_text(text, &router_ctx, false).await;
 }
 
 fn command_template_sync_text() -> String {
@@ -1049,38 +934,25 @@ fn command_template_sync_text() -> String {
 /// gate (the operator-template cache stays empty); from the trusted-central
 /// link it is applied. This is the forged-sync rejection guarantee.
 #[tokio::test]
-async fn command_template_sync_is_accepted_only_from_trusted_central_source() {
+async fn command_template_sync_is_accepted_only_on_the_manager_link() {
     let (router_ctx, _out_tx) = make_router_ctx().await;
 
-    // Local source: dropped.
-    handle_inbound_signaling_text(
-        command_template_sync_text(),
-        &router_ctx,
-        InboundSignalingSource::Local,
-        false,
-    )
-    .await;
+    // Any link other than the manager link: dropped.
+    handle_inbound_signaling_text(command_template_sync_text(), &router_ctx, false).await;
     assert_eq!(router_ctx.command_templates.len(), 0);
 
-    // Remote-signaling source: dropped (a bare relay is never trusted-central).
-    handle_inbound_signaling_text(
-        command_template_sync_text(),
-        &router_ctx,
-        InboundSignalingSource::RemoteSignaling,
-        false,
-    )
-    .await;
-    assert_eq!(router_ctx.command_templates.len(), 0);
-
-    // Trusted-central source: applied.
-    handle_inbound_signaling_text(
-        command_template_sync_text(),
-        &router_ctx,
-        InboundSignalingSource::TrustedCentral,
-        false,
-    )
-    .await;
+    // The manager link: applied.
+    let manager_ctx = manager_link_ctx(&router_ctx).await;
+    handle_inbound_signaling_text(command_template_sync_text(), &manager_ctx, false).await;
     assert_eq!(router_ctx.command_templates.len(), 1);
+}
+
+async fn manager_link_ctx(base: &RouterContext) -> RouterContext {
+    let scopes = crate::daemon::manager_credential_scope::ManagerCredentialScopeRegistry::default();
+    RouterContext {
+        manager_credential_link: Some(scopes.begin_link("manager-token").await),
+        ..base.clone()
+    }
 }
 
 /// A current daemon applies a current-epoch sync, ignores a payload whose version
@@ -1094,7 +966,8 @@ async fn command_template_sync_applies_current_epoch_and_ignores_unknown_version
         SyncedCommandTemplate,
     };
     use desk_agent_protocol::exec::ExecEffect;
-    let (router_ctx, _out_tx) = make_router_ctx().await;
+    let (base_ctx, _out_tx) = make_router_ctx().await;
+    let router_ctx = manager_link_ctx(&base_ctx).await;
 
     let make_text = |version: u16, epoch: u16, revision: Option<i64>| {
         let payload = CommandTemplateSyncPayload {
@@ -1119,7 +992,7 @@ async fn command_template_sync_applies_current_epoch_and_ignores_unknown_version
         serde_json::to_string(&model).unwrap()
     };
 
-    // A current-epoch sync from trusted central is applied.
+    // A current-epoch sync on the manager link is applied.
     handle_inbound_signaling_text(
         make_text(
             COMMAND_TEMPLATE_SYNC_VERSION,
@@ -1127,7 +1000,6 @@ async fn command_template_sync_applies_current_epoch_and_ignores_unknown_version
             Some(3),
         ),
         &router_ctx,
-        InboundSignalingSource::TrustedCentral,
         false,
     )
     .await;
@@ -1138,7 +1010,6 @@ async fn command_template_sync_applies_current_epoch_and_ignores_unknown_version
     handle_inbound_signaling_text(
         make_text(99, COMMAND_TEMPLATE_SYNC_EPOCH, Some(5)),
         &router_ctx,
-        InboundSignalingSource::TrustedCentral,
         false,
     )
     .await;
@@ -1150,7 +1021,6 @@ async fn command_template_sync_applies_current_epoch_and_ignores_unknown_version
     handle_inbound_signaling_text(
         make_text(COMMAND_TEMPLATE_SYNC_VERSION, 0, Some(9)),
         &router_ctx,
-        InboundSignalingSource::TrustedCentral,
         false,
     )
     .await;
@@ -1228,106 +1098,48 @@ fn non_ai_frame_passes_through_any_source() {
         None,
     );
     assert!(matches!(
-        gate_authz_frame(model, InboundSignalingSource::TrustedCentral, "dev", NOW),
+        gate_authz_frame(model, "dev", NOW),
         AuthzGateOutcome::Pass(_, _)
     ));
 }
 
 #[test]
-fn bare_ai_frame_passes_through_local() {
-    let model = bare_ai_model("r1");
-    assert!(matches!(
-        gate_authz_frame(model, InboundSignalingSource::Local, "dev", NOW),
-        AuthzGateOutcome::Pass(_, _)
-    ));
-}
-
-#[test]
-fn bare_ai_frame_from_trusted_central_is_dropped() {
+fn bare_ai_frame_is_dropped() {
     // The central brain always wraps AI control frames, so a bare one on the
     // trusted-central link is illegitimate and must be dropped rather than
     // falling through to the local default scope (which would bypass central
     // policy).
     let model = bare_ai_model("r1");
     assert!(matches!(
-        gate_authz_frame(model, InboundSignalingSource::TrustedCentral, "dev", NOW),
+        gate_authz_frame(model, "dev", NOW),
         AuthzGateOutcome::Drop(_)
     ));
 }
 
 #[test]
-fn bare_ai_frame_passes_through_remote_signaling() {
-    // Remote-signaling links have no PDP; bare frames still pass to local
-    // gating (no regression for non-central relays).
-    let model = bare_ai_model("r1");
-    assert!(matches!(
-        gate_authz_frame(model, InboundSignalingSource::RemoteSignaling, "dev", NOW),
-        AuthzGateOutcome::Pass(_, _)
-    ));
-}
-
-#[test]
-fn wrapper_from_non_central_source_is_dropped() {
-    for source in [
-        InboundSignalingSource::Local,
-        InboundSignalingSource::RemoteSignaling,
-    ] {
-        let model = wrapped_ai_model("r1", "dev-1");
-        assert!(
-            matches!(
-                gate_authz_frame(model, source, "dev-1", NOW),
-                AuthzGateOutcome::Drop(_)
-            ),
-            "wrapper from {source:?} must be dropped"
-        );
-    }
-}
-
-#[test]
-fn computer_action_stop_requires_a_trusted_central_wrapper_and_exact_audience() {
+fn computer_action_stop_requires_a_wrapper_and_exact_audience() {
     let mut bare = bare_ai_model("stop-1");
     bare.signaling_type = SignalingType::CancelComputerAction;
     assert!(matches!(
-        gate_authz_frame(bare, InboundSignalingSource::TrustedCentral, "dev-1", NOW),
+        gate_authz_frame(bare, "dev-1", NOW),
         AuthzGateOutcome::Drop(_)
     ));
-    for source in [
-        InboundSignalingSource::Local,
-        InboundSignalingSource::RemoteSignaling,
-    ] {
-        let mut wrapped = wrapped_ai_model("stop-1", "dev-1");
-        wrapped.signaling_type = SignalingType::CancelComputerAction;
-        assert!(matches!(
-            gate_authz_frame(wrapped, source, "dev-1", NOW),
-            AuthzGateOutcome::Drop(_)
-        ));
-    }
     let mut wrapped = wrapped_ai_model("stop-1", "dev-1");
     wrapped.signaling_type = SignalingType::CancelComputerAction;
     assert!(matches!(
-        gate_authz_frame(
-            wrapped.clone(),
-            InboundSignalingSource::TrustedCentral,
-            "other-device",
-            NOW
-        ),
+        gate_authz_frame(wrapped.clone(), "other-device", NOW),
         AuthzGateOutcome::Drop(_)
     ));
     assert!(matches!(
-        gate_authz_frame(
-            wrapped,
-            InboundSignalingSource::TrustedCentral,
-            "dev-1",
-            NOW
-        ),
+        gate_authz_frame(wrapped, "dev-1", NOW),
         AuthzGateOutcome::Pass(_, Some(_))
     ));
 }
 
 // A ConfirmExec carrying the operator-promoted assistant command, wrapped by the
 // central brain exactly as `control_authorizer::build_wrapper_outcome` emits
-// it. Source-gating it proves the Terminal AI Assistant exec path is reachable on
-// the same trusted-central links as diagnose exec, and unreachable elsewhere.
+// it. Gating it proves the Terminal AI Assistant exec path is reachable on the
+// same links as diagnose exec.
 fn wrapped_confirm_exec_model(request_id: &str, audience: &str) -> SignalingModel {
     use desk_agent_protocol::exec::ConfirmExecData;
     use desk_agent_protocol::{AgentOperation, ExecInput, ExecTarget, OperationInput};
@@ -1365,13 +1177,13 @@ fn wrapped_confirm_exec_model(request_id: &str, audience: &str) -> SignalingMode
 }
 
 #[test]
-fn wrapped_confirm_exec_from_trusted_central_is_unwrapped_to_router() {
+fn wrapped_confirm_exec_is_unwrapped_to_router() {
     // The end-to-end inbound path for an operator-promoted assistant exec on a
     // trusted-central link: the wrapper validates, is stripped, and the bare
     // ConfirmExec plus its authorization block flow on to the router (which
     // re-classifies the command before any preview).
     let model = wrapped_confirm_exec_model("ce-1", "dev-1");
-    match gate_authz_frame(model, InboundSignalingSource::TrustedCentral, "dev-1", NOW) {
+    match gate_authz_frame(model, "dev-1", NOW) {
         AuthzGateOutcome::Pass(unwrapped, Some(authz)) => {
             assert_eq!(unwrapped.signaling_type, SignalingType::PreviewExecution);
             // Unwrapped: the inner ConfirmExecData is now the frame data.
@@ -1391,27 +1203,6 @@ fn wrapped_confirm_exec_from_trusted_central_is_unwrapped_to_router() {
         AuthzGateOutcome::Drop(reason) => {
             panic!("trusted-central wrapped ConfirmExec must pass, dropped: {reason}")
         }
-    }
-}
-
-#[test]
-fn wrapped_confirm_exec_from_non_central_source_is_dropped() {
-    // The same wrapped ConfirmExec arriving over a bare remote-signaling (or
-    // local) upstream is dropped at the source gate — a non-central relay can
-    // never inject an authorization wrapper. This is why assistant exec (like
-    // diagnose exec) is only reachable on trusted-central links.
-    for source in [
-        InboundSignalingSource::RemoteSignaling,
-        InboundSignalingSource::Local,
-    ] {
-        let model = wrapped_confirm_exec_model("ce-1", "dev-1");
-        assert!(
-            matches!(
-                gate_authz_frame(model, source, "dev-1", NOW),
-                AuthzGateOutcome::Drop(_)
-            ),
-            "wrapped ConfirmExec from {source:?} must be dropped"
-        );
     }
 }
 
@@ -1516,9 +1307,9 @@ fn fleet_gate_drops_an_uncorrelatable_request() {
 }
 
 #[test]
-fn valid_wrapper_from_trusted_central_is_unwrapped_to_inner() {
+fn valid_wrapper_is_unwrapped_to_inner() {
     let model = wrapped_ai_model("r1", "dev-1");
-    match gate_authz_frame(model, InboundSignalingSource::TrustedCentral, "dev-1", NOW) {
+    match gate_authz_frame(model, "dev-1", NOW) {
         AuthzGateOutcome::Pass(m, _) => {
             // The forwarded model carries the bare inner payload (no authz).
             let obj = m.get_raw_data().as_ref().unwrap().as_object().unwrap();
@@ -1536,12 +1327,7 @@ fn valid_wrapper_from_trusted_central_is_unwrapped_to_inner() {
 fn central_wrapper_with_wrong_audience_is_dropped() {
     let model = wrapped_ai_model("r1", "dev-1");
     assert!(matches!(
-        gate_authz_frame(
-            model,
-            InboundSignalingSource::TrustedCentral,
-            "other-device",
-            NOW
-        ),
+        gate_authz_frame(model, "other-device", NOW),
         AuthzGateOutcome::Drop(_)
     ));
 }
@@ -1562,7 +1348,7 @@ fn central_wrapper_expired_is_dropped() {
         None,
     );
     assert!(matches!(
-        gate_authz_frame(model, InboundSignalingSource::TrustedCentral, "dev-1", NOW),
+        gate_authz_frame(model, "dev-1", NOW),
         AuthzGateOutcome::Drop(_)
     ));
 }
@@ -1583,7 +1369,7 @@ fn central_wrapper_request_id_mismatch_is_dropped() {
         None,
     );
     assert!(matches!(
-        gate_authz_frame(model, InboundSignalingSource::TrustedCentral, "dev-1", NOW),
+        gate_authz_frame(model, "dev-1", NOW),
         AuthzGateOutcome::Drop(_)
     ));
 }
@@ -1961,4 +1747,120 @@ fn a_resident_worker_answer_to_a_label_revocation_is_not_dropped() {
     });
     assert_eq!(message.connection_id(), None);
     assert!(resident_global_control(&message));
+}
+
+/// A stamped `RequestRemoteAccess` or `StartTerminal` produced the way a signal
+/// central produces it (the shared facade wrapper) reaches the router through the
+/// full inbound path on links other than the manager link — the remote-signaling
+/// link and the ServiceDaemon loopback — while unstamped copies are dropped
+/// before it. Reaching the router is observed as its reply carrying the frame's
+/// request id; the admission each stamp yields is covered by the router tests.
+#[tokio::test]
+async fn stamped_admission_frames_reach_the_router_on_every_configured_link() {
+    use crate::daemon::pc_manager::AdmissionOrigin;
+    use desk_signal_facade::model::request_remote_authz::AuthorizedTerminalStart;
+
+    for origin in [AdmissionOrigin::RemoteSignal, AdmissionOrigin::Local] {
+        let (mut ctx, out_tx) = make_router_ctx().await;
+        let mut out_rx = out_tx.subscribe();
+        ctx.admission_origin = origin.clone();
+        let audience = ctx
+            .settings
+            .write()
+            .await
+            .system
+            .get_or_generate_client_id();
+        let stamp = |request_id: &str, ceiling: Option<SecuritySettings>| RequestRemoteAuthz {
+            version: REQUEST_REMOTE_AUTHZ_VERSION,
+            access_ceiling: ceiling,
+            grant_session_id: None,
+            generation: 0,
+            actor: desk_signal_facade::model::request_remote_authz::ActorSummary::unknown(),
+            request_id: request_id.to_string(),
+            audience: audience.clone(),
+            expires_at: Some("2999-01-01T00:00:00Z".to_string()),
+        };
+        let frame = |request_id: &str, kind: SignalingType, data: serde_json::Value| {
+            serde_json::to_string(&SignalingModel::new(
+                request_id,
+                kind,
+                Some(format!("{request_id}-conn")),
+                None,
+                Some(data),
+                None,
+            ))
+            .unwrap()
+        };
+        let mut replied = |request_id: &str| {
+            let mut seen = false;
+            while let Ok(text) = out_rx.try_recv() {
+                let reply: SignalingModel = serde_json::from_str(&text).unwrap();
+                seen |= reply.request_id == request_id;
+            }
+            seen
+        };
+        let remote_inner = serde_json::to_value(RequestRemoteModel::default()).unwrap();
+        let ceiling = SecuritySettings {
+            allow_terminal: Some(true),
+            ..SecuritySettings::default()
+        };
+
+        for (request_id, stamp_ceiling) in [("owner-req", None), ("code-req", Some(ceiling))] {
+            let wrapped = AuthorizedRequestRemote {
+                inner: remote_inner.clone(),
+                authz: stamp(request_id, stamp_ceiling),
+            };
+            handle_inbound_signaling_text(
+                frame(
+                    request_id,
+                    SignalingType::RequestRemoteAccess,
+                    serde_json::to_value(&wrapped).unwrap(),
+                ),
+                &ctx,
+                false,
+            )
+            .await;
+            assert!(replied(request_id), "{request_id} on {origin:?}");
+        }
+
+        handle_inbound_signaling_text(
+            frame(
+                "bare-req",
+                SignalingType::RequestRemoteAccess,
+                remote_inner.clone(),
+            ),
+            &ctx,
+            false,
+        )
+        .await;
+        assert!(!replied("bare-req"), "bare request on {origin:?}");
+
+        let terminal = AuthorizedTerminalStart {
+            inner: serde_json::to_value(start_terminal_session()).unwrap(),
+            authz: stamp("term-req", None),
+        };
+        handle_inbound_signaling_text(
+            frame(
+                "term-req",
+                SignalingType::StartTerminal,
+                serde_json::to_value(&terminal).unwrap(),
+            ),
+            &ctx,
+            false,
+        )
+        .await;
+        assert!(replied("term-req"), "terminal on {origin:?}");
+
+        handle_inbound_signaling_text(
+            frame(
+                "bare-term",
+                SignalingType::StartTerminal,
+                serde_json::to_value(start_terminal_session()).unwrap(),
+            ),
+            &ctx,
+            false,
+        )
+        .await;
+        assert!(!replied("bare-term"), "bare terminal on {origin:?}");
+    }
 }

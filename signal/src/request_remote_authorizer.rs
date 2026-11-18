@@ -1,7 +1,7 @@
 //! Signal single-account capability-ceiling stamp for `RequestRemoteAccess` frames.
 //!
-//! The portable signal server is a `TrustedCentral` upstream to its edge, so the
-//! edge drops any bare `RequestRemoteAccess` arriving there (defense against a grant
+//! The signal server is a central the edge is configured to use, and the edge
+//! drops any bare `RequestRemoteAccess` (defense against a grant
 //! session stripping its stamp to masquerade as an owner). This authorizer stamps
 //! every relayed `RequestRemoteAccess` with an [`RequestRemoteAuthz`] so the edge
 //! accepts it.

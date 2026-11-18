@@ -4,7 +4,7 @@ Remote desktop with AI that reads system state is powerful — and demands a str
 
 ## The Server Is the Sole Source of Truth
 
-All authorization logic is verified **server-side** by the central signaling brain. Fields like `request_id`, `target`, `actor`, `scope`, `caller`, the final `risk`, and `approval_id` are injected and validated by the server — a control plane (browser, mobile, or MCP) can **never self-report** them. The browser-side request body does not even contain these fields structurally. The trust anchor is connection authentication: a bare relayed connection is never promoted to an authorized one.
+All authorization logic is verified **server-side** by the central signaling brain. Fields like `request_id`, `target`, `actor`, `scope`, `caller`, the final `risk`, and `approval_id` are injected and validated by the server — a control plane (browser, mobile, or MCP) can **never self-report** them. The browser-side request body does not even contain these fields structurally. The trust anchor is the host's own configuration: a host accepts authorization only from the signaling servers it is configured to connect to — its manager, the signaling server set in `signaling_url`, or its embedded signaling server — so configuring a server makes it a central for that host. Unstamped remote-access, terminal, and AI control frames are dropped. When a host is connected to more than one central, each central can see the AI results of commands the others dispatched.
 
 ## Capability Protocol Is Device-Facing
 

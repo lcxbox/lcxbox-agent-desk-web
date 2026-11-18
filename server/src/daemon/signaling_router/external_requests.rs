@@ -307,8 +307,7 @@ pub(super) fn handle_command_template_sync_inbound(
 /// Surface a manager-issued temporary support code to the local user and arm the
 /// session's expiry teardown.
 ///
-/// The code arrives over the host's dedicated Support upstream (the source gate
-/// has already dropped any non-central origin). The daemon records it in the
+/// The code arrives over the manager link (the proxy accepts it only there). The daemon records it in the
 /// support link state for the local UI and spawns a timer that ends the session
 /// at the code's expiry — guarded by the session epoch so a stale timer from an
 /// earlier session cannot tear down a newer one. The signaling proxy's support
@@ -365,8 +364,8 @@ pub(super) fn handle_support_code_issued_inbound(
     Ok(())
 }
 
-/// Apply an inbound `RevokeAccessGrant` from the manager (the source gate has
-/// already dropped any non-central origin). Direct-closes every grant session this
+/// Apply an inbound `RevokeAccessGrant` from the manager (the proxy accepts it
+/// only on the manager link). Direct-closes every grant session this
 /// host holds whose recorded generation is `≤ revoked_generation`, cutting an
 /// already-established peer connection immediately after a dial-code regeneration —
 /// the in-flight teardown that the `authorize` generation check alone can only

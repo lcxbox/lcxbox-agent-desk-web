@@ -464,12 +464,12 @@ pub enum RemoteReadExecutor {
 pub struct RouterContext {
     pub pc_registry: PcRegistry,
     /// Exact upstream lane for admission provenance. Manager is set only by the
-    /// manager connection loop and never inferred from `TrustedCentral`.
+    /// manager connection loop.
     pub admission_origin: pc_manager::AdmissionOrigin,
     /// Bound to the actual connected upstream, never reread from mutable settings.
     pub file_recovery_authority: Option<String>,
-    /// Credential scope bound to the current manager WebSocket. `None` on local
-    /// and bare remote-signaling lanes.
+    /// Credential scope bound to the current manager WebSocket. `None` on the
+    /// local and remote-signaling links.
     pub manager_credential_link:
         Option<crate::daemon::manager_credential_scope::ManagerCredentialLink>,
     /// The exact upstream WebSocket carrying a prepared one-shot PTY. `None` in
@@ -541,31 +541,30 @@ pub struct RouterContext {
     /// `DiagnoseCancel` (the control end starting over or handing off) aborts the
     /// matching run so a slow model call stops instead of streaming into a closed
     /// connection. Entries remove themselves on natural completion.
-    /// Manager-injected authorization for the current inbound AI frame, set per
-    /// call by the proxy when a validated `AuthorizedControlPayload` arrives on
-    /// the Manager link. `None` on the local / remote-signaling links, where the
-    /// AI handlers fall back to local-config gating (no fleet PDP). Threaded
-    /// through the context (rather than the handler signatures) so the existing
-    /// `route()` / handler call sites stay untouched.
+    /// Central-injected authorization for the current inbound AI frame, set per
+    /// call by the proxy when a validated `AuthorizedControlPayload` arrives.
+    /// `None` for a bare `CollectEvidence` / `InvokeRemoteTool` (the manager
+    /// sends those unwrapped), where the handlers fall back to the local default
+    /// scope. Threaded through the context (rather than the handler signatures)
+    /// so the existing `route()` / handler call sites stay untouched.
     pub inbound_authz: Option<desk_agent_protocol::authz::AuthorizationBlock>,
     /// The validated capability-ceiling stamp for the current inbound
-    /// `RequestRemoteAccess`, set per call by the proxy after `gate_request_remote_frame`
-    /// accepts a wrapped frame on the trusted-central link. `None` for a bare
-    /// (non-central) request or a non-`RequestRemoteAccess` frame. A `Some` whose
-    /// `access_ceiling` is `Some(_)` marks a redeemed-grant session (restricted);
-    /// an `access_ceiling` of `None` is a central-verified owner/full session.
-    /// Threaded through the context (like `inbound_authz`) so the handler
-    /// signatures stay untouched.
+    /// `RequestRemoteAccess`, set per call by the proxy after
+    /// `gate_request_remote_frame` accepts it. `None` for any other frame; the
+    /// handler refuses a `RequestRemoteAccess` that arrives without one. An
+    /// `access_ceiling` of `Some(_)` marks a redeemed-grant session (restricted);
+    /// `None` is an owner/full session. Threaded through the context (like
+    /// `inbound_authz`) so the handler signatures stay untouched.
     pub inbound_request_remote_authz:
         Option<desk_signal_facade::model::request_remote_authz::RequestRemoteAuthz>,
     /// The validated capability-ceiling stamp for the current inbound
     /// `StartTerminal`, set per call by the proxy after `gate_start_terminal_frame`
-    /// accepts a wrapped frame on the trusted-central link. `None` for a bare
-    /// (non-central) `StartTerminal` (owner-only relay path) or any other frame.
-    /// `handle_start_terminal_inbound` consumes it to register the terminal
-    /// connection's worker ceiling, record its admission, and index it under its
-    /// grant — the terminal analogue of `inbound_request_remote_authz` (the terminal
-    /// WS is a distinct connection that never does a `RequestRemoteAccess`).
+    /// accepts it. `None` for any other frame; a `StartTerminal` without one is
+    /// refused. `handle_start_terminal_inbound` consumes it to register the
+    /// terminal connection's worker ceiling, record its admission, and index it
+    /// under its grant — the terminal analogue of `inbound_request_remote_authz`
+    /// (the terminal WS is a distinct connection that never does a
+    /// `RequestRemoteAccess`).
     pub inbound_start_terminal_authz:
         Option<desk_signal_facade::model::request_remote_authz::RequestRemoteAuthz>,
     /// Per-attempt `request_id`s of fleet executions currently dispatched to the
@@ -832,6 +831,19 @@ pub async fn route(model: &SignalingModel, ctx: &RouterContext) -> Result<(), Ro
             let connection_id = model
                 .check_and_get_from_connection_id()
                 .map_err(DeskError::from)?;
+            // The proxy forwards a `RequestRemoteAccess` only with a validated
+            // stamp. Refuse one that reaches here without it rather than
+            // admitting it with no ceiling.
+            let Some(stamp) = ctx.inbound_request_remote_authz.as_ref() else {
+                log::warn!("[router] RequestRemoteAccess without a stamp; refusing");
+                emit_error_response(
+                    ctx,
+                    model,
+                    DeskErrorCode::PERMISSION_ERROR,
+                    "remote access requires an authorization stamp",
+                );
+                return Ok(());
+            };
             let session_capability = match request_remote.purpose {
                 RemoteSessionPurpose::RemoteDesktop => {
                     crate::daemon::session_target::SessionCapability::RemoteDesktop
@@ -939,32 +951,22 @@ pub async fn route(model: &SignalingModel, ctx: &RouterContext) -> Result<(), Ro
             let user_name = "worker_node".to_string();
             let has_tauri = ctx.host_control_hub.has_tauri_ui();
             // Resolve the connection's capability ceiling. A redeemed-grant stamp
-            // carries one directly (an owner stamp carries `None` = no ceiling); a
-            // bare (non-central) request carries none. A temporary-support session
-            // now arrives as an ordinary redeemed grant (its ceiling comes from the
-            // device's per-code capabilities), so there is no separate support path.
-            let (access_ceiling, grant_session_id, grant_generation) =
-                match ctx.inbound_request_remote_authz.as_ref() {
-                    Some(a) => (
-                        a.access_ceiling.clone(),
-                        a.grant_session_id.clone(),
-                        a.generation,
-                    ),
-                    None => (None, None, 0),
-                };
+            // carries one directly; an owner stamp carries `None` = no ceiling. A
+            // temporary-support session arrives as an ordinary redeemed grant (its
+            // ceiling comes from the device's per-code capabilities), so there is
+            // no separate support path.
+            let (access_ceiling, grant_session_id, grant_generation) = (
+                stamp.access_ceiling.clone(),
+                stamp.grant_session_id.clone(),
+                stamp.generation,
+            );
             let admission = match access_ceiling.as_ref() {
                 Some(ceiling) => pc_manager::Admission::Capped(ceiling.clone()),
                 None => pc_manager::Admission::OwnerFull,
             };
-            ctx.host_control_hub.host_activity().ensure_session(
-                connection_id,
-                ctx.inbound_request_remote_authz
-                    .as_ref()
-                    .map(|authz| authz.actor.clone())
-                    .unwrap_or_else(
-                        desk_signal_facade::model::request_remote_authz::ActorSummary::unknown,
-                    ),
-            );
+            ctx.host_control_hub
+                .host_activity()
+                .ensure_session(connection_id, stamp.actor.clone());
             if let Some(session) = selected_session.as_ref()
                 && let Err(error) = ctx
                     .worker_mgr
@@ -1302,49 +1304,43 @@ pub async fn route(model: &SignalingModel, ctx: &RouterContext) -> Result<(), Ro
         // AI audit events are emitted by this daemon toward the manager; a stray
         // inbound frame is swallowed (the daemon never persists audit itself).
         SignalingType::ReportAiAuditEvent => Ok(()),
-        // Command-template sync from the manager. The source gate
-        // (`handle_inbound_signaling_text`) has already dropped any non-Manager
-        // origin before reaching here; this only applies the validated set.
+        // Command-template sync from the manager. The proxy accepts it only on
+        // the manager link; this only applies the validated set.
         SignalingType::SyncCommandTemplates => handle_command_template_sync_inbound(ctx, model),
-        // Command-blocklist sync from the manager. The source gate
-        // (`handle_inbound_signaling_text`) has already dropped any non-central
-        // origin before reaching here; this only applies the validated set.
+        // Command-blocklist sync from the manager. The proxy accepts it only on
+        // the manager link; this only applies the validated set.
         SignalingType::SyncCommandBlocklist => handle_command_blocklist_sync_inbound(ctx, model),
         SignalingType::CollectEvidence => handle_collect_request_inbound(ctx, model).await,
         SignalingType::EvidenceCollectionUpdated => Ok(()),
         // Temporary-support code issued by the manager over this host's dedicated
         // Support upstream. The daemon surfaces it to the local user, who reads it
-        // out to a supporter. The source gate (`handle_inbound_signaling_text`) has
-        // already dropped any non-central origin before reaching here.
+        // out to a supporter. The proxy accepts it only on the manager link.
         SignalingType::SupportCodeIssued => handle_support_code_issued_inbound(ctx, model),
         // RequestSupportCode / RevokeSupportCode are emitted by this daemon toward
         // the manager (asking for / revoking a code); a stray inbound copy is
         // swallowed (the daemon never consumes its own request).
         SignalingType::RequestSupportCode | SignalingType::RevokeSupportCode => Ok(()),
         // Grant-session teardown from the manager after a dial-code regeneration.
-        // The source gate (`is_trusted_central_only`) has already dropped any
-        // non-central origin before reaching here; the daemon direct-closes every
-        // grant it holds at a superseded generation.
+        // The proxy accepts it only on the manager link; the daemon direct-closes
+        // every grant it holds at a superseded generation.
         SignalingType::RevokeAccessGrant => handle_revoke_access_grant_inbound(ctx, model).await,
-        // Remote-collect request from the manager: run the daemon-side read-only
-        // collectors and stream a chunked CollectResponse back. The source gate
-        // (`handle_inbound_signaling_text`) has already dropped any non-Manager
-        // origin before reaching here.
+        // Remote-collect request from a central: run the daemon-side read-only
+        // collectors and stream a chunked CollectResponse back. Any wrapper has
+        // already been validated and unwrapped by the proxy.
         // CollectResponse is emitted by this daemon toward the manager; a stray
         // inbound frame is swallowed (the daemon never consumes its own stream).
-        // Fleet batch-execution request from the manager: PEP re-validate the
-        // manager-sealed `ExecPlan` and dispatch it to the worker, correlating
-        // the worker's result back to the manager as a `EdgeExecResult`. The
-        // source gate + dedicated authz gate (`signaling_proxy`) have already
-        // dropped non-Manager origins and unwrapped/validated the authorization.
+        // Sealed execution request from a central: PEP re-validate the sealed
+        // `ExecPlan` and dispatch it to the worker, correlating the worker's
+        // result back as an `EdgeExecResult`. The proxy's dedicated authz gate
+        // has already unwrapped and validated the authorization.
         SignalingType::ExecuteEdgePlan => handle_edge_exec_request_inbound(ctx, model).await,
         // EdgeExecResult is emitted by this daemon toward the manager; a stray
         // inbound frame is swallowed (the daemon never consumes its own replies).
         SignalingType::EdgeExecutionCompleted => Ok(()),
         // Remote read-tool request from the manager (agentic loop running
         // centrally): run the one server-stamped read locally and stream a chunked
-        // RemoteToolResponse back. The source gate has already dropped any
-        // non-Manager origin before reaching here.
+        // RemoteToolResponse back. Any wrapper has already been validated and
+        // unwrapped by the proxy.
         SignalingType::InvokeRemoteTool => handle_remote_tool_request_inbound(ctx, model).await,
         // RemoteToolResponse is emitted by this daemon toward the manager; a stray
         // inbound frame is swallowed (the daemon never consumes its own stream).

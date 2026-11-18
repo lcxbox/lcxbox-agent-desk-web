@@ -1,8 +1,8 @@
-//! Trusted-central wrapper and fleet-exec authorization gates.
+//! Central wrapper and fleet-exec authorization gates.
 
 use super::*;
 
-/// True for the trusted-central plumbing frames that drive an evidence
+/// True for the central plumbing frames that drive an evidence
 /// collection or a remote read-tool call. Unlike the AI control frames these may
 /// arrive either bare or wrapped, so they get the optional-wrapper gate rather
 /// than [`gate_authz_frame`]'s require-wrapper rule.
@@ -13,13 +13,12 @@ pub(super) fn is_central_plumbing_frame(t: SignalingType) -> bool {
     )
 }
 
-/// Optional-wrapper gate for trusted-central plumbing (`CollectRequest` /
-/// `RemoteToolRequest`). The caller has already confirmed the trusted-central
-/// source. These frames may arrive either:
+/// Optional-wrapper gate for central plumbing (`CollectRequest` /
+/// `RemoteToolRequest`). These frames may arrive either:
 ///
-/// - **bare** — the legacy / enterprise-manager path emits the raw payload; the
-///   trusted-central link authentication is the trust anchor, so a bare frame
-///   passes through to the router unchanged; or
+/// - **bare** — the enterprise manager emits the raw payload; the configured
+///   link's authentication is the trust anchor, so a bare frame passes through
+///   to the router unchanged; or
 /// - **wrapped** in an [`AuthorizedControlPayload`] — an OSS signal central brain
 ///   stamps and wraps every frame. A wrapper is validated against the frame's
 ///   `request_id`, this daemon's audience, and expiry (replay / misroute
@@ -72,7 +71,7 @@ pub(super) fn gate_optional_central_wrapper(
 
 /// Outcome of the dedicated `EdgeExecRequest` authorization gate. Unlike the
 /// generic [`gate_authz_frame`] (which drops a frame whose wrapper fails to
-/// validate), a fleet request from the trusted-central link that fails
+/// validate), a fleet request that fails
 /// validation is answered with a synthesized denied result so the central
 /// pending entry resolves rather than hanging. Only a frame that cannot be
 /// correlated at all (no `request_id`) is dropped outright.
@@ -92,8 +91,7 @@ pub(super) enum FleetExecGateOutcome {
     Drop(String),
 }
 
-/// Dedicated authorization gate for `EdgeExecRequest` (central → daemon). The
-/// caller has already confirmed the trusted-central source. Validates the
+/// Dedicated authorization gate for `EdgeExecRequest` (central → daemon). Validates the
 /// `AuthorizedControlPayload<ExecPlan>` wrapper; on success unwraps the inner
 /// plan and returns the validated authorization block.
 pub(super) fn gate_fleet_exec_frame(

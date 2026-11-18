@@ -39,8 +39,8 @@ pub(super) fn is_baseline_signaling_type(t: SignalingType) -> bool {
 ///
 /// `StartTerminal` is deliberately **excluded**: like `RequestRemoteAccess`, it is the
 /// admission-*establishing* frame for the terminal WS (a distinct connection that
-/// never does a `RequestRemoteAccess`). Its own source-gate (`gate_start_terminal_frame`)
-/// requires and validates a capability stamp on the trusted-central link, and
+/// never does a `RequestRemoteAccess`). Its own gate (`gate_start_terminal_frame`)
+/// requires and validates a capability stamp, and
 /// `handle_start_terminal_inbound` records the admission + ceiling from that stamp —
 /// so it must be allowed to reach the handler on an un-admitted connection, exactly
 /// as `RequestRemoteAccess` is. The remaining terminal I/O frames stay gated here and pass

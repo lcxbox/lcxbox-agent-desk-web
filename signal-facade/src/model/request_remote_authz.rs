@@ -2,15 +2,15 @@
 //!
 //! A `RequestRemoteAccess` reaching a host through a trusted central signaling server
 //! is wrapped in an [`AuthorizedRequestRemote`]: the original frame data plus an
-//! [`RequestRemoteAuthz`] block the central server stamps. The host only trusts a
-//! stamp from its `TrustedCentral` upstream and drops any bare `RequestRemoteAccess`
-//! arriving there (defense against a grant session stripping its stamp to
+//! [`RequestRemoteAuthz`] block the central server stamps. Every upstream the host
+//! is configured to use stamps these frames, so the host drops any bare
+//! `RequestRemoteAccess` (defense against a grant session stripping its stamp to
 //! masquerade as an owner). The `access_ceiling` says what the session may do:
 //! `None` is a central-verified owner/full session, `Some(ceiling)` is the
 //! per-code ceiling of a redeemed device / support code.
 //!
 //! This mirrors the trust model of the AI control-frame `AuthorizationBlock`
-//! (`desk-agent-protocol`) — TrustedCentral-only injection, validated
+//! (`desk-agent-protocol`) — injected only by a configured central, validated
 //! request_id / audience / expiry — but is a **separate, self-contained type in
 //! this crate** rather than an extension of `AuthorizationBlock`: the ceiling is
 //! a `SecuritySettings`, a `signal-facade` domain type, and pulling it into the

@@ -2,32 +2,29 @@
 
 use super::*;
 
-/// Inbound-text dispatcher pulled out of `maintain_proxy_connection`
-/// so the parse / route sequence is reusable for tests and the
-/// per-frame logic stays out of the WS select loop.
-/// Signaling types that are server-originated central→daemon plumbing: they are
-/// accepted only from the trusted-central link. A Local / remote-signaling origin
-/// (no trusted PDP) must never inject operator templates, weaken the command
-/// blocklist, drive an evidence collection, dispatch a sealed execution plan,
-/// drive a remote read, surface a forged support code to the local user, or forge
-/// a grant-session teardown that tears down a legitimate session.
-pub(super) fn is_trusted_central_only(t: SignalingType) -> bool {
+/// Signaling types only the manager sends. Each one writes device-wide state with
+/// a single revision or generation space (command templates and blocklist, the AI
+/// Assistant settings, support codes, access-grant generations), so a second
+/// central must never be able to push them: a higher revision from it would make
+/// every later manager sync look stale, and a grant teardown would close sessions
+/// another central minted. They are accepted only on the manager link.
+pub(super) fn is_manager_only(t: SignalingType) -> bool {
     matches!(
         t,
         SignalingType::SyncCommandTemplates
             | SignalingType::SyncCommandBlocklist
-            | SignalingType::CollectEvidence
-            | SignalingType::ExecuteEdgePlan
-            | SignalingType::InvokeRemoteTool
             | SignalingType::SupportCodeIssued
             | SignalingType::RevokeAccessGrant
             | SignalingType::UpdateAiAssistantSettings
     )
 }
 
+/// Inbound-text dispatcher pulled out of `maintain_proxy_connection`
+/// so the parse / route sequence is reusable for tests and the
+/// per-frame logic stays out of the WS select loop.
 ///
-/// Parses the inbound text once, applies source-gated authorization wrapper
-/// handling ([`gate_authz_frame`]), and hands the model to
+/// Parses the inbound text once, applies the stamp checks
+/// ([`gate_authz_frame`] and the admission-frame gates), and hands the model to
 /// [`signaling_router::route`]. The router exhaustively dispatches:
 /// PC / SDP / ICE types are handled inline, worker-bound types ride
 /// dedicated `ServiceToWorker::*` typed IPC variants, and
@@ -35,7 +32,6 @@ pub(super) fn is_trusted_central_only(t: SignalingType) -> bool {
 pub(super) async fn handle_inbound_signaling_text(
     text_str: String,
     router_ctx: &RouterContext,
-    source: InboundSignalingSource,
     fatal_quota_reject_enabled: bool,
 ) -> InboundOutcome {
     let parsed = match serde_json::from_str::<SignalingModel>(&text_str) {
@@ -59,15 +55,9 @@ pub(super) async fn handle_inbound_signaling_text(
         };
     }
 
-    // Source gate: server-originated central→daemon plumbing (see
-    // [`is_trusted_central_only`]) is accepted only from the trusted-central link.
-    // For the blocklist this is critical: a forged sync with a higher revision and
-    // a thinned rule set would otherwise wipe the daemon's floor and fail-open.
-    if is_trusted_central_only(parsed.signaling_type)
-        && source != InboundSignalingSource::TrustedCentral
-    {
+    if is_manager_only(parsed.signaling_type) && router_ctx.manager_credential_link.is_none() {
         warn!(
-            "[Proxy] Dropping {:?} from non-central source {source:?}",
+            "[Proxy] Dropping {:?}: only the manager link may send it",
             parsed.signaling_type
         );
         return InboundOutcome::Continue;
@@ -147,26 +137,17 @@ pub(super) async fn handle_inbound_signaling_text(
         return InboundOutcome::Continue;
     }
 
-    // `RequestRemoteAccess` carries the capability-ceiling stamp: required and validated
-    // on the trusted-central link (a bare one there is dropped as a downgrade
-    // attempt), rejected if stamped from a non-central source, passed through bare
-    // on the owner-only relay path. The validated stamp rides into the router via
-    // the context so the freshly-created session inherits its restriction /
-    // ceiling.
+    // `RequestRemoteAccess` must carry a valid capability-ceiling stamp. The
+    // validated stamp rides into the router via the context so the
+    // freshly-created session inherits its restriction / ceiling.
     if parsed.signaling_type == SignalingType::RequestRemoteAccess {
-        match gate_request_remote_frame(parsed, source, &expected_audience, &now) {
+        match gate_request_remote_frame(parsed, &expected_audience, &now) {
             RequestRemoteGateOutcome::Pass(unwrapped, authz) => {
-                let effective_ctx;
-                let ctx_ref = if authz.is_some() {
-                    effective_ctx = RouterContext {
-                        inbound_request_remote_authz: authz,
-                        ..router_ctx.clone()
-                    };
-                    &effective_ctx
-                } else {
-                    router_ctx
+                let effective_ctx = RouterContext {
+                    inbound_request_remote_authz: Some(authz),
+                    ..router_ctx.clone()
                 };
-                if let Err(e) = signaling_router::route(&unwrapped, ctx_ref).await {
+                if let Err(e) = signaling_router::route(&unwrapped, &effective_ctx).await {
                     warn!("[Proxy] router handler failed for RequestRemoteAccess: {e}");
                 }
             }
@@ -177,27 +158,19 @@ pub(super) async fn handle_inbound_signaling_text(
         return InboundOutcome::Continue;
     }
 
-    // `StartTerminal` carries the same capability-ceiling stamp as `RequestRemoteAccess`
-    // (it is the admission-establishing frame for the distinct terminal WS): required
-    // and validated on the trusted-central link, rejected if stamped from a
-    // non-central source, passed through bare on the owner-only relay path. The
-    // validated stamp rides into the router via the context so
-    // `handle_start_terminal_inbound` can register the connection's ceiling +
-    // admission + grant index.
+    // `StartTerminal` carries the same capability-ceiling stamp as
+    // `RequestRemoteAccess` (it is the admission-establishing frame for the
+    // distinct terminal WS). The validated stamp rides into the router via the
+    // context so `handle_start_terminal_inbound` can register the connection's
+    // ceiling + admission + grant index.
     if parsed.signaling_type == SignalingType::StartTerminal {
-        match gate_start_terminal_frame(parsed, source, &expected_audience, &now) {
+        match gate_start_terminal_frame(parsed, &expected_audience, &now) {
             RequestRemoteGateOutcome::Pass(unwrapped, authz) => {
-                let effective_ctx;
-                let ctx_ref = if authz.is_some() {
-                    effective_ctx = RouterContext {
-                        inbound_start_terminal_authz: authz,
-                        ..router_ctx.clone()
-                    };
-                    &effective_ctx
-                } else {
-                    router_ctx
+                let effective_ctx = RouterContext {
+                    inbound_start_terminal_authz: Some(authz),
+                    ..router_ctx.clone()
                 };
-                if let Err(e) = signaling_router::route(&unwrapped, ctx_ref).await {
+                if let Err(e) = signaling_router::route(&unwrapped, &effective_ctx).await {
                     warn!("[Proxy] router handler failed for StartTerminal: {e}");
                 }
             }
@@ -208,7 +181,7 @@ pub(super) async fn handle_inbound_signaling_text(
         return InboundOutcome::Continue;
     }
 
-    let (parsed, authz) = match gate_authz_frame(parsed, source, &expected_audience, &now) {
+    let (parsed, authz) = match gate_authz_frame(parsed, &expected_audience, &now) {
         AuthzGateOutcome::Pass(m, authz) => (m, authz),
         AuthzGateOutcome::Drop(reason) => {
             warn!("[Proxy] Dropping AI frame: {reason}");

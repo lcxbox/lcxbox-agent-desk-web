@@ -175,13 +175,11 @@ pub(super) async fn handle_start_terminal_inbound(
         );
         return Ok(());
     }
-    ctx.host_control_hub.host_activity().ensure_session(
-        connection_id,
-        ctx.inbound_start_terminal_authz
-            .as_ref()
-            .map(|authz| authz.actor.clone())
-            .unwrap_or_else(desk_signal_facade::model::request_remote_authz::ActorSummary::unknown),
-    );
+    if let Some(authz) = ctx.inbound_start_terminal_authz.as_ref() {
+        ctx.host_control_hub
+            .host_activity()
+            .ensure_session(connection_id, authz.actor.clone());
+    }
 
     let payload = StartTerminalPayload {
         request_id: model.request_id.clone(),
@@ -229,11 +227,10 @@ pub(super) async fn handle_start_terminal_inbound(
 /// Register a terminal connection's admission, worker ceiling, and grant index from
 /// the validated `StartTerminal` stamp (the terminal analogue of what
 /// `handle_request_remote` does for a control connection). Returns `false` — refuse
-/// the terminal — only when a capped ceiling fails to reach the worker (fail-closed:
+/// the terminal — when a capped ceiling fails to reach the worker (fail-closed:
 /// a terminal must never run with no worker-side cap, which would fall back to the
-/// host global). A central stamp with `access_ceiling: None` is an owner session; a
-/// bare frame (owner-only relay / local path, no stamp) is likewise admitted as
-/// owner with no ceiling.
+/// host global) or when the frame carries no stamp. A stamp with
+/// `access_ceiling: None` is an owner session.
 pub(super) async fn register_terminal_admission(ctx: &RouterContext, connection_id: &str) -> bool {
     match ctx.inbound_start_terminal_authz.as_ref() {
         Some(authz) => {
@@ -281,14 +278,11 @@ pub(super) async fn register_terminal_admission(ctx: &RouterContext, connection_
                     .await;
             }
         }
+        // The proxy forwards a `StartTerminal` only with a validated stamp; one
+        // that reaches here without it is refused rather than admitted as owner.
         None => {
-            ctx.pc_registry
-                .record_admission_with_origin(
-                    connection_id,
-                    pc_manager::Admission::OwnerFull,
-                    ctx.admission_origin.clone(),
-                )
-                .await;
+            log::warn!("[router] StartTerminal without a stamp for {connection_id}; refusing");
+            return false;
         }
     }
     ctx.pc_registry
