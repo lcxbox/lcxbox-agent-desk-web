@@ -15,8 +15,8 @@ mod windows_impl {
         service::{
             Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl,
             ServiceControlAccept, ServiceErrorControl, ServiceExitCode, ServiceFailureActions,
-            ServiceFailureResetPeriod, ServiceInfo, ServiceStartType, ServiceState,
-            ServiceStatus, ServiceType,
+            ServiceFailureResetPeriod, ServiceInfo, ServiceStartType, ServiceState, ServiceStatus,
+            ServiceType,
         },
         service_control_handler::{self, ServiceControlHandlerResult},
         service_dispatcher,
@@ -280,10 +280,8 @@ mod windows_impl {
             account_password: None,
         };
 
-        let service = manager.create_service(
-            &info,
-            ServiceAccess::START | ServiceAccess::CHANGE_CONFIG,
-        )?;
+        let service =
+            manager.create_service(&info, ServiceAccess::START | ServiceAccess::CHANGE_CONFIG)?;
         info!("Service '{SERVICE_NAME}' installed at '{install_dir}'");
         configure_failure_recovery(&service)?;
         service.start(&[] as &[&std::ffi::OsStr])?;
