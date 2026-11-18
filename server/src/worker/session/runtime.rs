@@ -119,6 +119,25 @@ impl WorkerSession {
         } else {
             worker_data_dir
         };
+        #[cfg(unix)]
+        let worker_data_dir = match worker_data_dir {
+            Some(configured) if worker_profile == WorkerProfile::SessionUser => {
+                match tokio::task::spawn_blocking(move || {
+                    super::unix_user_paths::prepare(&configured).map(|()| configured)
+                })
+                .await
+                {
+                    Ok(Ok(path)) => Some(path),
+                    _ => {
+                        warn!(
+                            "Private user-worker storage is unavailable; user data capabilities remain unavailable"
+                        );
+                        None
+                    }
+                }
+            }
+            other => other,
+        };
 
         let worker_locale = settings
             .system

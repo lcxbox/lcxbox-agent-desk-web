@@ -104,6 +104,8 @@ mod connection;
 #[cfg(any(target_os = "macos", target_os = "linux", windows))]
 mod file_recovery;
 mod file_recovery_quota;
+#[cfg(unix)]
+mod unix_user_paths;
 #[cfg(windows)]
 mod windows_user_paths;
 pub(crate) use file_recovery_quota::QuotaClient;

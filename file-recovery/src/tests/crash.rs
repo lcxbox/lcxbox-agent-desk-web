@@ -274,9 +274,22 @@ fn failed_reservation_aborts_before_any_object_is_published() {
     // The planned transaction directory is created only after a successful
     // backup, so an aborted backup must not keep it as pending cleanup.
     #[cfg(unix)]
-    {
-        backup.transaction = Some(TransactionPlan::unix("/planned-parent", 1, 2, 3).unwrap());
-    }
+    let _parent = {
+        use std::os::unix::fs::MetadataExt;
+        // macOS binds the plan to the parent's live identity.
+        let parent = tempfile::tempdir().unwrap();
+        let metadata = std::fs::metadata(parent.path()).unwrap();
+        backup.transaction = Some(
+            TransactionPlan::unix(
+                parent.path().to_str().unwrap(),
+                metadata.dev(),
+                metadata.ino(),
+                3,
+            )
+            .unwrap(),
+        );
+        parent
+    };
     let error = v
         .backup(backup, 0, |_, _| {
             Err(io::Error::new(
