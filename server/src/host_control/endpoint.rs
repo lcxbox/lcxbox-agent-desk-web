@@ -257,6 +257,27 @@ pub async fn ws_handler(
     stream: web::Payload,
     query: web::Query<HashMap<String, String>>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    accept_ws(state, req, stream, query, WsEntry::TauriShell)
+}
+
+/// Which route a host-control WebSocket came in on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WsEntry {
+    /// `/ws/tauri_ipc`: a Tauri shell that logs its webview in with the
+    /// one-time login token pushed on connect.
+    TauriShell,
+    /// `/ws/host_upstream`: a worker forwarder. It never logs a webview in, so
+    /// it must not replace the token a Tauri shell is about to redeem.
+    Forwarder,
+}
+
+fn accept_ws(
+    state: web::Data<EndpointState>,
+    req: HttpRequest,
+    stream: web::Payload,
+    query: web::Query<HashMap<String, String>>,
+    entry: WsEntry,
+) -> Result<HttpResponse, actix_web::Error> {
     if let Err(err) = check_query_token(&query, &state.ipc_token) {
         warn!("[HostCtrl/WS] auth rejected: {err:?}");
         return Ok(HttpResponse::Unauthorized().finish());
@@ -266,7 +287,7 @@ pub async fn ws_handler(
     #[cfg(target_os = "linux")]
     let msg_stream = msg_stream.max_frame_size(MAX_HOST_CONTROL_FRAME_BYTES);
     let state_inner = state.into_inner();
-    actix_web::rt::spawn(run_ws_session(state_inner, session, msg_stream));
+    actix_web::rt::spawn(run_ws_session(state_inner, session, msg_stream, entry));
     Ok(response)
 }
 
@@ -282,28 +303,31 @@ pub async fn ws_upstream_handler(
     if state.hub.mode() != HubMode::Aggregator {
         return Ok(HttpResponse::NotFound().finish());
     }
-    ws_handler(state, req, stream, query).await
+    accept_ws(state, req, stream, query, WsEntry::Forwarder)
 }
 
 async fn run_ws_session(
     state: Arc<EndpointState>,
     mut session: actix_ws::Session,
     mut msg_stream: actix_ws::MessageStream,
+    entry: WsEntry,
 ) {
     info!(
-        "[HostCtrl/WS] client connected (mode={:?})",
+        "[HostCtrl/WS] client connected (mode={:?}, entry={entry:?})",
         state.hub.mode()
     );
 
-    // Issue a fresh tauri_login_token for this session and immediately push it.
-    let new_token = uuid::Uuid::new_v4().to_string();
-    state.tauri_login_token.refresh(new_token.clone());
-    let token_msg = HostControlMessage::TauriToken { token: new_token };
-    if let Ok(json) = serde_json::to_string(&token_msg)
-        && session.text(json).await.is_err()
-    {
-        info!("[HostCtrl/WS] failed to send TauriToken; closing");
-        return;
+    // A Tauri shell gets a fresh tauri_login_token, pushed immediately.
+    if entry == WsEntry::TauriShell {
+        let new_token = uuid::Uuid::new_v4().to_string();
+        state.tauri_login_token.refresh(new_token.clone());
+        let token_msg = HostControlMessage::TauriToken { token: new_token };
+        if let Ok(json) = serde_json::to_string(&token_msg)
+            && session.text(json).await.is_err()
+        {
+            info!("[HostCtrl/WS] failed to send TauriToken; closing");
+            return;
+        }
     }
 
     let mut role: Option<ClientRole> = None;
@@ -935,6 +959,67 @@ mod tests {
             Some(HostControlMessage::NativeBridgeReady { .. })
         ));
         assert!(bridge_token.is_some());
+    }
+
+    /// A worker forwarder connecting after the Tauri shell must leave the
+    /// shell's pending login token redeemable; only a shell connection issues one.
+    #[actix_web::test]
+    async fn only_a_tauri_shell_connection_issues_the_login_token() {
+        use actix_web::{App, HttpServer};
+        use futures_util::StreamExt;
+
+        let login_token = TauriLoginToken::empty();
+        let state = Arc::new(EndpointState::new(
+            Arc::new(HostControlHub::new_aggregator()),
+            "secret".to_string(),
+            login_token.clone(),
+        ));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server_state = state.clone();
+        let server = HttpServer::new(move || {
+            let state = server_state.clone();
+            App::new().configure(move |cfg| register_routes(cfg, state))
+        })
+        .disable_signals()
+        .workers(1)
+        .listen(listener)
+        .unwrap()
+        .run();
+        let handle = server.handle();
+        actix_web::rt::spawn(server);
+
+        let (_, mut shell) = awc::Client::default()
+            .ws(format!("ws://127.0.0.1:{port}/ws/tauri_ipc?token=secret"))
+            .connect()
+            .await
+            .expect("shell connects");
+        let issued = match shell.next().await {
+            Some(Ok(awc::ws::Frame::Text(text))) => {
+                match serde_json::from_slice::<HostControlMessage>(&text).unwrap() {
+                    HostControlMessage::TauriToken { token } => token,
+                    other => panic!("expected the login token first, got {other:?}"),
+                }
+            }
+            other => panic!("expected a text frame, got {other:?}"),
+        };
+
+        let (_, mut forwarder) = awc::Client::default()
+            .ws(format!(
+                "ws://127.0.0.1:{port}/ws/host_upstream?token=secret"
+            ))
+            .connect()
+            .await
+            .expect("forwarder connects");
+        // The forwarder hears nothing before it says Ready.
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(200), forwarder.next())
+                .await
+                .is_err()
+        );
+
+        assert!(login_token.verify_and_consume(&issued));
+        handle.stop(false).await;
     }
 
     #[tokio::test]
