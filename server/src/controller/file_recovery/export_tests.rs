@@ -66,15 +66,31 @@ async fn cancelled_export_releases_locks_and_cleanup_does_not_rewrite_response()
 
     // The production blocking task locks the vault before asking for quota.
     // Hold quota first so vault contention proves the handler reached this point.
+    // The probe takes the vault lock for a moment itself; an export that tries
+    // the vault at that instant answers "busy" at once and is sent again. Any
+    // other early answer means the export did not wait for the quota lock.
     let quota = desk_file_recovery::quota::DeviceQuota::open(&root).unwrap();
     let held = quota.lock().unwrap();
     let mut request = Box::pin(test::call_service(&app, export_request()));
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            tokio::select! {
-                _ = &mut request => panic!("export bypassed the held quota lock"),
-                _ = tokio::time::sleep(Duration::from_millis(5)) => {
-                    if vault.try_lock().unwrap().is_none() { break; }
+            let answered = tokio::select! {
+                response = &mut request => Some(response),
+                _ = tokio::time::sleep(Duration::from_millis(5)) => None,
+            };
+            match answered {
+                Some(response) => {
+                    let body: serde_json::Value = test::read_body_json(response).await;
+                    assert_eq!(
+                        body["data"], "busy",
+                        "export bypassed the held quota lock: {body}"
+                    );
+                    request = Box::pin(test::call_service(&app, export_request()));
+                }
+                None => {
+                    if vault.try_lock().unwrap().is_none() {
+                        break;
+                    }
                 }
             }
         }

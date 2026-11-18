@@ -292,7 +292,8 @@ async fn timed_out_and_cancelled_commands_still_get_the_final_scan() {
     let _store = file_store_test_lock();
     let fixture = Fixture::new();
     fixture.write("a.txt", "a 1\n");
-    let plan = fixture.plan("printf 'a 2\\n' > a.txt; sleep 20", 1_000);
+    // The write must land before the timeout; leave room for a loaded host.
+    let plan = fixture.plan("printf 'a 2\\n' > a.txt; sleep 20", 3_000);
     let output = fixture.run(&plan, None).await;
     assert_eq!(
         output.failure.as_ref().unwrap().kind,
@@ -306,12 +307,17 @@ async fn timed_out_and_cancelled_commands_still_get_the_final_scan() {
     let plan = fixture.plan("printf 'a 3\\n' > a.txt; sleep 20", 30_000);
     let cancel = crate::worker::exec::ExecCancel::new();
     let stop = cancel.clone();
+    // Cancel only once the command has written, however slowly it starts.
+    let written = fixture.work.path().join("a.txt");
     let canceller = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(1_000)).await;
+        while std::fs::read_to_string(&written).ok().as_deref() != Some("a 3\n") {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
         stop.cancel();
     });
     let output = fixture.run(&plan, Some(cancel.subscribe())).await;
-    canceller.await.unwrap();
+    // A command that never wrote ends by its timeout and fails below.
+    canceller.abort();
     assert_eq!(
         output.failure.as_ref().unwrap().kind,
         AgentErrorKind::Cancelled
