@@ -370,3 +370,130 @@ async fn only_the_console_workers_capabilities_reveal_the_virtual_display() {
     assert!(manager.set_virtual_display_session(None).await);
     assert!(!manager.capabilities_contains_display(display));
 }
+
+fn capabilities_on(backends: &[&str], device_name: &str) -> MediaCapabilities {
+    use desk_signal_facade::model::image_capture::{DisplayInfo, DisplayRect};
+    let display = DisplayInfo {
+        device_name: device_name.to_string(),
+        display_device_name: None,
+        desktop_coordinates: DisplayRect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        },
+        resolutions: vec![],
+        attached_to_desktop: true,
+        rotation: 0,
+        current_capture_resolution: None,
+    };
+    MediaCapabilities {
+        video_codecs: vec![
+            desk_ipc_protocol::message::MediaCodec::H264,
+            desk_ipc_protocol::message::MediaCodec::Vp8,
+        ],
+        video_encoders: vec!["X264".into(), "H264".into(), "VP8".into()],
+        video_device_list: backends
+            .iter()
+            .map(|backend| (backend.to_string(), vec![display.clone()]))
+            .collect(),
+        ..MediaCapabilities::default()
+    }
+}
+
+#[test]
+fn the_offer_keeps_only_what_the_sign_in_worker_can_also_serve() {
+    let session = capabilities_on(&["WGC", "DXGI", "GDI"], r"\.\DISPLAY1");
+    let mut secure = capabilities_on(&["DXGI", "GDI"], r"\.\DISPLAY1");
+    secure.video_codecs = vec![desk_ipc_protocol::message::MediaCodec::H264];
+    let offer = offer_for_both_desktops(session, &secure);
+    assert_eq!(
+        offer.video_device_list.keys().collect::<Vec<_>>(),
+        ["DXGI", "GDI"]
+    );
+    assert_eq!(
+        offer.video_codecs,
+        [desk_ipc_protocol::message::MediaCodec::H264]
+    );
+}
+
+#[test]
+fn without_a_shared_backend_the_offer_falls_back_to_the_baseline() {
+    let session = capabilities_on(&["WGC", "DXGI"], r"\.\DISPLAY1");
+    let secure = capabilities_on(&["GDI"], r"\.\DISPLAY1");
+    let offer = offer_for_both_desktops(session, &secure);
+    assert_eq!(offer.video_device_list.keys().collect::<Vec<_>>(), ["DXGI"]);
+    let without_dxgi = baseline_offer(capabilities_on(&["WGC", "GDI"], r"\.\DISPLAY1"));
+    assert_eq!(
+        without_dxgi.video_device_list.keys().collect::<Vec<_>>(),
+        ["GDI"]
+    );
+}
+
+#[test]
+fn a_worker_continues_only_media_it_can_serve() {
+    let secure = capabilities_on(&["DXGI", "GDI"], r"\.\DISPLAY1");
+    let media = |capture: &str, device: &str| desk_ipc_protocol::message::StartMediaPayload {
+        connection_id: "c".into(),
+        connection_epoch: "e".into(),
+        video_generation: 1,
+        audio_generation: 1,
+        video_codec: desk_ipc_protocol::message::MediaCodec::H264,
+        video_encoder: desk_signal_facade::model::media_capability::VideoEncoderId::OpenH264,
+        video_device: Some(device.into()),
+        fps: 30,
+        bitrate_kbps: 0,
+        quality: 0,
+        start_video: true,
+        audio: None,
+        image_capture: capture.into(),
+        resolved_wayland_control_mode: None,
+        enable_dirty_rect: false,
+        show_mouse: true,
+    };
+    assert!(worker_can_continue(&secure, &media("dxgi", r"\.\DISPLAY1")));
+    assert!(!worker_can_continue(&secure, &media("WGC", r"\.\DISPLAY1")));
+    assert!(!worker_can_continue(&secure, &media("DXGI", r"\.\DISPLAY7")));
+    let mut audio_only = media("WGC", r"\.\DISPLAY7");
+    audio_only.start_video = false;
+    assert!(worker_can_continue(&secure, &audio_only));
+}
+
+#[cfg(target_os = "windows")]
+#[tokio::test(start_paused = true)]
+async fn a_remote_desktop_offer_falls_back_to_the_baseline_without_the_sign_in_worker() {
+    let manager = resident_test_manager();
+    let (default_tx, _default_rx) = mpsc::unbounded_channel();
+    let default_key = key(1, 1, DesktopTarget::WindowsDefault);
+    manager
+        .install_resident_for_test(default_key.clone(), default_tx)
+        .await;
+    manager
+        .set_resident_worker_capabilities(
+            &default_key,
+            capabilities_on(&["WGC", "DXGI"], r"\.\DISPLAY1"),
+        )
+        .await;
+    let offer = manager
+        .remote_desktop_capabilities(&session(1, 1))
+        .await
+        .unwrap();
+    assert_eq!(offer.video_device_list.keys().collect::<Vec<_>>(), ["DXGI"]);
+
+    let (secure_tx, _secure_rx) = mpsc::unbounded_channel();
+    let secure_key = key(1, 1, DesktopTarget::WindowsWinlogon);
+    manager
+        .install_resident_for_test(secure_key.clone(), secure_tx)
+        .await;
+    manager
+        .set_resident_worker_capabilities(
+            &secure_key,
+            capabilities_on(&["DXGI", "GDI"], r"\.\DISPLAY1"),
+        )
+        .await;
+    let offer = manager
+        .remote_desktop_capabilities(&session(1, 1))
+        .await
+        .unwrap();
+    assert_eq!(offer.video_device_list.keys().collect::<Vec<_>>(), ["DXGI"]);
+}

@@ -2268,6 +2268,14 @@ impl WorkerManager {
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone();
         let _switch_guard = switch_lock.lock().await;
+        if let Some(reason) = self.media_continuation_error(key).await {
+            self.frozen_sessions
+                .lock()
+                .unwrap()
+                .insert(key.session.clone());
+            self.freeze_interactive_route(&key.session, &reason).await;
+            return Err(reason);
+        }
         let existing_route = self
             .active_interactive_routes
             .lock()
@@ -2479,6 +2487,13 @@ impl WorkerManager {
                 .await;
             return Err(format!("desktop worker {key:?} is not ready"));
         }
+        if let Some(reason) = self.media_continuation_error(&key).await {
+            // Replaying the negotiated media to a worker that cannot serve it
+            // would only fail there; freeze instead, as for any refusal.
+            self.frozen_sessions.lock().unwrap().insert(session.clone());
+            self.freeze_interactive_route(session, &reason).await;
+            return Err(reason);
+        }
         self.frozen_sessions.lock().unwrap().remove(session);
         self.switch_interactive_route_locked(&key).await.map(|_| ())
     }
@@ -2626,6 +2641,84 @@ impl WorkerManager {
             .resident_workers
             .get(key)
             .and_then(|worker| worker.capabilities.clone())
+    }
+
+    /// Capabilities offered for a remote desktop of `session`. Under Windows
+    /// resident workers the cached `StartMedia` is replayed verbatim to the
+    /// other desktop's worker on every switch, so the offer keeps only what
+    /// both workers can serve: the intersection with the sign-in worker, or
+    /// the baseline capture backend while that worker has not reported (2 s)
+    /// and whenever nobody is signed in.
+    pub async fn remote_desktop_capabilities(
+        &self,
+        session: &desk_ipc_protocol::message::SessionKey,
+    ) -> Option<MediaCapabilities> {
+        let serving = self.session_worker_capabilities(session).await?;
+        if !(cfg!(target_os = "windows") && self.uses_session_targeting()) {
+            return Some(serving);
+        }
+        if self.session_is_signed_out(session) {
+            return Some(baseline_offer(serving));
+        }
+        let secure_key = WorkerKey {
+            session: session.clone(),
+            desktop: DesktopTarget::WindowsWinlogon,
+        };
+        let deadline = Instant::now() + SECURE_DESKTOP_CAPABILITIES_WAIT;
+        let secure = loop {
+            if let Some(secure) = self.resident_worker_capabilities(&secure_key).await {
+                break Some(secure);
+            }
+            if Instant::now() >= deadline {
+                break None;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        Some(match secure {
+            Some(secure) => offer_for_both_desktops(serving, &secure),
+            None => {
+                warn!(
+                    "the sign-in worker of {session:?} has not reported capabilities; \
+                     offering the baseline capture backend"
+                );
+                baseline_offer(serving)
+            }
+        })
+    }
+
+    /// Why the worker `key` cannot continue the media already negotiated for
+    /// its session's connections, if it cannot. Only Windows desktop switches
+    /// hand cached media from one worker to another.
+    async fn media_continuation_error(&self, key: &WorkerKey) -> Option<String> {
+        if !matches!(
+            key.desktop,
+            DesktopTarget::WindowsDefault | DesktopTarget::WindowsWinlogon
+        ) {
+            return None;
+        }
+        let connection_ids = self.connection_ids_for_session(&key.session);
+        if connection_ids.is_empty() {
+            return None;
+        }
+        let caps = self.resident_worker_capabilities(key).await?;
+        for media in self
+            .pc_registry
+            .cached_start_media_for(&connection_ids)
+            .await
+        {
+            if !worker_can_continue(&caps, &media) {
+                return Some(format!(
+                    "desktop worker {key:?} cannot continue connection {} \
+                     (codec {:?}, encoder {:?}, capture {}, device {:?})",
+                    media.connection_id,
+                    media.video_codec,
+                    media.video_encoder,
+                    media.image_capture,
+                    media.video_device
+                ));
+            }
+        }
+        None
     }
 
     pub async fn session_worker_capabilities(
@@ -4517,6 +4610,105 @@ pub(crate) fn plan_windows_reconcile(
 mod desktop_routing_tests;
 #[cfg(test)]
 mod policy_tests;
+/// How long a remote-desktop offer waits for the sign-in worker's
+/// capabilities before falling back to the baseline.
+const SECURE_DESKTOP_CAPABILITIES_WAIT: Duration = Duration::from_secs(2);
+
+fn has_capture_backend(caps: &MediaCapabilities, backend: &str) -> bool {
+    caps.video_device_list
+        .iter()
+        .any(|(name, devices)| name.eq_ignore_ascii_case(backend) && !devices.is_empty())
+}
+
+/// The capture backend every desktop worker of a session can serve: DXGI,
+/// or GDI where DXGI is unavailable. Every encoder is software and is
+/// available to both workers.
+fn baseline_offer(mut caps: MediaCapabilities) -> MediaCapabilities {
+    let backend = if has_capture_backend(&caps, "DXGI") {
+        "DXGI"
+    } else {
+        "GDI"
+    };
+    caps.video_device_list
+        .retain(|name, _| name.eq_ignore_ascii_case(backend));
+    caps.physical_display_capabilities
+        .retain(|name, _| name.eq_ignore_ascii_case(backend));
+    caps
+}
+
+/// The session worker's capabilities limited to the codecs, encoders and
+/// capture backends the sign-in worker also reports. Devices are kept: both
+/// workers see the session's displays, and a device the sign-in worker has
+/// not reported yet (a just-attached virtual display) is checked again when
+/// the route switches.
+fn offer_for_both_desktops(
+    serving: MediaCapabilities,
+    secure: &MediaCapabilities,
+) -> MediaCapabilities {
+    let mut offer = serving.clone();
+    offer
+        .video_codecs
+        .retain(|codec| secure.video_codecs.contains(codec));
+    offer.video_encoders.retain(|encoder| {
+        secure
+            .video_encoders
+            .iter()
+            .any(|other| other.eq_ignore_ascii_case(encoder))
+    });
+    offer.video_encoder_capabilities.retain(|capability| {
+        secure
+            .video_encoder_capabilities
+            .iter()
+            .any(|other| other.id == capability.id)
+    });
+    offer
+        .video_device_list
+        .retain(|backend, devices| !devices.is_empty() && has_capture_backend(secure, backend));
+    let backends: Vec<String> = offer.video_device_list.keys().cloned().collect();
+    offer.physical_display_capabilities.retain(|backend, _| {
+        backends
+            .iter()
+            .any(|kept| kept.eq_ignore_ascii_case(backend))
+    });
+    if offer.video_codecs.is_empty() || offer.video_device_list.is_empty() {
+        warn!(
+            "the session and sign-in workers share no codec or capture backend; \
+             offering the baseline capture backend"
+        );
+        return baseline_offer(serving);
+    }
+    offer
+}
+
+/// Whether a worker reporting `caps` can take over `media` unchanged.
+fn worker_can_continue(
+    caps: &MediaCapabilities,
+    media: &desk_ipc_protocol::message::StartMediaPayload,
+) -> bool {
+    if !media.start_video {
+        return true;
+    }
+    let encoder = media.video_encoder.setting_name();
+    let device_known = |devices: &Vec<desk_signal_facade::model::image_capture::DisplayInfo>| {
+        media
+            .video_device
+            .as_deref()
+            .is_none_or(|device| devices.iter().any(|known| known.device_name == device))
+    };
+    caps.video_codecs.contains(&media.video_codec)
+        && (caps.video_encoders.is_empty()
+            || caps
+                .video_encoders
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(encoder)))
+        && caps
+            .video_device_list
+            .iter()
+            .any(|(backend, devices)| {
+                backend.eq_ignore_ascii_case(&media.image_capture) && device_known(devices)
+            })
+}
+
 #[cfg(test)]
 mod windows_reconcile_tests;
 

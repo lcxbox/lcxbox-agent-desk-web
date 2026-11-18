@@ -897,7 +897,11 @@ pub async fn route(model: &SignalingModel, ctx: &RouterContext) -> Result<(), Ro
             }
 
             let capabilities = if let Some(session) = selected_session.as_ref() {
-                ctx.worker_mgr.session_worker_capabilities(session).await
+                if request_remote.purpose == RemoteSessionPurpose::RemoteDesktop {
+                    ctx.worker_mgr.remote_desktop_capabilities(session).await
+                } else {
+                    ctx.worker_mgr.session_worker_capabilities(session).await
+                }
             } else if request_remote.purpose == RemoteSessionPurpose::RemoteDesktop {
                 Some(
                     ctx.worker_mgr

@@ -670,6 +670,24 @@ impl PcRegistry {
         self.physical_display.get()
     }
 
+    /// The media last started for each of `connection_ids` that has one.
+    pub async fn cached_start_media_for(
+        &self,
+        connection_ids: &[String],
+    ) -> Vec<StartMediaPayload> {
+        let mut cached = Vec::new();
+        for connection_id in connection_ids {
+            let Some(pc) = self.get(connection_id).await else {
+                continue;
+            };
+            let slot = pc.read().await.cached_start_media.clone();
+            if let Some(media) = slot.read().await.clone() {
+                cached.push(media);
+            }
+        }
+        cached
+    }
+
     pub fn set_virtual_display_supervisor(
         &self,
         supervisor: Arc<crate::daemon::virtual_display::VirtualDisplaySupervisor>,
