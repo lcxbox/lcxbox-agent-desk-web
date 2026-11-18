@@ -27,6 +27,10 @@
 遥测导出组件在进程启动时创建；必须重启相关的服务端、守护进程和工作进程后，才能
 把新选择描述为已经在运行时生效。
 
+只有在已授权**并且**进程环境中通过标准变量 `OTEL_EXPORTER_OTLP_ENDPOINT`（或其 traces/metrics
+专用变量）配置了 OTLP 收集端时，才会导出遥测。已授权但未配置收集端时不导出任何数据，只在启动时
+记录一条提示。
+
 ### 本机远程访问展示
 
 <code>host_access_indicator_enabled</code> 控制 Tauri 被控端是否显示持续远程访问状态卡、托盘活动徽标和首次会话通知，默认 <code>true</code>。关闭只会隐藏这些提示，不会改变审批、权限或已经建立的会话；该本机偏好不能由 Manager 远程修改。见[被控端远程访问状态指示器](/zh/features/host-access-indicator)。

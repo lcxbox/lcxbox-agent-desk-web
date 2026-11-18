@@ -191,7 +191,9 @@ async fn init_telemetry_inner(
         .with_filter(make_env_filter());
 
     // 3. Setup OpenTelemetry (Optional based on consent)
-    let otel_layer = if system_settings.telemetry_consent == Some(true) {
+    let consented = system_settings.telemetry_consent == Some(true);
+    let collector_configured = otlp_collector_configured(|name| std::env::var_os(name));
+    let otel_layer = if consented && collector_configured {
         // Set global propagator
         global::set_text_map_propagator(TraceContextPropagator::new());
 
@@ -282,6 +284,12 @@ async fn init_telemetry_inner(
     };
 
     registry.init();
+    if consented && !collector_configured {
+        tracing::info!(
+            "Telemetry consent is given but no OTLP collector is configured; \
+             set OTEL_EXPORTER_OTLP_ENDPOINT to export"
+        );
+    }
 
     // 5. Spawn log cleanup task, but only in a process that owns the log
     //    directory (see `owns_log_cleanup`).
@@ -290,6 +298,21 @@ async fn init_telemetry_inner(
     }
 
     Ok(Some(TelemetryGuards { _guards: guards }))
+}
+
+/// Standard OTLP variables that name where telemetry is exported. Without one
+/// the exporters would retry the library default on localhost forever, logging
+/// an export error every few seconds on hosts that run no collector.
+const OTLP_ENDPOINT_VARS: [&str; 3] = [
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+];
+
+fn otlp_collector_configured(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> bool {
+    OTLP_ENDPOINT_VARS
+        .iter()
+        .any(|name| var(name).is_some_and(|value| !value.is_empty()))
 }
 
 /// Whether a process in this startup mode may prune the shared log directory.
@@ -598,6 +621,18 @@ mod tests {
     /// The sweep can only prune what it recognises, so every name the appenders
     /// use must be listed. A new startup mode that forgets this would silently
     /// leak its logs forever.
+    #[test]
+    fn telemetry_exports_only_to_a_configured_collector() {
+        assert!(!otlp_collector_configured(|_| None));
+        assert!(!otlp_collector_configured(|_| Some("".into())));
+        assert!(otlp_collector_configured(|name| {
+            (name == "OTEL_EXPORTER_OTLP_ENDPOINT").then(|| "http://collector:4317".into())
+        }));
+        assert!(otlp_collector_configured(|name| {
+            (name == "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").then(|| "http://collector:4317".into())
+        }));
+    }
+
     #[test]
     fn every_startup_mode_log_name_is_managed_by_the_cleanup_sweep() {
         for mode in [

@@ -30,6 +30,11 @@ OpenTelemetry exporters/layers are created at process startup; restart the
 relevant server, daemon and worker processes before describing the new choice as
 active at runtime.
 
+Telemetry is exported only when consent is given **and** an OTLP collector is
+configured through the standard `OTEL_EXPORTER_OTLP_ENDPOINT` variable (or its
+traces/metrics variants) in the process environment. With consent but no
+collector, the host exports nothing and logs a single notice at startup.
+
 ### Local remote-access presentation
 
 <code>host_access_indicator_enabled</code> controls whether the Tauri host shows
