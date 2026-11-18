@@ -3255,7 +3255,7 @@ impl PersistedAgentSession {
             message.background_task_id = Some(background_task_id.to_string());
             message.set_label(result_envelope);
             message.pending_delivery_format = Some(result_format);
-            self.conversation.push(message);
+            self.insert_call_result(message);
         } else {
             let mut message = crate::chat::ChatMessage::untrusted_output(
                 event_id,
@@ -3302,7 +3302,9 @@ impl PersistedAgentSession {
     }
 
     /// Index just past the call group that issued `tool_call_id`: the assistant
-    /// message and the results that directly follow it.
+    /// message and the tool results that directly follow it. A late completion
+    /// (untrusted output) of one of its calls is not part of the group: model
+    /// context grouping accepts only tool results there.
     fn call_group_end(&self, tool_call_id: &str) -> Option<usize> {
         let index = self.conversation.iter().rposition(|message| {
             message.role == crate::chat::ChatRole::Assistant
@@ -3314,14 +3316,27 @@ impl PersistedAgentSession {
         let calls = &self.conversation[index].tool_calls;
         let mut end = index + 1;
         while self.conversation.get(end).is_some_and(|message| {
-            message
-                .tool_call_id
-                .as_deref()
-                .is_some_and(|id| calls.iter().any(|call| call.id == id))
+            message.role == crate::chat::ChatRole::Tool
+                && message
+                    .tool_call_id
+                    .as_deref()
+                    .is_some_and(|id| calls.iter().any(|call| call.id == id))
         }) {
             end += 1;
         }
         Some(end)
+    }
+
+    /// Write the result of a call that is still open at the end of its call
+    /// group, so a late completion appended after the open call never splits
+    /// the call from its results.
+    fn insert_call_result(&mut self, message: crate::chat::ChatMessage) {
+        let at = message
+            .tool_call_id
+            .as_deref()
+            .and_then(|id| self.call_group_end(id))
+            .unwrap_or(self.conversation.len());
+        self.conversation.insert(at, message);
     }
 
     /// Give the paused call its only result, `text`, at the end of its call
@@ -3456,12 +3471,11 @@ impl PersistedAgentSession {
         match verdict {
             RecoveryVerdict::NotExecuted => {
                 for call_id in &unclosed {
-                    self.conversation
-                        .push(crate::chat::ChatMessage::tool_result(
-                            recovery_message_id(call_id),
-                            call_id,
-                            RECOVER_NOT_EXECUTED,
-                        ));
+                    self.insert_call_result(crate::chat::ChatMessage::tool_result(
+                        recovery_message_id(call_id),
+                        call_id,
+                        RECOVER_NOT_EXECUTED,
+                    ));
                 }
                 // Previously dispatched tasks remain independently recoverable.
             }
@@ -3474,12 +3488,11 @@ impl PersistedAgentSession {
                 // durable work row; other dangling calls were never started.
                 if unclosed.iter().any(|call_id| call_id == &tool_call_id) {
                     let placeholder_id = recovery_message_id(&tool_call_id);
-                    self.conversation
-                        .push(crate::chat::ChatMessage::tool_result(
-                            placeholder_id.clone(),
-                            &tool_call_id,
-                            RECOVER_OUTCOME_UNKNOWN,
-                        ));
+                    self.insert_call_result(crate::chat::ChatMessage::tool_result(
+                        placeholder_id.clone(),
+                        &tool_call_id,
+                        RECOVER_OUTCOME_UNKNOWN,
+                    ));
                     self.execution_state.insert(ExecutionState::OutcomeUnknown {
                         action,
                         placeholder_message_id: placeholder_id,
@@ -3493,22 +3506,20 @@ impl PersistedAgentSession {
                         .insert(ExecutionState::Interrupted { since: now.clone() });
                 }
                 for call_id in unclosed.iter().filter(|call_id| *call_id != &tool_call_id) {
-                    self.conversation
-                        .push(crate::chat::ChatMessage::tool_result(
-                            recovery_message_id(call_id),
-                            call_id,
-                            RECOVER_NOT_EXECUTED,
-                        ));
+                    self.insert_call_result(crate::chat::ChatMessage::tool_result(
+                        recovery_message_id(call_id),
+                        call_id,
+                        RECOVER_NOT_EXECUTED,
+                    ));
                 }
             }
             RecoveryVerdict::InterruptedUnknown => {
                 for call_id in &unclosed {
-                    self.conversation
-                        .push(crate::chat::ChatMessage::tool_result(
-                            recovery_message_id(call_id),
-                            call_id,
-                            RECOVER_INTERRUPTED,
-                        ));
+                    self.insert_call_result(crate::chat::ChatMessage::tool_result(
+                        recovery_message_id(call_id),
+                        call_id,
+                        RECOVER_INTERRUPTED,
+                    ));
                 }
                 self.execution_state
                     .insert(ExecutionState::Interrupted { since: now.clone() });
@@ -5191,6 +5202,133 @@ mod tests {
         assert_eq!(results("call-open"), 1);
         assert_eq!(results("call-waiting"), 0);
         assert!(s.awaiting_permission.is_some());
+    }
+
+    fn grouping_source() -> crate::replay::SourceContextKey {
+        crate::replay::SourceContextKey::derive(
+            crate::model_profile::WireProtocol::OpenAiChatCompletions,
+            "label",
+            "model:1",
+            "test",
+        )
+    }
+
+    fn call(id: &str, name: &str) -> crate::chat::ToolCallRef {
+        crate::chat::ToolCallRef {
+            id: id.into(),
+            name: name.into(),
+            arguments_json: "{}".into(),
+        }
+    }
+
+    fn message_ids(s: &PersistedAgentSession) -> Vec<&str> {
+        s.conversation
+            .iter()
+            .map(|message| message.message_id.as_str())
+            .collect()
+    }
+
+    /// A host restart while a turn waits on a background command: the late
+    /// completion and the recovery of the interrupted wait must leave every
+    /// call group contiguous, whichever is written first.
+    #[test]
+    fn a_late_completion_never_splits_an_interrupted_call_from_its_result() {
+        use crate::chat::ChatMessage;
+        for completion_first in [true, false] {
+            let mut s = session();
+            s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
+                .unwrap();
+            s.conversation.push(ChatMessage::assistant_tool_calls(
+                "a1",
+                String::new(),
+                vec![call("call-exec", "exec_command")],
+            ));
+            s.conversation
+                .push(ChatMessage::tool_result("r1", "call-exec", "background j1"));
+            s.conversation.push(ChatMessage::assistant_tool_calls(
+                "a2",
+                String::new(),
+                vec![call("call-wait", "wait_for_task")],
+            ));
+            let complete = |s: &mut PersistedAgentSession| {
+                assert!(s.apply_completion(
+                    "j1:done",
+                    "gen-1",
+                    "call-exec",
+                    "j1",
+                    "exit_code=0",
+                    "t3"
+                ));
+            };
+            if completion_first {
+                complete(&mut s);
+                s.recover_session(RecoveryVerdict::NotExecuted, "t4");
+            } else {
+                s.recover_session(RecoveryVerdict::NotExecuted, "t3");
+                complete(&mut s);
+            }
+            assert_eq!(
+                message_ids(&s),
+                ["a1", "r1", "a2", "recover-call-wait", "j1:done"],
+                "completion_first={completion_first}"
+            );
+            crate::model_context::group_messages(&s.conversation, &grouping_source()).unwrap();
+        }
+    }
+
+    /// A late completion of one call in a group is not one of the group's
+    /// results: the recovered result of its sibling still goes inside the group.
+    #[test]
+    fn recovery_writes_inside_a_group_followed_by_a_sibling_completion() {
+        use crate::chat::ChatMessage;
+        let mut s = session();
+        s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
+            .unwrap();
+        s.conversation.push(ChatMessage::assistant_tool_calls(
+            "a1",
+            String::new(),
+            vec![
+                call("call-exec", "exec_command"),
+                call("call-wait", "wait_for_task"),
+            ],
+        ));
+        s.conversation
+            .push(ChatMessage::tool_result("r1", "call-exec", "background j1"));
+        assert!(s.apply_completion("j1:done", "gen-1", "call-exec", "j1", "exit_code=0", "t2"));
+        s.recover_session(RecoveryVerdict::NotExecuted, "t3");
+        assert_eq!(
+            message_ids(&s),
+            ["a1", "r1", "recover-call-wait", "j1:done"]
+        );
+        crate::model_context::group_messages(&s.conversation, &grouping_source()).unwrap();
+    }
+
+    /// A call paused for approval is closed inside its group even when a late
+    /// completion was appended after it.
+    #[test]
+    fn closing_a_paused_call_writes_inside_its_group() {
+        use crate::chat::ChatMessage;
+        let mut s = session();
+        s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
+            .unwrap();
+        s.conversation.push(ChatMessage::assistant_tool_calls(
+            "a1",
+            String::new(),
+            vec![
+                call("call-exec", "exec_command"),
+                call("call-paused", "exec_command"),
+            ],
+        ));
+        s.conversation
+            .push(ChatMessage::tool_result("r1", "call-exec", "background j1"));
+        s.pause_for_permission("call-paused", "rq-1");
+        assert!(s.apply_completion("j1:done", "gen-1", "call-exec", "j1", "exit_code=0", "t2"));
+        s.close_awaiting_permission("not executed: approval expired before this call ran")
+            .unwrap();
+        let ids = message_ids(&s);
+        assert_eq!(&ids[..2], ["a1", "r1"]);
+        assert_eq!(ids.last(), Some(&"j1:done"));
+        crate::model_context::group_messages(&s.conversation, &grouping_source()).unwrap();
     }
 
     /// Recovery with `NotExecuted` closes the call as not-run and clears the
