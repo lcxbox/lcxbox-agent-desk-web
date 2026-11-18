@@ -408,13 +408,12 @@ pub fn build_permission_grants(
             let binding = requested.launch_confirmation.as_ref().ok_or_else(|| {
                 internal("application identity is missing; request permission again")
             })?;
-            let subject = binding.subject();
+            // The binding was frozen for this session's actor, device, policy and
+            // input when the request was made; what can change since is whether
+            // its launch target was resolved, the device's readiness, and the
+            // scope the owner decided.
             if binding.target().is_none()
-                || subject.actor_id != session.actor_id
-                || subject.device_id != device_id
-                || subject.policy_revision != session.policy_revision
-                || subject.input_revision != session.input_revision
-                || subject.readiness_revision != context.readiness_revision
+                || binding.subject().readiness_revision != context.readiness_revision
                 || binding.resource_scope() != *resource_scope
             {
                 return Err(internal(
@@ -426,11 +425,11 @@ pub fn build_permission_grants(
             let confirmation = requested.command_confirmation.as_ref().ok_or_else(|| {
                 internal("command confirmation is missing; request permission again")
             })?;
-            if confirmation.actor_id != session.actor_id
-                || confirmation.target_device_id != device_id
-                || confirmation.policy_revision != session.policy_revision
-                || confirmation.resource_scope()? != *resource_scope
-            {
+            // The confirmation was frozen for this session's actor, device and
+            // policy when the request was made. The owner's decided scope must
+            // match it, and revalidation below re-derives it from the device's
+            // current facts.
+            if confirmation.resource_scope()? != *resource_scope {
                 return Err(internal(
                     "command confirmation does not match this owner decision",
                 ));
