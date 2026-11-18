@@ -119,6 +119,14 @@ pub(super) async fn run_pipe_server(
     }
 
     let remote_access_state = worker_mgr.remote_access_state();
+    let connection_ceilings = match worker_identity.as_ref() {
+        Some(identity) => {
+            worker_mgr
+                .capped_connection_ceilings(&identity.key.session)
+                .await
+        }
+        None => Vec::new(),
+    };
     write_message(
         &mut writer,
         &ServiceToWorker::Init(WorkerInitPayload {
@@ -140,6 +148,7 @@ pub(super) async fn run_pipe_server(
             file_pipe_name: file_pipe_name.clone(),
             remote_access_locked: remote_access_state.is_locked(),
             remote_access_state_version: remote_access_state.state_version,
+            connection_ceilings,
         }),
     )
     .await?;

@@ -310,6 +310,13 @@ pub struct WorkerManager {
     /// route stays fenced and no capability refresh reactivates it.
     frozen_sessions:
         Arc<StdMutex<std::collections::HashSet<desk_ipc_protocol::message::SessionKey>>>,
+    /// When each Windows reconcile may next start a resident worker.
+    resident_start_backoff: Arc<StdMutex<ResidentStartBackoff>>,
+    /// Resident workers being started; kept out of `resident_workers` so no
+    /// route selects a worker that does not exist yet.
+    starting_resident_workers: Arc<StdMutex<std::collections::HashSet<WorkerKey>>>,
+    /// When a Windows session gained its first user.
+    session_signed_in_at: Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, Instant>>>,
     interactive_switch_locks:
         Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, Arc<Mutex<()>>>>>,
     interactive_route_epochs: Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, u64>>>,
@@ -668,6 +675,9 @@ impl WorkerManager {
             desktop_observations: Arc::new(StdMutex::new(HashMap::new())),
             desktop_observation_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             frozen_sessions: Arc::new(StdMutex::new(std::collections::HashSet::new())),
+            resident_start_backoff: Arc::new(StdMutex::new(ResidentStartBackoff::default())),
+            starting_resident_workers: Arc::new(StdMutex::new(std::collections::HashSet::new())),
+            session_signed_in_at: Arc::new(StdMutex::new(HashMap::new())),
             interactive_switch_locks: Arc::new(StdMutex::new(HashMap::new())),
             interactive_route_epochs: Arc::new(StdMutex::new(HashMap::new())),
             interactive_route_acks: Arc::new(StdMutex::new(HashMap::new())),
@@ -1161,17 +1171,38 @@ impl WorkerManager {
             return Err("Windows worker key/session id mismatch".into());
         }
 
-        let mut inner = self.inner.lock().await;
-        if inner.resident_workers.contains_key(&key) {
+        if self.inner.lock().await.resident_workers.contains_key(&key) {
             return Ok(());
         }
+        // Reserve the key so a concurrent start cannot launch a second
+        // process; the reservation is released however this start ends.
+        if !self
+            .starting_resident_workers
+            .lock()
+            .unwrap()
+            .insert(key.clone())
+        {
+            return Ok(());
+        }
+        struct Reservation<'a> {
+            starting: &'a StdMutex<std::collections::HashSet<WorkerKey>>,
+            key: &'a WorkerKey,
+        }
+        impl Drop for Reservation<'_> {
+            fn drop(&mut self) {
+                self.starting.lock().unwrap().remove(self.key);
+            }
+        }
+        let _reservation = Reservation {
+            starting: &self.starting_resident_workers,
+            key: &key,
+        };
         let pipe_name = format!("lcxl-desk-ipc-{session_id}-{}", uuid::Uuid::new_v4());
         let (ipc_cmd_tx, ipc_cmd_rx) = mpsc::unbounded_channel::<ServiceToWorker>();
         let (config_json, ipc_token, log_dir, data_dir) = {
             let settings = self.settings.read().await;
             (
-                serde_json::to_string(&*settings)
-                    .map_err(|error| format!("failed to serialize worker settings: {error}"))?,
+                worker_settings_json(&settings, profile)?,
                 settings.system.tauri_ipc_token.clone(),
                 settings.paths().log_dir().to_string_lossy().into_owned(),
                 settings.paths().data_root().to_string_lossy().into_owned(),
@@ -1248,7 +1279,7 @@ impl WorkerManager {
                 return Err(error);
             }
         };
-        inner.resident_workers.insert(
+        self.inner.lock().await.resident_workers.insert(
             key.clone(),
             WorkerHandle {
                 incarnation,
@@ -1405,11 +1436,27 @@ impl WorkerManager {
         &self,
         registrations: Vec<crate::daemon::session_monitor::WindowsSessionRegistration>,
     ) {
-        *self.signed_out_sessions.lock().unwrap() = registrations
-            .iter()
-            .filter(|registration| !registration.has_user)
-            .map(|registration| registration.session.clone())
-            .collect();
+        let registrations = cap_windows_sessions(registrations);
+        let now = Instant::now();
+        {
+            let signed_out: std::collections::HashSet<_> = registrations
+                .iter()
+                .filter(|registration| !registration.has_user)
+                .map(|registration| registration.session.clone())
+                .collect();
+            let mut previous = self.signed_out_sessions.lock().unwrap();
+            let mut signed_in_at = self.session_signed_in_at.lock().unwrap();
+            for session in previous.difference(&signed_out) {
+                signed_in_at.insert(session.clone(), now);
+            }
+            signed_in_at.retain(|session, at| {
+                registrations
+                    .iter()
+                    .any(|registration| &registration.session == session)
+                    && now.duration_since(*at) < SIGNED_IN_FAST_RETRY_WINDOW
+            });
+            *previous = signed_out;
+        }
         let current_keys: Vec<_> = self
             .inner
             .lock()
@@ -1440,6 +1487,12 @@ impl WorkerManager {
         }
         for key in &plan.stop {
             self.stop_resident_worker(key).await;
+        }
+        {
+            let mut backoff = self.resident_start_backoff.lock().unwrap();
+            for session in &plan.stop_sessions {
+                backoff.forget_session(session);
+            }
         }
 
         let mut candidates = Vec::with_capacity(registrations.len());
@@ -1484,16 +1537,50 @@ impl WorkerManager {
         self.session_targets.replace_all(candidates);
 
         for (key, session_id) in plan.start {
-            if let Err(error) = self
+            if !self
+                .resident_start_backoff
+                .lock()
+                .unwrap()
+                .may_start(&key, Instant::now())
+            {
+                continue;
+            }
+            match self
                 .start_windows_resident_worker(key.clone(), session_id)
                 .await
             {
-                error!(
-                    "failed to reconcile Windows resident worker {:?}: {error}",
-                    key
-                );
+                Ok(()) => self
+                    .resident_start_backoff
+                    .lock()
+                    .unwrap()
+                    .started(&key, Instant::now()),
+                Err(error) => {
+                    error!(
+                        "failed to reconcile Windows resident worker {:?}: {error}",
+                        key
+                    );
+                    self.record_resident_start_failure(&key);
+                }
             }
         }
+    }
+
+    /// Delay the next start of `key`. A session worker that fails within
+    /// moments of its session's sign-in retries quickly, since its token and
+    /// profile can be briefly unavailable and the viewer is frozen meanwhile.
+    #[cfg(target_os = "windows")]
+    fn record_resident_start_failure(&self, key: &WorkerKey) {
+        let fast = key.desktop == DesktopTarget::WindowsDefault
+            && self
+                .session_signed_in_at
+                .lock()
+                .unwrap()
+                .get(&key.session)
+                .is_some_and(|at| at.elapsed() < SIGNED_IN_FAST_RETRY_WINDOW);
+        self.resident_start_backoff
+            .lock()
+            .unwrap()
+            .failed(key, Instant::now(), fast);
     }
 
     fn remote_access_state(&self) -> crate::daemon::remote_access::RemoteAccessState {
@@ -1743,6 +1830,7 @@ impl WorkerManager {
             file_pipe_name: None,
             remote_access_locked: remote_access_state.is_locked(),
             remote_access_state_version: remote_access_state.state_version,
+            connection_ceilings: Vec::new(),
         };
 
         // Build the four in-process transports:
@@ -1894,6 +1982,25 @@ impl WorkerManager {
     /// Install the readiness snapshot for one resident worker. It is kept out
     /// of the legacy global cache so an unrelated session can never change the
     /// codecs or devices used by an already-bound PC.
+    /// Ceilings of the capped connections bound to `session`, for a worker's Init.
+    pub(crate) async fn capped_connection_ceilings(
+        &self,
+        session: &desk_ipc_protocol::message::SessionKey,
+    ) -> Vec<desk_ipc_protocol::message::SetConnectionCeilingPayload> {
+        let mut ceilings = Vec::new();
+        for connection_id in self.connection_ids_for_session(session) {
+            if let Some(crate::daemon::pc_manager::Admission::Capped(ceiling)) =
+                self.pc_registry.admission(&connection_id).await
+            {
+                ceilings.push(desk_ipc_protocol::message::SetConnectionCeilingPayload {
+                    connection_id,
+                    ceiling: Some(ceiling),
+                });
+            }
+        }
+        ceilings
+    }
+
     fn session_is_signed_out(&self, session: &desk_ipc_protocol::message::SessionKey) -> bool {
         self.signed_out_sessions.lock().unwrap().contains(session)
     }
@@ -3814,18 +3921,12 @@ impl WorkerManager {
                     }
                 }
             }
+            // The session monitor's reconcile restarts the worker once its
+            // backoff allows, and only while the session is still listed.
             #[cfg(target_os = "windows")]
             {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                if let Err(error) = mgr
-                    .start_windows_resident_worker(key.clone(), session_id)
-                    .await
-                {
-                    error!(
-                        "[WorkerManager] failed to restart Windows resident worker {:?}: {error}",
-                        key
-                    );
-                }
+                let _ = session_id;
+                mgr.record_resident_start_failure(&key);
             }
         });
     }
@@ -4061,6 +4162,120 @@ pub(crate) fn decide_interactive_desktop(
             ))
         }
     })
+}
+
+// Windows reconcile only; tests exercise it on every platform.
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+const RESIDENT_START_BACKOFF_BASE: Duration = Duration::from_secs(1);
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+const RESIDENT_START_BACKOFF_MAX: Duration = Duration::from_secs(30);
+/// A worker that ran this long before failing starts its backoff afresh.
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+const RESIDENT_STABLE_RUN: Duration = Duration::from_secs(60);
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+const SIGNED_IN_FAST_RETRY: Duration = Duration::from_millis(500);
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+const SIGNED_IN_FAST_RETRY_WINDOW: Duration = Duration::from_secs(10);
+
+#[derive(Debug)]
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+struct BackoffEntry {
+    failures: u32,
+    retry_at: Instant,
+    started_at: Option<Instant>,
+}
+
+/// Exponential backoff per resident worker key, shared by reconcile and
+/// crash recovery.
+#[derive(Debug, Default)]
+pub(crate) struct ResidentStartBackoff {
+    entries: HashMap<WorkerKey, BackoffEntry>,
+}
+
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+impl ResidentStartBackoff {
+    pub(crate) fn may_start(&self, key: &WorkerKey, now: Instant) -> bool {
+        self.entries
+            .get(key)
+            .is_none_or(|entry| now >= entry.retry_at)
+    }
+
+    pub(crate) fn started(&mut self, key: &WorkerKey, now: Instant) {
+        let entry = self.entries.entry(key.clone()).or_insert(BackoffEntry {
+            failures: 0,
+            retry_at: now,
+            started_at: None,
+        });
+        entry.started_at = Some(now);
+    }
+
+    pub(crate) fn failed(&mut self, key: &WorkerKey, now: Instant, fast: bool) {
+        let entry = self.entries.entry(key.clone()).or_insert(BackoffEntry {
+            failures: 0,
+            retry_at: now,
+            started_at: None,
+        });
+        if entry
+            .started_at
+            .is_some_and(|started| now.duration_since(started) >= RESIDENT_STABLE_RUN)
+        {
+            entry.failures = 0;
+        }
+        entry.failures = entry.failures.saturating_add(1);
+        entry.started_at = None;
+        let delay = if fast {
+            SIGNED_IN_FAST_RETRY
+        } else {
+            RESIDENT_START_BACKOFF_BASE
+                .saturating_mul(1u32 << entry.failures.saturating_sub(1).min(5))
+                .min(RESIDENT_START_BACKOFF_MAX)
+        };
+        entry.retry_at = now + delay;
+    }
+
+    pub(crate) fn forget_session(&mut self, session: &desk_ipc_protocol::message::SessionKey) {
+        self.entries.retain(|key, _| &key.session != session);
+    }
+}
+
+/// At most [`MAX_RESIDENT_SESSION_WORKERS`] Windows sessions are scheduled,
+/// the foreground ones first.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn cap_windows_sessions(
+    mut registrations: Vec<crate::daemon::session_monitor::WindowsSessionRegistration>,
+) -> Vec<crate::daemon::session_monitor::WindowsSessionRegistration> {
+    if registrations.len() > MAX_RESIDENT_SESSION_WORKERS {
+        registrations
+            .sort_by_key(|registration| (!registration.foreground, registration.session_id));
+        warn!(
+            "{} Windows sessions exceed the limit of {MAX_RESIDENT_SESSION_WORKERS}; the rest get no worker",
+            registrations.len()
+        );
+        registrations.truncate(MAX_RESIDENT_SESSION_WORKERS);
+    }
+    registrations
+}
+
+/// The settings a worker receives in Init. The daemon's own secrets (the
+/// login password, session signing key, local signaling, manager and TURN
+/// credentials) never leave the daemon; a restricted worker also gets no
+/// host IPC token.
+pub(crate) fn worker_settings_json(
+    settings: &crate::model::settings::Settings,
+    profile: WorkerProfile,
+) -> Result<String, String> {
+    let mut settings = settings.clone();
+    settings.system.manager_api_token = None;
+    settings.system.local_signaling_token = None;
+    settings.system.session_secret_key = None;
+    settings.user.login_password = String::new();
+    settings.turn.static_auth_secret = None;
+    settings.turn.static_credentials = Default::default();
+    if profile == WorkerProfile::RestrictedDesktop {
+        settings.system.tauri_ipc_token = None;
+    }
+    serde_json::to_string(&settings)
+        .map_err(|error| format!("failed to serialize worker settings: {error}"))
 }
 
 /// What one Windows reconcile pass changes.

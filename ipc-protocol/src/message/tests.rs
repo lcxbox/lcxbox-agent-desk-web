@@ -304,6 +304,7 @@ fn worker_init_payload_round_trip_with_host_upstream_fields() {
         file_pipe_name: Some(r"\\.\pipe\lcxl-desk-file-ipc-7-uuid".to_string()),
         remote_access_locked: true,
         remote_access_state_version: 8,
+        connection_ceilings: Vec::new(),
     };
     let json = serde_json::to_string(&original).unwrap();
     let decoded: WorkerInitPayload = serde_json::from_str(&json).unwrap();
@@ -389,6 +390,7 @@ fn worker_identity_round_trips_wincode() {
         file_pipe_name: None,
         remote_access_locked: false,
         remote_access_state_version: 1,
+        connection_ceilings: Vec::new(),
     });
 
     match wincode_round_trip(&message) {
@@ -1393,6 +1395,7 @@ fn service_to_worker_all_variants_round_trip() {
             file_pipe_name: None,
             remote_access_locked: false,
             remote_access_state_version: 1,
+            connection_ceilings: Vec::new(),
         }),
         ServiceToWorker::Shutdown,
         ServiceToWorker::SetRemoteAccessState(RemoteAccessStatePayload {

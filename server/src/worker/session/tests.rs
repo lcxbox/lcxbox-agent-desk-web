@@ -21,6 +21,7 @@ fn payload_with(
         file_pipe_name: None,
         remote_access_locked: false,
         remote_access_state_version: 1,
+        connection_ceilings: Vec::new(),
     }
 }
 

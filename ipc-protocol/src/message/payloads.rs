@@ -125,6 +125,11 @@ pub struct WorkerInitPayload {
     /// only opens its own dispatch gate after receiving this payload.
     pub remote_access_locked: bool,
     pub remote_access_state_version: u64,
+    /// Capability ceilings of the capped connections already bound to this
+    /// worker's session. Installed before any connection frame is handled,
+    /// so a restarted worker never runs a capped connection uncapped.
+    #[serde(default)]
+    pub connection_ceilings: Vec<SetConnectionCeilingPayload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, SchemaWrite, SchemaRead, PartialEq, Eq)]

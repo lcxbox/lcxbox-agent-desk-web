@@ -306,6 +306,7 @@ impl GdiImageCapture {
             use windows::Win32::System::StationsAndDesktops::{
                 DESKTOP_ACCESS_FLAGS, DESKTOP_CONTROL_FLAGS, OpenInputDesktop, SetThreadDesktop,
             };
+            crate::image_capture::capture_desktop::ensure_input_desktop_allowed()?;
             unsafe {
                 if let Ok(hdesk) = OpenInputDesktop(
                     DESKTOP_CONTROL_FLAGS(0),

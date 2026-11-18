@@ -245,6 +245,7 @@ pub(super) async fn run_pipe_server(
             file_pipe_name: Some(file_socket_path.clone()),
             remote_access_locked: remote_access_state.is_locked(),
             remote_access_state_version: remote_access_state.state_version,
+            connection_ceilings: Vec::new(),
         }),
     )
     .await?;

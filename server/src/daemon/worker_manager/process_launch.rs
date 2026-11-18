@@ -240,7 +240,9 @@ pub(super) fn launch_worker_as_user(
             RemoteDesktop::WTSQueryUserToken,
             Threading::{
                 CREATE_NEW_CONSOLE, CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW,
-                GetCurrentProcess, OpenProcessToken, PROCESS_INFORMATION, STARTUPINFOW,
+                DETACHED_PROCESS, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
+                LPPROC_THREAD_ATTRIBUTE_LIST, OpenProcessToken, PROCESS_INFORMATION,
+                STARTUPINFOEXW, STARTUPINFOW,
             },
         },
     };
@@ -365,6 +367,14 @@ pub(super) fn launch_worker_as_user(
                 );
             }
             info!("Set SYSTEM token SessionId to {session_id}");
+            // The secure-desktop worker keeps the SYSTEM SID at System
+            // integrity, which the Winlogon desktop DACL and input into
+            // consent.exe/LogonUI need, but none of the privileges that
+            // would turn a compromise of capture or input into the machine.
+            if let Err(error) = remove_system_worker_privileges(dup_token) {
+                let _ = CloseHandle(dup_token);
+                return Err(error.into());
+            }
         }
 
         let mut env_block: *mut std::ffi::c_void = std::ptr::null_mut();
@@ -388,6 +398,35 @@ pub(super) fn launch_worker_as_user(
         let mut si = STARTUPINFOW::default();
         si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
         si.lpDesktop = windows::core::PWSTR(desktop_wide.as_mut_ptr());
+        // The SYSTEM worker may not create processes. It starts detached:
+        // the server is a console program, and a console host would be a
+        // child process the policy refuses.
+        let mut child_policy = if use_system_token {
+            match NoChildProcesses::new() {
+                Ok(policy) => Some(policy),
+                Err(error) => {
+                    let _ = CloseHandle(dup_token);
+                    return Err(error.into());
+                }
+            }
+        } else {
+            None
+        };
+        let mut si_ex = STARTUPINFOEXW {
+            StartupInfo: si,
+            lpAttributeList: child_policy.as_mut().map_or(
+                LPPROC_THREAD_ATTRIBUTE_LIST::default(),
+                NoChildProcesses::list,
+            ),
+        };
+        if child_policy.is_some() {
+            si_ex.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
+        }
+        let creation_flags = if child_policy.is_some() {
+            DETACHED_PROCESS | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT
+        } else {
+            CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT
+        };
 
         let mut pi = PROCESS_INFORMATION::default();
         let mut cmd_wide: Vec<u16> = OsStr::new(cmd_line)
@@ -402,12 +441,13 @@ pub(super) fn launch_worker_as_user(
             None,
             None,
             false,
-            CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT,
+            creation_flags,
             env_ptr,
             None,
-            &si,
+            &si_ex.StartupInfo,
             &mut pi,
         );
+        drop(child_policy);
 
         if let Some(ptr) = env_ptr {
             let _ = DestroyEnvironmentBlock(ptr);
@@ -423,6 +463,119 @@ pub(super) fn launch_worker_as_user(
 
         let _ = CloseHandle(pi.hThread);
         Ok(NativeWindowsChild::new(pi.hProcess, pi.dwProcessId))
+    }
+}
+
+/// Privileges removed from the secure-desktop worker's SYSTEM token. None of
+/// them is needed to capture the Winlogon desktop or inject input into it.
+#[cfg(target_os = "windows")]
+pub(super) const SYSTEM_WORKER_REMOVED_PRIVILEGES: &[&str] = &[
+    "SeDebugPrivilege",
+    "SeTcbPrivilege",
+    "SeImpersonatePrivilege",
+    "SeAssignPrimaryTokenPrivilege",
+    "SeLoadDriverPrivilege",
+    "SeBackupPrivilege",
+    "SeRestorePrivilege",
+    "SeTakeOwnershipPrivilege",
+    "SeCreateTokenPrivilege",
+    "SeSecurityPrivilege",
+    "SeRelabelPrivilege",
+];
+
+/// Remove [`SYSTEM_WORKER_REMOVED_PRIVILEGES`] from `token` for good.
+#[cfg(target_os = "windows")]
+pub(super) fn remove_system_worker_privileges(
+    token: windows::Win32::Foundation::HANDLE,
+) -> Result<(), String> {
+    use windows::Win32::Foundation::{ERROR_NOT_ALL_ASSIGNED, GetLastError, LUID};
+    use windows::Win32::Security::{
+        AdjustTokenPrivileges, LUID_AND_ATTRIBUTES, LookupPrivilegeValueW, SE_PRIVILEGE_REMOVED,
+        TOKEN_PRIVILEGES,
+    };
+    use windows::core::PCWSTR;
+
+    for name in SYSTEM_WORKER_REMOVED_PRIVILEGES {
+        let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut luid = LUID::default();
+        if unsafe { LookupPrivilegeValueW(PCWSTR::null(), PCWSTR(wide.as_ptr()), &mut luid) }
+            .is_err()
+        {
+            continue;
+        }
+        let privileges = TOKEN_PRIVILEGES {
+            PrivilegeCount: 1,
+            Privileges: [LUID_AND_ATTRIBUTES {
+                Luid: luid,
+                Attributes: SE_PRIVILEGE_REMOVED,
+            }],
+        };
+        unsafe { AdjustTokenPrivileges(token, false, Some(&privileges), 0, None, None) }
+            .map_err(|error| format!("AdjustTokenPrivileges({name}): {error}"))?;
+        // The token may not hold a privilege at all; that is the goal.
+        let last = unsafe { GetLastError() };
+        if last != ERROR_NOT_ALL_ASSIGNED && last.0 != 0 {
+            return Err(format!("AdjustTokenPrivileges({name}): {last:?}"));
+        }
+    }
+    Ok(())
+}
+
+/// `PROCESS_CREATION_CHILD_PROCESS_RESTRICTED`.
+#[cfg(target_os = "windows")]
+const CHILD_PROCESS_RESTRICTED: u32 = 0x01;
+
+/// A process-thread attribute list forbidding the new process to create
+/// child processes.
+#[cfg(target_os = "windows")]
+struct NoChildProcesses {
+    buf: Vec<u64>,
+    _policy: Box<u32>,
+}
+
+#[cfg(target_os = "windows")]
+impl NoChildProcesses {
+    fn new() -> Result<Self, String> {
+        use windows::Win32::System::Threading::{
+            InitializeProcThreadAttributeList, PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY,
+            UpdateProcThreadAttribute,
+        };
+        let mut size = 0usize;
+        unsafe {
+            let _ = InitializeProcThreadAttributeList(None, 1, None, &mut size);
+        }
+        let mut policy = Self {
+            buf: vec![0u64; size.div_ceil(8).max(1)],
+            _policy: Box::new(CHILD_PROCESS_RESTRICTED),
+        };
+        unsafe {
+            InitializeProcThreadAttributeList(Some(policy.list()), 1, None, &mut size)
+                .map_err(|error| format!("InitializeProcThreadAttributeList: {error}"))?;
+            UpdateProcThreadAttribute(
+                policy.list(),
+                0,
+                PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY as usize,
+                Some(&*policy._policy as *const u32 as *const std::ffi::c_void),
+                std::mem::size_of::<u32>(),
+                None,
+                None,
+            )
+            .map_err(|error| format!("UpdateProcThreadAttribute(CHILD_PROCESS_POLICY): {error}"))?;
+        }
+        Ok(policy)
+    }
+
+    fn list(&mut self) -> windows::Win32::System::Threading::LPPROC_THREAD_ATTRIBUTE_LIST {
+        windows::Win32::System::Threading::LPPROC_THREAD_ATTRIBUTE_LIST(
+            self.buf.as_mut_ptr() as *mut std::ffi::c_void
+        )
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for NoChildProcesses {
+    fn drop(&mut self) {
+        unsafe { windows::Win32::System::Threading::DeleteProcThreadAttributeList(self.list()) };
     }
 }
 

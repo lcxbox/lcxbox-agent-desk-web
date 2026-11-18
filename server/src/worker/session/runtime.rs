@@ -364,6 +364,11 @@ impl WorkerSession {
             use desk_input_injection::windows_event::{
                 InputDesktopPolicy, set_input_desktop_policy,
             };
+            if worker_profile == WorkerProfile::RestrictedDesktop {
+                desk_capture_engine::image_capture::capture_desktop::restrict_capture_to_desktop(
+                    "Winlogon",
+                );
+            }
             set_input_desktop_policy(if worker_profile == WorkerProfile::RestrictedDesktop {
                 InputDesktopPolicy::SecureDesktopOnly
             } else {
@@ -733,6 +738,13 @@ impl WorkerSession {
         // DeskSession below each take a clone). Owner / unrestricted connections
         // are never registered (missing entry = global-only gating).
         let connection_ceilings = crate::worker::connection_ceiling::ConnectionCeilingStore::new();
+        // Connections already bound to this session keep their ceilings
+        // across a worker restart: install them before any frame arrives.
+        for ceiling in &init_payload.connection_ceilings {
+            connection_ceilings
+                .set(&ceiling.connection_id, ceiling.ceiling.clone())
+                .await;
+        }
         // Stop switches for the commands currently running, so a cancel arriving
         // on this loop can reach an execution running in a task of its own.
         let exec_registry = crate::worker::exec_registry::ExecRegistry::new();

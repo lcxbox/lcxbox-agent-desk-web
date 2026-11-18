@@ -14,6 +14,7 @@ pub struct ScreenRecordManager {
 
 impl ScreenRecordManager {
     pub fn set_thread_input_desktop() -> Result<(), CaptureError> {
+        crate::image_capture::capture_desktop::ensure_input_desktop_allowed()?;
         unsafe {
             let result = GetProcessWindowStation();
             if let Err(err) = result {
