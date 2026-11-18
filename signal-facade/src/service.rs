@@ -1535,8 +1535,16 @@ impl<U: SignalingUser> SignalingHandler<U> {
                             close_connection(&self.connection_state).await;
                             break;
                         }
-                        Err(_) => {
-                            log::error!("Error handling signaling message");
+                        Err(error) => {
+                            // Only the code: messages can quote raw frames,
+                            // which signaling logs must not carry.
+                            let code = match &error {
+                                DeskSignalFacadeError::CustomError(error) => {
+                                    error.error_code.code()
+                                }
+                                _ => DeskErrorCode::SYSTEM_ERROR.code(),
+                            };
+                            log::error!("Error handling signaling message: error_code={code}");
                         }
                     }
                 }
