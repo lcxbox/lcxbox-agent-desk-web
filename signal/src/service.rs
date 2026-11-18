@@ -277,7 +277,7 @@ mod retirement_tests {
             originals.push((guard, device));
         }
         for waiter in waiters {
-            let error = waiter.await.unwrap().unwrap_err();
+            let error = desk_agent_protocol::AgentError::from(waiter.await.unwrap().unwrap_err());
             assert_eq!(
                 error.kind,
                 desk_agent_protocol::AgentErrorKind::TargetOffline

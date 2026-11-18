@@ -219,7 +219,13 @@ pub fn holds_input_slot(session: &PersistedAgentSession) -> bool {
         // directory request the turn paused on.
         || session.awaiting_permission.is_some()
         || session.decision_pause.is_some()
-        || session.released_permission_call.is_some()
+        // A release whose call already has a result was closed by recovery or a
+        // superseded settlement; the next turn clears it, and it holds nothing.
+        || session.released_permission_call.as_ref().is_some_and(|released| {
+            session
+                .unclosed_tool_call_ids()
+                .contains(&released.tool_call_id)
+        })
         || session.permission_requests.iter().any(|permission| {
             permission.input_revision == session.input_revision
                 && permission.state

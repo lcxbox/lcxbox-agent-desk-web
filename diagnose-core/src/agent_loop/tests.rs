@@ -374,16 +374,29 @@ fn selected_object_lineage_keeps_explicit_sources_without_later_context_expansio
     .unwrap();
     let user_source = user.data_envelope.as_ref().unwrap().envelope_id.clone();
     session.conversation.push(user);
-    let call = ToolCall {
-        id: "read".into(),
-        name: "read_text_file".into(),
-        arguments_json: "{}".into(),
-    };
-    for explicit in [
-        None,
-        Some("envelope-selected"),
-        Some("another-authoritative-source"),
-    ] {
+    // A fixed-device session may still route the read with `target_ref`; the
+    // binding must not fail on that routing field.
+    for (call, explicit) in
+        ["{}", r#"{"target_ref":"device"}"#]
+            .into_iter()
+            .flat_map(|arguments_json| {
+                [
+                    None,
+                    Some("envelope-selected"),
+                    Some("another-authoritative-source"),
+                ]
+                .map(|explicit| {
+                    (
+                        ToolCall {
+                            id: "read".into(),
+                            name: "read_text_file".into(),
+                            arguments_json: arguments_json.into(),
+                        },
+                        explicit,
+                    )
+                })
+            })
+    {
         let mut envelope = session.context_attachments[0].envelope.clone();
         envelope.envelope_id = "result".into();
         envelope.provenance.source_envelope_ids =

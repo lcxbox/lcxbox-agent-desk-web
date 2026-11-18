@@ -881,6 +881,11 @@ async fn drive_claimed_inner(
     if let Some(outcome) = settle_if_superseded(deps, &session, sink).await? {
         return Ok(outcome);
     }
+    if result.is_err() {
+        // A release still set here was never started by `run`. The turn already
+        // fails with its own error; settling must not be skipped for a second one.
+        let _ = released_dispatch::close_unstarted(&mut session, sink);
+    }
     if result.is_err() && deps.content_safety.is_enforced() {
         // The provider/session error is intentionally not copied into a retraction
         // frame. The closed `Incomplete` reason selects local UI text without
@@ -3483,8 +3488,14 @@ pub(crate) fn bind_tool_input_envelopes(
     let Some(envelope) = envelope.as_mut() else {
         return Ok(());
     };
+    // `target_ref` only routes a device read; the result binds to its source by
+    // the remaining fields, whose parsers reject unknown keys. Fixed-device
+    // sessions may carry it too.
     let native;
-    let call = if session.device_id.is_empty() && crate::file_model_input::is_read(&call.name) {
+    let call = if crate::file_model_input::is_read(&call.name)
+        && serde_json::from_str::<serde_json::Value>(&call.arguments_json)
+            .is_ok_and(|arguments| arguments.get("target_ref").is_some())
+    {
         (_, native) = crate::request_devices::selected_read(call)?;
         &native
     } else {

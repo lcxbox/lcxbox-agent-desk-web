@@ -934,6 +934,112 @@ async fn decided_direct_call(approved: bool) {
     );
 }
 
+/// Runs the approved read, then fails while recording its result, as a host
+/// recording step can after the device already answered.
+struct RecordingFails(GrantTools);
+
+#[async_trait(?Send)]
+impl ToolSeam for RecordingFails {
+    async fn current_grant_disclosure(
+        &self,
+    ) -> Result<Option<crate::grant_disclosure::GrantDisclosureSnapshot>, AgentError> {
+        self.0.current_grant_disclosure().await
+    }
+    async fn run_read(&self, call: &ToolCall) -> Result<ToolRunOutput, AgentError> {
+        self.0.run_read(call).await
+    }
+    fn read_data_envelope(
+        &self,
+        _: &ToolCall,
+        _: &ToolRunOutput,
+    ) -> Result<Option<desk_agent_protocol::data_lineage::DataEnvelope>, AgentError> {
+        Err(AgentError {
+            kind: desk_agent_protocol::AgentErrorKind::PermissionDenied,
+            message: "the read result could not be recorded".into(),
+            retryable: false,
+            safe_for_model: true,
+            error_code: None,
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_released_read_that_fails_after_running_answers_its_call_and_frees_the_input() {
+    let (session, providers, snapshot, inventory, target, scope) = call_time_case(true);
+    let model = ScriptModel {
+        turns: RefCell::new([load_read(), direct_read("read"), answer("done")].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = RecordingFails(GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    });
+    let mut registry = vec![target];
+    registry.extend(crate::capability_disclosure::capability_discovery_tool_registry());
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let LoopOutcome::PermissionRequested { request_id } = run_agent_turn(
+        &deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope,
+            ..claim()
+        },
+        ChatMessage::text("u", ChatRole::User, "inspect the session"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap() else {
+        panic!("proposal expected")
+    };
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        stored
+            .permission_decisions
+            .push(crate::dynamic_run::PermissionDecisionProjection {
+                request_id: request_id.clone(),
+                input_revision: stored.input_revision,
+                actor: crate::dynamic_run::PermissionDecisionActor::Owner,
+                items: vec![crate::dynamic_run::PermissionItemDisposition {
+                    item_id: "read".into(),
+                    approved: true,
+                    actor: crate::dynamic_run::PermissionDecisionActor::Owner,
+                }],
+            });
+        assert!(stored.release_awaiting_permission(&request_id).unwrap());
+    }
+    tools.0.snapshot.borrow_mut().grants[0].remaining_uses = 1;
+    let resumed = resume_agent_turn(
+        &deps,
+        ClaimTurnParams {
+            current_pdp_scope: claim().current_pdp_scope,
+            trigger_origin: crate::session::TriggerOrigin::PermissionDecision,
+            ..claim()
+        },
+        &mut NullTurnSink,
+    )
+    .await;
+    assert!(resumed.is_err(), "the turn still fails: {resumed:?}");
+    assert_eq!(tools.0.reads.get(), 1, "the read ran");
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    // The release no longer holds input back, and the call has its only result,
+    // so the next turn's model context is complete.
+    assert!(stored.released_permission_call.is_none());
+    assert!(stored.unclosed_tool_call_ids().is_empty());
+    assert!(tool_result(stored, "read").contains("the read result could not be recorded"));
+    assert_eq!(
+        stored
+            .conversation
+            .iter()
+            .filter(|message| message.tool_call_id.as_deref() == Some("read"))
+            .count(),
+        1
+    );
+}
+
 #[tokio::test]
 async fn a_host_input_mismatch_is_explained_once_before_a_new_proposal() {
     let (session, providers, snapshot, inventory, target, scope) = call_time_case(false);

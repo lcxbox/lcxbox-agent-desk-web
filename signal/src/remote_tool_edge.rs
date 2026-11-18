@@ -368,10 +368,47 @@ fn tool_output_fingerprint(output: &ToolRunOutput) -> Result<(u64, String), Agen
     Ok((size_bytes, format!("{:x}", Sha256::digest(&payload))))
 }
 
+/// How a remote read failed. Only an error the device itself replied with
+/// proves the read produced no result; a local failure to receive or decode the
+/// reply leaves its outcome unknown.
+#[derive(Debug)]
+pub enum RemoteToolFailure {
+    Device(AgentError),
+    Local(AgentError),
+}
+
+impl From<RemoteToolFailure> for ProviderInvokeError {
+    fn from(failure: RemoteToolFailure) -> Self {
+        match failure {
+            // The device answered: a read has no side effect to reconcile, so
+            // this is a known failed completion, identified by its reply.
+            RemoteToolFailure::Device(error) => {
+                let digest = format!(
+                    "{:x}",
+                    Sha256::digest(serde_json::to_vec(&error).unwrap_or_default())
+                );
+                ProviderInvokeError::known(error, CapabilityDispatchOutcome::Failed, digest)
+            }
+            RemoteToolFailure::Local(error) => error.into(),
+        }
+    }
+}
+
+/// Reads that record no dispatch outcome only need the error itself.
+impl From<RemoteToolFailure> for AgentError {
+    fn from(failure: RemoteToolFailure) -> Self {
+        match failure {
+            RemoteToolFailure::Device(error) | RemoteToolFailure::Local(error) => error,
+        }
+    }
+}
+
+type RemoteToolCompletion = oneshot::Sender<Result<RemoteToolOutput, RemoteToolFailure>>;
+
 struct PendingRemoteTool {
     source_connection_id: String,
     reassembler: ByteReassembler,
-    completion: oneshot::Sender<Result<RemoteToolOutput, AgentError>>,
+    completion: RemoteToolCompletion,
 }
 
 pub enum AcceptOutcome {
@@ -390,7 +427,7 @@ impl SignalRemoteToolPendingStore {
         &self,
         request_id: String,
         source_connection_id: String,
-        completion: oneshot::Sender<Result<RemoteToolOutput, AgentError>>,
+        completion: RemoteToolCompletion,
     ) -> bool {
         let mut pending = self.inner.lock().expect("remote tool pending lock");
         if pending.contains_key(&request_id) {
@@ -424,12 +461,12 @@ impl SignalRemoteToolPendingStore {
         };
         if let Err(e) = push {
             if let Some(pending) = map.remove(&chunk.request_id) {
-                let _ = pending.completion.send(Err(error(
+                let _ = pending.completion.send(Err(RemoteToolFailure::Local(error(
                     AgentErrorKind::TransportError,
                     format!("remote tool chunk rejected: {e}"),
                     false,
                     true,
-                )));
+                ))));
             }
             return AcceptOutcome::Delivered;
         }
@@ -450,7 +487,8 @@ impl SignalRemoteToolPendingStore {
                     true,
                 )
             })
-            .and_then(|bytes| decode_output(&bytes));
+            .and_then(|bytes| decode_output(&bytes))
+            .map_err(RemoteToolFailure::Local);
         let _ = pending.completion.send(result);
         AcceptOutcome::Delivered
     }
@@ -469,7 +507,9 @@ impl SignalRemoteToolPendingStore {
             return AcceptOutcome::Rejected("error source does not match target");
         }
         let pending = map.remove(request_id).expect("pending checked above");
-        let _ = pending.completion.send(Err(remote_error));
+        let _ = pending
+            .completion
+            .send(Err(RemoteToolFailure::Device(remote_error)));
         AcceptOutcome::Delivered
     }
 
@@ -489,12 +529,12 @@ impl SignalRemoteToolPendingStore {
             .collect();
         for id in &ids {
             if let Some(pending) = map.remove(id) {
-                let _ = pending.completion.send(Err(error(
+                let _ = pending.completion.send(Err(RemoteToolFailure::Local(error(
                     AgentErrorKind::TargetOffline,
                     "the host disconnected during a AI Assistant observation",
                     true,
                     true,
-                )));
+                ))));
             }
         }
         ids.len()
@@ -8414,6 +8454,51 @@ mod tests {
         assert!(browser_policy_auto_authorized(CapabilityRiskTier::R1));
         assert!(!browser_policy_auto_authorized(CapabilityRiskTier::R2));
         assert!(!browser_policy_auto_authorized(CapabilityRiskTier::R3));
+    }
+
+    /// Only an error the device replied with is a known failed completion; a
+    /// read lost in transit keeps an unknown outcome.
+    #[test]
+    fn only_a_device_reply_makes_a_failed_read_known() {
+        let store = SignalRemoteToolPendingStore::default();
+        let (tx, mut rx) = oneshot::channel();
+        assert!(store.register("refused".into(), "host".into(), tx));
+        let refusal = error(
+            AgentErrorKind::PermissionDenied,
+            "this read is disabled by the device's local policy",
+            false,
+            true,
+        );
+        assert!(matches!(
+            store.fail("host", "refused", refusal.clone()),
+            AcceptOutcome::Delivered
+        ));
+        let Ok(Err(failure @ RemoteToolFailure::Device(_))) = rx.try_recv() else {
+            panic!("a device reply")
+        };
+        let known = ProviderInvokeError::from(failure);
+        let (outcome, digest) = known.known_completion.expect("known completion");
+        assert_eq!(outcome, CapabilityDispatchOutcome::Failed);
+        assert_eq!(
+            digest,
+            format!(
+                "{:x}",
+                Sha256::digest(serde_json::to_vec(&refusal).unwrap())
+            )
+        );
+        assert_eq!(known.error, refusal);
+
+        let (tx, mut rx) = oneshot::channel();
+        assert!(store.register("lost".into(), "host".into(), tx));
+        assert_eq!(store.drain_for_connection("host"), 1);
+        let Ok(Err(failure @ RemoteToolFailure::Local(_))) = rx.try_recv() else {
+            panic!("a local failure")
+        };
+        assert!(
+            ProviderInvokeError::from(failure)
+                .known_completion
+                .is_none()
+        );
     }
 
     #[test]

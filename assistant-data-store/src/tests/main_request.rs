@@ -175,10 +175,30 @@ fn native_subagent_wait_and_ready_resume_retain_the_original_slot() {
     session.ready_subagent_wait = None;
     assert!(!queue::holds_input_slot(&session));
     // A call waiting for approval, then released to run, keeps input queued.
+    session.conversation.push(
+        desk_diagnose_core::chat::ChatMessage::assistant_tool_calls_with_replay(
+            "assistant",
+            "",
+            vec![desk_diagnose_core::chat::ToolCallRef {
+                id: "call".into(),
+                name: "read_text_file".into(),
+                arguments_json: "{}".into(),
+            }],
+            desk_diagnose_core::replay::ReplayDisposition::legacy_unknown(),
+        ),
+    );
     session.pause_for_permission("call", "request");
     assert!(queue::holds_input_slot(&session));
     session.released_permission_call = session.awaiting_permission.take();
     assert!(queue::holds_input_slot(&session));
+    // Once the released call has a result (recovery or settlement closed it),
+    // the stale release no longer holds input back.
+    session
+        .conversation
+        .push(desk_diagnose_core::chat::ChatMessage::tool_result(
+            "result", "call", "closed",
+        ));
+    assert!(!queue::holds_input_slot(&session));
     session.released_permission_call = None;
     assert!(!queue::holds_input_slot(&session));
 }

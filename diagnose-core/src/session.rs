@@ -3591,7 +3591,7 @@ pub fn recovery_placeholder(text: &str) -> Option<&'static str> {
 const RECOVER_NOT_EXECUTED: &str = "not executed: the turn was interrupted before this command ran";
 /// The placeholder text for a recovered call whose outcome is unknown but
 /// reconcilable; a late real result replaces it in place.
-const RECOVER_OUTCOME_UNKNOWN: &str = "Execution did not return a conclusive receipt. Read the current target state before choosing the next action. Other authorized writes remain available, and no user acknowledgement is required. Do not infer success or blindly repeat the action.";
+pub(crate) const RECOVER_OUTCOME_UNKNOWN: &str = "Execution did not return a conclusive receipt. Read the current target state before choosing the next action. Other authorized writes remain available, and no user acknowledgement is required. Do not infer success or blindly repeat the action.";
 /// The placeholder text for a recovered call with no recoverable identity (the
 /// model must inspect the current target state).
 const RECOVER_INTERRUPTED: &str = "The turn was interrupted without a recoverable action receipt. Read the current target state before choosing the next action. Other authorized writes remain available; no user acknowledgement is required.";

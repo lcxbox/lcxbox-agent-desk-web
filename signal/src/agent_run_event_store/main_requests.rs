@@ -207,6 +207,16 @@ pub(crate) async fn slot_held(
     let actions = agent_action_item::Entity::find()
         .filter(agent_action_item::Column::ConversationId.eq(&session.conversation_id))
         .filter(agent_action_item::Column::ActorId.eq(&session.actor_id))
+        // A read whose outcome is unknown has no effect to reconcile. It keeps its
+        // evidence, but does not hold the next input back; an unknown write does.
+        .filter(
+            Condition::any()
+                .add(
+                    agent_action_item::Column::Status
+                        .ne(crate::capability_grant_store::CAPABILITY_WORK_OUTCOME_UNKNOWN),
+                )
+                .add(agent_action_item::Column::IsSideEffecting.eq(true)),
+        )
         .filter(
             Condition::any()
                 .add(
@@ -253,4 +263,76 @@ pub(crate) async fn slot_held(
         }
     }
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capability_grant_store::CAPABILITY_WORK_OUTCOME_UNKNOWN;
+    use sea_orm::{ActiveModelTrait, Set, TransactionTrait};
+
+    #[tokio::test]
+    async fn an_unknown_read_frees_the_next_input_but_an_unknown_write_holds_it() {
+        let db = crate::config::test_support::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::initialize_schema(&db).await.unwrap();
+        let mut session = PersistedAgentSession::new(
+            "conversation",
+            "actor",
+            "device",
+            1,
+            desk_agent_protocol::AgentScope {
+                granted: vec![],
+                mode: desk_agent_protocol::ExecutionMode::ReadOnly,
+                expires_at: None,
+                policy_name: None,
+            },
+            "2026-11-17T00:00:00Z",
+        );
+        session.input_revision = 1;
+        session.current_turn_id = Some("turn".into());
+        let held = |session: PersistedAgentSession| {
+            let db = db.clone();
+            async move {
+                let txn = db.begin().await.unwrap();
+                slot_held(&txn, &session).await.unwrap()
+            }
+        };
+        assert!(!held(session.clone()).await);
+
+        let now = chrono::Utc::now();
+        let action = agent_action_item::ActiveModel {
+            kind: Set(CAPABILITY_WORK_KIND.into()),
+            action_request_id: Set("action".into()),
+            conversation_id: Set("conversation".into()),
+            turn_id: Set("turn".into()),
+            tool_call_id: Set("call".into()),
+            actor_id: Set("actor".into()),
+            target_device_id: Set("device".into()),
+            status: Set(CAPABILITY_WORK_OUTCOME_UNKNOWN.into()),
+            attempt: Set(1),
+            draft_hash: Set("draft".into()),
+            policy_revision: Set(1),
+            is_side_effecting: Set(false),
+            payload_json: Set("{}".into()),
+            payload_schema_version: Set(1),
+            completion_event_id: Set("completion".into()),
+            completion_delivery_state: Set("none".into()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+        // A read the device refused, or never answered, holds nothing back.
+        assert!(!held(session.clone()).await);
+
+        // A write whose outcome is unknown still waits for reconciliation.
+        let mut write: agent_action_item::ActiveModel = action.into();
+        write.is_side_effecting = Set(true);
+        write.update(&db).await.unwrap();
+        assert!(held(session).await);
+    }
 }
