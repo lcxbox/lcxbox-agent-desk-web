@@ -6,41 +6,48 @@
 //! invisible from session 0. The worker, however, runs in the user session's
 //! `WinSta0` and can observe the switch via the same API.
 //!
-//! `OpenInputDesktop` from a user-token process succeeds for unrestricted
-//! desktops (`Default`, `Screen-saver`) but returns `ERROR_ACCESS_DENIED`
-//! when the input desktop is `Winlogon` (the secure desktop UAC switches
-//! to). The watcher treats that error as "input desktop is restricted"
-//! and reports the drift as if the name were `Winlogon` — that's the
-//! shape the daemon uses to decide what to do next.
+//! The probe opens the input desktop with the access capture and input need.
+//! A session-user worker can open `Default` and `Screen-saver` but gets
+//! `ERROR_ACCESS_DENIED` for the secure `Winlogon` desktop; that is reported
+//! as `restricted` (named "Winlogon"). The SYSTEM worker can open every
+//! desktop and reports its real name.
 //!
-//! Lifetime: the watcher polls forever for the lifetime of the worker. It
-//! emits one `WorkerToService::DesktopChanged` per *transition* — repeated
-//! observations of the same drifted state are suppressed, and a return to
-//! the bound desktop clears that suppression so a subsequent UAC trip is
-//! reported again.
+//! Reports are absolute and level-triggered: the current desktop is sent when
+//! it changes, when the daemon changes this worker's route (it asks for a
+//! fresh report), and at least every [`REPEAT_INTERVAL`]. The daemon routes
+//! from the latest report of each worker, so a lost or early report is
+//! corrected by the next one.
 
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Poll interval for the input-desktop watcher.
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Conventional name we use to surface "input desktop is restricted from
-/// this process" up to the daemon. Every modern Windows installation
-/// names UAC's secure desktop "Winlogon" so this is the right inference
-/// 99 % of the time; if the OS ever uses a different name the daemon-
-/// side switch handler will simply log + skip.
+/// The current desktop is re-sent at least this often.
+const REPEAT_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Name reported when the input desktop cannot be opened: the secure
+/// desktop UAC, the lock screen and the sign-in screen switch to.
 pub const RESTRICTED_DESKTOP_NAME: &str = "Winlogon";
 
-/// Spawn the platform monitor on a dedicated thread.
-///
-/// `bound_desktop` is the desktop name the daemon launched this worker on
-/// (delivered via `WorkerInitPayload.desktop_name`).
-pub fn spawn(bound_desktop: Option<String>, tx: UnboundedSender<String>) {
-    let bound = bound_desktop.unwrap_or_else(|| "Default".to_string());
+/// One report of the current input desktop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesktopReport {
+    pub name: String,
+    pub restricted: bool,
+    /// System monotonic clock in milliseconds when probed.
+    pub observed_tick_ms: u64,
+}
+
+/// Spawn the platform monitor on a dedicated thread. Setting `report_now`
+/// makes the next poll send the current desktop even if it is unchanged.
+pub fn spawn(tx: UnboundedSender<DesktopReport>, report_now: Arc<AtomicBool>) {
     if std::thread::Builder::new()
         .name("worker-desktop-monitor".to_string())
-        .spawn(move || run_loop(&bound, tx))
+        .spawn(move || run_loop(tx, report_now))
         .is_err()
     {
         log::warn!("[DesktopMonitor] failed to spawn watcher thread");
@@ -52,10 +59,11 @@ pub fn spawn(bound_desktop: Option<String>, tx: UnboundedSender<String>) {
 /// deterministically and we want to act on it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputDesktopProbe {
-    /// We could open the input desktop and read its name.
+    /// We could open the input desktop with the access capture and input need
+    /// and read its name.
     Name(String),
     /// `OpenInputDesktop` failed with ERROR_ACCESS_DENIED — the input
-    /// desktop has switched to one this process cannot open (typically
+    /// desktop has switched to one this process cannot serve (typically
     /// `Winlogon` during UAC).
     Restricted,
     /// Any other failure (rare). Surfaces the formatted error so a future
@@ -63,35 +71,49 @@ pub enum InputDesktopProbe {
     OtherError(String),
 }
 
-fn run_loop(bound: &str, tx: UnboundedSender<String>) {
-    log::info!("[DesktopMonitor] watching for input-desktop drift from '{bound}'");
+fn run_loop(tx: UnboundedSender<DesktopReport>, report_now: Arc<AtomicBool>) {
+    log::info!("[DesktopMonitor] reporting the input desktop");
     let mut state = DesktopMonitorState::default();
 
     loop {
-        std::thread::sleep(POLL_INTERVAL);
         if tx.is_closed() {
             return;
         }
-
-        if let Some(observed) = state.observe(bound, probe_input_desktop())
-            && tx.send(observed).is_err()
+        let forced = report_now.swap(false, Ordering::AcqRel);
+        if let Some((name, restricted)) =
+            state.observe(probe_input_desktop(), Instant::now(), forced)
+            && tx
+                .send(DesktopReport {
+                    name,
+                    restricted,
+                    observed_tick_ms: monotonic_tick_ms(),
+                })
+                .is_err()
         {
             return;
         }
+        std::thread::sleep(POLL_INTERVAL);
     }
 }
 
 #[derive(Default)]
 struct DesktopMonitorState {
-    last_reported: Option<String>,
+    last_reported: Option<(String, bool)>,
+    last_sent_at: Option<Instant>,
     last_logged_other_err: Option<String>,
 }
 
 impl DesktopMonitorState {
-    fn observe(&mut self, bound: &str, probe: InputDesktopProbe) -> Option<String> {
-        let observed = match probe {
-            InputDesktopProbe::Name(name) => name,
-            InputDesktopProbe::Restricted => RESTRICTED_DESKTOP_NAME.to_string(),
+    /// The report to send for this poll, if any.
+    fn observe(
+        &mut self,
+        probe: InputDesktopProbe,
+        now: Instant,
+        forced: bool,
+    ) -> Option<(String, bool)> {
+        let current = match probe {
+            InputDesktopProbe::Name(name) => (name, false),
+            InputDesktopProbe::Restricted => (RESTRICTED_DESKTOP_NAME.to_string(), true),
             InputDesktopProbe::OtherError(msg) => {
                 // Log only on transitions between distinct errors to avoid
                 // one warning per poll when the platform API is unavailable.
@@ -103,24 +125,34 @@ impl DesktopMonitorState {
             }
         };
         self.last_logged_other_err = None;
-
-        if observed == bound {
-            if let Some(previous) = self.last_reported.take() {
-                log::info!(
-                    "[DesktopMonitor] input desktop returned to bound '{bound}' from '{previous}'"
-                );
-            }
+        let changed = self.last_reported.as_ref() != Some(&current);
+        let due = self
+            .last_sent_at
+            .is_none_or(|sent| now.duration_since(sent) >= REPEAT_INTERVAL);
+        if !(changed || due || forced) {
             return None;
         }
-
-        if self.last_reported.as_deref() == Some(observed.as_str()) {
-            return None;
+        if changed {
+            log::info!(
+                "[DesktopMonitor] input desktop is '{}'{}",
+                current.0,
+                if current.1 { " (restricted)" } else { "" }
+            );
         }
-
-        log::info!("[DesktopMonitor] desktop drift detected: '{bound}' -> '{observed}'");
-        self.last_reported = Some(observed.clone());
-        Some(observed)
+        self.last_reported = Some(current.clone());
+        self.last_sent_at = Some(now);
+        Some(current)
     }
+}
+
+#[cfg(target_os = "windows")]
+fn monotonic_tick_ms() -> u64 {
+    unsafe { windows::Win32::System::SystemInformation::GetTickCount64() }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn monotonic_tick_ms() -> u64 {
+    0
 }
 
 /// Probe the current input desktop. Returns one of [`InputDesktopProbe`]'s
@@ -142,7 +174,9 @@ pub fn probe_input_desktop() -> InputDesktopProbe {
         let desktop = match OpenInputDesktop(
             DESKTOP_CONTROL_FLAGS(0),
             false,
-            DESKTOP_ACCESS_FLAGS(0x0001), // DESKTOP_READOBJECTS — name only.
+            // GENERIC_ALL: the access capture opens the input desktop with.
+            // A desktop this process cannot open that way it cannot serve.
+            DESKTOP_ACCESS_FLAGS(0x1000_0000),
         ) {
             Ok(d) => d,
             Err(e) => {
@@ -196,17 +230,17 @@ mod tests {
         assert_eq!(RESTRICTED_DESKTOP_NAME, "Winlogon");
     }
 
-    /// When the receiver is dropped before the watcher detects a change,
-    /// `run_loop` must observe `tx.is_closed()` and exit.
+    /// When the receiver is dropped, `run_loop` must observe
+    /// `tx.is_closed()` and exit.
     #[test]
     fn run_loop_exits_when_receiver_dropped() {
-        let (tx, rx) = mpsc::unbounded_channel::<String>();
+        let (tx, rx) = mpsc::unbounded_channel::<DesktopReport>();
         drop(rx);
         let handle = std::thread::Builder::new()
             .name("desktop-monitor-test".to_string())
-            .spawn(move || run_loop("Default", tx))
+            .spawn(move || run_loop(tx, Arc::new(AtomicBool::new(false))))
             .unwrap();
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         while !handle.is_finished() && start.elapsed() < Duration::from_secs(4) {
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -217,45 +251,56 @@ mod tests {
         handle.join().unwrap();
     }
 
-    /// The production state machine emits once per drift transition and
-    /// returning to the bound desktop re-arms the same drift for later.
+    /// Reports are absolute: the first poll, every change, every
+    /// `REPEAT_INTERVAL` and every forced poll send the current desktop,
+    /// including the worker's own desktop.
     #[test]
-    fn dedupes_drift_state_across_polls() {
-        let probes = vec![
-            InputDesktopProbe::Name("Default".to_string()), // matches bound
-            InputDesktopProbe::Restricted,                  // first drift -> emit
-            InputDesktopProbe::Restricted,                  // dedup -> no emit
-            InputDesktopProbe::Name("Default".to_string()), // returned
-            InputDesktopProbe::Restricted,                  // re-armed -> emit
-        ];
-
+    fn reports_the_current_desktop_on_change_repeat_and_request() {
         let mut state = DesktopMonitorState::default();
-        let observed = probes
-            .into_iter()
-            .filter_map(|probe| state.observe("Default", probe))
-            .collect::<Vec<_>>();
+        let start = Instant::now();
+        let at = |seconds: u64| start + Duration::from_secs(seconds);
+        let default = || InputDesktopProbe::Name("Default".to_string());
 
         assert_eq!(
-            observed,
-            vec!["Winlogon".to_string(), "Winlogon".to_string()]
+            state.observe(default(), at(0), false),
+            Some(("Default".to_string(), false))
+        );
+        assert_eq!(state.observe(default(), at(1), false), None);
+        assert_eq!(
+            state.observe(InputDesktopProbe::Restricted, at(2), false),
+            Some(("Winlogon".to_string(), true))
+        );
+        assert_eq!(
+            state.observe(InputDesktopProbe::Restricted, at(3), false),
+            None
+        );
+        assert_eq!(
+            state.observe(InputDesktopProbe::Restricted, at(3), true),
+            Some(("Winlogon".to_string(), true))
+        );
+        assert_eq!(
+            state.observe(InputDesktopProbe::Restricted, at(8), false),
+            Some(("Winlogon".to_string(), true))
+        );
+        assert_eq!(
+            state.observe(default(), at(9), false),
+            Some(("Default".to_string(), false))
         );
     }
 
     #[test]
-    fn distinct_errors_are_deduplicated_until_a_successful_probe() {
+    fn errors_send_nothing_and_are_logged_once() {
         let mut state = DesktopMonitorState::default();
+        let now = Instant::now();
+        let error = || InputDesktopProbe::OtherError("failure".into());
 
-        assert_eq!(
-            state.observe("Default", InputDesktopProbe::OtherError("failure".into())),
-            None
-        );
-        assert_eq!(
-            state.observe("Default", InputDesktopProbe::OtherError("failure".into())),
-            None
-        );
-        assert_eq!(
-            state.observe("Default", InputDesktopProbe::Name("Default".to_string())),
-            None
+        assert_eq!(state.observe(error(), now, true), None);
+        assert_eq!(state.observe(error(), now, true), None);
+        assert!(state.last_logged_other_err.is_some());
+        assert!(
+            state
+                .observe(InputDesktopProbe::Name("Default".into()), now, false)
+                .is_some()
         );
         assert_eq!(state.last_logged_other_err, None);
     }

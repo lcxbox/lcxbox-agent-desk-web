@@ -955,18 +955,22 @@ pub struct TerminalCommandsListedPayload {
     pub terminals: TerminalList,
 }
 
+/// A worker's current view of its session's input desktop. Workers report
+/// it on change, when their route changes and every few seconds, so the
+/// daemon always routes from the latest state rather than from one edge.
 #[derive(Debug, Clone, Serialize, Deserialize, SchemaWrite, SchemaRead)]
 pub struct DesktopChangedPayload {
-    /// New input desktop name as returned by `OpenInputDesktop` +
+    /// Input desktop name as returned by `OpenInputDesktop` +
     /// `GetUserObjectInformationW(UOI_NAME)`. Examples: "Default", "Winlogon",
-    /// "Screen-saver". A resident-worker daemon uses this observation to
-    /// atomically route interactive traffic to the matching warm worker.
+    /// "Screen-saver". `"Winlogon"` when `restricted`.
     pub name: String,
-    /// Wall-clock timestamp captured by the observing worker. Because all
-    /// workers and the daemon run on the same host, this lets the daemon reject
-    /// an event queued while the worker was still on standby but delivered
-    /// after that worker became active.
-    pub observed_at_unix_ms: u64,
+    /// The worker could not open the input desktop with the access capture
+    /// and input need, so it cannot serve it.
+    pub restricted: bool,
+    /// System monotonic clock (milliseconds since boot) when the desktop was
+    /// probed. All workers and the daemon share it, so the daemon can order
+    /// reports from different workers of one session.
+    pub observed_tick_ms: u64,
 }
 
 /// Daemon-authoritative interactive-route state for one resident worker.

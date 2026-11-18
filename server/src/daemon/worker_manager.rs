@@ -302,6 +302,14 @@ pub struct WorkerManager {
     /// restricted Winlogon worker alone.
     signed_out_sessions:
         Arc<StdMutex<std::collections::HashSet<desk_ipc_protocol::message::SessionKey>>>,
+    /// Latest input-desktop report of each worker of a Windows session.
+    desktop_observations:
+        Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, SessionDesktopObservations>>>,
+    desktop_observation_seq: Arc<std::sync::atomic::AtomicU64>,
+    /// Sessions whose input desktop no worker may serve right now: their
+    /// route stays fenced and no capability refresh reactivates it.
+    frozen_sessions:
+        Arc<StdMutex<std::collections::HashSet<desk_ipc_protocol::message::SessionKey>>>,
     interactive_switch_locks:
         Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, Arc<Mutex<()>>>>>,
     interactive_route_epochs: Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, u64>>>,
@@ -657,6 +665,9 @@ impl WorkerManager {
             active_interactive_routes: Arc::new(StdMutex::new(HashMap::new())),
             desired_interactive_desktops: Arc::new(StdMutex::new(HashMap::new())),
             signed_out_sessions: Arc::new(StdMutex::new(std::collections::HashSet::new())),
+            desktop_observations: Arc::new(StdMutex::new(HashMap::new())),
+            desktop_observation_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            frozen_sessions: Arc::new(StdMutex::new(std::collections::HashSet::new())),
             interactive_switch_locks: Arc::new(StdMutex::new(HashMap::new())),
             interactive_route_epochs: Arc::new(StdMutex::new(HashMap::new())),
             interactive_route_acks: Arc::new(StdMutex::new(HashMap::new())),
@@ -1303,6 +1314,11 @@ impl WorkerManager {
                 .lock()
                 .unwrap()
                 .remove(&key.session);
+            self.desktop_observations
+                .lock()
+                .unwrap()
+                .remove(&key.session);
+            self.frozen_sessions.lock().unwrap().remove(&key.session);
             self.interactive_switch_locks
                 .lock()
                 .unwrap()
@@ -1964,7 +1980,8 @@ impl WorkerManager {
             .get(&key.session)
             .copied()
             .or_else(|| self.default_interactive_desktop(&key.session, key.desktop));
-        if remote_desktop_ready && desired == Some(key.desktop) && !route_is_current {
+        let frozen = self.frozen_sessions.lock().unwrap().contains(&key.session);
+        if remote_desktop_ready && desired == Some(key.desktop) && !route_is_current && !frozen {
             // Do not await the worker acknowledgement from signaling_proxy's
             // message loop: that same loop must remain free to receive the ack.
             let manager = self.clone();
@@ -2195,16 +2212,53 @@ impl WorkerManager {
         Ok(route_epoch)
     }
 
-    /// Windows desktop transition without replacing either resident process.
-    /// Old media is stopped best-effort while its route is still authoritative;
-    /// publication of the new key then fences every queued old frame before
-    /// cached media is restarted on the warm target.
-    pub async fn switch_interactive_desktop(
+    /// Record one worker's input-desktop report and decide how the session's
+    /// interactive desktop must be served. Reports are accepted only from
+    /// the current incarnation of a resident Windows worker.
+    pub async fn record_desktop_observation(
+        &self,
+        key: &WorkerKey,
+        incarnation: WorkerIncarnation,
+        report: &desk_ipc_protocol::message::DesktopChangedPayload,
+    ) -> Option<InteractiveDesktopDecision> {
+        let current = self
+            .inner
+            .lock()
+            .await
+            .resident_workers
+            .get(key)
+            .is_some_and(|worker| worker.incarnation == incarnation);
+        if !current {
+            return None;
+        }
+        let observation = DesktopObservation {
+            name: report.name.clone(),
+            restricted: report.restricted,
+            observed_tick_ms: report.observed_tick_ms,
+            received: self
+                .desktop_observation_seq
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        };
+        let signed_out = self.session_is_signed_out(&key.session);
+        let mut observations = self.desktop_observations.lock().unwrap();
+        let entry = observations.entry(key.session.clone()).or_default();
+        match key.desktop {
+            DesktopTarget::WindowsDefault => entry.default = Some(observation),
+            DesktopTarget::WindowsWinlogon => entry.winlogon = Some(observation),
+            DesktopTarget::LinuxSession => return None,
+        }
+        decide_interactive_desktop(signed_out, entry.default.as_ref(), entry.winlogon.as_ref())
+    }
+
+    /// Serve the session's interactive desktop from the decided worker, or
+    /// freeze it. The previous worker is fenced first whenever it must not
+    /// serve the observed desktop; a target that is not ready yet leaves the
+    /// session frozen until its capabilities arrive.
+    pub async fn apply_interactive_desktop_decision(
         &self,
         session: &desk_ipc_protocol::message::SessionKey,
-        desktop_name: &str,
-    ) -> Result<u64, String> {
-        let switch_started = Instant::now();
+        decision: InteractiveDesktopDecision,
+    ) -> Result<(), String> {
         let switch_lock = self
             .interactive_switch_locks
             .lock()
@@ -2213,54 +2267,107 @@ impl WorkerManager {
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone();
         let _switch_guard = switch_lock.lock().await;
-        let desktop = match desktop_name {
-            "Default" => DesktopTarget::WindowsDefault,
-            "Winlogon" => DesktopTarget::WindowsWinlogon,
-            other => {
-                return Err(format!(
-                    "unknown Windows input desktop {other:?}; retaining the current route"
-                ));
+        let desktop = match decision {
+            InteractiveDesktopDecision::Freeze(reason) => {
+                self.frozen_sessions.lock().unwrap().insert(session.clone());
+                self.freeze_interactive_route(session, &reason).await;
+                return Err(reason);
             }
+            InteractiveDesktopDecision::Serve(desktop) => desktop,
         };
         let key = WorkerKey {
             session: session.clone(),
             desktop,
         };
-        {
-            let inner = self.inner.lock().await;
-            let worker = inner
-                .resident_workers
-                .get(&key)
-                .ok_or_else(|| format!("warm desktop worker {key:?} is unavailable"))?;
-            if worker.capabilities.is_none() {
-                return Err(format!("warm desktop worker {key:?} is not ready"));
-            }
-        }
-        let current_epoch = self
-            .active_interactive_routes
-            .lock()
-            .unwrap()
-            .get(session)
-            .filter(|route| route.worker_key == key && route.accepting_interactive)
-            .map(|route| route.route_epoch);
-        if let Some(epoch) = current_epoch {
-            return Ok(epoch);
-        }
-
-        // Record the observed input desktop before fencing the old route. If
-        // activation fails, a later capability refresh may retry only this
-        // target; it must never reopen the desktop we just observed leaving.
         self.desired_interactive_desktops
             .lock()
             .unwrap()
             .insert(session.clone(), desktop);
+        let already_serving = self
+            .active_interactive_routes
+            .lock()
+            .unwrap()
+            .get(session)
+            .is_some_and(|route| route.worker_key == key && route.accepting_interactive);
+        if already_serving {
+            self.frozen_sessions.lock().unwrap().remove(session);
+            return Ok(());
+        }
+        let ready = self
+            .inner
+            .lock()
+            .await
+            .resident_workers
+            .get(&key)
+            .is_some_and(|worker| worker.capabilities.is_some());
+        if !ready {
+            // Never leave the other worker serving a desktop it must not;
+            // the target activates when its capabilities arrive.
+            self.frozen_sessions.lock().unwrap().remove(session);
+            self.freeze_interactive_route(session, "the target desktop worker is not ready")
+                .await;
+            return Err(format!("desktop worker {key:?} is not ready"));
+        }
+        self.frozen_sessions.lock().unwrap().remove(session);
+        self.switch_interactive_route_locked(&key).await.map(|_| ())
+    }
+
+    /// Fence the session's interactive route: no input, video paused, the
+    /// worker told to stop serving. Idempotent.
+    async fn freeze_interactive_route(
+        &self,
+        session: &desk_ipc_protocol::message::SessionKey,
+        reason: &str,
+    ) {
         let old_route = {
             let mut routes = self.active_interactive_routes.lock().unwrap();
-            let route = routes
-                .get_mut(session)
-                .ok_or_else(|| format!("session {session:?} has no current interactive route"))?;
-            route.accepting_interactive = false;
-            route.clone()
+            match routes.get_mut(session) {
+                Some(route) if route.accepting_interactive => {
+                    route.accepting_interactive = false;
+                    route.clone()
+                }
+                _ => return,
+            }
+        };
+        self.session_targets
+            .set_remote_desktop_readiness(session, false);
+        let epoch = self.allocate_interactive_route_epoch(session);
+        let connection_ids = self.connection_ids_for_session(session);
+        self.pc_registry
+            .pause_media_for_connections(&connection_ids, epoch)
+            .await;
+        if let Err(error) = self
+            .request_interactive_route_state(
+                &old_route.worker_key,
+                old_route.incarnation,
+                epoch,
+                false,
+            )
+            .await
+        {
+            warn!(
+                "interactive worker {:?} did not acknowledge freezing: {}; route remains fenced",
+                old_route.worker_key, error
+            );
+        }
+        info!(
+            "resident_switch stage=frozen session={:?} route_epoch={} reason={}",
+            session, epoch, reason
+        );
+    }
+
+    /// Move the session's interactive route to the ready worker `key`. The
+    /// caller holds the session's switch lock.
+    async fn switch_interactive_route_locked(&self, key: &WorkerKey) -> Result<u64, String> {
+        let switch_started = Instant::now();
+        let session = &key.session;
+        let old_route = {
+            let mut routes = self.active_interactive_routes.lock().unwrap();
+            routes.get_mut(session).map(|route| {
+                let was_accepting = route.accepting_interactive;
+                route.accepting_interactive = false;
+                (route.clone(), was_accepting)
+            })
         };
         self.session_targets
             .set_remote_desktop_readiness(session, false);
@@ -2269,29 +2376,31 @@ impl WorkerManager {
         self.pc_registry
             .pause_media_for_connections(&connection_ids, next_epoch)
             .await;
-        if let Err(error) = self
-            .request_interactive_route_state(
-                &old_route.worker_key,
-                old_route.incarnation,
-                next_epoch,
-                false,
-            )
-            .await
-        {
-            warn!(
-                "old interactive worker {:?} did not acknowledge deactivation: {}; route remains fenced",
-                old_route.worker_key, error
-            );
-        } else {
-            info!(
-                "resident_switch stage=deactivate_applied session={:?} route_epoch={} elapsed_ms={}",
-                session,
-                next_epoch,
-                switch_started.elapsed().as_millis()
-            );
+        if let Some((old_route, true)) = old_route {
+            if let Err(error) = self
+                .request_interactive_route_state(
+                    &old_route.worker_key,
+                    old_route.incarnation,
+                    next_epoch,
+                    false,
+                )
+                .await
+            {
+                warn!(
+                    "old interactive worker {:?} did not acknowledge deactivation: {}; route remains fenced",
+                    old_route.worker_key, error
+                );
+            } else {
+                info!(
+                    "resident_switch stage=deactivate_applied session={:?} route_epoch={} elapsed_ms={}",
+                    session,
+                    next_epoch,
+                    switch_started.elapsed().as_millis()
+                );
+            }
         }
         let epoch = self
-            .activate_interactive_worker_at_epoch_locked(&key, next_epoch)
+            .activate_interactive_worker_at_epoch_locked(key, next_epoch)
             .await?;
         info!(
             "resident_switch stage=activate_applied session={:?} desktop={:?} route_epoch={} elapsed_ms={}",
@@ -2336,24 +2445,6 @@ impl WorkerManager {
                     && route.incarnation == incarnation
                     && route.accepting_interactive
                     && route.activated_at <= Instant::now()
-            })
-    }
-
-    pub fn resident_desktop_observation_is_current(
-        &self,
-        key: &WorkerKey,
-        incarnation: WorkerIncarnation,
-        observed_at_unix_ms: u64,
-    ) -> bool {
-        self.active_interactive_routes
-            .lock()
-            .unwrap()
-            .get(&key.session)
-            .is_some_and(|route| {
-                route.worker_key == *key
-                    && route.incarnation == incarnation
-                    && route.accepting_interactive
-                    && observed_at_unix_ms >= route.activated_at_unix_ms
             })
     }
 
@@ -3873,6 +3964,105 @@ mod bridge_tests;
 #[cfg(test)]
 mod incarnation_tests;
 
+/// One worker's latest report of its session's input desktop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DesktopObservation {
+    pub name: String,
+    pub restricted: bool,
+    pub observed_tick_ms: u64,
+    /// Daemon receive order; breaks ties between equal ticks.
+    pub received: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SessionDesktopObservations {
+    default: Option<DesktopObservation>,
+    winlogon: Option<DesktopObservation>,
+}
+
+/// How a session's interactive desktop must be served.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InteractiveDesktopDecision {
+    Serve(DesktopTarget),
+    /// No worker may serve the input desktop now: no input, no video.
+    Freeze(String),
+}
+
+const SECURE_DESKTOP: &str = "Winlogon";
+
+/// Route from the latest report of each worker of one Windows session:
+///
+/// | newest report | condition | route |
+/// |---|---|---|
+/// | session worker | it can open the input desktop | session worker |
+/// | session worker | restricted, restricted worker says `Winlogon` | restricted worker |
+/// | session worker | restricted, anything else | freeze |
+/// | restricted worker | `Winlogon` | restricted worker |
+/// | restricted worker | `Default`, or a desktop the session worker last opened | session worker |
+/// | restricted worker | any other desktop | freeze until the session worker reports it |
+///
+/// At the sign-in screen only the restricted worker exists and serves only
+/// `Winlogon`.
+pub(crate) fn decide_interactive_desktop(
+    signed_out: bool,
+    default: Option<&DesktopObservation>,
+    winlogon: Option<&DesktopObservation>,
+) -> Option<InteractiveDesktopDecision> {
+    let secure = |observation: &DesktopObservation| {
+        !observation.restricted && observation.name == SECURE_DESKTOP
+    };
+    if signed_out {
+        let winlogon = winlogon?;
+        return Some(if secure(winlogon) {
+            InteractiveDesktopDecision::Serve(DesktopTarget::WindowsWinlogon)
+        } else {
+            InteractiveDesktopDecision::Freeze(format!(
+                "the sign-in session's input desktop {:?} is not the secure desktop",
+                winlogon.name
+            ))
+        });
+    }
+    let order =
+        |observation: &DesktopObservation| (observation.observed_tick_ms, observation.received);
+    let default_is_newest = match (default, winlogon) {
+        (None, None) => return None,
+        (Some(_), None) => true,
+        (None, Some(_)) => false,
+        (Some(default), Some(winlogon)) => order(default) >= order(winlogon),
+    };
+    Some(if default_is_newest {
+        let default = default.unwrap();
+        if !default.restricted {
+            InteractiveDesktopDecision::Serve(DesktopTarget::WindowsDefault)
+        } else if winlogon.is_some_and(secure) {
+            InteractiveDesktopDecision::Serve(DesktopTarget::WindowsWinlogon)
+        } else {
+            InteractiveDesktopDecision::Freeze(
+                "the input desktop is closed to the session user and is not the secure desktop"
+                    .to_string(),
+            )
+        }
+    } else {
+        let winlogon = winlogon.unwrap();
+        if winlogon.restricted {
+            InteractiveDesktopDecision::Freeze(
+                "the restricted worker cannot open the input desktop".to_string(),
+            )
+        } else if winlogon.name == SECURE_DESKTOP {
+            InteractiveDesktopDecision::Serve(DesktopTarget::WindowsWinlogon)
+        } else if winlogon.name == "Default"
+            || default.is_some_and(|default| !default.restricted && default.name == winlogon.name)
+        {
+            InteractiveDesktopDecision::Serve(DesktopTarget::WindowsDefault)
+        } else {
+            InteractiveDesktopDecision::Freeze(format!(
+                "waiting for the session worker to report the input desktop {:?}",
+                winlogon.name
+            ))
+        }
+    })
+}
+
 /// What one Windows reconcile pass changes.
 #[cfg(any(target_os = "windows", test))]
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -3939,6 +4129,8 @@ pub(crate) fn plan_windows_reconcile(
     plan
 }
 
+#[cfg(test)]
+mod desktop_routing_tests;
 #[cfg(test)]
 mod policy_tests;
 #[cfg(test)]

@@ -355,6 +355,21 @@ impl WorkerSession {
         // We latch the bool here because `shared_hub` is consumed by the
         // match arms below.
         let is_inprocess_worker = shared_hub.is_some();
+        // A daemon-launched worker serves the input desktop the daemon routes
+        // to it, which may not be the desktop it started on: the session
+        // worker follows the user's openable desktops (a screen saver), the
+        // restricted worker injects only into the secure desktop.
+        #[cfg(target_os = "windows")]
+        if !is_inprocess_worker {
+            use desk_input_injection::windows_event::{
+                InputDesktopPolicy, set_input_desktop_policy,
+            };
+            set_input_desktop_policy(if worker_profile == WorkerProfile::RestrictedDesktop {
+                InputDesktopPolicy::SecureDesktopOnly
+            } else {
+                InputDesktopPolicy::AnyOpenable
+            });
+        }
         let host_control_hub = match shared_hub {
             Some(h) => {
                 info!("Using shared host-control hub (in-process portable mode)");
@@ -852,12 +867,10 @@ impl WorkerSession {
         let heartbeat_task =
             spawn_heartbeat_task(writer_tx.clone(), tokio::time::Duration::from_secs(5));
 
-        // Watch for the user-input desktop drifting away from the one we
-        // were launched on (UAC, lock screen, etc.). The watcher emits one
-        // notification per *transition* — repeated reads of the same
-        // drifted state are suppressed inside the monitor so we don't
-        // flood the IPC, and a return to the bound desktop re-arms it for
-        // the next drift.
+        // Report the session's input desktop (UAC, lock screen, sign-in
+        // screen, screen saver) to the daemon, which routes the interactive
+        // desktop from the latest report of each worker. Reports are sent on
+        // change, when our route changes and every few seconds.
         //
         // Portable / in-process mode (single process under a user token):
         // the daemon side already no-ops `DesktopChanged` because we
@@ -867,7 +880,9 @@ impl WorkerSession {
         // Skip the spawn; dropping `desktop_change_tx` immediately
         // closes the channel so the corresponding `select!` arm
         // disables itself and never fires.
-        let (desktop_change_tx, mut desktop_change_rx) = mpsc::unbounded_channel::<String>();
+        let (desktop_change_tx, mut desktop_change_rx) =
+            mpsc::unbounded_channel::<desktop_monitor::DesktopReport>();
+        let desktop_report_now = Arc::new(AtomicBool::new(true));
         if is_inprocess_worker {
             info!(
                 "Portable mode: skipping desktop_monitor (single-process worker cannot \
@@ -875,7 +890,7 @@ impl WorkerSession {
             );
             drop(desktop_change_tx);
         } else {
-            desktop_monitor::spawn(init_payload.desktop_name.clone(), desktop_change_tx);
+            desktop_monitor::spawn(desktop_change_tx, desktop_report_now.clone());
         }
 
         // Display-change watcher: an OS listener (Windows
@@ -1062,6 +1077,9 @@ impl WorkerSession {
                                     );
                                 }
                                 ServiceToWorker::SetInteractiveRoute(payload) => {
+                                    // The daemon routes from our latest desktop report;
+                                    // send a fresh one after every route change.
+                                    desktop_report_now.store(true, Ordering::Release);
                                     // Close the input gate before stopping resources so no
                                     // event can slip into the old desktop during teardown.
                                     interactive_route_active = payload.active;
@@ -3577,24 +3595,18 @@ impl WorkerSession {
                     }
                 }
 
-                Some(new_desktop) = desktop_change_rx.recv() => {
-                    info!("Reporting desktop drift to daemon: '{}'", new_desktop);
+                Some(report) = desktop_change_rx.recv() => {
                     let payload = WorkerToService::DesktopChanged(DesktopChangedPayload {
-                        name: new_desktop,
-                        observed_at_unix_ms: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64,
+                        name: report.name,
+                        restricted: report.restricted,
+                        observed_tick_ms: report.observed_tick_ms,
                     });
                     if writer_tx.send(payload).is_err() {
                         error!("IPC writer task died; exiting main loop");
                         break;
                     }
-                    // Stay in the loop. If the daemon decides to switch
-                    // workers it will send `DesktopSwitching` back, which
-                    // is handled by the service_msg_rx arm above.
-                    // For Winlogon (UAC) the daemon currently keeps us
-                    // alive — see signaling_proxy::run_signaling_proxy.
+                    // The daemon answers with `SetInteractiveRoute` when the
+                    // report moves the session's interactive desktop.
                 }
 
                 // OS-driven display reconfiguration (resolution change,

@@ -136,6 +136,9 @@ fn to_absolute_normalized(
 
 impl MouseEventHandler for WindowsMouseEventHandler {
     fn handle_mouse_move(&mut self, event: &MouseEventData) -> Result<(), InputError> {
+        if !crate::windows_event::follow_input_desktop() {
+            return Ok(());
+        }
         // A bare absolute move. While a button is held, Windows carries
         // that button's state in the synthetic input stream, so this is
         // delivered as a drag rather than a hover — enabling text
@@ -152,6 +155,9 @@ impl MouseEventHandler for WindowsMouseEventHandler {
     }
 
     fn handle_mouse_down(&mut self, event: &MouseEventData) -> Result<(), InputError> {
+        if !crate::windows_event::follow_input_desktop() {
+            return Ok(());
+        }
         let mut mouse_event_flags = MOUSE_EVENT_FLAGS(0);
         match event.button {
             0 => mouse_event_flags |= MOUSEEVENTF_LEFTDOWN,
@@ -188,6 +194,9 @@ impl MouseEventHandler for WindowsMouseEventHandler {
     }
 
     fn handle_mouse_up(&mut self, event: &MouseEventData) -> Result<(), InputError> {
+        if !crate::windows_event::follow_input_desktop() {
+            return Ok(());
+        }
         let mut mouse_event_flags = MOUSE_EVENT_FLAGS(0);
         match event.button {
             0 => mouse_event_flags |= MOUSEEVENTF_LEFTUP,
@@ -222,6 +231,9 @@ impl MouseEventHandler for WindowsMouseEventHandler {
     }
 
     fn handle_mouse_wheel(&mut self, event: &MouseEventData) -> Result<(), InputError> {
+        if !crate::windows_event::follow_input_desktop() {
+            return Ok(());
+        }
         let mut inputs = Vec::new();
 
         // Vertical scroll

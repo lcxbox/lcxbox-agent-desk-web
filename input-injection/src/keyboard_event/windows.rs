@@ -15,6 +15,9 @@ pub struct WindowsKeyboardEventHandler {}
 
 impl KeyboardEventHandler for WindowsKeyboardEventHandler {
     fn handle_key_down(&mut self, event: &KeyboardEventData) -> Result<(), InputError> {
+        if !crate::windows_event::follow_input_desktop() {
+            return Ok(());
+        }
         let mut input = INPUT::default();
         input.r#type = INPUT_KEYBOARD;
         input.Anonymous.ki.wVk = VIRTUAL_KEY(event.key_code as u16);
@@ -36,6 +39,9 @@ impl KeyboardEventHandler for WindowsKeyboardEventHandler {
     }
 
     fn handle_key_up(&mut self, event: &KeyboardEventData) -> Result<(), InputError> {
+        if !crate::windows_event::follow_input_desktop() {
+            return Ok(());
+        }
         let mut input = INPUT::default();
         input.r#type = INPUT_KEYBOARD;
         // see https://learn.microsoft.com/zh-cn/windows/win32/inputdev/virtual-key-codes

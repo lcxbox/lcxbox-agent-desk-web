@@ -212,16 +212,6 @@ async fn interactive_route_switches_per_desktop_but_session_resources_stay_on_de
             accepting_interactive: true,
         },
     );
-    assert!(manager.resident_desktop_observation_is_current(
-        &default_key,
-        default_incarnation,
-        100,
-    ));
-    assert!(
-        !manager.resident_desktop_observation_is_current(&default_key, default_incarnation, 99,),
-        "an observation queued before route activation must stay fenced"
-    );
-
     manager
         .send_to_interactive_connection_worker(
             "connection-7",

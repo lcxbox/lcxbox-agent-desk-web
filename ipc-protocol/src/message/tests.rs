@@ -324,12 +324,17 @@ fn worker_init_payload_round_trip_with_host_upstream_fields() {
 fn desktop_changed_round_trips() {
     let msg = WorkerToService::DesktopChanged(DesktopChangedPayload {
         name: "Winlogon".to_string(),
-        observed_at_unix_ms: 42,
+        restricted: true,
+        observed_tick_ms: 42,
     });
     let json = serde_json::to_string(&msg).unwrap();
     let decoded: WorkerToService = serde_json::from_str(&json).unwrap();
     match decoded {
-        WorkerToService::DesktopChanged(payload) => assert_eq!(payload.name, "Winlogon"),
+        WorkerToService::DesktopChanged(payload) => {
+            assert_eq!(payload.name, "Winlogon");
+            assert!(payload.restricted);
+            assert_eq!(payload.observed_tick_ms, 42);
+        }
         other => panic!("unexpected: {other:?}"),
     }
 }
@@ -1776,7 +1781,8 @@ fn worker_to_service_all_variants_round_trip() {
         }),
         WorkerToService::DesktopChanged(DesktopChangedPayload {
             name: "Default".to_string(),
-            observed_at_unix_ms: 42,
+            restricted: false,
+            observed_tick_ms: 42,
         }),
         WorkerToService::InteractiveRouteApplied(InteractiveRouteAppliedPayload {
             route_epoch: 7,

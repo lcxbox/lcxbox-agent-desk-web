@@ -996,36 +996,28 @@ pub async fn run_signaling_proxy(
             }
             WorkerToService::DesktopChanged(payload) => {
                 if let Some(key) = resident_worker_key.as_ref() {
-                    if !worker_mgr.resident_desktop_observation_is_current(
-                        key,
-                        worker_message.incarnation,
-                        payload.observed_at_unix_ms,
-                    ) {
-                        debug!(
-                            "[SignalingProxy] stale or standby resident worker {:?} observed desktop '{}' at {}; ignoring",
-                            key, payload.name, payload.observed_at_unix_ms
-                        );
-                        continue;
-                    }
-                    // The switch waits for worker acknowledgements. Run it
-                    // outside this reader loop so the acknowledgements can be
-                    // consumed and matched below.
+                    // Any worker of the session, active or standby, reports
+                    // the input desktop; the manager decides from the latest
+                    // report of each. The switch waits for worker
+                    // acknowledgements, so run it outside this reader loop.
                     let manager = worker_mgr.clone();
-                    let session = key.session.clone();
-                    let desktop_name = payload.name;
+                    let key = key.clone();
+                    let incarnation = worker_message.incarnation;
                     tokio::spawn(async move {
-                        match manager
-                            .switch_interactive_desktop(&session, &desktop_name)
+                        let Some(decision) = manager
+                            .record_desktop_observation(&key, incarnation, &payload)
+                            .await
+                        else {
+                            return;
+                        };
+                        if let Err(error) = manager
+                            .apply_interactive_desktop_decision(&key.session, decision)
                             .await
                         {
-                            Ok(epoch) => info!(
-                                "[SignalingProxy] switched {:?} to desktop '{}' at route epoch {}",
-                                session, desktop_name, epoch
-                            ),
-                            Err(error) => warn!(
-                                "[SignalingProxy] refusing desktop switch for {:?} to '{}': {}",
-                                session, desktop_name, error
-                            ),
+                            debug!(
+                                "[SignalingProxy] {:?} input desktop '{}' is not served yet: {}",
+                                key.session, payload.name, error
+                            );
                         }
                     });
                     continue;
