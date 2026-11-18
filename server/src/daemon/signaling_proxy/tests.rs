@@ -1737,6 +1737,18 @@ fn resident_worker_readiness_reaches_the_central_without_a_bound_connection() {
 }
 
 #[test]
+fn a_resident_worker_wayland_portal_state_reaches_the_daemon_without_a_bound_connection() {
+    use desk_ipc_protocol::message::{WaylandPortalStatusPayload, WorkerToService};
+    let message = WorkerToService::WaylandPortalStatus(WaylandPortalStatusPayload {
+        snapshot: desk_wayland_portal::PortalSnapshot::not_configured(
+            desk_wayland_portal::PortalAvailability::default(),
+        ),
+    });
+    assert_eq!(message.connection_id(), None);
+    assert!(resident_global_control(&message));
+}
+
+#[test]
 fn a_resident_worker_answer_to_a_label_revocation_is_not_dropped() {
     use desk_ipc_protocol::message::{RevokeExecSandboxLabelsReply, WorkerToService};
     let message = WorkerToService::ExecSandboxLabelsRevoked(RevokeExecSandboxLabelsReply {
