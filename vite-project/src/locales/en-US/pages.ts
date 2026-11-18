@@ -3108,6 +3108,8 @@ export default {
   'pages.sessionTarget.title': 'Choose a desktop session',
   'pages.sessionTarget.description': 'More than one desktop is available. Choose which desktop this operation should use.',
   'pages.sessionTarget.desktop': 'Desktop session',
+  'pages.terminal.startDenied': "The device refused terminal access: its security settings don't allow it, or no one on the device approved it. Allow terminal access in the device's security settings, or ask the user on the device to approve it.",
+  'pages.terminal.startFailed': "The device could not start the terminal.",
   'pages.sessionTarget.unavailable': 'The selected desktop is no longer available. Choose an available desktop and try again.',
   'common.unknownError': 'Unknown error',
   "pages.aiAssistant.fileConfirmUpdate": "Confirm file update",

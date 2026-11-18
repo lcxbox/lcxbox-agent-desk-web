@@ -27,6 +27,7 @@ import {
     type TerminalCompletionContext,
 } from "./use-terminal-complete"
 import { terminalWelcomeBanner } from "./terminal-welcome"
+import { terminalStartFailure } from "./terminal-start-result"
 import { useTerminalSessionGuard } from "./use-terminal-session-guard"
 import { useGetCurrentUser } from '@/services/hooks/userController/useGetCurrentUser';
 import type { OperationSystemEnum } from "@/services/types"
@@ -399,6 +400,18 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
                                     ) {
                                         setAssistantObjectRef(assistantRef)
                                     }
+                                } else if (
+                                    msg.signaling_type === SIGNALING_TYPE_CODE_TERMINAL_STARTED
+                                    && terminalStartFailure(t, msg.response_state) !== null
+                                ) {
+                                    // The device refused the start, e.g. its security
+                                    // policy denied the terminal or no local user approved it.
+                                    term.write(`\r\n\x1b[31m${terminalStartFailure(t, msg.response_state)}\x1b[0m\r\n`)
+                                    // Keep the reason on screen: no reconnect spinner and no
+                                    // automatic return to the shell selection.
+                                    terminalStarted.current = false
+                                    ws!.onclose = null
+                                    ws!.close()
                                 } else if (msg.signaling_type === SIGNALING_TYPE_CODE_TERMINAL_STARTED) {
                                     console.log("terminal started")
                                     admissionRetry.reset()

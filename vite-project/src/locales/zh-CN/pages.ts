@@ -3094,6 +3094,8 @@ export default {
   'pages.sessionTarget.title': '选择桌面会话',
   'pages.sessionTarget.description': '当前有多个可用桌面，请选择本次操作要使用的桌面。',
   'pages.sessionTarget.desktop': '桌面会话',
+  'pages.terminal.startDenied': "设备拒绝了终端访问：安全设置不允许，或设备上的用户没有批准。可在设备的安全设置中允许终端访问，或请设备上的用户批准。",
+  'pages.terminal.startFailed': "设备无法启动终端。",
   'pages.sessionTarget.unavailable': '所选桌面已不可用，请重新选择可用桌面。',
   'common.unknownError': '未知错误',
   "pages.aiAssistant.fileConfirmUpdate": "确认修改文件",
