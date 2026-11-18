@@ -397,6 +397,7 @@ pub async fn run_service_daemon_inner(
             });
             supervisor.set_desired_computer(computer).await;
         }
+        pc_registry.set_virtual_display_supervisor(Arc::clone(&supervisor));
         Some(supervisor)
     };
     if let Some(coordinator) = host_control_hub.remote_access_coordinator() {

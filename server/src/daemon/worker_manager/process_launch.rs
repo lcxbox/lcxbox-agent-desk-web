@@ -2,20 +2,6 @@
 
 use super::*;
 
-/// Whether a daemon-launched worker on this desktop runs with the daemon's
-/// SYSTEM token rather than the session user's.
-pub(super) fn runs_with_system_token(desktop_name: Option<&str>) -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        desktop_requires_system_token(desktop_name)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = desktop_name;
-        false
-    }
-}
-
 /// Restricted desktops whose DACL refuses ordinary user tokens; capturing
 /// them needs the daemon's own SYSTEM token re-targeted to the user's
 /// session. Right now only Windows' UAC secure desktop qualifies.

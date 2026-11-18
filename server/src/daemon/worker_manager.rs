@@ -1587,6 +1587,9 @@ impl WorkerManager {
         self.remote_access_gate.read().unwrap().snapshot()
     }
 
+    /// Start the out-of-process single worker. Used by the macOS
+    /// ServiceDaemon; Windows workers are resident.
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub async fn start_worker(
         &self,
         session_id: u32,
@@ -2960,9 +2963,19 @@ impl WorkerManager {
             .await
             .map_err(|error| error.to_string())
         } else {
-            self.start_worker(session_id, desktop_name)
-                .await
-                .map_err(|error| error.to_string())
+            // Only the macOS ServiceDaemon runs an out-of-process single
+            // worker; Windows workers are resident and never recycled here.
+            #[cfg(not(target_os = "windows"))]
+            {
+                self.start_worker(session_id, desktop_name)
+                    .await
+                    .map_err(|error| error.to_string())
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let _ = (session_id, desktop_name);
+                Err("Windows has no single worker to recycle".to_string())
+            }
         }
     }
 
@@ -3277,14 +3290,6 @@ impl WorkerManager {
                     .active_worker
                     .as_ref()
                     .ok_or_else(|| "No active worker".to_string())?;
-                if worker.inprocess_task.is_none()
-                    && process_launch::runs_with_system_token(worker.desktop_name.as_deref())
-                {
-                    return Err(
-                        "the desktop is on a secure screen; central device work runs only as the session user"
-                            .to_string(),
-                    );
-                }
                 worker
                     .ipc_tx
                     .send(msg)
@@ -3716,6 +3721,8 @@ impl WorkerManager {
     /// `start_worker` gave up, and by then there is no handle to compare
     /// against. The first case is what stops a pipe server from tearing down
     /// the worker that was started while it was giving up.
+    // macOS single worker (and its tests); unreachable on Windows.
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     async fn restart_is_still_wanted(&self, incarnation: WorkerIncarnation) -> bool {
         let inner = self.inner.lock().await;
         match inner.active_worker.as_ref() {
@@ -3790,6 +3797,8 @@ impl WorkerManager {
     /// no per-connection accept-state shipped to the next worker —
     /// `SignalingState` lives next to the PC in the daemon and is never
     /// torn down on a worker swap.
+    // macOS single worker (and its tests); unreachable on Windows.
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub async fn notify_desktop_switch(&self) {
         self.pc_registry.clear_worker_activity();
         self.pc_registry.pause_all_media().await;
@@ -3825,6 +3834,27 @@ impl WorkerManager {
             return;
         }
 
+        // Windows workers are resident; their failures go through
+        // `handle_resident_crash_recovery`. Only the macOS single worker
+        // restarts here.
+        #[cfg(target_os = "windows")]
+        {
+            let _ = desktop_name;
+            warn!(
+                "[WorkerManager] unexpected single-worker exit {incarnation} on Windows                  (session={session_id}); resident workers restart through reconcile"
+            );
+        }
+        #[cfg(not(target_os = "windows"))]
+        self.restart_single_worker(incarnation, session_id, desktop_name);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn restart_single_worker(
+        &self,
+        incarnation: WorkerIncarnation,
+        session_id: u32,
+        desktop_name: Option<String>,
+    ) {
         let mgr = self.clone();
         // Must use tokio::spawn (not actix_web::rt::spawn / spawn_local) because this
         // is called from within a tokio::spawn task (run_pipe_server) which has no

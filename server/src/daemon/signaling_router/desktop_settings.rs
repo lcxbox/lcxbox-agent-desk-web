@@ -1869,7 +1869,20 @@ pub(super) async fn handle_apply_remote_session_settings_inbound(
                         "[router] accepted-snapshot recovery did not reach terminal state for \
                  {connection_id}; recycling worker"
                     );
-                    if let Err(error) = ctx.worker_mgr.recycle_for_remote_access_timeout().await {
+                    if ctx.worker_mgr.uses_session_targeting() {
+                        // Recycling a resident worker would end its session's
+                        // terminals, commands and transfers too.
+                        crate::daemon::pc_manager::force_disconnect_connection(
+                            &ctx.pc_registry,
+                            &ctx.worker_mgr,
+                            ctx.virtual_display.as_ref(),
+                            connection_id,
+                            "media-recovery-failed",
+                        )
+                        .await;
+                    } else if let Err(error) =
+                        ctx.worker_mgr.recycle_for_remote_access_timeout().await
+                    {
                         log::error!(
                             "[router] failed to recycle worker after media recovery failure for \
                      {connection_id}: {error}"

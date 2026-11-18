@@ -520,6 +520,10 @@ pub struct PcRegistry {
     worker_mgr: Arc<tokio::sync::OnceCell<WorkerManager>>,
     physical_display:
         Arc<tokio::sync::OnceCell<Arc<crate::daemon::physical_display::PhysicalDisplaySupervisor>>>,
+    /// Set once the daemon builds it, so tasks started before it (the audio
+    /// policy enforcer) still release a closed connection's virtual display.
+    virtual_display:
+        Arc<tokio::sync::OnceCell<Arc<crate::daemon::virtual_display::VirtualDisplaySupervisor>>>,
     outbound_tx: Arc<tokio::sync::OnceCell<broadcast::Sender<String>>>,
     host_activity: Arc<tokio::sync::OnceCell<crate::host_activity::HostActivityRegistry>>,
     manager_credential_scopes: Arc<
@@ -666,6 +670,19 @@ impl PcRegistry {
         self.physical_display.get()
     }
 
+    pub fn set_virtual_display_supervisor(
+        &self,
+        supervisor: Arc<crate::daemon::virtual_display::VirtualDisplaySupervisor>,
+    ) {
+        let _ = self.virtual_display.set(supervisor);
+    }
+
+    pub fn virtual_display_supervisor(
+        &self,
+    ) -> Option<&Arc<crate::daemon::virtual_display::VirtualDisplaySupervisor>> {
+        self.virtual_display.get()
+    }
+
     /// Enforce hot tightening of the independent system-audio permission.
     /// Every affected output fence is closed before the first worker await;
     /// widening to allow only invalidates old decisions and never starts audio.
@@ -791,6 +808,7 @@ impl PcRegistry {
                     }
                 }
 
+                let mut failed_connections = Vec::new();
                 for (connection_id, connection_epoch, waiter) in revocation_waiters {
                     let terminal_ok = match tokio::time::timeout_at(revocation_deadline, waiter)
                         .await
@@ -832,6 +850,7 @@ impl PcRegistry {
                         };
                         if still_current {
                             recycle_worker = true;
+                            failed_connections.push(connection_id.clone());
                         } else {
                             log::debug!(
                                 "[audio-policy] ignoring revocation failure for finalized \
@@ -840,7 +859,21 @@ impl PcRegistry {
                         }
                     }
                 }
-                if recycle_worker
+                if recycle_worker && worker_mgr.uses_session_targeting() {
+                    // A resident worker also runs its session's terminals,
+                    // commands and transfers: close only the connections
+                    // whose audio could not be revoked instead.
+                    for connection_id in &failed_connections {
+                        force_disconnect_connection(
+                            &registry,
+                            &worker_mgr,
+                            registry.virtual_display_supervisor(),
+                            connection_id,
+                            "audio-revocation-timeout",
+                        )
+                        .await;
+                    }
+                } else if recycle_worker
                     && let Err(error) = worker_mgr.recycle_for_remote_access_timeout().await
                 {
                     log::error!(

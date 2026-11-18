@@ -860,6 +860,12 @@ pub async fn run_signaling_proxy(
                         &outbound_tx,
                     )
                     .await;
+                    // A fresh resident worker starts from the policy in its
+                    // Init at sequence zero, like the single worker below;
+                    // restate the current policy on one numbering.
+                    if fresh_incarnation {
+                        settings_coordinator.republish().await;
+                    }
                     continue;
                 }
                 worker_mgr.set_worker_capabilities(caps);
@@ -1022,53 +1028,13 @@ pub async fn run_signaling_proxy(
                     });
                     continue;
                 }
-                // Portable / Default mode: the "worker" is an in-process
-                // task and we can't cross window-stations from a single
-                // process anyway. The worker still spawns desktop_monitor
-                // (it doesn't know its own topology) so the event arrives,
-                // but acting on it would mean calling `start_worker` —
-                // i.e. `CreateProcessAsUserW` — from a non-SYSTEM
-                // context, which fails or worse, half-succeeds. Skip.
-                if worker_mgr.is_inprocess() {
-                    debug!(
-                        "[SignalingProxy] In-process worker reported desktop drift -> '{}'; \
-                         no-op in portable mode (single process cannot cross window stations)",
-                        payload.name
-                    );
-                    continue;
-                }
-                info!(
-                    "[SignalingProxy] Worker reported desktop drift -> '{}'; restarting worker \
-                     (keep-PC: browser PC stays up across the swap)",
+                // Only resident workers drive the interactive desktop. An
+                // in-process worker (Default/DeskServer) cannot cross window
+                // stations, and the macOS single worker never reports one.
+                debug!(
+                    "[SignalingProxy] single worker reported input desktop '{}'; ignored",
                     payload.name
                 );
-                let worker_mgr = worker_mgr.clone();
-                let new_desktop = payload.name.clone();
-                // Run the switch on a separate task so the message loop
-                // keeps draining (notify_desktop_switch awaits worker
-                // mailbox flushes; bridge_loop pushes more messages while
-                // we wait). notify_desktop_switch pauses every
-                // PC and tells the dying worker to shut down its
-                // encoders, then start_worker spawns the replacement.
-                // The new worker's `Capabilities` arrival above triggers
-                // `pc_registry.resume_active_media` to re-issue
-                // StartMedia + ForceKeyframe; the first IDR per PC
-                // clears its `media_paused` flag and the browser sees
-                // the desktop swap as a brief frame freeze.
-                actix_web::rt::spawn(async move {
-                    worker_mgr.notify_desktop_switch().await;
-                    tokio::time::sleep(Duration::from_millis(500)).await;
-                    let session_id = crate::daemon::session_monitor::get_active_session_id();
-                    if let Err(e) = worker_mgr
-                        .start_worker(session_id, Some(new_desktop.clone()))
-                        .await
-                    {
-                        error!(
-                            "[SignalingProxy] Failed to start worker for desktop '{}': {}",
-                            new_desktop, e
-                        );
-                    }
-                });
             }
             WorkerToService::Error(err) => {
                 error!(
@@ -1935,14 +1901,13 @@ pub async fn run_signaling_proxy(
                     .await;
             }
             WorkerToService::ExecSandboxLabelsRevoked(reply) => {
+                // Only a resident session worker is ever asked to revoke.
                 #[cfg(windows)]
-                worker_mgr
-                    .complete_exec_sandbox_revoke(
-                        resident_worker_key.as_ref(),
-                        worker_incarnation,
-                        reply,
-                    )
-                    .await;
+                if let Some(key) = resident_worker_key.as_ref() {
+                    worker_mgr
+                        .complete_exec_sandbox_revoke(key, worker_incarnation, reply)
+                        .await;
+                }
                 #[cfg(not(windows))]
                 let _ = reply;
             }
