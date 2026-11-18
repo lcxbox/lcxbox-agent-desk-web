@@ -85,7 +85,7 @@ $startedAt = [DateTime]::UtcNow
 $initialLogLength = (Get-Item -LiteralPath $LogPath).Length
 $baseline = Get-ResidentWorkerSnapshot -ExecutableName $ServerExecutableName
 if ($baseline.Count -lt 2) {
-    throw "Expected at least one Default/Winlogon worker pair, found $($baseline.Count). Is LRD_EXPERIMENTAL_WINDOWS_RESIDENT_WORKERS=1 enabled on the service?"
+    throw "Expected at least one Default/Winlogon worker pair, found $($baseline.Count). Is the LCXL Remote Desktop service running with a signed-in user?"
 }
 
 $baselineGroups = @($baseline | Group-Object SessionId)

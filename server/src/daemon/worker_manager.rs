@@ -298,6 +298,10 @@ pub struct WorkerManager {
         Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, ActiveInteractiveRoute>>>,
     desired_interactive_desktops:
         Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, DesktopTarget>>>,
+    /// Windows sessions at the sign-in screen (no user): served by the
+    /// restricted Winlogon worker alone.
+    signed_out_sessions:
+        Arc<StdMutex<std::collections::HashSet<desk_ipc_protocol::message::SessionKey>>>,
     interactive_switch_locks:
         Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, Arc<Mutex<()>>>>>,
     interactive_route_epochs: Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, u64>>>,
@@ -652,6 +656,7 @@ impl WorkerManager {
             connection_targets: Arc::new(StdMutex::new(HashMap::new())),
             active_interactive_routes: Arc::new(StdMutex::new(HashMap::new())),
             desired_interactive_desktops: Arc::new(StdMutex::new(HashMap::new())),
+            signed_out_sessions: Arc::new(StdMutex::new(std::collections::HashSet::new())),
             interactive_switch_locks: Arc::new(StdMutex::new(HashMap::new())),
             interactive_route_epochs: Arc::new(StdMutex::new(HashMap::new())),
             interactive_route_acks: Arc::new(StdMutex::new(HashMap::new())),
@@ -893,10 +898,18 @@ impl WorkerManager {
         self.session_targeting_enabled.load(Ordering::Acquire)
     }
 
-    #[cfg(test)]
-    pub fn enable_session_targeting_for_test(&self) {
+    /// Route every session-scoped request through the resident pool. Called
+    /// once by a ServiceDaemon whose workers are all resident (Windows), before
+    /// any request arrives, so no request can fall through to the in-process
+    /// single-worker slot. Default/DeskServer and macOS never call it.
+    pub fn enable_session_targeting(&self) {
         self.session_targeting_enabled
             .store(true, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    pub fn enable_session_targeting_for_test(&self) {
+        self.enable_session_targeting();
     }
 
     pub fn resolve_session_target(
@@ -1376,12 +1389,9 @@ impl WorkerManager {
         &self,
         registrations: Vec<crate::daemon::session_monitor::WindowsSessionRegistration>,
     ) {
-        use std::collections::HashSet;
-
-        self.session_targeting_enabled
-            .store(true, Ordering::Release);
-        let desired_sessions: HashSet<_> = registrations
+        *self.signed_out_sessions.lock().unwrap() = registrations
             .iter()
+            .filter(|registration| !registration.has_user)
             .map(|registration| registration.session.clone())
             .collect();
         let current_keys: Vec<_> = self
@@ -1398,31 +1408,36 @@ impl WorkerManager {
             })
             .cloned()
             .collect();
+        let plan = plan_windows_reconcile(&current_keys, &registrations);
 
-        for key in current_keys {
-            if !desired_sessions.contains(&key.session) {
-                for connection_id in self.connection_ids_for_session(&key.session) {
-                    crate::daemon::pc_manager::force_disconnect_connection(
-                        &self.pc_registry,
-                        self,
-                        None,
-                        &connection_id,
-                        "windows-session-no-longer-schedulable",
-                    )
-                    .await;
-                }
-                self.stop_resident_worker(&key).await;
+        for key in &plan.stop_sessions {
+            for connection_id in self.connection_ids_for_session(key) {
+                crate::daemon::pc_manager::force_disconnect_connection(
+                    &self.pc_registry,
+                    self,
+                    None,
+                    &connection_id,
+                    "windows-session-no-longer-schedulable",
+                )
+                .await;
             }
+        }
+        for key in &plan.stop {
+            self.stop_resident_worker(key).await;
         }
 
         let mut candidates = Vec::with_capacity(registrations.len());
         for registration in &registrations {
-            let default_key = WorkerKey {
+            let serving = WorkerKey {
                 session: registration.session.clone(),
-                desktop: DesktopTarget::WindowsDefault,
+                desktop: if registration.has_user {
+                    DesktopTarget::WindowsDefault
+                } else {
+                    DesktopTarget::WindowsWinlogon
+                },
             };
-            let default_capabilities_ready = self
-                .resident_worker_capabilities(&default_key)
+            let capabilities_ready = self
+                .resident_worker_capabilities(&serving)
                 .await
                 .is_some_and(|caps| {
                     !caps.video_codecs.is_empty()
@@ -1437,38 +1452,30 @@ impl WorkerManager {
                 .unwrap()
                 .get(&registration.session)
                 .is_some_and(|route| route.accepting_interactive);
+            let user_ready = registration.has_user && capabilities_ready;
             candidates.push(crate::daemon::session_target::SessionCandidate {
                 session: registration.session.clone(),
                 display_name: registration.display_name.clone(),
                 session_type: Some("windows".to_string()),
                 seat: Some(registration.station_name.clone()),
                 foreground: registration.foreground,
-                remote_desktop_ready: default_capabilities_ready && interactive_route_ready,
-                terminal_ready: default_capabilities_ready,
-                file_ready: default_capabilities_ready,
-                assistant_ready: default_capabilities_ready,
+                remote_desktop_ready: capabilities_ready && interactive_route_ready,
+                terminal_ready: user_ready,
+                file_ready: user_ready,
+                assistant_ready: user_ready,
             });
         }
         self.session_targets.replace_all(candidates);
 
-        for registration in registrations {
-            for desktop in [
-                DesktopTarget::WindowsDefault,
-                DesktopTarget::WindowsWinlogon,
-            ] {
-                let key = WorkerKey {
-                    session: registration.session.clone(),
-                    desktop,
-                };
-                if let Err(error) = self
-                    .start_windows_resident_worker(key.clone(), registration.session_id)
-                    .await
-                {
-                    error!(
-                        "failed to reconcile Windows resident worker {:?}: {error}",
-                        key
-                    );
-                }
+        for (key, session_id) in plan.start {
+            if let Err(error) = self
+                .start_windows_resident_worker(key.clone(), session_id)
+                .await
+            {
+                error!(
+                    "failed to reconcile Windows resident worker {:?}: {error}",
+                    key
+                );
             }
         }
     }
@@ -1871,6 +1878,31 @@ impl WorkerManager {
     /// Install the readiness snapshot for one resident worker. It is kept out
     /// of the legacy global cache so an unrelated session can never change the
     /// codecs or devices used by an already-bound PC.
+    fn session_is_signed_out(&self, session: &desk_ipc_protocol::message::SessionKey) -> bool {
+        self.signed_out_sessions.lock().unwrap().contains(session)
+    }
+
+    /// The desktop a session's interactive route starts on before any input
+    /// desktop has been observed: the user's Default desktop, or the
+    /// sign-in screen when nobody is signed in.
+    fn default_interactive_desktop(
+        &self,
+        session: &desk_ipc_protocol::message::SessionKey,
+        reporting: DesktopTarget,
+    ) -> Option<DesktopTarget> {
+        let wanted = match reporting {
+            DesktopTarget::LinuxSession => DesktopTarget::LinuxSession,
+            DesktopTarget::WindowsDefault | DesktopTarget::WindowsWinlogon => {
+                if self.session_is_signed_out(session) {
+                    DesktopTarget::WindowsWinlogon
+                } else {
+                    DesktopTarget::WindowsDefault
+                }
+            }
+        };
+        (wanted == reporting).then_some(reporting)
+    }
+
     pub async fn set_resident_worker_capabilities(
         &self,
         key: &WorkerKey,
@@ -1899,7 +1931,18 @@ impl WorkerManager {
                     && route.incarnation == incarnation
                     && route.accepting_interactive
             });
-        let updated = if key.desktop == DesktopTarget::WindowsWinlogon {
+        let signed_out = self.session_is_signed_out(&key.session);
+        let updated = if key.desktop == DesktopTarget::WindowsWinlogon && signed_out {
+            // A sign-in screen is served by the restricted worker alone: it
+            // offers the remote desktop and nothing that needs a user.
+            self.session_targets.set_readiness(
+                &key.session,
+                remote_desktop_ready && route_is_current,
+                false,
+                false,
+                false,
+            )
+        } else if key.desktop == DesktopTarget::WindowsWinlogon {
             // The secure-desktop worker contributes only warm interactive
             // readiness. It must never make session-user capabilities appear
             // available and it never replaces the Default worker's catalog
@@ -1920,13 +1963,7 @@ impl WorkerManager {
             .unwrap()
             .get(&key.session)
             .copied()
-            .or_else(|| {
-                matches!(
-                    key.desktop,
-                    DesktopTarget::LinuxSession | DesktopTarget::WindowsDefault
-                )
-                .then_some(key.desktop)
-            });
+            .or_else(|| self.default_interactive_desktop(&key.session, key.desktop));
         if remote_desktop_ready && desired == Some(key.desktop) && !route_is_current {
             // Do not await the worker acknowledgement from signaling_proxy's
             // message loop: that same loop must remain free to receive the ack.
@@ -2333,9 +2370,12 @@ impl WorkerManager {
         &self,
         session: &desk_ipc_protocol::message::SessionKey,
     ) -> Option<MediaCapabilities> {
+        let signed_out = self.session_is_signed_out(session);
         let inner = self.inner.lock().await;
         [DesktopTarget::LinuxSession, DesktopTarget::WindowsDefault]
             .into_iter()
+            // A sign-in screen has only the restricted worker.
+            .chain(signed_out.then_some(DesktopTarget::WindowsWinlogon))
             .map(|desktop| WorkerKey {
                 session: session.clone(),
                 desktop,
@@ -3833,8 +3873,76 @@ mod bridge_tests;
 #[cfg(test)]
 mod incarnation_tests;
 
+/// What one Windows reconcile pass changes.
+#[cfg(any(target_os = "windows", test))]
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct WindowsReconcilePlan {
+    /// Sessions that are gone: their connections are disconnected.
+    pub stop_sessions: Vec<desk_ipc_protocol::message::SessionKey>,
+    /// Workers to stop.
+    pub stop: Vec<WorkerKey>,
+    /// Workers to start, with their WTS session id.
+    pub start: Vec<(WorkerKey, u32)>,
+}
+
+/// A session with a user gets a Default and a Winlogon worker; the console
+/// at the sign-in screen gets only the Winlogon worker. Workers of sessions
+/// that are gone, and a Default worker whose session lost its user, stop.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn plan_windows_reconcile(
+    current: &[WorkerKey],
+    registrations: &[crate::daemon::session_monitor::WindowsSessionRegistration],
+) -> WindowsReconcilePlan {
+    let wanted: HashMap<
+        &desk_ipc_protocol::message::SessionKey,
+        &crate::daemon::session_monitor::WindowsSessionRegistration,
+    > = registrations
+        .iter()
+        .map(|registration| (&registration.session, registration))
+        .collect();
+    let mut plan = WindowsReconcilePlan::default();
+    for key in current {
+        match wanted.get(&key.session) {
+            None => {
+                if !plan.stop_sessions.contains(&key.session) {
+                    plan.stop_sessions.push(key.session.clone());
+                }
+                plan.stop.push(key.clone());
+            }
+            Some(registration)
+                if !registration.has_user && key.desktop == DesktopTarget::WindowsDefault =>
+            {
+                plan.stop.push(key.clone());
+            }
+            Some(_) => {}
+        }
+    }
+    for registration in registrations {
+        let desktops: &[DesktopTarget] = if registration.has_user {
+            &[
+                DesktopTarget::WindowsDefault,
+                DesktopTarget::WindowsWinlogon,
+            ]
+        } else {
+            &[DesktopTarget::WindowsWinlogon]
+        };
+        for desktop in desktops {
+            let key = WorkerKey {
+                session: registration.session.clone(),
+                desktop: *desktop,
+            };
+            if !current.contains(&key) {
+                plan.start.push((key, registration.session_id));
+            }
+        }
+    }
+    plan
+}
+
 #[cfg(test)]
 mod policy_tests;
+#[cfg(test)]
+mod windows_reconcile_tests;
 
 #[cfg(test)]
 mod central_dispatch_tests;

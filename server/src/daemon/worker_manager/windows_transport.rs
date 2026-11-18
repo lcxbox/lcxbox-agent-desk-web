@@ -36,7 +36,11 @@ pub(super) async fn run_pipe_server(
     // resolver can use the daemon account only when it is in this exact
     // Windows session. A failure still falls back to SY+BA only (never to
     // "Everyone") — see `pipe_security::query_worker_pipe_user_sid`.
-    let allowed_user_sid =
+    // A restricted worker runs as SYSTEM and serves the sign-in screen too,
+    // where there is no user: its pipes never admit the session user.
+    let allowed_user_sid = if restricted {
+        None
+    } else {
         match crate::daemon::pipe_security::query_worker_pipe_user_sid(session_id) {
             Ok(sid) => sid,
             Err(e) => {
@@ -46,7 +50,8 @@ pub(super) async fn run_pipe_server(
                 );
                 None
             }
-        };
+        }
+    };
     let sddl_str = crate::daemon::pipe_security::build_pipe_sddl(allowed_user_sid.as_deref());
     info!("Pipe ACL SDDL = '{sddl_str}'");
 

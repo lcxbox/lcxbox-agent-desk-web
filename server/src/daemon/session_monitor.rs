@@ -1,10 +1,10 @@
 use super::worker_manager::WorkerManager;
 use log::info;
 #[cfg(target_os = "windows")]
-use log::{error, warn};
+use log::warn;
 use std::time::Duration;
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowsSessionRegistration {
     pub session: desk_ipc_protocol::message::SessionKey,
@@ -12,14 +12,83 @@ pub struct WindowsSessionRegistration {
     pub display_name: String,
     pub station_name: String,
     pub foreground: bool,
+    /// False for the console session at the sign-in screen (after boot or
+    /// sign-out): it gets only the restricted Winlogon worker.
+    pub has_user: bool,
 }
 
-#[cfg(target_os = "windows")]
-pub fn windows_resident_pool_enabled() -> bool {
-    std::env::var("LRD_EXPERIMENTAL_WINDOWS_RESIDENT_WORKERS")
-        .ok()
-        .as_deref()
-        == Some("1")
+/// One schedulable WTS session as enumerated.
+#[cfg(any(target_os = "windows", test))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ObservedWindowsSession {
+    pub session_id: u32,
+    /// `None` for the console session at the sign-in screen.
+    pub user: Option<String>,
+    pub station_name: String,
+    pub foreground: bool,
+}
+
+/// Assigns each WTS session the generation part of its `SessionKey`.
+///
+/// A key, and every connection bound to it, survives as long as the session
+/// is the same: a session that gains its first user (a sign-in at the
+/// sign-in screen) keeps its key, so a viewer who signed in remotely stays
+/// connected. A different user in the same session id, or a session that
+/// loses its user, gets a new key.
+#[cfg(any(target_os = "windows", test))]
+#[derive(Debug, Default)]
+pub(crate) struct SessionGenerations {
+    tracked: std::collections::HashMap<u32, (Option<String>, u64)>,
+    next: u64,
+}
+
+#[cfg(any(target_os = "windows", test))]
+impl SessionGenerations {
+    pub(crate) fn register(
+        &mut self,
+        observed: Vec<ObservedWindowsSession>,
+    ) -> Vec<WindowsSessionRegistration> {
+        let mut tracked = std::collections::HashMap::new();
+        let mut registrations = Vec::with_capacity(observed.len());
+        for observed in observed {
+            let previous = self.tracked.get(&observed.session_id);
+            let kept = match previous {
+                Some((user, generation))
+                    if user == &observed.user || (user.is_none() && observed.user.is_some()) =>
+                {
+                    Some(*generation)
+                }
+                _ => None,
+            };
+            if kept.is_some() && matches!(previous, Some((None, _))) && observed.user.is_some() {
+                info!(
+                    "Windows session {} signed in; keeping its connections",
+                    observed.session_id
+                );
+            }
+            let generation = kept.unwrap_or_else(|| {
+                self.next = self.next.saturating_add(1);
+                self.next
+            });
+            tracked.insert(observed.session_id, (observed.user.clone(), generation));
+            registrations.push(WindowsSessionRegistration {
+                session: desk_ipc_protocol::message::SessionKey {
+                    platform_session_id: observed.session_id.to_string(),
+                    session_generation: generation,
+                },
+                session_id: observed.session_id,
+                display_name: match &observed.user {
+                    Some(user) => format!("{user} (session {})", observed.session_id),
+                    None => format!("Sign-in screen (session {})", observed.session_id),
+                },
+                station_name: observed.station_name,
+                foreground: observed.foreground,
+                has_user: observed.user.is_some(),
+            });
+        }
+        self.tracked = tracked;
+        registrations
+    }
 }
 
 pub async fn run_session_monitor(
@@ -46,62 +115,8 @@ pub async fn run_session_monitor(
 async fn run_windows_session_monitor(
     worker_mgr: WorkerManager,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if windows_resident_pool_enabled() {
-        return run_windows_resident_session_monitor(worker_mgr).await;
-    }
-    let mut last_desktop_name = String::new();
-    let poll_interval = Duration::from_secs(1);
-
-    loop {
-        tokio::time::sleep(poll_interval).await;
-
-        let current_desktop = match get_current_desktop_name() {
-            Ok(name) => name,
-            Err(e) => {
-                log::trace!("Failed to get desktop name: {}", e);
-                continue;
-            }
-        };
-
-        if current_desktop != last_desktop_name && !last_desktop_name.is_empty() {
-            info!(
-                "Desktop switch detected: {} -> {}",
-                last_desktop_name, current_desktop
-            );
-
-            worker_mgr.notify_desktop_switch().await;
-            tokio::time::sleep(Duration::from_millis(500)).await;
-
-            let session_id = get_active_session_id();
-            match worker_mgr
-                .start_worker(session_id, Some(current_desktop.clone()))
-                .await
-            {
-                Ok(_) => {
-                    info!("New worker started for desktop: {}", current_desktop);
-                }
-                Err(e) => {
-                    error!(
-                        "Failed to start worker for desktop {}: {}",
-                        current_desktop, e
-                    );
-                }
-            }
-        }
-
-        last_desktop_name = current_desktop;
-    }
-}
-
-#[cfg(target_os = "windows")]
-async fn run_windows_resident_session_monitor(
-    worker_mgr: WorkerManager,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use std::collections::HashMap;
-
-    info!("experimental Windows resident-session worker monitor starting");
-    let mut tracked: HashMap<u32, (String, u64)> = HashMap::new();
-    let mut next_generation = 1u64;
+    info!("Windows resident-session worker monitor starting");
+    let mut generations = SessionGenerations::default();
     loop {
         let observed = match enumerate_schedulable_windows_sessions() {
             Ok(observed) => observed,
@@ -111,43 +126,12 @@ async fn run_windows_resident_session_monitor(
                 continue;
             }
         };
-        let mut registrations = Vec::with_capacity(observed.len());
-        let mut next_tracked = HashMap::new();
-        for observed in observed {
-            let generation = match tracked.get(&observed.session_id) {
-                Some((user, generation)) if user == &observed.user => *generation,
-                _ => {
-                    let generation = next_generation;
-                    next_generation = next_generation.saturating_add(1);
-                    generation
-                }
-            };
-            next_tracked.insert(observed.session_id, (observed.user.clone(), generation));
-            registrations.push(WindowsSessionRegistration {
-                session: desk_ipc_protocol::message::SessionKey {
-                    platform_session_id: observed.session_id.to_string(),
-                    session_generation: generation,
-                },
-                session_id: observed.session_id,
-                display_name: format!("{} (session {})", observed.user, observed.session_id),
-                station_name: observed.station_name,
-                foreground: observed.foreground,
-            });
-        }
-        tracked = next_tracked;
+        let registrations = generations.register(observed);
         worker_mgr
             .reconcile_windows_resident_workers(registrations)
             .await;
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
-}
-
-#[cfg(target_os = "windows")]
-struct ObservedWindowsSession {
-    session_id: u32,
-    user: String,
-    station_name: String,
-    foreground: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -208,16 +192,22 @@ fn enumerate_schedulable_windows_sessions() -> Result<Vec<ObservedWindowsSession
             {
                 continue;
             }
-            let Some(user_name) =
-                query(session.SessionId, WTSUserName).filter(|name| !name.trim().is_empty())
-            else {
-                continue;
-            };
-            let domain = query(session.SessionId, WTSDomainName).unwrap_or_default();
-            let user = if domain.trim().is_empty() {
-                user_name
-            } else {
-                format!(r"{domain}\{user_name}")
+            let user = match query(session.SessionId, WTSUserName)
+                .filter(|name| !name.trim().is_empty())
+            {
+                Some(user_name) => {
+                    let domain = query(session.SessionId, WTSDomainName).unwrap_or_default();
+                    Some(if domain.trim().is_empty() {
+                        user_name
+                    } else {
+                        format!(r"{domain}\{user_name}")
+                    })
+                }
+                // Only the console offers a sign-in screen to serve; other
+                // user-less sessions (a listener, an RDP session mid-logon)
+                // have nothing to show.
+                None if session.SessionId == active_console => None,
+                None => continue,
             };
             result.push(ObservedWindowsSession {
                 session_id: session.SessionId,
@@ -334,5 +324,59 @@ pub fn get_active_session_id() -> u32 {
                 fallback
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn observed(session_id: u32, user: Option<&str>) -> ObservedWindowsSession {
+        ObservedWindowsSession {
+            session_id,
+            user: user.map(str::to_string),
+            station_name: "Console".into(),
+            foreground: true,
+        }
+    }
+
+    fn generation(registrations: &[WindowsSessionRegistration], session_id: u32) -> u64 {
+        registrations
+            .iter()
+            .find(|registration| registration.session_id == session_id)
+            .unwrap()
+            .session
+            .session_generation
+    }
+
+    #[test]
+    fn signing_in_at_the_sign_in_screen_keeps_the_session_key() {
+        let mut generations = SessionGenerations::default();
+        let before = generations.register(vec![observed(1, None)]);
+        assert!(!before[0].has_user);
+        let after = generations.register(vec![observed(1, Some("owner"))]);
+        assert!(after[0].has_user);
+        assert_eq!(generation(&before, 1), generation(&after, 1));
+    }
+
+    #[test]
+    fn another_user_or_a_lost_user_gets_a_new_session_key() {
+        let mut generations = SessionGenerations::default();
+        let first = generations.register(vec![observed(1, Some("a"))]);
+        let other = generations.register(vec![observed(1, Some("b"))]);
+        assert_ne!(generation(&first, 1), generation(&other, 1));
+        let signed_out = generations.register(vec![observed(1, None)]);
+        assert_ne!(generation(&other, 1), generation(&signed_out, 1));
+        let same = generations.register(vec![observed(1, None)]);
+        assert_eq!(generation(&signed_out, 1), generation(&same, 1));
+    }
+
+    #[test]
+    fn a_session_that_disappears_and_returns_gets_a_new_key() {
+        let mut generations = SessionGenerations::default();
+        let first = generations.register(vec![observed(2, Some("a"))]);
+        generations.register(vec![]);
+        let again = generations.register(vec![observed(2, Some("a"))]);
+        assert_ne!(generation(&first, 2), generation(&again, 2));
     }
 }

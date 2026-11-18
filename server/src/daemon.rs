@@ -320,23 +320,10 @@ pub async fn run_service_daemon_inner(
     // to the legacy log-and-drop behaviour.
     pc_registry.set_worker_manager(worker_mgr.clone());
 
+    // Windows: every worker is a resident session worker started by the
+    // session monitor; there is no single global worker.
     #[cfg(target_os = "windows")]
-    {
-        if session_monitor::windows_resident_pool_enabled() {
-            info!(
-                "experimental Windows resident worker pool enabled; session monitor owns worker startup"
-            );
-        } else {
-            let initial_session = get_current_session_id();
-            let initial_desktop = get_initial_desktop_name();
-            if let Err(e) = worker_mgr
-                .start_worker(initial_session, initial_desktop)
-                .await
-            {
-                error!("Failed to start initial worker: {e}");
-            }
-        }
-    }
+    worker_mgr.enable_session_targeting();
     #[cfg(target_os = "macos")]
     {
         let initial_session = get_current_session_id();
