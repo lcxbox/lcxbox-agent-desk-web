@@ -3298,11 +3298,9 @@ async fn prepare_composed_turn(
                 },
                 now: accepted_at,
             };
-            let emitted = std::cell::Cell::new(false);
             let mut sink =
                 StreamingTurnSink::starting_at(|event: AiAssistantEvent| {
                     if let Some(sender) = &sender {
-                        emitted.set(true);
                         let _ = sender.send(event);
                     }
                 }, request_id, 1);
@@ -3329,9 +3327,9 @@ async fn prepare_composed_turn(
                         error.retryable,
                         error.message
                     );
-                    if emitted.get() {
-                        sink.error(error);
-                    }
+                    // The forwarder opens the turn before its first event, so
+                    // the owner sees the failure even when nothing streamed.
+                    sink.error(error);
                 }
             }
             drop(sink);

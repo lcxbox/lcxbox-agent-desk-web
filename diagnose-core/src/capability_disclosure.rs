@@ -72,10 +72,20 @@ impl CapabilityDisclosureState {
     }
 
     /// Preserve prior definitions without preserving their former authority.
+    ///
+    /// Only `required` (and loaded tools when `pin_loaded`) must fit; every
+    /// other offered tool is ranked and defined while the byte budget lasts:
+    /// loaded tools on a step that does not pin them, then `authorized` tools,
+    /// recently used ones, previously advertised ones and the rest of
+    /// `callable`. A tool left out stays in the capability index and can be
+    /// loaded by name.
     pub fn select_definitions(
         &mut self,
         available: &[RegisteredTool],
         required: &[String],
+        callable: &[String],
+        authorized: &[String],
+        pin_loaded: bool,
         max_context_bytes: usize,
     ) -> Result<Vec<String>, CapabilityDisclosureError> {
         use sha2::{Digest, Sha256};
@@ -89,22 +99,41 @@ impl CapabilityDisclosureState {
             )
         );
         let mut pins = required.to_vec();
-        pins.extend(self.loaded_tool_names.iter().cloned());
+        if pin_loaded {
+            pins.extend(self.loaded_tool_names.iter().cloned());
+        }
         pins.sort();
         pins.dedup();
+        let named =
+            |names: &[String], tool: &RegisteredTool| names.iter().any(|name| name == tool.name());
+        let tier = |tool: &RegisteredTool| {
+            if named(&pins, tool) {
+                0
+            } else if named(&self.loaded_tool_names, tool) {
+                1
+            } else if named(authorized, tool) {
+                2
+            } else if self.recent_events.contains_key(tool.name()) {
+                3
+            } else if named(&self.advertised_tool_names, tool) {
+                4
+            } else {
+                5
+            }
+        };
         let mut candidates = available
             .iter()
             .filter(|tool| {
-                pins.iter().any(|name| name == tool.name())
-                    || self
-                        .advertised_tool_names
-                        .iter()
-                        .any(|name| name == tool.name())
+                named(&pins, tool)
+                    || named(&self.loaded_tool_names, tool)
+                    || named(&self.advertised_tool_names, tool)
+                    || named(callable, tool)
+                    || named(authorized, tool)
             })
             .collect::<Vec<_>>();
         candidates.sort_by_key(|tool| {
             (
-                !pins.iter().any(|name| name == tool.name()),
+                tier(tool),
                 std::cmp::Reverse(self.recent_events.get(tool.name()).copied().unwrap_or(0)),
                 tool.name(),
             )
@@ -334,7 +363,7 @@ pub fn capability_name_index_prompt(
         "unavailable_now": unavailable_now,
     });
     let prompt = format!(
-        "This server-authored capability index contains names only. Advertised definitions are not execution authority; advertised_state describes current eligibility. Active authorized tools are provided automatically. Use {LOAD_CAPABILITY_DETAILS_TOOL_NAME} with exact names only when you need missing parameter details or a budget-hidden tool. Calling a tool without a matching grant waits for the owner's approval and then runs. Loading grants no authority and cannot change readiness.\n<capability_index>{}</capability_index>",
+        "This server-authored capability index contains names only. Advertised definitions are not execution authority; advertised_state describes current eligibility. Callable tools, authorized ones first, are provided automatically while the definition byte budget lasts. Use {LOAD_CAPABILITY_DETAILS_TOOL_NAME} with exact names only when you need missing parameter details or a callable tool whose definition was not provided. Calling a tool without a matching grant waits for the owner's approval and then runs. Loading grants no authority and cannot change readiness.\n<capability_index>{}</capability_index>",
         serde_json::to_string(&index).expect("name index is serializable")
     );
     if prompt.len() > MAX_CAPABILITY_INDEX_BYTES {
@@ -546,7 +575,7 @@ pub fn capability_discovery_tool_registry() -> Vec<RegisteredTool> {
     vec![RegisteredTool {
         spec: ToolSpec {
             name: LOAD_CAPABILITY_DETAILS_TOOL_NAME.into(),
-            description: "Get missing parameter details for exact Provider tool_names from the capability index, or focus an authorized tool hidden by the byte budget. Active granted tools are provided automatically without loading. Specify the tools needed now; definitions are added to the current bounded working set. When its byte budget is exhausted, use replace=true to replace the set with only the names needed next; a failed load leaves it unchanged. Built-in conversation tools are used directly, never loaded. This reveals details on the next model step, grants no permission, creates no approval card and executes nothing.".into(),
+            description: "Get missing parameter details for exact Provider tool_names from the capability index, or focus a callable tool hidden by the byte budget. Callable tools, granted ones first, are provided automatically while the byte budget lasts. Specify the tools needed now; definitions are added to the current bounded working set. When its byte budget is exhausted, use replace=true to replace the set with only the names needed next; a failed load leaves it unchanged. Built-in conversation tools are used directly, never loaded. This reveals details on the next model step, grants no permission, creates no approval card and executes nothing.".into(),
             parameters_schema: json!({
                 "type": "object",
                 "properties": {
@@ -728,19 +757,99 @@ mod tests {
             .collect::<Vec<_>>();
         let mut state = CapabilityDisclosureState::default();
         let selected = state
-            .select_definitions(&tools, &names, 512 * 1024)
+            .select_definitions(&tools, &names, &[], &[], true, 512 * 1024)
             .unwrap();
         state.reset_for_input(2);
         assert_eq!(
-            state.select_definitions(&tools, &[], 512 * 1024).unwrap(),
+            state
+                .select_definitions(&tools, &[], &[], &[], true, 512 * 1024)
+                .unwrap(),
             selected
         );
         let restored: CapabilityDisclosureState =
             serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
         assert_eq!(restored, state);
         let before = state.clone();
-        assert!(state.select_definitions(&tools, &names, 4).is_err());
+        assert!(
+            state
+                .select_definitions(&tools, &names, &[], &[], true, 4)
+                .is_err()
+        );
         assert_eq!(before, state);
+    }
+
+    fn advertised_bytes(tools: &[&RegisteredTool]) -> usize {
+        let specs = tools
+            .iter()
+            .map(|tool| {
+                let mut spec = tool.spec.clone();
+                crate::ui_model_ids::project_tool(&mut spec);
+                spec
+            })
+            .collect::<Vec<_>>();
+        serde_json::to_vec(&specs).unwrap().len()
+    }
+
+    #[test]
+    fn callable_tools_beyond_the_budget_are_left_out_authorized_first() {
+        let (_, _, tools) = every_capability_ready();
+        let offered = &tools[..5];
+        let callable = offered
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect::<Vec<_>>();
+        let authorized = callable[3..].to_vec();
+        let budget = advertised_bytes(&[&offered[3], &offered[4]]);
+        let mut state = CapabilityDisclosureState::default();
+        let selected = state
+            .select_definitions(
+                offered,
+                &[],
+                &callable,
+                &authorized,
+                true,
+                budget * DETAIL_CONTEXT_RATIO_DENOMINATOR,
+            )
+            .unwrap();
+        assert_eq!(selected, authorized);
+        // The same offer selects the same definitions on every node and replay.
+        let mut again = CapabilityDisclosureState::default();
+        assert_eq!(
+            again
+                .select_definitions(
+                    offered,
+                    &[],
+                    &callable,
+                    &authorized,
+                    true,
+                    budget * DETAIL_CONTEXT_RATIO_DENOMINATOR,
+                )
+                .unwrap(),
+            selected
+        );
+    }
+
+    #[test]
+    fn loaded_tools_never_displace_a_released_call() {
+        let (_, _, tools) = every_capability_ready();
+        let released = vec![tools[0].name().to_string()];
+        let budget = advertised_bytes(&[&tools[0]]) * DETAIL_CONTEXT_RATIO_DENOMINATOR;
+        let mut state = CapabilityDisclosureState {
+            loaded_tool_names: vec![tools[1].name().into(), tools[2].name().into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            state
+                .select_definitions(&tools, &released, &[], &[], false, budget)
+                .unwrap(),
+            released
+        );
+        // Outside the released step a loaded tool is pinned and must fit.
+        assert!(
+            state
+                .select_definitions(&tools, &released, &[], &[], true, budget)
+                .is_err()
+        );
     }
 
     #[test]

@@ -597,12 +597,49 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 })
                 .cloned()
                 .collect::<Vec<_>>();
-        let required = raw_provider_exposed
+        // Only the call an approval released must be defined: the step runs it
+        // before calling the model. Every other callable tool is offered within
+        // the byte budget, so approving a directory or many grants cannot make
+        // the conversation fail; a tool left out is loaded by name.
+        let released_tool = session
+            .released_permission_call
+            .as_ref()
+            .and_then(|released| {
+                session
+                    .conversation
+                    .iter()
+                    .rev()
+                    .flat_map(|message| message.tool_calls.iter())
+                    .find(|call| call.id == released.tool_call_id)
+                    .map(|call| call.name.clone())
+            });
+        let required = released_tool.iter().cloned().collect::<Vec<_>>();
+        let callable = raw_provider_exposed
             .iter()
             .map(|tool| tool.name().to_string())
             .collect::<Vec<_>>();
+        // Grants only rank callable tools. A frozen task has no conversation
+        // grants; its tools are what it was created with.
+        let authorized = if session.trigger_origin == crate::session::TriggerOrigin::ScheduledTask {
+            callable.clone()
+        } else {
+            callable
+                .iter()
+                .filter(|name| {
+                    authority_names
+                        .as_ref()
+                        .is_some_and(|names| names.contains(*name))
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        };
         let selected = session.capability_disclosure.select_definitions(
-                &candidates, &required, pinned_context.max_context_bytes,
+                &candidates,
+                &required,
+                &callable,
+                &authorized,
+                released_tool.is_none(),
+                pinned_context.max_context_bytes,
             ).map_err(|error| AgentError {
                 kind: AgentErrorKind::InvalidInput,
                 message: format!("Provider definition byte budget exceeded: {error:?}; narrow the requested tools. Permissions are unchanged."),

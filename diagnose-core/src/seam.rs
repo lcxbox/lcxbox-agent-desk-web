@@ -1473,6 +1473,29 @@ pub trait SessionSeam {
     /// save — the loop ends the turn rather than overwriting the new owner's work.
     async fn save(&self, session: &mut PersistedAgentSession) -> Result<(), AgentError>;
 
+    /// Close the dangling tool calls of a turn that is settling as failed, so the
+    /// next turn replays a well-formed history and new input is not held behind
+    /// them. Hosts judge each call with the same durable records their
+    /// lapsed-lease recovery uses (a dispatched command keeps a reconcilable
+    /// unknown outcome) and apply [`PersistedAgentSession::recover_session`].
+    /// The caller settles the turn state and terminal error afterwards and
+    /// persists the session with its next save.
+    async fn recover_failed_turn(
+        &self,
+        session: &mut PersistedAgentSession,
+        now: &str,
+    ) -> Result<(), AgentError> {
+        session.recover_session(
+            if session.execution_state.tasks().is_empty() {
+                crate::session::RecoveryVerdict::NotExecuted
+            } else {
+                crate::session::RecoveryVerdict::InterruptedUnknown
+            },
+            now,
+        );
+        Ok(())
+    }
+
     /// Settle a claimed goal segment together with its session and append-only
     /// event. Durable runtimes must perform all three writes in one transaction;
     /// the ordinary session `save` is not a substitute for this fence.

@@ -6001,6 +6001,99 @@ async fn mutating_backend_error_fails_turn() {
     );
 }
 
+/// A failed turn closes its dangling call, so the conversation continues: the
+/// next request replays a well-formed history and the owner's new input runs.
+#[tokio::test]
+async fn a_failed_turn_closes_its_dangling_call_and_the_conversation_continues() {
+    struct FailingOnce(std::cell::Cell<bool>);
+    #[async_trait(?Send)]
+    impl ToolSeam for FailingOnce {
+        async fn run_read(&self, _call: &ToolCall) -> Result<ToolRunOutput, AgentError> {
+            unreachable!("no read in this test")
+        }
+        async fn confirm_and_exec(
+            &self,
+            _call: &ToolCall,
+            _ctx: &ExecContext,
+        ) -> Result<ExecOutcome, AgentError> {
+            assert!(!self.0.replace(true), "the failed call is not retried");
+            Err(AgentError {
+                kind: desk_agent_protocol::AgentErrorKind::Internal,
+                message: "failed to freeze the original transport".into(),
+                retryable: false,
+                safe_for_model: false,
+                error_code: None,
+            })
+        }
+    }
+    #[derive(Default)]
+    struct Finished(Rc<RefCell<Vec<(String, bool)>>>);
+    impl TurnSink for Finished {
+        fn on_text_delta(&mut self, _: &str) {}
+        fn on_tool_finished(&mut self, id: &str, ok: bool, _: &str, _: Option<&str>) {
+            self.0.borrow_mut().push((id.to_string(), ok));
+        }
+    }
+    let sess = MemSession::default();
+    let requests = Rc::new(RefCell::new(vec![]));
+    let model = ScriptModel {
+        turns: RefCell::new([tool_use("c1", "exec_command"), answer("restored")].into()),
+        requests: requests.clone(),
+    };
+    let tools = FailingOnce(std::cell::Cell::new(false));
+    let reg = vec![mutating_tool(
+        "exec_command",
+        Capability::ShellExecConfirmed,
+    )];
+    let clock = || "t".to_string();
+    let deps = deps(&sess, &model, &tools, &reg, &clock);
+    let finished = Finished::default();
+    let mut sink = Finished(finished.0.clone());
+    let error = run_agent_turn(
+        &deps,
+        exec_claim(),
+        ChatMessage::text("u1", ChatRole::User, "restore it"),
+        &mut sink,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.message, "failed to freeze the original transport");
+    {
+        let stored = sess.inner.borrow();
+        let stored = stored.as_ref().unwrap();
+        assert_eq!(stored.turn_state, TurnState::Failed);
+        assert!(stored.terminal_error.is_some());
+        assert!(stored.unclosed_tool_call_ids().is_empty());
+        assert!(stored.released_permission_call.is_none());
+        let closed = stored
+            .conversation
+            .iter()
+            .find(|message| message.tool_call_id.as_deref() == Some("c1"))
+            .unwrap();
+        assert!(crate::session::is_recovery_placeholder(&closed.text));
+    }
+    assert_eq!(*finished.0.borrow(), [("c1".to_string(), false)]);
+
+    // The owner's next input is claimed and answered; the provider sees the
+    // failed call with its result.
+    let outcome = run_agent_turn(
+        &deps,
+        exec_claim(),
+        ChatMessage::text("u2", ChatRole::User, "try again"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome, LoopOutcome::Answered("restored".into()));
+    let requests = requests.borrow();
+    let replayed = &requests.last().unwrap().messages;
+    assert!(
+        replayed
+            .iter()
+            .any(|message| message.tool_call_id.as_deref() == Some("c1"))
+    );
+}
+
 /// A model-safe pre-dispatch error may explicitly allow the model to correct its
 /// arguments. The error result is included in the next request, and a corrected
 /// command can execute in the same user turn.

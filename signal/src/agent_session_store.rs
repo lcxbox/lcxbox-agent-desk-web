@@ -965,48 +965,8 @@ impl SignalAgentSessionStore {
             return Ok(false);
         }
 
-        let unclosed = session.unclosed_tool_call_ids();
-        let task = find_recovery_task(&self.db, &session.conversation_id, &unclosed)
-            .await
-            .map_err(|e| internal(format!("load lapsed agent execution: {e}")))?;
         let now_text = now.to_rfc3339();
-        if !crate::capability_grant_store::SignalCapabilityGrantStore::new(self.db.clone())
-            .recover_computer_session(&mut session, &now_text)
-            .await
-            .map_err(|_| internal("recover original Computer Action failed"))?
-        {
-            match task {
-                Some(task) => {
-                    session.recover_session(
-                        RecoveryVerdict::OutcomeUnknown {
-                            tool_call_id: task.tool_call_id.clone(),
-                            action: ActionIdentity::agent_exec(
-                                task.id,
-                                task.exec_request_id.clone(),
-                                task.execution_generation.clone(),
-                            ),
-                        },
-                        now_text.clone(),
-                    );
-                    if task.status == crate::agent_exec_store::STATUS_DONE
-                        && let Some(result_text) = task.result_text
-                    {
-                        session.apply_completion(
-                            &task.event_id,
-                            &task.execution_generation,
-                            &task.tool_call_id,
-                            &task.exec_request_id,
-                            result_text,
-                            now_text.clone(),
-                        );
-                    }
-                }
-                // No durable task means no mutating command was dispatched. This is
-                // the normal crash window for a read-only tool between the persisted
-                // assistant call and its result, so it is safe to close as not-run.
-                None => session.recover_session(RecoveryVerdict::NotExecuted, now_text),
-            }
-        }
+        recover_dangling_calls(&self.db, &mut session, &now_text).await?;
         let txn = crate::db::begin_write(&self.db, agent_session::Entity)
             .await
             .map_err(|e| internal(format!("begin lapsed session transaction: {e}")))?;
@@ -1687,8 +1647,70 @@ async fn find_recovery_task(
         .await
 }
 
+/// Close the dangling calls of an interrupted or failed turn from Signal's
+/// durable records. A correlated Computer Action or command task keeps a
+/// reconcilable unknown outcome, with a result SQLite already holds applied
+/// immediately; any other call provably never ran. Settles the turn as failed;
+/// the caller persists the session.
+async fn recover_dangling_calls(
+    db: &DatabaseConnection,
+    session: &mut PersistedAgentSession,
+    now: &str,
+) -> Result<(), AgentError> {
+    let unclosed = session.unclosed_tool_call_ids();
+    let task = find_recovery_task(db, &session.conversation_id, &unclosed)
+        .await
+        .map_err(|e| internal(format!("load interrupted agent execution: {e}")))?;
+    if crate::capability_grant_store::SignalCapabilityGrantStore::new(db.clone())
+        .recover_computer_session(session, now)
+        .await
+        .map_err(|_| internal("recover original Computer Action failed"))?
+    {
+        return Ok(());
+    }
+    match task {
+        Some(task) => {
+            session.recover_session(
+                RecoveryVerdict::OutcomeUnknown {
+                    tool_call_id: task.tool_call_id.clone(),
+                    action: ActionIdentity::agent_exec(
+                        task.id,
+                        task.exec_request_id.clone(),
+                        task.execution_generation.clone(),
+                    ),
+                },
+                now,
+            );
+            if task.status == crate::agent_exec_store::STATUS_DONE
+                && let Some(result_text) = task.result_text
+            {
+                session.apply_completion(
+                    &task.event_id,
+                    &task.execution_generation,
+                    &task.tool_call_id,
+                    &task.exec_request_id,
+                    result_text,
+                    now,
+                );
+            }
+        }
+        // No durable task means no mutating command was dispatched: a read-only
+        // tool, or a call that failed before dispatch, never ran.
+        None => session.recover_session(RecoveryVerdict::NotExecuted, now),
+    }
+    Ok(())
+}
+
 #[async_trait(?Send)]
 impl SessionSeam for SignalAgentSessionStore {
+    async fn recover_failed_turn(
+        &self,
+        session: &mut PersistedAgentSession,
+        now: &str,
+    ) -> Result<(), AgentError> {
+        recover_dangling_calls(&self.db, session, now).await
+    }
+
     async fn application_scope_default_uses(&self) -> u32 {
         use crate::config::ConfigConnection;
         self.db
@@ -2174,59 +2196,9 @@ impl SessionSeam for SignalAgentSessionStore {
                         if lease_live {
                             return Err(ClaimError::Busy);
                         }
-                        // Correlate an interrupted mutating call with Signal's
-                        // durable task row. A task identity keeps the outcome
-                        // reconcilable across a process restart; a terminal result
-                        // already in SQLite can be applied immediately.
-                        let unclosed = session.unclosed_tool_call_ids();
-                        let task =
-                            find_recovery_task(&self.db, &session.conversation_id, &unclosed)
-                                .await
-                                .map_err(|e| {
-                                    ClaimError::Backend(internal(format!(
-                                        "load interrupted agent execution: {e}"
-                                    )))
-                                })?;
-                        if !crate::capability_grant_store::SignalCapabilityGrantStore::new(
-                            self.db.clone(),
-                        )
-                        .recover_computer_session(&mut session, &params.now)
-                        .await
-                        .map_err(|_| {
-                            ClaimError::Backend(internal("recover original Computer Action failed"))
-                        })? {
-                            match task {
-                                Some(task) => {
-                                    session.recover_session(
-                                        RecoveryVerdict::OutcomeUnknown {
-                                            tool_call_id: task.tool_call_id.clone(),
-                                            action: ActionIdentity::agent_exec(
-                                                task.id,
-                                                task.exec_request_id.clone(),
-                                                task.execution_generation.clone(),
-                                            ),
-                                        },
-                                        params.now.clone(),
-                                    );
-                                    if task.status == crate::agent_exec_store::STATUS_DONE
-                                        && let Some(result_text) = task.result_text
-                                    {
-                                        session.apply_completion(
-                                            &task.event_id,
-                                            &task.execution_generation,
-                                            &task.tool_call_id,
-                                            &task.exec_request_id,
-                                            result_text,
-                                            params.now.clone(),
-                                        );
-                                    }
-                                }
-                                None => session.recover_session(
-                                    RecoveryVerdict::NotExecuted,
-                                    params.now.clone(),
-                                ),
-                            }
-                        }
+                        recover_dangling_calls(&self.db, &mut session, &params.now)
+                            .await
+                            .map_err(ClaimError::Backend)?;
                     }
                     if matches!(
                         session.begin_turn(
@@ -5733,6 +5705,69 @@ mod tests {
             ),
             "a read-only crash must not permanently disable future mutation"
         );
+    }
+
+    /// A failed turn closes its dangling calls from the same durable records as
+    /// lapsed recovery: a dispatched command keeps its stored result, any other
+    /// call never ran, and a call still waiting for approval stays open.
+    #[tokio::test]
+    async fn a_failed_turn_closes_dangling_calls_from_durable_records() {
+        use desk_diagnose_core::chat::{ChatMessage, ToolCallRef};
+        use sea_orm::{ActiveModelTrait, Set};
+
+        let store = store().await;
+        let mut session = store.claim_turn(claim("turn-1")).await.unwrap();
+        let call = |id: &str| ToolCallRef {
+            id: id.into(),
+            name: "exec_command".into(),
+            arguments_json: "{}".into(),
+        };
+        session.conversation.push(ChatMessage::assistant_tool_calls(
+            "assistant-tools",
+            String::new(),
+            vec![call("dispatched"), call("never-ran"), call("waiting")],
+        ));
+        session.pause_for_permission("waiting", "request-1");
+        let now = Utc::now();
+        crate::entity::agent_exec_task::ActiveModel {
+            exec_request_id: Set("exec-1".into()),
+            execution_generation: Set("generation-1".into()),
+            conversation_id: Set("conversation-1".into()),
+            tool_call_id: Set("dispatched".into()),
+            target_connection_id: Set("host".into()),
+            target_device_id: Set("device-1".into()),
+            status: Set(crate::agent_exec_store::STATUS_DONE.into()),
+            disposition_json: Set(None),
+            result_text: Set(Some("command output".into())),
+            event_id: Set("event-1".into()),
+            delivery_state: Set("pending".into()),
+            deadline: Set(now),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&store.db)
+        .await
+        .unwrap();
+
+        store
+            .recover_failed_turn(&mut session, &now.to_rfc3339())
+            .await
+            .unwrap();
+
+        let result = |id: &str| {
+            session
+                .conversation
+                .iter()
+                .filter(|message| message.tool_call_id.as_deref() == Some(id))
+                .map(|message| message.text.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(result("dispatched"), ["command output"]);
+        assert!(result("never-ran")[0].contains("not executed"));
+        assert!(result("waiting").is_empty());
+        assert!(session.awaiting_permission.is_some());
+        assert!(session.execution_state.tasks().is_empty());
     }
 
     #[tokio::test]

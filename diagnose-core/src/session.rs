@@ -2768,6 +2768,9 @@ impl PersistedAgentSession {
     /// pending entries queued. Draining happens only where the model actually
     /// reacts — see [`Self::clear_reacted_auto_triggers`].
     pub fn finish_turn(&mut self, terminal: TurnState, now: impl Into<String>) {
+        // A released call belongs to the turn that claimed it. Whatever ended the
+        // turn, it no longer holds the conversation's input slot.
+        self.released_permission_call = None;
         self.turn_state = terminal;
         self.terminal_error = None;
         self.terminal_permission_request_id = None;
@@ -3447,7 +3450,9 @@ impl PersistedAgentSession {
     /// [`SessionSeam`]: crate::seam::SessionSeam
     pub fn recover_session(&mut self, verdict: RecoveryVerdict, now: impl Into<String>) {
         let now = now.into();
-        let unclosed = unclosed_tool_call_ids(&self.conversation);
+        // A call waiting for approval stays open: its card can still be decided,
+        // and the release or the end of the wait writes its only result.
+        let unclosed = self.unclosed_tool_call_ids();
         match verdict {
             RecoveryVerdict::NotExecuted => {
                 for call_id in &unclosed {
@@ -5140,6 +5145,52 @@ mod tests {
             .expect("the unclosed call was closed");
         assert_eq!(closed.role, ChatRole::Tool);
         assert!(closed.text.contains("interrupted"));
+    }
+
+    /// Ending a turn, however it ended, releases the call its claim released,
+    /// so the conversation's input slot is free again.
+    #[test]
+    fn finishing_a_turn_drops_its_released_call() {
+        let mut s = session();
+        s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
+            .unwrap();
+        s.released_permission_call = Some(AwaitingPermission {
+            tool_call_id: "call-r".into(),
+            request_id: "req-r".into(),
+        });
+        s.finish_turn(TurnState::Failed, "t2");
+        assert!(s.released_permission_call.is_none());
+    }
+
+    /// Recovery closes dangling calls but keeps a call still waiting for its
+    /// approval open, so the release later writes its only result.
+    #[test]
+    fn recovery_keeps_a_call_waiting_for_approval_open() {
+        use crate::chat::{ChatMessage, ToolCallRef};
+        let call = |id: &str| ToolCallRef {
+            id: id.into(),
+            name: "exec_command".into(),
+            arguments_json: "{}".into(),
+        };
+        let mut s = session();
+        s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
+            .unwrap();
+        s.conversation.push(ChatMessage::assistant_tool_calls(
+            "a1",
+            String::new(),
+            vec![call("call-open"), call("call-waiting")],
+        ));
+        s.pause_for_permission("call-waiting", "req-1");
+        s.recover_session(RecoveryVerdict::NotExecuted, "t2");
+        let results = |id: &str| {
+            s.conversation
+                .iter()
+                .filter(|m| m.tool_call_id.as_deref() == Some(id))
+                .count()
+        };
+        assert_eq!(results("call-open"), 1);
+        assert_eq!(results("call-waiting"), 0);
+        assert!(s.awaiting_permission.is_some());
     }
 
     /// Recovery with `NotExecuted` closes the call as not-run and clears the

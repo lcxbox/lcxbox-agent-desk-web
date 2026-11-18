@@ -172,6 +172,79 @@ async fn approval_exposes_without_load_and_last_use_refreshes_next_request() {
     );
 }
 
+/// Approving many tools must not make every later turn fail: callable tools
+/// beyond the definition budget stay out of the request and remain loadable by
+/// name from the capability index.
+#[tokio::test]
+async fn callable_tools_beyond_the_definition_budget_do_not_fail_the_turn() {
+    let (mut initial, providers, snapshot) = crate::grant_disclosure::tests::fixture();
+    initial.latest_input_seq = 1;
+    initial.focus_epoch.input_revision = 1;
+    let scope = initial.scope_snapshot.clone();
+    let target = providers
+        .capability_for_tool("inspect_desktop_session")
+        .unwrap()
+        .registered_tool();
+    let inventory = vec![crate::capability_availability::CapabilityAvailability {
+        provider_id: snapshot.grants[0].provider_id.clone(),
+        capability_id: snapshot.grants[0].capability_id.clone(),
+        tool_name: target.name().into(),
+        compiled: true,
+        enabled: true,
+        connected: true,
+        ready: true,
+        reason: None,
+    }];
+    let session = MemSession {
+        inner: RefCell::new(Some(initial)),
+        ..Default::default()
+    };
+    let requests = Rc::new(RefCell::new(vec![]));
+    let model = ScriptModel {
+        turns: RefCell::new([answer("done")].into()),
+        requests: requests.clone(),
+    };
+    // The granted, callable tool's definition alone exceeds the byte budget.
+    let mut target = target;
+    target
+        .spec
+        .description
+        .push_str(&" ".repeat(crate::capability_disclosure::MAX_ADVERTISED_PROVIDER_TOOL_BYTES));
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let mut registry = vec![target];
+    registry.extend(crate::capability_disclosure::capability_discovery_tool_registry());
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let outcome = run_agent_turn(
+        &deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope,
+            ..claim()
+        },
+        ChatMessage::text("u", ChatRole::User, "inspect the session"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome, LoopOutcome::Answered("done".into()));
+    let requests = requests.borrow();
+    assert!(
+        !requests[0]
+            .tools
+            .iter()
+            .any(|tool| tool.name == "inspect_desktop_session")
+    );
+    assert!(requests[0].messages.iter().any(|message| {
+        message.text.contains("callable_when_loaded_now")
+            && message.text.contains("inspect_desktop_session")
+    }));
+}
+
 struct ExactGrantModel(ScriptModel);
 #[async_trait(?Send)]
 impl ModelSeam for ExactGrantModel {

@@ -958,6 +958,35 @@ async fn drive_claimed_inner(
         session.ready_subagent_wait = None;
     }
 
+    // A failed main-conversation turn must not leave tool calls without a
+    // result: the next turn replays the history to the provider, and a dangling
+    // call keeps holding new input. Child, goal and scheduled turns keep their own
+    // recovery. The decisions above that inspect unclosed calls are already made;
+    // the turn state and terminal error are settled below.
+    if (terminal == TurnState::Failed || result.is_err())
+        && session.agent_role.is_main()
+        && session.agent_role.binding().is_none()
+        && !matches!(
+            session.trigger_origin,
+            TriggerOrigin::GoalContinuation
+                | TriggerOrigin::ScheduledTask
+                | TriggerOrigin::ScheduledContinuation
+        )
+    {
+        let dangling = session.unclosed_tool_call_ids();
+        if !dangling.is_empty()
+            && deps
+                .session_seam
+                .recover_failed_turn(&mut session, &settled_at)
+                .await
+                .is_ok()
+        {
+            let open = session.unclosed_tool_call_ids();
+            for call_id in dangling.iter().filter(|call_id| !open.contains(call_id)) {
+                finish_tool(&mut session, call_id, false, sink);
+            }
+        }
+    }
     session.finish_turn(terminal, settled_at.clone());
 
     session.terminal_permission_request_id = match &result {
