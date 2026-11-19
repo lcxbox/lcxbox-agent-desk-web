@@ -154,6 +154,7 @@ mod tests {
         manager.inner.lock().await.resident_workers.insert(
             key.clone(),
             WorkerHandle {
+                application_hosts: Default::default(),
                 incarnation: WorkerIncarnation(7),
                 pipe_name: "test-revoke".into(),
                 ipc_tx: tx,

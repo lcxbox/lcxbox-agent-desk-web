@@ -84,7 +84,21 @@ pub(crate) fn resolve(
         )
     })?;
     if elevation.TokenIsElevated != 0 {
-        return Err(LaunchFailureReason::SessionUnavailable.into());
+        // An elevated caller delegates to its ordinary-user host. An account
+        // without an unelevated token cannot run packaged applications at
+        // all. A host on a derived token reads Full but is not elevated and
+        // continues below.
+        let (_, kind) = super::windows_process::current_elevation()?;
+        return Err(if kind == super::windows_process::ElevationKind::Default {
+            super::windows_diagnostics::explained(
+                LaunchFailureReason::Unsupported,
+                DiagnosticStage::Environment,
+                "packaged application launch",
+                super::windows_process::NO_ORDINARY_TOKEN,
+            )
+        } else {
+            LaunchFailureReason::SessionUnavailable.into()
+        });
     }
     let (family, app_id) = request
         .target

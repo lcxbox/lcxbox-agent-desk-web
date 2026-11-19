@@ -314,6 +314,10 @@ pub enum ServiceToWorker {
     /// revoke every Windows sandbox label of the worker's user that no running
     /// command uses. Answered with [`WorkerToService::ExecSandboxLabelsRevoked`].
     RevokeExecSandboxLabels(RevokeExecSandboxLabelsRequest),
+    /// Daemon → session-user worker: the outcome of
+    /// [`WorkerToService::StartApplicationHost`]. Not delivered while remote
+    /// access is locked; the worker's wait then times out.
+    ApplicationHostStarted(ApplicationHostStartOutcome),
 }
 
 impl ServiceToWorker {
@@ -615,6 +619,13 @@ pub enum WorkerToService {
     /// Reply to [`ServiceToWorker::RevokeExecSandboxLabels`], for the local
     /// HTTP waiter only.
     ExecSandboxLabelsRevoked(RevokeExecSandboxLabelsReply),
+    /// Windows session-user worker → daemon: start the ordinary-user
+    /// application host on this pipe. The worker runs on the user's elevated
+    /// token and cannot create an ordinary-user process itself; the daemon
+    /// starts only its own executable in host mode, for the requesting
+    /// worker's session and user, and answers with
+    /// [`ServiceToWorker::ApplicationHostStarted`].
+    StartApplicationHost(ApplicationHostStart),
 }
 
 impl WorkerToService {
@@ -682,6 +693,7 @@ impl WorkerToService {
             | Self::ComputerTurnQuery(_)
             | Self::LocalFileRecoveryManaged(_)
             | Self::ExecSandboxLabelsRevoked(_)
+            | Self::StartApplicationHost(_)
             | Self::RemoteReadCompleted(_)
             | Self::FileRecoveryQuotaRequested(_)
             | Self::Ready

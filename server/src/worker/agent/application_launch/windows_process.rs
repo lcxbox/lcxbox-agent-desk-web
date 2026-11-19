@@ -1,6 +1,6 @@
 //! Explicit executable creation with a verified ordinary/elevated user token.
 //! No ShellExecute, runas, shell interpolation or exec containment is involved.
-use super::windows_diagnostics::failure;
+use super::windows_diagnostics::{explained, failure};
 use desk_agent_protocol::application_launch::LaunchError;
 use desk_agent_protocol::application_launch::{
     ApplicationTargetKind, ArgumentDelivery, LaunchApplicationRequest, LaunchApplicationResult,
@@ -32,7 +32,7 @@ use windows::{
     core::{PCWSTR, PWSTR},
 };
 
-struct OwnedHandle(HANDLE);
+pub(crate) struct OwnedHandle(pub(crate) HANDLE);
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
         unsafe {
@@ -56,6 +56,8 @@ pub(crate) struct PreparedExecutable {
     token: OwnedHandle,
     uses_current_token: bool,
     elevated: bool,
+    /// The token was derived from this process's own elevated token.
+    derived_token: bool,
     environment: UserEnvironment,
     // Deny concurrent replacement/write until after CreateProcess returns.
     _image: File,
@@ -296,6 +298,13 @@ pub(crate) fn prepare(
     }
     let current_elevated =
         token_value::<TOKEN_ELEVATION>(current.0, TokenElevation)?.TokenIsElevated != 0;
+    if current_elevated && !request.run_as_admin {
+        // An elevated process never starts an ordinary launch itself: its
+        // linked token is only identification-level without SeTcb, and the
+        // current token would elevate an ordinarily approved application.
+        // Ordinary launches go through the application host.
+        return Err(elevated_ordinary_refusal(current.0)?);
+    }
     if request.run_as_admin && !current_elevated {
         use windows::Win32::Security::{
             TOKEN_ELEVATION_TYPE, TokenElevationType, TokenElevationTypeDefault,
@@ -330,6 +339,180 @@ pub(crate) fn prepare(
         }
         linked
     };
+    finish(
+        request,
+        token,
+        uses_current_token,
+        false,
+        current_sid,
+        expected_session_id,
+    )
+}
+
+/// Whether the current process token is elevated, and its elevation type.
+#[allow(
+    clippy::result_large_err,
+    reason = "LaunchError carries the native diagnostic, as throughout application launch"
+)]
+pub(crate) fn current_elevation() -> Result<(bool, ElevationKind), LaunchError> {
+    let mut raw = HANDLE::default();
+    unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut raw) }.map_err(|error| {
+        failure(
+            LaunchFailureReason::SessionUnavailable,
+            DiagnosticStage::Environment,
+            "OpenProcessToken",
+            &error,
+        )
+    })?;
+    let token = OwnedHandle(raw);
+    Ok((
+        token_value::<TOKEN_ELEVATION>(token.0, TokenElevation)?.TokenIsElevated != 0,
+        elevation_kind(token.0)?,
+    ))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ElevationKind {
+    /// No split token: a standard user, UAC disabled, or a built-in
+    /// Administrator whose token is not filtered.
+    Default,
+    /// The elevated half of a UAC split token.
+    Full,
+    /// The ordinary half of a UAC split token.
+    Limited,
+}
+
+#[allow(
+    clippy::result_large_err,
+    reason = "LaunchError carries the native diagnostic, as throughout application launch"
+)]
+fn elevation_kind(token: HANDLE) -> Result<ElevationKind, LaunchError> {
+    use windows::Win32::Security::{
+        TOKEN_ELEVATION_TYPE, TokenElevationType, TokenElevationTypeFull, TokenElevationTypeLimited,
+    };
+    let kind = token_value::<TOKEN_ELEVATION_TYPE>(token, TokenElevationType)?;
+    Ok(if kind == TokenElevationTypeFull {
+        ElevationKind::Full
+    } else if kind == TokenElevationTypeLimited {
+        ElevationKind::Limited
+    } else {
+        ElevationKind::Default
+    })
+}
+
+pub(crate) const NO_ORDINARY_TOKEN: &str =
+    "this account has no unelevated token; request an administrator launch";
+
+#[allow(
+    clippy::result_large_err,
+    reason = "LaunchError carries the native diagnostic, as throughout application launch"
+)]
+fn elevated_ordinary_refusal(token: HANDLE) -> Result<LaunchError, LaunchError> {
+    Ok(if elevation_kind(token)? == ElevationKind::Default {
+        explained(
+            LaunchFailureReason::Unsupported,
+            DiagnosticStage::Environment,
+            "ordinary application launch",
+            NO_ORDINARY_TOKEN,
+        )
+    } else {
+        explained(
+            LaunchFailureReason::SessionUnavailable,
+            DiagnosticStage::Environment,
+            "ordinary application launch",
+            "an elevated process starts ordinary applications only through the application host",
+        )
+    })
+}
+
+/// The application host started with an ordinary-user token derived from this
+/// elevated process's own token. It can only start the hidden host, never an
+/// application, so the derived token is never used outside the host.
+pub(crate) struct PreparedHost(PreparedExecutable);
+
+impl PreparedHost {
+    pub(crate) fn invoke_hidden_host(self, dispatch_id: String) -> LaunchApplicationResult {
+        self.0.invoke_hidden_host(dispatch_id)
+    }
+}
+
+/// Prepare the application host with a token derived from this process's own
+/// elevated token, for an elevated host without the ServiceDaemon. See
+/// `windows_derived_token` for the token and its known limitations.
+#[allow(
+    clippy::result_large_err,
+    reason = "LaunchError carries the native diagnostic, as throughout application launch"
+)]
+pub(crate) fn prepare_host_with_derived_token(
+    request: &LaunchApplicationRequest,
+    expected_user_sid: &str,
+    expected_session_id: u32,
+) -> Result<PreparedHost, LaunchError> {
+    request
+        .validate()
+        .map_err(|_| LaunchError::from(LaunchFailureReason::InvalidTarget))?;
+    if request.target.kind != ApplicationTargetKind::Executable || request.run_as_admin {
+        return Err(LaunchFailureReason::Unsupported.into());
+    }
+    require_default_desktop()?;
+    let mut raw = HANDLE::default();
+    unsafe {
+        OpenProcessToken(
+            GetCurrentProcess(),
+            super::windows_derived_token::CURRENT_TOKEN_ACCESS,
+            &mut raw,
+        )
+    }
+    .map_err(|error| {
+        failure(
+            LaunchFailureReason::SessionUnavailable,
+            DiagnosticStage::Environment,
+            "OpenProcessToken",
+            &error,
+        )
+    })?;
+    let current = OwnedHandle(raw);
+    let current_sid = token_sid(current.0)?;
+    if current_sid != expected_user_sid
+        || matches!(current_sid.as_str(), "S-1-5-18" | "S-1-5-19" | "S-1-5-20")
+        || token_value::<u32>(current.0, TokenSessionId)? != expected_session_id
+        || token_value::<TOKEN_ELEVATION>(current.0, TokenElevation)?.TokenIsElevated == 0
+        || elevation_kind(current.0)? != ElevationKind::Full
+    {
+        return Err(LaunchFailureReason::SessionUnavailable.into());
+    }
+    let derived =
+        super::windows_derived_token::derive(current.0, expected_user_sid, expected_session_id)?;
+    log::info!(
+        "Starting the application host with a token derived from this elevated process; \
+         drives mapped in the ordinary logon session are not visible to it and UAC \
+         virtualization is not allowed"
+    );
+    finish(
+        request,
+        derived,
+        false,
+        true,
+        current_sid,
+        expected_session_id,
+    )
+    .map(PreparedHost)
+}
+
+/// The common tail of a prepared executable: environment, working directory,
+/// canonical target and command line, and the pinned, hashed image.
+#[allow(
+    clippy::result_large_err,
+    reason = "LaunchError carries the native diagnostic, as throughout application launch"
+)]
+fn finish(
+    request: &LaunchApplicationRequest,
+    token: OwnedHandle,
+    uses_current_token: bool,
+    derived_token: bool,
+    current_sid: String,
+    expected_session_id: u32,
+) -> Result<PreparedExecutable, LaunchError> {
     let mut environment = std::ptr::null_mut();
     unsafe { CreateEnvironmentBlock(&mut environment, Some(token.0), false) }.map_err(|error| {
         failure(
@@ -459,6 +642,7 @@ pub(crate) fn prepare(
         token,
         uses_current_token,
         elevated: request.run_as_admin,
+        derived_token,
         environment,
         _image: image,
     })
@@ -506,12 +690,18 @@ fn checked_command_line(target: &str, args: &[String]) -> Result<Vec<u16>, Launc
 
 impl PreparedExecutable {
     /// Caller must first persist the unique Invoking claim and recheck authority.
+    /// A console program gets its own visible console, as when started from
+    /// Explorer, instead of inheriting the application host's hidden one; GUI
+    /// programs are not affected.
     pub(crate) fn invoke(self, dispatch_id: String) -> LaunchApplicationResult {
-        self.invoke_with_flags(dispatch_id, CREATE_UNICODE_ENVIRONMENT)
+        self.invoke_with_flags(
+            dispatch_id,
+            CREATE_UNICODE_ENVIRONMENT | windows::Win32::System::Threading::CREATE_NEW_CONSOLE,
+        )
     }
 
-    /// Only the internal application host uses this: applications retain the
-    /// platform's ordinary stdio/console defaults.
+    /// Only the internal application host uses this: it runs without a
+    /// visible console window.
     pub(crate) fn invoke_hidden_host(self, dispatch_id: String) -> LaunchApplicationResult {
         self.invoke_with_flags(
             dispatch_id,
@@ -614,6 +804,11 @@ impl PreparedExecutable {
                     DiagnosticStage::ProcessCreation,
                     if self.uses_current_token {
                         "CreateProcessW"
+                    } else if self.derived_token {
+                        // A restricted version of the caller's own token needs
+                        // no SeAssignPrimaryToken, but SeIncreaseQuota, which
+                        // a policy can remove from Administrators (1314).
+                        "CreateProcessAsUserW (derived token; requires SeIncreaseQuotaPrivilege)"
                     } else {
                         "CreateProcessAsUserW"
                     },

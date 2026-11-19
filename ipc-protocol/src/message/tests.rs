@@ -3293,6 +3293,62 @@ fn file_recovery_quota_rpc_round_trip_preserves_identity_and_never_allows_restri
 }
 
 #[test]
+fn application_host_start_is_a_session_user_only_exchange() {
+    let request = WorkerToService::StartApplicationHost(ApplicationHostStart {
+        request_id: "start".into(),
+        pipe_name: r"\\.\pipe\lrd-application-host-00000000-0000-0000-0000-000000000000".into(),
+    });
+    let WorkerToService::StartApplicationHost(decoded) = wincode_round_trip(&request) else {
+        panic!("variant changed");
+    };
+    assert_eq!(decoded.request_id, "start");
+    assert!(decoded.pipe_name.ends_with("-000000000000"));
+    assert!(request.allowed_for_profile(WorkerProfile::SessionUser));
+    assert!(!request.allowed_for_profile(WorkerProfile::RestrictedDesktop));
+    assert_eq!(request.connection_id(), None);
+
+    let id = "0f1e2d3c-4b5a-4978-8a6b-5c4d3e2f1a0b";
+    assert!(ApplicationHostStart::valid_pipe_name(&format!(
+        "{APPLICATION_HOST_PIPE_PREFIX}{id}"
+    )));
+    for invalid in [
+        id.to_string(),
+        format!("{APPLICATION_HOST_PIPE_PREFIX}{}", id.to_uppercase()),
+        format!("{APPLICATION_HOST_PIPE_PREFIX}{{{id}}}"),
+        format!("{APPLICATION_HOST_PIPE_PREFIX}{}", id.replace('-', "")),
+        format!("{APPLICATION_HOST_PIPE_PREFIX}{id} --x"),
+        format!("{APPLICATION_HOST_PIPE_PREFIX}{id}\""),
+        format!(r"\\.\pipe\other-{id}"),
+    ] {
+        assert!(
+            !ApplicationHostStart::valid_pipe_name(&invalid),
+            "{invalid}"
+        );
+    }
+
+    for outcome in [
+        ApplicationHostStartResult::Started { process_id: 42 },
+        ApplicationHostStartResult::Refused {
+            reason: ApplicationHostStartRefusal::TooManyHosts,
+        },
+        ApplicationHostStartResult::Refused {
+            reason: ApplicationHostStartRefusal::NativeFailure { code: -5 },
+        },
+    ] {
+        let reply = ServiceToWorker::ApplicationHostStarted(ApplicationHostStartOutcome {
+            request_id: "start".into(),
+            outcome: outcome.clone(),
+        });
+        let ServiceToWorker::ApplicationHostStarted(decoded) = wincode_round_trip(&reply) else {
+            panic!("variant changed");
+        };
+        assert_eq!(decoded.outcome, outcome);
+        assert!(reply.allowed_for_profile(WorkerProfile::SessionUser));
+        assert!(!reply.allowed_for_profile(WorkerProfile::RestrictedDesktop));
+    }
+}
+
+#[test]
 fn linux_ai_input_endpoint_is_a_session_user_lifecycle_message() {
     for path in [
         None,

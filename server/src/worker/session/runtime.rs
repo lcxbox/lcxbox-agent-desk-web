@@ -416,6 +416,13 @@ impl WorkerSession {
             endpoint.announce_worker(writer_tx.clone());
         }
         let file_recovery_quota = super::file_recovery_quota::QuotaClient::new(writer_tx.clone());
+        // A session-user resident worker of the ServiceDaemon runs on the
+        // user's elevated token and asks the daemon to start the ordinary-user
+        // application host. Its process serves only this worker.
+        #[cfg(windows)]
+        if init_payload.worker_identity.is_some() && worker_profile == WorkerProfile::SessionUser {
+            crate::windows_application_host::install_service_host_starter(writer_tx.clone());
+        }
         // Held for the worker's lifetime: the executor lock tells other workers
         // that this one's pending command snapshots are still running.
         let (exec_snapshots, exec_sandbox) = {
@@ -2096,6 +2103,14 @@ impl WorkerSession {
                                 }
                                 ServiceToWorker::FileRecoveryQuotaReplied(reply) => {
                                     file_recovery_quota.complete(reply);
+                                }
+                                ServiceToWorker::ApplicationHostStarted(outcome) => {
+                                    #[cfg(windows)]
+                                    crate::windows_application_host::complete_service_host_start(
+                                        outcome,
+                                    );
+                                    #[cfg(not(windows))]
+                                    let _ = outcome;
                                 }
                                 ServiceToWorker::RevokeExecSandboxLabels(payload) => {
                                     let reply_tx = writer_tx.clone();

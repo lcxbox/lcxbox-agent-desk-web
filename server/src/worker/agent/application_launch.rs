@@ -71,6 +71,8 @@ pub(crate) async fn resolve(
     }
 }
 #[cfg(windows)]
+mod windows_derived_token;
+#[cfg(windows)]
 pub(crate) mod windows_diagnostics;
 #[cfg(windows)]
 pub(crate) mod windows_process;

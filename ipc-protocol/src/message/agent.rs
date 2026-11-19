@@ -366,3 +366,58 @@ pub struct FileRecoveryQuotaReply {
     pub request_id: String,
     pub outcome: FileRecoveryQuotaOutcome,
 }
+
+/// Start the ordinary-user application host listening on `pipe_name`, which
+/// must be `\\.\pipe\lrd-application-host-<uuid>`. Session, user and the
+/// host's parent PID argument are the daemon's own facts about the requesting
+/// worker, never fields of this request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub struct ApplicationHostStart {
+    pub request_id: String,
+    pub pipe_name: String,
+}
+
+/// The only pipe names an application host listens on.
+pub const APPLICATION_HOST_PIPE_PREFIX: &str = r"\\.\pipe\lrd-application-host-";
+
+impl ApplicationHostStart {
+    /// `pipe_name` is the fixed prefix and a lowercase hyphenated UUID, so it
+    /// can be placed on a command line as one argument without quoting.
+    pub fn valid_pipe_name(pipe_name: &str) -> bool {
+        let Some(id) = pipe_name.strip_prefix(APPLICATION_HOST_PIPE_PREFIX) else {
+            return false;
+        };
+        id.len() == 36
+            && id.char_indices().all(|(index, c)| match index {
+                8 | 13 | 18 | 23 => c == '-',
+                _ => c.is_ascii_digit() || ('a'..='f').contains(&c),
+            })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub enum ApplicationHostStartRefusal {
+    /// Not a current Windows session-user resident worker.
+    NotResidentUser,
+    InvalidPipe,
+    SessionUnavailable,
+    /// The session's user token is not the worker's user, or is elevated.
+    UserMismatch,
+    TooManyHosts,
+    Unsupported,
+    NativeFailure {
+        code: i32,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub enum ApplicationHostStartResult {
+    Started { process_id: u32 },
+    Refused { reason: ApplicationHostStartRefusal },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead)]
+pub struct ApplicationHostStartOutcome {
+    pub request_id: String,
+    pub outcome: ApplicationHostStartResult,
+}

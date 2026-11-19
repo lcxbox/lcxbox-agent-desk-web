@@ -413,6 +413,8 @@ struct WorkerHandle {
     /// Which worker this is. Every message the daemon reads carries the same
     /// value, and only a match means the sender is still the worker in charge.
     incarnation: WorkerIncarnation,
+    /// Ordinary-user application hosts the daemon started for this worker.
+    application_hosts: application_host::HostSlots,
     pipe_name: String,
     ipc_tx: mpsc::UnboundedSender<ServiceToWorker>,
     process_handle: Option<ProcessHandle>,
@@ -1181,6 +1183,7 @@ impl WorkerManager {
         inner.resident_workers.insert(
             identity.key.clone(),
             WorkerHandle {
+                application_hosts: Default::default(),
                 incarnation,
                 pipe_name,
                 ipc_tx: ipc_cmd_tx,
@@ -1328,6 +1331,7 @@ impl WorkerManager {
         self.inner.lock().await.resident_workers.insert(
             key.clone(),
             WorkerHandle {
+                application_hosts: Default::default(),
                 incarnation,
                 pipe_name,
                 ipc_tx: ipc_cmd_tx,
@@ -1784,6 +1788,7 @@ impl WorkerManager {
         };
 
         inner.active_worker = Some(WorkerHandle {
+            application_hosts: Default::default(),
             incarnation,
             pipe_name,
             ipc_tx: ipc_cmd_tx,
@@ -2004,6 +2009,7 @@ impl WorkerManager {
             Arc::new(RwLock::new(Some(file_d2w_tx)));
 
         inner.active_worker = Some(WorkerHandle {
+            application_hosts: Default::default(),
             incarnation,
             pipe_name,
             ipc_tx: ipc_cmd_tx,
@@ -2936,6 +2942,7 @@ impl WorkerManager {
         }
         let mut inner = self.inner.lock().await;
         inner.active_worker = Some(WorkerHandle {
+            application_hosts: Default::default(),
             incarnation,
             pipe_name: "test".to_string(),
             ipc_tx,
@@ -2962,6 +2969,7 @@ impl WorkerManager {
         self.inner.lock().await.resident_workers.insert(
             key,
             WorkerHandle {
+                application_hosts: Default::default(),
                 incarnation,
                 pipe_name: "resident-test".to_string(),
                 ipc_tx,
@@ -4744,6 +4752,7 @@ mod central_dispatch_tests;
 #[cfg(test)]
 mod central_routing_tests;
 
+mod application_host;
 #[cfg(windows)]
 mod exec_sandbox_labels;
 mod file_recovery_quota;

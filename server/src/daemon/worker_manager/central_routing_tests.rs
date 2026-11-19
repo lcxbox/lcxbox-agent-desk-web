@@ -11,6 +11,7 @@ async fn central_actions_use_the_single_worker_and_need_a_ready_resident_session
     let (manager, _messages) = WorkerManager::new(settings, PcRegistry::new());
     let (tx, mut rx) = mpsc::unbounded_channel();
     manager.inner.lock().await.active_worker = Some(WorkerHandle {
+        application_hosts: Default::default(),
         incarnation: WorkerIncarnation(1),
         pipe_name: "test-central-action".into(),
         ipc_tx: tx,

@@ -27,6 +27,7 @@ pub(super) fn resident_output_admitted(
         | WorkerToService::ExecPtyClosed(_) => true,
         // Requests from the worker itself; their handlers verify its identity.
         WorkerToService::FileRecoveryQuotaRequested(_)
+        | WorkerToService::StartApplicationHost(_)
         | WorkerToService::LocalFileRecoveryManaged(_) => true,
         // An error reply to a connection-less request names no connection.
         WorkerToService::SignalingError(payload) if payload.connection_id.is_empty() => requests

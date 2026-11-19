@@ -32,6 +32,18 @@ pub(crate) fn failure(
     };
     LaunchError { reason, diagnostic }
 }
+/// A refusal decided by this code rather than reported by a native call.
+pub(crate) fn explained(
+    reason: LaunchFailureReason,
+    stage: DiagnosticStage,
+    operation: &str,
+    message: &str,
+) -> LaunchError {
+    LaunchError {
+        reason,
+        diagnostic: NativeDiagnostic::new(stage, operation, "application", None, message),
+    }
+}
 pub(crate) fn win32_code(hresult: i32) -> Option<u32> {
     let raw = hresult as u32;
     ((raw & 0xffff0000) == 0x80070000).then_some(raw & 0xffff)

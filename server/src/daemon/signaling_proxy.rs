@@ -1838,6 +1838,15 @@ pub async fn run_signaling_proxy(
                     )
                     .await;
             }
+            WorkerToService::StartApplicationHost(request) => {
+                worker_mgr
+                    .handle_application_host_start(
+                        resident_worker_key.as_ref(),
+                        worker_incarnation,
+                        request,
+                    )
+                    .await;
+            }
             WorkerToService::ExecSandboxLabelsRevoked(reply) => {
                 // Only a resident session worker is ever asked to revoke.
                 #[cfg(windows)]
