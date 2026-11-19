@@ -95,20 +95,22 @@ async fn remote_access_transition_waits_for_matching_worker_ack() {
                 .await
         })
     };
-    assert!(matches!(
-        ipc_rx.recv().await,
-        Some(ServiceToWorker::SetRemoteAccessState(_))
-    ));
+    // Each worker gets its own operation id derived from the caller's, and
+    // acknowledges with the id it received.
+    let Some(ServiceToWorker::SetRemoteAccessState(sent)) = ipc_rx.recv().await else {
+        panic!("remote-access state expected");
+    };
+    assert!(sent.operation_id.starts_with("lock-op:"));
     manager.complete_remote_access_ack(
         desk_ipc_protocol::message::RemoteAccessStateAppliedPayload {
-            operation_id: "lock-op".into(),
+            operation_id: sent.operation_id,
             state_version: 8,
             cancelled_terminals: 0,
             cancelled_transfers: 0,
             cancelled_execs: 0,
         },
     );
-    assert_eq!(waiter.await.unwrap().unwrap(), true);
+    assert!(waiter.await.unwrap().unwrap());
 }
 
 #[tokio::test]
@@ -128,7 +130,11 @@ async fn remote_access_transition_times_out_without_ack() {
         ipc_rx.recv().await,
         Some(ServiceToWorker::SetRemoteAccessState(_))
     ));
-    assert!(result.unwrap_err().contains("did not acknowledge"));
+    assert!(
+        result
+            .unwrap_err()
+            .contains("not every worker acknowledged remote-access version 9")
+    );
 }
 
 /// Keep-PC contract: `notify_desktop_switch` pauses every PC in the

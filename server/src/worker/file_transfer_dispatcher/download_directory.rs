@@ -1,7 +1,9 @@
 //! Resolve downloads for the interactive worker, never the daemon's environment.
 use std::{io, path::PathBuf};
 
-#[cfg(any(target_os = "linux", test))]
+// The parser is tested on every Unix; its paths and escapes are not
+// Windows paths.
+#[cfg(any(target_os = "linux", all(test, unix)))]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;

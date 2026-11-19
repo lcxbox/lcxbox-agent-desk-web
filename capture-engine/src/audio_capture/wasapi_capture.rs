@@ -445,7 +445,7 @@ impl WasapiAudioCapture {
 
         let pdata_len: usize = numframestoread as usize * self.format.Format.nBlockAlign as usize; // Calculate the length of the buffer in bytes
 
-        let buffer_vec = if pdata.is_null() || numframestoread <= 0 {
+        let buffer_vec = if pdata.is_null() || numframestoread == 0 {
             vec![]
         } else if dwflags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
             vec![0; pdata_len]
