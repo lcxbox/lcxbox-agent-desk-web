@@ -414,6 +414,7 @@ struct WorkerHandle {
     /// value, and only a match means the sender is still the worker in charge.
     incarnation: WorkerIncarnation,
     /// Ordinary-user application hosts the daemon started for this worker.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     application_hosts: application_host::HostSlots,
     pipe_name: String,
     ipc_tx: mpsc::UnboundedSender<ServiceToWorker>,
@@ -4752,6 +4753,7 @@ mod central_dispatch_tests;
 #[cfg(test)]
 mod central_routing_tests;
 
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod application_host;
 #[cfg(windows)]
 mod exec_sandbox_labels;
