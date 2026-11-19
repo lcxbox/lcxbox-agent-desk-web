@@ -1,5 +1,6 @@
 import { useOptionalDeviceTarget } from './device-target-context';
 import { readAssistantDraft, writeAssistantDraft } from './assistant-draft';
+import { assistantModelMissing } from './assistant-model-readiness';
 import { devicePath } from './device-target-paths';
 import { AssistantGoalProposalControls } from './assistant-goal-proposal-controls';
 import { ApprovalReviews, useOwnApprovalAccess } from '@/features/approval/reviews';
@@ -319,6 +320,7 @@ export function AiAssistantWorkspace({
     });
     const provider = useGetModelProvider();
     const providerConfig = provider.data?.data;
+    const modelMissing = assistantModelMissing(provider);
     const draftScope = personalScope ?? stableDeviceId;
     const [question, setQuestion] = useState(() => readAssistantDraft(draftScope));
     useEffect(() => writeAssistantDraft(draftScope, question), [draftScope, question]);
@@ -489,8 +491,8 @@ export function AiAssistantWorkspace({
     const canQueueInput = !startGoal;
     const sendDisabled = (!canQueueInput && chat.turnRunning) || chat.stopping || !!chat.deliveryState
         || !assistantEnabled || !question.trim() || !isConnected || chat.hydrating || chat.historyRestoreFailed || !chat.sessionTargetReady
-        || chat.sessionTargetResolving || chat.contextUpdating || !providerConfig?.api_key_set
-        || !providerConfig?.model || !requestDevices.ready || (startGoal && (!goalBudgetPolicy || (!hasDevice && !goalDevice)));
+        || chat.sessionTargetResolving || chat.contextUpdating || modelMissing
+        || !requestDevices.ready || (startGoal && (!goalBudgetPolicy || (!hasDevice && !goalDevice)));
     const submit = (event: FormEvent) => {
         event.preventDefault();
         if (sendDisabled) return;
@@ -1144,7 +1146,7 @@ export function AiAssistantWorkspace({
                                 </ul>
                             </details>
                         )}
-                        {provider.isSuccess && (!providerConfig?.api_key_set || !providerConfig?.model) && (
+                        {provider.isSuccess && modelMissing && (
                             <p role="status" className="text-sm text-muted-foreground">
                                 {t('pages.aiAssistant.modelNotConfigured')}{' '}
                                 <Link to="/system/ai-model" className="text-primary underline-offset-4 hover:underline">
@@ -1158,7 +1160,7 @@ export function AiAssistantWorkspace({
                             value={question}
                             onChange={(event) => setQuestion(event.target.value)}
                             placeholder={t('pages.aiAssistant.questionPlaceholder')}
-                            disabled={!assistantEnabled || !isConnected || chat.hydrating || chat.contextUpdating || !providerConfig?.api_key_set || !providerConfig?.model}
+                            disabled={!assistantEnabled || !isConnected || chat.hydrating || chat.contextUpdating || modelMissing}
                             className="min-h-16 max-h-40 w-full resize-y rounded-md border-0 bg-background px-3 py-2 shadow-sm outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                         />
                         <div className="flex min-w-0 items-center gap-1">
