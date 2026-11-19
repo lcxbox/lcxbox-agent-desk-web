@@ -1506,3 +1506,26 @@ fn catalogue_text(devices: &[RequestDevice]) -> String {
         .text()
         .to_owned()
 }
+
+/// A selected-device text read is approved and executed under the same input:
+/// the grant binds the file source, so any window of that file reuses it.
+#[test]
+fn selected_text_read_binds_the_source_like_the_runtime_grant_check() {
+    let name = crate::tool_names::READ_TEXT_FILE;
+    let source = json!({"file_result_call_id":"call-1","entry_name":"b.txt"});
+    let windowed =
+        json!({"file_result_call_id":"call-1","entry_name":"b.txt","start_line":5,"max_lines":10});
+    let approved = canonical_selected_read_input(name, source.clone()).unwrap();
+    assert_eq!(
+        approved,
+        crate::permission_tools::canonical_tool_permission_input_json(name, source).unwrap()
+    );
+    assert_eq!(
+        canonical_selected_read_input(name, windowed.clone()).unwrap(),
+        approved
+    );
+    assert_eq!(
+        crate::permission_tools::canonical_tool_permission_input_json(name, windowed).unwrap(),
+        approved
+    );
+}

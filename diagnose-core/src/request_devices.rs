@@ -692,6 +692,8 @@ pub fn canonical_selected_read_input(
     mut input: serde_json::Value,
 ) -> Result<String, serde_json::Error> {
     crate::model_input::fill_canonical_arguments(tool_name, &mut input);
+    // A text read binds its source only; paging and search reuse the grant.
+    crate::provider_preflight::text_file::read_window::strip_selection(tool_name, &mut input);
     crate::permission_tools::canonical_permission_input_json(input)
 }
 
