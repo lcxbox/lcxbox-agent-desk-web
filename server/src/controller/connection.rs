@@ -161,20 +161,24 @@ fn probe_http_url(url: &str) -> Option<String> {
     }
 }
 
-/// Extract the host (without port) from a full URL or bare `host[:port]`, for the
-/// manager console check (`https://<host>`, falling back to `http://<host>`).
+/// Extract the `host[:port]` authority from a full URL or bare `host[:port]`, for
+/// the manager console check (`https://<authority>`, falling back to
+/// `http://<authority>`). The manager serves its console on the same origin as
+/// its signaling endpoint, so a non-default port is kept; a scheme-default port
+/// is dropped by the URL parser and the probe uses each scheme's own default.
 fn host_of(input: &str) -> Option<String> {
-    if looks_like_full_url(input) {
-        url::Url::parse(input.trim())
-            .ok()
-            .and_then(|u| u.host_str().map(|h| h.to_string()))
+    let url = if looks_like_full_url(input) {
+        url::Url::parse(input.trim()).ok()?
     } else {
         // Bare host[:port]: parse via a throwaway scheme so IPv6 brackets / ports
         // are handled by the URL parser.
-        url::Url::parse(&format!("wss://{}", input.trim()))
-            .ok()
-            .and_then(|u| u.host_str().map(|h| h.to_string()))
-    }
+        url::Url::parse(&format!("wss://{}", input.trim())).ok()?
+    };
+    let host = url.host_str()?;
+    Some(match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    })
 }
 
 /// Build an SSRF-guarded, TLS-capable `awc` client for one probe scheme. awc does
@@ -654,10 +658,53 @@ mod tests {
     fn extracts_host_from_url_and_bare_input() {
         assert_eq!(
             host_of("wss://a.example:8443/x").as_deref(),
+            Some("a.example:8443")
+        );
+        assert_eq!(
+            host_of("ws://127.0.0.1:8090/api/desk/signaling").as_deref(),
+            Some("127.0.0.1:8090")
+        );
+        assert_eq!(host_of("a.example:8443").as_deref(), Some("a.example:8443"));
+        assert_eq!(host_of("a.example").as_deref(), Some("a.example"));
+        // A scheme-default port carries no information and is dropped.
+        assert_eq!(
+            host_of("wss://a.example:443/x").as_deref(),
             Some("a.example")
         );
-        assert_eq!(host_of("a.example:8443").as_deref(), Some("a.example"));
-        assert_eq!(host_of("a.example").as_deref(), Some("a.example"));
+        assert_eq!(host_of("[::1]:8090").as_deref(), Some("[::1]:8090"));
+    }
+
+    /// The console probe dials the signaling endpoint's own port: a manager
+    /// listening on a non-default port answers there, not on port 80.
+    #[actix_web::test]
+    async fn console_probe_uses_the_signaling_port() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // A plaintext HTTP server answering every request with a redirect, like
+        // the manager root does.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream
+                    .write_all(
+                        b"HTTP/1.1 302 Found\r\nlocation: /zh/\r\ncontent-length: 0\r\n\
+                          connection: close\r\n\r\n",
+                    )
+                    .await;
+            }
+        });
+        let input = format!("ws://{addr}/api/desk/signaling");
+        let host = host_of(&input).expect("authority");
+        let probe = probe_console(
+            &build_probe_client(true, true),
+            &build_probe_client(false, true),
+            &host,
+            true,
+        )
+        .await;
+        assert_eq!(probe, ConsoleProbe::Http);
     }
 
     #[test]
