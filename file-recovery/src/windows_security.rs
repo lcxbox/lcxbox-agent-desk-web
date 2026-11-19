@@ -170,27 +170,42 @@ pub(super) fn apply_owner_group_dacl(file: &File, sddl: &str) -> io::Result<()> 
             "replacement requires an explicit source DACL",
         ));
     }
-    let inheritance = if control & SE_DACL_PROTECTED.0 != 0 {
-        PROTECTED_DACL_SECURITY_INFORMATION
+    if control & (SE_DACL_PROTECTED.0 | SE_DACL_AUTO_INHERITED.0) == 0 {
+        // A legacy DACL, without auto-inheritance (common under a user's
+        // profile). SetSecurityInfo would recompute it and add AI; store the
+        // original descriptor as it was, inherited entries included. The
+        // replacement sits in the original's parent, so they are still current.
+        unsafe {
+            SetKernelObjectSecurity(
+                HANDLE(file.as_raw_handle()),
+                OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                descriptor.pointer,
+            )
+        }
+        .map_err(win)?;
     } else {
-        UNPROTECTED_DACL_SECURITY_INFORMATION
-    };
-    unsafe {
-        SetSecurityInfo(
-            HANDLE(file.as_raw_handle()),
-            SE_FILE_OBJECT,
-            OWNER_SECURITY_INFORMATION
-                | GROUP_SECURITY_INFORMATION
-                | DACL_SECURITY_INFORMATION
-                | inheritance,
-            Some(owner),
-            Some(group),
-            Some(dacl),
-            None,
-        )
+        let inheritance = if control & SE_DACL_PROTECTED.0 != 0 {
+            PROTECTED_DACL_SECURITY_INFORMATION
+        } else {
+            UNPROTECTED_DACL_SECURITY_INFORMATION
+        };
+        unsafe {
+            SetSecurityInfo(
+                HANDLE(file.as_raw_handle()),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION
+                    | GROUP_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | inheritance,
+                Some(owner),
+                Some(group),
+                Some(dacl),
+                None,
+            )
+        }
+        .ok()
+        .map_err(win)?;
     }
-    .ok()
-    .map_err(win)?;
     if !replacement_permissions_preserved(sddl, &capture_owner_group_dacl(file)?)? {
         return Err(crate::invalid(
             "replacement permissions differ from the original",
@@ -238,6 +253,87 @@ fn replacement_permissions_preserved(expected: &str, actual: &str) -> io::Result
     }
     .map_err(win)?;
     Ok(descriptor_sddl(expected.pointer)? == descriptor_sddl(actual.pointer)?)
+}
+
+/// The original after the executor's own rename into its private transaction
+/// directory. Windows re-evaluates inheritance on such a rename: entries the
+/// file inherited from its old parent that the new parent would not pass on
+/// become explicit, in front of the still-inherited ones (seen on Windows 11
+/// 26H2). Effective access is unchanged, so compare owner, group and DACL
+/// control exactly and the DACL as a set of entries without their inherited
+/// flag; every other field of each entry must match.
+pub(super) fn moved_permissions_preserved(expected: &str, actual: &str) -> io::Result<bool> {
+    if expected == actual {
+        return Ok(true);
+    }
+    let expected = Descriptor::from_sddl(expected)?;
+    let actual = Descriptor::from_sddl(actual)?;
+    if descriptor_parts(&expected)? != descriptor_parts(&actual)? {
+        return Ok(false);
+    }
+    Ok(entries_without_inheritance(&expected)? == entries_without_inheritance(&actual)?)
+}
+
+/// Owner, group, control and revision of a descriptor.
+fn descriptor_parts(descriptor: &Descriptor) -> io::Result<(String, String, u16, u32)> {
+    let mut owner = PSID::default();
+    let mut group = PSID::default();
+    let mut defaulted = ::windows::core::BOOL::default();
+    let (mut control, mut revision) = (0, 0);
+    unsafe {
+        GetSecurityDescriptorOwner(descriptor.pointer, &mut owner, &mut defaulted).map_err(win)?;
+        GetSecurityDescriptorGroup(descriptor.pointer, &mut group, &mut defaulted).map_err(win)?;
+        GetSecurityDescriptorControl(descriptor.pointer, &mut control, &mut revision)
+            .map_err(win)?;
+    }
+    if owner.0.is_null() || group.0.is_null() {
+        return Err(crate::invalid(
+            "recovery security descriptor lacks an owner or group",
+        ));
+    }
+    Ok((sid_text(owner)?, sid_text(group)?, control, revision))
+}
+
+/// The DACL's entries as raw bytes with the inherited flag cleared, sorted.
+fn entries_without_inheritance(descriptor: &Descriptor) -> io::Result<Vec<Vec<u8>>> {
+    let mut present = ::windows::core::BOOL::default();
+    let mut defaulted = ::windows::core::BOOL::default();
+    let mut dacl = std::ptr::null_mut::<ACL>();
+    unsafe {
+        GetSecurityDescriptorDacl(descriptor.pointer, &mut present, &mut dacl, &mut defaulted)
+            .map_err(win)?;
+    }
+    if !present.as_bool() || dacl.is_null() {
+        return Err(crate::invalid("recovery security descriptor lacks a DACL"));
+    }
+    let mut info = ACL_SIZE_INFORMATION::default();
+    unsafe {
+        GetAclInformation(
+            dacl,
+            (&mut info as *mut ACL_SIZE_INFORMATION).cast(),
+            size_of::<ACL_SIZE_INFORMATION>() as u32,
+            AclSizeInformation,
+        )
+    }
+    .map_err(win)?;
+    let mut entries = Vec::with_capacity(info.AceCount as usize);
+    for index in 0..info.AceCount {
+        let mut pointer = std::ptr::null_mut();
+        unsafe { GetAce(dacl, index, &mut pointer) }.map_err(win)?;
+        let header = unsafe { &*pointer.cast::<ACE_HEADER>() };
+        let size = header.AceSize as usize;
+        if size < size_of::<ACE_HEADER>() {
+            return Err(crate::invalid(
+                "recovery security descriptor entry is corrupt",
+            ));
+        }
+        let mut bytes = unsafe { std::slice::from_raw_parts(pointer.cast::<u8>(), size) }.to_vec();
+        // AceFlags is the second byte of the header.
+        bytes[1] &= !(INHERITED_ACE.0 as u8);
+        entries.push(bytes);
+    }
+    entries.sort();
+    Ok(entries)
 }
 
 fn sid_text(sid: PSID) -> io::Result<String> {
@@ -435,6 +531,40 @@ mod private_principal_tests {
             private_sddl(user, ""),
             format!("O:{user}D:P(A;;FA;;;{user})(A;;FA;;;S-1-5-18)")
         );
+    }
+}
+
+#[cfg(test)]
+mod moved_tests {
+    use super::moved_permissions_preserved;
+
+    const USER: &str = "S-1-5-21-1-2-3-1001";
+
+    #[test]
+    fn a_rename_may_turn_inherited_entries_explicit_but_nothing_else() {
+        let before = format!("O:BAG:SYD:(A;ID;FA;;;SY)(A;ID;FA;;;BA)(A;ID;FA;;;{USER})");
+        // What Windows 11 26H2 stores after the rename into a private directory
+        // that passes on only SYSTEM and the user.
+        let after = format!("O:BAG:SYD:(A;;FA;;;BA)(A;ID;FA;;;SY)(A;ID;FA;;;{USER})");
+        assert!(moved_permissions_preserved(&before, &before).unwrap());
+        assert!(moved_permissions_preserved(&before, &after).unwrap());
+        for changed in [
+            // Owner, group or protection changed.
+            format!("O:SYG:SYD:(A;;FA;;;BA)(A;ID;FA;;;SY)(A;ID;FA;;;{USER})"),
+            format!("O:BAG:BAD:(A;;FA;;;BA)(A;ID;FA;;;SY)(A;ID;FA;;;{USER})"),
+            format!("O:BAG:SYD:P(A;;FA;;;BA)(A;ID;FA;;;SY)(A;ID;FA;;;{USER})"),
+            // An entry dropped, added, narrowed, denied or given other flags.
+            format!("O:BAG:SYD:(A;ID;FA;;;SY)(A;ID;FA;;;{USER})"),
+            format!("O:BAG:SYD:(A;;FA;;;BA)(A;;FA;;;WD)(A;ID;FA;;;SY)(A;ID;FA;;;{USER})"),
+            format!("O:BAG:SYD:(A;;FR;;;BA)(A;ID;FA;;;SY)(A;ID;FA;;;{USER})"),
+            format!("O:BAG:SYD:(D;;FA;;;BA)(A;ID;FA;;;SY)(A;ID;FA;;;{USER})"),
+            format!("O:BAG:SYD:(A;OI;FA;;;BA)(A;ID;FA;;;SY)(A;ID;FA;;;{USER})"),
+        ] {
+            assert!(
+                !moved_permissions_preserved(&before, &changed).unwrap(),
+                "{changed}"
+            );
+        }
     }
 }
 

@@ -116,7 +116,7 @@ pub(crate) fn clean_transaction(
     }
     if let Some(original) = &original
         && (original.content() != content
-            || normalized(&original.metadata()?)? != normalized(metadata)?)
+            || !same_retained_metadata(&original.metadata()?, metadata)?)
     {
         return Err(crate::invalid(
             "retained original differs from saved recovery material",
@@ -177,18 +177,34 @@ fn optional_snapshot(
         Err(error) => Err(error),
     }
 }
-fn normalized(bytes: &[u8]) -> io::Result<serde_json::Value> {
+/// The retained original against the metadata saved before the move.
+fn same_retained_metadata(retained: &[u8], saved: &[u8]) -> io::Result<bool> {
+    let (retained, retained_security) = normalized(retained)?;
+    let (saved, saved_security) = normalized(saved)?;
+    Ok(retained == saved
+        && security::moved_permissions_preserved(&saved_security, &retained_security)?)
+}
+/// Metadata without the fields a native move may change, and its security
+/// descriptor, which the move may have rewritten (see
+/// `moved_permissions_preserved`).
+fn normalized(bytes: &[u8]) -> io::Result<(serde_json::Value, String)> {
     let mut metadata: serde_json::Value =
         serde_json::from_slice(bytes).map_err(io::Error::other)?;
+    let incomplete = || crate::invalid("Windows recovery metadata is incomplete");
     let basic = metadata
         .get_mut("basic")
         .and_then(serde_json::Value::as_object_mut)
-        .ok_or_else(|| crate::invalid("Windows recovery metadata is incomplete"))?;
+        .ok_or_else(incomplete)?;
     // Native movement changes ChangeTime; reads may update last access. All
     // content, ADS, permissions and other recorded metadata must still match.
     basic.remove("changed");
     basic.remove("accessed");
-    Ok(metadata)
+    let security = metadata
+        .as_object_mut()
+        .and_then(|fields| fields.remove("owner_group_dacl_sddl"))
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .ok_or_else(incomplete)?;
+    Ok((metadata, security))
 }
 fn remove_handle(file: &File) -> io::Result<()> {
     let info = FILE_DISPOSITION_INFO { DeleteFile: true };

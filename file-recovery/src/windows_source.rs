@@ -222,12 +222,16 @@ impl SourceSnapshot {
     }
     fn revalidate_inner(&self, moved: bool) -> io::Result<()> {
         let basic = Basic::read(&self.source)?;
-        if file_identity(&self.source, FileKind::File)? != self.identity
-            || !self.basic.same_content_metadata(&basic)
+        if file_identity(&self.source, FileKind::File)? != self.identity {
+            return Err(crate::invalid("source identity changed"));
+        }
+        if !self.basic.same_content_metadata(&basic)
             || (!moved && basic.changed != self.basic.changed)
-            || security::capture_owner_group_dacl(&self.source)? != self.security
         {
-            return Err(crate::invalid("source metadata changed"));
+            return Err(crate::invalid("source attributes or times changed"));
+        }
+        if !self.same_security(moved)? {
+            return Err(crate::invalid("source owner, group or DACL changed"));
         }
         let before = stream_inventory(&self.source, Self::byte_limit())?;
         if before.streams.len() != self.streams.len() {
@@ -246,11 +250,21 @@ impl SourceSnapshot {
         if stream_inventory(&self.source, Self::byte_limit())? != before
             || !self.basic.same_content_metadata(&after)
             || after.changed != basic.changed
-            || security::capture_owner_group_dacl(&self.source)? != self.security
+            || !self.same_security(moved)?
         {
             return Err(crate::invalid("source changed during observation"));
         }
         Ok(())
+    }
+    /// Exact before the move; after the executor's own rename, Windows may have
+    /// turned inherited entries explicit (see `moved_permissions_preserved`).
+    fn same_security(&self, moved: bool) -> io::Result<bool> {
+        let current = security::capture_owner_group_dacl(&self.source)?;
+        if moved {
+            security::moved_permissions_preserved(&self.security, &current)
+        } else {
+            Ok(current == self.security)
+        }
     }
 }
 

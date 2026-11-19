@@ -240,7 +240,10 @@ fn replace(
                     std::io::Error::other(cause),
                 ));
             }
-            Err(_) => {
+            Err(cause) => {
+                // The receipt only says the outcome is unknown; keep the cause
+                // for diagnosis (it names a step, never file content).
+                tracing::warn!(error = %cause, "text change stopped after the commit started");
                 attempted = true;
                 return Ok((false, None));
             }
@@ -544,6 +547,105 @@ mod tests {
         }
     }
 
+    /// Give `path` a protected DACL through the legacy API, which leaves out the
+    /// auto-inherited flag, as directories under a user's profile often have.
+    fn set_legacy_dacl(path: &Path, sddl: &str) {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::Win32::Foundation::{HLOCAL, LocalFree};
+        use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
+        use windows::Win32::Security::{
+            DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, SetFileSecurityW,
+        };
+        use windows_core::PCWSTR;
+        let wide = |text: &std::ffi::OsStr| -> Vec<u16> {
+            text.encode_wide().chain(std::iter::once(0)).collect()
+        };
+        let sddl = wide(std::ffi::OsStr::new(sddl));
+        let path = wide(path.as_os_str());
+        let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                PCWSTR(sddl.as_ptr()),
+                1,
+                &mut descriptor,
+                None,
+            )
+            .unwrap();
+            let set =
+                SetFileSecurityW(PCWSTR(path.as_ptr()), DACL_SECURITY_INFORMATION, descriptor);
+            LocalFree(Some(HLOCAL(descriptor.0)));
+            assert!(set.as_bool());
+        }
+    }
+
+    #[test]
+    fn update_restore_and_delete_under_a_legacy_dacl_are_verified() {
+        use desk_agent_protocol::computer_use::TextFileChange;
+        let _guard = file_store_test_lock();
+        let data = tempfile::tempdir().unwrap();
+        let outer = tempfile::tempdir().unwrap();
+        let sid = desk_file_recovery::windows::current_user_sid().unwrap();
+        // Administrators is passed on to the directory's files but not by the
+        // private transaction directory, so renaming the original into it
+        // turns that entry explicit (Windows 11 26H2).
+        set_legacy_dacl(
+            outer.path(),
+            &format!("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{sid})"),
+        );
+        let root = outer.path().join("work");
+        std::fs::create_dir(&root).unwrap();
+        let root = root.as_path();
+        let path = root.join("notes.txt");
+        std::fs::write(&path, b"line one\n").unwrap();
+        let acl_before = Command::new("icacls.exe").arg(&path).output().unwrap();
+        let directory = issue(root).unwrap();
+        let target = issue(&path).unwrap();
+        let update = FilePatchAction::UpdateText {
+            directory: directory.clone(),
+            expected_sha256: digest(b"line one\n"),
+            change: TextFileChange::Write {
+                content_utf8: "line one\nline two\n".into(),
+            },
+        };
+        let (updated, _) = execute(&target, &update, &context(data.path()), || Ok(())).unwrap();
+        updated.validate_for(&target, &update).unwrap();
+        assert!(updated.verified, "{updated:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"line one\nline two\n");
+        // No transaction directory is left behind and the file keeps its ACL.
+        assert_eq!(std::fs::read_dir(root).unwrap().count(), 1);
+        let acl_after = Command::new("icacls.exe").arg(&path).output().unwrap();
+        assert_eq!(acl_after.stdout, acl_before.stdout);
+
+        // Undo the update from its recovery record.
+        let restore = FilePatchAction::RestoreText {
+            directory: directory.clone(),
+            file_name: "notes.txt".into(),
+            recovery_id: updated.recovery.recovery_id.clone(),
+            expected_current: desk_agent_protocol::computer_use::RestoreExpectation::Sha(digest(
+                b"line one\nline two\n",
+            )),
+        };
+        let (restored, _) =
+            execute(&directory, &restore, &context(data.path()), || Ok(())).unwrap();
+        restored.validate_for(&directory, &restore).unwrap();
+        assert!(restored.verified, "{restored:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"line one\n");
+        assert_eq!(std::fs::read_dir(root).unwrap().count(), 1);
+        let acl_restored = Command::new("icacls.exe").arg(&path).output().unwrap();
+        assert_eq!(acl_restored.stdout, acl_before.stdout);
+
+        let target = issue(&path).unwrap();
+        let delete = FilePatchAction::DeleteText {
+            directory,
+            expected_sha256: digest(b"line one\n"),
+        };
+        let (deleted, _) = execute(&target, &delete, &context(data.path()), || Ok(())).unwrap();
+        deleted.validate_for(&target, &delete).unwrap();
+        assert!(deleted.verified, "{deleted:?}");
+        assert!(!path.exists());
+        assert_eq!(std::fs::read_dir(root).unwrap().count(), 0);
+    }
+
     #[test]
     fn restore_recreates_a_deleted_file_with_the_parent_acl_and_undoes_it() {
         use desk_agent_protocol::computer_use::RestoreExpectation;
@@ -560,6 +662,10 @@ mod tests {
         };
         let (deleted, _) = execute(&target, &delete, &context(data.path()), || Ok(())).unwrap();
         deleted.validate_for(&target, &delete).unwrap();
+        // The temporary directory passes on more entries than the private
+        // transaction directory, so the rename makes some explicit; the
+        // deletion must still be verified rather than left unknown.
+        assert!(deleted.verified, "{deleted:?}");
         assert!(!path.exists());
         let restore = |recovery_id: &str, expected_current| {
             let action = FilePatchAction::RestoreText {
