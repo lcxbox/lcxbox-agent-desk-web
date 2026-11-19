@@ -6039,6 +6039,43 @@ mod tests {
         assert!(second.revision > first.revision);
     }
 
+    /// Saving the Computer Use card invalidates device approvals that have not
+    /// run: every save advances the settings revision, the worker applies it
+    /// as its local ceiling, and the readiness revision approvals are bound to
+    /// changes. The center then treats those approvals as stale
+    /// (`desk_diagnose_core::permission_grant::stale_approval_target`) and the
+    /// dispatch edge refuses their execution. Without a save the revision stays
+    /// put, so readiness refreshes do not invalidate approvals.
+    #[test]
+    fn saving_the_computer_use_card_invalidates_unexecuted_approvals() {
+        use crate::model::settings::ComputerUseSwitchesUpdate;
+        let broker = ComputerUseBroker::new();
+        let mut settings = ComputerUseSettings::default();
+        let approved = broker.readiness(&settings, false, false).revision;
+        assert_eq!(broker.readiness(&settings, false, false).revision, approved);
+
+        // Saving the same switches still counts.
+        let switches = settings.switches();
+        settings
+            .update_switches(ComputerUseSwitchesUpdate {
+                expected_revision: switches.revision,
+                enabled: switches.enabled,
+                observe: switches.observe,
+                office_semantic: switches.office_semantic,
+                iwork_semantic: switches.iwork_semantic,
+                generic_semantic_ui: switches.generic_semantic_ui,
+                raw_input_fallback: switches.raw_input_fallback,
+            })
+            .unwrap();
+        let after_save = broker.readiness(&settings, false, false);
+        assert_eq!(after_save.local_ceiling_revision, settings.revision);
+        assert_ne!(after_save.revision, approved);
+        assert_eq!(
+            broker.readiness(&settings, false, false).revision,
+            after_save.revision
+        );
+    }
+
     /// The worker reports its command sandbox support and execution identity
     /// as probed once for its lifetime, and both are part of the material
     /// state behind the readiness revision.
