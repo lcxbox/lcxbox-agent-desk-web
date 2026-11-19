@@ -679,6 +679,9 @@ mod tests {
     #[actix_web::test]
     async fn console_probe_uses_the_signaling_port() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // The probe clients build rustls configs; production installs the
+        // process default provider at startup, so mirror that here (idempotent).
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         // A plaintext HTTP server answering every request with a redirect, like
         // the manager root does.
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
