@@ -4,7 +4,7 @@ import { AssistantFileScope, type AssistantFileScopeView } from './assistant-fil
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
-vi.mock('@/features/file-manager/remote-directory-picker', () => ({ RemoteDirectoryPicker: ({ onSelect }: { onSelect: (path: string) => void }) => <button onClick={() => onSelect('/private/tmp/a directory ')}>choose</button> }));
+vi.mock('@/features/file-manager/remote-directory-picker', () => ({ RemoteDirectoryPicker: ({ deskId, onSelect }: { deskId: string; onSelect: (path: string) => void }) => <button data-desk={deskId} onClick={() => onSelect('/private/tmp/a directory ')}>choose</button> }));
 
 describe('conversation directories', () => {
     it('shows automatic review and its reason without exposing a second manual decision', () => {
@@ -52,6 +52,21 @@ describe('conversation directories', () => {
         fireEvent.click(button);
         fireEvent.click(screen.getByText("choose"));
         expect(update).toHaveBeenCalledWith({ kind: 'select_directory', path: '/private/tmp/a directory ', purpose: 'pages.aiAssistant.directories.manualPurpose', expected_revision: 7 }, 'pages.aiAssistant.directories.timeout', 'device');
+    });
+
+    it('browses a listed device through its live connection and keeps the device as the directory owner', () => {
+        const update = vi.fn((..._args: unknown[]) => true);
+        const props = { scope: { revision: 2, directories: [] }, open: true, onOpenChange: vi.fn(), disabled: false, onUpdate: update,
+            devices: [{ id: '42', name: 'UBUNTU-VM' }] };
+        const view = render(<AssistantFileScope {...props} connectionFor={() => undefined} />);
+        const add = screen.getByRole('button', { name: 'pages.aiAssistant.directories.add' });
+        expect(add).toBeDisabled();
+        view.rerender(<AssistantFileScope {...props} connectionFor={id => id === '42' ? 'connection-42' : undefined} />);
+        fireEvent.click(add);
+        const picker = screen.getByText('choose');
+        expect(picker.getAttribute('data-desk')).toBe('connection-42');
+        fireEvent.click(picker);
+        expect(update).toHaveBeenCalledWith({ kind: 'select_directory', path: '/private/tmp/a directory ', purpose: 'pages.aiAssistant.directories.manualPurpose', expected_revision: 2 }, 'pages.aiAssistant.directories.timeout', '42');
     });
 
     it('blocks unresolved targets and closes the picker when target readiness is lost', () => {

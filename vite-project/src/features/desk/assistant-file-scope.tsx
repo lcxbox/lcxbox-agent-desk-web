@@ -27,10 +27,12 @@ export type AssistantDirectoryOperation =
     | { kind: 'decide_directory'; directory_request_id: string; approve: boolean; expected_revision: number }
     | { kind: 'revoke_directory'; directory_request_id: string; expected_revision: number };
 
-export function AssistantFileScope({ scope, open, onOpenChange, disabled, onUpdate, deskId, sessionTargetId, devices,
+export function AssistantFileScope({ scope, open, onOpenChange, disabled, onUpdate, deskId, sessionTargetId, devices, connectionFor,
     showPendingActions = true, onPendingJump, selectionDisabled = false, automaticApproval = false, decisionPause }: {
     deskId?: string;
     devices?: readonly { id: string; name: string }[];
+    /** The live signaling connection of a listed device; browsing targets the connection, not the device id. */
+    connectionFor?: (id: string) => string | undefined;
     // undefined: unresolved; null: selected anonymous in-process worker.
     sessionTargetId?: string | null;
     scope: AssistantFileScopeView;
@@ -51,7 +53,8 @@ export function AssistantFileScope({ scope, open, onOpenChange, disabled, onUpda
     const name = (id: string) => devices?.find(item => item.id === id)?.name ?? id;
     const browsingDevice = deskId || (selectedDevice && devices?.some(device => device.id === selectedDevice) ? selectedDevice
         : devices?.length === 1 ? devices[0].id : undefined);
-    const canBrowse = !!browsingDevice && (!deskId || sessionTargetId !== undefined);
+    const browsingConnection = deskId || (browsingDevice ? connectionFor?.(browsingDevice) : undefined);
+    const canBrowse = !!browsingConnection && (!deskId || sessionTargetId !== undefined);
     const [unavailable, setUnavailable] = useState(false);
     // An action that cannot be sent says so instead of ignoring the click.
     const submit = (operation: AssistantDirectoryOperation, deviceRef?: string) => {
@@ -76,8 +79,8 @@ export function AssistantFileScope({ scope, open, onOpenChange, disabled, onUpda
                 <Button type="button" disabled={disabled || selectionDisabled || !canBrowse} onClick={() => setBrowsing(value => !value)}>
                     {t('pages.aiAssistant.directories.add')}
                 </Button>
-                {open && browsing && canBrowse && browsingDevice && <RemoteDirectoryPicker
-                    key={`${browsingDevice}:${sessionTargetId}`} deskId={browsingDevice} sessionTargetId={sessionTargetId}
+                {open && browsing && canBrowse && browsingDevice && browsingConnection && <RemoteDirectoryPicker
+                    key={`${browsingConnection}:${sessionTargetId}`} deskId={browsingConnection} sessionTargetId={sessionTargetId}
                     disabled={disabled || selectionDisabled} onSelect={path => submit({ kind: 'select_directory', path,
                         purpose: t('pages.aiAssistant.directories.manualPurpose'), expected_revision: scope.revision }, browsingDevice)}
                     onCancel={() => setBrowsing(false)} />}

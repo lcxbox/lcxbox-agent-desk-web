@@ -1036,6 +1036,7 @@ export function AiAssistantWorkspace({
                     {(hasDevice || personalScope) && <AssistantFileScope key={`directories:${permissionHistoryKey}`} scope={chat.fileScope} automaticApproval={automaticApproval} decisionPause={pause}
                         deskId={deskId} sessionTargetId={hasDevice && chat.sessionTargetReady ? (chat.sessionTarget?.target_id ?? null) : undefined}
                         devices={hasDevice ? undefined : requestDevices.selected}
+                        connectionFor={requestDevices.connectionFor}
                         open={directorySession === permissionHistoryKey} onOpenChange={open => setDirectorySession(open ? permissionHistoryKey : null)}
                         disabled={!assistantEnabled || !isConnected || chat.hydrating || chat.contextUpdating} onUpdate={updateDirectory}
                         showPendingActions={false} onPendingJump={id => jumpToPending(`assistant-directory-${id}`)} />}
