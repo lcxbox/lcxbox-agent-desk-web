@@ -225,7 +225,7 @@ pub(super) fn launch_worker_as_user(
             Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock},
             RemoteDesktop::WTSQueryUserToken,
             Threading::{
-                CREATE_NEW_CONSOLE, CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW,
+                CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW,
                 DETACHED_PROCESS, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
                 LPPROC_THREAD_ATTRIBUTE_LIST, OpenProcessToken, PROCESS_INFORMATION,
                 STARTUPINFOEXW, STARTUPINFOW,
@@ -408,10 +408,13 @@ pub(super) fn launch_worker_as_user(
         if child_policy.is_some() {
             si_ex.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
         }
+        // The user worker keeps a console, without a window on the user's
+        // desktop: the console programs it starts share it instead of each
+        // opening one. Its logs show whether it started.
         let creation_flags = if child_policy.is_some() {
             DETACHED_PROCESS | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT
         } else {
-            CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT
+            CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT
         };
 
         let mut pi = PROCESS_INFORMATION::default();
