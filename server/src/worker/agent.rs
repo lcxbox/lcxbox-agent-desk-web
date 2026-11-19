@@ -22,6 +22,7 @@ pub mod computer_use_writer;
 pub(crate) mod document_conversion;
 pub mod eval;
 pub mod file_reference_store;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub(crate) mod input_monitor_control;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_desktop;

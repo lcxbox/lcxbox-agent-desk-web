@@ -326,11 +326,14 @@ pub struct WorkerManager {
     frozen_sessions:
         Arc<StdMutex<std::collections::HashSet<desk_ipc_protocol::message::SessionKey>>>,
     /// When each Windows reconcile may next start a resident worker.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     resident_start_backoff: Arc<StdMutex<ResidentStartBackoff>>,
     /// Resident workers being started; kept out of `resident_workers` so no
     /// route selects a worker that does not exist yet.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     starting_resident_workers: Arc<StdMutex<std::collections::HashSet<WorkerKey>>>,
     /// When a Windows session gained its first user.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     session_signed_in_at: Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, Instant>>>,
     interactive_switch_locks:
         Arc<StdMutex<HashMap<desk_ipc_protocol::message::SessionKey, Arc<Mutex<()>>>>>,
@@ -2044,6 +2047,7 @@ impl WorkerManager {
     /// of the legacy global cache so an unrelated session can never change the
     /// codecs or devices used by an already-bound PC.
     /// Ceilings of the capped connections bound to `session`, for a worker's Init.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     pub(crate) async fn capped_connection_ceilings(
         &self,
         session: &desk_ipc_protocol::message::SessionKey,
@@ -4461,7 +4465,7 @@ const RESIDENT_START_BACKOFF_MAX: Duration = Duration::from_secs(30);
 const RESIDENT_STABLE_RUN: Duration = Duration::from_secs(60);
 #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
 const SIGNED_IN_FAST_RETRY: Duration = Duration::from_millis(500);
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 const SIGNED_IN_FAST_RETRY_WINDOW: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
@@ -4547,6 +4551,7 @@ pub(crate) fn cap_windows_sessions(
 /// login password, session signing key, local signaling, manager and TURN
 /// credentials) never leave the daemon; a restricted worker also gets no
 /// host IPC token.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub(crate) fn worker_settings_json(
     settings: &crate::model::settings::Settings,
     profile: WorkerProfile,
