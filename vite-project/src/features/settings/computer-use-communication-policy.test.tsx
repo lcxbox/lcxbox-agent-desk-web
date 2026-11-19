@@ -28,16 +28,19 @@ describe('local message policy', () => {
         expect(api.save).not.toHaveBeenCalled();
         fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
         await waitFor(() => expect(api.save).toHaveBeenCalledWith({ expected_revision: 7,
-            enabled: false, browser_semantic: false, communication_handoff: false, communication_send: true }));
+            browser_semantic: false, communication_handoff: false, communication_send: true }));
         await screen.findByRole('status');
-        expect(screen.getByRole('checkbox', { name: 'Enable Computer Use on this device (master switch)' })).not.toBeChecked();
+        // The master switch is edited on the Computer Use card; here it only explains why
+        // these switches have no effect.
+        expect(screen.queryByRole('checkbox', { name: /master switch/ })).not.toBeInTheDocument();
+        expect(screen.getByText(/The Computer Use master switch is off/)).toBeInTheDocument();
     });
     it('saves explicit prerequisite switches with the observed revision', async () => {
         await openPolicy();
         for (const checkbox of screen.getAllByRole('checkbox')) fireEvent.click(checkbox);
         fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
         await waitFor(() => expect(api.save).toHaveBeenCalledWith({ expected_revision: 7,
-            enabled: true, browser_semantic: true, communication_handoff: true, communication_send: true }));
+            browser_semantic: true, communication_handoff: true, communication_send: true }));
     });
     it('requires rereading after an uncertain save without retrying', async () => {
         api.save.mockRejectedValueOnce(new Error('worker unavailable'));

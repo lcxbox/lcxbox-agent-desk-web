@@ -14,6 +14,7 @@ async fn application_policy_timeout_or_inexact_ack_retires_the_worker() {
         "revision",
         "application_scope",
         "communication_send",
+        "generic_semantic_ui",
     ] {
         let (manager, _worker_rx) = test_manager();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -25,6 +26,11 @@ async fn application_policy_timeout_or_inexact_ack_retires_the_worker() {
             browser_semantic: false,
             communication_handoff: false,
             communication_send: false,
+            observe: false,
+            office_semantic: false,
+            iwork_semantic: false,
+            generic_semantic_ui: false,
+            raw_input_fallback: false,
             operation_id: String::new(),
             revision: 1,
             allowed_application_paths: vec![],
@@ -39,6 +45,8 @@ async fn application_policy_timeout_or_inexact_ack_retires_the_worker() {
                         payload.revision = 0;
                     } else if mismatch == "communication_send" {
                         payload.communication_send = !payload.communication_send;
+                    } else if mismatch == "generic_semantic_ui" {
+                        payload.generic_semantic_ui = !payload.generic_semantic_ui;
                     } else {
                         payload
                             .allowed_application_paths

@@ -6735,6 +6735,9 @@ export type ComputerUseCommunicationPolicy = {
     revision: number;
 };
 
+/**
+ * @description The master switch is read-only here: the communication switches show\nwhether it lets them take effect, and only [`ComputerUseSwitchesUpdate`]\nchanges it.
+*/
 export type ComputerUseCommunicationPolicyUpdate = {
     /**
      * @type boolean
@@ -6749,6 +6752,54 @@ export type ComputerUseCommunicationPolicyUpdate = {
     */
     communication_send: boolean;
     /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    expected_revision: number;
+};
+
+/**
+ * @description The master switch and the desktop and application capabilities. The file\nworkspace is not among them: it does not depend on Computer Use.
+*/
+export type ComputerUseSwitches = {
+    /**
+     * @type boolean
+    */
+    enabled: boolean;
+    /**
+     * @type boolean
+    */
+    generic_semantic_ui: boolean;
+    /**
+     * @type boolean
+    */
+    iwork_semantic: boolean;
+    /**
+     * @type boolean
+    */
+    observe: boolean;
+    /**
+     * @type boolean
+    */
+    office_semantic: boolean;
+    /**
+     * @description `windows`, `macos` or `linux`: which switches take effect here.
+     * @type string
+    */
+    platform: string;
+    /**
+     * @type boolean
+    */
+    raw_input_fallback: boolean;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    revision: number;
+};
+
+export type ComputerUseSwitchesUpdate = {
+    /**
      * @type boolean
     */
     enabled: boolean;
@@ -6757,6 +6808,26 @@ export type ComputerUseCommunicationPolicyUpdate = {
      * @type integer, int64
     */
     expected_revision: number;
+    /**
+     * @type boolean
+    */
+    generic_semantic_ui: boolean;
+    /**
+     * @type boolean
+    */
+    iwork_semantic: boolean;
+    /**
+     * @type boolean
+    */
+    observe: boolean;
+    /**
+     * @type boolean
+    */
+    office_semantic: boolean;
+    /**
+     * @type boolean
+    */
+    raw_input_fallback: boolean;
 };
 
 /**
@@ -14083,6 +14154,61 @@ export type RestResponseComputerUseCommunicationPolicy = {
          * @type boolean
         */
         enabled: boolean;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        revision: number;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseComputerUseSwitches = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @description The master switch and the desktop and application capabilities. The file\nworkspace is not among them: it does not depend on Computer Use.
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type boolean
+        */
+        enabled: boolean;
+        /**
+         * @type boolean
+        */
+        generic_semantic_ui: boolean;
+        /**
+         * @type boolean
+        */
+        iwork_semantic: boolean;
+        /**
+         * @type boolean
+        */
+        observe: boolean;
+        /**
+         * @type boolean
+        */
+        office_semantic: boolean;
+        /**
+         * @description `windows`, `macos` or `linux`: which switches take effect here.
+         * @type string
+        */
+        platform: string;
+        /**
+         * @type boolean
+        */
+        raw_input_fallback: boolean;
         /**
          * @minLength 0
          * @type integer, int64
@@ -21697,6 +21823,18 @@ export type UpdateCollectionPolicySettingsMutation = {
     Errors: any;
 };
 
+export type UpdateComputerUseSwitches200 = RestResponseComputerUseSwitches;
+
+export type UpdateComputerUseSwitchesMutationRequest = ComputerUseSwitchesUpdate;
+
+export type UpdateComputerUseSwitchesMutationResponse = UpdateComputerUseSwitches200;
+
+export type UpdateComputerUseSwitchesMutation = {
+    Response: UpdateComputerUseSwitches200;
+    Request: UpdateComputerUseSwitchesMutationRequest;
+    Errors: any;
+};
+
 export type UpdateComputerUseApplicationPolicy200 = RestResponseComputerUseApplicationPolicy;
 
 export type UpdateComputerUseApplicationPolicyMutationRequest = ComputerUseApplicationPolicyUpdate;
@@ -21736,6 +21874,15 @@ export type QueryComputerUseCommunicationPolicyMutationResponse = QueryComputerU
 
 export type QueryComputerUseCommunicationPolicyMutation = {
     Response: QueryComputerUseCommunicationPolicy200;
+    Errors: any;
+};
+
+export type QueryComputerUseSwitches200 = RestResponseComputerUseSwitches;
+
+export type QueryComputerUseSwitchesMutationResponse = QueryComputerUseSwitches200;
+
+export type QueryComputerUseSwitchesMutation = {
+    Response: QueryComputerUseSwitches200;
     Errors: any;
 };
 

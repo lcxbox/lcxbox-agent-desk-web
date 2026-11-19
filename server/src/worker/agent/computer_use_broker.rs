@@ -1391,13 +1391,11 @@ impl ComputerUseBroker {
         let text_file_storage_ready = self.file_recovery_ready.load(Ordering::SeqCst);
         #[cfg(not(any(windows, target_os = "linux")))]
         let text_file_storage_ready = cfg!(target_os = "macos");
-        let artifact_reason = if !file_provider_supported {
-            Some(ComputerUseReadinessReason::UnsupportedPlatform)
-        } else if !ceiling.enabled {
-            Some(ComputerUseReadinessReason::DisabledByLocalCeiling)
-        } else {
-            None
-        };
+        // The file workspace is not Computer Use: like commands and file
+        // reads it follows the assistant switch, a directory approval and
+        // per-operation approval, never the local Computer Use ceiling.
+        let artifact_reason =
+            (!file_provider_supported).then_some(ComputerUseReadinessReason::UnsupportedPlatform);
         let office_provider_supported = cfg!(windows);
         let iwork_provider_supported = cfg!(target_os = "macos");
         let outlook_provider_supported = cfg!(windows);
@@ -2100,7 +2098,7 @@ impl ComputerUseBroker {
                                 .into(),
                     },
                     supported: file_provider_supported,
-                    ready: file_provider_supported && ceiling.enabled,
+                    ready: file_provider_supported,
                     reason: artifact_reason,
                 },
                 ComputerUseCapabilityReadiness {
@@ -2132,7 +2130,7 @@ impl ComputerUseBroker {
                         version: spreadsheet_file_adapter_version.clone(),
                     },
                     supported: file_provider_supported,
-                    ready: file_provider_supported && ceiling.enabled,
+                    ready: file_provider_supported,
                     reason: artifact_reason,
                 },
                 ComputerUseCapabilityReadiness {
@@ -2142,7 +2140,7 @@ impl ComputerUseBroker {
                         version: spreadsheet_file_adapter_version.clone(),
                     },
                     supported: file_provider_supported,
-                    ready: file_provider_supported && ceiling.enabled,
+                    ready: file_provider_supported,
                     reason: artifact_reason,
                 },
                 ComputerUseCapabilityReadiness {
@@ -2152,7 +2150,7 @@ impl ComputerUseBroker {
                         version: spreadsheet_file_adapter_version,
                     },
                     supported: file_provider_supported,
-                    ready: file_provider_supported && ceiling.enabled,
+                    ready: file_provider_supported,
                     reason: artifact_reason,
                 },
                 ComputerUseCapabilityReadiness {
@@ -2162,10 +2160,10 @@ impl ComputerUseBroker {
                         version: desk_diagnose_core::ai_assistant::TEXT_FILE_ADAPTER_VERSION.into(),
                     },
                     supported: text_file_supported,
-                    ready: text_file_supported && text_file_storage_ready && ceiling.enabled,
+                    ready: text_file_supported && text_file_storage_ready,
                     reason: if !text_file_supported {
                         Some(ComputerUseReadinessReason::UnsupportedPlatform)
-                    } else if ceiling.enabled && !text_file_storage_ready {
+                    } else if !text_file_storage_ready {
                         Some(ComputerUseReadinessReason::AdapterUnavailable)
                     } else {
                         artifact_reason
@@ -2178,10 +2176,10 @@ impl ComputerUseBroker {
                         version: desk_diagnose_core::ai_assistant::TEXT_FILE_ADAPTER_VERSION.into(),
                     },
                     supported: text_file_supported,
-                    ready: text_file_supported && text_file_storage_ready && ceiling.enabled,
+                    ready: text_file_supported && text_file_storage_ready,
                     reason: if !text_file_supported {
                         Some(ComputerUseReadinessReason::UnsupportedPlatform)
-                    } else if ceiling.enabled && !text_file_storage_ready {
+                    } else if !text_file_storage_ready {
                         Some(ComputerUseReadinessReason::AdapterUnavailable)
                     } else {
                         artifact_reason
@@ -2194,7 +2192,7 @@ impl ComputerUseBroker {
                         version: file_artifact_adapter_version.clone(),
                     },
                     supported: file_provider_supported,
-                    ready: file_provider_supported && ceiling.enabled,
+                    ready: file_provider_supported,
                     reason: artifact_reason,
                 },
                 ComputerUseCapabilityReadiness {
@@ -2204,7 +2202,7 @@ impl ComputerUseBroker {
                         version: file_artifact_adapter_version,
                     },
                     supported: file_provider_supported,
-                    ready: file_provider_supported && ceiling.enabled,
+                    ready: file_provider_supported,
                     reason: artifact_reason,
                 },
                 ComputerUseCapabilityReadiness {
@@ -5307,7 +5305,7 @@ mod tests {
     }
 
     #[test]
-    fn file_writer_without_observation_remains_worker_bound_and_preemptible() {
+    fn file_writer_without_observation_remains_worker_bound_and_survives_input() {
         use desk_agent_protocol::computer_use::{ComputerActionKind, FilePatchAction};
         let broker = ComputerUseBroker::new();
         let readiness = broker.readiness(
@@ -5364,10 +5362,10 @@ mod tests {
                 })
                 .is_err()
         );
+        // Local keyboard and mouse input does not interrupt file work; only a
+        // new worker incarnation does.
         broker.note_external_input();
-        assert!(broker.require_writer_lease("file-generation").is_err());
-        broker.release_writer_lease("file-generation");
-        broker.acquire_writer_lease(request.clone()).unwrap();
+        broker.require_writer_lease("file-generation").unwrap();
         broker.reset_worker_incarnation();
         assert!(broker.require_writer_lease("file-generation").is_err());
         broker.release_writer_lease("file-generation");
@@ -5787,9 +5785,13 @@ mod tests {
     }
 
     #[test]
-    fn disabled_observation_keeps_only_independent_diagnostics_and_safe_exec_ready() {
+    fn computer_use_off_keeps_diagnostics_exec_and_the_file_workspace_ready() {
         let broker = ComputerUseBroker::new();
-        let readiness = broker.readiness(&ComputerUseSettings::default(), false, false);
+        let computer_use_off = ComputerUseSettings {
+            enabled: false,
+            ..ComputerUseSettings::default()
+        };
+        let readiness = broker.readiness(&computer_use_off, false, false);
         readiness.validate().unwrap();
         let observed = chrono::DateTime::parse_from_rfc3339(&readiness.observed_at).unwrap();
         let expires = chrono::DateTime::parse_from_rfc3339(&readiness.expires_at).unwrap();
@@ -5808,8 +5810,22 @@ mod tests {
                     | Capability::SpreadsheetMergePreview
                     | Capability::DocumentPreview
                     | Capability::TerminalOutputRead
+                    // The file workspace is not Computer Use.
+                    | Capability::SpreadsheetWorkbookCreateConfirmed
+                    | Capability::SpreadsheetFormulaWorkbookCreateConfirmed
+                    | Capability::WordDocumentCreateConfirmed
+                    | Capability::FileArtifactCreateConfirmed
+                    | Capability::CommunicationLocalDraftCreateConfirmed
+                    | Capability::DocumentConvertConfirmed
             ) {
                 entry.ready == cfg!(any(windows, target_os = "linux", target_os = "macos"))
+            } else if matches!(
+                entry.capability,
+                Capability::FilePatchConfirmed | Capability::FileDeleteConfirmed
+            ) {
+                // Needs only the recovery storage, which macOS always has
+                // and the other platforms report once it opens.
+                entry.ready == cfg!(target_os = "macos")
             } else if entry.capability == Capability::ServiceStatus {
                 entry.ready
                     == (cfg!(any(windows, target_os = "linux", target_os = "macos"))
@@ -5874,6 +5890,22 @@ mod tests {
                     | Capability::DocumentConvertConfirmed
             )
         }));
+
+        // Once recovery storage is ready, text writes and command restore
+        // are available with Computer Use still off; Computer Use itself is not.
+        broker.set_file_recovery_ready(true);
+        let readiness = broker.readiness(&computer_use_off, false, false);
+        let ready = |capability| {
+            readiness
+                .capabilities
+                .iter()
+                .any(|entry| entry.capability == capability && entry.ready)
+        };
+        let supported = cfg!(any(windows, target_os = "linux", target_os = "macos"));
+        assert_eq!(ready(Capability::FilePatchConfirmed), supported);
+        assert_eq!(ready(Capability::FileDeleteConfirmed), supported);
+        assert!(!ready(Capability::ApplicationLaunchConfirmed));
+        assert!(!ready(Capability::DesktopUiActionConfirmed));
     }
 
     #[test]
@@ -5921,7 +5953,7 @@ mod tests {
     }
 
     #[test]
-    fn text_mutations_follow_master_switch_without_granting_directory_authority() {
+    fn text_mutations_follow_storage_readiness_without_granting_directory_authority() {
         let broker = ComputerUseBroker::new();
         for storage_ready in [false, true] {
             #[cfg(any(windows, target_os = "linux"))]
@@ -5946,10 +5978,10 @@ mod tests {
                         entry.supported,
                         cfg!(any(target_os = "macos", target_os = "linux", windows))
                     );
+                    // The Computer Use master switch does not gate file work.
                     assert_eq!(
                         entry.ready,
-                        enabled
-                            && effective_storage_ready
+                        effective_storage_ready
                             && cfg!(any(target_os = "macos", target_os = "linux", windows))
                     );
                     assert_eq!(
@@ -6047,7 +6079,7 @@ mod tests {
 
     #[test]
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
-    fn file_readiness_uses_only_master_switch_and_leaves_scope_to_the_conversation() {
+    fn file_readiness_ignores_the_master_switch_and_leaves_scope_to_the_conversation() {
         let broker = ComputerUseBroker::new();
         for enabled in [false, true] {
             let settings = ComputerUseSettings {
@@ -6062,11 +6094,8 @@ mod tests {
                 .find(|entry| entry.capability == Capability::FileArtifactCreateConfirmed)
                 .unwrap();
             assert!(entry.supported);
-            assert_eq!(entry.ready, enabled);
-            assert_eq!(
-                entry.reason,
-                (!enabled).then_some(ComputerUseReadinessReason::DisabledByLocalCeiling)
-            );
+            assert!(entry.ready);
+            assert_eq!(entry.reason, None);
         }
     }
 

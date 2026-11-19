@@ -1,6 +1,12 @@
 //! Device-local Computer Use capability ceiling.
 //!
-//! Every capability defaults off. Central policy and remote clients may narrow
+//! The master switch defaults on and every narrower capability defaults off,
+//! so a new install offers only confirmed application launch until the owner
+//! opts into more. The file workspace (directory approval, text files,
+//! generated documents) is not Computer Use and is not governed here. A
+//! config file keeps whatever it states: settings are written out in full,
+//! so an existing install's explicit `enabled = false` stays off. Central
+//! policy and remote clients may narrow
 //! these values when computing readiness, but no signaling or manager path may
 //! persist a wider value. The trusted local writer owns the capability switches
 //! and optional static application restriction; an empty list enables nothing.
@@ -8,7 +14,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
 pub struct ComputerUseSettings {
     /// Monotonic revision maintained by the trusted local settings writer.
@@ -41,10 +47,45 @@ pub struct ComputerUseSettings {
     pub allowed_application_paths: Vec<String>,
 }
 
+impl Default for ComputerUseSettings {
+    fn default() -> Self {
+        Self {
+            revision: 0,
+            enabled: true,
+            observe: false,
+            office_semantic: false,
+            iwork_semantic: false,
+            browser_semantic: false,
+            communication_handoff: false,
+            communication_send: false,
+            generic_semantic_ui: false,
+            raw_input_fallback: false,
+            allowed_application_paths: Vec::new(),
+        }
+    }
+}
+
 impl ComputerUseSettings {
     #[must_use]
     pub const fn observation_enabled(&self) -> bool {
         self.enabled && self.observe
+    }
+
+    /// Whether this platform's input-ownership monitor (a global input hook)
+    /// must run: only while an interactive Computer Use capability that
+    /// depends on it is on. Generic UI and raw input need it to be ready;
+    /// Office, iWork, browser and Outlook writers yield to local input through
+    /// it. Application launch and the file workspace do not need it.
+    #[must_use]
+    pub const fn input_monitor_wanted(&self) -> bool {
+        self.enabled
+            && (self.generic_semantic_ui
+                || self.browser_semantic
+                || (cfg!(windows)
+                    && (self.raw_input_fallback
+                        || self.office_semantic
+                        || self.communication_handoff))
+                || (cfg!(target_os = "macos") && self.iwork_semantic))
     }
 
     #[must_use]
@@ -102,14 +143,93 @@ pub struct ComputerUseCommunicationPolicy {
     pub communication_send: bool,
 }
 
+/// The master switch is read-only here: the communication switches show
+/// whether it lets them take effect, and only [`ComputerUseSwitchesUpdate`]
+/// changes it.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ComputerUseCommunicationPolicyUpdate {
     pub expected_revision: u64,
-    pub enabled: bool,
     pub browser_semantic: bool,
     pub communication_handoff: bool,
     pub communication_send: bool,
+}
+
+/// The master switch and the desktop and application capabilities. The file
+/// workspace is not among them: it does not depend on Computer Use.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ComputerUseSwitches {
+    pub revision: u64,
+    /// `windows`, `macos` or `linux`: which switches take effect here.
+    pub platform: String,
+    pub enabled: bool,
+    pub observe: bool,
+    pub office_semantic: bool,
+    pub iwork_semantic: bool,
+    pub generic_semantic_ui: bool,
+    pub raw_input_fallback: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ComputerUseSwitchesUpdate {
+    pub expected_revision: u64,
+    pub enabled: bool,
+    pub observe: bool,
+    pub office_semantic: bool,
+    pub iwork_semantic: bool,
+    pub generic_semantic_ui: bool,
+    pub raw_input_fallback: bool,
+}
+
+impl ComputerUseSettings {
+    /// The next revision after a save that expected `expected`.
+    #[allow(clippy::result_large_err)]
+    fn next_revision(&self, expected: u64) -> Result<u64, crate::error::DeskError> {
+        use crate::error::DeskError;
+        use desk_utils::error::DeskErrorCode;
+        if self.revision != expected {
+            return DeskError::custom_error(
+                DeskErrorCode::REVISION_CONFLICT,
+                "Local Computer Use policy changed; reload before saving",
+            );
+        }
+        self.revision.checked_add(1).ok_or_else(|| {
+            DeskError::new_custom_error(
+                DeskErrorCode::PRECONDITION_FAILED,
+                "Local Computer Use policy revision exhausted",
+            )
+        })
+    }
+
+    pub fn switches(&self) -> ComputerUseSwitches {
+        ComputerUseSwitches {
+            revision: self.revision,
+            platform: std::env::consts::OS.to_string(),
+            enabled: self.enabled,
+            observe: self.observe,
+            office_semantic: self.office_semantic,
+            iwork_semantic: self.iwork_semantic,
+            generic_semantic_ui: self.generic_semantic_ui,
+            raw_input_fallback: self.raw_input_fallback,
+        }
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn update_switches(
+        &mut self,
+        update: ComputerUseSwitchesUpdate,
+    ) -> Result<(), crate::error::DeskError> {
+        let revision = self.next_revision(update.expected_revision)?;
+        self.enabled = update.enabled;
+        self.observe = update.observe;
+        self.office_semantic = update.office_semantic;
+        self.iwork_semantic = update.iwork_semantic;
+        self.generic_semantic_ui = update.generic_semantic_ui;
+        self.raw_input_fallback = update.raw_input_fallback;
+        self.revision = revision;
+        Ok(())
+    }
 }
 
 impl ComputerUseSettings {
@@ -128,21 +248,7 @@ impl ComputerUseSettings {
         &mut self,
         update: ComputerUseCommunicationPolicyUpdate,
     ) -> Result<(), crate::error::DeskError> {
-        use crate::error::DeskError;
-        use desk_utils::error::DeskErrorCode;
-        if self.revision != update.expected_revision {
-            return DeskError::custom_error(
-                DeskErrorCode::REVISION_CONFLICT,
-                "Local Computer Use policy changed; reload before saving",
-            );
-        }
-        let revision = self.revision.checked_add(1).ok_or_else(|| {
-            DeskError::new_custom_error(
-                DeskErrorCode::PRECONDITION_FAILED,
-                "Local Computer Use policy revision exhausted",
-            )
-        })?;
-        self.enabled = update.enabled;
+        let revision = self.next_revision(update.expected_revision)?;
         self.browser_semantic = update.browser_semantic;
         self.communication_handoff = update.communication_handoff;
         self.communication_send = update.communication_send;
@@ -165,6 +271,11 @@ impl ComputerUseSettings {
             browser_semantic: self.browser_semantic,
             communication_handoff: self.communication_handoff,
             communication_send: self.communication_send,
+            observe: self.observe,
+            office_semantic: self.office_semantic,
+            iwork_semantic: self.iwork_semantic,
+            generic_semantic_ui: self.generic_semantic_ui,
+            raw_input_fallback: self.raw_input_fallback,
             allowed_application_paths: self.allowed_application_paths.clone(),
         }
     }
@@ -242,12 +353,11 @@ mod tests {
             allowed_application_paths: vec!["/bin/test".into()],
             ..Default::default()
         };
-        let update = |revision, enabled| ComputerUseCommunicationPolicyUpdate {
+        let update = |revision, send| ComputerUseCommunicationPolicyUpdate {
             expected_revision: revision,
-            enabled,
             browser_semantic: true,
             communication_handoff: true,
-            communication_send: true,
+            communication_send: send,
         };
         settings
             .update_communication_policy(update(0, true))
@@ -266,7 +376,9 @@ mod tests {
             .update_communication_policy(update(1, false))
             .unwrap();
         assert!(!settings.communication_send_enabled());
-        assert!(settings.communication_send);
+        assert!(!settings.communication_send);
+        // The communication update never touches the master switch.
+        assert!(settings.enabled);
         settings.revision = u64::MAX;
         let before = settings.clone();
         assert!(
@@ -302,8 +414,10 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_fail_closed() {
+    fn defaults_enable_only_the_master_switch() {
         let settings = ComputerUseSettings::default();
+        assert!(settings.enabled);
+        assert!(!settings.observe);
         assert!(!settings.observation_enabled());
         assert_eq!(settings.revision, 0);
         assert!(!settings.office_semantic);
@@ -321,8 +435,91 @@ mod tests {
     }
 
     #[test]
+    fn switches_are_explicit_cas_and_preserve_the_communication_switches() {
+        let mut settings = ComputerUseSettings {
+            browser_semantic: true,
+            communication_send: true,
+            ..Default::default()
+        };
+        let update = |revision, enabled| ComputerUseSwitchesUpdate {
+            expected_revision: revision,
+            enabled,
+            observe: true,
+            office_semantic: false,
+            iwork_semantic: false,
+            generic_semantic_ui: true,
+            raw_input_fallback: false,
+        };
+        settings.update_switches(update(0, false)).unwrap();
+        assert!(!settings.enabled && settings.observe && settings.generic_semantic_ui);
+        assert!(settings.browser_semantic && settings.communication_send);
+        assert_eq!(settings.revision, 1);
+        let before = settings.clone();
+        assert!(settings.update_switches(update(0, true)).is_err());
+        assert_eq!(settings, before);
+        let switches = settings.switches();
+        assert_eq!(switches.revision, 1);
+        assert_eq!(switches.platform, std::env::consts::OS);
+        assert!(!switches.enabled);
+    }
+
+    #[test]
+    fn the_input_monitor_runs_only_for_interactive_capabilities() {
+        let mut settings = ComputerUseSettings::default();
+        // The default master switch alone offers application launch only.
+        assert!(!settings.input_monitor_wanted());
+        settings.generic_semantic_ui = true;
+        assert!(settings.input_monitor_wanted());
+        settings.enabled = false;
+        assert!(!settings.input_monitor_wanted());
+
+        let platform = |change: fn(&mut ComputerUseSettings)| {
+            let mut settings = ComputerUseSettings::default();
+            change(&mut settings);
+            settings.input_monitor_wanted()
+        };
+        assert!(platform(|settings| settings.browser_semantic = true));
+        assert_eq!(
+            platform(|settings| settings.raw_input_fallback = true),
+            cfg!(windows)
+        );
+        assert_eq!(
+            platform(|settings| settings.office_semantic = true),
+            cfg!(windows)
+        );
+        assert_eq!(
+            platform(|settings| settings.communication_handoff = true),
+            cfg!(windows)
+        );
+        assert_eq!(
+            platform(|settings| settings.iwork_semantic = true),
+            cfg!(target_os = "macos")
+        );
+        assert!(!platform(|settings| settings.observe = true));
+        assert!(!platform(|settings| settings.communication_send = true));
+    }
+
+    #[test]
+    fn a_config_file_keeps_its_stated_master_switch() {
+        // A missing key takes the default; an existing install's explicit
+        // `false` stays off.
+        let missing: ComputerUseSettings = toml::from_str("observe = true").unwrap();
+        assert!(missing.enabled);
+        let off: ComputerUseSettings = toml::from_str("enabled = false").unwrap();
+        assert!(!off.enabled);
+        let written = toml::to_string(&off).unwrap();
+        assert!(written.contains("enabled = false"));
+        assert!(
+            !toml::from_str::<ComputerUseSettings>(&written)
+                .unwrap()
+                .enabled
+        );
+    }
+
+    #[test]
     fn master_switch_dominates_observe() {
         let mut settings = ComputerUseSettings {
+            enabled: false,
             observe: true,
             ..Default::default()
         };

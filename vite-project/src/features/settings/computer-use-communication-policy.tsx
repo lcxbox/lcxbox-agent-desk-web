@@ -9,8 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { queryComputerUseCommunicationPolicy, updateComputerUseCommunicationPolicy } from '@/services/clients';
 import type { ComputerUseCommunicationPolicy } from '@/services/types';
 
+// The Computer Use master switch is edited on its own card; here it is shown
+// only to say whether these switches can take effect.
 const groups = [
-    { name: 'general', flags: ['enabled'] },
     { name: 'browser', flags: ['browser_semantic'] },
     { name: 'messages', flags: ['communication_handoff', 'communication_send'] },
 ] as const;
@@ -38,7 +39,6 @@ export function ComputerUseCommunicationPolicySettings() {
             const response = save && policy
                 ? await updateComputerUseCommunicationPolicy({
                     expected_revision: policy.revision,
-                    enabled: policy.enabled,
                     browser_semantic: policy.browser_semantic,
                     communication_handoff: policy.communication_handoff,
                     communication_send: policy.communication_send,
@@ -73,6 +73,7 @@ export function ComputerUseCommunicationPolicySettings() {
                 </Alert>
                 {local && <Button variant="outline" disabled={busy} onClick={() => void perform(false)}>{t('pages.communicationPolicy.load')}</Button>}
                 {local && policy && <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void perform(true); }}>
+                    {!policy.enabled && <p className="text-sm text-muted-foreground">{t('pages.communicationPolicy.masterOff')}</p>}
                     {groups.map((group) => <fieldset key={group.name} className="min-w-0 rounded-lg border p-4">
                         <legend className="px-1 text-sm font-medium">{t(`pages.communicationPolicy.group.${group.name}`)}</legend>
                         <div className="space-y-4">

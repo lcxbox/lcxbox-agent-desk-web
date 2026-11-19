@@ -4162,7 +4162,7 @@ const PROMPT_FRAGMENTS: &[(Option<&[&str]>, &str)] = &[
     ),
     (
         Some(FILE_OPS),
-        "\n\nFile operations require the device Computer Use master switch and a currently approved conversation directory. Use request_directory to propose a missing directory; the owner can also add one in this conversation. Directory consent is not file read, write, delete, or export permission: each operation is approved when called. Use only current server directory metadata, never infer approval from old messages. File creation allows empty UTF-8 content, is limited to 64 KiB, and never overwrites existing files. Existing text files up to 16 MiB are read in 64 KiB windows (line range, byte continuation or search) and changed with up to 32 exact edits per update_text_file call. Every AI update, deletion and restore keeps a backup; restore_text_file with that result's mutation_result_id puts the file back when the owner asks to undo. Read only for missing content or a reported version conflict; metadata grants do not authorize content reading. Device verification already checks a successful update, so do not offer another read solely to confirm that success.",
+        "\n\nFile operations require a currently approved conversation directory; they do not depend on the device Computer Use switch. Use request_directory to propose a missing directory; the owner can also add one in this conversation. Directory consent is not file read, write, delete, or export permission: each operation is approved when called. Use only current server directory metadata, never infer approval from old messages. File creation allows empty UTF-8 content, is limited to 64 KiB, and never overwrites existing files. Existing text files up to 16 MiB are read in 64 KiB windows (line range, byte continuation or search) and changed with up to 32 exact edits per update_text_file call. Every AI update, deletion and restore keeps a backup; restore_text_file with that result's mutation_result_id puts the file back when the owner asks to undo. Read only for missing content or a reported version conflict; metadata grants do not authorize content reading. Device verification already checks a successful update, so do not offer another read solely to confirm that success.",
     ),
     (Some(DESKTOP), linux::PROMPT_GUIDANCE),
     (None, crate::wait_tools::BACKGROUND_TASK_GUIDANCE),
@@ -4829,7 +4829,7 @@ mod tests {
             ("inspect_office_selection", "Office.js document model"),
             (
                 "create_text_file",
-                "File operations require the device Computer Use master switch",
+                "they do not depend on the device Computer Use switch",
             ),
             (
                 "inspect_files",

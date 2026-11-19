@@ -22,6 +22,7 @@ pub mod computer_use_writer;
 pub(crate) mod document_conversion;
 pub mod eval;
 pub mod file_reference_store;
+pub(crate) mod input_monitor_control;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_desktop;
 #[cfg(target_os = "linux")]
@@ -673,19 +674,12 @@ async fn dispatch_read_context(
             ))
         }
         ContextKind::FileDirectoryResolve(params) => {
-            let Some(settings) = settings else {
+            // The file workspace is not Computer Use: resolving a directory
+            // for approval does not depend on the local Computer Use ceiling.
+            if settings.is_none() {
                 return Err(unsupported(
                     "directory resolution requires a session context",
                 ));
-            };
-            if !settings.read().await.computer_use.enabled {
-                return Err(AgentError {
-                    kind: AgentErrorKind::PermissionDenied,
-                    message: "Computer Use is disabled on this device".into(),
-                    retryable: false,
-                    safe_for_model: true,
-                    error_code: None,
-                });
             }
             let output =
                 run_blocking(move || file_reference_store::resolve_directory(&params.path))
@@ -848,6 +842,30 @@ mod tests {
             .await
             .expect_err("must reject without settings");
         assert_eq!(err.kind, AgentErrorKind::UnsupportedCapability);
+    }
+
+    #[tokio::test]
+    async fn directory_resolution_does_not_depend_on_computer_use() {
+        let mut settings = Settings::default();
+        settings.computer_use.enabled = false;
+        let agent = LocalDeviceAgent::with_settings(Arc::new(SharedSettings::from(settings)));
+        let directory = tempfile::tempdir().unwrap();
+        let env = envelope_for(OperationInput::ReadContext(ReadContextInput {
+            kind: ContextKind::FileDirectoryResolve(
+                desk_agent_protocol::computer_use::FileDirectoryResolveParams {
+                    path: directory.path().to_string_lossy().into_owned(),
+                },
+            ),
+        }));
+        // Whatever the resolver decides about this directory, it is never the
+        // Computer Use ceiling that refuses it.
+        if let Err(error) = agent.invoke(env).await {
+            assert!(
+                !error.message.contains("Computer Use"),
+                "directory resolution must not depend on Computer Use: {}",
+                error.message
+            );
+        }
     }
 
     #[tokio::test]

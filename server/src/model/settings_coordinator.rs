@@ -872,7 +872,6 @@ mod tests {
             settings.computer_use.update_communication_policy(
                 ComputerUseCommunicationPolicyUpdate {
                     expected_revision: 0,
-                    enabled: true,
                     browser_semantic: true,
                     communication_handoff: true,
                     communication_send: true,

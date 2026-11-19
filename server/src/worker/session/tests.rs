@@ -835,7 +835,8 @@ mod inbound_reader {
         let settings = Arc::new(SharedSettings::from(Settings::default()));
         let (ack_tx, mut ack_rx) = mpsc::unbounded_channel();
         let (main_tx, mut main_rx) = mpsc::unbounded_channel();
-        let reader = spawn_inbound_reader(worker_rx, mirror, settings.clone(), ack_tx, main_tx);
+        let reader =
+            spawn_inbound_reader(worker_rx, mirror, settings.clone(), ack_tx, main_tx, None);
         let lease = settings.read().await;
         let update = ComputerUseLocalPolicyPayload {
             allow_screen: false,
@@ -844,6 +845,11 @@ mod inbound_reader {
             browser_semantic: true,
             communication_handoff: true,
             communication_send: true,
+            observe: false,
+            office_semantic: false,
+            iwork_semantic: false,
+            generic_semantic_ui: false,
+            raw_input_fallback: false,
             operation_id: "applications-1".into(),
             revision: 2,
             allowed_application_paths: vec![
@@ -886,6 +892,11 @@ mod inbound_reader {
                     browser_semantic: false,
                     communication_handoff: false,
                     communication_send: false,
+                    observe: false,
+                    office_semantic: false,
+                    iwork_semantic: false,
+                    generic_semantic_ui: false,
+                    raw_input_fallback: false,
                     operation_id: "stale".into(),
                     revision: 1,
                     allowed_application_paths: vec![],
@@ -930,6 +941,7 @@ mod inbound_reader {
             Arc::new(SharedSettings::from(Settings::default())),
             ack_tx,
             main_tx,
+            None,
         );
 
         daemon_tx
@@ -984,6 +996,7 @@ mod inbound_reader {
             Arc::new(SharedSettings::from(Settings::default())),
             ack_tx,
             main_tx,
+            None,
         );
 
         drop(daemon_tx);

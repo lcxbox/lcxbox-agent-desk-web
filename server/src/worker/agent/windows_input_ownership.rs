@@ -34,6 +34,7 @@ pub struct WindowsInputOwnershipMonitor {
 impl WindowsInputOwnershipMonitor {
     pub fn start(broker: &Arc<ComputerUseBroker>) -> Result<Self, String> {
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let owner = Arc::clone(broker);
         let broker = Arc::downgrade(broker);
         let join = thread::Builder::new()
             .name("computer-use-input-owner".into())
@@ -41,10 +42,15 @@ impl WindowsInputOwnershipMonitor {
             .map_err(|error| format!("cannot start Windows input ownership thread: {error}"))?;
 
         match ready_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(thread_id)) => Ok(Self {
-                thread_id,
-                join: Some(join),
-            }),
+            Ok(Ok(thread_id)) => {
+                // Ready only once the start has succeeded: a hook thread whose
+                // start timed out cleans up without ever reporting ready.
+                owner.set_input_ownership_ready(true);
+                Ok(Self {
+                    thread_id,
+                    join: Some(join),
+                })
+            }
             Ok(Err(error)) => {
                 let _ = join.join();
                 Err(error)
@@ -152,9 +158,6 @@ fn run_hook_loop(broker: Weak<ComputerUseBroker>, ready_tx: mpsc::SyncSender<Res
     // Force creation of the thread message queue before publishing thread_id,
     // otherwise an immediate Drop could race PostThreadMessageW against it.
     let _ = unsafe { PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE) };
-    if let Some(broker) = broker.upgrade() {
-        broker.set_input_ownership_ready(true);
-    }
     if ready_tx.send(Ok(thread_id)).is_ok() {
         while unsafe { GetMessageW(&mut message, None, 0, 0) }.as_bool() {}
     }

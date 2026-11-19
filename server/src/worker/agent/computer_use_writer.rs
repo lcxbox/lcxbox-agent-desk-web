@@ -48,6 +48,18 @@ pub enum WriterLeaseScope {
     FileWorker,
 }
 
+impl WriterLeaseScope {
+    /// Whether keyboard or mouse input, local or from the remote viewer,
+    /// leaves the lease standing. Only a writer that drives the interactive
+    /// desktop yields to a person using it. Background input targets a
+    /// window that is not in the foreground; file work never touches the UI
+    /// and checks file versions where it commits, and it must behave the same
+    /// whether or not Computer Use runs the input monitor.
+    pub(crate) const fn survives_human_input(self) -> bool {
+        matches!(self, Self::BackgroundApplication | Self::FileWorker)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum WriterLeaseStatus {
     Active,
@@ -93,7 +105,7 @@ impl WriterLeaseCoordinator {
         if let Some(existing) = slot.as_ref() {
             if existing.status == WriterLeaseStatus::Active
                 && existing.request == request
-                && (existing.request.scope == WriterLeaseScope::BackgroundApplication
+                && (existing.request.scope.survives_human_input()
                     || existing.input_epoch_at_acquire == current_input_epoch)
             {
                 return Ok(existing.clone());
@@ -141,7 +153,7 @@ impl WriterLeaseCoordinator {
                 false,
             ));
         }
-        if state.request.scope != WriterLeaseScope::BackgroundApplication
+        if !state.request.scope.survives_human_input()
             && state.input_epoch_at_acquire != current_input_epoch
         {
             return Err(error(
@@ -172,7 +184,7 @@ impl WriterLeaseCoordinator {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(state) = slot.as_mut()
             && state.status == WriterLeaseStatus::Active
-            && !(state.request.scope == WriterLeaseScope::BackgroundApplication
+            && !(state.request.scope.survives_human_input()
                 && matches!(
                     source,
                     InputPreemptionSource::Browser | InputPreemptionSource::LocalExternal
@@ -356,6 +368,29 @@ mod tests {
                 leases.snapshot().unwrap().status,
                 WriterLeaseStatus::Preempted(source)
             );
+            assert_eq!(
+                leases.require_active("generation-1", 1).unwrap_err().kind,
+                AgentErrorKind::Cancelled
+            );
+        }
+    }
+
+    #[test]
+    fn file_work_outlasts_keyboard_and_mouse_input_but_not_a_session_change() {
+        for source in [
+            InputPreemptionSource::Browser,
+            InputPreemptionSource::LocalExternal,
+        ] {
+            let leases = WriterLeaseCoordinator::new();
+            let mut input = request("generation-1");
+            input.scope = WriterLeaseScope::FileWorker;
+            leases.acquire(input.clone(), 0).unwrap();
+            leases.preempt(source);
+            // Input moved the epoch on; the file lease stays active and an
+            // identical dispatch is still answered from it.
+            assert!(leases.require_active("generation-1", 1).is_ok());
+            assert!(leases.acquire(input, 1).is_ok());
+            leases.preempt(InputPreemptionSource::SessionChanged);
             assert_eq!(
                 leases.require_active("generation-1", 1).unwrap_err().kind,
                 AgentErrorKind::Cancelled

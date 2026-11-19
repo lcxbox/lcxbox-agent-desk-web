@@ -232,38 +232,33 @@ impl WorkerSession {
                 );
             }
         }
-        #[cfg(windows)]
-        let computer_use_input_monitor = if worker_profile == WorkerProfile::SessionUser
-            && shared_settings.read().await.computer_use.enabled
-        {
-            match crate::worker::agent::windows_input_ownership::WindowsInputOwnershipMonitor::start(
-                &computer_use_broker,
-            ) {
-                Ok(monitor) => Some(monitor),
-                Err(error) => {
-                    warn!("Computer Use input ownership monitor is unavailable: {error}");
-                    None
-                }
-            }
+        // The input-ownership monitor runs only while the local policy has an
+        // interactive Computer Use capability that needs it; the session
+        // worker owns it and the policy applier retargets it.
+        #[cfg(any(windows, target_os = "macos"))]
+        let computer_use_input_monitor = if worker_profile == WorkerProfile::SessionUser {
+            let wanted = shared_settings
+                .read()
+                .await
+                .computer_use
+                .input_monitor_wanted();
+            Some(
+                crate::worker::agent::input_monitor_control::InputMonitorControl::spawn(
+                    crate::worker::agent::input_monitor_control::PlatformInputMonitor::new(
+                        &computer_use_broker,
+                    ),
+                    wanted,
+                ),
+            )
         } else {
             None
         };
-        #[cfg(target_os = "macos")]
-        let computer_use_input_monitor = if worker_profile == WorkerProfile::SessionUser
-            && shared_settings.read().await.computer_use.enabled
-        {
-            match crate::worker::agent::macos_input_ownership::MacosInputOwnershipMonitor::start(
-                &computer_use_broker,
-            ) {
-                Ok(monitor) => Some(monitor),
-                Err(error) => {
-                    warn!("Computer Use input ownership monitor is unavailable: {error}");
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        #[cfg(any(windows, target_os = "macos"))]
+        let input_monitor_target = computer_use_input_monitor
+            .as_ref()
+            .map(|control| control.target());
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let input_monitor_target: Option<tokio::sync::watch::Sender<bool>> = None;
 
         #[cfg(target_os = "linux")]
         let portal_startup_restore = computer_use_broker.claim_portal_startup_restore();
@@ -844,6 +839,7 @@ impl WorkerSession {
             shared_settings.clone(),
             writer_tx.clone(),
             service_msg_tx,
+            input_monitor_target,
         );
 
         // File-lane drain task: hands inbound `FileTransferPayload`
@@ -2250,14 +2246,11 @@ impl WorkerSession {
                                                 &selected_display,
                                             )
                                             .map_err(|error| error.message),
+                                        // The file workspace is not Computer Use. Each file
+                                        // operation is checked against its approved directory,
+                                        // file version and recovery storage where it runs.
                                         ComputerActionKind::File(_)
-                                        | ComputerActionKind::DocumentConversion(_) => ceiling
-                                            .enabled
-                                            .then_some(())
-                                            .ok_or_else(|| {
-                                                "Computer Use is disabled on the device"
-                                                    .to_string()
-                                            }),
+                                        | ComputerActionKind::DocumentConversion(_) => Ok(()),
                                         ComputerActionKind::Browser(request) => {
                                             if !ceiling.enabled || !ceiling.browser_semantic {
                                                 Err("browser semantic control is disabled by the host-local ceiling".to_string())
@@ -3760,7 +3753,9 @@ impl WorkerSession {
             task.abort();
         }
         #[cfg(any(windows, target_os = "macos"))]
-        drop(computer_use_input_monitor);
+        if let Some(control) = computer_use_input_monitor {
+            control.shutdown().await;
+        }
         #[cfg(target_os = "linux")]
         drop(linux_input_endpoint);
         #[cfg(target_os = "linux")]
@@ -3825,6 +3820,7 @@ pub(super) fn spawn_inbound_reader(
     settings: Arc<SharedSettings>,
     ack_tx: mpsc::UnboundedSender<WorkerToService>,
     service_msg_tx: mpsc::UnboundedSender<Option<ServiceToWorker>>,
+    input_monitor_target: Option<tokio::sync::watch::Sender<bool>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
@@ -3832,6 +3828,7 @@ pub(super) fn spawn_inbound_reader(
                 Some(ServiceToWorker::UpdateComputerUseLocalPolicy(mut payload)) => {
                     let settings = settings.clone();
                     let ack_tx = ack_tx.clone();
+                    let input_monitor_target = input_monitor_target.clone();
                     // Native calls may hold a read lease. Do not let draining
                     // those leases strand Shutdown in the inbound reader.
                     tokio::spawn(async move {
@@ -3845,6 +3842,11 @@ pub(super) fn spawn_inbound_reader(
                             settings.computer_use.communication_handoff =
                                 payload.communication_handoff;
                             settings.computer_use.communication_send = payload.communication_send;
+                            settings.computer_use.observe = payload.observe;
+                            settings.computer_use.office_semantic = payload.office_semantic;
+                            settings.computer_use.iwork_semantic = payload.iwork_semantic;
+                            settings.computer_use.generic_semantic_ui = payload.generic_semantic_ui;
+                            settings.computer_use.raw_input_fallback = payload.raw_input_fallback;
                             settings.computer_use.allowed_application_paths =
                                 payload.allowed_application_paths.clone();
                         }
@@ -3855,10 +3857,22 @@ pub(super) fn spawn_inbound_reader(
                         payload.browser_semantic = settings.computer_use.browser_semantic;
                         payload.communication_handoff = settings.computer_use.communication_handoff;
                         payload.communication_send = settings.computer_use.communication_send;
+                        payload.observe = settings.computer_use.observe;
+                        payload.office_semantic = settings.computer_use.office_semantic;
+                        payload.iwork_semantic = settings.computer_use.iwork_semantic;
+                        payload.generic_semantic_ui = settings.computer_use.generic_semantic_ui;
+                        payload.raw_input_fallback = settings.computer_use.raw_input_fallback;
                         payload.allowed_application_paths =
                             settings.computer_use.allowed_application_paths.clone();
+                        let monitor_wanted = settings.computer_use.input_monitor_wanted();
+                        drop(settings);
                         let _ =
                             ack_tx.send(WorkerToService::ComputerUseLocalPolicyApplied(payload));
+                        // After the acknowledgement: starting the monitor can
+                        // take seconds and runs on its own task.
+                        if let Some(target) = input_monitor_target {
+                            let _ = target.send(monitor_wanted);
+                        }
                     });
                 }
                 Some(ServiceToWorker::UpdateSecurityPolicy(payload)) => {

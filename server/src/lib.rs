@@ -433,6 +433,8 @@ pub fn configure_api_surface(
                     .service(
                         controller::computer_use_policy::update_computer_use_application_policy,
                     )
+                    .service(controller::computer_use_policy::query_computer_use_switches)
+                    .service(controller::computer_use_policy::update_computer_use_switches)
                     .service(query_turn_settings)
                     .service(update_turn_settings)
                     .service(query_turn_client_settings)

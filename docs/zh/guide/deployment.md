@@ -95,6 +95,8 @@ server 内置信令、STUN 与 TURN。跨 NAT 连接时：
 
 ## 本地 Computer Use 应用策略
 
+Computer Use 总开关及桌面与应用能力在被控端 **系统设置 → AI 策略 → Computer Use** 中设置，owner、loopback 与 revision 检查与下文相同。配置文件中对应 `[computer_use]` 段：新配置的 `enabled` 默认为 `true`（缺少该键也按 `true` 读取），各项能力默认为 `false`，已有的 `enabled = false` 保持不变。文件操作和撤销命令造成的文件修改不受这一段影响。
+
 被控端的 **系统设置 → AI 策略 → 应用限制 → 高级** 提供可选的完整可执行路径限制。读取和保存同时要求 owner 登录态、内核报告的 loopback 对端以及匹配的 loopback Origin/Host。请通过 `localhost` 或 `127.0.0.1` 打开本地页面；远端页面和 Manager 不代理此策略。
 
 `computer_use.allowed_application_paths = []` 表示**不额外限制应用**，不再表示拒绝所有应用；已有非空列表继续生效。macOS 应填写可执行文件路径（例如 `/System/Applications/Calculator.app/Contents/MacOS/Calculator`），不是 `.app` 目录。该策略作用于通用 UI 观察、语义 UI 操作及裸输入回退，不授予模型外发或动作权限，不替代 TCC、精确目标绑定和助手总开关。

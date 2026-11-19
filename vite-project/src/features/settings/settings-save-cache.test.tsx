@@ -18,6 +18,7 @@ vi.mock('@/components/confirm-dialog', () => ({ useConfirm: () => ({ confirm: h.
 vi.mock('./file-recovery-settings', () => ({ FileRecoverySettings: () => null }))
 vi.mock('./computer-use-application-policy', () => ({ ComputerUseApplicationPolicySettings: () => null }))
 vi.mock('./computer-use-communication-policy', () => ({ ComputerUseCommunicationPolicySettings: () => null }))
+vi.mock('./computer-use-switches', () => ({ ComputerUseSwitchesSettings: () => null }))
 vi.mock('./manager-link-banner', () => ({ ManagerLinkBanner: () => null }))
 vi.mock('./backend-diagnostics-card', () => ({ BackendDiagnosticsCard: () => null }))
 vi.mock('./turn-runtime-status', () => ({ TurnRuntimeStatus: () => null }))

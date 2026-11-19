@@ -24,6 +24,7 @@ import { useToast } from "@/hooks/use-toast"
 import { FileRecoverySettings } from './file-recovery-settings';
 import { ComputerUseApplicationPolicySettings } from './computer-use-application-policy';
 import { ComputerUseCommunicationPolicySettings } from './computer-use-communication-policy';
+import { ComputerUseSwitchesSettings } from './computer-use-switches';
 
 const EXECUTION_MODES = ["suggest_only", "read_only", "confirm_each_action", "automated"] as const
 const MIN_CONCURRENT_EXECUTIONS = 1
@@ -283,6 +284,7 @@ export function AiPolicySettings() {
                 </CardContent>
             </Card>
 
+            <ComputerUseSwitchesSettings />
             <ComputerUseCommunicationPolicySettings />
             <ComputerUseApplicationPolicySettings />
             <FileRecoverySettings />

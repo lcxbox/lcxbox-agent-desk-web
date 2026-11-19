@@ -9,7 +9,8 @@ use crate::{
     model::{
         settings::{
             ComputerUseApplicationPolicy, ComputerUseApplicationPolicyUpdate,
-            ComputerUseCommunicationPolicy, ComputerUseCommunicationPolicyUpdate, SharedSettings,
+            ComputerUseCommunicationPolicy, ComputerUseCommunicationPolicyUpdate,
+            ComputerUseSwitches, ComputerUseSwitchesUpdate, SharedSettings,
         },
         settings_coordinator::SettingsCoordinator,
     },
@@ -117,6 +118,56 @@ pub async fn update_computer_use_communication_policy(
         .json(RestResponse::succeed_with_data(applied)))
 }
 
+#[utoipa::path(
+    tag = "ComputerUsePolicy",
+    summary = "Read the local Computer Use switches",
+    responses((status = 200, body = RestResponse<ComputerUseSwitches>)),
+)]
+#[post("/settings/computer-use/query")]
+pub async fn query_computer_use_switches(
+    req: HttpRequest,
+    settings: web::Data<SharedSettings>,
+) -> Result<HttpResponse, DeskError> {
+    validate_local_mutation(&req)?;
+    Ok(HttpResponse::Ok()
+        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .json(RestResponse::succeed_with_data(
+            settings.read().await.computer_use.switches(),
+        )))
+}
+
+#[utoipa::path(
+    tag = "ComputerUsePolicy",
+    summary = "Update the local Computer Use switches",
+    request_body = ComputerUseSwitchesUpdate,
+    responses((status = 200, body = RestResponse<ComputerUseSwitches>)),
+)]
+#[post("/settings/computer-use")]
+pub async fn update_computer_use_switches(
+    req: HttpRequest,
+    request: web::Json<ComputerUseSwitchesUpdate>,
+    coordinator: web::Data<SettingsCoordinator>,
+) -> Result<HttpResponse, DeskError> {
+    validate_local_mutation(&req)?;
+    let update = request.into_inner();
+    // Finish persistence and worker convergence even if the local page disconnects.
+    let applied = actix_web::rt::spawn(async move {
+        let mut applied = None;
+        coordinator
+            .commit(|settings| {
+                settings.computer_use.update_switches(update)?;
+                applied = Some(settings.computer_use.switches());
+                Ok(())
+            })
+            .await?;
+        Ok::<_, DeskError>(applied.expect("successful commit applied the switches"))
+    })
+    .await??;
+    Ok(HttpResponse::Ok()
+        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .json(RestResponse::succeed_with_data(applied)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,8 +185,9 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn application_policy_requires_owner_loopback_and_origin_and_uses_cas() {
-        for communication in [false, true] {
+    async fn local_policies_require_owner_loopback_and_origin_and_use_cas() {
+        for kind in ["applications", "communication", "switches"] {
+            let communication = kind == "communication";
             let dir = tempfile::tempdir().unwrap();
             let settings = Settings::for_test_config(&dir.path().join("config"));
             let security = settings.security.clone();
@@ -156,7 +208,9 @@ mod tests {
                             .service(query_computer_use_communication_policy)
                             .service(update_computer_use_communication_policy)
                             .service(query_computer_use_application_policy)
-                            .service(update_computer_use_application_policy),
+                            .service(update_computer_use_application_policy)
+                            .service(query_computer_use_switches)
+                            .service(update_computer_use_switches),
                     ),
             )
             .await;
@@ -164,16 +218,18 @@ mod tests {
                 test::call_service(&app, test::TestRequest::post().uri("/login").to_request())
                     .await;
             let cookie = response.response().cookies().next().unwrap().into_owned();
-            let path = if communication {
-                "/api/desk/settings/computer-use-communication"
-            } else {
-                "/api/desk/settings/computer-use-applications"
+            let path = match kind {
+                "communication" => "/api/desk/settings/computer-use-communication",
+                "switches" => "/api/desk/settings/computer-use",
+                _ => "/api/desk/settings/computer-use-applications",
             };
-            let update = if communication {
-                serde_json::json!({"expected_revision":0,"enabled":true,"browser_semantic":true,
-                "communication_handoff":true,"communication_send":true})
-            } else {
-                serde_json::json!({"expected_revision":0,"allowed_application_paths":[]})
+            let update = match kind {
+                "communication" => serde_json::json!({"expected_revision":0,
+                "browser_semantic":true,"communication_handoff":true,"communication_send":true}),
+                "switches" => serde_json::json!({"expected_revision":0,"enabled":false,
+                "observe":true,"office_semantic":false,"iwork_semantic":false,
+                "generic_semantic_ui":true,"raw_input_fallback":false}),
+                _ => serde_json::json!({"expected_revision":0,"allowed_application_paths":[]}),
             };
             let anonymous = test::try_call_service(
                 &app,
@@ -228,7 +284,10 @@ mod tests {
                 let body: serde_json::Value = test::read_body_json(response).await;
                 if body["data"].is_object() {
                     assert_eq!(body["data"]["revision"], 1);
-                    assert_eq!(body["data"].get("enabled").is_some(), communication);
+                    assert_eq!(
+                        body["data"].get("enabled").is_some(),
+                        kind != "applications"
+                    );
                 } else {
                     assert_eq!(
                         body["code"],
@@ -237,14 +296,56 @@ mod tests {
                 }
             }
             assert_eq!(shared.read().await.computer_use.revision, 1);
-            assert_eq!(
-                shared
-                    .read()
-                    .await
-                    .computer_use
-                    .communication_send_enabled(),
-                communication
-            );
+            let saved = shared.read().await.computer_use.clone();
+            // The master switch defaults on; only the switches update turns it off.
+            assert_eq!(saved.communication_send_enabled(), communication);
+            assert_eq!(saved.enabled, kind != "switches");
+            assert_eq!(saved.generic_semantic_ui, kind == "switches");
         }
+    }
+
+    #[actix_web::test]
+    async fn the_communication_update_cannot_change_the_master_switch() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = Settings::for_test_config(&dir.path().join("config"));
+        let security = settings.security.clone();
+        let shared = Arc::new(SharedSettings::from(settings));
+        let coordinator = SettingsCoordinator::new(shared.clone(), security);
+        let app = test::init_service(
+            App::new()
+                .wrap(SessionMiddleware::new(
+                    CookieSessionStore::default(),
+                    Key::generate(),
+                ))
+                .app_data(web::Data::from(shared.clone()))
+                .app_data(web::Data::new(coordinator))
+                .route("/login", web::post().to(login))
+                .service(
+                    web::scope("/api/desk")
+                        .wrap(from_fn(crate::controller::user::enforce_device_scope))
+                        .service(update_computer_use_communication_policy),
+                ),
+        )
+        .await;
+        let response =
+            test::call_service(&app, test::TestRequest::post().uri("/login").to_request()).await;
+        let cookie = response.response().cookies().next().unwrap().into_owned();
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/desk/settings/computer-use-communication")
+                .cookie(cookie)
+                .peer_addr("127.0.0.1:1234".parse().unwrap())
+                .insert_header((header::HOST, "localhost"))
+                .insert_header((header::ORIGIN, "http://localhost"))
+                .set_json(serde_json::json!({"expected_revision":0,"enabled":false,
+                "browser_semantic":false,"communication_handoff":false,"communication_send":false}))
+                .to_request(),
+        )
+        .await;
+        assert!(!response.status().is_success());
+        let saved = shared.read().await.computer_use.clone();
+        assert!(saved.enabled);
+        assert_eq!(saved.revision, 0);
     }
 }
