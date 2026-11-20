@@ -32,6 +32,8 @@ pub mod support_link_state;
 pub mod tauri_ipc;
 pub mod virtual_display;
 pub mod windows_service;
+#[cfg(target_os = "windows")]
+pub(crate) mod windows_service_stop;
 pub mod worker_manager;
 
 use crate::daemon::pc_manager::PcRegistry;
