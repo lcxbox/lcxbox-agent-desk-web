@@ -517,7 +517,8 @@ impl ApprovalDelegation {
         actual_cost_micros: Option<u64>,
     ) -> Result<(), ApprovalDelegationError> {
         self.validate()?;
-        if self.usage.reviews_reserved == 0
+        if reserved_tokens == 0
+            || self.usage.reviews_reserved == 0
             || self.usage.tokens_reserved < reserved_tokens
             || self
                 .usage
@@ -916,6 +917,26 @@ mod tests {
         assert_eq!(delegation.usage.reviews_used, 2);
         assert_eq!(delegation.usage.tokens_used, 19);
         assert_eq!(delegation.usage.cost_used_micros, Some(0));
+    }
+
+    #[test]
+    fn settlement_requires_the_reserved_token_bound() {
+        let mut delegation = delegation();
+        delegation.reserve(100, 0).unwrap();
+        let before = delegation.clone();
+        assert_eq!(
+            delegation.settle(0, 0, None, None),
+            Err(ApprovalDelegationError::InvalidState)
+        );
+        assert_eq!(
+            delegation.settle(0, 0, Some(0), Some(0)),
+            Err(ApprovalDelegationError::InvalidState)
+        );
+        assert_eq!(delegation, before);
+        delegation.settle(100, 0, Some(10), Some(0)).unwrap();
+        assert_eq!(delegation.usage.reviews_used, 1);
+        assert_eq!(delegation.usage.tokens_reserved, 0);
+        assert_eq!(delegation.usage.tokens_used, 10);
     }
 
     #[test]
