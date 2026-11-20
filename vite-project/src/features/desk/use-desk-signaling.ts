@@ -2,6 +2,7 @@ import { needsTargetRefresh } from './target-refresh';
 import { useOptionalDeviceTarget } from './device-target-context';
 import { appendBrowserPeerReport } from '@/features/desk/browser-peer-report';
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { onPageFrozen } from '@/lib/page-lifecycle';
 import { v4 } from 'uuid';
 import {
     SIGNALING_TYPE_CODE_HEARTBEAT_ACKNOWLEDGED,
@@ -362,8 +363,10 @@ export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolea
         intentionalCloseRef.current = false;
         connect();
 
-        return () => {
-            console.log('Cleaning up signaling connection');
+        // Close for good: on unmount, and when the page enters the
+        // back/forward cache (a cached page would otherwise keep its host
+        // session; see `page-lifecycle`). Idempotent.
+        const closeForGood = () => {
             intentionalCloseRef.current = true;
             clearHeartbeat();
             clearReconnectTimer();
@@ -376,6 +379,13 @@ export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolea
                 socketRef.current.close();
                 socketRef.current = null;
             }
+        };
+        const offPageFrozen = onPageFrozen(closeForGood);
+
+        return () => {
+            console.log('Cleaning up signaling connection');
+            offPageFrozen();
+            closeForGood();
         };
     }, [connect, clearHeartbeat, clearReconnectTimer]);
 
