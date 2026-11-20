@@ -209,7 +209,7 @@ impl SignalAgentRunEventStore {
                     ));
                 }
                 let mut ack = ack_from_existing(&existing, params, &session)?;
-                if let OwnerAdmission::Activate { request_id, .. } = admission {
+                if let Some((request_id, claim)) = admission.activation() {
                     let queued = main_request::load(&txn, &params.actor_id, queue_id, request_id)
                         .await
                         .map_err(|error| error.into_agent_error())?
@@ -220,6 +220,11 @@ impl SignalAgentRunEventStore {
                         .ok_or_else(|| {
                             internal("native input is not linked to this queue request")
                         })?;
+                    // A newer attempt took the row over and admitted it; this
+                    // stale first activation must not resume its input.
+                    if claim.is_some_and(|claim| queued.activation_claim != claim) {
+                        return Ok(OwnerAdmissionResult::Waiting);
+                    }
                     if queued.first_worker_request_id.is_some() {
                         txn.commit()
                             .await
@@ -378,13 +383,20 @@ impl SignalAgentRunEventStore {
                         waiting,
                     });
                 }
-                OwnerAdmission::Activate { request_id, .. } => {
+                OwnerAdmission::Activate { request_id, .. }
+                | OwnerAdmission::ClaimedActivate { request_id, .. } => {
                     let head = main_request::first_pending(&txn, &params.actor_id, queue_id)
                         .await
                         .map_err(|error| error.into_agent_error())?;
                     let Some(head) = head.filter(|row| row.request_id == request_id) else {
                         return Ok(OwnerAdmissionResult::Waiting);
                     };
+                    // Only the attempt holding the row's latest claim may admit it.
+                    if let Some((_, Some(claim))) = admission.activation()
+                        && head.activation_claim != claim
+                    {
+                        return Ok(OwnerAdmissionResult::Waiting);
+                    }
                     if desk_diagnose_core::future::boxed(|| {
                         main_requests::slot_held(&txn, &session)
                     })
@@ -649,6 +661,7 @@ impl SignalAgentRunEventStore {
                 && !main_request::activate_with_dispatch(
                     &txn,
                     queued,
+                    admission.activation().and_then(|(_, claim)| claim),
                     session.input_revision,
                     now.timestamp_millis(),
                     dispatched.as_deref(),
@@ -732,7 +745,7 @@ fn new_input_session(
     admission: OwnerAdmission<'_>,
 ) -> Result<Box<PersistedAgentSession>, AgentError> {
     let mut session = Box::new(if let Some(workbench_id) = workbench_id {
-        let OwnerAdmission::Activate { request_id, .. } = admission else {
+        let Some((request_id, _)) = admission.activation() else {
             unreachable!()
         };
         PersistedAgentSession::new_workbench_coordinator(

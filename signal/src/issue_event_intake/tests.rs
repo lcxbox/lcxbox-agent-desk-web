@@ -1046,32 +1046,6 @@ async fn queued_subscription() -> (
         .await
         .unwrap()
         .unwrap();
-    // Activation offers the targetless central web reads and admission
-    // compares them with the frozen input, while routing freezes none. Freeze
-    // them here so the scenario reaches admission's source recheck.
-    let mut frozen =
-        desk_assistant_data_store::main_request::FrozenRequestInput::decode(&row).unwrap();
-    frozen.reads.tool_names = vec![
-        desk_diagnose_core::web_research::WEB_FETCH_TOOL_NAME.into(),
-        desk_diagnose_core::web_research::WEB_SEARCH_TOOL_NAME.into(),
-    ];
-    {
-        use sea_orm::{ColumnTrait, QueryFilter, sea_query::Expr};
-        agent_main_request::Entity::update_many()
-            .col_expr(
-                agent_main_request::Column::PendingInputJson,
-                Expr::value(serde_json::to_string(&frozen).unwrap()),
-            )
-            .filter(agent_main_request::Column::Id.eq(row.id))
-            .exec(&db)
-            .await
-            .unwrap();
-    }
-    let row = agent_main_request::Entity::find_by_id(row.id)
-        .one(&db)
-        .await
-        .unwrap()
-        .unwrap();
     let executor = crate::ai_assistant_orchestrator::main_requests::SignalMainRequestExecutor::new(
         db.clone(),
         actix_web::web::Data::new(
@@ -1153,6 +1127,25 @@ async fn executor_defers_a_source_paused_before_admission_then_admits_it() {
     let admitted = reload_request(&db, &row).await;
     assert_eq!(admitted.state, "activated");
     assert_eq!(admitted.activation_attempts, 0);
+    // The admitted input keeps exactly the read scope routing enqueued.
+    let frozen = desk_assistant_data_store::main_request::FrozenRequestInput::decode(&row).unwrap();
+    let work =
+        native_ids::workbench_work_conversation(ACTOR, &row.conversation_id, &row.request_id);
+    let stored = crate::agent_run_event_store::SignalAgentRunEventStore::new(db.clone())
+        .original_read_context(
+            crate::agent_run_event_store::InputSubject {
+                run_id: &work,
+                actor_id: ACTOR,
+                device_id: "",
+                client_conversation_id: frozen.ask.conversation_id.as_deref(),
+            },
+            admitted.input_revision.unwrap() as u64,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored, frozen.reads);
+    assert!(stored.tool_names.is_empty());
 }
 
 /// An unreadable authority snapshot is charged on each scan, backs off and

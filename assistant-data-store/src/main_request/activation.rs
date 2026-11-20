@@ -149,7 +149,9 @@ pub async fn claim_activation(
     if !tracks_activation(scanned) {
         return Ok(None);
     }
-    let claim = scanned.activation_claim.saturating_add(1);
+    let Some(claim) = scanned.activation_claim.checked_add(1) else {
+        return Ok(None);
+    };
     let claimed = pending_row_update(scanned)
         .filter(Column::InputRevision.is_null())
         .filter(Column::ActivationClaim.eq(scanned.activation_claim))
@@ -177,7 +179,9 @@ pub async fn record_activation_failure(
     if !tracks_activation(scanned) {
         return Ok(ActivationFailureOutcome::Stale);
     }
-    let attempts = scanned.activation_attempts.saturating_add(1);
+    let Some(attempts) = scanned.activation_attempts.checked_add(1) else {
+        return Ok(ActivationFailureOutcome::Stale);
+    };
     let update = pending_row_update(scanned)
         .filter(Column::InputRevision.is_null())
         .filter(Column::ActivationClaim.eq(claim))

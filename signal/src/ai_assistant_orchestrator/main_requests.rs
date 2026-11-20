@@ -211,6 +211,9 @@ impl SignalMainRequestExecutor {
         progress: Option<Arc<main_request::ActivationProgress>>,
     ) -> Result<Attempt, AgentError> {
         let owner = crate::control_authorizer::SINGLE_ACCOUNT_USER_ID;
+        let claim = progress
+            .as_deref()
+            .and_then(main_request::ActivationProgress::claim);
         let frozen = FrozenRequestInput::decode(&row).map_err(|error| error.into_agent_error())?;
         let now_ms = chrono::Utc::now().timestamp_millis();
         let issue_authority = frozen
@@ -218,7 +221,7 @@ impl SignalMainRequestExecutor {
             .await
             .map_err(|error| error.into_agent_error())?;
         if issue_authority == main_request::IssueQueueAuthority::Paused {
-            main_request::defer_paused_source(&self.db, &row, now_ms)
+            main_request::defer_paused_source(&self.db, &row, claim, now_ms)
                 .await
                 .map_err(|error| error.into_agent_error())?;
             return Ok(Attempt::NotStarted);
@@ -242,7 +245,7 @@ impl SignalMainRequestExecutor {
         };
         if let Some(reason) = failure {
             if row.input_revision.is_none() {
-                main_request::fail_unactivated(&self.db, &row, now_ms, reason)
+                main_request::fail_unactivated(&self.db, &row, claim, now_ms, reason)
                     .await
                     .map_err(|error| error.into_agent_error())?;
             } else {

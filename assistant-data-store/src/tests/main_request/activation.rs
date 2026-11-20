@@ -350,7 +350,7 @@ async fn coordination_and_paused_deferrals_keep_an_activation_backoff_separate()
     );
 
     // A paused-source deferral changes neither the count nor the backoff.
-    queue::defer_paused_source(&db, &settled, now + 2)
+    queue::defer_paused_source(&db, &settled, None, now + 2)
         .await
         .unwrap();
     let paused = reload(&db, &a).await;
@@ -372,7 +372,7 @@ async fn an_old_scan_loses_to_a_paused_deferral_a_reservation_and_a_selected_rou
         record(&db, &scanned, now + attempt).await;
     }
     let old = reload(&db, &a).await;
-    queue::defer_paused_source(&db, &old, now + 4)
+    queue::defer_paused_source(&db, &old, None, now + 4)
         .await
         .unwrap();
     assert_eq!(
@@ -692,6 +692,7 @@ async fn failed_receipts_list_the_latest_failures_by_when_they_failed() {
             queue::fail_unactivated(
                 &db,
                 &row,
+                None,
                 now + index,
                 MainRequestFailure::SourceUnavailable,
             )
@@ -704,6 +705,7 @@ async fn failed_receipts_list_the_latest_failures_by_when_they_failed() {
     queue::fail_unactivated(
         &db,
         &rows[0],
+        None,
         now + 100,
         MainRequestFailure::SourceUnavailable,
     )
@@ -768,4 +770,89 @@ async fn a_claim_fences_failure_records_between_attempts() {
     ));
     assert_eq!(queue::claim_activation(&db, &claimed).await.unwrap(), None);
     assert_eq!(queue::claim_activation(&db, &other).await.unwrap(), None);
+}
+
+/// Admission and the dedicated close paths of a first activation act only
+/// under the claim the attempt holds.
+#[tokio::test]
+async fn a_stale_claim_cannot_activate_close_or_defer_the_row() {
+    let TestStore { db } = setup().await;
+    let now = chrono::Utc::now().timestamp_millis();
+    let row = enqueue_at(&db, "stale-claim", now).await;
+    let older = queue::claim_activation(&db, &row).await.unwrap().unwrap();
+    let newer = queue::claim_activation(&db, &reload(&db, &row).await)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        !queue::activate_with_dispatch(&db, &row, Some(older), 1, now, None)
+            .await
+            .unwrap()
+    );
+    queue::fail_unactivated(
+        &db,
+        &row,
+        Some(older),
+        now,
+        MainRequestFailure::SourceUnavailable,
+    )
+    .await
+    .unwrap();
+    queue::defer_paused_source(&db, &row, Some(older), now)
+        .await
+        .unwrap();
+    let untouched = reload(&db, &row).await;
+    assert_eq!(untouched.state, queue::QUEUED);
+    assert!(untouched.retry_at_ms.is_none());
+    assert_eq!(untouched.activation_claim, newer);
+    // The current claim still acts.
+    assert!(
+        queue::activate_with_dispatch(&db, &row, Some(newer), 1, now, None)
+            .await
+            .unwrap()
+    );
+    let other = enqueue_at(&db, "current-close", now).await;
+    let claim = queue::claim_activation(&db, &other).await.unwrap().unwrap();
+    queue::fail_unactivated(
+        &db,
+        &other,
+        Some(claim),
+        now,
+        MainRequestFailure::SourceUnavailable,
+    )
+    .await
+    .unwrap();
+    assert_eq!(reload(&db, &other).await.state, "failed");
+}
+
+#[tokio::test]
+async fn an_exhausted_claim_or_attempt_counter_takes_nothing() {
+    let TestStore { db } = setup().await;
+    let now = chrono::Utc::now().timestamp_millis();
+    let row = enqueue_at(&db, "exhausted", now).await;
+    request::Entity::update_many()
+        .col_expr(request::Column::ActivationClaim, Expr::value(i64::MAX))
+        .filter(request::Column::Id.eq(row.id))
+        .exec(&db)
+        .await
+        .unwrap();
+    let saturated = reload(&db, &row).await;
+    assert_eq!(
+        queue::claim_activation(&db, &saturated).await.unwrap(),
+        None
+    );
+    request::Entity::update_many()
+        .col_expr(request::Column::ActivationAttempts, Expr::value(i32::MAX))
+        .filter(request::Column::Id.eq(row.id))
+        .exec(&db)
+        .await
+        .unwrap();
+    let saturated = reload(&db, &row).await;
+    assert_eq!(
+        queue::record_activation_failure(&db, &saturated, i64::MAX, now, None)
+            .await
+            .unwrap(),
+        ActivationFailureOutcome::Stale
+    );
+    assert_eq!(reload(&db, &row).await, saturated);
 }

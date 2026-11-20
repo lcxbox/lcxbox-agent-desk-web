@@ -1610,8 +1610,17 @@ async fn prepare_composed_turn(
         // the activated turn is labelled for the current one.
         && !desk_diagnose_core::model_egress::same_recipient(original, &destination)
     {
-        main_requests::fail_destination(&db, &actor_id, queue, &conversation_id, request_id)
-            .await?;
+        main_requests::fail_destination(
+            &db,
+            &actor_id,
+            queue,
+            &conversation_id,
+            request_id,
+            owner_queue
+                .as_deref()
+                .and_then(OwnerQueueTurn::activation_claim),
+        )
+        .await?;
         return Err(main_request::failure_error(
             desk_agent_protocol::ai_assistant::MainRequestFailure::DestinationChanged,
         ));
@@ -2609,7 +2618,31 @@ async fn prepare_composed_turn(
                                 &mut registry,
                                 &selected_tool_capability_ids,
                             );
-                            if let Some(original) = original_read_context.as_ref() {
+                            // A queued activation exposes no read tool its frozen input did not
+                            // record, so admission compares the read scope that was enqueued.
+                            let frozen_read_tools = match owner_queue.as_deref() {
+                                Some(queue @ OwnerQueueTurn::Activate { .. })
+                                    if original_read_context.is_none() =>
+                                {
+                                    main_request::frozen_read_selection(
+                                        &db,
+                                        Some(queue),
+                                        &actor_id,
+                                        &conversation_id,
+                                        &target_device_id,
+                                        &ask,
+                                    )
+                                    .await
+                                    .map_err(|error| error.into_agent_error())?
+                                    .map(|frozen| frozen.tool_names)
+                                }
+                                _ => None,
+                            };
+                            let recorded_read_tools = original_read_context
+                                .as_ref()
+                                .map(|original| original.tool_names.as_slice())
+                                .or(frozen_read_tools.as_deref());
+                            if let Some(recorded) = recorded_read_tools {
                                 // Object reads retain the original selection. Desktop reads remain planning
                                 // candidates; only a current owner grant can restore their scope.
                                 registry.retain(|tool| {
@@ -2621,7 +2654,7 @@ async fn prepare_composed_turn(
                         capability.exposure
                             == desk_diagnose_core::tool_exposure::ExposureRequirement::NoAttachment
                     })
-                || original.tool_names.iter().any(|name| name == tool.name())
+                || recorded.iter().any(|name| name == tool.name())
         });
                             }
                             if scheduled
@@ -2647,13 +2680,10 @@ async fn prepare_composed_turn(
                                 registry.retain(
                                     desk_diagnose_core::assistant_policy::is_targetless_web_tool,
                                 );
-                                if let Some(original) = original_read_context.as_ref() {
+                                if let Some(recorded) = recorded_read_tools {
                                     registry.retain(|tool| {
                                         !desk_diagnose_core::web_research::is_web_tool(tool.name())
-                                            || original
-                                                .tool_names
-                                                .iter()
-                                                .any(|name| name == tool.name())
+                                            || recorded.iter().any(|name| name == tool.name())
                                     });
                                 }
                             }
@@ -3569,7 +3599,7 @@ async fn prepare_composed_turn(
                 return Ok(Some(LoopOutcome::TurnBusy));
             }
             Err(error) => {
-                if matches!(admission, OwnerAdmission::Activate { .. }) {
+                if admission.activation().is_some() {
                     return Err(error);
                 }
                 desk_diagnose_core::future::boxed(|| async { stream_event(
@@ -3727,7 +3757,7 @@ async fn prepare_composed_turn(
             .await
             {
                 Ok(LoopOutcome::TurnBusy) => {
-                    if matches!(admission, OwnerAdmission::Activate { .. }) {
+                    if admission.activation().is_some() {
                         break;
                     }
                     match desk_diagnose_core::future::boxed(|| event_store.handled_outcome(
@@ -3792,7 +3822,7 @@ pub(crate) mod activation_faults {
         sync::Mutex,
     };
 
-    type Hook = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>;
+    type Hook = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = ()>>> + Send>;
 
     static DESTINATION: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
     static BEFORE_ADMISSION: Mutex<BTreeMap<String, Hook>> = Mutex::new(BTreeMap::new());
@@ -3803,7 +3833,7 @@ pub(crate) mod activation_faults {
         request_id: &str,
         hook: impl FnOnce() -> F + Send + 'static,
     ) where
-        F: Future<Output = ()> + Send + 'static,
+        F: Future<Output = ()> + 'static,
     {
         BEFORE_ADMISSION
             .lock()

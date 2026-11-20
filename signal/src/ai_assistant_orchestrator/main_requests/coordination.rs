@@ -101,6 +101,7 @@ pub(crate) async fn fail_destination(
     conversation: &str,
     execution: &str,
     request: &str,
+    claim: Option<i64>,
 ) -> Result<(), AgentError> {
     let Some(row) = main_request::load(db, actor, conversation, request)
         .await
@@ -111,10 +112,16 @@ pub(crate) async fn fail_destination(
     if row.pending_input_json.is_none() {
         return Ok(());
     }
+    // A first activation closes only the row it still holds; a newer attempt
+    // may have taken it over or already admitted it.
+    if claim.is_some_and(|claim| row.input_revision.is_some() || row.activation_claim != claim) {
+        return Ok(());
+    }
     if row.input_revision.is_none() {
         return main_request::fail_unactivated(
             db,
             &row,
+            claim,
             chrono::Utc::now().timestamp_millis(),
             MainRequestFailure::DestinationChanged,
         )

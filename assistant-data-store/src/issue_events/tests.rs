@@ -631,7 +631,7 @@ async fn routed_work_uses_the_first_comment_and_header_without_expanding_origina
             .unwrap(),
         main_request::IssueQueueAuthority::Paused
     );
-    main_request::defer_paused_source(&txn, &row, 2005)
+    main_request::defer_paused_source(&txn, &row, None, 2005)
         .await
         .unwrap();
     let deferred = main_request::load(&txn, &root.actor_id, &root.conversation_id, &request)
@@ -1286,9 +1286,15 @@ async fn a_source_revoked_at_admission_closes_as_unavailable_on_the_next_scan() 
         .unwrap()
         .unwrap();
     assert_eq!(scanned.activation_attempts, 0);
-    main_request::fail_unactivated(&db, &scanned, now, MainRequestFailure::SourceUnavailable)
-        .await
-        .unwrap();
+    main_request::fail_unactivated(
+        &db,
+        &scanned,
+        None,
+        now,
+        MainRequestFailure::SourceUnavailable,
+    )
+    .await
+    .unwrap();
     let receipt = main_request::receipts(
         &db,
         &row.actor_id,

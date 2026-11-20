@@ -455,6 +455,7 @@ async fn coordination_attempts_survive_a_lost_lease() {
     queue::fail_unactivated(
         &txn,
         &head,
+        None,
         now + 244_000,
         MainRequestFailure::CoordinationExhausted,
     )
@@ -772,7 +773,7 @@ async fn workbench_dispatch_proposals_are_scoped_and_activation_is_atomic() {
     let worker = native_ids::stable(Kind::Task, &b.request_id);
     let txn = db.begin().await.unwrap();
     assert!(
-        queue::activate_with_dispatch(&txn, &b, 1, ms + 2, Some(&worker))
+        queue::activate_with_dispatch(&txn, &b, None, 1, ms + 2, Some(&worker))
             .await
             .unwrap()
     );
@@ -786,12 +787,12 @@ async fn workbench_dispatch_proposals_are_scoped_and_activation_is_atomic() {
 
     let txn = db.begin().await.unwrap();
     assert!(
-        queue::activate_with_dispatch(&txn, &b, 1, ms + 3, Some(&worker))
+        queue::activate_with_dispatch(&txn, &b, None, 1, ms + 3, Some(&worker))
             .await
             .unwrap()
     );
     assert!(
-        !queue::activate_with_dispatch(&txn, &b, 1, ms + 4, Some(&worker))
+        !queue::activate_with_dispatch(&txn, &b, None, 1, ms + 4, Some(&worker))
             .await
             .unwrap()
     );

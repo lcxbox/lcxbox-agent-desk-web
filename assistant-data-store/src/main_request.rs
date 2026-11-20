@@ -121,12 +121,26 @@ impl OwnerQueueTurn {
             Self::Activate {
                 request_id,
                 issue_source,
+                progress,
                 ..
-            } => OwnerAdmission::Activate {
-                request_id,
-                issue_source: issue_source.as_deref(),
+            } => match progress.as_deref().and_then(ActivationProgress::claim) {
+                Some(claim) => OwnerAdmission::ClaimedActivate {
+                    request_id,
+                    issue_source: issue_source.as_deref(),
+                    claim,
+                },
+                None => OwnerAdmission::Activate {
+                    request_id,
+                    issue_source: issue_source.as_deref(),
+                },
             },
         }
+    }
+
+    /// The claim a first activation holds on its row, if this turn is one.
+    pub fn activation_claim(&self) -> Option<i64> {
+        self.activation_progress()
+            .and_then(ActivationProgress::claim)
     }
 }
 
@@ -138,16 +152,39 @@ pub enum OwnerAdmission<'a> {
         limit: u64,
         reply_connection_id: Option<&'a str>,
     },
+    /// Activates a queued request that admission already accepted, or that a
+    /// caller activates without an attempt's row claim.
     Activate {
         request_id: &'a str,
         issue_source: Option<&'a desk_diagnose_core::issue_authority::IssueWorkSource>,
     },
+    /// The first activation of a queued request, fenced by the claim its
+    /// attempt holds on the row: admission commits nothing once a newer
+    /// attempt has taken the row over.
+    ClaimedActivate {
+        request_id: &'a str,
+        issue_source: Option<&'a desk_diagnose_core::issue_authority::IssueWorkSource>,
+        claim: i64,
+    },
 }
 
 impl<'a> OwnerAdmission<'a> {
+    /// The activated request and, for a first activation, its row claim.
+    pub fn activation(self) -> Option<(&'a str, Option<i64>)> {
+        match self {
+            Self::Activate { request_id, .. } => Some((request_id, None)),
+            Self::ClaimedActivate {
+                request_id, claim, ..
+            } => Some((request_id, Some(claim))),
+            Self::Native | Self::Enqueue { .. } => None,
+        }
+    }
+
     pub fn issue_source(self) -> Option<&'a desk_diagnose_core::issue_authority::IssueWorkSource> {
         match self {
-            Self::Activate { issue_source, .. } => issue_source,
+            Self::Activate { issue_source, .. } | Self::ClaimedActivate { issue_source, .. } => {
+                issue_source
+            }
             Self::Native | Self::Enqueue { .. } => None,
         }
     }
@@ -382,18 +419,32 @@ pub async fn retire_superseded(
     Ok(())
 }
 
+/// Close a queued request by its own rule. A first activation passes the
+/// claim its attempt holds, so a decision of an attempt that lost the row to
+/// a newer one closes nothing.
 pub async fn fail_unactivated(
     db: &impl ConnectionTrait,
     row: &request::Model,
+    claim: Option<i64>,
     now_ms: i64,
     reason: MainRequestFailure,
 ) -> Result<(), AssistantStoreError> {
-    fail_payload(pending_row_update(row), now_ms, reason)
+    claimed(fail_payload(pending_row_update(row), now_ms, reason), claim)
         .filter(request::Column::UpdatedAtMs.eq(row.updated_at_ms))
         .filter(request::Column::CoordinationAttempts.eq(row.coordination_attempts))
         .exec(db)
         .await?;
     Ok(())
+}
+
+fn claimed(
+    update: sea_orm::UpdateMany<request::Entity>,
+    claim: Option<i64>,
+) -> sea_orm::UpdateMany<request::Entity> {
+    match claim {
+        Some(claim) => update.filter(request::Column::ActivationClaim.eq(claim)),
+        None => update,
+    }
 }
 
 /// Close an activation that lost its authority before the first claim. The host
@@ -822,7 +873,7 @@ pub async fn workbench_for_activation(
     if !native_ids::is(Kind::WorkbenchWorkConversation, work_conversation_id) {
         return Ok(None);
     }
-    let OwnerAdmission::Activate { request_id, .. } = admission else {
+    let Some((request_id, _)) = admission.activation() else {
         return Err(AssistantStoreError::Inaccessible);
     };
     let workbench_id = request::Entity::find()
@@ -1244,9 +1295,10 @@ fn retry_due(now_ms: i64) -> Condition {
 pub async fn defer_paused_source(
     db: &impl ConnectionTrait,
     row: &request::Model,
+    claim: Option<i64>,
     now_ms: i64,
 ) -> Result<(), AssistantStoreError> {
-    request::Entity::update_many()
+    claimed(request::Entity::update_many(), claim)
         .filter(request::Column::Id.eq(row.id))
         .filter(request::Column::RequestId.eq(&row.request_id))
         .filter(request::Column::State.eq(&row.state))
@@ -1295,13 +1347,16 @@ pub async fn activate(
     input_revision: u64,
     now_ms: i64,
 ) -> Result<bool, AssistantStoreError> {
-    activate_with_dispatch(txn, row, input_revision, now_ms, None).await
+    activate_with_dispatch(txn, row, None, input_revision, now_ms, None).await
 }
 
-/// The caller commits this receipt, the native input and the Worker in one transaction.
+/// The caller commits this receipt, the native input and the Worker in one
+/// transaction. A first activation passes its row claim; a miss means a newer
+/// attempt took the row over, and the caller rolls back.
 pub async fn activate_with_dispatch(
     txn: &impl ConnectionTrait,
     row: &request::Model,
+    claim: Option<i64>,
     input_revision: u64,
     now_ms: i64,
     worker_request: Option<&str>,
@@ -1312,7 +1367,7 @@ pub async fn activate_with_dispatch(
     {
         return Err(AssistantStoreError::Invalid("Invalid assistant activation"));
     }
-    let update = pending_row_update(row)
+    let update = claimed(pending_row_update(row), claim)
         .filter(
             Condition::any()
                 .add(request::Column::Coordinated.eq(true))

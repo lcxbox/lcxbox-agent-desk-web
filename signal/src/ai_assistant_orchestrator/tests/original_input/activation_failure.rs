@@ -402,3 +402,144 @@ async fn an_error_before_the_call_registration_is_not_charged() {
         .await
         .unwrap();
 }
+
+/// Point the model at an endpoint that refuses connections, keeping the
+/// queued destination; an admitted turn then fails after admission.
+async fn refuse_model_calls(db: &DatabaseConnection) {
+    let closed = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = closed.local_addr().unwrap();
+    drop(closed);
+    crate::model_provider::save(
+        db,
+        crate::model_provider::ModelProviderConfig {
+            wire_protocol: Some(
+                desk_diagnose_core::model_profile::WireProtocol::OpenAiChatCompletions,
+            ),
+            model: Some("activation-model".into()),
+            base_url: Some(format!("http://{address}")),
+            api_key: Some("test-only-key".into()),
+            max_context_bytes: Some(131_072),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+}
+
+/// An attempt stalls right before admission while a newer attempt takes the
+/// row over: the stale attempt admits nothing and is not charged, and the
+/// newer attempt then admits the request.
+#[actix_web::test]
+async fn a_stalled_attempt_admits_nothing_after_a_newer_claim() {
+    let host = host("activation-model").await;
+    let row = host.submit("stalled-head", "Admit me once").await;
+    refuse_model_calls(&host.db).await;
+    let db = host.db.clone();
+    let request = row.clone();
+    crate::ai_assistant_orchestrator::activation_faults::run_before_admission(
+        &row.request_id,
+        move || async move {
+            let current =
+                desk_assistant_data_store::entity::agent_main_request::Entity::find_by_id(
+                    request.id,
+                )
+                .one(&db)
+                .await
+                .unwrap()
+                .unwrap();
+            main_request::claim_activation(&db, &current)
+                .await
+                .unwrap()
+                .unwrap();
+        },
+    );
+    host.scan().await;
+    let stale = host.reload(&row).await;
+    assert_eq!(stale.state, main_request::QUEUED);
+    assert!(stale.input_revision.is_none());
+    assert_eq!(stale.activation_attempts, 0);
+    host.scan().await;
+    let admitted = host.reload(&row).await;
+    assert_eq!(admitted.state, "activated");
+    assert_eq!(admitted.activation_attempts, 0);
+}
+
+/// A newer attempt admits the request while an older one stalls before
+/// admission: the older attempt finds the native input but may not resume it.
+#[actix_web::test]
+async fn a_stalled_attempt_does_not_resume_input_a_newer_attempt_admitted() {
+    let host = host("activation-model").await;
+    let row = host.submit("stalled-replay", "Admit me once").await;
+    refuse_model_calls(&host.db).await;
+    let (db, connections) = (host.db.clone(), host.connections.clone());
+    crate::ai_assistant_orchestrator::activation_faults::run_before_admission(
+        &row.request_id,
+        move || async move {
+            let newer = main_requests::SignalMainRequestExecutor::new(
+                db,
+                connections,
+                std::sync::Arc::new(crate::ai_assistant_gate::AiAssistantGate::new(
+                    desk_agent_protocol::ai_assistant::AiAssistantSettings {
+                        revision: 1,
+                        enabled: true,
+                    },
+                )),
+            );
+            newer.scan_once(0).await.unwrap();
+        },
+    );
+    host.scan().await;
+    let admitted = host.reload(&row).await;
+    assert_eq!(admitted.state, "activated");
+    assert_eq!(admitted.input_revision, Some(1));
+    assert_eq!(admitted.activation_attempts, 0);
+    let snapshot = crate::agent_session_store::SignalAgentSessionStore::new(host.db.clone())
+        .read_snapshot_for_subject(&row.conversation_id, &row.actor_id, "")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(snapshot.input_revision, 1, "one native input");
+}
+
+/// A destination decision of an attempt that lost the row closes nothing;
+/// the current attempt's decision still closes it.
+#[actix_web::test]
+async fn a_stale_destination_decision_does_not_close_a_newer_attempt() {
+    let host = host("activation-model").await;
+    let row = host.submit("stale-destination", "Keep me open").await;
+    let older = main_request::claim_activation(&host.db, &row)
+        .await
+        .unwrap()
+        .unwrap();
+    let newer = main_request::claim_activation(&host.db, &host.reload(&row).await)
+        .await
+        .unwrap()
+        .unwrap();
+    let close = |claim| {
+        main_requests::fail_destination(
+            &host.db,
+            &row.actor_id,
+            &row.conversation_id,
+            &row.conversation_id,
+            &row.request_id,
+            Some(claim),
+        )
+    };
+    close(older).await.unwrap();
+    assert_eq!(host.reload(&row).await.state, main_request::QUEUED);
+    close(newer).await.unwrap();
+    let [receipt]: [_; 1] = main_request::receipts(
+        &host.db,
+        &row.actor_id,
+        &row.conversation_id,
+        Some(&row.request_id),
+    )
+    .await
+    .unwrap()
+    .try_into()
+    .unwrap();
+    assert_eq!(
+        receipt.failure,
+        Some(MainRequestFailure::DestinationChanged)
+    );
+}
