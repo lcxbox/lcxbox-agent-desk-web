@@ -58,7 +58,11 @@ import {
     toDeskDevicePreferences,
     toRemoteSessionSettings,
 } from "./desk-config-model"
-import { resumeKeepsSavedChoices } from "./desk-config-model"
+import {
+    resolveSavedDeviceName,
+    resumeKeepsSavedChoices,
+    VIRTUAL_DISPLAY_DEVICE,
+} from "./desk-config-model"
 import type { DeskConfigFormSettings, DeskConfigSubmission } from "./desk-config-model"
 import {
     DEFAULT_DESK_DEVICE_PREFERENCES,
@@ -213,7 +217,10 @@ export function DeskConfigDialog({
                 : intent.imageCapture ?? suggested.image_capture,
             capabilities.video_device_name === "unsupported"
                 ? suggested.video_device_name
-                : intent.videoDeviceName ?? suggested.video_device_name,
+                : resolveSavedDeviceName(
+                    intent.videoDeviceName,
+                    initData.virtual_display_device_name,
+                ) ?? suggested.video_device_name,
             initData.video_device_list,
         )
         const audioCapture = resolveAudioCaptureMode(
@@ -346,7 +353,7 @@ export function DeskConfigDialog({
         )) {
             return null
         }
-        const nextPreferences = toDeskDevicePreferences(values)
+        const nextPreferences = toDeskDevicePreferences(values, virtualDisplayName)
         if (values.video_device_name !== virtualDisplayName) {
             nextPreferences.adaptiveWebPageResolution =
                 preferences?.adaptiveWebPageResolution
@@ -376,7 +383,7 @@ export function DeskConfigDialog({
         if (autoSubmittedEpoch.current === initData.connection_epoch) return
         autoSubmittedEpoch.current = initData.connection_epoch
         const values = form.getValues()
-        const submission = resumeKeepsSavedChoices(values, preferences)
+        const submission = resumeKeepsSavedChoices(values, preferences, virtualDisplayName)
             ? buildSubmission(values)
             : null
         if (submission) {
@@ -528,7 +535,11 @@ export function DeskConfigDialog({
                                                 <AlertDescription>
                                                     {t(
                                                         "pages.desk.displayDeviceStaleWarning.body",
-                                                        { name: staleSavedDeviceName },
+                                                        {
+                                                            name: staleSavedDeviceName === VIRTUAL_DISPLAY_DEVICE
+                                                                ? t("pages.desk.virtualDisplayBadge")
+                                                                : staleSavedDeviceName,
+                                                        },
                                                     )}
                                                 </AlertDescription>
                                             </Alert>

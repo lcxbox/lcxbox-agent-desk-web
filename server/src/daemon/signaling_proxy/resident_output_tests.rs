@@ -2,9 +2,10 @@ use super::*;
 use crate::daemon::exec_capacity::ExecBinding;
 use crate::daemon::worker_manager::ExecWorkerTarget;
 use desk_ipc_protocol::message::{
-    DesktopTarget, ExecHeartbeatPayload, ExecSpawnReport, ExecSpawnReportPayload,
-    FileRecoveryQuotaCommand, FileRecoveryQuotaRequest, SessionKey, SignalingErrorPayload,
-    TerminalCommandsListedPayload,
+    DesktopTarget, ExclusiveDirection, ExclusiveOutcome, ExclusiveResultPayload,
+    ExecHeartbeatPayload, ExecSpawnReport, ExecSpawnReportPayload, FileRecoveryQuotaCommand,
+    FileRecoveryQuotaRequest, RememberSecurityDecisionPayload, SessionKey, SignalingErrorPayload,
+    TerminalCommandsListedPayload, VirtualDisplayAttachOutcome, VirtualDisplayAttachResultPayload,
 };
 use std::time::Duration;
 
@@ -35,6 +36,7 @@ fn admitted(
         from,
         incarnation(),
         |connection| connection == "owned",
+        false,
         capacity,
         requests,
     )
@@ -98,6 +100,7 @@ fn central_execution_output_comes_only_from_its_dispatched_worker() {
         &key("a"),
         WorkerIncarnation::for_test(INCARNATION + 1),
         |_| true,
+        false,
         &capacity,
         &requests,
     ));
@@ -270,6 +273,7 @@ fn a_central_read_answer_needs_its_route_and_worker() {
         &key("a"),
         WorkerIncarnation::for_test(INCARNATION + 1),
         |_| false,
+        false,
         &capacity,
         &requests,
     ));
@@ -347,4 +351,56 @@ fn a_central_action_reports_start_and_completion_and_a_stop_its_state() {
     assert!(admitted(&stopped, &key("a"), &capacity, &requests));
     assert!(admitted(&completed, &key("a"), &capacity, &requests));
     assert!(!admitted(&completed, &key("a"), &capacity, &requests));
+}
+
+fn attach_result() -> WorkerToService {
+    WorkerToService::VirtualDisplayAttachResult(VirtualDisplayAttachResultPayload {
+        instance_id: r"SWD\LcxlVirtualDisplay\LcxlVirtualDisplay".into(),
+        outcome: VirtualDisplayAttachOutcome::Attached(r"\\.\DISPLAY4".into()),
+    })
+}
+
+fn exclusive_result() -> WorkerToService {
+    WorkerToService::ExclusiveResult(ExclusiveResultPayload {
+        op_id: 7,
+        direction: ExclusiveDirection::Entering,
+        outcome: ExclusiveOutcome::Entered,
+    })
+}
+
+fn from_worker(message: &WorkerToService, is_virtual_display_worker: bool) -> bool {
+    resident_output_admitted(
+        message,
+        &key("a"),
+        incarnation(),
+        |_| false,
+        is_virtual_display_worker,
+        &ExecCapacity::new(),
+        &ResidentRequestRoutes::default(),
+    )
+}
+
+/// Regression (on device 2026-11-20): the resident worker that resolved the
+/// IDD answered with a connection-less `VirtualDisplayAttachResult`, which was
+/// dropped, so the supervisor never reached Attached and the browser was never
+/// told which display is virtual.
+#[test]
+fn virtual_display_results_come_only_from_the_virtual_display_worker() {
+    for message in [attach_result(), exclusive_result()] {
+        assert!(from_worker(&message, true));
+        // Another session's worker, or the console's sign-in desktop worker.
+        assert!(!from_worker(&message, false));
+    }
+}
+
+#[test]
+fn being_the_virtual_display_worker_admits_nothing_else_connection_less() {
+    let other = WorkerToService::RememberSecurityDecision(RememberSecurityDecisionPayload {
+        capability:
+            desk_signal_facade::model::security_settings::SecurityPermissionType::RemoteControl,
+        approved: true,
+        expected_generation: 1,
+    });
+    assert!(!from_worker(&other, true));
+    assert!(!from_worker(&heartbeat("unbound"), true));
 }
