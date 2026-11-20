@@ -58,11 +58,15 @@ import {
     toDeskDevicePreferences,
     toRemoteSessionSettings,
 } from "./desk-config-model"
+import { resumeKeepsSavedChoices } from "./desk-config-model"
 import type { DeskConfigFormSettings, DeskConfigSubmission } from "./desk-config-model"
 import {
     DEFAULT_DESK_DEVICE_PREFERENCES,
     type DeskDevicePreferencesV1,
 } from "./desk-preferences"
+
+/** "resume" = the dialog submitted itself to resume an interrupted session. */
+export type DeskConfigSubmitSource = "user" | "resume"
 
 interface DeskConfigDialogProps {
     open: boolean
@@ -72,8 +76,18 @@ interface DeskConfigDialogProps {
     onSubmit: (
         settings: DeskConfigSubmission,
         preferences: DeskDevicePreferencesV1,
+        source: DeskConfigSubmitSource,
     ) => void
     onCancel: () => void
+    /**
+     * Resume an interrupted session without a click. Pass true only once
+     * `preferences` has been loaded for this open: the dialog then submits
+     * itself once per connection epoch, provided the form resolved against
+     * the current host still carries every saved choice. Otherwise it calls
+     * `onAutoSubmitDeclined` and stays open for the user.
+     */
+    autoSubmit?: boolean
+    onAutoSubmitDeclined?: () => void
     onRestorePhysicalDisplay: (deviceName: string) => void
     /**
      * Browser-side adaptive video quality toggle. Owned by the parent
@@ -104,6 +118,8 @@ export function DeskConfigDialog({
     preferences,
     onSubmit,
     onCancel,
+    autoSubmit = false,
+    onAutoSubmitDeclined,
     onRestorePhysicalDisplay,
     adaptiveQualityEnabled,
     onAdaptiveQualityChange,
@@ -318,8 +334,8 @@ export function DeskConfigDialog({
         noDisplaysForMode,
     )
 
-    const handleSubmit = (values: DeskConfigFormSettings) => {
-        if (!initData) return
+    const buildSubmission = (values: DeskConfigFormSettings) => {
+        if (!initData) return null
         const executableValues = resolveExecutableDeskConfig(values, initData)
         // Defence in depth: never start a session without a display, even if the
         // disabled submit button is bypassed (e.g. implicit Enter-key submit).
@@ -328,7 +344,7 @@ export function DeskConfigDialog({
             executableValues.video_device_name,
             initData.video_device_list,
         )) {
-            return
+            return null
         }
         const nextPreferences = toDeskDevicePreferences(values)
         if (values.video_device_name !== virtualDisplayName) {
@@ -336,16 +352,42 @@ export function DeskConfigDialog({
                 preferences?.adaptiveWebPageResolution
                 ?? DEFAULT_DESK_DEVICE_PREFERENCES.adaptiveWebPageResolution
         }
-        onSubmit(
-            toRemoteSessionSettings(
+        return {
+            settings: toRemoteSessionSettings(
                 executableValues,
                 initData.session_settings_capabilities.adaptive_bitrate === "unsupported"
                     ? initData.suggested_session_settings.adaptive_bitrate
                     : adaptiveBitrateEnabled,
             ),
-            nextPreferences,
-        )
+            preferences: nextPreferences,
+        }
     }
+
+    const handleSubmit = (values: DeskConfigFormSettings) => {
+        const submission = buildSubmission(values)
+        if (submission) onSubmit(submission.settings, submission.preferences, "user")
+    }
+
+    // Runs after the reset effect above in the same commit, so the form
+    // already holds the values resolved from `preferences` for this epoch.
+    const autoSubmittedEpoch = useRef<string | null>(null)
+    useEffect(() => {
+        if (!open || !autoSubmit || !initData) return
+        if (autoSubmittedEpoch.current === initData.connection_epoch) return
+        autoSubmittedEpoch.current = initData.connection_epoch
+        const values = form.getValues()
+        const submission = resumeKeepsSavedChoices(values, preferences)
+            ? buildSubmission(values)
+            : null
+        if (submission) {
+            onSubmit(submission.settings, submission.preferences, "resume")
+        } else {
+            onAutoSubmitDeclined?.()
+        }
+        // `buildSubmission` also reads `adaptiveBitrateEnabled` and the
+        // virtual display name; this runs once per epoch, after both are known.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, autoSubmit, initData, preferences, form, onSubmit, onAutoSubmitDeclined])
 
     const handleInteractOutside = (e: Event) => {
         e.preventDefault() // Prevent closing on outside click

@@ -435,3 +435,32 @@ export function toDeskDevicePreferences(
             ?? "auto",
     }
 }
+
+/**
+ * Whether the form, as just resolved against the host's current
+ * `initData`, still carries every choice the user saved. An automatic
+ * resume (after a host restart) may only submit when nothing was replaced
+ * by a fallback: right after a reboot a display, encoder or audio device
+ * can be briefly missing, and silently connecting with a substitute would
+ * be a decision the user never made. Any difference keeps the dialog open.
+ */
+export function resumeKeepsSavedChoices(
+    values: DeskConfigFormSettings,
+    saved: DeskDevicePreferencesV1 | null,
+): boolean {
+    if (!saved) return false
+    if (saved.imageCapture && values.image_capture !== saved.imageCapture) return false
+    if (saved.videoDeviceName && values.video_device_name !== saved.videoDeviceName) return false
+    if (saved.videoEncoder
+        && videoEncoderId(values.video_encoder) !== videoEncoderId(saved.videoEncoder)) return false
+    if (saved.captureAudio) {
+        if (!values.enable_audio) return false
+        if (saved.audioCapture && values.audio_capture !== saved.audioCapture) return false
+        if (saved.audioEncoder && values.audio_encoder !== saved.audioEncoder) return false
+        if (saved.audioDevice && (
+            values.audio_device?.audio_device_id !== saved.audioDevice.audioDeviceId
+            || values.audio_device?.audio_data_flow !== saved.audioDevice.audioDataFlow
+        )) return false
+    }
+    return true
+}

@@ -119,3 +119,32 @@ describe('finite session boundary', () => {
         await current.assertCurrent(); expect(get).not.toHaveBeenCalled();
     });
 });
+
+describe('device target recovery after a host restart', () => {
+    afterEach(() => { vi.useRealTimers(); });
+    const offline = () => Object.assign(new Error('offline'), { code: 10003 });
+    const forbidden = () => Object.assign(new Error('forbidden'), { code: 4 });
+
+    it('keeps looking while the device is offline and resumes without a click', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        get.mockRejectedValueOnce(offline()).mockRejectedValueOnce(offline()).mockResolvedValue(connection('c2'));
+        renderTarget(new QueryClient());
+        expect(await screen.findByText('pages.deviceTarget.offline')).toBeInTheDocument();
+        await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+        expect(await screen.findByText('c2:empty')).toBeInTheDocument();
+        expect(get).toHaveBeenCalledTimes(3);
+        // A success never keeps polling.
+        await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+        expect(get).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not poll an answer the user has to act on', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        get.mockRejectedValue(forbidden());
+        renderTarget(new QueryClient());
+        expect(await screen.findByText('pages.deviceTarget.unavailable')).toBeInTheDocument();
+        await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+        expect(get).toHaveBeenCalledTimes(1);
+    });
+});

@@ -12,6 +12,8 @@ import { errorCodeOf } from '@/lib/desk-error-i18n';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { readSessionGrant } from './session-grant';
+import { isTransientTargetFailure, transientTargetRetryDelayMs } from './device-target-retry';
+import { createSessionResumeSlot, type SessionResumeSlot } from './session-resume';
 
 export type DeviceConnectionResolution =
     | { status: 'loading'; connection: undefined }
@@ -33,6 +35,8 @@ export interface DeviceTarget {
     /** New admissions wait for an in-flight refresh; established channels keep running. */
     assertCurrent: () => Promise<void>;
     refresh: () => Promise<void>;
+    /** Survives the runtime remount a host restart causes; see `session-resume.ts`. */
+    resume?: SessionResumeSlot;
 }
 const DeviceTargetContext = createContext<DeviceTarget | undefined>(undefined);
 export const DeviceTargetProvider = DeviceTargetContext.Provider;
@@ -85,11 +89,24 @@ function ResolvedDeviceTarget({ accountKey, orgId, deviceId, children }: { accou
     }, []);
     const client = useQueryClient();
     const queryKey = useMemo(() => ['device-target', accountKey, orgId ?? null, deviceId] as const, [accountKey, orgId, deviceId]);
+    // `errorUpdateCount` only grows and outlives this mount in the query
+    // cache; failures since the last success drive the backoff.
+    const errorsAtLastSuccess = useRef(client.getQueryState(queryKey)?.errorUpdateCount ?? 0);
     const query = useQuery({
         queryKey,
         queryFn: ({ signal }) => getDeviceConnection(deviceId, orgId == null ? { scope: 'personal' } : { scope: 'org', org_id: String(orgId) }, { signal }),
         enabled: accountKey != null && deviceId.length > 0,
         retry: false,
+        // A host restart answers "offline" or nothing for a few seconds; keep
+        // looking so an open page recovers without a click. Paused while the
+        // tab is hidden (react-query default).
+        refetchInterval: ({ state }) => {
+            if (state.status !== 'error') {
+                errorsAtLastSuccess.current = state.errorUpdateCount;
+                return false;
+            }
+            return transientTargetRetryDelayMs(state.error, state.errorUpdateCount - errorsAtLastSuccess.current);
+        },
         refetchOnMount: 'always',
         staleTime: 0,
     });
@@ -110,6 +127,9 @@ function ResolvedDeviceTarget({ accountKey, orgId, deviceId, children }: { accou
     }, [query.isError, accepted]);
     const alive = useRef(true);
     useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+    const resume = useMemo(() => createSessionResumeSlot(), []);
+    // An interrupted session resumes only on the page it was interrupted on.
+    useEffect(() => { resume.clear(); }, [page, resume]);
     const refresh = useCallback(async () => { await client.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false }); }, [client, queryKey]);
     const expected = active?.connection_id;
     const assertCurrent = useCallback(async () => {
@@ -126,11 +146,12 @@ function ResolvedDeviceTarget({ accountKey, orgId, deviceId, children }: { accou
         kind: 'device', orgId, claimSignalingSocket, discoveryRevision: query.dataUpdatedAt, path: (page = '') => devicePath(deviceId, page, orgId), connectionId: active.connection_id, deviceId,
         connection: active, basePath: devicePath(deviceId, '', orgId), exitPath: devicePath(deviceId, '', orgId),
         resolution: { status: 'persistent', connection: active, deviceKey: `device:${deviceId}` },
-        assertCurrent, refresh,
-    } : undefined, [active, assertCurrent, claimSignalingSocket, deviceId, orgId, query.dataUpdatedAt, refresh]);
+        assertCurrent, refresh, resume,
+    } : undefined, [active, assertCurrent, claimSignalingSocket, deviceId, orgId, query.dataUpdatedAt, refresh, resume]);
     if (!value) return query.isPending || (query.isFetching && !denied)
         ? <Skeleton className="m-6 h-48" />
-        : <TargetUnavailable code={code} busy={query.isFetching} retry={() => void refresh()} />;
+        // Automatic retries keep fetching; only a manual retry disables the button.
+        : <TargetUnavailable code={code} busy={query.isFetching && !isTransientTargetFailure(query.error)} retry={() => void refresh()} />;
     return <DeviceTargetContext.Provider value={value}>
         <TargetRuntime key={active!.connection_id}>{children ?? <Outlet />}</TargetRuntime>
     </DeviceTargetContext.Provider>;

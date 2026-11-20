@@ -30,7 +30,8 @@ import { useCursorSync } from "./use-cursor-sync"
 import WhiteboardCanvas from "./whiteboard-canvas"
 import WhiteboardToolbar from "./whiteboard-toolbar"
 import { useDeskMicrophone } from "./use-desk-microphone"
-import { DeskConfigDialog } from "./desk-config-dialog"
+import { DeskConfigDialog, type DeskConfigSubmitSource } from "./desk-config-dialog"
+import type { SessionResumeIntent } from "./session-resume"
 import {
     SessionTargetDialog,
     parseSessionTargetList,
@@ -52,6 +53,7 @@ import { deskErrorCodeEnum } from "@/services/types"
 import { useRestrictedSession } from "@/features/desk/restricted-session"
 import {
     armControlReconnect,
+    RESUME_HAS_NO_PREVIOUS_EPOCH,
     armSettingsApplyTimeout,
     buildDesktopRequestRemotePayload,
     claimControlReconnect,
@@ -99,7 +101,7 @@ import {
     SIGNALING_TYPE_CODE_REMOTE_ACCESS_INITIALIZED,
     SIGNALING_TYPE_CODE_OFFER,
 } from "./constants"
-import { AdmissionRetrySchedule } from "./admission-retry"
+import { AdmissionRetrySchedule, isRetryableAdmissionError } from "./admission-retry"
 import { usePrivateScreenPending } from "./use-private-screen-pending"
 import { useDeviceTarget } from "./device-target-context"
 import {
@@ -188,6 +190,17 @@ export default function DeskSession({
     } | null>(null);
     const controlReconnectRef = useRef<ControlReconnectIntent | null>(null);
     const clipboardEnabledRef = useRef(false);
+    // Session resume across the remount a host restart causes (see
+    // `session-resume.ts`). `reachedConnectedRef` is sticky so arming does not
+    // depend on whether ICE noticed the outage before the signaling socket did.
+    const resumeSlot = target.resume;
+    const reachedConnectedRef = useRef(false);
+    const hasControlRef = useRef(false);
+    // Epoch this mount had when it armed the slot; null = not armed by it.
+    const armedEpochRef = useRef<string | null>(null);
+    const resumeClaimedRef = useRef(false);
+    const resumedConnectPendingRef = useRef(false);
+    const [autoResume, setAutoResume] = useState<SessionResumeIntent | null>(null);
     const clipboardReconnectIntentRef = useRef<boolean | null>(null);
     const deactivateWhiteboardRef = useRef<() => void>(() => {});
     const hasRequestedRef = useRef(false);
@@ -326,15 +339,25 @@ export default function DeskSession({
         useState<DeskDevicePreferencesV1 | null>(null);
     // Deliberately reload on every dialog open. This gives another tab's last
     // completed save a chance to become visible without live storage events.
+    // `preferencesLoadedForOpen` is the only safe moment for the dialog to
+    // auto-submit: before it, the dialog has resolved the form from defaults.
+    const [preferencesLoadedForOpen, setPreferencesLoadedForOpen] = useState(false);
     useEffect(() => {
+        if (!isConfigOpen) {
+            setPreferencesLoadedForOpen(false);
+            // Closed (also via Escape) before submitting: no later reopen of
+            // this mount may submit on its own.
+            setAutoResume(null);
+            return;
+        }
         if (
-            !isConfigOpen
-            || preferenceOwnerLoading
+            preferenceOwnerLoading
             || deviceConnectionResolution.status === "loading"
         ) return;
         setDevicePreferences(
             preferenceStoreRef.current!.loadDeviceIfPresent(preferenceScope),
         );
+        setPreferencesLoadedForOpen(true);
     }, [
         deviceConnectionResolution.status,
         isConfigOpen,
@@ -923,15 +946,24 @@ export default function DeskSession({
                             variant: "destructive",
                         });
                     }
-                } else if (
-                    message.response_state?.error_code === deskErrorCodeEnum.ACTION_NEED_RETRY
-                    || message.response_state?.error_code
-                        === deskErrorCodeEnum.REMOTE_DESKTOP_CAPABILITIES_NOT_READY
-                ) {
+                } else if (isRetryableAdmissionError(
+                    message.response_state?.error_code,
+                    !!resumeSlot?.peek(),
+                )) {
                     const state = admissionRetryRef.current;
                     const delay = state.schedule.nextDelay();
                     if (delay === null) {
                         clearAdmissionRetry();
+                        if (message.response_state?.error_code
+                            === deskErrorCodeEnum.SESSION_UNAVAILABLE) {
+                            // Still no session after the whole schedule: it is
+                            // a real answer now, so show it like any refusal.
+                            setAdmissionRefusal(remoteAccessRefusalMessage(
+                                t,
+                                message.response_state.error_code,
+                                message.response_state.message,
+                            ));
+                        }
                         const abandoned = settingsReconnectRef.current;
                         if (abandoned && deskId && isConnected) {
                             sendMessage(
@@ -1128,6 +1160,7 @@ export default function DeskSession({
         finishVideoTransition,
         finishVideoTransitionOnNextFrame,
         isConnected,
+        resumeSlot,
         sendMessage,
         sendRemoteAdmission,
         subscribe,
@@ -1163,10 +1196,18 @@ export default function DeskSession({
                 rtcFailed,
             })
         ) {
+            if (!hasAttemptedConnectRef.current && !resumeClaimedRef.current) {
+                const intent = resumeSlot?.peek() ?? null;
+                if (intent) {
+                    // At most one automatic resume per mount.
+                    resumeClaimedRef.current = true;
+                    setAutoResume(intent);
+                }
+            }
             console.log("Showing config dialog for remote connection");
             setIsConfigOpen(true);
         }
-    }, [initData, isRTCConnected, rtcFailed]);
+    }, [initData, isRTCConnected, rtcFailed, resumeSlot]);
 
     // Once the media link is up, close the config dialog. Guards against a
     // dialog that was reopened by an earlier not-connected state lingering in
@@ -1176,6 +1217,48 @@ export default function DeskSession({
             setIsConfigOpen(false);
         }
     }, [isRTCConnected]);
+
+    useEffect(() => { hasControlRef.current = hasControl; }, [hasControl]);
+    useEffect(() => {
+        if (!isRTCConnected) return;
+        reachedConnectedRef.current = true;
+        if (resumedConnectPendingRef.current) {
+            // The resumed session is live: the intent is fulfilled.
+            resumedConnectPendingRef.current = false;
+            resumeSlot?.clear();
+        }
+    }, [isRTCConnected, resumeSlot]);
+    // An unexpected signaling drop of a live session arms the resume slot; a
+    // deliberate teardown detaches the socket handlers first and never gets
+    // here.
+    const signalingWasConnectedRef = useRef(false);
+    useEffect(() => {
+        const wasConnected = signalingWasConnectedRef.current;
+        signalingWasConnectedRef.current = isConnected;
+        if (!resumeSlot) return;
+        if (wasConnected && !isConnected && reachedConnectedRef.current) {
+            const hadControl = hasControlRef.current;
+            resumeSlot.arm({
+                hadControl,
+                clipboard: hadControl ? clipboardEnabledRef.current : null,
+                armedAt: Date.now(),
+            });
+            armedEpochRef.current = initData?.connection_epoch ?? null;
+        }
+        // `initData` is read for the epoch at the moment of the drop only.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isConnected, resumeSlot]);
+    // Only proof that the host session survived withdraws the intent: this
+    // same mount being handed back the epoch it had before the drop. A mere
+    // signaling reconnect is not that proof.
+    useEffect(() => {
+        const armedEpoch = armedEpochRef.current;
+        if (!armedEpoch || !initData) return;
+        if (initData.connection_epoch === armedEpoch) {
+            armedEpochRef.current = null;
+            resumeSlot?.clear();
+        }
+    }, [initData, resumeSlot]);
 
     // Attach remote stream to video element
     useEffect(() => {
@@ -1425,8 +1508,11 @@ export default function DeskSession({
     const handleConfigSubmit = (
         settings: DeskConfigSubmission,
         preferences: DeskDevicePreferencesV1,
+        source: DeskConfigSubmitSource = "user",
     ) => {
         if (!initData) return;
+        const resuming = source === "resume" ? autoResume : null;
+        setAutoResume(null);
         if (settingsApplyRef.current) {
             toast({ title: t("pages.desk.settingsApplyInProgress") });
             return;
@@ -1465,8 +1551,22 @@ export default function DeskSession({
             ),
         };
         const previousSettings = lastSettingsRef.current;
-        preferenceStoreRef.current!.saveDevice(preferenceScope, preferences);
-        setDevicePreferences(preferences);
+        if (resuming) {
+            // The resumed connect repeats the user's saved choices; it is not
+            // a new choice, so the saved preferences stay untouched. The
+            // slot is cleared only once the link is up, so a mount torn down
+            // before then leaves the intent for the next one.
+            resumedConnectPendingRef.current = true;
+            controlReconnectRef.current = armControlReconnect(
+                resuming.hadControl,
+                RESUME_HAS_NO_PREVIOUS_EPOCH,
+            );
+            clipboardReconnectIntentRef.current = resuming.clipboard;
+        } else {
+            resumeSlot?.clear();
+            preferenceStoreRef.current!.saveDevice(preferenceScope, preferences);
+            setDevicePreferences(preferences);
+        }
         if (isRTCConnected && requestedMode !== admittedWaylandModeRef.current) {
             lastSettingsRef.current = settingsWithPrefs;
             adaptiveQualityOverrideRef.current = null;
@@ -1526,7 +1626,18 @@ export default function DeskSession({
         applyRemoteSettings(updated);
     }, [adaptiveBitrateEnabled, isRTCConnected, deskId, initData, applyRemoteSettings]);
 
+    // The host does not (yet) offer the saved choices unchanged — right after a
+    // reboot a virtual display or encoder can still be attaching. This mount
+    // leaves the dialog to the user; the intent stays for a later runtime and
+    // is bounded by its TTL, or cleared by the user's own submit or cancel.
+    const handleAutoResumeDeclined = useCallback(() => {
+        setAutoResume(null);
+    }, []);
+
     const handleConfigCancel = () => {
+        resumeSlot?.clear();
+        reachedConnectedRef.current = false;
+        setAutoResume(null);
         setIsConfigOpen(false);
         navigate(target.exitPath);
     };
@@ -1586,6 +1697,8 @@ export default function DeskSession({
     }, [initData?.connection_epoch, isRTCConnected, requestRemoteControl]);
 
     const handleDisconnect = () => {
+        resumeSlot?.clear();
+        reachedConnectedRef.current = false;
         const finalEpoch = initData?.connection_epoch
             ?? settingsReconnectRef.current?.previousEpoch;
         settingsReconnectRef.current = null;
@@ -1727,6 +1840,8 @@ export default function DeskSession({
                 preferences={devicePreferences}
                 onSubmit={handleConfigSubmit}
                 onCancel={handleConfigCancel}
+                autoSubmit={autoResume !== null && preferencesLoadedForOpen}
+                onAutoSubmitDeclined={handleAutoResumeDeclined}
                 onRestorePhysicalDisplay={restorePhysicalDisplay}
                 adaptiveQualityEnabled={adaptiveQualityEnabled}
                 onAdaptiveQualityChange={setAdaptiveQualityEnabled}
