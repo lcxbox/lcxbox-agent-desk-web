@@ -271,7 +271,7 @@ fn run_tauri_service_shell(settings: &Settings) -> Result<(), DeskTauriError> {
         &settings.log.log_level,
         settings.paths().log_dir(),
     ) {
-        Ok(g) => Some(g),
+        Ok(guard) => guard,
         Err(e) => {
             // No subscriber installed: fall through to a silent run. Surface
             // the reason on stderr so a debug build still shows it.

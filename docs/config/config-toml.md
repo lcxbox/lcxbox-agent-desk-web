@@ -56,7 +56,12 @@ This host-local preference is not remotely configurable by manager. See
 Cleanup covers every component's rolled files in the log directory
 (`desk-server.log.<date>`, `desk-daemon.log.<date>`, `desk-worker.log.<date>`,
 `desk-mcp.log.<date>`, `desk-tauri.log.<date>`); files that belong to other
-programs sharing the directory are left alone. Every file carries a date suffix,
+programs sharing the directory are left alone. On Windows, session workers and
+the tray shell run as each signed-in user and write one file per user,
+named with the user's SID (`desk-worker-<SID>.log.<date>`,
+`desk-tauri-<SID>.log.<date>`); the service and the sign-in screen worker run
+as SYSTEM and keep the plain names. A process that cannot open its log file
+keeps running without a file log and records why. Every file carries a date suffix,
 including the one being written right now — retention is measured from it, so the
 live file is never removed. Roll dates are UTC.
 
