@@ -2051,3 +2051,105 @@ fn keyframe_stays_owed_until_a_pass_emits_nals() {
     settle_keyframe_owed(&mut owed, 0);
     assert!(!owed);
 }
+
+fn idle_start_payload(
+    epoch: &str,
+    video_generation: u32,
+    audio_generation: u32,
+) -> StartMediaPayload {
+    StartMediaPayload {
+        resolved_wayland_control_mode: None,
+        connection_id: "resumed".into(),
+        connection_epoch: epoch.to_string(),
+        video_generation,
+        audio_generation,
+        video_codec: MediaCodec::H264,
+        video_encoder: VideoEncoderId::X264,
+        video_device: None,
+        fps: 0,
+        bitrate_kbps: 0,
+        quality: 0,
+        start_video: false,
+        audio: None,
+        image_capture: "default".to_string(),
+        enable_dirty_rect: false,
+        show_mouse: false,
+    }
+}
+
+/// Regression (fast user switch, on device 2026-11-20): two daemon resumes
+/// reached one worker; it ignored the second, newer StartMedia while the
+/// daemon's fence had moved to it, so every frame was dropped.
+#[test]
+fn a_newer_start_media_replaces_the_running_pipeline() {
+    let (sender, _rx) = inprocess::make_media();
+    let (err_tx, _err_rx) = mpsc::unbounded_channel::<WorkerToService>();
+    let producer = MediaProducer::new(DeskSettings::default(), sender, err_tx);
+    let StartMediaResult::Accepted(first) =
+        producer.start_media_with(idle_start_payload("e1", 3, 3), |_| {})
+    else {
+        panic!("first StartMedia must be accepted");
+    };
+    let (old_video_stop, old_audio_stop, mut old_stop_rx) = {
+        let map = producer.inner.lock().unwrap();
+        let task = &map["resumed"];
+        (
+            Arc::clone(&task.video_stop_flag),
+            Arc::clone(&task.audio_stop_flag),
+            task.video_stop_tx.subscribe(),
+        )
+    };
+
+    let mut accepted_generation = None;
+    let replaced = producer.start_media_with(idle_start_payload("e1", 4, 4), |generation| {
+        accepted_generation = Some(generation);
+    });
+    let StartMediaResult::Accepted(second) = replaced else {
+        panic!("a newer StartMedia must replace the running pipeline");
+    };
+    assert_ne!(first, second);
+    assert_eq!(accepted_generation, Some(second));
+    assert!(old_video_stop.load(Ordering::SeqCst));
+    assert!(old_audio_stop.load(Ordering::SeqCst));
+    assert!(*old_stop_rx.borrow_and_update());
+    let map = producer.inner.lock().unwrap();
+    assert_eq!(map["resumed"].generation, second);
+    assert_eq!(map["resumed"].start_payload.video_generation, 4);
+}
+
+#[test]
+fn an_older_start_media_after_a_newer_one_is_ignored() {
+    let (sender, _rx) = inprocess::make_media();
+    let (err_tx, _err_rx) = mpsc::unbounded_channel::<WorkerToService>();
+    let producer = MediaProducer::new(DeskSettings::default(), sender, err_tx);
+    let StartMediaResult::Accepted(running) =
+        producer.start_media_with(idle_start_payload("e1", 5, 5), |_| {})
+    else {
+        panic!("first StartMedia must be accepted");
+    };
+    for stale in [
+        idle_start_payload("e1", 4, 4),
+        idle_start_payload("e1", 6, 4),
+        idle_start_payload("e1", 5, 5),
+    ] {
+        let mut called = false;
+        let result = producer.start_media_with(stale, |_| called = true);
+        assert!(matches!(result, StartMediaResult::AlreadyRunning));
+        assert!(!called);
+    }
+    let map = producer.inner.lock().unwrap();
+    assert_eq!(map["resumed"].generation, running);
+    assert_eq!(map["resumed"].start_payload.video_generation, 5);
+}
+
+#[test]
+fn a_start_media_for_another_epoch_replaces_whatever_its_generations() {
+    let (sender, _rx) = inprocess::make_media();
+    let (err_tx, _err_rx) = mpsc::unbounded_channel::<WorkerToService>();
+    let producer = MediaProducer::new(DeskSettings::default(), sender, err_tx);
+    let _ = producer.start_media_with(idle_start_payload("e1", 7, 7), |_| {});
+    let result = producer.start_media_with(idle_start_payload("e2", 1, 1), |_| {});
+    assert!(matches!(result, StartMediaResult::Accepted(_)));
+    let map = producer.inner.lock().unwrap();
+    assert_eq!(map["resumed"].start_payload.connection_epoch, "e2");
+}

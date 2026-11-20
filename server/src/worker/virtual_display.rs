@@ -80,6 +80,13 @@ impl VirtualDisplayState {
         original.clone()
     }
 
+    /// The payload to forward to the producer for `original`, without
+    /// recording it: a StartMedia the producer then rejects as a duplicate
+    /// must not replace the cached payload of the pipeline that keeps running.
+    pub fn active_for(&self, original: &StartMediaPayload) -> StartMediaPayload {
+        self.make_active(original)
+    }
+
     /// Record an inbound StartMedia: cache `original`, return the
     /// payload that should be forwarded to the producer.
     pub fn record_start(&mut self, payload: StartMediaPayload) -> StartMediaPayload {

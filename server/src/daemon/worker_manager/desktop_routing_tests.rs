@@ -321,3 +321,34 @@ async fn a_wayland_portal_command_reaches_the_only_linux_session_worker() {
     assert!(first_rx.try_recv().is_err());
     assert!(second_rx.try_recv().is_err());
 }
+
+/// Regression (fast user switch, on device 2026-11-20): the capabilities
+/// task found the route already switched by the reconcile, yet paused and
+/// replayed media a second time, which sent the worker a second StartMedia.
+#[tokio::test]
+async fn activating_the_current_route_reports_it_without_switching() {
+    let (manager, session, default_key, _winlogon_key) = manager_with_session();
+    let (default_tx, mut default_rx) = mpsc::unbounded_channel();
+    let incarnation = manager
+        .install_resident_for_test(default_key.clone(), default_tx)
+        .await;
+    manager.active_interactive_routes.lock().unwrap().insert(
+        session.clone(),
+        ActiveInteractiveRoute {
+            worker_key: default_key.clone(),
+            incarnation,
+            route_epoch: 7,
+            activated_at: Instant::now(),
+            activated_at_unix_ms: 1,
+            accepting_interactive: true,
+        },
+    );
+    assert_eq!(
+        manager.activate_interactive_worker(&default_key).await,
+        Ok(InteractiveActivation::AlreadyCurrent(7))
+    );
+    assert!(
+        default_rx.try_recv().is_err(),
+        "an already-current route sends the worker nothing"
+    );
+}

@@ -174,6 +174,28 @@ impl ConnectionTask {
     }
 }
 
+/// Whether `incoming` must replace the pipeline started from `running`.
+///
+/// The daemon owns media generations and moves its output fence before it
+/// sends `StartMedia`, so a newer request for a running connection is the one
+/// whose frames the daemon will accept. Sends from different daemon tasks can
+/// arrive out of order, so within one connection epoch only a strictly newer
+/// request (no generation lower, at least one higher) replaces; an older or
+/// identical one is a duplicate. Epochs are opaque, so a different epoch
+/// always replaces.
+pub(crate) fn start_media_supersedes(
+    running: &StartMediaPayload,
+    incoming: &StartMediaPayload,
+) -> bool {
+    if running.connection_epoch != incoming.connection_epoch {
+        return true;
+    }
+    incoming.video_generation >= running.video_generation
+        && incoming.audio_generation >= running.audio_generation
+        && (incoming.video_generation > running.video_generation
+            || incoming.audio_generation > running.audio_generation)
+}
+
 impl Drop for ConnectionTask {
     fn drop(&mut self) {
         // Belt-and-braces: setting stop_flag here guarantees both
@@ -460,6 +482,9 @@ impl MediaProducer {
         F: FnOnce(u64),
     {
         let connection_id = payload.connection_id.clone();
+        // A pipeline superseded by this request; stopped inside the critical
+        // section, dropped after the lock is released.
+        let mut superseded: Option<ConnectionTask> = None;
         let (
             generation,
             video_stop_flag,
@@ -471,11 +496,24 @@ impl MediaProducer {
             settings_rx,
         ) = {
             let mut map = self.inner.lock().expect("media producer lock poisoned");
-            if map.contains_key(&connection_id) {
-                warn!(
-                    "[MediaProducer] StartMedia for already-running connection {connection_id}; ignoring"
+            if let Some(running) = map.get(&connection_id) {
+                if !start_media_supersedes(&running.start_payload, &payload) {
+                    warn!(
+                        "[MediaProducer] StartMedia for already-running connection {connection_id}; ignoring"
+                    );
+                    return StartMediaResult::AlreadyRunning;
+                }
+                info!(
+                    "[MediaProducer] StartMedia for running connection {connection_id} with newer generations (video {} -> {}, audio {} -> {}); replacing the pipeline",
+                    running.start_payload.video_generation,
+                    payload.video_generation,
+                    running.start_payload.audio_generation,
+                    payload.audio_generation,
                 );
-                return StartMediaResult::AlreadyRunning;
+                if let Some(task) = map.remove(&connection_id) {
+                    task.request_stop();
+                    superseded = Some(task);
+                }
             }
             let generation = self
                 .capture_key_generation
@@ -519,6 +557,9 @@ impl MediaProducer {
             )
         };
 
+        // Its threads observe the stop flags within one frame interval; their
+        // frames carry the old generations, which the daemon fences.
+        drop(superseded);
         // The reservation above makes duplicate StartMedia atomic, while
         // releasing `inner` here keeps input setup (which may wait on a
         // Wayland RemoteDesktop Portal response) outside the producer lock.

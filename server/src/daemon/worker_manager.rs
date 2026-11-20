@@ -68,6 +68,16 @@ impl WorkerIncarnation {
     }
 }
 
+/// Outcome of [`WorkerManager::activate_interactive_worker`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InteractiveActivation {
+    /// The worker was already the session's current interactive route at
+    /// this epoch; nothing was switched and media was not paused.
+    AlreadyCurrent(u64),
+    /// The route was moved to the worker at this new epoch.
+    Switched(u64),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ActiveInteractiveRoute {
     worker_key: WorkerKey,
@@ -2214,7 +2224,12 @@ impl WorkerManager {
             let key = key.clone();
             tokio::spawn(async move {
                 match manager.activate_interactive_worker(&key).await {
-                    Ok(epoch) => {
+                    // A route switch that ran meanwhile already made this
+                    // worker current and replayed media itself. Replaying
+                    // again would issue a second StartMedia with newer
+                    // generations to the same worker.
+                    Ok(InteractiveActivation::AlreadyCurrent(_)) => {}
+                    Ok(InteractiveActivation::Switched(epoch)) => {
                         let connection_ids = manager.connection_ids_for_session(&key.session);
                         if !connection_ids.is_empty() {
                             manager
@@ -2314,7 +2329,10 @@ impl WorkerManager {
     /// activation. The route and incarnation are then changed in one mutex
     /// critical section, so media drains can never observe a new key with an
     /// old epoch.
-    pub async fn activate_interactive_worker(&self, key: &WorkerKey) -> Result<u64, String> {
+    pub async fn activate_interactive_worker(
+        &self,
+        key: &WorkerKey,
+    ) -> Result<InteractiveActivation, String> {
         let switch_lock = self
             .interactive_switch_locks
             .lock()
@@ -2347,7 +2365,7 @@ impl WorkerManager {
                 .get(key)
                 .is_some_and(|worker| worker.incarnation == route.incarnation);
             if incarnation_is_current {
-                return Ok(route.route_epoch);
+                return Ok(InteractiveActivation::AlreadyCurrent(route.route_epoch));
             }
         }
         if let Some(desired) = self
@@ -2366,6 +2384,7 @@ impl WorkerManager {
         let route_epoch = self.allocate_interactive_route_epoch(&key.session);
         self.activate_interactive_worker_at_epoch_locked(key, route_epoch)
             .await
+            .map(InteractiveActivation::Switched)
     }
 
     fn allocate_interactive_route_epoch(

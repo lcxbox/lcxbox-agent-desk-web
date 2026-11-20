@@ -1162,7 +1162,8 @@ impl WorkerSession {
                                         // payload (which may have
                                         // video_device overridden to the
                                         // attached virtual display).
-                                        let active = vd_state.record_start(payload);
+                                        // Recorded only once the producer accepts it.
+                                        let active = vd_state.active_for(&payload);
                                         let start_result = producer.start_media_with(active.clone(), |generation| {
                                             // Register input before the video thread starts, so its first
                                             // actual-stream geometry event cannot race ahead of this state.
@@ -1172,7 +1173,9 @@ impl WorkerSession {
                                             );
                                         });
                                         match start_result {
-                                            StartMediaResult::Accepted(_) => {}
+                                            StartMediaResult::Accepted(_) => {
+                                                vd_state.record_start(payload);
+                                            }
                                             StartMediaResult::AlreadyRunning => {
                                                 warn!(
                                                     "Duplicate StartMedia for {}; existing connection state preserved",
