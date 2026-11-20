@@ -1924,6 +1924,7 @@ export default {
   'pages.aiAssistant.queueFailure.source_unavailable': 'The original access expired or was removed.',
   'pages.aiAssistant.queueFailure.destination_changed': 'The selected model changed.',
   'pages.aiAssistant.queueFailure.coordination_exhausted': 'The assistant could not route this request.',
+  'pages.aiAssistant.queueFailure.activation_failed': 'The request could not be started after several attempts.',
   'pages.aiAssistant.queueFailure.unknown': 'The request could not start.',
   'pages.aiAssistant.cancelQueuedRequest': 'Cancel',
   'pages.aiAssistant.queuedMessage.queued': 'Queued',

@@ -1091,7 +1091,8 @@ export type AiAssistantMainRequestResumeDto = {
 export const mainRequestFailureEnum = {
     source_unavailable: "source_unavailable",
     destination_changed: "destination_changed",
-    coordination_exhausted: "coordination_exhausted"
+    coordination_exhausted: "coordination_exhausted",
+    activation_failed: "activation_failed"
 } as const;
 
 export type MainRequestFailureEnumKey = (typeof mainRequestFailureEnum)[keyof typeof mainRequestFailureEnum];
@@ -1122,6 +1123,11 @@ export type MainRequestReceipt = {
      * @type string
     */
     clientMessageId: string;
+    /**
+     * @description The `DeskErrorCode` of a failed activation, when one was available.
+     * @type integer,null, int32
+    */
+    errorCode?: number | null;
     failure?: (null | MainRequestFailure);
     /**
      * @type integer,null, int64
@@ -15191,6 +15197,11 @@ export type RestResponseMainRequestReceipt = {
          * @type string
         */
         clientMessageId: string;
+        /**
+         * @description The `DeskErrorCode` of a failed activation, when one was available.
+         * @type integer,null, int32
+        */
+        errorCode?: number | null;
         failure?: (null | MainRequestFailure);
         /**
          * @type integer,null, int64

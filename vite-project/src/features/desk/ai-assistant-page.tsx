@@ -88,6 +88,7 @@ import {
     isExactExternalSendTool,
     parseExternalSendReceipt,
 } from './ai-assistant-external-send';
+import { AssistantFailedRequests } from './assistant-failed-requests';
 
 const CURRENT_SCREEN_CAPABILITY_ID = 'screen.capture.current';
 
@@ -1134,19 +1135,7 @@ export function AiAssistantWorkspace({
                             disabled={chat.resumingQueue} onClick={() => void chat.resumeQueue()}>
                             {t('pages.aiAssistant.resumeQueue')}
                         </Button>}
-                        {chat.failedRequests.length > 0 && (
-                            <details className="text-sm text-muted-foreground">
-                                <summary className="cursor-pointer">{t('pages.aiAssistant.failedQueuedRequests', { count: chat.failedRequests.length })}</summary>
-                                <ul className="space-y-1 px-2">
-                                    {chat.failedRequests.map(request => (
-                                        <li key={request.requestId} className="flex gap-2">
-                                            <span>{new Date(request.acceptedAtMs).toLocaleString()}</span>
-                                            <span>{t(`pages.aiAssistant.queueFailure.${request.failure ?? 'unknown'}`)}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </details>
-                        )}
+                        <AssistantFailedRequests failed={chat.failedRequests} waitingIds={chat.waitingRequestIds} />
                         {provider.isSuccess && modelMissing && (
                             <p role="status" className="text-sm text-muted-foreground">
                                 {t('pages.aiAssistant.modelNotConfigured')}{' '}

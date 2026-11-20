@@ -28,6 +28,14 @@ pub(super) async fn wait_for_scan() {
     }
 }
 
+/// How one scan of a queued row ended.
+enum Attempt {
+    /// Not ready, deferred or closed by its own rule, or handled by a batch.
+    NotStarted,
+    /// The activation ran; its returned error, if any.
+    Ran(Option<AgentError>),
+}
+
 pub struct SignalMainRequestExecutor {
     db: DatabaseConnection,
     connections: web::Data<SharedConnectionMap>,
@@ -122,13 +130,48 @@ impl SignalMainRequestExecutor {
         Ok(next)
     }
 
+    /// A first activation that ends before native admission, without being
+    /// cancelled, is recorded against the scanned row and retried with backoff.
     async fn process(&self, row: agent_main_request::Model) -> Result<(), AgentError> {
+        let progress = main_request::tracks_activation(&row)
+            .then(|| Arc::new(main_request::ActivationProgress::default()));
+        let result = self.attempt(row.clone(), progress.clone()).await;
+        let Some(progress) = progress.filter(|progress| progress.failed()) else {
+            return result.map(|_| ());
+        };
+        let returned = match &result {
+            Ok(Attempt::NotStarted) => return Ok(()),
+            Ok(Attempt::Ran(error)) => error.as_ref(),
+            Err(error) => Some(error),
+        };
+        let outcome = main_request::record_activation_failure(
+            &self.db,
+            &row,
+            chrono::Utc::now().timestamp_millis(),
+            progress.error_code(returned),
+        )
+        .await
+        .map_err(|error| error.into_agent_error())?;
+        log::warn!(
+            "[main-request] activation of {} failed before admission: {:?} {:?}",
+            row.request_id,
+            outcome,
+            returned.map(|error| (&error.kind, error.error_code))
+        );
+        Ok(())
+    }
+
+    async fn attempt(
+        &self,
+        row: agent_main_request::Model,
+        progress: Option<Arc<main_request::ActivationProgress>>,
+    ) -> Result<Attempt, AgentError> {
         let owner = crate::control_authorizer::SINGLE_ACCOUNT_USER_ID;
         if row.actor_id != owner.to_string() {
-            return Ok(());
+            return Ok(Attempt::NotStarted);
         }
         let Some(execution_conversation_id) = self.ready(&row).await? else {
-            return Ok(());
+            return Ok(Attempt::NotStarted);
         };
         let frozen = FrozenRequestInput::decode(&row).map_err(|error| error.into_agent_error())?;
         let now_ms = chrono::Utc::now().timestamp_millis();
@@ -140,7 +183,7 @@ impl SignalMainRequestExecutor {
             main_request::defer_paused_source(&self.db, &row, now_ms)
                 .await
                 .map_err(|error| error.into_agent_error())?;
-            return Ok(());
+            return Ok(Attempt::NotStarted);
         }
         let failure = if main_request::coordination::exhausted(&row) {
             Some(MainRequestFailure::CoordinationExhausted)
@@ -174,7 +217,7 @@ impl SignalMainRequestExecutor {
                 )
                 .await?;
             }
-            return Ok(());
+            return Ok(Attempt::NotStarted);
         }
         let target = if frozen.device_id.is_empty() {
             String::new()
@@ -187,7 +230,7 @@ impl SignalMainRequestExecutor {
                     .as_ref()
                     .is_some_and(|settings| settings.enabled)
             }) else {
-                return Ok(());
+                return Ok(Attempt::NotStarted);
             };
             target.model.connection_id.clone()
         };
@@ -195,7 +238,7 @@ impl SignalMainRequestExecutor {
             && !main_request::coordination::has_route(&row)
             && self.coordinate(&row, &frozen.device_id, owner).await?
         {
-            return Ok(());
+            return Ok(Attempt::NotStarted);
         }
         let request_id = row.request_id;
         let browser = {
@@ -214,8 +257,9 @@ impl SignalMainRequestExecutor {
             execution_conversation_id,
             destination: frozen.destination,
             issue_source: frozen.issue_source,
+            progress,
         });
-        compose_turn_with_queue(
+        let result = compose_turn_with_queue(
             self.connections.clone(),
             self.db.clone(),
             request_id,
@@ -230,8 +274,8 @@ impl SignalMainRequestExecutor {
             None,
             Some(queue),
         )
-        .await?;
-        Ok(())
+        .await;
+        Ok(Attempt::Ran(result.err()))
     }
 
     async fn targets_authorized(

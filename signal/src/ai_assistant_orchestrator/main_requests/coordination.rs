@@ -4,7 +4,7 @@ use super::*;
 use crate::config::connection::DatabaseTransaction;
 use desk_assistant_data_store::{
     AssistantStoreError,
-    main_request::coordination::{self, Batch, ReportReadScope},
+    main_request::coordination::{self, Batch, ReportReadScope, Reservation},
 };
 use desk_diagnose_core::request_devices::RequestDevice;
 use desk_diagnose_core::{chat::ModelTurn, seam::ModelRequest};
@@ -139,8 +139,11 @@ impl SignalMainRequestExecutor {
         device: &str,
         owner: i32,
     ) -> Result<bool, AgentError> {
-        let Some((batch, request)) = self.reserve_batch(head, device).await? else {
-            return Ok(false);
+        let (batch, request) = match self.reserve_batch(head, device).await? {
+            Reservation::Reserved(batch) => *batch,
+            Reservation::Unbatched => return Ok(false),
+            // The rolled-back round ends here; the next scan starts afresh.
+            Reservation::Changed => return Ok(true),
         };
         let cancel = cancellation::register(owner, &batch.id);
         let result = tokio::time::timeout(
@@ -159,14 +162,14 @@ impl SignalMainRequestExecutor {
         &self,
         head: &agent_main_request::Model,
         device: &str,
-    ) -> Result<Option<(Batch, ModelRequest)>, AgentError> {
+    ) -> Result<Reservation, AgentError> {
         let txn = crate::db::begin_write(&self.db, agent_session::Entity)
             .await
             .map_err(storage)?;
         let Some((row, mut session)) =
             load_session(&txn, &head.conversation_id, &head.actor_id, device).await?
         else {
-            return Ok(None);
+            return Ok(Reservation::Unbatched);
         };
         if session.agent_role.workbench_id().is_some()
             && !agent_run_event_store::main_requests::ready_on(
@@ -176,24 +179,23 @@ impl SignalMainRequestExecutor {
             )
             .await?
         {
-            return Ok(None);
+            return Ok(Reservation::Unbatched);
         }
         if agent_run_event_store::main_requests::slot_held(&txn, &session).await? {
-            return Ok(None);
+            return Ok(Reservation::Unbatched);
         }
         let now_ms = chrono::Utc::now().timestamp_millis();
         let reports = report_candidates_on(&txn, &session, head, now_ms).await?;
         let disabled_skills = crate::assistant_skills::disabled_bundled(&txn).await;
-        let Some(batch) =
+        let reservation =
             coordination::reserve(&txn, &mut session, head, now_ms, reports, &disabled_skills)
                 .await
-                .map_err(|error| error.into_agent_error())?
-        else {
-            return Ok(None);
-        };
-        store_session(&txn, &row, &mut session).await?;
-        txn.commit().await.map_err(storage)?;
-        Ok(Some(batch))
+                .map_err(|error| error.into_agent_error())?;
+        if matches!(reservation, Reservation::Reserved(_)) {
+            store_session(&txn, &row, &mut session).await?;
+            txn.commit().await.map_err(storage)?;
+        }
+        Ok(reservation)
     }
 
     async fn finish_batch(

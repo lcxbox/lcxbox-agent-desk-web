@@ -27,6 +27,14 @@ pub struct Model {
     pub first_worker_request_id: Option<String>,
     pub coordination_attempts: i32,
     pub retry_at_ms: Option<i64>,
+    /// Activation attempts that ended before native admission.
+    #[sea_orm(default_value = 0)]
+    pub activation_attempts: i32,
+    /// Backoff after a failed activation; separate from the coordination and
+    /// paused-source deferral in `retry_at_ms`.
+    pub activation_retry_at_ms: Option<i64>,
+    /// The `DeskErrorCode` recorded when activation failed for good.
+    pub failure_error_code: Option<i32>,
     pub input_revision: Option<i64>,
     pub accepted_at_ms: i64,
     pub updated_at_ms: i64,

@@ -22,10 +22,16 @@ use sha2::{Digest, Sha256};
 
 use crate::{AssistantStoreError, entity::agent_main_request as request, signed};
 
+mod activation;
 pub mod coordination;
 pub mod dispatch;
 #[cfg(test)]
 mod tests;
+
+pub use activation::{
+    ActivationFailureOutcome, ActivationProgress, MAX_ACTIVATION_ATTEMPTS,
+    record_activation_failure, tracks_activation,
+};
 
 pub const QUEUED: &str = "queued";
 const ACTIVATED: &str = "activated";
@@ -56,10 +62,20 @@ pub enum OwnerQueueTurn {
         execution_conversation_id: String,
         destination: DestinationIdentity,
         issue_source: Option<Box<desk_diagnose_core::issue_authority::IssueWorkSource>>,
+        /// Present only for the first activation of a queued row. Admitted
+        /// recovery that has not been claimed yet carries none.
+        progress: Option<std::sync::Arc<ActivationProgress>>,
     },
 }
 
 impl OwnerQueueTurn {
+    pub fn activation_progress(&self) -> Option<&ActivationProgress> {
+        match self {
+            Self::Activate { progress, .. } => progress.as_deref(),
+            Self::Submit { .. } => None,
+        }
+    }
+
     pub fn issue_source(&self) -> Option<&desk_diagnose_core::issue_authority::IssueWorkSource> {
         match self {
             Self::Activate { issue_source, .. } => issue_source.as_deref(),
@@ -434,6 +450,7 @@ fn failure_code(reason: MainRequestFailure) -> &'static str {
         MainRequestFailure::SourceUnavailable => "source_unavailable",
         MainRequestFailure::DestinationChanged => "destination_changed",
         MainRequestFailure::CoordinationExhausted => "coordination_exhausted",
+        MainRequestFailure::ActivationFailed => "activation_failed",
     }
 }
 
@@ -451,6 +468,10 @@ pub fn failure_error(reason: MainRequestFailure) -> desk_agent_protocol::AgentEr
         MainRequestFailure::CoordinationExhausted => (
             AgentErrorKind::ModelRejected,
             "Queued assistant input could not be routed after repeated attempts",
+        ),
+        MainRequestFailure::ActivationFailed => (
+            AgentErrorKind::SessionUnavailable,
+            "Queued assistant input could not start after repeated attempts",
         ),
     };
     desk_agent_protocol::AgentError {
@@ -912,6 +933,7 @@ pub async fn receipts(
             Column::Failure,
             Column::InputRevision,
             Column::AcceptedAtMs,
+            Column::FailureErrorCode,
             Column::PendingInputJson,
         ])
         .filter(Column::ActorId.eq(actor_id))
@@ -947,17 +969,20 @@ pub async fn receipts(
         }
     };
     rows.into_iter()
-        .map(|(id, message, state, failure, revision, accepted, input)| {
-            let mut receipt = decode_receipt((id, message, state, failure, revision, accepted))?;
-            if matches!(
-                receipt.state,
-                MainRequestState::Queued | MainRequestState::Activated
-            ) && let Some(input) = input.as_deref()
-            {
-                receipt.question = owner_question(input)?;
-            }
-            Ok(receipt)
-        })
+        .map(
+            |(id, message, state, failure, revision, accepted, code, input)| {
+                let mut receipt =
+                    decode_receipt((id, message, state, failure, revision, accepted, code))?;
+                if matches!(
+                    receipt.state,
+                    MainRequestState::Queued | MainRequestState::Activated
+                ) && let Some(input) = input.as_deref()
+                {
+                    receipt.question = owner_question(input)?;
+                }
+                Ok(receipt)
+            },
+        )
         .collect()
 }
 
@@ -968,6 +993,7 @@ type ReceiptInputRow = (
     Option<String>,
     Option<i64>,
     i64,
+    Option<i32>,
     Option<String>,
 );
 
@@ -989,10 +1015,18 @@ fn owner_question(input: &str) -> Result<Option<String>, AssistantStoreError> {
     Ok(input.issue_source.is_none().then_some(input.ask.question))
 }
 
-pub(crate) type ReceiptRow = (String, String, String, Option<String>, Option<i64>, i64);
+pub(crate) type ReceiptRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<i64>,
+    i64,
+    Option<i32>,
+);
 
 pub(crate) fn decode_receipt(
-    (request_id, client_message_id, state, failure, input_revision, accepted_at_ms): ReceiptRow,
+    (request_id, client_message_id, state, failure, input_revision, accepted_at_ms, error_code): ReceiptRow,
 ) -> Result<MainRequestReceipt, AssistantStoreError> {
     let state = match state.as_str() {
         QUEUED => MainRequestState::Queued,
@@ -1011,6 +1045,7 @@ pub(crate) fn decode_receipt(
         Some("source_unavailable") => Some(MainRequestFailure::SourceUnavailable),
         Some("destination_changed") => Some(MainRequestFailure::DestinationChanged),
         Some("coordination_exhausted") => Some(MainRequestFailure::CoordinationExhausted),
+        Some("activation_failed") => Some(MainRequestFailure::ActivationFailed),
         Some(_) => {
             return Err(AssistantStoreError::Invalid(
                 "Invalid assistant request failure",
@@ -1024,6 +1059,7 @@ pub(crate) fn decode_receipt(
         failure,
         input_revision,
         accepted_at_ms,
+        error_code,
         question: None,
     })
 }
@@ -1109,6 +1145,9 @@ pub async fn enqueue(
         coordinated: Set(false),
         coordination_attempts: Set(0),
         retry_at_ms: Set(None),
+        activation_attempts: Set(0),
+        activation_retry_at_ms: Set(None),
+        failure_error_code: Set(None),
         pending_input_json: Set(Some(serde_json::to_string(input).map_err(|_| {
             AssistantStoreError::Invalid("Could not encode assistant request")
         })?)),
@@ -1152,10 +1191,19 @@ fn pending_for(actor_id: &str, conversation_id: &str) -> sea_orm::Select<request
         .filter(request::Column::State.eq(QUEUED))
 }
 
+/// A queued row is due once both its coordination or paused-source deferral
+/// and its activation backoff have elapsed.
 fn queued_and_due(now_ms: i64) -> Condition {
     Condition::all()
         .add(request::Column::State.eq(QUEUED))
         .add(retry_due(now_ms))
+        .add(activation_due(now_ms))
+}
+
+fn activation_due(now_ms: i64) -> Condition {
+    Condition::any()
+        .add(request::Column::ActivationRetryAtMs.is_null())
+        .add(request::Column::ActivationRetryAtMs.lte(now_ms))
 }
 
 fn retry_due(now_ms: i64) -> Condition {
@@ -1249,6 +1297,12 @@ pub async fn activate_with_dispatch(
         .col_expr(
             request::Column::InputRevision,
             Expr::value(signed(input_revision)?),
+        )
+        // Admission may have selected this head before a concurrent activation
+        // failure committed its backoff; the started request keeps none of it.
+        .col_expr(
+            request::Column::ActivationRetryAtMs,
+            Expr::value(None::<i64>),
         )
         .col_expr(request::Column::UpdatedAtMs, Expr::value(now_ms));
     let update = if row.first_dispatch_json.is_some() {
@@ -1368,4 +1422,8 @@ fn fail_payload(
         .col_expr(request::Column::State, Expr::value(FAILED))
         .col_expr(request::Column::Failure, Expr::value(failure_code(reason)))
         .col_expr(request::Column::RetryAtMs, Expr::value(None::<i64>))
+        .col_expr(
+            request::Column::ActivationRetryAtMs,
+            Expr::value(None::<i64>),
+        )
 }

@@ -57,6 +57,7 @@ pub async fn list_on(
             Column::InputRevision,
             Column::AcceptedAtMs,
             Column::UpdatedAtMs,
+            Column::FailureErrorCode,
         ])
         .filter(Column::ActorId.eq(actor))
         .filter(Column::ConversationId.eq(workbench));
@@ -82,6 +83,7 @@ pub async fn list_on(
         Option<i64>,
         i64,
         i64,
+        Option<i32>,
     );
     let mut rows = query
         .order_by_desc(Column::Id)
@@ -109,13 +111,15 @@ pub async fn list_on(
     let request_ids = rows.iter().map(|row| row.1.as_str()).collect::<Vec<_>>();
     let mut issue_numbers = issue_numbers_on(db, actor, workbench, request_ids).await?;
     let mut items = Vec::with_capacity(rows.len());
-    for (_, id, client_id, state, failure, revision, accepted, updated) in rows {
+    for (_, id, client_id, state, failure, revision, accepted, updated, error_code) in rows {
         let execution_session_id = revision
             .filter(|revision| *revision > 0)
             .map(|_| native_ids::workbench_work_conversation(actor, workbench, &id));
         let issue_number = issue_numbers.remove(&id);
         items.push(AiAssistantWorkbenchTask {
-            receipt: decode_receipt((id, client_id, state, failure, revision, accepted))?,
+            receipt: decode_receipt((
+                id, client_id, state, failure, revision, accepted, error_code,
+            ))?,
             execution_session_id,
             updated_at_ms: updated,
             issue_number,

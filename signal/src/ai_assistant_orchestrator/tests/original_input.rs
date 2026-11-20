@@ -373,6 +373,16 @@ async fn queued_owner_input_roundtrip(workbench: bool, delete_workbench: bool, w
     } else {
         None
     };
+    if let Some((task, reports)) = &wake {
+        assert_unreadable_reports_are_skipped(&db, &b, task, &reports[1]).await;
+    }
+    assert_changed_batch_charges_nothing(
+        &db,
+        &executor,
+        &[&b, &c],
+        wake.as_ref().map(|(task, reports)| (task, &reports[1])),
+    )
+    .await;
     let mut decisions = vec![
         serde_json::json!({"request_id":b.request_id,"route":"native"}),
         if workbench {
@@ -1435,6 +1445,115 @@ async fn prepare_workbench_mixed_reports(
             .is_none()
     );
     (task, first_reports)
+}
+
+/// A report whose event or Worker run cannot be decoded is unavailable to the
+/// batch; the read reports no error.
+async fn assert_unreadable_reports_are_skipped(
+    db: &DatabaseConnection,
+    head: &crate::entity::agent_main_request::Model,
+    task: &crate::entity::agent_subagent_run::Model,
+    report: &crate::entity::agent_subagent_inbox::Model,
+) {
+    use crate::agent_subagent_store::notification::batch_report_read_scope_on;
+    use crate::entity::agent_subagent_run as run;
+    use sea_orm::{ColumnTrait, QueryFilter, TransactionTrait};
+    let destination = main_request::FrozenRequestInput::decode(head)
+        .unwrap()
+        .destination;
+    let now = chrono::Utc::now().timestamp_millis();
+    let workbench = &head.conversation_id;
+    assert!(
+        batch_report_read_scope_on(db, report, workbench, &destination, now)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let mut unreadable = report.clone();
+    unreadable.event_json = "{}".into();
+    assert!(
+        batch_report_read_scope_on(db, &unreadable, workbench, &destination, now)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let txn = db.begin().await.unwrap();
+    run::Entity::update_many()
+        .col_expr(
+            run::Column::StateJson,
+            sea_orm::sea_query::Expr::value("{}"),
+        )
+        .filter(run::Column::TaskId.eq(&task.task_id))
+        .exec(&txn)
+        .await
+        .unwrap();
+    assert!(
+        batch_report_read_scope_on(&txn, report, workbench, &destination, now)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    txn.rollback().await.unwrap();
+}
+
+/// The final reservation of the second request, or of a Worker report, finds
+/// it changed: one full scan rolls back and charges neither count.
+async fn assert_changed_batch_charges_nothing(
+    db: &DatabaseConnection,
+    executor: &main_requests::SignalMainRequestExecutor,
+    requests: &[&crate::entity::agent_main_request::Model],
+    report: Option<(
+        &crate::entity::agent_subagent_run::Model,
+        &crate::entity::agent_subagent_inbox::Model,
+    )>,
+) {
+    use sea_orm::ConnectionTrait;
+    let change = match report {
+        Some((_, report)) => format!(
+            "UPDATE agent_subagent_inbox SET coordination_attempts = coordination_attempts + 1 \
+             WHERE id = {}",
+            report.id
+        ),
+        None => format!(
+            "UPDATE agent_main_request SET activation_attempts = activation_attempts + 1 \
+             WHERE id = {}",
+            requests[1].id
+        ),
+    };
+    db.execute_unprepared(&format!(
+        "CREATE TRIGGER changed_batch AFTER UPDATE OF coordination_attempts ON \
+         agent_main_request WHEN NEW.id = {} BEGIN {change}; END",
+        requests[0].id
+    ))
+    .await
+    .unwrap();
+    let reports_before = match report {
+        Some((task, _)) => workbench_report_rows(db, &task.task_id).await,
+        None => Vec::new(),
+    };
+    tokio::time::timeout(SCENARIO_TIMEOUT, executor.scan_once(0))
+        .await
+        .unwrap()
+        .unwrap();
+    db.execute_unprepared("DROP TRIGGER changed_batch")
+        .await
+        .unwrap();
+    for row in requests {
+        let saved = main_request::load(db, &row.actor_id, &row.conversation_id, &row.request_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.state, main_request::QUEUED);
+        assert_eq!(saved.coordination_attempts, row.coordination_attempts);
+        assert_eq!(saved.activation_attempts, 0);
+        assert!(saved.activation_retry_at_ms.is_none());
+    }
+    if let Some((task, _)) = report {
+        assert_eq!(
+            workbench_report_rows(db, &task.task_id).await,
+            reports_before
+        );
+    }
 }
 
 async fn workbench_report_rows(
@@ -4981,6 +5100,7 @@ async fn production_input_entry_freezes_objects_and_rejects_changed_retry_withou
     db.close().await.unwrap();
 }
 
+mod activation_failure;
 mod retention;
 
 mod schedule_input;

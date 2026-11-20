@@ -2411,6 +2411,8 @@ export function useAiAssistantChat({
             + (requestQueue?.conversation === conversationId.current ? requestQueue.items.filter(item => item.state === 'queued').length : 0),
         failedRequests: requestQueue?.conversation === conversationId.current
             ? requestQueue.items.filter(item => item.state === 'failed') : [],
+        waitingRequestIds: requestQueue?.conversation === conversationId.current
+            ? requestQueue.items.filter(item => isWaitingReceipt(item.state)).map(item => item.requestId) : [],
         cancelQueuedRequest,
         resumeQueue,
         resumingQueue,

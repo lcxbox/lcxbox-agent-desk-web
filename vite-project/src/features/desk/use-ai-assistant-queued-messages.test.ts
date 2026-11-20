@@ -4,12 +4,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SIGNALING_TYPE_CODE_AI_ASSISTANT_UPDATED } from './constants';
 import type { SignalingSubscriber } from './use-desk-signaling';
 import { useAiAssistantChat } from './use-ai-assistant-chat';
+import { deskErrorCodeEnum } from '@/services/types';
 
 vi.mock('react-i18next', () => import('@/test-utils/i18n-mock').then(m => m.reactI18nextMock()));
 
 type Receipt = {
     requestId: string; clientMessageId: string; state: 'queued' | 'activated' | 'cancelled' | 'failed';
-    acceptedAtMs: number; question?: string | null; failure?: string | null;
+    acceptedAtMs: number; question?: string | null; failure?: string | null; errorCode?: number;
 };
 type Snapshot = Record<string, unknown> & { seq: number; messages: unknown[]; mainRequests: Receipt[] };
 
@@ -268,6 +269,21 @@ describe('assistant queued messages', () => {
             await chat.queued(0, 'mine', true);
             expect(chat.view().queued).toEqual(['First:queued', 'Second:queued']);
             expect(chat.result.current.failedRequests.map(item => item.requestId)).toEqual(['mine']);
+        } finally { chat.unmount(); }
+    });
+
+    it('restores a failed activation and its cause from receipts alone after a reload', async () => {
+        const chat = await setup({ mainRequests: [
+            receipt('waiting', 'waiting-input', 'queued', 2, 'Still waiting'),
+            { ...receipt('closed', 'closed-input', 'failed', 1), failure: 'activation_failed',
+                errorCode: deskErrorCodeEnum.AI_CONTENT_SAFETY_UNAVAILABLE },
+        ] });
+        try {
+            await waitFor(() => expect(chat.result.current.failedRequests).toHaveLength(1));
+            expect(chat.result.current.failedRequests[0]).toMatchObject({
+                requestId: 'closed', failure: 'activation_failed',
+                errorCode: deskErrorCodeEnum.AI_CONTENT_SAFETY_UNAVAILABLE });
+            expect(chat.result.current.waitingRequestIds).toEqual(['waiting']);
         } finally { chat.unmount(); }
     });
 

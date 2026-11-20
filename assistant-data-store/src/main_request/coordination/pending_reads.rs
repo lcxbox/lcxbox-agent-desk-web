@@ -220,6 +220,7 @@ mod tests {
         let (batch, request) = reserve(&db, &mut session, &mac, ms, Vec::new(), &[])
             .await
             .unwrap()
+            .batch()
             .unwrap();
         assert_eq!(request.tools[0].name, READ_PENDING);
         let directory = async |_: &request::Model, input: &FrozenRequestInput| {

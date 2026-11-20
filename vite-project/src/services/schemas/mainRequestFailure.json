@@ -1,1 +1,1 @@
-{"type":"string","enum":["source_unavailable","destination_changed","coordination_exhausted"],"x-readme-ref-name":"MainRequestFailure"}
+{"type":"string","enum":["source_unavailable","destination_changed","coordination_exhausted","activation_failed"],"x-readme-ref-name":"MainRequestFailure"}

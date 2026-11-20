@@ -48,6 +48,8 @@ pub enum MainRequestFailure {
     SourceUnavailable,
     DestinationChanged,
     CoordinationExhausted,
+    /// Activation failed before native admission on every bounded retry.
+    ActivationFailed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -59,6 +61,9 @@ pub struct MainRequestReceipt {
     pub failure: Option<MainRequestFailure>,
     pub input_revision: Option<i64>,
     pub accepted_at_ms: i64,
+    /// The `DeskErrorCode` of a failed activation, when one was available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<i32>,
     /// The owner's own text while the request has not reached the conversation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<String>,
@@ -452,6 +457,37 @@ pub type AiAssistantEvent = crate::agent_event::AgentEvent;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn activation_failure_receipt_carries_its_wire_reason_and_error_code() {
+        let receipt = MainRequestReceipt {
+            request_id: "request-1".into(),
+            client_message_id: "message-1".into(),
+            state: MainRequestState::Failed,
+            failure: Some(MainRequestFailure::ActivationFailed),
+            input_revision: None,
+            accepted_at_ms: 7,
+            error_code: Some(5203),
+            question: None,
+        };
+        let value = serde_json::to_value(&receipt).unwrap();
+        assert_eq!(value["failure"], "activation_failed");
+        assert_eq!(value["errorCode"], 5203);
+        assert_eq!(
+            serde_json::from_value::<MainRequestReceipt>(value).unwrap(),
+            receipt
+        );
+        let without_code = MainRequestReceipt {
+            error_code: None,
+            ..receipt
+        };
+        let value = serde_json::to_value(&without_code).unwrap();
+        assert!(value.get("errorCode").is_none());
+        assert_eq!(
+            serde_json::from_value::<MainRequestReceipt>(value).unwrap(),
+            without_code
+        );
+    }
 
     #[test]
     fn owner_inputs_require_an_explicit_client_timezone() {

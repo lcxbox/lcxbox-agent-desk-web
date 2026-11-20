@@ -72,7 +72,9 @@ async fn workbench_wake_on(
 }
 
 /// A report in a root batch still belongs to one native work and its
-/// original input, control, model and task authority.
+/// original input, control, model and task authority. A report whose own
+/// stored records cannot be decoded is unavailable and keeps its counters and
+/// delivery state; storage errors are returned.
 pub(crate) async fn batch_report_read_scope_on(
     db: &impl ConnectionTrait,
     row: &inbox::Model,
@@ -90,8 +92,12 @@ pub(crate) async fn batch_report_read_scope_on(
     else {
         return Ok(None);
     };
-    let parent =
-        PersistedAgentSession::decode_boxed_json(&work.state_json).map_err(|_| invalid())?;
+    let Some(parent) = readable(
+        row,
+        PersistedAgentSession::decode_boxed_json(&work.state_json),
+    ) else {
+        return Ok(None);
+    };
     if parent.actor_id != row.actor_id
         || parent.conversation_id != row.root_conversation_id
         || parent.agent_role.workbench_id() != Some(workbench_id)
@@ -127,14 +133,16 @@ pub(crate) async fn batch_report_read_scope_on(
     else {
         return Ok(None);
     };
-    let group = decode_group(&group_row)?;
+    let (Some(group), Some(creation)) = (
+        readable(row, decode_group(&group_row)),
+        readable(row, decode_creation(&group_row)),
+    ) else {
+        return Ok(None);
+    };
     if !group.can_interpret(parent.input_revision, parent.control_revision)
         || group.source.workbench_id() != Some(workbench_id)
         || now_ms >= group.limits.deadline_ms
-        || !desk_diagnose_core::model_egress::same_gateway(
-            destination,
-            &decode_creation(&group_row)?.model_destination,
-        )
+        || !desk_diagnose_core::model_egress::same_gateway(destination, &creation.model_destination)
     {
         return Ok(None);
     }
@@ -148,8 +156,15 @@ pub(crate) async fn batch_report_read_scope_on(
     else {
         return Ok(None);
     };
-    let run = decode_run(&run)?;
-    let report = desk_assistant_data_store::worker_report::decode_projectable(row, destination)?;
+    let (Some(run), Some(report)) = (
+        readable(row, decode_run(&run)),
+        readable(
+            row,
+            desk_assistant_data_store::worker_report::decode_projectable(row, destination),
+        ),
+    ) else {
+        return Ok(None);
+    };
     Ok((run.binding.source_epoch == group.source_epoch
         && !run.source_paused
         && report.report.worker_id == run.worker_id
@@ -165,6 +180,18 @@ pub(crate) async fn batch_report_read_scope_on(
             binding: run.binding,
         },
     ))
+}
+
+/// Local decoding of a batch report or its associated records.
+fn readable<T, E>(row: &inbox::Model, decoded: Result<T, E>) -> Option<T> {
+    decoded
+        .inspect_err(|_| {
+            log::warn!(
+                "[main-request] skipped unreadable worker report {} for batch routing",
+                row.event_id
+            );
+        })
+        .ok()
 }
 
 pub(crate) async fn batch_report_context_on(

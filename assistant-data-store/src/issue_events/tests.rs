@@ -956,3 +956,156 @@ async fn routed_work_uses_the_first_comment_and_header_without_expanding_origina
     );
     txn.commit().await.unwrap();
 }
+
+/// A later subscribed request whose original authority snapshot is unreadable
+/// ends the batch before it. The healthy head keeps its own coordination
+/// attempts and takes the normal path.
+#[tokio::test]
+async fn unreadable_issue_authority_of_a_follower_does_not_hold_the_head() {
+    use crate::{
+        entity::agent_issue_admission as admission,
+        main_request::{self, FrozenRequestInput, coordination::Reservation},
+    };
+    use desk_agent_protocol::{
+        AgentScope, ExecutionMode, ai_assistant::AiAssistantAsk, data_lineage::DestinationIdentity,
+    };
+    use desk_diagnose_core::session::{AgentSessionSurface, PersistedAgentSession};
+    use routing::FrozenIssueHeader;
+
+    let (db, policy, first) = setup().await;
+    let mut root = PersistedAgentSession::new_workbench_coordinator(
+        &policy.actor_id,
+        &policy.conversation_id,
+        None,
+        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        AgentScope {
+            granted: vec![],
+            mode: ExecutionMode::ReadOnly,
+            expires_at: None,
+            policy_name: None,
+        },
+        "2026-11-05T00:00:00Z",
+    )
+    .unwrap();
+    root.adopt_client_metadata(Some("client-root"), AgentSessionSurface::AiAssistant);
+    let destination = DestinationIdentity::Model {
+        connection_id: "gateway".into(),
+        connection_revision: 1,
+        model_id: "model".into(),
+        profile_revision: 1,
+    };
+    let now = chrono::Utc::now().timestamp_millis();
+    let head = FrozenRequestInput {
+        issue_source: None,
+        ask: AiAssistantAsk {
+            question: "Healthy owner request".into(),
+            client_message_id: "healthy-head".into(),
+            client_timezone: "UTC".into(),
+            conversation_id: Some("client-root".into()),
+            ..Default::default()
+        },
+        device_id: String::new(),
+        targets: Vec::new(),
+        reads: Default::default(),
+        destination: destination.clone(),
+    };
+    let head = main_request::enqueue(
+        &db,
+        &policy.actor_id,
+        &policy.conversation_id,
+        &head,
+        None,
+        8,
+        now,
+    )
+    .await
+    .unwrap();
+    page(&db, &policy, std::slice::from_ref(&first), None, 2000).await;
+    let hint = routing::candidates_on(&db, 0, 4)
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    let header = FrozenIssueHeader {
+        issue: IssueAccess {
+            connection_ref: policy.repository.connection_ref.clone(),
+            target: IssueTarget {
+                platform: policy.repository.platform,
+                instance: policy.repository.instance.clone(),
+                account_id: policy.repository.account_id,
+                repository_id: policy.repository.repository_id,
+                owner: policy.repository.owner.clone(),
+                repository: policy.repository.repository.clone(),
+                private: policy.repository.private,
+                internal: policy.repository.internal,
+                issue_number: first.issue_number.unwrap(),
+                issue_id: 115,
+            },
+        },
+        title: "The original issue title".into(),
+        body: "The original issue body".into(),
+    };
+    let txn = db.begin().await.unwrap();
+    let pending = routing::pending_on(&txn, &hint).await.unwrap().unwrap();
+    assert!(
+        routing::freeze_header_on(&txn, &pending, &header, 2001)
+            .await
+            .unwrap()
+    );
+    let pending = routing::pending_on(&txn, &hint).await.unwrap().unwrap();
+    let follower = routing::enqueue_on(
+        &txn,
+        &pending,
+        &root,
+        &[],
+        &destination,
+        2002,
+        now + 600_000,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+    let follower = main_request::load(&db, &root.actor_id, &root.conversation_id, &follower)
+        .await
+        .unwrap()
+        .unwrap();
+    let frozen = FrozenRequestInput::decode(&follower).unwrap();
+    assert!(
+        frozen
+            .issue_authority_current(&db, &root.actor_id, now)
+            .await
+            .unwrap()
+    );
+    admission::Entity::update_many()
+        .col_expr(
+            admission::Column::SnapshotJson,
+            sea_orm::sea_query::Expr::value("{}"),
+        )
+        .filter(admission::Column::RequestId.eq(&follower.request_id))
+        .exec(&db)
+        .await
+        .unwrap();
+    assert!(
+        frozen
+            .issue_authority_current(&db, &root.actor_id, now)
+            .await
+            .is_err()
+    );
+    let txn = db.begin().await.unwrap();
+    assert!(matches!(
+        main_request::coordination::reserve(&txn, &mut root, &head, now, Vec::new(), &[])
+            .await
+            .unwrap(),
+        Reservation::Unbatched
+    ));
+    txn.commit().await.unwrap();
+    for row in [&head, &follower] {
+        let saved = main_request::load(&db, &root.actor_id, &root.conversation_id, &row.request_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.coordination_attempts, 0);
+        assert_eq!(saved.state, main_request::QUEUED);
+    }
+    assert!(root.main_coordination.is_none());
+}

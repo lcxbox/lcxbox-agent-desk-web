@@ -1921,6 +1921,7 @@ export default {
   'pages.aiAssistant.queueFailure.source_unavailable': '原访问权限已到期或被撤销。',
   'pages.aiAssistant.queueFailure.destination_changed': '所选模型已变更。',
   'pages.aiAssistant.queueFailure.coordination_exhausted': '助手未能为此请求确定处理方式。',
+  'pages.aiAssistant.queueFailure.activation_failed': '多次尝试后仍未能开始处理此请求。',
   'pages.aiAssistant.queueFailure.unknown': '请求未能开始。',
   'pages.aiAssistant.cancelQueuedRequest': '取消',
   'pages.aiAssistant.queuedMessage.queued': '排队中',

@@ -308,6 +308,20 @@ fn context_selection_claim(
     )
 }
 
+/// The error frame of a preparation exit. A first queued activation keeps its
+/// code for the executor, since the frame itself is withheld.
+fn activation_error(
+    owner_queue: Option<&OwnerQueueTurn>,
+    request_id: &str,
+    seq: u32,
+    error: AgentError,
+) -> AgentEvent {
+    if let Some(progress) = owner_queue.and_then(OwnerQueueTurn::activation_progress) {
+        progress.note_error(&error);
+    }
+    AgentEvent::error(request_id, seq, error)
+}
+
 fn transport_error(message: impl Into<String>) -> AgentError {
     AgentError {
         kind: AgentErrorKind::TransportError,
@@ -1389,6 +1403,19 @@ async fn prepare_composed_turn(
         return Err(transport_error("invalid delegated runtime composition"));
     }
     let cancel_registration = cancellation::register(actor_user_id, &request_id);
+    // A first queued activation withholds every frame until native admission
+    // and is judged by its own cancellation token.
+    let (browser_connection_id, admitted_browser) = match owner_queue
+        .as_deref()
+        .and_then(OwnerQueueTurn::activation_progress)
+    {
+        Some(progress) => {
+            let cancel = cancel_registration.clone();
+            progress.attach_cancellation(move || cancel.is_cancelled());
+            (String::new(), browser_connection_id)
+        }
+        None => (browser_connection_id, String::new()),
+    };
     desk_diagnose_core::future::boxed(|| async {
         stream_event(
             connections.as_ref(),
@@ -1419,7 +1446,8 @@ async fn prepare_composed_turn(
                 stream_event(
                     connections.as_ref(),
                     &browser_connection_id,
-                    &AgentEvent::error(
+                    &activation_error(
+                        owner_queue.as_deref(),
                         &request_id,
                         1,
                         transport_error(format!("failed to load model provider config: {e}")),
@@ -1444,7 +1472,7 @@ async fn prepare_composed_turn(
                 stream_event(
                     connections.as_ref(),
                     &browser_connection_id,
-                    &AgentEvent::error(&request_id, 1, error),
+                    &activation_error(owner_queue.as_deref(), &request_id, 1, error),
                 )
                 .await
             })
@@ -1452,7 +1480,16 @@ async fn prepare_composed_turn(
             return Ok(PreparationStep::Ready(None));
         }
     };
-    let destination = match config.destination_identity() {
+    let resolved = config.destination_identity();
+    #[cfg(test)]
+    let resolved = resolved.and_then(|destination| {
+        if activation_faults::destination_fails(&request_id) {
+            Err(crate::model_provider::ModelDestinationError::NotConfigured)
+        } else {
+            Ok(destination)
+        }
+    });
+    let destination = match resolved {
         Ok(destination) => destination,
         Err(error) => {
             if goal_resume.is_some() || delegated.is_some() {
@@ -1464,7 +1501,8 @@ async fn prepare_composed_turn(
                 stream_event(
                     connections.as_ref(),
                     &browser_connection_id,
-                    &AgentEvent::error(
+                    &activation_error(
+                        owner_queue.as_deref(),
                         &request_id,
                         1,
                         transport_error(format!("failed to resolve model destination: {error}")),
@@ -1603,7 +1641,7 @@ async fn prepare_composed_turn(
                 stream_event(
                     connections.as_ref(),
                     &browser_connection_id,
-                    &AgentEvent::error(&request_id, 1, error),
+                    &activation_error(owner_queue.as_deref(), &request_id, 1, error),
                 )
                 .await
             })
@@ -1776,7 +1814,7 @@ async fn prepare_composed_turn(
                         stream_event(
                             connections.as_ref(),
                             &browser_connection_id,
-                            &AgentEvent::error(&request_id, 1, error),
+                            &activation_error(owner_queue.as_deref(), &request_id, 1, error),
                         )
                         .await
                     })
@@ -1853,7 +1891,8 @@ async fn prepare_composed_turn(
                             stream_event(
                                 connections.as_ref(),
                                 &browser_connection_id,
-                                &AgentEvent::error(
+                                &activation_error(
+                                    owner_queue.as_deref(),
                                     &request_id,
                                     1,
                                     transport_error("original object reference is invalid"),
@@ -1971,7 +2010,12 @@ async fn prepare_composed_turn(
                                 stream_event(
                                     connections.as_ref(),
                                     &browser_connection_id,
-                                    &AgentEvent::error(&request_id, 1, error),
+                                    &activation_error(
+                                        owner_queue.as_deref(),
+                                        &request_id,
+                                        1,
+                                        error,
+                                    ),
                                 )
                                 .await
                             })
@@ -2009,7 +2053,8 @@ async fn prepare_composed_turn(
                         desk_diagnose_core::future::boxed(|| async { stream_event(
         connections.as_ref(),
         &browser_connection_id,
-        &AgentEvent::error(
+        &activation_error(
+ owner_queue.as_deref(),
             &request_id,
             1,
             transport_error(
@@ -2070,7 +2115,8 @@ async fn prepare_composed_turn(
                                 stream_event(
                                     connections.as_ref(),
                                     &browser_connection_id,
-                                    &AgentEvent::error(
+                                    &activation_error(
+                                        owner_queue.as_deref(),
                                         &request_id,
                                         1,
                                         transport_error(format!(
@@ -2633,7 +2679,12 @@ async fn prepare_composed_turn(
                                         stream_event(
                                             connections.as_ref(),
                                             &browser_connection_id,
-                                            &AgentEvent::error(&request_id, 1, error),
+                                            &activation_error(
+                                                owner_queue.as_deref(),
+                                                &request_id,
+                                                1,
+                                                error,
+                                            ),
                                         )
                                         .await
                                     })
@@ -2828,7 +2879,12 @@ async fn prepare_composed_turn(
                                             stream_event(
                                                 connections.as_ref(),
                                                 &browser_connection_id,
-                                                &AgentEvent::error(&request_id, 1, error),
+                                                &activation_error(
+                                                    owner_queue.as_deref(),
+                                                    &request_id,
+                                                    1,
+                                                    error,
+                                                ),
                                             )
                                             .await
                                         })
@@ -2924,7 +2980,12 @@ async fn prepare_composed_turn(
                                                 stream_event(
                                                     connections.as_ref(),
                                                     &browser_connection_id,
-                                                    &AgentEvent::error(&request_id, 1, error),
+                                                    &activation_error(
+                                                        owner_queue.as_deref(),
+                                                        &request_id,
+                                                        1,
+                                                        error,
+                                                    ),
                                                 )
                                                 .await
                                             })
@@ -3413,7 +3474,8 @@ async fn prepare_composed_turn(
                 desk_diagnose_core::future::boxed(|| async { stream_event(
                     connections.as_ref(),
                     &browser_connection_id,
-                    &AgentEvent::error(&request_id, 1, error),
+                    &activation_error(
+ owner_queue.as_deref(),&request_id, 1, error),
                 )
                 .await }).await;
                 return Ok(None);
@@ -3459,8 +3521,14 @@ async fn prepare_composed_turn(
         let event_store = crate::agent_run_event_store::SignalAgentRunEventStore::new(db.clone());
         let admission = owner_queue.as_deref().map_or(OwnerAdmission::Native, OwnerQueueTurn::admission);
         let append_result = desk_diagnose_core::future::boxed(|| event_store.admit_user_input(&input, goal_start, admission)).await;
+        let progress = owner_queue.as_deref().and_then(OwnerQueueTurn::activation_progress);
         let ack = match append_result {
-            Ok(OwnerAdmissionResult::Native(ack)) => ack,
+            Ok(OwnerAdmissionResult::Native(ack)) => {
+                if let Some(progress) = progress {
+                    progress.mark_admitted();
+                }
+                ack
+            }
             Ok(OwnerAdmissionResult::Queued { row, waiting }) => {
                 let event = AgentEvent::queued(&request_id, 1, &row.request_id, &row.conversation_id, waiting);
                 desk_diagnose_core::future::boxed(|| stream_event(
@@ -3475,13 +3543,25 @@ async fn prepare_composed_turn(
                 }));
             }
             Ok(OwnerAdmissionResult::Dispatched) => {
+                let browser_connection_id = match progress {
+                    Some(progress) => {
+                        progress.mark_admitted();
+                        admitted_browser
+                    }
+                    None => browser_connection_id,
+                };
                 desk_diagnose_core::future::boxed(|| async { stream_event(
                     connections.as_ref(), &browser_connection_id,
                     &AgentEvent::status(&request_id, 1, "accepted"),
                 ).await }).await;
                 return Ok(Some(LoopOutcome::SubAgentYielded));
             }
-            Ok(OwnerAdmissionResult::Waiting) => return Ok(Some(LoopOutcome::TurnBusy)),
+            Ok(OwnerAdmissionResult::Waiting) => {
+                if let Some(progress) = progress {
+                    progress.mark_waiting();
+                }
+                return Ok(Some(LoopOutcome::TurnBusy));
+            }
             Err(error) => {
                 if matches!(admission, OwnerAdmission::Activate { .. }) {
                     return Err(error);
@@ -3489,11 +3569,17 @@ async fn prepare_composed_turn(
                 desk_diagnose_core::future::boxed(|| async { stream_event(
                     connections.as_ref(),
                     &browser_connection_id,
-                    &AgentEvent::error(&request_id, 1, error),
+                    &activation_error(
+ owner_queue.as_deref(),&request_id, 1, error),
                 )
                 .await }).await;
                 return Ok(None);
             }
+        };
+        let browser_connection_id = if progress.is_some() {
+            admitted_browser
+        } else {
+            browser_connection_id
         };
         log::info!(
             "[assistant-input] accepted request_id={} message_id={} conversation_id={} input_seq={} already_handled={}",
@@ -3518,7 +3604,8 @@ async fn prepare_composed_turn(
             desk_diagnose_core::future::boxed(|| async { stream_event(
                 connections.as_ref(),
                 &browser_connection_id,
-                &AgentEvent::error(&request_id, 2, error),
+                &activation_error(
+ owner_queue.as_deref(),&request_id, 2, error),
             )
             .await }).await;
             return Ok(None);
@@ -3687,6 +3774,22 @@ async fn prepare_composed_turn(
             ))
         }),
     ))
+}
+
+/// Test-only faults at preparation boundaries that configuration cannot reach.
+#[cfg(test)]
+pub(crate) mod activation_faults {
+    use std::{collections::BTreeSet, sync::Mutex};
+
+    static DESTINATION: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+    pub(crate) fn fail_destination(request_id: &str) {
+        DESTINATION.lock().unwrap().insert(request_id.into());
+    }
+
+    pub(super) fn destination_fails(request_id: &str) -> bool {
+        DESTINATION.lock().unwrap().contains(request_id)
+    }
 }
 
 #[cfg(test)]

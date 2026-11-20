@@ -46,6 +46,7 @@ struct Item {
     request_id: String,
     updated_at_ms: i64,
     attempts: i32,
+    activation_attempts: i32,
     target_refs: Vec<String>,
     dispatchable: bool,
     external_issues: Vec<desk_diagnose_core::external_tools::IssueAccess>,
@@ -182,8 +183,95 @@ fn target_scope_message(
     Ok(message)
 }
 
+pub enum Reservation {
+    /// No batch of two items; the head takes the normal execution path.
+    Unbatched,
+    /// A candidate changed after it was read. The caller rolls back the
+    /// transaction and ends this round without charging the head.
+    Changed,
+    Reserved(Box<(Batch, ModelRequest)>),
+}
+
+impl Reservation {
+    pub fn batch(self) -> Option<(Batch, ModelRequest)> {
+        match self {
+            Self::Reserved(batch) => Some(*batch),
+            Self::Unbatched | Self::Changed => None,
+        }
+    }
+}
+
+struct Candidate {
+    message: ChatMessage,
+    target_scope: Option<ChatMessage>,
+    item: Item,
+}
+
+/// Project one queued row for the batch, or `None` when it cannot share it.
+async fn candidate(
+    txn: &impl ConnectionTrait,
+    row: request::Model,
+    destination: &DestinationIdentity,
+    device: &str,
+    workbench: bool,
+    now_ms: i64,
+) -> Result<Option<Candidate>, AssistantStoreError> {
+    let frozen = FrozenRequestInput::decode(&row)?;
+    if !desk_diagnose_core::model_egress::same_recipient(&frozen.destination, destination)
+        || frozen.device_id != device
+        || frozen.authorization_expired(now_ms)
+        || !frozen
+            .issue_authority_current(txn, &row.actor_id, now_ms)
+            .await?
+    {
+        return Ok(None);
+    }
+    let dispatchable = workbench
+        && frozen.ask.question.chars().count()
+            <= desk_diagnose_core::subagent::MAX_DELEGATED_TASK_CHARS;
+    let message = if let Some(source) = &frozen.issue_source {
+        source.purpose_message(destination)
+    } else {
+        model_bound_user_message(
+            frozen.ask.client_message_id,
+            frozen.ask.question,
+            destination.clone(),
+        )
+    }
+    .map_err(|_| AssistantStoreError::Invalid("Queued input projection is invalid"))?;
+    let target_scope = (dispatchable && !frozen.ask.target_refs.is_empty())
+        .then(|| target_scope_message(&row, &message, &frozen.ask.target_refs))
+        .transpose()?;
+    let frozen_sha256 = format!(
+        "{:x}",
+        Sha256::digest(
+            row.pending_input_json
+                .as_ref()
+                .ok_or(AssistantStoreError::Inaccessible)?
+                .as_bytes()
+        )
+    );
+    Ok(Some(Candidate {
+        message,
+        target_scope,
+        item: Item {
+            id: row.id,
+            request_id: row.request_id,
+            updated_at_ms: now_ms,
+            attempts: row.coordination_attempts + 1,
+            activation_attempts: row.activation_attempts,
+            target_refs: frozen.ask.target_refs,
+            dispatchable,
+            external_issues: frozen.reads.external_issues,
+            frozen_sha256,
+        },
+    }))
+}
+
 /// Returns a real batch only when two eligible requests fit the same model
 /// and subject. A lone or oversized input can take the normal execution path.
+/// A later request whose stored data cannot be projected ends the batch before
+/// it; only the head's own errors and storage errors are returned.
 pub async fn reserve(
     txn: &impl ConnectionTrait,
     session: &mut PersistedAgentSession,
@@ -191,14 +279,14 @@ pub async fn reserve(
     now_ms: i64,
     report_candidates: Vec<ReportCandidate>,
     disabled_bundled_skills: &[String],
-) -> Result<Option<(Batch, ModelRequest)>, AssistantStoreError> {
+) -> Result<Reservation, AssistantStoreError> {
     if session.actor_id != head.actor_id
         || session.conversation_id != head.conversation_id
         || session.surface != desk_diagnose_core::session::AgentSessionSurface::AiAssistant
         || session.has_live_main_coordination(now_ms)
         || holds_input_slot(session)
     {
-        return Ok(None);
+        return Ok(Reservation::Unbatched);
     }
     let mut rows = eligible_pending(&head.actor_id, &head.conversation_id, now_ms)
         .order_by_asc(request::Column::Id)
@@ -210,7 +298,7 @@ pub async fn reserve(
         .next()
         .filter(|row| row.id == head.id && !has_route(row))
     else {
-        return Ok(None);
+        return Ok(Reservation::Unbatched);
     };
     let first_input = FrozenRequestInput::decode(&first)?;
     let destination = first_input.destination.clone();
@@ -224,32 +312,19 @@ pub async fn reserve(
         if has_route(&row) || exhausted(&row) {
             break;
         }
-        let frozen = FrozenRequestInput::decode(&row)?;
-        if !desk_diagnose_core::model_egress::same_recipient(&frozen.destination, &destination)
-            || frozen.device_id != device
-            || frozen.authorization_expired(now_ms)
-            || !frozen
-                .issue_authority_current(txn, &row.actor_id, now_ms)
-                .await?
-        {
-            break;
-        }
-        let dispatchable = workbench
-            && frozen.ask.question.chars().count()
-                <= desk_diagnose_core::subagent::MAX_DELEGATED_TASK_CHARS;
-        let message = if let Some(source) = &frozen.issue_source {
-            source.purpose_message(&destination)
-        } else {
-            model_bound_user_message(
-                frozen.ask.client_message_id,
-                frozen.ask.question,
-                destination.clone(),
-            )
-        }
-        .map_err(|_| AssistantStoreError::Invalid("Queued input projection is invalid"))?;
-        let target_scope = (dispatchable && !frozen.ask.target_refs.is_empty())
-            .then(|| target_scope_message(&row, &message, &frozen.ask.target_refs))
-            .transpose()?;
+        let is_head = row.id == head.id;
+        let Candidate {
+            message,
+            target_scope,
+            item,
+        } = match candidate(txn, row, &destination, &device, workbench, now_ms).await {
+            Ok(Some(candidate)) => candidate,
+            Ok(None) => break,
+            Err(error @ AssistantStoreError::Backend(_)) => return Err(error),
+            Err(error) if is_head => return Err(error),
+            // The unusable request reaches the head later and fails there.
+            Err(_) => break,
+        };
         let item_bytes =
             message.text.len() + target_scope.as_ref().map_or(0, |scope| scope.text.len());
         if bytes + item_bytes > MAX_INPUT_BYTES {
@@ -258,31 +333,18 @@ pub async fn reserve(
         bytes += item_bytes;
         messages.push(message);
         target_scopes.push(target_scope);
-        items.push(Item {
-            id: row.id,
-            request_id: row.request_id,
-            updated_at_ms: now_ms,
-            attempts: row.coordination_attempts + 1,
-            target_refs: frozen.ask.target_refs,
-            dispatchable,
-            external_issues: frozen.reads.external_issues,
-            frozen_sha256: format!(
-                "{:x}",
-                Sha256::digest(
-                    row.pending_input_json
-                        .as_ref()
-                        .ok_or(AssistantStoreError::Inaccessible)?
-                        .as_bytes()
-                )
-            ),
-        });
+        items.push(item);
     }
     let mut reports = Vec::new();
     let mut report_messages = Vec::new();
     let mut report_bytes = 0;
     if workbench && !messages.is_empty() {
         for report in report_candidates {
-            let message = report_message(&report.row, &destination)?;
+            // Projection reads no storage; an unreadable report stays pending
+            // with its counters unchanged.
+            let Ok(message) = report_message(&report.row, &destination) else {
+                continue;
+            };
             let next = report_bytes + message.text.len();
             if messages[0].text.len()
                 + target_scopes[0]
@@ -312,7 +374,7 @@ pub async fn reserve(
         }
     }
     if items.len() + reports.len() < 2 {
-        return Ok(None);
+        return Ok(Reservation::Unbatched);
     }
     // Charge the attempt with the lease. A crashed worker must not get an
     // unbounded number of fresh provider dispatches after each takeover.
@@ -323,6 +385,9 @@ pub async fn reserve(
             .filter(request::Column::Coordinated.eq(false))
             .filter(request::Column::FirstDispatchJson.is_null())
             .filter(request::Column::CoordinationAttempts.eq(item.attempts - 1))
+            // A failed activation recorded after the read owns the row's backoff.
+            .filter(request::Column::ActivationAttempts.eq(item.activation_attempts))
+            .filter(activation_due(now_ms))
             .col_expr(
                 request::Column::CoordinationAttempts,
                 Expr::value(item.attempts),
@@ -331,9 +396,7 @@ pub async fn reserve(
             .exec(txn)
             .await?;
         if changed.rows_affected != 1 {
-            return Err(AssistantStoreError::Invalid(
-                "Assistant batch request changed",
-            ));
+            return Ok(Reservation::Changed);
         }
     }
     let lease_token = session
@@ -370,7 +433,7 @@ pub async fn reserve(
             .exec(txn)
             .await?;
         if changed.rows_affected != 1 {
-            return Err(AssistantStoreError::Invalid("Workbench report changed"));
+            return Ok(Reservation::Changed);
         }
     }
     let ids: Vec<&str> = items.iter().map(|item| item.request_id.as_str()).collect();
@@ -437,7 +500,7 @@ pub async fn reserve(
         batch_id: id.clone(),
         expires_at_ms: now_ms.saturating_add(LEASE_MS),
     });
-    Ok(Some((
+    Ok(Reservation::Reserved(Box::new((
         Batch {
             id,
             destination,
@@ -452,7 +515,7 @@ pub async fn reserve(
             control_revision: session.control_revision,
         },
         input,
-    )))
+    ))))
 }
 
 #[derive(Deserialize)]

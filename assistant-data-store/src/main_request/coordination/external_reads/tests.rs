@@ -362,6 +362,7 @@ async fn setup_with_subscription(
     )
     .await
     .unwrap()
+    .batch()
     .unwrap();
     (db, session, batch, request)
 }

@@ -3,6 +3,8 @@ use crate::main_request::{self as queue, FrozenRequestInput};
 use desk_agent_protocol::ai_assistant::{AiAssistantAsk, MainRequestFailure, MainRequestState};
 use desk_diagnose_core::input_read_context::ReadContextSelection;
 
+mod activation;
+
 fn input(message_id: &str, text: &str) -> FrozenRequestInput {
     FrozenRequestInput {
         issue_source: None,
@@ -91,6 +93,7 @@ async fn queued_issue_access_keeps_its_original_native_target_after_activation()
         execution_conversation_id: "root".into(),
         destination: frozen.destination.clone(),
         issue_source: None,
+        progress: None,
     };
     let selected =
         queue::frozen_read_selection(&db, Some(&activation), "owner", "root", "", &original.ask)
@@ -260,6 +263,7 @@ async fn coordination_preserves_native_fences_and_defers_omissions_independently
         queue::coordination::reserve(&txn, &mut session, &b, now, Vec::new(), &[])
             .await
             .unwrap()
+            .batch()
             .unwrap();
     assert!(batch.is_current(&session, now));
     assert_eq!(session.input_revision, 4);
@@ -288,6 +292,7 @@ async fn coordination_preserves_native_fences_and_defers_omissions_independently
         queue::coordination::reserve(&txn, &mut session, &b, now + 1, Vec::new(), &[])
             .await
             .unwrap()
+            .batch()
             .is_none()
     );
 
@@ -429,6 +434,7 @@ async fn coordination_attempts_survive_a_lost_lease() {
         queue::coordination::reserve(&txn, &mut session, &head, time, Vec::new(), &[])
             .await
             .unwrap()
+            .batch()
             .unwrap();
         txn.commit().await.unwrap();
         head = queue::load(&db, "owner", "root", &head.request_id)
@@ -443,6 +449,7 @@ async fn coordination_attempts_survive_a_lost_lease() {
         queue::coordination::reserve(&txn, &mut session, &head, now + 244_000, Vec::new(), &[])
             .await
             .unwrap()
+            .batch()
             .is_none()
     );
     queue::fail_unactivated(
@@ -705,6 +712,7 @@ async fn workbench_dispatch_proposals_are_scoped_and_activation_is_atomic() {
     let (batch, request) = queue::coordination::reserve(&txn, &mut root, &b, ms, Vec::new(), &[])
         .await
         .unwrap()
+        .batch()
         .unwrap();
     assert!(!request.messages[0].text.contains("selected-device"));
     let scope = request
