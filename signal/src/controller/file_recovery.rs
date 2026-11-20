@@ -97,7 +97,11 @@ pub async fn retry_file_recovery_cleanup(
             FileRecoveryCleanupRetryResult { scheduled },
         )))
 }
+/// The owner's existing conversations among `ids` that may hold backups on
+/// `device`: the ones bound to it and multi-device conversations (no bound
+/// device), matching the conversations the recovery scope registration admits.
 async fn live_conversations(
+    db: &sea_orm::DatabaseConnection,
     device: &str,
     ids: Vec<String>,
 ) -> Result<std::collections::HashSet<String>, DeskSignalError> {
@@ -106,9 +110,13 @@ async fn live_conversations(
     }
     Ok(agent_session::Entity::find()
         .filter(agent_session::Column::ActorId.eq(SINGLE_ACCOUNT_USER_ID.to_string()))
-        .filter(agent_session::Column::DeviceId.eq(device))
+        .filter(
+            sea_orm::Condition::any()
+                .add(agent_session::Column::DeviceId.eq(device))
+                .add(agent_session::Column::DeviceId.eq("")),
+        )
         .filter(agent_session::Column::ConversationId.is_in(ids))
-        .all(crate::db::get_db())
+        .all(db)
         .await?
         .into_iter()
         .map(|r| r.conversation_id)
@@ -141,7 +149,7 @@ pub async fn manage_device_file_recovery(
         conversation_id: id,
         ..
     } = &body.request.command
-        && !live_conversations(&device, vec![id.clone()])
+        && !live_conversations(crate::db::get_db(), &device, vec![id.clone()])
             .await?
             .contains(id)
     {
@@ -158,6 +166,7 @@ pub async fn manage_device_file_recovery(
     .map_err(|_| unavailable())?;
     if let FileRecoveryOutcome::Page { page } = &mut reply.outcome {
         let live = live_conversations(
+            crate::db::get_db(),
             &device,
             page.records
                 .iter()
@@ -190,9 +199,13 @@ pub async fn export_device_file_recovery(
 ) -> Result<HttpResponse, DeskSignalError> {
     let body = body.into_inner();
     let device = audience(&connections, &body.connection).await?;
-    if !live_conversations(&device, vec![body.conversation_id.clone()])
-        .await?
-        .contains(&body.conversation_id)
+    if !live_conversations(
+        crate::db::get_db(),
+        &device,
+        vec![body.conversation_id.clone()],
+    )
+    .await?
+    .contains(&body.conversation_id)
     {
         return Err(unavailable());
     }
@@ -232,7 +245,7 @@ pub async fn export_device_file_recovery(
             let device = device.clone();
             let conversation = conversation.clone();
             Box::pin(async move {
-                live_conversations(&device, vec![conversation.clone()])
+                live_conversations(crate::db::get_db(), &device, vec![conversation.clone()])
                     .await
                     .is_ok_and(|live| live.contains(&conversation))
             })
@@ -260,4 +273,56 @@ pub async fn export_device_file_recovery(
         .streaming(stream.body.map(|chunk| {
             chunk.map_err(|_| actix_web::error::ErrorServiceUnavailable("export stopped"))
         })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use desk_assistant_data_store::entity_table::EntityTableExt;
+    use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
+
+    #[tokio::test]
+    async fn listed_conversations_include_multi_device_conversations_of_the_owner() {
+        let db = crate::config::test_support::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let schema = sea_orm::Schema::new(db.get_database_backend());
+        db.execute(&schema.entity_table(agent_session::Entity).to_owned())
+            .await
+            .unwrap();
+        let now = chrono::Utc::now();
+        let owner = SINGLE_ACCOUNT_USER_ID.to_string();
+        for (conversation, actor, device) in [
+            ("bound", owner.as_str(), "device"),
+            ("multi", owner.as_str(), ""),
+            ("other-device", owner.as_str(), "other"),
+            ("other-actor", "2", ""),
+        ] {
+            agent_session::ActiveModel {
+                conversation_id: Set(conversation.into()),
+                actor_id: Set(actor.into()),
+                device_id: Set(device.into()),
+                state_json: Set("{}".into()),
+                version: Set(1),
+                lease_token: Set(0),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            }
+            .insert(&db)
+            .await
+            .unwrap();
+        }
+        let ids = ["bound", "multi", "other-device", "other-actor", "deleted"]
+            .map(String::from)
+            .to_vec();
+        let live = live_conversations(&db, "device", ids).await.unwrap();
+        assert_eq!(
+            live,
+            ["bound", "multi"]
+                .map(String::from)
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>()
+        );
+    }
 }
