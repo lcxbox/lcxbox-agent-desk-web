@@ -27,6 +27,7 @@ const resumeHarness = vi.hoisted(() => ({
   signalingConnected: true,
   lastCloseCode: null as number | null,
   rtcConnected: false,
+  rtcFailed: false,
   initData: null as any,
   connect: vi.fn(),
   slot: null as any,
@@ -89,6 +90,8 @@ vi.mock('./use-desk-rtc', () => ({
   useDeskRTC: () => ({
     ...rtcInputRefs,
     isRTCConnected: resumeHarness.rtcConnected,
+    rtcFailed: resumeHarness.rtcFailed,
+    clearRtcFailed: () => { resumeHarness.rtcFailed = false; },
     initData: resumeHarness.initData,
     rtcStats: { fps: 60, bitrate: 1000 },
     connect: resumeHarness.connect,
@@ -254,6 +257,8 @@ describe('DeskSession resume after a host restart', () => {
   beforeEach(() => {
     resumeHarness.slot = createSessionResumeSlot();
     resumeHarness.lastCloseCode = null;
+    resumeHarness.rtcFailed = false;
+    signalingHarness.sendMessage.mockClear();
     targetHarness.remount.mockReset();
     resumeHarness.connect.mockReset();
     resumeHarness.dialogSubmits = [];
@@ -382,6 +387,40 @@ describe('DeskSession resume after a host restart', () => {
     await act(async () => { b.getByText(action).click(); });
     expect(resumeHarness.slot.peek()).toBeNull();
     b.unmount();
+  });
+
+  /** Regression (on device 2026-11-20): after a failed attempt the host had
+   *  torn down its side of the epoch; the dialog's Connect sent only an OFFER
+   *  ("No PC … offer arrived before RequestRemoteAccess"). */
+  it('re-admits instead of offering when retrying a failed attempt', async () => {
+    resumeHarness.signalingConnected = true;
+    resumeHarness.rtcConnected = false;
+    resumeHarness.initData = initData('e1');
+    const view = render(<DeskSession />);
+    await act(async () => {});
+    // First connect: a plain OFFER.
+    await act(async () => { view.getByText('user-submit').click(); });
+    expect(resumeHarness.connect).toHaveBeenCalledTimes(1);
+
+    // The attempt fails; the dialog reopens for it.
+    resumeHarness.rtcFailed = true;
+    view.rerender(<DeskSession />);
+    await act(async () => {});
+    signalingHarness.sendMessage.mockClear();
+    await act(async () => { view.getByText('user-submit').click(); });
+    const sentTypes = signalingHarness.sendMessage.mock.calls.map((call) => call[0]);
+    expect(sentTypes).toContain(221); // CLOSE_REMOTE_SESSION for the failed epoch
+    expect(sentTypes.indexOf(221)).toBeLessThan(sentTypes.length - 1); // then admission
+    expect(resumeHarness.connect).toHaveBeenCalledTimes(1);
+
+    // The new epoch connects with the submitted settings; no dialog for the
+    // old failure.
+    resumeHarness.initData = initData('e2');
+    view.rerender(<DeskSession />);
+    await act(async () => {});
+    expect(resumeHarness.connect).toHaveBeenCalledTimes(2);
+    expect(view.queryByTestId('config-dialog')).toBeNull();
+    view.unmount();
   });
 
   it('opens the dialog without submitting when nothing is armed', async () => {

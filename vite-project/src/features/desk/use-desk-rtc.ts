@@ -630,6 +630,10 @@ export function useDeskRTC({ deskId, subscribe, sendTracked, cancelQueued, cance
         });
     }, [connect, deskId, sendTracked]);
 
+    /** Forget a failed attempt without starting a new one, so a caller that
+     *  re-admits first does not have the dialog reopened for the old failure. */
+    const clearRtcFailed = useCallback(() => setRtcFailed(false), []);
+
     const closeRTC = useCallback(() => {
         // Tear down auto-retry first: bump the epoch so any in-flight
         // callback/timer is inert, then purge a still-queued OFFER so a later
@@ -850,6 +854,7 @@ export function useDeskRTC({ deskId, subscribe, sendTracked, cancelQueued, cance
         connect,
         renegotiate,
         closeRTC,
+        clearRtcFailed,
         mouseChannel,
         keyboardChannel,
         mouseMoveChannel,

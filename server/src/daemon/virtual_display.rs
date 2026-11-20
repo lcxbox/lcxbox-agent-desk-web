@@ -773,9 +773,12 @@ impl VirtualDisplaySupervisor {
     ///   reply (e.g. the daemon dropped and re-created the handle
     ///   between the worker's send and our receive); drop it.
     /// - `Attached(name)` while we are in `Attaching` → promote to
-    ///   `Attached`. While we are already in `Attached` → idempotent
-    ///   no-op (this happens when the worker is re-attaching after a
-    ///   restart).
+    ///   `Attached`. While we are already in `Attached` with the same
+    ///   name → idempotent no-op (the worker re-attaching after a
+    ///   restart). With a different name → adopt it and refresh
+    ///   capabilities like a promotion: the GDI name is per session, so
+    ///   the console session's new worker sees the same display under
+    ///   another `\\.\DISPLAYn`.
     /// - `Failed(msg)` → stay in `Attaching` and log. The next
     ///   `WorkerToService::Capabilities` triggers another
     ///   `on_worker_capabilities` send, giving the worker another
@@ -816,11 +819,17 @@ impl VirtualDisplaySupervisor {
                 // — see `last_known_width` field doc.
                 self.reset_known_dimensions();
                 let prev = std::mem::replace(&mut *state, SupervisorState::Disabled);
-                // Edge-trigger: only the Attaching → Attached promotion
-                // fires RefreshCapabilities. A second attach-result on
-                // an already-Attached supervisor is an idempotent no-op
-                // (worker restart path), so it must not re-publish.
+                // Edge-trigger: the Attaching → Attached promotion and a
+                // changed display name fire RefreshCapabilities. A second
+                // attach-result with the same name on an already-Attached
+                // supervisor is an idempotent no-op (worker restart path),
+                // so it must not re-publish.
                 let promoted_now = matches!(prev, SupervisorState::Attaching { .. });
+                let name_changed = matches!(
+                    &prev,
+                    SupervisorState::Attached { display_name: existing, .. }
+                        if existing != &display_name
+                );
                 // Snapshot the current capabilities version BEFORE we
                 // emit RefreshCapabilities. The worker's response will
                 // bump the version to at least `snapshot + 1`;
@@ -838,6 +847,27 @@ impl VirtualDisplaySupervisor {
                             virtual_display.display_name = %display_name,
                             "VirtualDisplaySupervisor promoted Attaching -> Attached \
                              (via attach-result)",
+                        );
+                        SupervisorState::Attached {
+                            instance_id,
+                            display_name: display_name.clone(),
+                            _handle,
+                        }
+                    }
+                    SupervisorState::Attached {
+                        instance_id,
+                        display_name: existing_name,
+                        _handle,
+                    } if name_changed => {
+                        // Another session's worker now serves the display
+                        // (fast user switch): it sees the display under its
+                        // own GDI name, which the capabilities cache and the
+                        // display-settings checks must match.
+                        info!(
+                            virtual_display.instance_id = %instance_id,
+                            virtual_display.previous_name = %existing_name,
+                            virtual_display.display_name = %display_name,
+                            "VirtualDisplaySupervisor display name changed",
                         );
                         SupervisorState::Attached {
                             instance_id,
@@ -867,7 +897,7 @@ impl VirtualDisplaySupervisor {
                     other => other,
                 };
                 drop(state);
-                if promoted_now {
+                if promoted_now || name_changed {
                     // Publish the target BEFORE sending RefreshCapabilities.
                     // ensure_attached subscribes to this watch and must see
                     // a `Some(target)` value before the cap-version bump

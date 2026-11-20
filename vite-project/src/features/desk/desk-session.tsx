@@ -487,17 +487,26 @@ export default function DeskSession({
         },
     });
 
+    // The connection epoch whose attempt ended as failed. When the peer
+    // connection fails the host tears down its side of that epoch, so a retry
+    // must be admitted again rather than offered into a context that is gone.
+    const failedEpochRef = useRef<string | null>(null);
     const settingsReconnectRef = useRef<{
         previousEpoch: string;
         settings: RemoteSessionSettings;
     } | null>(null);
-    const { peerConnection, remoteStream, initData, connect, mouseChannel, keyboardChannel, mouseMoveChannel, clipboardChannel, fileTransferChannel, whiteboardChannel, cursorSyncChannel, isRTCConnected, rtcFailed, closeRTC, rtcStats } = useDeskRTC({
+    const { peerConnection, remoteStream, initData, connect, mouseChannel, keyboardChannel, mouseMoveChannel, clipboardChannel, fileTransferChannel, whiteboardChannel, cursorSyncChannel, isRTCConnected, rtcFailed, closeRTC, clearRtcFailed, rtcStats } = useDeskRTC({
         deskId: deskId || null,
         subscribe,
         sendTracked,
         cancelQueued,
         cancelQueuedScope,
     });
+    useEffect(() => {
+        if (rtcFailed) failedEpochRef.current = initData?.connection_epoch ?? null;
+        // Only the epoch at the moment of the failure matters.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rtcFailed]);
 
     const clearSettingsApply = useCallback(() => {
         const pending = settingsApplyRef.current;
@@ -512,8 +521,12 @@ export default function DeskSession({
         beginVideoTransition();
         const previousEpoch = initData.connection_epoch;
         releaseInputsRef.current();
-        controlReconnectRef.current = armControlReconnect(hasControl, previousEpoch);
-        clipboardReconnectIntentRef.current = hasControl ? clipboardEnabledRef.current : null;
+        // Without live control, keep an intent that is still pending (a
+        // resumed connect that failed before it could reclaim control).
+        if (hasControl) {
+            controlReconnectRef.current = armControlReconnect(true, previousEpoch);
+            clipboardReconnectIntentRef.current = clipboardEnabledRef.current;
+        }
         controlRequestRef.current = null;
         setHasControl(false);
         setIsWaitingApproval(false);
@@ -531,12 +544,17 @@ export default function DeskSession({
         }
         clearSettingsApply();
         closeRTC();
+        // A failed attempt being retried: the dialog must not reopen for it
+        // when the new epoch arrives.
+        clearRtcFailed?.();
+        failedEpochRef.current = null;
         setSystemAudioState(null);
         settingsReconnectRef.current = { previousEpoch, settings };
         hasRequestedRef.current = false;
         sendRemoteAdmission(true);
     }, [
         beginVideoTransition,
+        clearRtcFailed,
         clearSettingsApply,
         closeRTC,
         deskId,
@@ -1590,6 +1608,22 @@ export default function DeskSession({
             adaptiveQualityOverrideRef.current = null;
             setActiveSettings(settingsWithPrefs);
             hasAttemptedConnectRef.current = true;
+            rebuildRemoteSession(executableSessionSettings(settingsWithPrefs));
+        } else if (
+            !resuming
+            && rtcFailed
+            && deskId
+            && failedEpochRef.current !== null
+            && failedEpochRef.current === initData.connection_epoch
+        ) {
+            // Retrying the failed epoch: the host's side of it is gone, so an
+            // OFFER alone would be refused. Close it, admit again and connect
+            // with these settings once the new epoch arrives.
+            lastSettingsRef.current = settingsWithPrefs;
+            adaptiveQualityOverrideRef.current = null;
+            setActiveSettings(settingsWithPrefs);
+            hasAttemptedConnectRef.current = true;
+            setMediaRetryPending(false);
             rebuildRemoteSession(executableSessionSettings(settingsWithPrefs));
         } else if (mediaPipelineState) {
             // A terminal video pipeline has already released its encoder and

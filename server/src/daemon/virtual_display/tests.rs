@@ -391,6 +391,51 @@ async fn supervisor_on_attach_result_attached_does_not_emit_refresh_when_already
     );
 }
 
+/// Regression (fast user switch, on device 2026-11-20): the console
+/// session's new worker reports the same display under its own GDI
+/// name. The supervisor must adopt it and refresh capabilities once;
+/// keeping the previous session's name left `ensure_attached` waiting
+/// out its timeout on every request.
+#[tokio::test]
+async fn supervisor_adopts_a_changed_display_name_and_refreshes_once() {
+    use desk_ipc_protocol::message::ServiceToWorker;
+    let provider: Box<dyn VirtualDisplayLifecycle> = Box::new(MockLifecycle::returns_handle());
+    let (worker_mgr, _to_daemon_rx) = make_worker_mgr();
+    let (ipc_tx, mut ipc_rx) = tokio::sync::mpsc::unbounded_channel::<ServiceToWorker>();
+    worker_mgr.install_active_for_test(ipc_tx).await;
+    let supervisor = VirtualDisplaySupervisor::new(provider, worker_mgr);
+    supervisor.apply(true).await.expect("apply(true)");
+    let attached = |name: &str| VirtualDisplayAttachResultPayload {
+        instance_id: MOCK_INSTANCE_ID.to_string(),
+        outcome: VirtualDisplayAttachOutcome::Attached(name.to_string()),
+    };
+    supervisor
+        .on_worker_attach_result(attached(r"\\.\DISPLAY42"))
+        .await;
+    let _ = drain_ipc(&mut ipc_rx);
+
+    supervisor
+        .on_worker_attach_result(attached(r"\\.\DISPLAY5"))
+        .await;
+    assert_eq!(
+        supervisor.attached_display_name().await.as_deref(),
+        Some(r"\\.\DISPLAY5")
+    );
+    let refreshes = |sent: &[ServiceToWorker]| {
+        sent.iter()
+            .filter(|m| matches!(m, ServiceToWorker::RefreshCapabilities))
+            .count()
+    };
+    assert_eq!(refreshes(&drain_ipc(&mut ipc_rx)), 1);
+
+    // The re-attach that the refreshed capabilities trigger reports the
+    // same name: no further refresh.
+    supervisor
+        .on_worker_attach_result(attached(r"\\.\DISPLAY5"))
+        .await;
+    assert_eq!(refreshes(&drain_ipc(&mut ipc_rx)), 0);
+}
+
 /// Detach path is symmetric: when the supervisor's `shutdown`
 /// transitions away from `Attaching` / `Attached`, the worker
 /// must be told to re-publish capabilities so any browser that
