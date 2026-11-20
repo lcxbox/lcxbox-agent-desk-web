@@ -221,7 +221,17 @@ pub(super) async fn promote_desktop_resources(
     }
 
     let virtual_display_enabled = ctx.settings.read().await.virtual_display.enabled;
-    if virtual_display_enabled && let Some(supervisor) = ctx.virtual_display.as_ref() {
+    // Like RequestRemoteAccess: only a connection whose session the virtual
+    // display serves (the signed-in console session's worker) waits for it.
+    // A connection to the sign-in screen or an RDP session would otherwise
+    // wait out the whole attach timeout on every OFFER.
+    let display_serves_session = ctx
+        .worker_mgr
+        .virtual_display_serves(ctx.worker_mgr.connection_target(connection_id).as_ref());
+    if virtual_display_enabled
+        && display_serves_session
+        && let Some(supervisor) = ctx.virtual_display.as_ref()
+    {
         match supervisor
             .ensure_attached(VIRTUAL_DISPLAY_ATTACH_TIMEOUT)
             .await

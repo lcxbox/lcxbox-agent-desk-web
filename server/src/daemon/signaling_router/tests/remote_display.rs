@@ -1017,3 +1017,29 @@ pub(super) async fn update_exclusive_skips_when_outcome_unchanged() {
     let res = tokio::time::timeout(std::time::Duration::from_millis(50), rx.changed()).await;
     assert!(res.is_err(), "no state change must arrive");
 }
+
+/// Regression (RDP + console sign-in screen, on device 2026-11-20): with no
+/// signed-in console session the virtual display serves no session, yet the
+/// OFFER path waited out the whole attach timeout on every OFFER to the
+/// sign-in screen, so the ANSWER missed the browser's answer timeout.
+#[cfg(target_os = "windows")]
+#[tokio::test]
+pub(super) async fn desktop_promotion_does_not_wait_for_a_display_its_session_is_not_served() {
+    let (mut ctx, _rx) = make_ctx_with_rx().await;
+    ctx.settings.write().await.virtual_display.enabled = true;
+    ctx.worker_mgr.enable_session_targeting_for_test();
+    ctx.virtual_display = Some(Arc::new(VirtualDisplaySupervisor::new_attached_for_test(
+        ctx.worker_mgr.clone(),
+        "MOCK\\DISPLAY1",
+    )));
+    let model = make_request_remote_model("conn-sign-in-screen");
+    let started = std::time::Instant::now();
+    promote_desktop_resources(&model, &ctx, "video offer")
+        .await
+        .expect("promotion");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "promotion waited {:?} for a display that does not serve the session",
+        started.elapsed()
+    );
+}
