@@ -500,15 +500,37 @@ pub(super) async fn video_pipeline_loop(
         let now = std::time::Instant::now();
 
         if !shared_frame.content_changed {
-            // Static-desktop heartbeat: emit one cached frame per
-            // second so the daemon-side track keeps producing RTP
-            // and the browser decoder does not declare the stream
-            // dead. Heartbeats bypass the fps throttle (one per
-            // second is well below any sensible fps anyway).
-            if last_send_time.elapsed() <= Duration::from_secs(1) {
-                continue;
-            }
-            let nal_info_vec = match encoder.encode_cached() {
+            // Static desktop. Two jobs share these placeholder ticks:
+            //
+            // - A freshly built encoder holds no picture, so the keyframe
+            //   it owes (first start, PLI, settings change) is produced by
+            //   encoding the capture's latest content frame again. Without
+            //   this a PLI on a static screen is never answered: every PLI
+            //   rebuilds the encoder and `encode_cached` stays empty.
+            // - Otherwise emit one cached frame per second so the
+            //   daemon-side track keeps producing RTP and the browser
+            //   decoder does not declare the stream dead.
+            let latest = capture_handle
+                .latest_content_frame()
+                .filter(|frame| latest_frame_fits(frame, encoder_init_size));
+            let action = static_tick_action(
+                next_pass_is_idr,
+                latest.is_some(),
+                last_send_time.elapsed(),
+                now.duration_since(last_emit_for_throttle),
+                frame_interval,
+            );
+            let (encoded, call) = match (action, latest) {
+                (StaticTickAction::Skip, _) => continue,
+                (StaticTickAction::ReencodeLatest, Some(frame)) => (
+                    // A fresh encoder converts the whole frame on its first
+                    // update; dirty rects are irrelevant here.
+                    encoder.encode(frame.as_ref() as &dyn ImageInfo, false),
+                    "encode(latest content frame)",
+                ),
+                _ => (encoder.encode_cached(), "encode_cached"),
+            };
+            let nal_info_vec = match encoded {
                 Ok(v) => {
                     consecutive_encode_failures = 0;
                     v
@@ -523,12 +545,12 @@ pub(super) async fn video_pipeline_loop(
                             payload.video_generation,
                             encoder_id,
                             encoder_init_size,
-                            format!("encode_cached failed three consecutive times: {e}"),
+                            format!("{call} failed three consecutive times: {e}"),
                         );
                         return Ok(());
                     }
                     warn!(
-                        "[MediaProducer:{connection_id}] transient encode_cached error \
+                        "[MediaProducer:{connection_id}] transient {call} error \
                          ({consecutive_encode_failures}/3): {e}"
                     );
                     continue;
@@ -536,9 +558,9 @@ pub(super) async fn video_pipeline_loop(
             };
             if rebuild_pending && nal_info_vec.is_empty() {
                 warn!(
-                    "[MediaProducer:{connection_id}] post-rebuild heartbeat tick produced 0 \
-                     NALs (encoder yuv_buffer is None on a freshly built encoder); browser \
-                     will see no frames until the next non-static capture tick"
+                    "[MediaProducer:{connection_id}] post-rebuild static tick produced 0 NALs \
+                     via {call}; the keyframe stays owed (no content frame of the encoder's \
+                     size yet, or the encoder is still buffering)"
                 );
             }
             // Heartbeat duration must reflect wall-clock elapsed
@@ -556,12 +578,17 @@ pub(super) async fn video_pipeline_loop(
             // counts match what the browser decoder reports.
             let kind_for_pass = classify_video_frame_kind(&nal_info_vec, next_pass_is_idr);
             let was_idr_flag = next_pass_is_idr;
-            next_pass_is_idr = false;
+            settle_keyframe_owed(&mut next_pass_is_idr, nal_info_vec.len());
+            let emit_path = if action == StaticTickAction::ReencodeLatest {
+                "static-reencode"
+            } else {
+                "heartbeat"
+            };
             for (i, nal) in nal_info_vec.into_iter().enumerate() {
                 if rebuild_pending {
                     log_post_rebuild_emit(
                         &connection_id,
-                        "heartbeat",
+                        emit_path,
                         codec,
                         kind_for_pass,
                         was_idr_flag,
@@ -594,6 +621,11 @@ pub(super) async fn video_pipeline_loop(
             }
             last_send_time = now;
             last_emit_wall = Some(now);
+            if action == StaticTickAction::ReencodeLatest {
+                // Paces repeated re-encodes while an encoder that buffers
+                // input has not produced its keyframe yet.
+                last_emit_for_throttle = now;
+            }
             continue;
         }
 
@@ -709,7 +741,7 @@ pub(super) async fn video_pipeline_loop(
         // and host-side keyframe counts align with the browser.
         let kind_for_pass = classify_video_frame_kind(&nal_info_vec, next_pass_is_idr);
         let was_idr_flag = next_pass_is_idr;
-        next_pass_is_idr = false;
+        settle_keyframe_owed(&mut next_pass_is_idr, nal_info_vec.len());
         // Same dynamic-duration treatment as the heartbeat path:
         // when broadcast lag (or a paused capture) makes the real
         // gap between emits longer than 1/fps, the receiver's RTP

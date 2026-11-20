@@ -280,6 +280,65 @@ pub(super) fn should_recreate_for_resolution(
     if init != frame { Some(frame) } else { None }
 }
 
+/// Gap between static-desktop heartbeat frames.
+pub(super) const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
+
+/// What the video loop does with a placeholder (no new content) tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum StaticTickAction {
+    /// Nothing to send this tick.
+    Skip,
+    /// Encode the capture's latest content frame on the fresh encoder.
+    ReencodeLatest,
+    /// Heartbeat: re-encode whatever the encoder already holds.
+    EncodeCached,
+}
+
+/// Decide what a placeholder tick does.
+///
+/// A freshly built encoder (keyframe request, settings change, first
+/// start) holds no picture, so `encode_cached` yields nothing and a static
+/// desktop never produces the keyframe the browser is waiting for. While
+/// the keyframe is still owed and a usable content frame exists, that
+/// frame is encoded again — paced by the connection's fps, not by the 1 s
+/// heartbeat, so a PLI on a static screen is answered on the next tick.
+pub(super) fn static_tick_action(
+    keyframe_owed: bool,
+    has_usable_latest: bool,
+    since_last_send: Duration,
+    since_last_emit: Duration,
+    frame_interval: Duration,
+) -> StaticTickAction {
+    if keyframe_owed && has_usable_latest {
+        return if since_last_emit >= frame_interval {
+            StaticTickAction::ReencodeLatest
+        } else {
+            StaticTickAction::Skip
+        };
+    }
+    if since_last_send <= HEARTBEAT_INTERVAL {
+        StaticTickAction::Skip
+    } else {
+        StaticTickAction::EncodeCached
+    }
+}
+
+/// Whether a remembered content frame can seed an encoder built for
+/// `encoder_size`. A frame of another size would need a resolution
+/// rebuild, which only a real content tick performs.
+pub(super) fn latest_frame_fits(frame: &SharedFrame, encoder_size: (u32, u32)) -> bool {
+    frame.width > 0 && frame.height > 0 && (frame.width, frame.height) == encoder_size
+}
+
+/// The keyframe a rebuilt encoder owes stays owed until an encode pass
+/// actually yields NALs: an empty pass (no picture yet, or an encoder
+/// still buffering) has sent the browser nothing.
+pub(super) fn settle_keyframe_owed(keyframe_owed: &mut bool, emitted_nals: usize) {
+    if emitted_nals > 0 {
+        *keyframe_owed = false;
+    }
+}
+
 /// Resolve the encoder's initial width/height from a geometry snapshot,
 /// rejecting every degenerate value on the way.
 ///

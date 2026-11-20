@@ -108,6 +108,13 @@ struct SharedGeometrySnapshot {
 
 struct SharedGeometryState {
     snapshot: StdMutex<SharedGeometrySnapshot>,
+    /// Most recent frame that carried real content. A static desktop only
+    /// produces placeholder ticks, so a freshly built encoder (keyframe
+    /// request, settings change, late subscriber) has nothing to encode
+    /// until the screen changes. Subscribers re-encode this frame instead.
+    /// One `Arc` per capture loop; the broadcast ring already holds frames
+    /// of the same size.
+    latest_content: StdMutex<Option<Arc<SharedFrame>>>,
 }
 
 impl SharedGeometryState {
@@ -117,7 +124,22 @@ impl SharedGeometryState {
                 generation: 1,
                 display_info,
             }),
+            latest_content: StdMutex::new(None),
         })
+    }
+
+    fn remember_content(&self, frame: &Arc<SharedFrame>) {
+        *self
+            .latest_content
+            .lock()
+            .expect("shared capture latest frame lock poisoned") = Some(Arc::clone(frame));
+    }
+
+    fn latest_content(&self) -> Option<Arc<SharedFrame>> {
+        self.latest_content
+            .lock()
+            .expect("shared capture latest frame lock poisoned")
+            .clone()
     }
 
     fn read(&self) -> SharedGeometrySnapshot {
@@ -213,6 +235,13 @@ impl SharedCaptureHandle {
 
     pub fn key(&self) -> &CaptureKey {
         &self.inner.key
+    }
+
+    /// The newest frame with real content, if the loop has captured one.
+    /// Its `data` is a full copy of the surface, so it can seed a fresh
+    /// encoder on its own.
+    pub fn latest_content_frame(&self) -> Option<Arc<SharedFrame>> {
+        self.inner.geometry.latest_content()
     }
 }
 
@@ -708,6 +737,9 @@ fn run_capture_loop(
             source_generation: geometry_snapshot.generation,
             display_info: geometry_snapshot.display_info,
         });
+        if frame_carries_geometry(width, height, frame.content_changed) {
+            geometry.remember_content(&frame);
+        }
 
         // No subscribers right now is OK — the capture loop only
         // exits on stop_flag. (stop_flag is set when every handle
@@ -965,6 +997,40 @@ mod tests {
             Some(Resolution::new(1920, 1080))
         );
         assert_eq!(last.source_generation, 2);
+    }
+
+    /// A rebuilt encoder on a static desktop only sees placeholder ticks,
+    /// so the capture must keep the last real frame for it. Placeholders
+    /// must never replace that frame.
+    #[test]
+    fn capture_loop_remembers_latest_content_frame_across_placeholders() {
+        let geometry = SharedGeometryState::new(display_info_sized(1280, 800));
+        let (sender, _receiver) = broadcast::channel::<Arc<SharedFrame>>(16);
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        assert!(geometry.latest_content().is_none());
+        let capture = ScriptedCapture {
+            script: vec![Some((1280, 800)), None, Some((1920, 1080)), None, None].into_iter(),
+            display_info: display_info_sized(1280, 800),
+            stop_flag: Arc::clone(&stop_flag),
+        };
+
+        run_capture_loop(
+            Box::new(capture),
+            sender,
+            Arc::clone(&stop_flag),
+            CaptureKey {
+                backend: "TEST".to_string(),
+                device_name: "display-1".to_string(),
+            },
+            Arc::clone(&geometry),
+        );
+
+        let latest = geometry
+            .latest_content()
+            .expect("a content frame was captured");
+        assert!(latest.content_changed);
+        assert_eq!((latest.width, latest.height), (1920, 1080));
+        assert_eq!(latest.data.len(), 1920 * 1080 * 4);
     }
 
     #[test]
