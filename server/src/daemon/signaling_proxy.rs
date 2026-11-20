@@ -1604,48 +1604,10 @@ pub async fn run_signaling_proxy(
                             }
                         });
                     }
-                    let connection_id = Some(payload.connection_id);
-                    let model = match payload.outcome {
-                        PhysicalDisplayModeOutcome::Applied(data) => {
-                            let changed = PhysicalDisplayChangedData {
-                                connection_epoch: payload.connection_epoch,
-                                device_name: data.device_name,
-                                selector: data.selector,
-                                pixel_width: data.pixel_width,
-                                pixel_height: data.pixel_height,
-                                refresh_millihz: data.refresh_millihz,
-                                changed: data.changed,
-                                restored: data.restored,
-                            };
-                            SignalingModel::success_response(
-                                &payload.request_id,
-                                SignalingType::DisplaySettingsChanged,
-                                None,
-                                connection_id,
-                                Some(&changed),
-                            )
-                        }
-                        PhysicalDisplayModeOutcome::Failed(reason) => SignalingModel::error(
-                            &payload.request_id,
-                            SignalingType::DisplaySettingsChanged,
-                            None,
-                            connection_id,
-                            DeskErrorCode::INVALID_STATE,
-                            &reason,
-                        ),
-                        PhysicalDisplayModeOutcome::AppliedWithoutVideo { reason, .. } => {
-                            SignalingModel::error(
-                                &payload.request_id,
-                                SignalingType::DisplaySettingsChanged,
-                                None,
-                                connection_id,
-                                DeskErrorCode::INVALID_STATE,
-                                &reason,
-                            )
-                        }
-                    };
-                    match model {
-                        Ok(model) => match serde_json::to_string(&model) {
+                    match build_physical_display_response(payload) {
+                        // A restore after the last connection left: nobody to tell.
+                        None => {}
+                        Some(Ok(model)) => match serde_json::to_string(&model) {
                             Ok(text) => {
                                 let _ = outbound_tx.send(text);
                             }
@@ -1653,7 +1615,7 @@ pub async fn run_signaling_proxy(
                                 "[SignalingProxy] failed to serialise physical display response: {error}"
                             ),
                         },
-                        Err(error) => warn!(
+                        Some(Err(error)) => warn!(
                             "[SignalingProxy] failed to build physical display response: {error}"
                         ),
                     }

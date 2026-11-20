@@ -1876,3 +1876,26 @@ async fn stamped_admission_frames_reach_the_router_on_every_configured_link() {
         assert!(!replied("bare-term"), "bare terminal on {origin:?}");
     }
 }
+
+#[test]
+fn a_physical_mode_restore_without_a_connection_is_not_forwarded() {
+    use desk_ipc_protocol::message::{
+        PhysicalDisplayModeOutcome, PhysicalDisplayModeResponsePayload,
+    };
+    let payload = |connection_id: &str| PhysicalDisplayModeResponsePayload {
+        request_id: "req".into(),
+        connection_id: connection_id.into(),
+        connection_epoch: "epoch".into(),
+        operation_id: 1,
+        outcome: PhysicalDisplayModeOutcome::Failed("no".into()),
+    };
+    assert!(build_physical_display_response(payload("")).is_none());
+    let model = build_physical_display_response(payload("conn-1"))
+        .expect("a reply with a connection is forwarded")
+        .expect("model");
+    assert_eq!(model.to_connection_id.as_deref(), Some("conn-1"));
+    assert_eq!(
+        model.signaling_type as i32,
+        SignalingType::DisplaySettingsChanged as i32
+    );
+}

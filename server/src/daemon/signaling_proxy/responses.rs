@@ -80,6 +80,55 @@ pub(super) async fn dispatch_attach_result(
 /// Kept as a free function so the routing logic can be unit-tested
 /// without spinning up a signaling-proxy task. The call site in the
 /// proxy loop only deals with the serialisation + outbound broadcast.
+/// The browser reply to a physical display mode result. `None` for a result
+/// without a connection: the restore after the last connection left, which
+/// only completes the supervisor operation.
+pub(super) fn build_physical_display_response(
+    payload: desk_ipc_protocol::message::PhysicalDisplayModeResponsePayload,
+) -> Option<Result<SignalingModel, desk_signal_facade::error::DeskSignalFacadeError>> {
+    if payload.connection_id.is_empty() {
+        return None;
+    }
+    let connection_id = Some(payload.connection_id);
+    Some(match payload.outcome {
+        PhysicalDisplayModeOutcome::Applied(data) => {
+            let changed = PhysicalDisplayChangedData {
+                connection_epoch: payload.connection_epoch,
+                device_name: data.device_name,
+                selector: data.selector,
+                pixel_width: data.pixel_width,
+                pixel_height: data.pixel_height,
+                refresh_millihz: data.refresh_millihz,
+                changed: data.changed,
+                restored: data.restored,
+            };
+            SignalingModel::success_response(
+                &payload.request_id,
+                SignalingType::DisplaySettingsChanged,
+                None,
+                connection_id,
+                Some(&changed),
+            )
+        }
+        PhysicalDisplayModeOutcome::Failed(reason) => SignalingModel::error(
+            &payload.request_id,
+            SignalingType::DisplaySettingsChanged,
+            None,
+            connection_id,
+            DeskErrorCode::INVALID_STATE,
+            &reason,
+        ),
+        PhysicalDisplayModeOutcome::AppliedWithoutVideo { reason, .. } => SignalingModel::error(
+            &payload.request_id,
+            SignalingType::DisplaySettingsChanged,
+            None,
+            connection_id,
+            DeskErrorCode::INVALID_STATE,
+            &reason,
+        ),
+    })
+}
+
 pub(super) fn build_virtual_display_response(
     payload: desk_ipc_protocol::message::VirtualDisplayModeResponsePayload,
     supervisor: Option<&std::sync::Arc<crate::daemon::virtual_display::VirtualDisplaySupervisor>>,

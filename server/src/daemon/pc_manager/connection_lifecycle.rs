@@ -222,19 +222,17 @@ async fn cleanup_pc_if_epoch(
         && registry.pending_requests() == 0
         && registry.admission(connection_id).await.is_none()
     {
-        restore_physical_displays_if_unused(registry, worker_mgr, connection_id).await;
+        restore_physical_displays_if_unused(registry, worker_mgr).await;
     }
     removed.is_some()
 }
 
 /// Restore remembered physical modes through their owning session workers.
-/// The last departing connection may belong to another login session. Errors
+/// The last departing connection may belong to another login session (after
+/// a fast user switch), so the request names no connection: its reply is
+/// admitted by the request route recorded for the worker it went to. Errors
 /// are best effort: no persistent repair state is created.
-async fn restore_physical_displays_if_unused(
-    registry: &PcRegistry,
-    worker_mgr: &WorkerManager,
-    connection_id: &str,
-) {
+async fn restore_physical_displays_if_unused(registry: &PcRegistry, worker_mgr: &WorkerManager) {
     if registry.len().await != 0 || registry.pending_requests() != 0 {
         return;
     }
@@ -283,7 +281,7 @@ async fn restore_physical_displays_if_unused(
         };
         let command = desk_ipc_protocol::message::SetPhysicalDisplayModePayload {
             request_id,
-            connection_id: connection_id.into(),
+            connection_id: String::new(),
             connection_epoch: recorded.connection_epoch,
             device_name: device_name.clone(),
             capture_backend: String::new(),
@@ -380,7 +378,7 @@ async fn finalize_logical_connection(
     registry.unindex_grant_connection(connection_id).await;
     registry.unmark_terminal_connection(connection_id).await;
     detach_virtual_display_if_unused(registry, virtual_display, reason).await;
-    restore_physical_displays_if_unused(registry, worker_mgr, connection_id).await;
+    restore_physical_displays_if_unused(registry, worker_mgr).await;
     worker_mgr.clear_connection_target(connection_id);
 }
 
@@ -704,17 +702,16 @@ mod reconnect_tests {
         };
         let (a_tx, mut a_rx) = mpsc::unbounded_channel();
         let (b_tx, mut b_rx) = mpsc::unbounded_channel();
-        for (session, sender) in [(session_a.clone(), a_tx), (session_b.clone(), b_tx)] {
-            workers
-                .install_resident_for_test(
-                    WorkerKey {
-                        session,
-                        desktop: DesktopTarget::LinuxSession,
-                    },
-                    sender,
-                )
-                .await;
-        }
+        let key_of = |session: &SessionKey| WorkerKey {
+            session: session.clone(),
+            desktop: DesktopTarget::LinuxSession,
+        };
+        let incarnation_a = workers
+            .install_resident_for_test(key_of(&session_a), a_tx)
+            .await;
+        let incarnation_b = workers
+            .install_resident_for_test(key_of(&session_b), b_tx)
+            .await;
         workers
             .bind_connection_target("last-connection-b", &session_b)
             .unwrap();
@@ -757,7 +754,7 @@ mod reconnect_tests {
             let registry = registry.clone();
             let workers = workers.clone();
             async move {
-                restore_physical_displays_if_unused(&registry, &workers, "last-connection-b").await;
+                restore_physical_displays_if_unused(&registry, &workers).await;
             }
         });
         let command = tokio::time::timeout(Duration::from_secs(2), a_rx.recv())
@@ -767,7 +764,23 @@ mod reconnect_tests {
         let ServiceToWorker::SetPhysicalDisplayMode(command) = command else {
             panic!("expected physical display restore");
         };
-        assert_eq!(command.connection_id, "last-connection-b");
+        // Regression (fast user switch): the request named the departing
+        // connection, bound to session B, so session A's reply failed the
+        // ownership check and the restore waited out its 20 s.
+        assert_eq!(command.connection_id, "");
+        let routes = workers.resident_requests();
+        assert!(!routes.admit_reply(
+            &command.request_id,
+            &key_of(&session_b),
+            incarnation_b,
+            SignalingType::DisplaySettingsChanged,
+        ));
+        assert!(routes.admit_reply(
+            &command.request_id,
+            &key_of(&session_a),
+            incarnation_a,
+            SignalingType::DisplaySettingsChanged,
+        ));
         assert!(matches!(
             command.action,
             PhysicalDisplayAction::Restore {
