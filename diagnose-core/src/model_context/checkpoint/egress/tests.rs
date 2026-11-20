@@ -304,19 +304,23 @@ fn provenance() -> CompressorProvenanceV1 {
 }
 
 fn response(input: &AuthorizedCompressionInput) -> ModelTurn {
+    response_for(&policy(), input)
+}
+
+fn response_for(policy: &ModelEgressPolicy, input: &AuthorizedCompressionInput) -> ModelTurn {
     let mut turn = ModelTurn {
         text: r#"{ "goals": [{"text": "Earlier goal", "source_message_ids": ["old"]}] }"#.into(),
         stop_reason: StopReason::EndTurn,
         ..Default::default()
     };
-    let projected = policy()
+    let projected = policy
         .authorize_request(ModelRequest::text_only(
             input.messages.clone(),
             ResponseFormatSpec::None,
         ))
         .unwrap();
     turn.provider_meta.data_envelope = Some(
-        policy()
+        policy
             .derive_model_output_envelope(&turn, &projected.input_envelopes)
             .unwrap(),
     );
@@ -684,6 +688,139 @@ fn another_compression_generation_keeps_prior_retention_and_all_dependencies() {
         &conversation,
     )
     .unwrap();
+}
+
+#[test]
+fn next_generation_admits_prior_summary_after_same_gateway_revision() {
+    exercise_revised_destination_generation();
+}
+
+#[test]
+fn revised_destination_generation_fits_small_stacks() {
+    for bytes in [1024 * 1024, 2 * 1024 * 1024] {
+        std::thread::Builder::new()
+            .stack_size(bytes)
+            .spawn(exercise_revised_destination_generation)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
+
+fn exercise_revised_destination_generation() {
+    let mut conversation = history();
+    let (state, _) = checkpoint(&conversation);
+    // The connection and model profile of the same gateway were revised after
+    // the first checkpoint, so new history carries only the revised destination.
+    let mut revised = policy();
+    revised.destination = DestinationIdentity::Model {
+        connection_id: "gateway".into(),
+        connection_revision: 3,
+        model_id: "model".into(),
+        profile_revision: 3,
+    };
+    revised.export_authorization_id = "revised-send".into();
+    conversation.push(
+        model_bound_user_message("next".into(), "x".repeat(9000), revised.destination.clone())
+            .unwrap()
+            .with_turn_id("turn-next"),
+    );
+    let next_plan = plan(&conversation, &state);
+    assert!(next_plan.input.prior_checkpoint.is_some());
+    let input = authorize_compression_input(&revised, &next_plan, &conversation).unwrap();
+    let turn = response_for(&revised, &input);
+    let mut validated =
+        parse_validated_context_summary(&turn.text, &next_plan, provenance()).unwrap();
+    bind_context_summary_lineage(&revised, &mut validated, &turn, &input).unwrap();
+    let (next_state, _) =
+        apply_validated_checkpoint(&next_plan, validated, &conversation, &state, 7).unwrap();
+    let lineage = next_state.entries[0]
+        .checkpoint
+        .as_ref()
+        .unwrap()
+        .v1()
+        .lineage
+        .as_ref()
+        .unwrap();
+    let prior = &lineage.derivations[0].summary;
+    let step = &lineage.derivations[1];
+    let admitted = step
+        .compression_sources
+        .iter()
+        .find(|source| source.provenance.source_envelope_ids == [prior.envelope_id.clone()])
+        .unwrap();
+    assert!(!step.compression_sources.contains(prior));
+    assert!(admitted.allowed_destinations.contains(&revised.destination));
+    assert_eq!(
+        (&admitted.retention, admitted.sensitivity),
+        (&prior.retention, prior.sensitivity)
+    );
+    assert!(summary_admitted_as(prior, admitted, step));
+    validate_summary_derivations(lineage, &conversation).unwrap();
+    authorize_context_checkpoint(
+        &revised,
+        &next_state,
+        &context_policy().key(),
+        &conversation,
+    )
+    .unwrap();
+
+    // Only the projection made under the step's own authorization for one
+    // added destination stands in for the prior summary.
+    let mut other_authorization = step.clone();
+    other_authorization.export_authorization_id = "another-send".into();
+    assert!(!summary_admitted_as(prior, admitted, &other_authorization));
+    let mut widened = admitted.clone();
+    widened
+        .allowed_destinations
+        .push(DestinationIdentity::Model {
+            connection_id: "gateway".into(),
+            connection_revision: 4,
+            model_id: "model".into(),
+            profile_revision: 4,
+        });
+    widened.allowed_destinations.sort();
+    assert!(!summary_admitted_as(prior, &widened, step));
+    let mut foreign = prior.clone();
+    foreign.envelope_id = admitted.envelope_id.clone();
+    foreign.provenance.source_envelope_ids = admitted.provenance.source_envelope_ids.clone();
+    foreign
+        .allowed_destinations
+        .push(DestinationIdentity::Model {
+            connection_id: "another-gateway".into(),
+            connection_revision: 1,
+            model_id: "model".into(),
+            profile_revision: 1,
+        });
+    foreign.allowed_destinations.sort();
+    assert!(!summary_admitted_as(prior, &foreign, step));
+    let mut extended = admitted.clone();
+    extended.retention.expires_at_unix_ms = Some(u64::MAX);
+    assert!(!summary_admitted_as(prior, &extended, step));
+    let mut rewritten = admitted.clone();
+    rewritten.content = step.compression_input.content.clone();
+    assert!(!summary_admitted_as(prior, &rewritten, step));
+}
+
+#[test]
+fn compression_input_rebuilds_the_plan_with_its_own_planning_options() {
+    let conversation = history();
+    let options = crate::model_context::ContextPlanningOptions {
+        compression_history_target_percent: 30,
+    };
+    let ContextBuildPlan::NeedsCompression(frozen) = plan_model_context_with_options(
+        &conversation,
+        &ModelContextState::default(),
+        &context_policy(),
+        &ContextProtectionSet::default(),
+        7,
+        options,
+    )
+    .unwrap() else {
+        panic!("expected compression");
+    };
+    assert_ne!(frozen.planning_options, Default::default());
+    authorize_compression_input(&policy(), &frozen, &conversation).unwrap();
 }
 
 #[test]

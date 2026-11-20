@@ -221,7 +221,8 @@ pub fn authorize_context_checkpoint(
         return Err(lineage_error());
     }
     authorize_sources(policy, &lineage.sources, conversation)?;
-    authorize_bytes(policy, &lineage.envelope, canonical.as_bytes())
+    authorize_bytes(policy, &lineage.envelope, canonical.as_bytes())?;
+    Ok(())
 }
 
 /// The frozen compression plan must match the full, unchanged conversation.
@@ -232,12 +233,13 @@ pub fn authorize_compression_input(
     plan: &CompressionPlan,
     conversation: &[ChatMessage],
 ) -> Result<AuthorizedCompressionInput, ModelContextError> {
-    match plan_model_context(
+    match plan_model_context_with_options(
         conversation,
         &plan.base_state,
         &plan.policy,
         &plan.protection,
         plan.base_session_version,
+        plan.planning_options,
     )? {
         ContextBuildPlan::NeedsCompression(rebuilt) if rebuilt.as_ref() == plan => {}
         _ => return Err(ModelContextError::StaleCompressionPlan),
@@ -249,7 +251,14 @@ pub fn authorize_compression_input(
         let lineage = checkpoint.lineage.as_ref().ok_or_else(lineage_error)?;
         // Prior model output is itself a source: its shorter TTL and stricter
         // destination intersection must survive another compression generation.
-        parents.push(lineage.envelope.clone());
+        // Like every history source, it enters as the projection admitted for
+        // the current destination; a revised connection or profile of the same
+        // gateway would otherwise leave the packed input with no destination.
+        parents.push(authorize_bytes(
+            policy,
+            &lineage.envelope,
+            canonical_json(&checkpoint.summary)?.as_bytes(),
+        )?);
     }
     let mut messages = compression_request_messages(plan);
     let packed = messages.last_mut().ok_or_else(lineage_error)?;
@@ -462,14 +471,17 @@ pub fn validate_summary_derivations(
                     .derivations
                     .iter()
                     .take_while(|candidate| candidate.generation < step.generation)
-                    .any(|candidate| &candidate.summary == source)
+                    .any(|candidate| summary_admitted_as(&candidate.summary, source, step))
             {
                 return Err(lineage_error());
             }
         }
         if let Some(prior) = previous
             && (step.generation <= prior.generation
-                || !step.compression_sources.contains(&prior.summary))
+                || !step
+                    .compression_sources
+                    .iter()
+                    .any(|source| summary_admitted_as(&prior.summary, source, step)))
         {
             return Err(lineage_error());
         }
@@ -506,6 +518,45 @@ pub fn validate_summary_derivations(
         previous = Some(step);
     }
     Ok(())
+}
+
+/// Whether `source` is `summary` as admitted to the compressor of `step`:
+/// either unchanged, or the export projection that adds exactly one model
+/// destination of the same gateway under the step's own export authorization.
+/// Content, sensitivity, retention and provenance otherwise stay those of the
+/// original summary.
+fn summary_admitted_as(
+    summary: &DataEnvelope,
+    source: &DataEnvelope,
+    step: &ContextSummaryDerivationV1,
+) -> bool {
+    if source == summary {
+        return true;
+    }
+    let mut added = source
+        .allowed_destinations
+        .iter()
+        .filter(|destination| !summary.allowed_destinations.contains(destination));
+    let (Some(destination), None) = (added.next(), added.next()) else {
+        return false;
+    };
+    if !summary
+        .allowed_destinations
+        .iter()
+        .any(|previous| crate::model_egress::same_gateway(destination, previous))
+    {
+        return false;
+    }
+    let mut expected = summary.clone();
+    expected.envelope_id = crate::model_egress::model_export_envelope_id(
+        &step.export_authorization_id,
+        &summary.envelope_id,
+        CHECKPOINT_AUTHORITY_MESSAGE_ID,
+    );
+    expected.provenance.source_envelope_ids = vec![summary.envelope_id.clone()];
+    expected.allowed_destinations.push(destination.clone());
+    expected.allowed_destinations.sort();
+    &expected == source
 }
 
 fn source_binding_digest(
@@ -549,13 +600,17 @@ fn authorize_sources(
         .collect()
 }
 
+const CHECKPOINT_AUTHORITY_MESSAGE_ID: &str = "checkpoint-authority";
+
+/// Admit `bytes` labelled `envelope` to the current destination and return the
+/// label the model would receive: the envelope itself, or its export projection.
 fn authorize_bytes(
     policy: &ModelEgressPolicy,
     envelope: &DataEnvelope,
     bytes: &[u8],
-) -> Result<(), ModelContextError> {
+) -> Result<DataEnvelope, ModelContextError> {
     let mut message = ChatMessage::text(
-        "checkpoint-authority",
+        CHECKPOINT_AUTHORITY_MESSAGE_ID,
         ChatRole::ContextSummary,
         std::str::from_utf8(bytes).map_err(|_| lineage_error())?,
     );
@@ -565,8 +620,11 @@ fn authorize_bytes(
             vec![message],
             ResponseFormatSpec::None,
         ))
-        .map(|_| ())
-        .map_err(|_| lineage_error())
+        .map_err(|_| lineage_error())?
+        .input_envelopes
+        .into_iter()
+        .next()
+        .ok_or_else(lineage_error)
 }
 
 fn derive_projection(
