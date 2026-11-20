@@ -1,6 +1,7 @@
 import { renderHook, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDeskSignaling } from "./use-desk-signaling";
+import { resetPageLifecycleForTests } from "@/lib/page-lifecycle";
 import {
     SIGNALING_TYPE_CODE_CHANGE_DISPLAY_SETTINGS,
     SIGNALING_TYPE_CODE_HEARTBEAT_ACKNOWLEDGED,
@@ -473,5 +474,69 @@ describe("useDeskSignaling heartbeat watchdog", () => {
         expect(close).not.toHaveBeenCalled();
         tick(120_001);
         expect(close).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("useDeskSignaling in the back/forward cache", () => {
+    let originalWebSocket: typeof WebSocket;
+    let reload: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+        originalWebSocket = (globalThis as any).WebSocket;
+        (globalThis as any).WebSocket = StubWebSocket;
+        StubWebSocket.instances = [];
+        reload = vi.fn();
+        resetPageLifecycleForTests(reload);
+    });
+
+    afterEach(() => {
+        resetPageLifecycleForTests();
+        (globalThis as any).WebSocket = originalWebSocket;
+    });
+
+    const pageEvent = (type: "pagehide" | "pageshow", persisted: boolean) =>
+        Object.assign(new Event(type), { persisted });
+
+    /** Regression (on device 2026-11-20): Chrome cached the control page
+     *  with its signaling socket open, so the host kept the session and the
+     *  virtual display stayed on the local desktop. */
+    it("closes the socket for good when the page enters the cache, and reloads on restore", async () => {
+        const { unmount } = renderHook(() => useDeskSignaling());
+        await act(async () => {
+            await new Promise((r) => setTimeout(r, 1));
+        });
+        const ws = StubWebSocket.instances[0];
+        const close = vi.spyOn(ws, "close");
+
+        act(() => {
+            window.dispatchEvent(pageEvent("pagehide", true));
+        });
+        expect(close).toHaveBeenCalledTimes(1);
+        // No reconnect is scheduled.
+        await act(async () => {
+            await new Promise((r) => setTimeout(r, 1200));
+        });
+        expect(StubWebSocket.instances).toHaveLength(1);
+
+        act(() => {
+            window.dispatchEvent(pageEvent("pageshow", true));
+        });
+        expect(reload).toHaveBeenCalledTimes(1);
+
+        // Unmounting afterwards does not close twice or throw.
+        unmount();
+        expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the socket on an ordinary pagehide", async () => {
+        renderHook(() => useDeskSignaling());
+        await act(async () => {
+            await new Promise((r) => setTimeout(r, 1));
+        });
+        const close = vi.spyOn(StubWebSocket.instances[0], "close");
+        act(() => {
+            window.dispatchEvent(pageEvent("pagehide", false));
+        });
+        expect(close).not.toHaveBeenCalled();
     });
 });

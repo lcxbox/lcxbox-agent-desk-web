@@ -34,6 +34,8 @@ pub mod virtual_display;
 pub mod windows_service;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows_service_stop;
+#[cfg(target_os = "windows")]
+pub(crate) mod windows_service_update;
 pub mod worker_manager;
 
 use crate::daemon::pc_manager::PcRegistry;

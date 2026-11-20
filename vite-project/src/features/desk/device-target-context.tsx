@@ -9,6 +9,7 @@ import { getDeviceConnection } from '@/services/clients';
 import type { ConnectionModel } from '@/services/types';
 import { deskErrorCodeEnum } from '@/services/types';
 import { errorCodeOf } from '@/lib/desk-error-i18n';
+import { onPageFrozen } from '@/lib/page-lifecycle';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { readSessionGrant } from './session-grant';
@@ -78,9 +79,11 @@ function ResolvedDeviceTarget({ accountKey, orgId, deviceId, children }: { accou
         appendBrowserPeerReport(url);
         const socket = new WebSocket(url.toString());
         socketRef.current = socket;
-        return () => {
+        const closeUnclaimed = () => {
             if (socketRef.current === socket) { socketRef.current = null; socket.close(); }
         };
+        const offPageFrozen = onPageFrozen(closeUnclaimed);
+        return () => { offPageFrozen(); closeUnclaimed(); };
     }, [accountKey, deviceId, orgId, page]);
     const claimSignalingSocket = useCallback(() => {
         const socket = socketRef.current;

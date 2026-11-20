@@ -18,6 +18,7 @@ import { TerminalAiAssistantPanel } from "./terminal-ai-assistant-panel"
 import { AiGeneratedMark, type AiProvenance } from "@/components/ai-generated-mark"
 import { ModelSelector } from "../desk/model-selector"
 import { useConfirmExec } from "../exec/use-confirm-exec"
+import { onPageFrozen } from "@/lib/page-lifecycle"
 import { deskErrorCodeEnum } from "@/services/types"
 import { AdmissionRetrySchedule } from "../desk/admission-retry"
 import {
@@ -271,6 +272,21 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
         let closeTimer: ReturnType<typeof setTimeout> | null = null;
         let disposed = false;
         const admissionRetry = new AdmissionRetrySchedule();
+        // A page entering the back/forward cache must not keep the remote
+        // shell open (see `page-lifecycle`); it reloads when restored.
+        const offPageFrozen = onPageFrozen(() => {
+            disposed = true;
+            clearTimeout(connectTimer);
+            if (admissionRetryTimer !== null) {
+                clearTimeout(admissionRetryTimer)
+                admissionRetryTimer = null
+            }
+            if (ws) {
+                ws.onclose = null
+                ws.close()
+                ws = null
+            }
+        });
 
         try {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -550,6 +566,7 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
 
         return () => {
             console.log("Cleaning up terminal session")
+            offPageFrozen();
             disposed = true;
             resumeSessionTargetRef.current = null
             setSessionTargets([])

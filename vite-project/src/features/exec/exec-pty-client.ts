@@ -1,3 +1,5 @@
+import { onPageFrozen } from '@/lib/page-lifecycle';
+
 const MAGIC = new Uint8Array([0x4c, 0x50, 0x54, 0x59]); // LPTY
 const WIRE_VERSION = 1;
 const HEADER_BYTES = 16;
@@ -175,6 +177,7 @@ export class ExecPtyClient {
     private pendingOutput: Uint8Array[] = [];
     private pendingOutputBytes = 0;
     private disposed = false;
+    private offPageFrozen: (() => void) | null = null;
 
     constructor(events: ExecPtyClientEvents) {
         this.events = events;
@@ -193,6 +196,9 @@ export class ExecPtyClient {
         return new Promise<string>((resolve, reject) => {
             const socket = new WebSocket(websocketUrl(request));
             this.socket = socket;
+            // A page entering the back/forward cache must not keep the PTY
+            // carrier open (see `page-lifecycle`).
+            this.offPageFrozen = onPageFrozen(() => this.dispose());
             socket.binaryType = 'arraybuffer';
             let settled = false;
             const timeout = window.setTimeout(() => {
@@ -338,6 +344,8 @@ export class ExecPtyClient {
 
     dispose(): void {
         this.disposed = true;
+        this.offPageFrozen?.();
+        this.offPageFrozen = null;
         this.outputListener = null;
         this.pendingOutput = [];
         this.pendingOutputBytes = 0;

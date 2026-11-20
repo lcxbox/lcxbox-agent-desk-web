@@ -36,6 +36,16 @@ This split lets session workers restart during user switching **without dropping
 
 Windows uses the native Service Control Manager. Linux provides a systemd service installer; macOS does not use this system-service installation path.
 
+### Install, update and remove the Windows service
+
+Run these from an elevated prompt with the server binary of the build you want to install (`static/` must sit next to it):
+
+- `--install-service [--install-path <dir>] [--config-file-path <config.toml>] [--install-idd-driver]` copies the build (default `C:\Program Files\LCXL Remote Desktop`), registers `LcxlDeskService` and starts it. It refuses when the service is already installed.
+- `--update-service` replaces the installed build in place: the new files are staged next to the old ones while the service still runs, then the service is stopped, the files are swapped and the service is started again. The service keeps its directory, start type and `--config-file-path` unless you pass a new one; other hand-added launch arguments are not kept. If the new build does not start, the previous one is restored and started.
+- `--uninstall-service` stops the service, removes the virtual display driver, the service and the install directory. Data and configuration are kept.
+
+When you stop the service yourself, `Stop-Service` returns a few milliseconds before the service process exits; wait for the process before replacing files by hand, or use `--update-service`.
+
 ### Install the Linux systemd service
 
 In the local desktop client, sign in as the device owner and open **System Settings → Linux System Service**. Choose **Install Service**, then approve the desktop's administrator authorization prompt. Installation requires systemd, `pkexec`, and a working desktop authentication agent. The client never receives your administrator password. No experimental opt-in is required.

@@ -32,6 +32,8 @@ pub(crate) const CHILD_KILL_WAIT: Duration = Duration::from_secs(3);
 /// The uninstall's wait for the service to stop.
 pub(crate) const UNINSTALL_STOP_WAIT: Duration = Duration::from_secs(60);
 pub(crate) const UNINSTALL_POLL: Duration = Duration::from_millis(250);
+/// How long an update waits for the new build to report RUNNING.
+pub(crate) const UPDATE_START_WAIT: Duration = Duration::from_secs(60);
 
 pub(crate) fn status(
     state: ServiceState,

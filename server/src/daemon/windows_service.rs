@@ -5,14 +5,17 @@ pub use windows_impl::*;
 mod windows_impl {
     use crate::daemon::windows_service_stop::{
         CHILD_EXIT_WAIT, CHILD_KILL_WAIT, PRESHUTDOWN_TIMEOUT, ProcessTree, STOP_DEADLINE,
-        StopReporter, StopWait, UNINSTALL_POLL, UNINSTALL_STOP_WAIT, os as stop_os,
-        tick_until_stopped, wait_until_stopped,
+        StopReporter, StopWait, UNINSTALL_POLL, UNINSTALL_STOP_WAIT, UPDATE_START_WAIT,
+        os as stop_os, tick_until_stopped, wait_until_stopped,
+    };
+    use crate::daemon::windows_service_update::{
+        StagedUpdate, installed_command, split_command_line,
     };
     use desk_utils::host_data_paths::HostDataPaths;
     use desk_virtual_display_driver_ops::{DriverInstallerOps, RealInstaller};
     use log::{error, info};
     use std::ffi::OsString;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::Duration;
     use tokio::sync::oneshot;
@@ -252,6 +255,19 @@ mod windows_impl {
         config_override: Option<&Path>,
         installer: &dyn DriverInstallerOps,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // An installed service is updated with --update-service; installing
+        // over it would overwrite a running build and then fail to register.
+        if let Ok(manager) =
+            ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+            && manager
+                .open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS)
+                .is_ok()
+        {
+            return Err(format!(
+                "Service '{SERVICE_NAME}' is already installed; run --update-service to update it"
+            )
+            .into());
+        }
         let src_exe = std::env::current_exe()?;
         let src_dir = src_exe
             .parent()
@@ -274,9 +290,9 @@ mod windows_impl {
 
         if !same_dir {
             std::fs::copy(&src_exe, &dst_exe)?;
-            info!("Copied binary to {}", dst_exe.display());
+            println!("Copied binary to {}", dst_exe.display());
         } else {
-            info!("Binary already in install directory, skipping copy");
+            println!("Binary already in the install directory, nothing to copy");
         }
 
         // Copy static/ alongside the binary so the daemon can serve the frontend.
@@ -292,13 +308,15 @@ mod windows_impl {
             )
             .into());
         }
-        let dst_static = install_path.join("static");
-        if dst_static.exists() {
-            std::fs::remove_dir_all(&dst_static)?;
-            info!("Removed old static directory at {}", dst_static.display());
+        // Copying the install directory onto itself would delete it first.
+        if !same_dir {
+            let dst_static = install_path.join("static");
+            if dst_static.exists() {
+                std::fs::remove_dir_all(&dst_static)?;
+            }
+            copy_dir_recursive(&src_static, &dst_static)?;
+            println!("Copied static/ to {}", dst_static.display());
         }
-        copy_dir_recursive(&src_static, &dst_static)?;
-        info!("Copied static/ to {}", dst_static.display());
 
         // Copy drivers/ + (optionally) stage the IDD driver BEFORE the
         // SCM entry is created — the daemon must not be allowed to
@@ -316,6 +334,23 @@ mod windows_impl {
             ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
         )?;
 
+        let info = service_info(dst_exe, ServiceStartType::AutoStart, config_override);
+        let service =
+            manager.create_service(&info, ServiceAccess::START | ServiceAccess::CHANGE_CONFIG)?;
+        println!("Service '{SERVICE_NAME}' installed at '{install_dir}'");
+        configure_failure_recovery(&service)?;
+        service.start(&[] as &[&std::ffi::OsStr])?;
+        println!("Service '{SERVICE_NAME}' started");
+        Ok(())
+    }
+
+    /// The SCM entry a fresh install creates and an update rewrites. Other
+    /// hand-added launch arguments are not kept.
+    fn service_info(
+        executable_path: PathBuf,
+        start_type: ServiceStartType,
+        config_override: Option<&Path>,
+    ) -> ServiceInfo {
         let mut launch_arguments = vec![
             OsString::from("--startup-mode"),
             OsString::from("service-daemon"),
@@ -324,27 +359,283 @@ mod windows_impl {
             launch_arguments.push(OsString::from("--config-file-path"));
             launch_arguments.push(path.as_os_str().to_os_string());
         }
-
-        let info = ServiceInfo {
+        ServiceInfo {
             name: OsString::from(SERVICE_NAME),
             display_name: OsString::from(SERVICE_DISPLAY_NAME),
             service_type: ServiceType::OWN_PROCESS,
-            start_type: ServiceStartType::AutoStart,
+            start_type,
             error_control: ServiceErrorControl::Normal,
-            executable_path: dst_exe,
+            executable_path,
             launch_arguments,
             dependencies: vec![],
             account_name: None,
             account_password: None,
-        };
+        }
+    }
 
-        let service =
-            manager.create_service(&info, ServiceAccess::START | ServiceAccess::CHANGE_CONFIG)?;
-        info!("Service '{SERVICE_NAME}' installed at '{install_dir}'");
-        configure_failure_recovery(&service)?;
-        service.start(&[] as &[&std::ffi::OsStr])?;
-        info!("Service '{SERVICE_NAME}' started");
-        Ok(())
+    fn same_directory(left: &Path, right: &Path) -> bool {
+        match (left.canonicalize(), right.canonicalize()) {
+            (Ok(left), Ok(right)) => left == right,
+            _ => left
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&right.to_string_lossy()),
+        }
+    }
+
+    /// How stopping the service for an uninstall or update ended.
+    enum StopOutcome {
+        WasStopped,
+        Stopped,
+        NotStopped(String),
+    }
+
+    /// Stop the service and wait until it reports `STOPPED` and its process
+    /// has exited (SCM sees `STOPPED` a few ms before the process is gone).
+    fn stop_and_wait(service: &Service) -> StopOutcome {
+        let status = match service.query_status() {
+            Ok(status) => status,
+            Err(error) => {
+                return StopOutcome::NotStopped(format!("could not query the service: {error}"));
+            }
+        };
+        if status.current_state == ServiceState::Stopped {
+            return StopOutcome::WasStopped;
+        }
+        // Opened before the stop so the pid cannot be reused meanwhile.
+        let process = status.process_id.and_then(stop_os::open_for_wait);
+        println!("Stopping the service...");
+        let polls = (UNINSTALL_STOP_WAIT.as_millis() / UNINSTALL_POLL.as_millis()) as u32;
+        match wait_until_stopped(
+            || service.query_status().map(|status| status.current_state),
+            || {
+                let _ = service.stop();
+            },
+            std::thread::sleep,
+            polls,
+        ) {
+            StopWait::Stopped => {}
+            StopWait::TimedOut => {
+                return StopOutcome::NotStopped(format!(
+                    "the service did not stop within {UNINSTALL_STOP_WAIT:?}"
+                ));
+            }
+            StopWait::QueryFailed(error) => {
+                return StopOutcome::NotStopped(format!(
+                    "could not query the service while stopping it: {error}"
+                ));
+            }
+        }
+        match (status.process_id, process) {
+            (Some(_), Some(process)) if !stop_os::wait_for_exit(&process, CHILD_EXIT_WAIT) => {
+                StopOutcome::NotStopped("the service process is still running".into())
+            }
+            (Some(pid), None) => {
+                StopOutcome::NotStopped(format!("could not watch the service process {pid}"))
+            }
+            _ => StopOutcome::Stopped,
+        }
+    }
+
+    /// Wait until a started service runs (or gives up), so a build that
+    /// fails at startup is rolled back.
+    fn wait_until_running(service: &Service) -> Result<(), String> {
+        for _ in 0..(UPDATE_START_WAIT.as_millis() / UNINSTALL_POLL.as_millis()) {
+            match service.query_status() {
+                Ok(status) if status.current_state == ServiceState::Running => return Ok(()),
+                Ok(status) if status.current_state == ServiceState::Stopped => {
+                    return Err("the new build stopped right after starting".into());
+                }
+                Ok(_) => {}
+                Err(error) => return Err(format!("could not query the service: {error}")),
+            }
+            std::thread::sleep(UNINSTALL_POLL);
+        }
+        Err(format!(
+            "the new build did not reach RUNNING within {UPDATE_START_WAIT:?}"
+        ))
+    }
+
+    /// While the files are replaced SCM must not restart the service (the
+    /// recovery actions are set again afterwards).
+    fn no_restart_actions() -> ServiceFailureActions {
+        ServiceFailureActions {
+            reset_period: ServiceFailureResetPeriod::After(FAILURE_RESET_PERIOD),
+            reboot_msg: None,
+            command: None,
+            actions: Some(Vec::new()),
+        }
+    }
+
+    /// `--update-service`: replace the installed build in place (plan
+    /// `2026-11-20_service-update-and-bfcache-signaling`, part A). The new
+    /// files are staged next to the old ones while the service runs; the
+    /// service is then stopped (and its process gone), the files swapped,
+    /// the service reconfigured and started. Any failure after the stop
+    /// puts the previous build back and starts it.
+    pub fn update_service(
+        install_path: Option<&str>,
+        install_idd_driver: bool,
+        config_override: Option<&Path>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let explicit_config = match config_override {
+            Some(path) => Some(
+                HostDataPaths::resolve_current(Some(path))?
+                    .config_file()
+                    .to_path_buf(),
+            ),
+            None => None,
+        };
+        update_service_with(
+            install_path,
+            install_idd_driver,
+            explicit_config.as_deref(),
+            &RealInstaller,
+        )
+    }
+
+    pub fn update_service_with(
+        install_path: Option<&str>,
+        install_idd_driver: bool,
+        config_override: Option<&Path>,
+        installer: &dyn DriverInstallerOps,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+        let service = manager
+            .open_service(
+                SERVICE_NAME,
+                ServiceAccess::QUERY_CONFIG
+                    | ServiceAccess::QUERY_STATUS
+                    | ServiceAccess::STOP
+                    | ServiceAccess::START
+                    | ServiceAccess::CHANGE_CONFIG,
+            )
+            .map_err(|error| {
+                format!(
+                    "Service '{SERVICE_NAME}' is not installed or not accessible ({error}); \
+                     run --install-service to install it"
+                )
+            })?;
+        let config = service.query_config()?;
+        let installed = installed_command(&split_command_line(
+            &config.executable_path.to_string_lossy(),
+        ))
+        .ok_or("could not read the installed service command line")?;
+        let installed_dir = installed
+            .exe
+            .parent()
+            .ok_or("the installed executable has no directory")?
+            .to_path_buf();
+        if let Some(requested) = install_path
+            && !same_directory(Path::new(requested), &installed_dir)
+        {
+            return Err(format!(
+                "The service is installed at '{}'; uninstall it first, or pass that directory",
+                installed_dir.display()
+            )
+            .into());
+        }
+        let config_file_path = config_override
+            .map(Path::to_path_buf)
+            .or(installed.config_file_path.clone());
+
+        let src_exe = std::env::current_exe()?;
+        let src_dir = src_exe
+            .parent()
+            .ok_or("could not determine source directory")?
+            .to_path_buf();
+        let mut update = StagedUpdate::default();
+        if same_directory(&src_dir, &installed_dir) {
+            println!(
+                "Running from the install directory: only the service configuration is refreshed"
+            );
+        } else {
+            let src_static = src_dir.join("static");
+            if !src_static.exists() {
+                return Err(
+                    format!("static/ directory not found at '{}'", src_static.display()).into(),
+                );
+            }
+            println!("Staging the new build in {}", installed_dir.display());
+            let staged = update
+                .stage(&src_exe, &installed.exe)
+                .and_then(|()| update.stage(&src_static, &installed_dir.join("static")))
+                .and_then(|()| {
+                    let src_drivers = src_dir.join("drivers");
+                    if src_drivers.exists() {
+                        update.stage(&src_drivers, &installed_dir.join("drivers"))
+                    } else {
+                        Ok(())
+                    }
+                });
+            if let Err(error) = staged {
+                update.discard();
+                return Err(format!("could not stage the new build: {error}").into());
+            }
+        }
+
+        if let Err(error) = service.update_failure_actions(no_restart_actions()) {
+            eprintln!("Warning: could not pause the restart-on-failure actions: {error}");
+        }
+        if let StopOutcome::NotStopped(why) = stop_and_wait(&service) {
+            update.discard();
+            let _ = configure_failure_recovery(&service);
+            return Err(format!("{why}; nothing was changed").into());
+        }
+
+        let disabled = config.start_type == ServiceStartType::Disabled;
+        let result = (|| -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            update.apply()?;
+            if install_idd_driver {
+                copy_drivers_and_install_if_requested(
+                    &installed_dir,
+                    &installed_dir,
+                    true,
+                    installer,
+                )?;
+            }
+            service.change_config(&service_info(
+                installed.exe.clone(),
+                config.start_type,
+                config_file_path.as_deref(),
+            ))?;
+            configure_failure_recovery(&service)?;
+            if !disabled {
+                service.start(&[] as &[&std::ffi::OsStr])?;
+                wait_until_running(&service)?;
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                update.commit();
+                if disabled {
+                    println!(
+                        "Service '{SERVICE_NAME}' updated; it is disabled, so it was not started"
+                    );
+                } else {
+                    println!("Service '{SERVICE_NAME}' updated and running");
+                }
+                Ok(())
+            }
+            Err(error) => {
+                eprintln!("Update failed: {error}; restoring the previous build");
+                let _ = service.stop();
+                let _ = stop_and_wait(&service);
+                if let Err(rollback) = update.rollback() {
+                    eprintln!("Warning: could not restore every file: {rollback}");
+                }
+                let _ = configure_failure_recovery(&service);
+                if !disabled {
+                    match service.start(&[] as &[&std::ffi::OsStr]) {
+                        Ok(()) => eprintln!("The previous build was started again"),
+                        Err(start) => {
+                            eprintln!("Warning: could not start the previous build: {start}")
+                        }
+                    }
+                }
+                Err(error)
+            }
+        }
     }
 
     /// Pure (SCM-free) helper extracted from [`install_service_with`]
@@ -361,20 +652,21 @@ mod windows_impl {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let src_drivers = src_dir.join("drivers");
         let dst_drivers = install_path.join("drivers");
-        if src_drivers.exists() {
+        if src_drivers.exists() && same_directory(&src_drivers, &dst_drivers) {
+            // Already in place (copying a directory onto itself deletes it).
+        } else if src_drivers.exists() {
             if dst_drivers.exists() {
                 std::fs::remove_dir_all(&dst_drivers)?;
-                info!("Removed old drivers/ at {}", dst_drivers.display());
             }
             copy_dir_recursive(&src_drivers, &dst_drivers)?;
-            info!("Copied drivers/ to {}", dst_drivers.display());
+            println!("Copied drivers/ to {}", dst_drivers.display());
         } else {
             // Missing source drivers/ must not block plain installs;
             // the user can still stage the driver later from the
             // service-daemon UI once they place files manually.
-            log::warn!(
-                "drivers/ source directory not found at '{}'; \
-                 IDD driver staging will not be possible from the install dir",
+            eprintln!(
+                "Warning: drivers/ not found at '{}'; the IDD driver cannot be staged \
+                 from the install directory",
                 src_drivers.display()
             );
         }
@@ -388,7 +680,7 @@ mod windows_impl {
                 )
             })?;
             installer.install(&files)?;
-            info!("LcxlVirtualDisplay driver staged via pnputil");
+            println!("LcxlVirtualDisplay driver staged via pnputil");
         }
         Ok(())
     }
@@ -420,45 +712,13 @@ mod windows_impl {
         )?;
 
         // cfg.executable_path is the raw SCM command line: exe_path + launch args.
-        // Parse only the executable path from the first token.
         let exe_path = service.query_config().ok().and_then(|cfg| {
-            let cmdline = cfg.executable_path.to_string_lossy();
-            let cmdline = cmdline.trim();
-            let path_str = if let Some(quoted) = cmdline.strip_prefix('"') {
-                quoted.split('"').next()?.to_string()
-            } else {
-                cmdline.split_whitespace().next()?.to_string()
-            };
-            Some(std::path::PathBuf::from(path_str))
+            installed_command(&split_command_line(&cfg.executable_path.to_string_lossy()))
+                .map(|command| command.exe)
         });
 
-        let status = service.query_status()?;
-        if status.current_state != ServiceState::Stopped {
-            // Opened before the stop so the pid cannot be reused meanwhile.
-            let process = status.process_id.and_then(stop_os::open_for_wait);
-            println!("Stopping the service...");
-            let polls = (UNINSTALL_STOP_WAIT.as_millis() / UNINSTALL_POLL.as_millis()) as u32;
-            match wait_until_stopped(
-                || service.query_status().map(|status| status.current_state),
-                || {
-                    let _ = service.stop();
-                },
-                std::thread::sleep,
-                polls,
-            ) {
-                StopWait::Stopped => {}
-                StopWait::TimedOut => eprintln!(
-                    "Warning: the service did not stop within {UNINSTALL_STOP_WAIT:?}; continuing"
-                ),
-                StopWait::QueryFailed(error) => {
-                    eprintln!("Warning: could not query the service while stopping it: {error}")
-                }
-            }
-            if let Some(process) = process
-                && !stop_os::wait_for_exit(&process, CHILD_EXIT_WAIT)
-            {
-                eprintln!("Warning: the service process is still running");
-            }
+        if let StopOutcome::NotStopped(why) = stop_and_wait(&service) {
+            eprintln!("Warning: {why}; continuing");
         }
 
         // Uninstall the IDD driver BEFORE deleting the SCM entry so a

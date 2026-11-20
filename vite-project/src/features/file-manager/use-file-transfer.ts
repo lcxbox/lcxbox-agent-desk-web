@@ -50,6 +50,7 @@ import {
     parseSessionTargetList,
     type SessionTargetDescriptor,
 } from '@/features/desk/session-target-selection';
+import { onPageFrozen } from '@/lib/page-lifecycle';
 
 /**
  * A signaling request the host answered with an error frame.
@@ -634,6 +635,14 @@ export function useFileTransfer(deskId: string | undefined, orgId?: number, fixe
             attempt.reject(error);
         }
     }, [failChannelAttempt, rejectPendingRequests]);
+
+    // A page entering the back/forward cache must not keep its admitted
+    // session on the host (see `page-lifecycle`); it reloads when restored.
+    const teardownSessionRef = useRef(teardownSession);
+    teardownSessionRef.current = teardownSession;
+    useEffect(() => onPageFrozen(() => {
+        teardownSessionRef.current(new ConnectionError('session-closed', 'Page left'));
+    }), []);
 
     /**
      * The signaling session, establishing it if necessary.
