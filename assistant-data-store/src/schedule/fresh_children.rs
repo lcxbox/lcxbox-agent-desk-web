@@ -1,13 +1,32 @@
 //! Reclaim the original occurrence only after its durable child dependency resolves.
 use super::{
-    FreshTaskClaim, ScheduleStoreError,
+    CurrentDelegationSourceAuthority, FreshTaskClaim, ScheduleStoreError,
     authority::authority_now,
     lock_delegation_source_authority, lock_run_authority,
-    session::{OrgMode, ScheduleHostStores, SessionGuard, SessionKey, SessionPatch},
+    session::{OrgMode, ScheduleHostStores, SessionGuard, SessionKey, SessionPatch, SessionRow},
 };
 use crate::entity::agent_schedule_run as run;
-use desk_diagnose_core::session::{PersistedAgentSession, TriggerOrigin, TurnState};
+use desk_diagnose_core::{
+    future::boxed,
+    session::{PersistedAgentSession, TriggerOrigin, TurnState},
+    subagent::{creation::CreationEnvelope, group::DelegationGroup},
+};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
+
+// The original rows stay owned across sequential phases of one transaction.
+struct ChildrenClaim<R> {
+    work: Box<run::Model>,
+    row: Box<SessionRow<R>>,
+    session: Box<PersistedAgentSession>,
+}
+
+// The resolved dependency source and its locked current authority.
+struct ChildrenSource {
+    answered: bool,
+    group: Box<DelegationGroup>,
+    source: Box<CreationEnvelope>,
+    authority: CurrentDelegationSourceAuthority,
+}
 
 /// Caller holds current owner/device and root control. Neither the dependency
 /// result nor this claim mints an operation grant or a new occurrence quota.
@@ -19,13 +38,24 @@ pub async fn claim_fresh_children_on<C: ConnectionTrait, H: ScheduleHostStores<C
     if input.owner <= 0 || input.node_id.is_empty() || !(30..=300).contains(&input.lease_seconds) {
         return Err(ScheduleStoreError::Invalid);
     }
+    // Each phase runs on the heap in the original transaction and lock order.
+    let mut claim = boxed(|| load_children_claim(host, txn, &input)).await?;
+    let source = boxed(|| resolve_children_source(host, txn, &input, &mut claim)).await?;
+    boxed(|| persist_children_claim(host, txn, &input, claim, source)).await
+}
+
+async fn load_children_claim<C: ConnectionTrait, H: ScheduleHostStores<C>>(
+    host: &H,
+    txn: &C,
+    input: &FreshTaskClaim<'_>,
+) -> Result<Box<ChildrenClaim<H::Row>>, ScheduleStoreError> {
     let work = run::Entity::find()
         .filter(run::Column::RunId.eq(input.run_id))
         .filter(run::Column::OwnerUserId.eq(input.owner))
         .one(txn)
         .await?
         .ok_or(ScheduleStoreError::NotFound)?;
-    let mut row = host
+    let row = host
         .find_session(
             txn,
             SessionKey::Conversation {
@@ -38,7 +68,7 @@ pub async fn claim_fresh_children_on<C: ConnectionTrait, H: ScheduleHostStores<C
         )
         .await?
         .ok_or(ScheduleStoreError::NotFound)?;
-    let mut session = PersistedAgentSession::decode_json(&row.state_json)
+    let session = PersistedAgentSession::decode_json(&row.state_json)
         .map_err(|_| ScheduleStoreError::Invalid)?;
     if work.status != "awaiting_children"
         || work.failure_accounted
@@ -92,6 +122,20 @@ pub async fn claim_fresh_children_on<C: ConnectionTrait, H: ScheduleHostStores<C
     {
         return Err(ScheduleStoreError::Conflict);
     }
+    Ok(Box::new(ChildrenClaim {
+        work: Box::new(work),
+        row: Box::new(row),
+        session: Box::new(session),
+    }))
+}
+
+async fn resolve_children_source<C: ConnectionTrait, H: ScheduleHostStores<C>>(
+    host: &H,
+    txn: &C,
+    input: &FreshTaskClaim<'_>,
+    claim: &mut ChildrenClaim<H::Row>,
+) -> Result<ChildrenSource, ScheduleStoreError> {
+    let ChildrenClaim { work, row, session } = claim;
     let answer_reference = work
         .result_ref
         .as_deref()
@@ -121,21 +165,21 @@ pub async fn claim_fresh_children_on<C: ConnectionTrait, H: ScheduleHostStores<C
             .as_ref()
             .ok_or(ScheduleStoreError::Invalid)?;
         lock_delegation_source_authority(txn, input.owner, &session.device_id, frozen).await?;
-        host.prepare_notification(txn, &mut session).await?;
-        row = host
+        host.prepare_notification(txn, session).await?;
+        **row = host
             .find_session(txn, SessionKey::Id(row.id), OrgMode::Any, false)
             .await?
             .ok_or(ScheduleStoreError::NotFound)?;
         if row.version != session.version {
             return Err(ScheduleStoreError::Conflict);
         }
-        host.ready_notification_source(txn, &session)
+        host.ready_notification_source(txn, session)
             .await
             .map_err(|_| ScheduleStoreError::Conflict)?
             .ok_or(ScheduleStoreError::Conflict)?
     } else {
         let (wait, group, source) = host
-            .ready_wait_source(txn, &session)
+            .ready_wait_source(txn, session)
             .await
             .map_err(|_| ScheduleStoreError::Conflict)?
             .ok_or(ScheduleStoreError::Conflict)?;
@@ -161,9 +205,39 @@ pub async fn claim_fresh_children_on<C: ConnectionTrait, H: ScheduleHostStores<C
         .find_session(txn, SessionKey::Id(row.id), OrgMode::Any, true)
         .await?
         .ok_or(ScheduleStoreError::NotFound)?;
-    if locked != row {
+    if locked != **row {
         return Err(ScheduleStoreError::Conflict);
     }
+    Ok(ChildrenSource {
+        answered: answer_reference.is_some(),
+        group: Box::new(group),
+        source: Box::new(source),
+        authority,
+    })
+}
+
+async fn persist_children_claim<C: ConnectionTrait, H: ScheduleHostStores<C>>(
+    host: &H,
+    txn: &C,
+    input: &FreshTaskClaim<'_>,
+    claim: Box<ChildrenClaim<H::Row>>,
+    resolved: ChildrenSource,
+) -> Result<PersistedAgentSession, ScheduleStoreError> {
+    let ChildrenClaim {
+        work,
+        row,
+        mut session,
+    } = *claim;
+    let ChildrenSource {
+        answered,
+        group,
+        source,
+        authority,
+    } = resolved;
+    let frozen = source
+        .scheduled_source
+        .as_ref()
+        .ok_or(ScheduleStoreError::Invalid)?;
     let now = authority_now(txn).await?;
     let until = now
         .checked_add(i64::from(input.lease_seconds) * 1_000)
@@ -188,7 +262,7 @@ pub async fn claim_fresh_children_on<C: ConnectionTrait, H: ScheduleHostStores<C
         .checked_add(1)
         .filter(|token| *token <= i64::MAX as u64)
         .ok_or(ScheduleStoreError::Invalid)?;
-    if answer_reference.is_some() {
+    if answered {
         session.subagent_result_only = true;
     }
     session.turn_state = TurnState::Running;
@@ -255,5 +329,5 @@ pub async fn claim_fresh_children_on<C: ConnectionTrait, H: ScheduleHostStores<C
     if after.provenance() != &frozen.provenance {
         return Err(ScheduleStoreError::Conflict);
     }
-    Ok(session)
+    Ok(*session)
 }
