@@ -37,6 +37,23 @@ pub use windows::prompt::{PromptController, PromptWaiter, show_pre_detach_prompt
 /// releases it.
 pub trait VirtualDisplayLifecycle: Send + Sync {
     fn create(&self) -> Result<VirtualDisplayHandle, VirtualDisplayError>;
+
+    /// Unplug the virtual monitor but keep the device, so the next
+    /// [`Self::plug`] brings it back under the same GDI name. Windows
+    /// numbers every new adapter instance one higher, so removing and
+    /// re-creating the device on every session made the name grow.
+    /// `Err(NotSupported)` when the driver does not know the command (the
+    /// caller then removes the device instead).
+    fn unplug(&self, handle: &VirtualDisplayHandle) -> Result<(), VirtualDisplayError> {
+        let _ = handle;
+        Err(VirtualDisplayError::NotSupported)
+    }
+
+    /// Plug the monitor of a device unplugged by [`Self::unplug`] back in.
+    fn plug(&self, handle: &VirtualDisplayHandle) -> Result<(), VirtualDisplayError> {
+        let _ = handle;
+        Err(VirtualDisplayError::NotSupported)
+    }
 }
 
 /// Opaque platform-specific payload behind [`VirtualDisplayHandle`].
@@ -202,6 +219,12 @@ pub enum DriverRequest {
         height: u32,
         refresh_hz: u32,
     },
+    /// Bring the monitor back on the live adapter (idempotent). Drivers
+    /// that predate it answer status 100 (unknown command).
+    PlugMonitor,
+    /// Depart the monitor but keep the adapter and its GDI name
+    /// (idempotent).
+    UnplugMonitor,
 }
 
 /// Response envelope returned by the driver.
@@ -552,6 +575,21 @@ mod tests {
         );
         let back: DriverRequest = serde_json::from_value(json).unwrap();
         assert_eq!(req, back);
+    }
+
+    #[test]
+    fn monitor_commands_have_no_params_on_the_wire() {
+        assert_eq!(
+            serde_json::to_value(DriverRequest::PlugMonitor).unwrap(),
+            serde_json::json!({ "command": "plug_monitor" })
+        );
+        assert_eq!(
+            serde_json::to_value(DriverRequest::UnplugMonitor).unwrap(),
+            serde_json::json!({ "command": "unplug_monitor" })
+        );
+        let back: DriverRequest =
+            serde_json::from_value(serde_json::json!({ "command": "unplug_monitor" })).unwrap();
+        assert_eq!(back, DriverRequest::UnplugMonitor);
     }
 
     #[test]

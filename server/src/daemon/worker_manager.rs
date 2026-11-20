@@ -1533,8 +1533,14 @@ impl WorkerManager {
         {
             // The display follows the console to its new Default worker; one
             // that is already running will not report capabilities again.
+            // An exclusive transition in flight was sent to the previous
+            // console's worker, whose answer is no longer admitted; start the
+            // exclusive layer over so it cannot stay stuck in Entering/Leaving.
             let supervisor = Arc::clone(supervisor);
-            tokio::spawn(async move { supervisor.on_worker_capabilities().await });
+            tokio::spawn(async move {
+                supervisor.reset_exclusive_state().await;
+                supervisor.on_worker_capabilities().await;
+            });
         }
 
         for key in &plan.stop_sessions {

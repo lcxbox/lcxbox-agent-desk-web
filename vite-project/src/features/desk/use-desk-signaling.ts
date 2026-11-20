@@ -61,7 +61,13 @@ type QueuedMessage = {
 };
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
-const HEARTBEAT_TIMEOUT_MS = 60_000; // 2 missed heartbeats = dead
+// A heartbeat still unanswered this long after it was sent means the socket
+// is dead. Measured from each heartbeat's own send time, not from the last
+// answer: Chrome wakes timers in a tab hidden for 5 minutes only once a
+// minute, so the time since the last answer passes a minute while the
+// connection is healthy, and every reconnect of the control page re-creates
+// the virtual display (one more DISPLAYn).
+const HEARTBEAT_TIMEOUT_MS = 60_000;
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
 
@@ -110,8 +116,8 @@ export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolea
     // Heartbeat state
     const heartbeatTimerRef = useRef<number | null>(null);
     const heartbeatCheckTimerRef = useRef<number | null>(null);
-    const lastHeartbeatResponseRef = useRef<number>(Date.now());
-    const pendingHeartbeatIdsRef = useRef<Set<string>>(new Set());
+    /** Unanswered heartbeat request ids and when each was sent. */
+    const pendingHeartbeatsRef = useRef<Map<string, number>>(new Map());
 
     // Reconnect state
     const reconnectTimerRef = useRef<number | null>(null);
@@ -127,7 +133,7 @@ export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolea
             window.clearInterval(heartbeatCheckTimerRef.current);
             heartbeatCheckTimerRef.current = null;
         }
-        pendingHeartbeatIdsRef.current.clear();
+        pendingHeartbeatsRef.current.clear();
     }, []);
 
     const clearReconnectTimer = useCallback(() => {
@@ -162,13 +168,12 @@ export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolea
             console.log('Signaling WebSocket connected');
             setIsConnected(true);
             reconnectAttemptsRef.current = 0;
-            lastHeartbeatResponseRef.current = Date.now();
 
             // Setup heartbeat
             heartbeatTimerRef.current = window.setInterval(() => {
                 if (ws.readyState === WebSocket.OPEN) {
                     const requestId = v4();
-                    pendingHeartbeatIdsRef.current.add(requestId);
+                    pendingHeartbeatsRef.current.set(requestId, Date.now());
                     ws.send(JSON.stringify({
                         request_id: requestId,
                         signaling_type: SIGNALING_TYPE_CODE_SEND_HEARTBEAT,
@@ -180,7 +185,9 @@ export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolea
             // Heartbeat watchdog
             heartbeatCheckTimerRef.current = window.setInterval(() => {
                 const now = Date.now();
-                if (now - lastHeartbeatResponseRef.current > HEARTBEAT_TIMEOUT_MS) {
+                const overdue = [...pendingHeartbeatsRef.current.values()]
+                    .some(sentAt => now - sentAt > HEARTBEAT_TIMEOUT_MS);
+                if (overdue) {
                     console.warn('Signaling heartbeat timed out, reconnecting...');
                     ws.close();
                 }
@@ -234,9 +241,7 @@ export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolea
                 // Track heartbeat responses
                 if (message.signaling_type === SIGNALING_TYPE_CODE_HEARTBEAT_ACKNOWLEDGED) {
                     const requestId = message.request_id;
-                    if (requestId && pendingHeartbeatIdsRef.current.delete(requestId)) {
-                        lastHeartbeatResponseRef.current = Date.now();
-                    }
+                    if (requestId) pendingHeartbeatsRef.current.delete(requestId);
                     return; // Don't propagate heartbeat to consumers
                 }
 

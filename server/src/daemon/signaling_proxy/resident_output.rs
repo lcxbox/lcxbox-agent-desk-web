@@ -9,11 +9,19 @@ use crate::daemon::worker_manager::resident_request_routes::ResidentRequestRoute
 use desk_ipc_protocol::message::{WorkerKey, WorkerToService};
 use desk_signal_facade::model::signal::SignalingType;
 
+///
+/// `is_virtual_display_worker` says whether `key` is the worker that owns the
+/// virtual display (the console session's Default-desktop worker, see
+/// `WorkerManager::is_virtual_display_worker`). Only that worker receives
+/// `AttachVirtualDisplay` and `SetVirtualDisplayExclusive`, so only its
+/// connection-less answers to them may drive the daemon's supervisor; a worker
+/// of another session runs as another user and must not.
 pub(super) fn resident_output_admitted(
     message: &WorkerToService,
     key: &WorkerKey,
     incarnation: WorkerIncarnation,
     owns_connection: impl Fn(&str) -> bool,
+    is_virtual_display_worker: bool,
     exec_capacity: &ExecCapacity,
     requests: &ResidentRequestRoutes,
 ) -> bool {
@@ -21,6 +29,9 @@ pub(super) fn resident_output_admitted(
         return true;
     }
     match message {
+        WorkerToService::VirtualDisplayAttachResult(_) | WorkerToService::ExclusiveResult(_) => {
+            is_virtual_display_worker
+        }
         // Checked afterwards against the stream's bound worker.
         WorkerToService::ExecPtyOpened(_)
         | WorkerToService::ExecPtyOutput(_)

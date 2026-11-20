@@ -1964,3 +1964,90 @@ fn stop_send_replace_succeeds_without_video_receiver() {
     assert!(!tx.send_replace(true));
     assert!(*tx.borrow());
 }
+
+fn shared_frame_sized(width: u32, height: u32) -> SharedFrame {
+    SharedFrame {
+        data: bytes::Bytes::from(vec![0u8; (width as usize) * (height as usize) * 4]),
+        width,
+        height,
+        stride: width * 4,
+        image_type: desk_capture_engine::model::image_capture::ImageType::BGRA,
+        dirty_rects: None,
+        content_changed: true,
+        cursor_update: None,
+        source_generation: 1,
+        display_info: DisplayInfo::default(),
+    }
+}
+
+/// Regression for the static-desktop keyframe livelock: every PLI rebuilt
+/// the encoder, a fresh encoder has nothing cached, and a static desktop
+/// only yields placeholder ticks, so the requested IDR was never sent. A
+/// rebuilt encoder with a usable content frame re-encodes it on the next
+/// paced tick, without waiting for the 1 s heartbeat.
+#[test]
+fn static_tick_reencodes_latest_frame_while_keyframe_is_owed() {
+    let interval = Duration::from_millis(33);
+    assert_eq!(
+        static_tick_action(true, true, Duration::ZERO, interval, interval),
+        StaticTickAction::ReencodeLatest
+    );
+    // Paced by the connection's fps so a buffering encoder is not fed the
+    // full frame on every cursor-only placeholder.
+    assert_eq!(
+        static_tick_action(
+            true,
+            true,
+            Duration::ZERO,
+            Duration::from_millis(5),
+            interval
+        ),
+        StaticTickAction::Skip
+    );
+}
+
+#[test]
+fn static_tick_keeps_heartbeat_when_no_keyframe_is_owed_or_no_frame_exists() {
+    let interval = Duration::from_millis(33);
+    let long = Duration::from_millis(1500);
+    let short = Duration::from_millis(400);
+    for (owed, has_latest) in [(false, true), (false, false), (true, false)] {
+        assert_eq!(
+            static_tick_action(owed, has_latest, short, long, interval),
+            StaticTickAction::Skip,
+            "owed={owed} has_latest={has_latest}"
+        );
+        assert_eq!(
+            static_tick_action(owed, has_latest, long, long, interval),
+            StaticTickAction::EncodeCached,
+            "owed={owed} has_latest={has_latest}"
+        );
+    }
+}
+
+#[test]
+fn latest_frame_must_match_the_encoder_size() {
+    assert!(latest_frame_fits(
+        &shared_frame_sized(1920, 1080),
+        (1920, 1080)
+    ));
+    assert!(!latest_frame_fits(
+        &shared_frame_sized(1280, 720),
+        (1920, 1080)
+    ));
+    assert!(!latest_frame_fits(&shared_frame_sized(0, 0), (0, 0)));
+}
+
+/// An encode pass that yields nothing (no picture yet, or an encoder still
+/// buffering input) has sent no keyframe, so the keyframe stays owed and
+/// the next static tick tries again.
+#[test]
+fn keyframe_stays_owed_until_a_pass_emits_nals() {
+    let mut owed = true;
+    settle_keyframe_owed(&mut owed, 0);
+    assert!(owed);
+    settle_keyframe_owed(&mut owed, 3);
+    assert!(!owed);
+    settle_keyframe_owed(&mut owed, 0);
+    assert!(!owed);
+}

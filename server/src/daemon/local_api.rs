@@ -38,6 +38,7 @@ pub async fn run_local_api(
     manager_link_gate: Arc<super::manager_link_gate::ManagerLinkGate>,
     #[cfg(target_os = "linux")]
     session_shell_registry: host_control::session_shell::SessionShellRegistry,
+    virtual_display: super::virtual_display::SupervisorSlot,
     ready_tx: Option<oneshot::Sender<()>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("ServiceDaemon HTTP server starting on 0.0.0.0:{SERVICE_API_PORT}");
@@ -78,6 +79,7 @@ pub async fn run_local_api(
         settings: settings_data.clone(),
     });
     let validator_data = web::Data::new(validator);
+    let virtual_display_data = web::Data::new(virtual_display);
     let manager_link_state_data = web::Data::new(manager_link_state);
     let support_link_state_data = web::Data::new(support_link_state);
     let manager_link_gate_data = web::Data::new(manager_link_gate);
@@ -147,6 +149,7 @@ pub async fn run_local_api(
             .app_data(client_ip_extractor_data.clone())
             .app_data(auth_rate_limiter_data.clone())
             .app_data(bootstrap_token_data.clone())
+            .app_data(virtual_display_data.clone())
             // The daemon hosts no TURN runtime, and says so rather than leaving
             // the runtime endpoints without the state they extract.
             .app_data(actix_web::web::Data::new(

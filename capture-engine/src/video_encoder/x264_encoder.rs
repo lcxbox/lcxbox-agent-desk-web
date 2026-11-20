@@ -31,6 +31,20 @@ pub static ENCODE_TO_X264_HISTOGRAM: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!("encode_to_x264_histogram", "help", &["frame_type"]).unwrap()
 });
 
+/// Lowest CRF handed to x264. At CRF 0 an 8-bit x264 switches to lossless
+/// coding, which needs the High 4:4:4 Predictive profile; browsers decode
+/// that stream as garbage once predicted frames arrive. The adaptive quality
+/// loop reaches `video_quality` 0 on any clean link, so the floor is enforced
+/// here rather than trusted to every caller.
+const MIN_X264_CRF: u32 = 1;
+/// Highest CRF an 8-bit x264 accepts.
+const MAX_X264_CRF: u32 = 51;
+
+/// Maps the 0-63 `video_quality` knob onto x264's lossy CRF range.
+fn x264_crf(quality: u32) -> f32 {
+    quality.clamp(MIN_X264_CRF, MAX_X264_CRF) as f32
+}
+
 impl X264Encoder {
     pub fn new(
         setting: X264EncoderSettings,
@@ -41,7 +55,7 @@ impl X264Encoder {
         let height = display_info.desktop_coordinates.height();
 
         let mut setup = Setup::preset(Preset::Ultrafast, Tune::None, false, true);
-        setup = setup.crf(setting.quality as f32);
+        setup = setup.crf(x264_crf(setting.quality));
         setup = setup.fps(fps.max(1), 1);
         if setting.gop > 0 {
             setup = setup.keyint(setting.gop);

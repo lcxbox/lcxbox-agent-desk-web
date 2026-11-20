@@ -11,9 +11,11 @@
 //! serialised by the OS rather than by an in-process lock.
 
 use std::io::Read;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::{CloseHandle, ERROR_FILE_NOT_FOUND, HANDLE, WAIT_TIMEOUT};
+use windows::Win32::Foundation::{
+    CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY, ERROR_SEM_TIMEOUT, HANDLE, WAIT_TIMEOUT,
+};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
     OPEN_EXISTING, ReadFile, WriteFile,
@@ -35,6 +37,16 @@ const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_millis(1000);
 /// errors. NTSTATUS codes from IddCx fall outside this range.
 const PROTOCOL_ERROR_LO: i32 = 1;
 const PROTOCOL_ERROR_HI: i32 = 1000;
+
+/// The driver's answer to a command it does not know.
+const STATUS_UNKNOWN_COMMAND: i32 = 100;
+
+/// Time a plug/unplug may spend getting the pipe. The pipe is
+/// single-instance: between two server iterations no instance exists, and
+/// a worker's `set_mode` may hold it briefly. Short enough that a failed
+/// plug plus the fallback device creation stays within the attach budget.
+const MONITOR_COMMAND_BUDGET: Duration = Duration::from_millis(1500);
+const MONITOR_COMMAND_RETRY: Duration = Duration::from_millis(20);
 
 /// Encode a `DriverRequest` as a length-prefixed framed message.
 ///
@@ -115,6 +127,26 @@ fn extract_applied_mode(
         });
     }
     Ok(requested)
+}
+
+/// Translate the answer to `plug_monitor` / `unplug_monitor`. A driver
+/// that predates the commands answers "unknown command", which the caller
+/// treats as "remove the device instead". Pure helper, no IO.
+fn extract_monitor_result(resp: DriverResponse) -> Result<(), VirtualDisplayError> {
+    if resp.success {
+        return Ok(());
+    }
+    if resp.status_code == STATUS_UNKNOWN_COMMAND {
+        return Err(VirtualDisplayError::NotSupported);
+    }
+    let msg = resp.error.unwrap_or_else(|| "no error message".into());
+    Err(
+        if (PROTOCOL_ERROR_LO..PROTOCOL_ERROR_HI).contains(&resp.status_code) {
+            VirtualDisplayError::PipeIo(format!("driver refused: {msg}"))
+        } else {
+            VirtualDisplayError::DriverFailed(resp.status_code as u32)
+        },
+    )
 }
 
 /// Pipe handle wrapper that closes on drop. Saves manual `CloseHandle`
@@ -232,6 +264,63 @@ impl Read for PipeReader {
     }
 }
 
+/// A pipe open that may succeed when tried again shortly: no instance
+/// exists between two server iterations, or another client got it first.
+fn is_transient_open_error(code: u32) -> bool {
+    code == ERROR_FILE_NOT_FOUND.0
+        || code == ERROR_PIPE_BUSY.0
+        || code == ERROR_SEM_TIMEOUT.0
+        || code == WAIT_TIMEOUT.0
+}
+
+/// Open the driver pipe, retrying transient failures until `budget` ends.
+fn open_pipe_retrying(budget: Duration) -> Result<OwnedPipe, VirtualDisplayError> {
+    let pipe_name_w = encode_pcwstr_pipe(PIPE_NAME);
+    let pipe_pcwstr = PCWSTR(pipe_name_w.as_ptr());
+    let deadline = Instant::now() + budget;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let wait_ms = remaining.as_millis().clamp(1, u128::from(u32::MAX - 1)) as u32;
+        // SAFETY: pipe_name_w outlives both calls.
+        let code = if unsafe { WaitNamedPipeW(pipe_pcwstr, wait_ms) }.as_bool() {
+            match unsafe {
+                CreateFileW(
+                    pipe_pcwstr,
+                    (FILE_GENERIC_READ | FILE_GENERIC_WRITE).0,
+                    FILE_SHARE_NONE,
+                    None,
+                    OPEN_EXISTING,
+                    FILE_FLAGS_AND_ATTRIBUTES(0),
+                    None,
+                )
+            } {
+                Ok(handle) => return Ok(OwnedPipe(handle)),
+                Err(error) => (error.code().0 as u32) & 0xFFFF,
+            }
+        } else {
+            unsafe { windows::Win32::Foundation::GetLastError() }.0
+        };
+        if !is_transient_open_error(code) || Instant::now() >= deadline {
+            return Err(VirtualDisplayError::PipeIo(format!(
+                "driver pipe not available within {budget:?}: WIN32 error {code}"
+            )));
+        }
+        std::thread::sleep(MONITOR_COMMAND_RETRY);
+    }
+}
+
+/// Send `plug_monitor` / `unplug_monitor` from the daemon (SYSTEM, session
+/// 0; the pipe lives in the global namespace and its DACL grants SYSTEM).
+pub fn send_monitor_command(req: &DriverRequest) -> Result<(), VirtualDisplayError> {
+    let pipe = open_pipe_retrying(MONITOR_COMMAND_BUDGET)?;
+    let frame = frame_request(req)?;
+    // SAFETY: pipe.0 is a valid open handle owned by us.
+    unsafe { WriteFile(pipe.0, Some(&frame), None, None) }
+        .map_err(|e| VirtualDisplayError::PipeIo(format!("WriteFile request frame: {e}")))?;
+    let mut reader = PipeReader { handle: pipe.0 };
+    extract_monitor_result(read_framed_response(&mut reader)?)
+}
+
 /// Convenience wrapper used by `WindowsController::set_mode`.
 pub fn send_set_mode(mode: VirtualDisplayMode) -> Result<VirtualDisplayMode, VirtualDisplayError> {
     let req = DriverRequest::SetMode {
@@ -254,6 +343,34 @@ mod tests {
             height: 1080,
             refresh_hz: 60,
         }
+    }
+
+    #[test]
+    fn monitor_command_answers_are_mapped() {
+        assert!(extract_monitor_result(DriverResponse::success(None)).is_ok());
+        // A driver that predates plug/unplug: the caller removes the device.
+        assert!(matches!(
+            extract_monitor_result(DriverResponse::failure(
+                100,
+                "unknown command: plug_monitor"
+            )),
+            Err(VirtualDisplayError::NotSupported)
+        ));
+        assert!(matches!(
+            extract_monitor_result(DriverResponse::failure(104, "adapter not initialised")),
+            Err(VirtualDisplayError::PipeIo(_))
+        ));
+        assert!(matches!(
+            extract_monitor_result(DriverResponse::failure(0xC000_00A3_u32 as i32, "failed")),
+            Err(VirtualDisplayError::DriverFailed(0xC000_00A3))
+        ));
+    }
+
+    #[test]
+    fn only_vanished_or_busy_pipes_are_retried() {
+        assert!(is_transient_open_error(ERROR_FILE_NOT_FOUND.0));
+        assert!(is_transient_open_error(ERROR_PIPE_BUSY.0));
+        assert!(!is_transient_open_error(5)); // access denied
     }
 
     #[test]

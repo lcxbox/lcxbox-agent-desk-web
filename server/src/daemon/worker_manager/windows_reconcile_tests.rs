@@ -371,6 +371,35 @@ async fn only_the_console_workers_capabilities_reveal_the_virtual_display() {
     assert!(!manager.capabilities_contains_display(display));
 }
 
+/// The worker whose connection-less virtual display answers are admitted
+/// (`resident_output_admitted`) must be exactly the worker the display's
+/// commands go to: the console session's Default-desktop worker.
+#[cfg(target_os = "windows")]
+#[tokio::test]
+async fn only_the_console_default_worker_is_the_virtual_display_worker() {
+    let manager = resident_test_manager();
+    let console = key(1, 1, DesktopTarget::WindowsDefault);
+    let sign_in = key(1, 1, DesktopTarget::WindowsWinlogon);
+    let other = key(2, 1, DesktopTarget::WindowsDefault);
+
+    // Nobody signed in at the console: no worker owns the display.
+    assert!(!manager.is_virtual_display_worker(&console));
+
+    manager
+        .set_virtual_display_session(Some(session(1, 1)))
+        .await;
+    assert!(manager.is_virtual_display_worker(&console));
+    assert!(!manager.is_virtual_display_worker(&sign_in));
+    assert!(!manager.is_virtual_display_worker(&other));
+
+    // Fast user switching: the display moves with the console.
+    manager
+        .set_virtual_display_session(Some(session(2, 1)))
+        .await;
+    assert!(!manager.is_virtual_display_worker(&console));
+    assert!(manager.is_virtual_display_worker(&other));
+}
+
 fn capabilities_on(backends: &[&str], device_name: &str) -> MediaCapabilities {
     use desk_signal_facade::model::image_capture::{DisplayInfo, DisplayRect};
     let display = DisplayInfo {

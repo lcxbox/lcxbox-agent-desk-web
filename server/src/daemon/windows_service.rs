@@ -3,20 +3,25 @@ pub use windows_impl::*;
 
 #[cfg(target_os = "windows")]
 mod windows_impl {
+    use crate::daemon::windows_service_stop::{
+        CHILD_EXIT_WAIT, CHILD_KILL_WAIT, PRESHUTDOWN_TIMEOUT, ProcessTree, STOP_DEADLINE,
+        StopReporter, StopWait, UNINSTALL_POLL, UNINSTALL_STOP_WAIT, os as stop_os,
+        tick_until_stopped, wait_until_stopped,
+    };
     use desk_utils::host_data_paths::HostDataPaths;
     use desk_virtual_display_driver_ops::{DriverInstallerOps, RealInstaller};
     use log::{error, info};
     use std::ffi::OsString;
     use std::path::Path;
+    use std::sync::{Arc, Mutex, OnceLock};
     use std::time::Duration;
     use tokio::sync::oneshot;
     use windows_service::{
         Result as WsResult, define_windows_service,
         service::{
             Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl,
-            ServiceControlAccept, ServiceErrorControl, ServiceExitCode, ServiceFailureActions,
-            ServiceFailureResetPeriod, ServiceInfo, ServiceStartType, ServiceState, ServiceStatus,
-            ServiceType,
+            ServiceErrorControl, ServiceFailureActions, ServiceFailureResetPeriod, ServiceInfo,
+            ServiceStartType, ServiceState, ServiceStatus, ServiceType,
         },
         service_control_handler::{self, ServiceControlHandlerResult},
         service_dispatcher,
@@ -56,9 +61,13 @@ mod windows_impl {
         }
     }
 
+    /// Restart actions after a failure, and time to stop cleanly at system
+    /// shutdown (a wait hint does not extend the shutdown budget; only
+    /// preshutdown does).
     fn configure_failure_recovery(service: &Service) -> WsResult<()> {
         service.update_failure_actions(failure_recovery_actions())?;
-        service.set_failure_actions_on_non_crash_failures(true)
+        service.set_failure_actions_on_non_crash_failures(true)?;
+        service.set_preshutdown_timeout(PRESHUTDOWN_TIMEOUT)
     }
 
     /// Installs that predate the recovery actions get them on their next
@@ -68,7 +77,9 @@ mod windows_impl {
             .and_then(|manager| manager.open_service(SERVICE_NAME, ServiceAccess::CHANGE_CONFIG))
             .and_then(|service| configure_failure_recovery(&service));
         if let Err(error) = result {
-            log::warn!("[WindowsService] could not set the restart-on-failure actions: {error}");
+            log::warn!(
+                "[WindowsService] could not set the recovery and preshutdown settings: {error}"
+            );
         }
     }
 
@@ -78,13 +89,57 @@ mod windows_impl {
         }
     }
 
+    type Reporter = StopReporter<Box<dyn FnMut(ServiceStatus) + Send>>;
+
+    /// A stop that outlived [`STOP_DEADLINE`]: terminate what is left of our
+    /// processes, report `Stopped` (a success code, so SCM does not restart a
+    /// service that is being stopped, uninstalled or updated) and exit.
+    fn stop_deadline_passed(reporter: &Reporter, tree: &Mutex<ProcessTree>) {
+        error!("[WindowsService] stop did not finish in {STOP_DEADLINE:?}; terminating");
+        let mut tree = tree.lock().unwrap_or_else(|poison| poison.into_inner());
+        let (terminated, left) =
+            stop_os::reap_descendants(&mut tree, Duration::ZERO, CHILD_KILL_WAIT);
+        error!("[WindowsService] terminated {terminated} process(es), {left} still running");
+        reporter.finish(false);
+        std::process::exit(0);
+    }
+
+    /// Report `StopPending` and keep its checkpoint moving until `Stopped`.
+    fn begin_stop(reporter: &Arc<Reporter>, tree: &Arc<Mutex<ProcessTree>>, requested: bool) {
+        if !reporter.begin(requested) {
+            return;
+        }
+        // Remember the workers and their children now: a worker killed
+        // during shutdown no longer links its children to us.
+        if let Ok(mut tree) = tree.lock() {
+            tree.refresh(&stop_os::snapshot());
+        }
+        let (reporter, tree) = (reporter.clone(), tree.clone());
+        let _ = std::thread::Builder::new()
+            .name("service-stop".into())
+            .spawn(move || {
+                tick_until_stopped(&reporter, std::thread::sleep, || {
+                    stop_deadline_passed(&reporter, &tree)
+                })
+            });
+    }
+
     fn run_service() -> WsResult<()> {
         let (stop_tx, stop_rx) = oneshot::channel::<()>();
-        let stop_tx = std::sync::Mutex::new(Some(stop_tx));
+        let stop_tx = Mutex::new(Some(stop_tx));
+        let reporter_cell: Arc<OnceLock<Arc<Reporter>>> = Arc::new(OnceLock::new());
+        let tree = Arc::new(Mutex::new(stop_os::own_tree()));
 
+        let handler_reporter = reporter_cell.clone();
+        let handler_tree = tree.clone();
         let status_handle =
             service_control_handler::register(SERVICE_NAME, move |ctrl| match ctrl {
-                ServiceControl::Stop | ServiceControl::Shutdown => {
+                ServiceControl::Stop | ServiceControl::Shutdown | ServiceControl::Preshutdown => {
+                    // Pending first, then the daemon; the daemon is told to
+                    // stop even if status reporting is not set up.
+                    if let Some(reporter) = handler_reporter.get() {
+                        begin_stop(reporter, &handler_tree, true);
+                    }
                     if let Ok(mut guard) = stop_tx.lock()
                         && let Some(tx) = guard.take()
                     {
@@ -96,15 +151,17 @@ mod windows_impl {
                 _ => ServiceControlHandlerResult::NotImplemented,
             })?;
 
-        status_handle.set_service_status(ServiceStatus {
-            service_type: ServiceType::OWN_PROCESS,
-            current_state: ServiceState::Running,
-            controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
-            exit_code: ServiceExitCode::Win32(0),
-            checkpoint: 0,
-            wait_hint: Duration::default(),
-            process_id: None,
-        })?;
+        let report: Box<dyn FnMut(ServiceStatus) + Send> = Box::new(move |status| {
+            if let Err(error) = status_handle.set_service_status(status) {
+                error!("[WindowsService] could not report the service status: {error}");
+            }
+        });
+        let reporter = reporter_cell
+            .get_or_init(|| Arc::new(StopReporter::new(report)))
+            .clone();
+        // SCM sends Stop only once `Running` accepts it, so the handler
+        // always finds the reporter.
+        reporter.running();
 
         info!("[WindowsService] Service Running");
         ensure_failure_recovery();
@@ -127,20 +184,21 @@ mod windows_impl {
             })
         });
 
-        status_handle.set_service_status(ServiceStatus {
-            service_type: ServiceType::OWN_PROCESS,
-            current_state: ServiceState::Stopped,
-            controls_accepted: ServiceControlAccept::empty(),
-            // A failure exit code makes SCM apply the restart actions.
-            exit_code: if failed {
-                ServiceExitCode::ServiceSpecific(1)
-            } else {
-                ServiceExitCode::Win32(0)
-            },
-            checkpoint: 0,
-            wait_hint: Duration::default(),
-            process_id: None,
-        })?;
+        // The daemon may also end on its own; report the stop either way.
+        begin_stop(&reporter, &tree, false);
+        // `Stopped` means none of our processes is left, so the exe can be
+        // replaced or removed right after it.
+        {
+            let mut tree = tree.lock().unwrap_or_else(|poison| poison.into_inner());
+            let (terminated, left) =
+                stop_os::reap_descendants(&mut tree, CHILD_EXIT_WAIT, CHILD_KILL_WAIT);
+            if terminated > 0 {
+                log::warn!(
+                    "[WindowsService] terminated {terminated} leftover process(es), {left} still running"
+                );
+            }
+        }
+        reporter.finish(failed);
 
         info!("[WindowsService] Service Stopped");
         Ok(())
@@ -349,44 +407,58 @@ mod windows_impl {
     /// the production path; the [`DriverInstallerOps`] indirection lets
     /// the driver-uninstall side be mocked independently.
     pub fn uninstall_service_with(installer: &dyn DriverInstallerOps) -> WsResult<()> {
+        // No logger runs for `--uninstall-service`: progress goes to the console.
         let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
-
-        // Open service with enough permissions to query config, stop it, and delete it.
-        let service = match manager.open_service(
+        // Stop and query access is required: removing the driver and the
+        // files of a service that may still run is not safe.
+        let service = manager.open_service(
             SERVICE_NAME,
             ServiceAccess::QUERY_CONFIG
                 | ServiceAccess::QUERY_STATUS
                 | ServiceAccess::STOP
                 | ServiceAccess::DELETE,
-        ) {
-            Ok(s) => s,
-            Err(e) => {
-                log::warn!(
-                    "Could not open service with full access: {}. Trying with DELETE only.",
-                    e
-                );
-                manager.open_service(SERVICE_NAME, ServiceAccess::DELETE)?
-            }
-        };
+        )?;
 
         // cfg.executable_path is the raw SCM command line: exe_path + launch args.
         // Parse only the executable path from the first token.
         let exe_path = service.query_config().ok().and_then(|cfg| {
             let cmdline = cfg.executable_path.to_string_lossy();
             let cmdline = cmdline.trim();
-            let path_str = if cmdline.starts_with('"') {
-                cmdline[1..].split('"').next()?.to_string()
+            let path_str = if let Some(quoted) = cmdline.strip_prefix('"') {
+                quoted.split('"').next()?.to_string()
             } else {
                 cmdline.split_whitespace().next()?.to_string()
             };
             Some(std::path::PathBuf::from(path_str))
         });
 
-        if let Ok(status) = service.query_status()
-            && status.current_state != ServiceState::Stopped
-        {
-            let _ = service.stop();
-            std::thread::sleep(Duration::from_secs(1));
+        let status = service.query_status()?;
+        if status.current_state != ServiceState::Stopped {
+            // Opened before the stop so the pid cannot be reused meanwhile.
+            let process = status.process_id.and_then(stop_os::open_for_wait);
+            println!("Stopping the service...");
+            let polls = (UNINSTALL_STOP_WAIT.as_millis() / UNINSTALL_POLL.as_millis()) as u32;
+            match wait_until_stopped(
+                || service.query_status().map(|status| status.current_state),
+                || {
+                    let _ = service.stop();
+                },
+                std::thread::sleep,
+                polls,
+            ) {
+                StopWait::Stopped => {}
+                StopWait::TimedOut => eprintln!(
+                    "Warning: the service did not stop within {UNINSTALL_STOP_WAIT:?}; continuing"
+                ),
+                StopWait::QueryFailed(error) => {
+                    eprintln!("Warning: could not query the service while stopping it: {error}")
+                }
+            }
+            if let Some(process) = process
+                && !stop_os::wait_for_exit(&process, CHILD_EXIT_WAIT)
+            {
+                eprintln!("Warning: the service process is still running");
+            }
         }
 
         // Uninstall the IDD driver BEFORE deleting the SCM entry so a
@@ -396,7 +468,7 @@ mod windows_impl {
         uninstall_driver_after_service_stopped(installer);
 
         service.delete()?;
-        info!("Service '{SERVICE_NAME}' uninstalled successfully");
+        println!("Service '{SERVICE_NAME}' removed");
 
         if let Some(exe_path) = exe_path {
             // Wait up to 5 seconds for the exe file lock to be released before
@@ -410,10 +482,10 @@ mod windows_impl {
 
             if let Some(parent) = exe_path.parent() {
                 if std::fs::remove_dir_all(parent).is_ok() {
-                    info!("Removed install directory {}", parent.display());
+                    println!("Removed install directory {}", parent.display());
                 } else {
-                    log::warn!(
-                        "Could not fully remove install directory {}",
+                    eprintln!(
+                        "Warning: could not fully remove install directory {}",
                         parent.display()
                     );
                 }
@@ -431,10 +503,10 @@ mod windows_impl {
     /// pnputil state.
     pub fn uninstall_driver_after_service_stopped(installer: &dyn DriverInstallerOps) {
         match installer.uninstall_all() {
-            Ok(0) => info!("No LcxlVirtualDisplay OEM packages to uninstall"),
-            Ok(n) => info!("Uninstalled {n} LcxlVirtualDisplay OEM package(s)"),
+            Ok(0) => println!("No LcxlVirtualDisplay driver package to uninstall"),
+            Ok(n) => println!("Uninstalled {n} LcxlVirtualDisplay driver package(s)"),
             Err(e) => {
-                log::warn!("[uninstall] driver uninstall failed: {e}; continuing with SCM cleanup")
+                eprintln!("Warning: driver uninstall failed: {e}; continuing with service removal")
             }
         }
     }

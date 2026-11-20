@@ -33,6 +33,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertTriangle } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import type { RemoteAccessInitializedData } from "@/services/types"
 import { DeskConfigAdvancedTab } from "./desk-config-advanced-tab"
 import { DeskConfigAudioTab } from "./desk-config-audio-tab"
@@ -57,11 +58,19 @@ import {
     toDeskDevicePreferences,
     toRemoteSessionSettings,
 } from "./desk-config-model"
+import {
+    resolveSavedDeviceName,
+    resumeKeepsSavedChoices,
+    VIRTUAL_DISPLAY_DEVICE,
+} from "./desk-config-model"
 import type { DeskConfigFormSettings, DeskConfigSubmission } from "./desk-config-model"
 import {
     DEFAULT_DESK_DEVICE_PREFERENCES,
     type DeskDevicePreferencesV1,
 } from "./desk-preferences"
+
+/** "resume" = the dialog submitted itself to resume an interrupted session. */
+export type DeskConfigSubmitSource = "user" | "resume"
 
 interface DeskConfigDialogProps {
     open: boolean
@@ -71,8 +80,18 @@ interface DeskConfigDialogProps {
     onSubmit: (
         settings: DeskConfigSubmission,
         preferences: DeskDevicePreferencesV1,
+        source: DeskConfigSubmitSource,
     ) => void
     onCancel: () => void
+    /**
+     * Resume an interrupted session without a click. Pass true only once
+     * `preferences` has been loaded for this open: the dialog then submits
+     * itself once per connection epoch, provided the form resolved against
+     * the current host still carries every saved choice. Otherwise it calls
+     * `onAutoSubmitDeclined` and stays open for the user.
+     */
+    autoSubmit?: boolean
+    onAutoSubmitDeclined?: () => void
     onRestorePhysicalDisplay: (deviceName: string) => void
     /**
      * Browser-side adaptive video quality toggle. Owned by the parent
@@ -103,6 +122,8 @@ export function DeskConfigDialog({
     preferences,
     onSubmit,
     onCancel,
+    autoSubmit = false,
+    onAutoSubmitDeclined,
     onRestorePhysicalDisplay,
     adaptiveQualityEnabled,
     onAdaptiveQualityChange,
@@ -196,7 +217,10 @@ export function DeskConfigDialog({
                 : intent.imageCapture ?? suggested.image_capture,
             capabilities.video_device_name === "unsupported"
                 ? suggested.video_device_name
-                : intent.videoDeviceName ?? suggested.video_device_name,
+                : resolveSavedDeviceName(
+                    intent.videoDeviceName,
+                    initData.virtual_display_device_name,
+                ) ?? suggested.video_device_name,
             initData.video_device_list,
         )
         const audioCapture = resolveAudioCaptureMode(
@@ -317,8 +341,8 @@ export function DeskConfigDialog({
         noDisplaysForMode,
     )
 
-    const handleSubmit = (values: DeskConfigFormSettings) => {
-        if (!initData) return
+    const buildSubmission = (values: DeskConfigFormSettings) => {
+        if (!initData) return null
         const executableValues = resolveExecutableDeskConfig(values, initData)
         // Defence in depth: never start a session without a display, even if the
         // disabled submit button is bypassed (e.g. implicit Enter-key submit).
@@ -327,24 +351,50 @@ export function DeskConfigDialog({
             executableValues.video_device_name,
             initData.video_device_list,
         )) {
-            return
+            return null
         }
-        const nextPreferences = toDeskDevicePreferences(values)
+        const nextPreferences = toDeskDevicePreferences(values, virtualDisplayName)
         if (values.video_device_name !== virtualDisplayName) {
             nextPreferences.adaptiveWebPageResolution =
                 preferences?.adaptiveWebPageResolution
                 ?? DEFAULT_DESK_DEVICE_PREFERENCES.adaptiveWebPageResolution
         }
-        onSubmit(
-            toRemoteSessionSettings(
+        return {
+            settings: toRemoteSessionSettings(
                 executableValues,
                 initData.session_settings_capabilities.adaptive_bitrate === "unsupported"
                     ? initData.suggested_session_settings.adaptive_bitrate
                     : adaptiveBitrateEnabled,
             ),
-            nextPreferences,
-        )
+            preferences: nextPreferences,
+        }
     }
+
+    const handleSubmit = (values: DeskConfigFormSettings) => {
+        const submission = buildSubmission(values)
+        if (submission) onSubmit(submission.settings, submission.preferences, "user")
+    }
+
+    // Runs after the reset effect above in the same commit, so the form
+    // already holds the values resolved from `preferences` for this epoch.
+    const autoSubmittedEpoch = useRef<string | null>(null)
+    useEffect(() => {
+        if (!open || !autoSubmit || !initData) return
+        if (autoSubmittedEpoch.current === initData.connection_epoch) return
+        autoSubmittedEpoch.current = initData.connection_epoch
+        const values = form.getValues()
+        const submission = resumeKeepsSavedChoices(values, preferences, virtualDisplayName)
+            ? buildSubmission(values)
+            : null
+        if (submission) {
+            onSubmit(submission.settings, submission.preferences, "resume")
+        } else {
+            onAutoSubmitDeclined?.()
+        }
+        // `buildSubmission` also reads `adaptiveBitrateEnabled` and the
+        // virtual display name; this runs once per epoch, after both are known.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, autoSubmit, initData, preferences, form, onSubmit, onAutoSubmitDeclined])
 
     const handleInteractOutside = (e: Event) => {
         e.preventDefault() // Prevent closing on outside click
@@ -384,7 +434,10 @@ export function DeskConfigDialog({
                                     name="image_capture"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>{t('pages.desk.screenCaptureMode')}</FormLabel>
+                                            <div className="flex items-center gap-1.5">
+                                                <FormLabel>{t('pages.desk.screenCaptureMode')}</FormLabel>
+                                                {selectedImageCapture === "DXGI" && <DxgiCaptureNotice />}
+                                            </div>
                                             {/* Radix Select + RHF reset can miss value updates; re-mount to reflect initial data */}
                                             {(() => {
                                                 const currentValue = field.value || ""
@@ -430,20 +483,6 @@ export function DeskConfigDialog({
                                         </FormItem>
                                     )}
                                 />
-
-                                {selectedImageCapture === "DXGI" && (
-                                    <Alert>
-                                        <AlertTriangle className="h-4 w-4" />
-                                        <AlertTitle>
-                                            {t("pages.desk.dxgiVideoBlackBarWarning.title")}
-                                        </AlertTitle>
-                                        <AlertDescription>
-                                            {t(
-                                                "pages.desk.dxgiVideoBlackBarWarning.body"
-                                            )}
-                                        </AlertDescription>
-                                    </Alert>
-                                )}
 
                                 {captureUnavailable && (
                                     <Alert variant="destructive">
@@ -496,7 +535,11 @@ export function DeskConfigDialog({
                                                 <AlertDescription>
                                                     {t(
                                                         "pages.desk.displayDeviceStaleWarning.body",
-                                                        { name: staleSavedDeviceName },
+                                                        {
+                                                            name: staleSavedDeviceName === VIRTUAL_DISPLAY_DEVICE
+                                                                ? t("pages.desk.virtualDisplayBadge")
+                                                                : staleSavedDeviceName,
+                                                        },
                                                     )}
                                                 </AlertDescription>
                                             </Alert>
@@ -687,5 +730,40 @@ export function DeskConfigDialog({
                 </Form>
             </DialogContent>
         </Dialog>
+    )
+}
+
+/**
+ * DXGI's video limitation is worth knowing but not worth half the dialog:
+ * a warning icon next to the capture-mode label opens it on demand.
+ */
+export function DxgiCaptureNotice() {
+    const { t } = useTranslation()
+    const title = t("pages.desk.dxgiVideoBlackBarWarning.title")
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={title}
+                    className="h-6 w-6 text-amber-500 hover:text-amber-600"
+                >
+                    <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent
+                side="bottom"
+                align="start"
+                collisionPadding={16}
+                className="w-80 max-w-[calc(100vw-2rem)] space-y-1.5 text-sm"
+            >
+                <p className="font-medium">{title}</p>
+                <p className="text-muted-foreground">
+                    {t("pages.desk.dxgiVideoBlackBarWarning.body")}
+                </p>
+            </PopoverContent>
+        </Popover>
     )
 }

@@ -93,6 +93,13 @@ export interface ControlReconnectIntent {
 }
 
 /**
+ * `previousEpoch` for a control intent carried into a brand-new session
+ * runtime (resume after a host restart): no epoch of the new runtime can equal
+ * it, so the claim waits only for the new PeerConnection to connect.
+ */
+export const RESUME_HAS_NO_PREVIOUS_EPOCH = ""
+
+/**
  * Remember control intent across a settings-driven PeerConnection rebuild.
  * The old authorization is deliberately not carried into the new epoch; the
  * browser must issue a fresh RequireControl after the replacement PC connects.

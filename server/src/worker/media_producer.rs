@@ -1134,9 +1134,10 @@ use audio::audio_pipeline_loop;
 use frame::{build_media_frame, log_post_rebuild_emit, send_frame, send_frame_or_stop};
 use pipeline::{spawn_audio_pipeline_thread, spawn_video_pipeline_thread};
 use settings::{
-    capturable_device_name, classify_video_frame_kind, codec_from_str, compute_emit_duration_ns,
-    display_info_for_size, drain_settings_updates, handle_broadcast_lag, initial_encoder_size,
-    payload_overrides, replay_bitrate_cap, should_recreate_for_resolution,
+    StaticTickAction, capturable_device_name, classify_video_frame_kind, codec_from_str,
+    compute_emit_duration_ns, display_info_for_size, drain_settings_updates, handle_broadcast_lag,
+    initial_encoder_size, latest_frame_fits, payload_overrides, replay_bitrate_cap,
+    settle_keyframe_owed, should_recreate_for_resolution, static_tick_action,
 };
 use video::video_pipeline_loop;
 

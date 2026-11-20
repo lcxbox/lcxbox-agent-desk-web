@@ -760,11 +760,13 @@ pub async fn run_signaling_proxy(
                 key,
                 worker_message.incarnation,
                 |connection_id| worker_mgr.resident_worker_owns_connection(key, connection_id),
+                worker_mgr.is_virtual_display_worker(key),
                 &router_ctx.exec_capacity,
                 worker_mgr.resident_requests(),
             ) {
                 warn!(
-                    "[SignalingProxy] dropping unbound or cross-session output from resident worker {:?}",
+                    "[SignalingProxy] dropping unbound or cross-session {} from resident worker {:?}",
+                    worker_message_kind(&worker_message.message),
                     key
                 );
                 continue;
@@ -2008,6 +2010,17 @@ use central_authorization::*;
 
 pub(crate) mod inbound;
 use inbound::*;
+
+/// The variant name of a worker message, for logs. Only the name: payloads
+/// can carry clipboard text, terminal output or file contents.
+fn worker_message_kind(message: &WorkerToService) -> String {
+    let rendered = format!("{message:?}");
+    rendered
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
 
 /// Resident-worker messages about the worker or the device rather than one
 /// connection; they are forwarded without a connection the worker owns.

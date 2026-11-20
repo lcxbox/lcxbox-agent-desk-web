@@ -119,7 +119,7 @@ async fn supervisor_apply_true_returns_not_supported_when_stub() {
 async fn supervisor_apply_true_then_false_drops_handle_and_emits_detach() {
     let provider: Box<dyn VirtualDisplayLifecycle> = Box::new(MockLifecycle::returns_handle());
     let (worker_mgr, _worker_rx) = make_worker_mgr();
-    let supervisor = VirtualDisplaySupervisor::new(provider, worker_mgr);
+    let supervisor = Arc::new(VirtualDisplaySupervisor::new(provider, worker_mgr));
 
     supervisor.apply(true).await.expect("apply(true)");
     // on_worker_capabilities no longer promotes — even if the
@@ -175,7 +175,7 @@ async fn supervisor_apply_caches_instance_id() {
 async fn supervisor_on_capabilities_sends_attach_but_does_not_promote_state() {
     let provider: Box<dyn VirtualDisplayLifecycle> = Box::new(MockLifecycle::returns_handle());
     let (worker_mgr, _rx) = make_worker_mgr();
-    let supervisor = VirtualDisplaySupervisor::new(provider, worker_mgr);
+    let supervisor = Arc::new(VirtualDisplaySupervisor::new(provider, worker_mgr));
     supervisor.apply(true).await.expect("apply(true)");
 
     // The WorkerManager mock has no worker registered, so the
@@ -288,7 +288,7 @@ async fn supervisor_on_attach_result_ignored_when_disabled() {
 async fn supervisor_on_capabilities_no_op_when_disabled() {
     let provider: Box<dyn VirtualDisplayLifecycle> = Box::new(MockLifecycle::returns_handle());
     let (worker_mgr, _rx) = make_worker_mgr();
-    let supervisor = VirtualDisplaySupervisor::new(provider, worker_mgr);
+    let supervisor = Arc::new(VirtualDisplaySupervisor::new(provider, worker_mgr));
     // Disabled state: on_worker_capabilities should be a no-op
     // (no panic, no state change).
     supervisor.on_worker_capabilities().await;
@@ -1744,4 +1744,167 @@ async fn await_exclusive_idle_resolves_on_transition() {
     let res = waiter.await.expect("join");
     assert!(res.is_ok());
     s.shutdown_driver_loop().await;
+}
+
+/// A device whose monitor can be unplugged and plugged back in, counting
+/// every call and every device removal (handle drop).
+#[derive(Default)]
+struct ReplugCounters {
+    create: AtomicU32,
+    plug: AtomicU32,
+    unplug: AtomicU32,
+    removed: AtomicU32,
+}
+
+struct CountedHandle(Arc<ReplugCounters>);
+impl VirtualDisplayHandleInner for CountedHandle {}
+impl Drop for CountedHandle {
+    fn drop(&mut self) {
+        self.0.removed.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+struct ReplugProvider {
+    counters: Arc<ReplugCounters>,
+    plug: fn() -> Result<(), VirtualDisplayError>,
+    unplug: fn() -> Result<(), VirtualDisplayError>,
+}
+
+impl VirtualDisplayLifecycle for ReplugProvider {
+    fn create(&self) -> Result<VirtualDisplayHandle, VirtualDisplayError> {
+        self.counters.create.fetch_add(1, Ordering::SeqCst);
+        Ok(VirtualDisplayHandle::new(
+            MOCK_INSTANCE_ID.to_string(),
+            Box::new(CountedHandle(Arc::clone(&self.counters))),
+        ))
+    }
+    fn plug(&self, _handle: &VirtualDisplayHandle) -> Result<(), VirtualDisplayError> {
+        self.counters.plug.fetch_add(1, Ordering::SeqCst);
+        (self.plug)()
+    }
+    fn unplug(&self, _handle: &VirtualDisplayHandle) -> Result<(), VirtualDisplayError> {
+        self.counters.unplug.fetch_add(1, Ordering::SeqCst);
+        (self.unplug)()
+    }
+}
+
+type MonitorResult = fn() -> Result<(), VirtualDisplayError>;
+
+fn replug_supervisor(
+    plug: MonitorResult,
+    unplug: MonitorResult,
+) -> (Arc<VirtualDisplaySupervisor>, Arc<ReplugCounters>) {
+    let counters = Arc::new(ReplugCounters::default());
+    let provider = Box::new(ReplugProvider {
+        counters: Arc::clone(&counters),
+        plug,
+        unplug,
+    });
+    let (worker_mgr, _rx) = make_worker_mgr();
+    (
+        Arc::new(VirtualDisplaySupervisor::new(provider, worker_mgr)),
+        counters,
+    )
+}
+
+fn count(counter: &AtomicU32) -> u32 {
+    counter.load(Ordering::SeqCst)
+}
+
+/// Regression (on device 2026-11-20): removing the device at the end of
+/// every session made Windows number the next one higher (DISPLAY2 to 33).
+#[tokio::test]
+async fn a_session_end_keeps_the_device_and_the_next_session_plugs_it_back() {
+    let (supervisor, counters) = replug_supervisor(|| Ok(()), || Ok(()));
+    for _ in 0..3 {
+        supervisor.apply(true).await.expect("bring up");
+        supervisor.apply(false).await.expect("session end");
+    }
+    assert_eq!(count(&counters.create), 1, "the device is created once");
+    assert_eq!(count(&counters.unplug), 3);
+    assert_eq!(count(&counters.plug), 2);
+    assert_eq!(count(&counters.removed), 0, "the device is never removed");
+
+    // Stopping the daemon removes it.
+    supervisor.shutdown().await;
+    assert_eq!(count(&counters.removed), 1);
+}
+
+#[tokio::test]
+async fn an_older_driver_that_cannot_unplug_gets_the_device_removed() {
+    let (supervisor, counters) =
+        replug_supervisor(|| Ok(()), || Err(VirtualDisplayError::NotSupported));
+    supervisor.apply(true).await.expect("bring up");
+    supervisor.apply(false).await.expect("session end");
+    assert_eq!(count(&counters.removed), 1);
+    supervisor.apply(true).await.expect("bring up again");
+    assert_eq!(count(&counters.create), 2, "nothing parked: created again");
+    assert_eq!(count(&counters.plug), 0);
+}
+
+#[tokio::test]
+async fn a_failed_plug_falls_back_to_creating_the_device() {
+    let (supervisor, counters) = replug_supervisor(
+        || Err(VirtualDisplayError::PipeIo("busy".into())),
+        || Ok(()),
+    );
+    supervisor.apply(true).await.expect("bring up");
+    supervisor.apply(false).await.expect("session end");
+    supervisor.apply(true).await.expect("bring up again");
+    assert_eq!(count(&counters.plug), 1);
+    assert_eq!(count(&counters.removed), 1, "the parked device was dropped");
+    assert_eq!(count(&counters.create), 2);
+    assert!(matches!(
+        &*supervisor.state.read().await,
+        SupervisorState::Attaching { .. }
+    ));
+}
+
+#[tokio::test]
+async fn a_driver_change_removes_only_a_parked_device() {
+    let (supervisor, counters) = replug_supervisor(|| Ok(()), || Ok(()));
+    supervisor.apply(true).await.expect("bring up");
+    // In use by a session: left alone.
+    assert!(!supervisor.release_parked_device().await);
+    assert_eq!(count(&counters.removed), 0);
+
+    supervisor.apply(false).await.expect("session end");
+    assert!(supervisor.release_parked_device().await);
+    assert_eq!(count(&counters.removed), 1);
+    supervisor
+        .apply(true)
+        .await
+        .expect("bring up after the driver change");
+    assert_eq!(count(&counters.create), 2);
+}
+
+#[tokio::test]
+async fn a_worker_report_while_parked_unplugs_the_monitor_again() {
+    let (supervisor, counters) = replug_supervisor(|| Ok(()), || Ok(()));
+    supervisor.apply(true).await.expect("bring up");
+    supervisor.apply(false).await.expect("session end");
+    assert_eq!(count(&counters.unplug), 1);
+
+    supervisor.on_worker_capabilities().await;
+    for _ in 0..100 {
+        if count(&counters.unplug) == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(count(&counters.unplug), 2);
+    assert_eq!(count(&counters.removed), 0, "still parked");
+    supervisor.apply(true).await.expect("bring up");
+    assert_eq!(count(&counters.create), 1);
+}
+
+#[tokio::test]
+async fn a_re_plug_forgets_the_cached_mode() {
+    let (supervisor, _counters) = replug_supervisor(|| Ok(()), || Ok(()));
+    supervisor.apply(true).await.expect("bring up");
+    supervisor.record_applied_mode(992, 640, 60);
+    supervisor.apply(false).await.expect("session end");
+    supervisor.record_applied_mode(992, 640, 60);
+    supervisor.apply(true).await.expect("plug back in");
+    assert_eq!(supervisor.last_known_mode(), None);
 }

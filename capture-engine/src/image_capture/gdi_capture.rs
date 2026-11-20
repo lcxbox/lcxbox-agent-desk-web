@@ -7,9 +7,10 @@ use windows::Win32::{
     Foundation::HWND,
     Graphics::Gdi::{
         BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleBitmap,
-        CreateCompatibleDC, DEVMODEW, DIB_RGB_COLORS, DISPLAY_DEVICE_STATE_FLAGS, DISPLAY_DEVICEW,
-        DeleteDC, DeleteObject, ENUM_CURRENT_SETTINGS, EnumDisplayDevicesW, EnumDisplaySettingsW,
-        GetDC, GetDIBits, GetObjectW, HBITMAP, HDC, RGBQUAD, ReleaseDC, SRCCOPY, SelectObject,
+        CreateCompatibleDC, DEVMODEW, DIB_RGB_COLORS, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP,
+        DISPLAY_DEVICE_STATE_FLAGS, DISPLAY_DEVICEW, DeleteDC, DeleteObject, ENUM_CURRENT_SETTINGS,
+        EnumDisplayDevicesW, EnumDisplaySettingsW, GetDC, GetDIBits, GetObjectW, HBITMAP, HDC,
+        RGBQUAD, ReleaseDC, SRCCOPY, SelectObject,
     },
     UI::WindowsAndMessaging::{
         CURSORINFO, DI_COMPAT, DI_NORMAL, DrawIconEx, GetCursorInfo, GetIconInfo, ICONINFO,
@@ -102,6 +103,39 @@ impl Drop for GDIHBITMAP {
 
 pub struct GdiImageOutputEnumerator {}
 
+/// One `EnumDisplayDevicesW` index.
+pub enum GdiOutput {
+    /// No device at this index: the enumeration is over.
+    End,
+    /// A device that is not a display on the desktop: not attached, or no
+    /// current mode. A virtual display adapter whose monitor is unplugged
+    /// between sessions, or a display detached by exclusive mode, looks
+    /// like this; the displays after it must still be listed.
+    Inactive,
+    Display(DisplayInfo),
+}
+
+/// Walk the enumeration, skipping inactive entries, until it ends or
+/// `visit` returns `Some`.
+fn walk_outputs<T>(
+    mut output_at: impl FnMut(u32) -> Result<GdiOutput, CaptureError>,
+    mut visit: impl FnMut(DisplayInfo) -> Option<T>,
+) -> Result<Option<T>, CaptureError> {
+    let mut idevnum = 0u32;
+    loop {
+        match output_at(idevnum)? {
+            GdiOutput::End => return Ok(None),
+            GdiOutput::Inactive => {}
+            GdiOutput::Display(info) => {
+                if let Some(found) = visit(info) {
+                    return Ok(Some(found));
+                }
+            }
+        }
+        idevnum += 1;
+    }
+}
+
 impl Default for GdiImageOutputEnumerator {
     fn default() -> Self {
         Self::new()
@@ -122,21 +156,21 @@ impl GdiImageOutputEnumerator {
     /// it walks devices lazily here to avoid the per-display
     /// `EnumDisplaySettingsW` cost when we only need one entry).
     pub fn get_output_by_name(requested: &str) -> Result<Option<DisplayInfo>, CaptureError> {
-        let mut idevnum = 0u32;
-        loop {
-            let entry = Self::get_output(idevnum)?;
-            let info = match entry {
-                Some(info) => info,
-                None => return Ok(None),
-            };
-            if info.device_name == requested {
-                return Ok(Some(info));
-            }
-            idevnum += 1;
-        }
+        walk_outputs(Self::output_at, |info| {
+            (info.device_name == requested).then_some(info)
+        })
     }
 
+    /// The display at `idevnum`, or `None` when there is none or it is
+    /// not active.
     pub fn get_output(idevnum: u32) -> Result<Option<DisplayInfo>, CaptureError> {
+        Ok(match Self::output_at(idevnum)? {
+            GdiOutput::Display(info) => Some(info),
+            GdiOutput::End | GdiOutput::Inactive => None,
+        })
+    }
+
+    pub fn output_at(idevnum: u32) -> Result<GdiOutput, CaptureError> {
         let mut display_device = DISPLAY_DEVICEW {
             cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
             DeviceName: [0u16; 32],
@@ -149,7 +183,7 @@ impl GdiImageOutputEnumerator {
         let result = unsafe { EnumDisplayDevicesW(null_str, idevnum, &mut display_device, 0) };
         if !result.as_bool() {
             log::debug!("End of enum display devices: idevnum: {}", idevnum);
-            return Ok(None);
+            return Ok(GdiOutput::End);
         }
 
         let display_name = u16array_to_string(&display_device.DeviceString);
@@ -169,15 +203,22 @@ impl GdiImageOutputEnumerator {
         // EnumDisplaySettingsW + rect math here; this is the same
         // syscall path that `GdiImageCapture::capture` uses every
         // frame to pick up resolution changes.
+        if !display_device
+            .StateFlags
+            .contains(DISPLAY_DEVICE_ATTACHED_TO_DESKTOP)
+        {
+            log::debug!("Skipping display device {device_name}: not attached to the desktop");
+            return Ok(GdiOutput::Inactive);
+        }
         let rect = match refresh_device_rect(&device_name)? {
             Some(r) => r,
             None => {
                 log::warn!("Failed to get current settings for device {}", device_name);
-                return Ok(None);
+                return Ok(GdiOutput::Inactive);
             }
         };
         let resolutions = enum_display_resolutions(&device_name)?;
-        Ok(Some(DisplayInfo {
+        Ok(GdiOutput::Display(DisplayInfo {
             device_name,
             display_device_name: Some(display_name),
             desktop_coordinates: rect,
@@ -259,19 +300,11 @@ fn log_device_recovered(state: &mut bool) -> Option<()> {
 
 impl ImageOutputEnumerator for GdiImageOutputEnumerator {
     fn get_output_list(&self) -> Result<Vec<DisplayInfo>, CaptureError> {
-        let mut dev_index = 0u32;
         let mut display_info_list = Vec::new();
-        loop {
-            let display_info_opt = GdiImageOutputEnumerator::get_output(dev_index)?;
-            let display_info = if let Some(display_info) = display_info_opt {
-                display_info
-            } else {
-                break;
-            };
-
-            display_info_list.push(display_info);
-            dev_index += 1;
-        }
+        walk_outputs::<()>(GdiImageOutputEnumerator::output_at, |info| {
+            display_info_list.push(info);
+            None
+        })?;
         Ok(display_info_list)
     }
 }
@@ -845,6 +878,57 @@ mod tests {
 
     use super::*;
     static INIT: Once = Once::new();
+
+    fn listed(name: &str) -> GdiOutput {
+        GdiOutput::Display(DisplayInfo {
+            device_name: name.to_string(),
+            display_device_name: None,
+            desktop_coordinates: DisplayRect {
+                left: 0,
+                top: 0,
+                right: 1280,
+                bottom: 800,
+            },
+            resolutions: Vec::new(),
+            attached_to_desktop: true,
+            rotation: 0,
+            current_capture_resolution: None,
+        })
+    }
+
+    /// A virtual display adapter whose monitor is unplugged between
+    /// sessions (or a display detached by exclusive mode) is listed but
+    /// inactive; the walk used to stop there and hide every later display.
+    fn enumeration(index: u32) -> Result<GdiOutput, CaptureError> {
+        Ok(match index {
+            0 => listed(r"\\.\DISPLAY1"),
+            1 => GdiOutput::Inactive,
+            2 => listed(r"\\.\DISPLAY2"),
+            _ => GdiOutput::End,
+        })
+    }
+
+    #[test]
+    fn the_walk_skips_inactive_devices_instead_of_stopping() {
+        let mut names = Vec::new();
+        walk_outputs::<()>(enumeration, |info| {
+            names.push(info.device_name);
+            None
+        })
+        .unwrap();
+        assert_eq!(names, [r"\\.\DISPLAY1", r"\\.\DISPLAY2"]);
+
+        let found = walk_outputs(enumeration, |info| {
+            (info.device_name == r"\\.\DISPLAY2").then_some(info.device_name)
+        })
+        .unwrap();
+        assert_eq!(found.as_deref(), Some(r"\\.\DISPLAY2"));
+        let missing = walk_outputs(enumeration, |info| {
+            (info.device_name == r"\\.\DISPLAY9").then_some(())
+        })
+        .unwrap();
+        assert!(missing.is_none());
+    }
 
     fn initialize() {
         INIT.call_once(|| {

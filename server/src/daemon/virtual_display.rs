@@ -19,9 +19,17 @@
 //!   capture against the virtual `\\.\DISPLAYn`) are in sync. Entered
 //!   only via [`VirtualDisplaySupervisor::on_worker_attach_result`]
 //!   with [`VirtualDisplayAttachOutcome::Attached`].
-//! - `Detaching` — handle dropped, `DetachVirtualDisplay` sent; waiting
+//! - `Detaching` — handle released, `DetachVirtualDisplay` sent; waiting
 //!   for the worker's capture pipeline to swap back to the physical
 //!   target.
+//!
+//! **Parked device.** Windows numbers every new IDD adapter instance one
+//! higher (`\\.\DISPLAYn`), so removing the software device when the last
+//! session ends and creating it again for the next one made the virtual
+//! display's name grow. A detach therefore unplugs only the monitor and
+//! keeps the handle in `parked`; the next bring-up plugs it back in under
+//! the same name. The device is removed at `shutdown`, before a driver
+//! install/uninstall, or when the driver cannot unplug (older driver).
 //!
 //! **Why send-success does not imply attached.** Earlier iterations of
 //! this code promoted `Attaching → Attached` as soon as
@@ -191,6 +199,17 @@ const MAX_ENTER_RETRIES: u8 = 3;
 /// rough wall-clock parity (~14 s window before give-up).
 const ENTER_RETRY_BASE_DELAY: Duration = Duration::from_secs(2);
 
+/// Late-bound access to the supervisor for the local HTTP API, which
+/// starts before the supervisor exists. Empty in startup modes without a
+/// virtual display.
+pub type SupervisorSlot = Arc<std::sync::OnceLock<Arc<VirtualDisplaySupervisor>>>;
+
+#[derive(Debug, Clone, Copy)]
+enum MonitorOp {
+    Plug,
+    Unplug,
+}
+
 /// Internal lifecycle state. Only `Attached` makes the supervisor
 /// `is_active()`; `Attaching` and `Detaching` are transition states
 /// the router treats as inactive.
@@ -262,7 +281,11 @@ pub enum EnsureAttachedOutcome {
 /// polling.
 pub struct VirtualDisplaySupervisor {
     state: RwLock<SupervisorState>,
-    provider: Box<dyn VirtualDisplayLifecycle>,
+    provider: Arc<dyn VirtualDisplayLifecycle>,
+    /// The device kept between sessions with its monitor unplugged (see
+    /// the module doc). Only touched under `lifecycle_lock`, except the
+    /// background re-unplug which takes that lock with `try_lock`.
+    parked: std::sync::Mutex<Option<VirtualDisplayHandle>>,
     worker_mgr: WorkerManager,
     /// Set when the `Attaching → Attached` promotion happens to the
     /// post-promotion `worker_mgr.capabilities_version()` target value
@@ -374,7 +397,8 @@ impl VirtualDisplaySupervisor {
             watch::channel::<ExclusiveState>(ExclusiveState::Idle);
         Self {
             state: RwLock::new(SupervisorState::Disabled),
-            provider,
+            provider: Arc::from(provider),
+            parked: std::sync::Mutex::new(None),
             worker_mgr,
             attached_capabilities_target: target_tx,
             lifecycle_lock: Mutex::new(()),
@@ -539,6 +563,39 @@ impl VirtualDisplaySupervisor {
                 self.reset_exclusive_state().await;
             }
         }
+        if desired
+            && matches!(
+                &*self.state.read().await,
+                SupervisorState::Disabled | SupervisorState::Detaching
+            )
+            && let Some(handle) = self.take_parked()
+        {
+            match self.monitor_op(handle, MonitorOp::Plug).await {
+                (Some(handle), Ok(())) => {
+                    let instance_id = handle.instance_id.clone();
+                    info!(
+                        virtual_display.instance_id = %instance_id,
+                        "VirtualDisplaySupervisor plugged the parked monitor back in, moving to Attaching",
+                    );
+                    // Windows may restore whatever mode it saved for the
+                    // monitor; the cache must not assume the last one.
+                    self.reset_known_dimensions();
+                    *self.state.write().await = SupervisorState::Attaching {
+                        instance_id: instance_id.clone(),
+                        _handle: handle,
+                    };
+                    self.send_attach_to_worker(&instance_id).await;
+                    return Ok(());
+                }
+                (_, result) => {
+                    warn!(
+                        "[virtual-display] plugging the parked monitor back in failed: {:?}; \
+                         creating the device again",
+                        result.err()
+                    );
+                }
+            }
+        }
         let mut state = self.state.write().await;
         match (&*state, desired) {
             // Already in the desired direction — no-op.
@@ -613,8 +670,17 @@ impl VirtualDisplaySupervisor {
                 // authoritative even if we later re-attach with the
                 // same IDD instance id.
                 self.reset_known_dimensions();
-                *state = SupervisorState::Detaching;
+                let previous = std::mem::replace(&mut *state, SupervisorState::Detaching);
                 drop(state); // Don't hold the write lock across the IPC await.
+                if let SupervisorState::Attaching {
+                    _handle: handle, ..
+                }
+                | SupervisorState::Attached {
+                    _handle: handle, ..
+                } = previous
+                {
+                    self.park_or_remove(handle).await;
+                }
                 if let Err(e) = self
                     .worker_mgr
                     .send_to_virtual_display_worker(ServiceToWorker::DetachVirtualDisplay)
@@ -678,13 +744,18 @@ impl VirtualDisplaySupervisor {
     /// removal, etc.). The promotion happens in
     /// [`Self::on_worker_attach_result`] when the worker reports
     /// [`VirtualDisplayAttachOutcome::Attached`].
-    pub async fn on_worker_capabilities(&self) {
+    pub async fn on_worker_capabilities(self: &Arc<Self>) {
         let instance_id = {
             let state = self.state.read().await;
             match &*state {
                 SupervisorState::Attaching { instance_id, .. }
                 | SupervisorState::Attached { instance_id, .. } => instance_id.clone(),
-                _ => return,
+                SupervisorState::Disabled => {
+                    drop(state);
+                    self.reassert_unplugged();
+                    return;
+                }
+                SupervisorState::Detaching => return,
             }
         };
         self.send_attach_to_worker(&instance_id).await;
@@ -897,6 +968,128 @@ impl VirtualDisplaySupervisor {
         let _ = self.attached_capabilities_target.send_replace(None);
         let mut state = self.state.write().await;
         *state = SupervisorState::Disabled;
+        drop(state);
+        // Stopping the daemon removes the device, parked or not.
+        drop(self.take_parked());
+    }
+
+    /// Remove a parked device (its monitor is unplugged, nobody uses it)
+    /// before the driver is installed or uninstalled. A driver install
+    /// restarts the device stack with the monitor plugged in, and an
+    /// uninstall would hit a device the daemon still holds. A device in
+    /// use by a session is left alone. Returns whether one was removed.
+    pub async fn release_parked_device(&self) -> bool {
+        let _lifecycle = self.lifecycle_lock.lock().await;
+        let parked = self.take_parked();
+        let released = parked.is_some();
+        drop(parked);
+        if released {
+            info!("[virtual-display] removed the parked device before a driver change");
+        }
+        released
+    }
+
+    fn take_parked(&self) -> Option<VirtualDisplayHandle> {
+        self.parked
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .take()
+    }
+
+    fn put_parked(&self, handle: VirtualDisplayHandle) {
+        *self
+            .parked
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = Some(handle);
+    }
+
+    /// Plug or unplug the monitor off the async runtime (a pipe round trip
+    /// with retries). The handle comes back unless the call panicked.
+    async fn monitor_op(
+        &self,
+        handle: VirtualDisplayHandle,
+        op: MonitorOp,
+    ) -> (
+        Option<VirtualDisplayHandle>,
+        Result<(), VirtualDisplayError>,
+    ) {
+        let provider = Arc::clone(&self.provider);
+        let joined = tokio::task::spawn_blocking(move || {
+            let result = match op {
+                MonitorOp::Plug => provider.plug(&handle),
+                MonitorOp::Unplug => provider.unplug(&handle),
+            };
+            (handle, result)
+        })
+        .await;
+        match joined {
+            Ok((handle, result)) => (Some(handle), result),
+            Err(error) => (
+                None,
+                Err(VirtualDisplayError::PipeIo(format!(
+                    "{op:?} task failed: {error}"
+                ))),
+            ),
+        }
+    }
+
+    /// End of a session: keep the device with its monitor unplugged, or
+    /// remove it when the driver cannot unplug.
+    async fn park_or_remove(&self, handle: VirtualDisplayHandle) {
+        match self.monitor_op(handle, MonitorOp::Unplug).await {
+            (Some(handle), Ok(())) => {
+                info!(
+                    "[virtual-display] unplugged the monitor; keeping the device for the next session"
+                );
+                self.put_parked(handle);
+            }
+            (_, Err(VirtualDisplayError::NotSupported)) => {
+                info!(
+                    "[virtual-display] the driver cannot unplug the monitor; removing the device"
+                );
+            }
+            (_, result) => {
+                warn!(
+                    "[virtual-display] unplugging the monitor failed: {:?}; removing the device \
+                     (the next session gets a new display number)",
+                    result.err()
+                );
+            }
+        }
+    }
+
+    /// A driver host that restarted on its own brings the monitor back
+    /// while nobody is connected. Unplug it again (idempotent) when the
+    /// virtual display worker reports in; skipped while another lifecycle
+    /// operation runs, which sets the monitor state itself.
+    fn reassert_unplugged(self: &Arc<Self>) {
+        let has_parked = self
+            .parked
+            .lock()
+            .map(|parked| parked.is_some())
+            .unwrap_or(false);
+        if !has_parked {
+            return;
+        }
+        let this = Arc::clone(self);
+        tokio::spawn(async move {
+            let Ok(_lifecycle) = this.lifecycle_lock.try_lock() else {
+                return;
+            };
+            if !matches!(&*this.state.read().await, SupervisorState::Disabled) {
+                return;
+            }
+            let Some(handle) = this.take_parked() else {
+                return;
+            };
+            let (handle, result) = this.monitor_op(handle, MonitorOp::Unplug).await;
+            if let Err(error) = result {
+                warn!("[virtual-display] re-unplugging the parked monitor failed: {error}");
+            }
+            if let Some(handle) = handle {
+                this.put_parked(handle);
+            }
+        });
     }
 
     /// Lazy bring-up entry point used by the router's `RequestRemoteAccess`
@@ -1604,7 +1797,8 @@ impl VirtualDisplaySupervisor {
                 display_name,
                 _handle: handle,
             }),
-            provider: Box::new(UnreachableProvider),
+            provider: Arc::new(UnreachableProvider),
+            parked: std::sync::Mutex::new(None),
             worker_mgr,
             attached_capabilities_target: target_tx,
             lifecycle_lock: Mutex::new(()),
