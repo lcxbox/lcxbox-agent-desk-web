@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useListConnections } from '@/services/hooks/connectionController/useListConnections';
 import { getAiAssistantDeviceRoster, updateAiAssistantDeviceRoster } from '@/services/clients';
+import { RestResponseError } from '@/lib/kubb-client';
 import { isAiAssistantEnabled } from './ai-assistant-switch';
 
 export type AssistantRequestDevice = {
@@ -38,6 +39,9 @@ export function useConversationRequestDevices(
             if (!response.success || !response.data) throw new Error('Device selection unavailable');
             return response.data;
         },
+        // Sending waits on the roster, so a dropped request is retried instead of
+        // leaving the composer disabled; a business failure is final.
+        retry: (count, error) => !(error instanceof RestResponseError) && count < 3,
     });
     const ready = !scope || (!saving && (!conversation || !!roster.data));
     return {
