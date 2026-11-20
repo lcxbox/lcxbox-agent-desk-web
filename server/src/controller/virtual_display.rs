@@ -14,6 +14,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::daemon::virtual_display::SupervisorSlot;
 use actix_web::{HttpResponse, get, post, web};
 use desk_utils::error::DeskErrorCode;
 use desk_utils::rest::RestResponse;
@@ -152,6 +153,15 @@ pub async fn query_driver_status(
     Ok(HttpResponse::Ok().json(RestResponse::succeed_with_data(st)))
 }
 
+/// A driver install restarts the device stack with the monitor plugged in,
+/// and an uninstall must not run against a device the daemon still holds:
+/// remove a device that is only parked between sessions first.
+async fn release_parked_virtual_display(slot: &Option<web::Data<SupervisorSlot>>) {
+    if let Some(supervisor) = slot.as_ref().and_then(|slot| slot.get()) {
+        supervisor.release_parked_device().await;
+    }
+}
+
 #[utoipa::path(
     tag = TAG,
     summary = "Install LcxlVirtualDisplay IDD driver",
@@ -163,6 +173,7 @@ pub async fn query_driver_status(
 pub async fn install_driver(
     settings: web::Data<SharedSettings>,
     tauri_is_admin: Option<web::Data<TauriIsAdminOverride>>,
+    virtual_display: Option<web::Data<SupervisorSlot>>,
 ) -> Result<HttpResponse, DeskError> {
     let startup_mode = {
         let s = settings.read().await;
@@ -208,6 +219,7 @@ pub async fn install_driver(
         }
     };
 
+    release_parked_virtual_display(&virtual_display).await;
     let install_join = tokio::time::timeout(
         INSTALLER_TIMEOUT,
         tokio::task::spawn_blocking(move || installer::install(&files)),
@@ -255,6 +267,7 @@ pub async fn install_driver(
 pub async fn uninstall_driver(
     settings: web::Data<SharedSettings>,
     tauri_is_admin: Option<web::Data<TauriIsAdminOverride>>,
+    virtual_display: Option<web::Data<SupervisorSlot>>,
 ) -> Result<HttpResponse, DeskError> {
     let startup_mode = {
         let s = settings.read().await;
@@ -267,6 +280,7 @@ pub async fn uninstall_driver(
         );
     }
 
+    release_parked_virtual_display(&virtual_display).await;
     let uninstall_join = tokio::time::timeout(
         INSTALLER_TIMEOUT,
         tokio::task::spawn_blocking(installer::uninstall_all),

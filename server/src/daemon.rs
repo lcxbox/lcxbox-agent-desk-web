@@ -254,7 +254,10 @@ pub async fn run_service_daemon_inner(
     // Spawn local_api first so /ws/host_upstream is reachable before any
     // forwarder starts trying to connect.
     let (api_ready_tx, api_ready_rx) = oneshot::channel::<()>();
+    // Filled once the virtual display supervisor is built below.
+    let virtual_display_slot = virtual_display::SupervisorSlot::default();
     let api_handle = {
+        let virtual_display_slot = virtual_display_slot.clone();
         let settings = Arc::clone(&shared_settings);
         let bridge = Arc::clone(&tauri_bridge);
         let hub = Arc::clone(&host_control_hub);
@@ -275,6 +278,7 @@ pub async fn run_service_daemon_inner(
                 link_gate,
                 #[cfg(target_os = "linux")]
                 session_shell_registry,
+                virtual_display_slot,
                 Some(api_ready_tx),
             )
             .await
@@ -403,6 +407,7 @@ pub async fn run_service_daemon_inner(
             supervisor.set_desired_computer(computer).await;
         }
         pc_registry.set_virtual_display_supervisor(Arc::clone(&supervisor));
+        let _ = virtual_display_slot.set(Arc::clone(&supervisor));
         Some(supervisor)
     };
     if let Some(coordinator) = host_control_hub.remote_access_coordinator() {

@@ -50,6 +50,16 @@ impl VirtualDisplayLifecycle for WindowsLifecycle {
         let (handle, instance_id) = sw_device::create_virtual_display()?;
         Ok(VirtualDisplayHandle::new(instance_id, Box::new(handle)))
     }
+
+    // The driver has one device and one pipe, so the handle only proves
+    // the caller still owns the device it is plugging.
+    fn unplug(&self, _handle: &VirtualDisplayHandle) -> Result<(), VirtualDisplayError> {
+        pipe_client::send_monitor_command(&crate::DriverRequest::UnplugMonitor)
+    }
+
+    fn plug(&self, _handle: &VirtualDisplayHandle) -> Result<(), VirtualDisplayError> {
+        pipe_client::send_monitor_command(&crate::DriverRequest::PlugMonitor)
+    }
 }
 
 pub struct WindowsController;
