@@ -610,8 +610,11 @@ fn progress_counts_only_an_uncancelled_attempt_that_neither_waited_nor_was_admit
         safe_for_model: false,
         error_code: code,
     };
+    // Without owning the request's call, nothing is this attempt's failure.
     let pending = queue::ActivationProgress::default();
-    assert!(pending.failed() && pending.suppresses_stream());
+    assert!(!pending.owns_call() && !pending.failed() && pending.suppresses_stream());
+    pending.attach_cancellation(|| false);
+    assert!(pending.owns_call() && pending.failed());
     pending.note_error(&error(Some(7)));
     pending.note_error(&error(None));
     assert_eq!(pending.error_code(None), Some(7));
@@ -619,6 +622,7 @@ fn progress_counts_only_an_uncancelled_attempt_that_neither_waited_nor_was_admit
     assert_eq!(pending.error_code(Some(&error(None))), Some(7));
 
     let waiting = queue::ActivationProgress::default();
+    waiting.attach_cancellation(|| false);
     waiting.mark_waiting();
     assert!(!waiting.failed() && waiting.suppresses_stream());
     waiting.mark_admitted();
@@ -661,4 +665,44 @@ fn progress_counts_only_an_uncancelled_attempt_that_neither_waited_nor_was_admit
     row.state = "activated".into();
     row.input_revision = Some(1);
     assert!(!queue::tracks_activation(&row));
+}
+
+#[tokio::test]
+async fn failed_receipts_list_the_latest_failures_by_when_they_failed() {
+    let TestStore { db } = setup().await;
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut rows = Vec::new();
+    for index in 0..10_i64 {
+        let row = enqueue_at(&db, &format!("m{index}"), now).await;
+        if index > 0 {
+            queue::fail_unactivated(
+                &db,
+                &row,
+                now + index,
+                MainRequestFailure::SourceUnavailable,
+            )
+            .await
+            .unwrap();
+        }
+        rows.push(row);
+    }
+    // The earliest request is the last to fail.
+    queue::fail_unactivated(
+        &db,
+        &rows[0],
+        now + 100,
+        MainRequestFailure::SourceUnavailable,
+    )
+    .await
+    .unwrap();
+    let failed: Vec<_> = queue::receipts(&db, "owner", "root", None)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|receipt| receipt.request_id)
+        .collect();
+    assert_eq!(failed.len(), 8);
+    assert_eq!(failed[0], rows[0].request_id);
+    assert!(!failed.contains(&rows[1].request_id));
+    assert!(!failed.contains(&rows[2].request_id));
 }

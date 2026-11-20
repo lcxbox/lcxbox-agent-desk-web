@@ -130,8 +130,10 @@ impl SignalMainRequestExecutor {
         Ok(next)
     }
 
-    /// A first activation that ends before native admission, without being
-    /// cancelled, is recorded against the scanned row and retried with backoff.
+    /// A first activation that registered its call token and ended before
+    /// native admission, without being cancelled, is recorded against the
+    /// scanned row and retried with backoff. Errors before the registration
+    /// are retried on the next scan without being recorded.
     async fn process(&self, row: agent_main_request::Model) -> Result<(), AgentError> {
         let progress = main_request::tracks_activation(&row)
             .then(|| Arc::new(main_request::ActivationProgress::default()));
@@ -144,7 +146,7 @@ impl SignalMainRequestExecutor {
             Ok(Attempt::Ran(error)) => error.as_ref(),
             Err(error) => Some(error),
         };
-        let outcome = main_request::record_activation_failure(
+        let outcome = main_request::settle_failed_activation(
             &self.db,
             &row,
             chrono::Utc::now().timestamp_millis(),
@@ -173,6 +175,13 @@ impl SignalMainRequestExecutor {
         let Some(execution_conversation_id) = self.ready(&row).await? else {
             return Ok(Attempt::NotStarted);
         };
+        // The attempt owns the request's call token from here; the turn
+        // registers the same token while this one is held.
+        let call = cancellation::register(owner, &row.request_id);
+        if let Some(progress) = &progress {
+            let call = call.clone();
+            progress.attach_cancellation(move || call.is_cancelled());
+        }
         let frozen = FrozenRequestInput::decode(&row).map_err(|error| error.into_agent_error())?;
         let now_ms = chrono::Utc::now().timestamp_millis();
         let issue_authority = frozen

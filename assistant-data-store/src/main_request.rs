@@ -30,7 +30,7 @@ mod tests;
 
 pub use activation::{
     ActivationFailureOutcome, ActivationProgress, MAX_ACTIVATION_ATTEMPTS,
-    record_activation_failure, tracks_activation,
+    record_activation_failure, settle_failed_activation, tracks_activation,
 };
 
 pub const QUEUED: &str = "queued";
@@ -956,9 +956,11 @@ pub async fn receipts(
                 .into_tuple()
                 .all(db)
                 .await?;
+            // Recent failures by when they failed, not when they were submitted.
             rows.extend(
                 query
                     .filter(Column::State.eq(FAILED))
+                    .order_by_desc(Column::UpdatedAtMs)
                     .order_by_desc(Column::Id)
                     .limit(8)
                     .into_tuple::<ReceiptInputRow>()

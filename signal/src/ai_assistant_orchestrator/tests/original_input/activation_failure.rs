@@ -366,3 +366,39 @@ async fn persistent_coordination_failure_exhausts_coordination_not_activation() 
         assert_eq!(host.reload(row).await.activation_attempts, 0);
     }
 }
+
+/// An error before the attempt registers the request's call token is retried
+/// on the next scan without charging the request.
+#[actix_web::test]
+async fn an_error_before_the_call_registration_is_not_charged() {
+    use sea_orm::{ActiveModelTrait, Set};
+    let host = host("activation-model").await;
+    let row = host.submit("unregistered", "Check readiness first").await;
+    let now = chrono::Utc::now();
+    let session = crate::entity::agent_session::ActiveModel {
+        conversation_id: Set(row.conversation_id.clone()),
+        actor_id: Set(row.actor_id.clone()),
+        device_id: Set(String::new()),
+        state_json: Set("{}".into()),
+        conversation_schema_version: Set(None),
+        version: Set(0),
+        lease_token: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(&host.db)
+    .await
+    .unwrap();
+    for _ in 0..main_request::MAX_ACTIVATION_ATTEMPTS {
+        host.scan().await;
+    }
+    let saved = host.reload(&row).await;
+    assert_eq!(saved.state, main_request::QUEUED);
+    assert_eq!(saved.activation_attempts, 0);
+    assert!(saved.activation_retry_at_ms.is_none());
+    crate::entity::agent_session::Entity::delete_by_id(session.id)
+        .exec(&host.db)
+        .await
+        .unwrap();
+}

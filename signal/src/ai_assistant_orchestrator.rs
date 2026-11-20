@@ -1403,17 +1403,12 @@ async fn prepare_composed_turn(
         return Err(transport_error("invalid delegated runtime composition"));
     }
     let cancel_registration = cancellation::register(actor_user_id, &request_id);
-    // A first queued activation withholds every frame until native admission
-    // and is judged by its own cancellation token.
+    // A first queued activation withholds every frame until native admission.
     let (browser_connection_id, admitted_browser) = match owner_queue
         .as_deref()
         .and_then(OwnerQueueTurn::activation_progress)
     {
-        Some(progress) => {
-            let cancel = cancel_registration.clone();
-            progress.attach_cancellation(move || cancel.is_cancelled());
-            (String::new(), browser_connection_id)
-        }
+        Some(_) => (String::new(), browser_connection_id),
         None => (browser_connection_id, String::new()),
     };
     desk_diagnose_core::future::boxed(|| async {

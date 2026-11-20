@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AssistantFailedRequests } from './assistant-failed-requests';
 import { deskErrorCodeEnum, type MainRequestReceipt } from '@/services/types';
@@ -33,7 +33,20 @@ describe('assistant failed requests', () => {
         expect(details(container).open).toBe(true);
     });
 
-    it('renders nothing without failures', () => {
+    it('stays closed after the owner closes it until another failure appears', () => {
+        const { container, rerender } = render(<AssistantFailedRequests waitingIds={['first', 'second']} failed={[]} />);
+        rerender(<AssistantFailedRequests waitingIds={['second']} failed={[failed('first')]} />);
+        expect(details(container).open).toBe(true);
+        details(container).open = false;
+        fireEvent(details(container), new Event('toggle'));
+        expect(details(container).open).toBe(false);
+        rerender(<AssistantFailedRequests waitingIds={['second', 'third']} failed={[failed('first')]} />);
+        expect(details(container).open).toBe(false);
+        rerender(<AssistantFailedRequests waitingIds={['third']} failed={[failed('second'), failed('first')]} />);
+        expect(details(container).open).toBe(true);
+    });
+
+        it('renders nothing without failures', () => {
         const { container } = render(<AssistantFailedRequests waitingIds={['queued']} failed={[]} />);
         expect(container.firstChild).toBeNull();
     });

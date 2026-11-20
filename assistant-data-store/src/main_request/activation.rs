@@ -67,9 +67,17 @@ impl ActivationProgress {
             .expect("activation progress poisoned")
     }
 
-    /// Bind the attempt's own cancellation token. The first binding wins.
+    /// Bind the call ownership this attempt acquired, through its own
+    /// cancellation token. The first binding wins.
     pub fn attach_cancellation(&self, cancelled: impl Fn() -> bool + Send + Sync + 'static) {
         let _ = self.cancellation.set(Box::new(cancelled));
+    }
+
+    /// Only an attempt that owns the request's call can fail it. An error
+    /// before that is retried on the next scan without being recorded, since
+    /// another instance may own a preparation in progress.
+    pub fn owns_call(&self) -> bool {
+        self.cancellation.get().is_some()
     }
 
     /// An attempt cancelled by its owner is not an activation failure.
@@ -77,10 +85,11 @@ impl ActivationProgress {
         self.cancellation.get().is_some_and(|cancelled| cancelled())
     }
 
-    /// The finished attempt neither reached admission nor waited, and was not
+    /// The finished attempt owned the call, neither reached admission nor
+    /// waited, and was not
     /// cancelled: it counts as one failed activation.
     pub fn failed(&self) -> bool {
-        self.state.load(Ordering::Acquire) == PENDING && !self.cancelled()
+        self.owns_call() && self.state.load(Ordering::Acquire) == PENDING && !self.cancelled()
     }
 
     /// The returned error wins over a noted preparation error.
@@ -104,6 +113,41 @@ pub enum ActivationFailureOutcome {
     Failed,
     /// Another writer changed the row after the scan; nothing was recorded.
     Stale,
+    /// The subscription was paused after the executor checked it; the request
+    /// was deferred like any paused source.
+    Paused,
+    /// The subscription no longer authorizes the request; the next scan
+    /// closes it as an unavailable source.
+    SourceUnavailable,
+}
+
+/// Settle a failed activation. A subscribed request first rechecks its
+/// source: admission rejects a source paused or revoked after the executor's
+/// own check, and that is not an activation failure.
+pub async fn settle_failed_activation(
+    db: &impl ConnectionTrait,
+    scanned: &request::Model,
+    now_ms: i64,
+    error_code: Option<i32>,
+) -> Result<ActivationFailureOutcome, AssistantStoreError> {
+    if let Ok(frozen) = super::FrozenRequestInput::decode(scanned)
+        && frozen.issue_source.is_some()
+    {
+        match frozen
+            .issue_queue_authority(db, &scanned.actor_id, now_ms)
+            .await?
+        {
+            super::IssueQueueAuthority::Ready => {}
+            super::IssueQueueAuthority::Paused => {
+                super::defer_paused_source(db, scanned, now_ms).await?;
+                return Ok(ActivationFailureOutcome::Paused);
+            }
+            super::IssueQueueAuthority::Unavailable => {
+                return Ok(ActivationFailureOutcome::SourceUnavailable);
+            }
+        }
+    }
+    record_activation_failure(db, scanned, now_ms, error_code).await
 }
 
 /// Record one failed activation of the scanned row. Any change by another

@@ -11,6 +11,7 @@ import { cancelAiAssistantMainRequest, getAiAssistantSession, listAiAssistantWor
 import type { AiAssistantWorkbenchDelivery, AiAssistantWorkbenchTask } from '@/services/types';
 import { AssistantConversationTabs, AssistantSubagentApprovalNotice, AssistantSubagents } from './assistant-subagents';
 import { AssistantTranscript } from './assistant-transcript';
+import { queueFailureReason } from './assistant-failed-requests';
 import { projectPersistedSnapshot, type PersistedSnapshot } from './use-ai-assistant-chat';
 import { useAiAssistantSubagents } from './use-ai-assistant-subagents';
 
@@ -65,6 +66,9 @@ export function WorkbenchTasks({ workbench, request, worker, permission, active,
                         {t(state === 'waiting_source' ? 'pages.aiAssistant.workbench.waitingSource' : `pages.aiAssistant.subagents.states.${state}`)}
                     </Badge>)}
                 </div>
+                {task.receipt.state === 'failed' && <p className="text-sm text-muted-foreground">
+                    {queueFailureReason(t, task.receipt)}
+                </p>}
                 {request && <>
                     {task.deliveries.length > 0 && <section className="space-y-2" aria-label={t('pages.aiAssistant.workbench.deliveries')}>
                         <h3 className="text-sm font-medium">{t('pages.aiAssistant.workbench.deliveries')}</h3>
