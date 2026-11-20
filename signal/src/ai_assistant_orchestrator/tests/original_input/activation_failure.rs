@@ -464,19 +464,78 @@ async fn a_stalled_attempt_admits_nothing_after_a_newer_claim() {
     assert_eq!(admitted.activation_attempts, 0);
 }
 
+/// Every text frame decoded so far; frames Actix merged into one chunk are
+/// all returned, and a partial frame stays buffered for the next chunk.
+fn decode_frames(
+    codec: &mut actix_http::ws::Codec,
+    buffer: &mut bytes::BytesMut,
+) -> Vec<serde_json::Value> {
+    use tokio_util::codec::Decoder;
+    let mut frames = Vec::new();
+    while let Some(frame) = codec.decode(buffer).unwrap() {
+        if let actix_http::ws::Frame::Text(text) = frame {
+            frames.push(serde_json::from_slice(&text).unwrap());
+        }
+    }
+    frames
+}
+
 /// Every frame a browser connection received until it stays quiet.
 async fn browser_frames(peer: actix_web::HttpResponse) -> Vec<serde_json::Value> {
+    use actix_web::body::MessageBody;
     let mut body = peer.into_body();
+    let mut codec = actix_http::ws::Codec::new().client_mode();
+    let mut buffer = bytes::BytesMut::new();
     let mut frames = Vec::new();
-    while let Ok(frame) = tokio::time::timeout(
+    while let Ok(Some(chunk)) = tokio::time::timeout(
         std::time::Duration::from_millis(500),
-        receive_device_frame_from(&mut body),
+        std::future::poll_fn(|cx| std::pin::Pin::new(&mut body).poll_next(cx)),
     )
     .await
     {
-        frames.push(serde_json::to_value(&frame).unwrap());
+        buffer.extend_from_slice(&chunk.unwrap());
+        frames.extend(decode_frames(&mut codec, &mut buffer));
     }
     frames
+}
+
+fn accepted_frames(frames: &[serde_json::Value]) -> usize {
+    frames
+        .iter()
+        .filter(|frame| frame.to_string().contains(r#""status":"accepted""#))
+        .count()
+}
+
+#[test]
+fn accepted_frames_merged_into_one_chunk_are_all_counted() {
+    use tokio_util::codec::Encoder;
+    let frame = serde_json::to_string(&SignalingModel::new(
+        "merged",
+        SignalingType::AiAssistantUpdated,
+        None,
+        Some("browser".into()),
+        serde_json::to_value(AgentEvent::status("merged", 1, "accepted")).ok(),
+        None,
+    ))
+    .unwrap();
+    let mut server = actix_http::ws::Codec::new();
+    let mut chunk = bytes::BytesMut::new();
+    for _ in 0..2 {
+        server
+            .encode(
+                actix_http::ws::Message::Text(frame.clone().into()),
+                &mut chunk,
+            )
+            .unwrap();
+    }
+    // Half of the second frame arrives with a later chunk.
+    let rest = chunk.split_off(chunk.len() - 3);
+    let mut client = actix_http::ws::Codec::new().client_mode();
+    let mut frames = decode_frames(&mut client, &mut chunk);
+    assert_eq!(accepted_frames(&frames), 1);
+    chunk.extend_from_slice(&rest);
+    frames.extend(decode_frames(&mut client, &mut chunk));
+    assert_eq!(accepted_frames(&frames), 2);
 }
 
 /// A newer attempt admits the request while an older one stalls before
@@ -516,11 +575,7 @@ async fn a_stalled_attempt_does_not_resume_input_a_newer_attempt_admitted() {
         .unwrap()
         .unwrap();
     assert_eq!(snapshot.input_revision, 1, "one native input");
-    let accepted = browser_frames(peer)
-        .await
-        .into_iter()
-        .filter(|frame| frame.to_string().contains(r#""status":"accepted""#))
-        .count();
+    let accepted = accepted_frames(&browser_frames(peer).await);
     assert_eq!(accepted, 1, "only the newer attempt is accepted");
 }
 
@@ -646,4 +701,166 @@ async fn a_stale_destination_decision_does_not_close_a_newer_attempt() {
         receipt.failure,
         Some(MainRequestFailure::DestinationChanged)
     );
+}
+
+/// A device request was admitted, but the process stopped before its first
+/// claim. Its resume replays the admitted input with the same read scope and
+/// keeps desktop reads as planning candidates.
+#[actix_web::test]
+async fn an_admitted_device_request_resumes_with_its_usual_tools() {
+    use desk_signal_facade::model::os::OperationSystemEnum;
+    let host = host("activation-model").await;
+    let device = "resumed-device";
+    crate::device_code_store::get_or_create(&host.db, device)
+        .await
+        .unwrap();
+    register_request_device(
+        &host.connections,
+        device,
+        device,
+        OperationSystemEnum::Linux,
+    )
+    .await;
+    submit_owner_turn(
+        host.connections.clone(),
+        host.db.clone(),
+        "submit-resumed".into(),
+        "closed-browser".into(),
+        format!("live-{device}"),
+        crate::control_authorizer::SINGLE_ACCOUNT_USER_ID,
+        device.into(),
+        AiAssistantAsk {
+            question: "Check this device again".into(),
+            client_message_id: "resumed-message".into(),
+            conversation_id: Some("resumed-conversation".into()),
+            client_timezone: "UTC".into(),
+            ..Default::default()
+        },
+    )
+    .await;
+    let row = request::Entity::find()
+        .filter(request::Column::ClientMessageId.eq("resumed-message"))
+        .one(&host.db)
+        .await
+        .unwrap()
+        .unwrap();
+    let frozen = main_request::FrozenRequestInput::decode(&row).unwrap();
+    // Admission commits without the first claim.
+    let providers = ai_assistant_provider_registry();
+    let input = crate::agent_run_event_store::AppendUserFollowupParams {
+        client_timezone: frozen.ask.client_timezone.clone(),
+        temporary_conversation: None,
+        event_id: frozen.ask.client_message_id.clone(),
+        run_id: row.conversation_id.clone(),
+        client_conversation_id: frozen.ask.conversation_id.clone(),
+        actor_id: row.actor_id.clone(),
+        device_id: device.into(),
+        target_refs: vec![],
+        surface: AgentSessionSurface::AiAssistant,
+        policy_revision: PERSONAL_ASSISTANT_POLICY_REVISION,
+        current_scope: AgentScope {
+            granted: frozen
+                .reads
+                .tool_names
+                .iter()
+                .filter_map(|name| providers.capability_for_tool(name))
+                .map(|capability| capability.required_capability)
+                .collect(),
+            mode: ExecutionMode::ReadOnly,
+            expires_at: frozen.reads.expires_at.clone(),
+            policy_name: None,
+        },
+        read_context: Some(frozen.reads.clone()),
+        message: desk_diagnose_core::model_message_labels::model_bound_user_message(
+            frozen.ask.client_message_id.clone(),
+            frozen.ask.question.clone(),
+            frozen.destination.clone(),
+        )
+        .unwrap(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    SignalAgentRunEventStore::new(host.db.clone())
+        .admit_user_input(
+            &input,
+            None,
+            OwnerAdmission::Activate {
+                issue_source: None,
+                request_id: &row.request_id,
+            },
+        )
+        .await
+        .unwrap()
+        .native()
+        .unwrap();
+    let admitted = host.reload(&row).await;
+    assert_eq!(admitted.state, "activated");
+    assert!(admitted.pending_input_json.is_some(), "not claimed yet");
+
+    let listener = host.listener.clone();
+    let model = actix_web::rt::spawn(async move {
+        capture_openai_answer_with_title(
+            listener.as_ref(),
+            &memory_sse(serde_json::json!({"content":"Resumed"}), "stop"),
+        )
+        .await
+        .0
+    });
+    host.scan().await;
+    let resumed = host.reload(&row).await;
+    assert!(
+        resumed.pending_input_json.is_none(),
+        "the resumed turn claims the input: {resumed:?}"
+    );
+    let body: serde_json::Value = serde_json::from_slice(
+        &tokio::time::timeout(MODEL_IO_TIMEOUT, model)
+            .await
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    // The resumed turn offers its recorded reads again.
+    let text = body.to_string();
+    for recorded in &frozen.reads.tool_names {
+        assert!(text.contains(recorded.as_str()), "{recorded} is offered");
+    }
+    let stored = SignalAgentRunEventStore::new(host.db.clone())
+        .original_read_context(
+            crate::agent_run_event_store::InputSubject {
+                run_id: &row.conversation_id,
+                actor_id: &row.actor_id,
+                device_id: device,
+                client_conversation_id: frozen.ask.conversation_id.as_deref(),
+            },
+            admitted.input_revision.unwrap() as u64,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored, frozen.reads);
+}
+
+/// The frozen-read cap of a queued input removes only reads its input could
+/// have recorded: desktop reads stay planning candidates.
+#[test]
+fn the_frozen_read_cap_keeps_planning_desktop_reads() {
+    let registry = ai_assistant_provider_registry().registered_tools();
+    let tool = |name: &str| {
+        registry
+            .iter()
+            .find(|tool| tool.name() == name)
+            .unwrap_or_else(|| panic!("{name} is registered"))
+    };
+    let recorded = vec![desk_diagnose_core::web_research::WEB_FETCH_TOOL_NAME.to_string()];
+    assert!(crate::ai_assistant_orchestrator::exposed_for_frozen_reads(
+        tool(desk_diagnose_core::web_research::WEB_FETCH_TOOL_NAME),
+        &recorded
+    ));
+    assert!(!crate::ai_assistant_orchestrator::exposed_for_frozen_reads(
+        tool(desk_diagnose_core::web_research::WEB_SEARCH_TOOL_NAME),
+        &recorded
+    ));
+    assert!(crate::ai_assistant_orchestrator::exposed_for_frozen_reads(
+        tool("read_current_screen"),
+        &recorded
+    ));
 }

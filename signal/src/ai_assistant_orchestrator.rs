@@ -308,6 +308,18 @@ fn context_selection_claim(
     )
 }
 
+/// Whether a queued input may expose `tool`: every non-read tool, desktop
+/// reads (planning candidates until an owner grant records them), and the
+/// reads its frozen input recorded.
+fn exposed_for_frozen_reads(
+    tool: &desk_diagnose_core::registry::RegisteredTool,
+    recorded: &[String],
+) -> bool {
+    tool.effect != desk_diagnose_core::registry::ToolEffect::ReadOnly
+        || desk_diagnose_core::ai_assistant::is_requestable_desktop_read(tool.name())
+        || recorded.iter().any(|name| name == tool.name())
+}
+
 /// The error frame of a preparation exit. A first queued activation keeps its
 /// code for the executor, since the frame itself is withheld.
 fn activation_error(
@@ -2649,18 +2661,18 @@ async fn prepare_composed_turn(
                 || recorded.iter().any(|name| name == tool.name())
         });
                             }
-                            // A queued activation, with or without a target device, exposes no
-                            // read tool its frozen input did not record, so admission compares
-                            // the read scope that was enqueued.
+                            // A queued input, with or without a target device, exposes no read
+                            // tool its frozen input did not record, so admission and the resume of
+                            // an admitted input both compare the read scope that was enqueued.
+                            // Desktop reads stay planning candidates; they are not recorded until
+                            // an owner grant restores their scope.
                             if matches!(
                                 owner_queue.as_deref(),
                                 Some(OwnerQueueTurn::Activate { .. })
                             ) && let Some(frozen) = &frozen_selection
                             {
                                 registry.retain(|tool| {
-                                    tool.effect
-                                        != desk_diagnose_core::registry::ToolEffect::ReadOnly
-                                        || frozen.tool_names.iter().any(|name| name == tool.name())
+                                    exposed_for_frozen_reads(tool, &frozen.tool_names)
                                 });
                             }
                             if scheduled
