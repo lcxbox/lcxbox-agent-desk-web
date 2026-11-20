@@ -464,12 +464,29 @@ async fn a_stalled_attempt_admits_nothing_after_a_newer_claim() {
     assert_eq!(admitted.activation_attempts, 0);
 }
 
+/// Every frame a browser connection received until it stays quiet.
+async fn browser_frames(peer: actix_web::HttpResponse) -> Vec<serde_json::Value> {
+    let mut body = peer.into_body();
+    let mut frames = Vec::new();
+    while let Ok(frame) = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        receive_device_frame_from(&mut body),
+    )
+    .await
+    {
+        frames.push(serde_json::to_value(&frame).unwrap());
+    }
+    frames
+}
+
 /// A newer attempt admits the request while an older one stalls before
-/// admission: the older attempt finds the native input but may not resume it.
+/// admission: the older attempt finds the native input but may not resume
+/// it, so only the newer attempt is accepted.
 #[actix_web::test]
 async fn a_stalled_attempt_does_not_resume_input_a_newer_attempt_admitted() {
     let host = host("activation-model").await;
     let row = host.submit("stalled-replay", "Admit me once").await;
+    let peer = host.attach_browser(&row).await;
     refuse_model_calls(&host.db).await;
     let (db, connections) = (host.db.clone(), host.connections.clone());
     crate::ai_assistant_orchestrator::activation_faults::run_before_admission(
@@ -499,6 +516,93 @@ async fn a_stalled_attempt_does_not_resume_input_a_newer_attempt_admitted() {
         .unwrap()
         .unwrap();
     assert_eq!(snapshot.input_revision, 1, "one native input");
+    let accepted = browser_frames(peer)
+        .await
+        .into_iter()
+        .filter(|frame| frame.to_string().contains(r#""status":"accepted""#))
+        .count();
+    assert_eq!(accepted, 1, "only the newer attempt is accepted");
+}
+
+/// A device-bound message queued before a read tool was enabled: activation
+/// exposes only the frozen read tools, so admission succeeds and the native
+/// input keeps the frozen read scope.
+#[actix_web::test]
+async fn a_device_bound_activation_keeps_its_frozen_read_scope() {
+    use desk_signal_facade::model::os::OperationSystemEnum;
+    let host = host("activation-model").await;
+    let device = "bound-device";
+    crate::device_code_store::get_or_create(&host.db, device)
+        .await
+        .unwrap();
+    register_request_device(
+        &host.connections,
+        device,
+        device,
+        OperationSystemEnum::Linux,
+    )
+    .await;
+    submit_owner_turn(
+        host.connections.clone(),
+        host.db.clone(),
+        "submit-bound".into(),
+        "closed-browser".into(),
+        format!("live-{device}"),
+        crate::control_authorizer::SINGLE_ACCOUNT_USER_ID,
+        device.into(),
+        AiAssistantAsk {
+            question: "Check this device".into(),
+            client_message_id: "bound-message".into(),
+            conversation_id: Some("bound-conversation".into()),
+            client_timezone: "UTC".into(),
+            ..Default::default()
+        },
+    )
+    .await;
+    let row = request::Entity::find()
+        .filter(request::Column::ClientMessageId.eq("bound-message"))
+        .one(&host.db)
+        .await
+        .unwrap()
+        .unwrap();
+    // The read tool was enabled only after the message was queued.
+    let mut frozen = main_request::FrozenRequestInput::decode(&row).unwrap();
+    let enabled_later = [
+        desk_diagnose_core::web_research::WEB_SEARCH_TOOL_NAME,
+        desk_diagnose_core::web_research::WEB_FETCH_TOOL_NAME,
+    ]
+    .into_iter()
+    .find(|name| frozen.reads.tool_names.iter().any(|tool| tool == name))
+    .expect("the device turn offers a public web read");
+    frozen.reads.tool_names.retain(|tool| tool != enabled_later);
+    request::Entity::update_many()
+        .col_expr(
+            request::Column::PendingInputJson,
+            Expr::value(serde_json::to_string(&frozen).unwrap()),
+        )
+        .filter(request::Column::Id.eq(row.id))
+        .exec(&host.db)
+        .await
+        .unwrap();
+    refuse_model_calls(&host.db).await;
+    host.scan().await;
+    let admitted = host.reload(&row).await;
+    assert_eq!(admitted.state, "activated", "{admitted:?}");
+    assert_eq!(admitted.activation_attempts, 0);
+    let stored = crate::agent_run_event_store::SignalAgentRunEventStore::new(host.db.clone())
+        .original_read_context(
+            crate::agent_run_event_store::InputSubject {
+                run_id: &row.conversation_id,
+                actor_id: &row.actor_id,
+                device_id: device,
+                client_conversation_id: frozen.ask.conversation_id.as_deref(),
+            },
+            admitted.input_revision.unwrap() as u64,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored, frozen.reads);
 }
 
 /// A destination decision of an attempt that lost the row closes nothing;

@@ -47,6 +47,8 @@ struct Item {
     updated_at_ms: i64,
     attempts: i32,
     activation_attempts: i32,
+    /// The row claim of the attempt that leads the batch; set on its head only.
+    claim: Option<i64>,
     target_refs: Vec<String>,
     dispatchable: bool,
     external_issues: Vec<desk_diagnose_core::external_tools::IssueAccess>,
@@ -260,6 +262,7 @@ async fn candidate(
             updated_at_ms: now_ms,
             attempts: row.coordination_attempts + 1,
             activation_attempts: row.activation_attempts,
+            claim: None,
             target_refs: frozen.ask.target_refs,
             dispatchable,
             external_issues: frozen.reads.external_issues,
@@ -279,6 +282,7 @@ pub async fn reserve(
     now_ms: i64,
     report_candidates: Vec<ReportCandidate>,
     disabled_bundled_skills: &[String],
+    claim: Option<i64>,
 ) -> Result<Reservation, AssistantStoreError> {
     if session.actor_id != head.actor_id
         || session.conversation_id != head.conversation_id
@@ -300,6 +304,10 @@ pub async fn reserve(
     else {
         return Ok(Reservation::Unbatched);
     };
+    // A newer attempt took the head over; this one reserves nothing for it.
+    if claim.is_some_and(|claim| first.activation_claim != claim) {
+        return Ok(Reservation::Changed);
+    }
     let first_input = FrozenRequestInput::decode(&first)?;
     let destination = first_input.destination.clone();
     let device = first_input.device_id.clone();
@@ -316,7 +324,7 @@ pub async fn reserve(
         let Candidate {
             message,
             target_scope,
-            item,
+            mut item,
         } = match candidate(txn, row, &destination, &device, workbench, now_ms).await {
             Ok(Some(candidate)) => candidate,
             Ok(None) => break,
@@ -325,6 +333,7 @@ pub async fn reserve(
             // The unusable request reaches the head later and fails there.
             Err(_) => break,
         };
+        item.claim = claim.filter(|_| is_head);
         let item_bytes =
             message.text.len() + target_scope.as_ref().map_or(0, |scope| scope.text.len());
         if bytes + item_bytes > MAX_INPUT_BYTES {
@@ -379,7 +388,7 @@ pub async fn reserve(
     // Charge the attempt with the lease. A crashed worker must not get an
     // unbounded number of fresh provider dispatches after each takeover.
     for item in &items {
-        let changed = request::Entity::update_many()
+        let changed = claimed(request::Entity::update_many(), item.claim)
             .filter(request::Column::Id.eq(item.id))
             .filter(request::Column::State.eq(QUEUED))
             .filter(request::Column::Coordinated.eq(false))
@@ -585,7 +594,8 @@ pub async fn settle(
     let decisions = decisions(turn);
     let can_dispatch = batch.workbench && has_audited_output(turn);
     for item in &batch.items {
-        let update = request::Entity::update_many()
+        // The head settles only under the claim that reserved it.
+        let update = claimed(request::Entity::update_many(), item.claim)
             .filter(request::Column::Id.eq(item.id))
             .filter(request::Column::RequestId.eq(&item.request_id))
             .filter(request::Column::State.eq(QUEUED))

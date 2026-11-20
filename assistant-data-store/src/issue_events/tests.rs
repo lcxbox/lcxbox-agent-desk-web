@@ -1095,7 +1095,7 @@ async fn unreadable_issue_authority_of_a_follower_does_not_hold_the_head() {
     );
     let txn = db.begin().await.unwrap();
     assert!(matches!(
-        main_request::coordination::reserve(&txn, &mut root, &head, now, Vec::new(), &[])
+        main_request::coordination::reserve(&txn, &mut root, &head, now, Vec::new(), &[], None)
             .await
             .unwrap(),
         Reservation::Unbatched

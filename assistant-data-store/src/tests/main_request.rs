@@ -260,7 +260,7 @@ async fn coordination_preserves_native_fences_and_defers_omissions_independently
         .await
         .unwrap();
     let (batch, projection) =
-        queue::coordination::reserve(&txn, &mut session, &b, now, Vec::new(), &[])
+        queue::coordination::reserve(&txn, &mut session, &b, now, Vec::new(), &[], None)
             .await
             .unwrap()
             .batch()
@@ -289,7 +289,7 @@ async fn coordination_preserves_native_fences_and_defers_omissions_independently
         .unwrap();
     assert!(!batch.is_current(&rival, now + 61_000));
     assert!(
-        queue::coordination::reserve(&txn, &mut session, &b, now + 1, Vec::new(), &[])
+        queue::coordination::reserve(&txn, &mut session, &b, now + 1, Vec::new(), &[], None)
             .await
             .unwrap()
             .batch()
@@ -431,7 +431,7 @@ async fn coordination_attempts_survive_a_lost_lease() {
     for attempt in 1..=3 {
         let txn = db.begin().await.unwrap();
         let time = now + i64::from(attempt) * 61_000;
-        queue::coordination::reserve(&txn, &mut session, &head, time, Vec::new(), &[])
+        queue::coordination::reserve(&txn, &mut session, &head, time, Vec::new(), &[], None)
             .await
             .unwrap()
             .batch()
@@ -446,11 +446,19 @@ async fn coordination_attempts_survive_a_lost_lease() {
     assert!(queue::coordination::exhausted(&head));
     let txn = db.begin().await.unwrap();
     assert!(
-        queue::coordination::reserve(&txn, &mut session, &head, now + 244_000, Vec::new(), &[])
-            .await
-            .unwrap()
-            .batch()
-            .is_none()
+        queue::coordination::reserve(
+            &txn,
+            &mut session,
+            &head,
+            now + 244_000,
+            Vec::new(),
+            &[],
+            None
+        )
+        .await
+        .unwrap()
+        .batch()
+        .is_none()
     );
     queue::fail_unactivated(
         &txn,
@@ -710,11 +718,12 @@ async fn workbench_dispatch_proposals_are_scoped_and_activation_is_atomic() {
     let c = queue::enqueue(&txn, "owner", "root", &input("c", "Work C"), None, 4, ms)
         .await
         .unwrap();
-    let (batch, request) = queue::coordination::reserve(&txn, &mut root, &b, ms, Vec::new(), &[])
-        .await
-        .unwrap()
-        .batch()
-        .unwrap();
+    let (batch, request) =
+        queue::coordination::reserve(&txn, &mut root, &b, ms, Vec::new(), &[], None)
+            .await
+            .unwrap()
+            .batch()
+            .unwrap();
     assert!(!request.messages[0].text.contains("selected-device"));
     let scope = request
         .messages

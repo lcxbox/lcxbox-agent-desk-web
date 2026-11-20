@@ -2618,31 +2618,23 @@ async fn prepare_composed_turn(
                                 &mut registry,
                                 &selected_tool_capability_ids,
                             );
-                            // A queued activation exposes no read tool its frozen input did not
-                            // record, so admission compares the read scope that was enqueued.
-                            let frozen_read_tools = match owner_queue.as_deref() {
-                                Some(queue @ OwnerQueueTurn::Activate { .. })
-                                    if original_read_context.is_none() =>
-                                {
-                                    main_request::frozen_read_selection(
-                                        &db,
-                                        Some(queue),
-                                        &actor_id,
-                                        &conversation_id,
-                                        &target_device_id,
-                                        &ask,
-                                    )
-                                    .await
-                                    .map_err(|error| error.into_agent_error())?
-                                    .map(|frozen| frozen.tool_names)
-                                }
-                                _ => None,
+                            // The frozen read selection of a queued input, read once here.
+                            let frozen_selection = if original_read_context.is_none() {
+                                main_request::frozen_read_selection(
+                                    &db,
+                                    owner_queue.as_deref(),
+                                    &actor_id,
+                                    &conversation_id,
+                                    &target_device_id,
+                                    &ask,
+                                )
+                                .await
+                                .map_err(|error| error.into_agent_error())?
+                            } else {
+                                None
                             };
-                            let recorded_read_tools = original_read_context
-                                .as_ref()
-                                .map(|original| original.tool_names.as_slice())
-                                .or(frozen_read_tools.as_deref());
-                            if let Some(recorded) = recorded_read_tools {
+                            if let Some(original) = original_read_context.as_ref() {
+                                let recorded = &original.tool_names;
                                 // Object reads retain the original selection. Desktop reads remain planning
                                 // candidates; only a current owner grant can restore their scope.
                                 registry.retain(|tool| {
@@ -2656,6 +2648,20 @@ async fn prepare_composed_turn(
                     })
                 || recorded.iter().any(|name| name == tool.name())
         });
+                            }
+                            // A queued activation, with or without a target device, exposes no
+                            // read tool its frozen input did not record, so admission compares
+                            // the read scope that was enqueued.
+                            if matches!(
+                                owner_queue.as_deref(),
+                                Some(OwnerQueueTurn::Activate { .. })
+                            ) && let Some(frozen) = &frozen_selection
+                            {
+                                registry.retain(|tool| {
+                                    tool.effect
+                                        != desk_diagnose_core::registry::ToolEffect::ReadOnly
+                                        || frozen.tool_names.iter().any(|name| name == tool.name())
+                                });
                             }
                             if scheduled
                                 .as_ref()
@@ -2680,10 +2686,13 @@ async fn prepare_composed_turn(
                                 registry.retain(
                                     desk_diagnose_core::assistant_policy::is_targetless_web_tool,
                                 );
-                                if let Some(recorded) = recorded_read_tools {
+                                if let Some(original) = original_read_context.as_ref() {
                                     registry.retain(|tool| {
                                         !desk_diagnose_core::web_research::is_web_tool(tool.name())
-                                            || recorded.iter().any(|name| name == tool.name())
+                                            || original
+                                                .tool_names
+                                                .iter()
+                                                .any(|name| name == tool.name())
                                     });
                                 }
                             }
@@ -2855,13 +2864,7 @@ async fn prepare_composed_turn(
                                         if target_device_id.is_empty() {
                                             selection.include_selectable_object_tools();
                                         }
-                                        let frozen = if original_read_context.is_none() {
-                                            desk_assistant_data_store::main_request::frozen_read_selection(
-                                                &db, owner_queue.as_deref(), &actor_id, &conversation_id, &target_device_id, &ask,
-                                            ).await.map_err(|error| error.into_agent_error())?
-                                        } else {
-                                            None
-                                        };
+                                        let frozen = frozen_selection;
                                         let targets = if target_device_id.is_empty() {
                                             if original_read_context.is_some() {
                                                 live_targets

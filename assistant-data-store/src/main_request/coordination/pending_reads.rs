@@ -217,7 +217,7 @@ mod tests {
         let other = enqueue(&db, "owner", "other", &selected("d", "linux"), None, 4, ms)
             .await
             .unwrap();
-        let (batch, request) = reserve(&db, &mut session, &mac, ms, Vec::new(), &[])
+        let (batch, request) = reserve(&db, &mut session, &mac, ms, Vec::new(), &[], None)
             .await
             .unwrap()
             .batch()

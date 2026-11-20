@@ -315,11 +315,12 @@ async fn coordination_and_paused_deferrals_keep_an_activation_backoff_separate()
     enqueue_at(&db, "b", now).await;
     let mut session = assistant_session();
     let txn = db.begin().await.unwrap();
-    let (batch, _) = queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[])
-        .await
-        .unwrap()
-        .batch()
-        .unwrap();
+    let (batch, _) =
+        queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[], None)
+            .await
+            .unwrap()
+            .batch()
+            .unwrap();
     txn.commit().await.unwrap();
     // A failure recorded in the reservation's millisecond keeps the batch's
     // version; its settlement clears only the coordination deferral.
@@ -403,7 +404,7 @@ async fn an_old_scan_loses_to_a_paused_deferral_a_reservation_and_a_selected_rou
     workbench.surface = desk_diagnose_core::session::AgentSessionSurface::AiAssistant;
     let txn = db.begin().await.unwrap();
     let (batch, request) =
-        queue::coordination::reserve(&txn, &mut workbench, &b, now, Vec::new(), &[])
+        queue::coordination::reserve(&txn, &mut workbench, &b, now, Vec::new(), &[], None)
             .await
             .unwrap()
             .batch()
@@ -477,7 +478,7 @@ async fn an_unreadable_follower_ends_the_batch_and_later_fails_as_its_own_head()
     let mut session = assistant_session();
     let txn = db.begin().await.unwrap();
     assert!(matches!(
-        queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[])
+        queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[], None)
             .await
             .unwrap(),
         Reservation::Unbatched
@@ -522,7 +523,7 @@ async fn a_head_that_cannot_be_projected_fails_its_reservation_alone() {
     let mut session = assistant_session();
     let txn = db.begin().await.unwrap();
     assert!(matches!(
-        queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[]).await,
+        queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[], None).await,
         Err(AssistantStoreError::Invalid(_))
     ));
     txn.rollback().await.unwrap();
@@ -553,7 +554,7 @@ async fn a_candidate_changed_after_its_read_rolls_the_reservation_back() {
     let mut session = assistant_session();
     let txn = db.begin().await.unwrap();
     assert!(matches!(
-        queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[])
+        queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[], None)
             .await
             .unwrap(),
         Reservation::Changed
@@ -571,7 +572,7 @@ async fn a_candidate_changed_after_its_read_rolls_the_reservation_back() {
         .unwrap();
     let txn = db.begin().await.unwrap();
     assert!(
-        queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[])
+        queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[], None)
             .await
             .unwrap()
             .batch()
@@ -594,7 +595,7 @@ async fn a_candidate_changed_after_its_read_rolls_the_reservation_back() {
         .await
         .unwrap();
     assert!(matches!(
-        queue::coordination::reserve(&txn, &mut other, &c, now, Vec::new(), &[])
+        queue::coordination::reserve(&txn, &mut other, &c, now, Vec::new(), &[], None)
             .await
             .unwrap(),
         Reservation::Unbatched
@@ -855,4 +856,63 @@ async fn an_exhausted_claim_or_attempt_counter_takes_nothing() {
         ActivationFailureOutcome::Stale
     );
     assert_eq!(reload(&db, &row).await, saturated);
+}
+
+/// A newer attempt takes the head over before an older one reserves its
+/// coordination, or after it: the older attempt neither spends nor settles
+/// the head's coordination.
+#[tokio::test]
+async fn a_stale_claim_cannot_reserve_or_settle_the_heads_coordination() {
+    let TestStore { db } = setup().await;
+    let now = chrono::Utc::now().timestamp_millis();
+    let a = enqueue_at(&db, "a", now).await;
+    let b = enqueue_at(&db, "b", now).await;
+    request::Entity::update_many()
+        .col_expr(request::Column::CoordinationAttempts, Expr::value(2))
+        .filter(request::Column::Id.eq(a.id))
+        .exec(&db)
+        .await
+        .unwrap();
+    let a = reload(&db, &a).await;
+    let older = queue::claim_activation(&db, &a).await.unwrap().unwrap();
+    let newer = queue::claim_activation(&db, &reload(&db, &a).await)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut session = assistant_session();
+    let txn = db.begin().await.unwrap();
+    assert!(matches!(
+        queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[], Some(older))
+            .await
+            .unwrap(),
+        Reservation::Changed
+    ));
+    txn.rollback().await.unwrap();
+    assert_eq!(reload(&db, &a).await.coordination_attempts, 2);
+    assert_eq!(reload(&db, &b).await.coordination_attempts, 0);
+
+    // The current attempt reserves; a newer claim then takes the head over,
+    // and the reserving attempt's settlement leaves the head untouched.
+    let txn = db.begin().await.unwrap();
+    let (batch, _) =
+        queue::coordination::reserve(&txn, &mut session, &a, now, Vec::new(), &[], Some(newer))
+            .await
+            .unwrap()
+            .batch()
+            .unwrap();
+    txn.commit().await.unwrap();
+    let reserved = reload(&db, &a).await;
+    assert_eq!(reserved.coordination_attempts, 3);
+    queue::claim_activation(&db, &reserved)
+        .await
+        .unwrap()
+        .unwrap();
+    queue::coordination::settle(&db, &batch, None, now + 1, &Default::default())
+        .await
+        .unwrap();
+    let head = reload(&db, &a).await;
+    assert_eq!(head.state, queue::QUEUED);
+    assert!(head.failure.is_none());
+    // The follower is not claimed by the attempt and settles as usual.
+    assert!(reload(&db, &b).await.retry_at_ms.is_some());
 }

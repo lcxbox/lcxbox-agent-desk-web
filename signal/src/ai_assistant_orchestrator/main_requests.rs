@@ -277,7 +277,9 @@ impl SignalMainRequestExecutor {
         };
         if row.input_revision.is_none()
             && !main_request::coordination::has_route(&row)
-            && self.coordinate(&row, &frozen.device_id, owner).await?
+            && self
+                .coordinate(&row, &frozen.device_id, owner, claim)
+                .await?
         {
             return Ok(Attempt::NotStarted);
         }

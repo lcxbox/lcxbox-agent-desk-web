@@ -145,8 +145,9 @@ impl SignalMainRequestExecutor {
         head: &agent_main_request::Model,
         device: &str,
         owner: i32,
+        claim: Option<i64>,
     ) -> Result<bool, AgentError> {
-        let (batch, request) = match self.reserve_batch(head, device).await? {
+        let (batch, request) = match self.reserve_batch(head, device, claim).await? {
             Reservation::Reserved(batch) => *batch,
             Reservation::Unbatched => return Ok(false),
             // The rolled-back round ends here; the next scan starts afresh.
@@ -169,6 +170,7 @@ impl SignalMainRequestExecutor {
         &self,
         head: &agent_main_request::Model,
         device: &str,
+        claim: Option<i64>,
     ) -> Result<Reservation, AgentError> {
         let txn = crate::db::begin_write(&self.db, agent_session::Entity)
             .await
@@ -194,10 +196,17 @@ impl SignalMainRequestExecutor {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let reports = report_candidates_on(&txn, &session, head, now_ms).await?;
         let disabled_skills = crate::assistant_skills::disabled_bundled(&txn).await;
-        let reservation =
-            coordination::reserve(&txn, &mut session, head, now_ms, reports, &disabled_skills)
-                .await
-                .map_err(|error| error.into_agent_error())?;
+        let reservation = coordination::reserve(
+            &txn,
+            &mut session,
+            head,
+            now_ms,
+            reports,
+            &disabled_skills,
+            claim,
+        )
+        .await
+        .map_err(|error| error.into_agent_error())?;
         if matches!(reservation, Reservation::Reserved(_)) {
             store_session(&txn, &row, &mut session).await?;
             txn.commit().await.map_err(storage)?;
