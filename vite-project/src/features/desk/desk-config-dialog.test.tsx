@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest"
+import { fireEvent, render, screen } from "@testing-library/react"
+import { DxgiCaptureNotice } from "./desk-config-dialog"
 import {
     canConnectCaptureTarget,
     canEnableAdaptiveResolution,
@@ -534,5 +536,19 @@ describe("hosts without usable audio devices", () => {
             audio_device: { audio_data_flow: "Render", audio_device_id: null },
             audio_encoder: "Opus",
         })
+    })
+})
+
+describe("DXGI capture notice", () => {
+    it("stays a compact icon until clicked, then shows the explanation", () => {
+        render(<DxgiCaptureNotice />)
+        const trigger = screen.getByRole("button", {
+            name: "pages.desk.dxgiVideoBlackBarWarning.title",
+        })
+        expect(screen.queryByText("pages.desk.dxgiVideoBlackBarWarning.body")).toBeNull()
+
+        fireEvent.click(trigger)
+
+        expect(screen.getByText("pages.desk.dxgiVideoBlackBarWarning.body")).toBeInTheDocument()
     })
 })

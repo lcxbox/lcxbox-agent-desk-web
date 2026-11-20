@@ -33,6 +33,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertTriangle } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import type { RemoteAccessInitializedData } from "@/services/types"
 import { DeskConfigAdvancedTab } from "./desk-config-advanced-tab"
 import { DeskConfigAudioTab } from "./desk-config-audio-tab"
@@ -384,7 +385,10 @@ export function DeskConfigDialog({
                                     name="image_capture"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>{t('pages.desk.screenCaptureMode')}</FormLabel>
+                                            <div className="flex items-center gap-1.5">
+                                                <FormLabel>{t('pages.desk.screenCaptureMode')}</FormLabel>
+                                                {selectedImageCapture === "DXGI" && <DxgiCaptureNotice />}
+                                            </div>
                                             {/* Radix Select + RHF reset can miss value updates; re-mount to reflect initial data */}
                                             {(() => {
                                                 const currentValue = field.value || ""
@@ -430,20 +434,6 @@ export function DeskConfigDialog({
                                         </FormItem>
                                     )}
                                 />
-
-                                {selectedImageCapture === "DXGI" && (
-                                    <Alert>
-                                        <AlertTriangle className="h-4 w-4" />
-                                        <AlertTitle>
-                                            {t("pages.desk.dxgiVideoBlackBarWarning.title")}
-                                        </AlertTitle>
-                                        <AlertDescription>
-                                            {t(
-                                                "pages.desk.dxgiVideoBlackBarWarning.body"
-                                            )}
-                                        </AlertDescription>
-                                    </Alert>
-                                )}
 
                                 {captureUnavailable && (
                                     <Alert variant="destructive">
@@ -687,5 +677,40 @@ export function DeskConfigDialog({
                 </Form>
             </DialogContent>
         </Dialog>
+    )
+}
+
+/**
+ * DXGI's video limitation is worth knowing but not worth half the dialog:
+ * a warning icon next to the capture-mode label opens it on demand.
+ */
+export function DxgiCaptureNotice() {
+    const { t } = useTranslation()
+    const title = t("pages.desk.dxgiVideoBlackBarWarning.title")
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={title}
+                    className="h-6 w-6 text-amber-500 hover:text-amber-600"
+                >
+                    <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent
+                side="bottom"
+                align="start"
+                collisionPadding={16}
+                className="w-80 max-w-[calc(100vw-2rem)] space-y-1.5 text-sm"
+            >
+                <p className="font-medium">{title}</p>
+                <p className="text-muted-foreground">
+                    {t("pages.desk.dxgiVideoBlackBarWarning.body")}
+                </p>
+            </PopoverContent>
+        </Popover>
     )
 }
