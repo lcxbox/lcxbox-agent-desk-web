@@ -30,7 +30,7 @@ pub(super) async fn wait_for_scan() {
 
 /// How one scan of a queued row ended.
 enum Attempt {
-    /// Not ready, deferred or closed by its own rule, or handled by a batch.
+    /// Deferred or closed by its own rule, device offline, or handled by a batch.
     NotStarted,
     /// The activation ran; its returned error, if any.
     Ran(Option<AgentError>),
@@ -131,13 +131,42 @@ impl SignalMainRequestExecutor {
     }
 
     /// A first activation that registered its call token and ended before
-    /// native admission, without being cancelled, is recorded against the
-    /// scanned row and retried with backoff. Errors before the registration
-    /// are retried on the next scan without being recorded.
+    /// native admission, without being cancelled or refused for its source,
+    /// is recorded against the scanned row and retried with backoff. Errors
+    /// before the registration are retried on the next scan without being
+    /// recorded.
     async fn process(&self, row: agent_main_request::Model) -> Result<(), AgentError> {
+        let owner = crate::control_authorizer::SINGLE_ACCOUNT_USER_ID;
+        if row.actor_id != owner.to_string() {
+            return Ok(());
+        }
         let progress = main_request::tracks_activation(&row)
             .then(|| Arc::new(main_request::ActivationProgress::default()));
-        let result = self.attempt(row.clone(), progress.clone()).await;
+        let Some(execution_conversation_id) = self.ready(&row).await? else {
+            return Ok(());
+        };
+        // The attempt owns the request's call token from here; the turn
+        // registers the same token while this one is held.
+        let call = cancellation::register(owner, &row.request_id);
+        if let Some(progress) = &progress {
+            let call = call.clone();
+            progress.attach_cancellation(move || call.is_cancelled());
+        }
+        let result = self
+            .owned_attempt(row.clone(), execution_conversation_id, progress.clone())
+            .await;
+        // Settled while the token is still registered, as the hosts share it.
+        let settled = self.settle(&row, progress.as_deref(), result).await;
+        drop(call);
+        settled
+    }
+
+    async fn settle(
+        &self,
+        row: &agent_main_request::Model,
+        progress: Option<&main_request::ActivationProgress>,
+        result: Result<Attempt, AgentError>,
+    ) -> Result<(), AgentError> {
         let Some(progress) = progress.filter(|progress| progress.failed()) else {
             return result.map(|_| ());
         };
@@ -146,9 +175,9 @@ impl SignalMainRequestExecutor {
             Ok(Attempt::Ran(error)) => error.as_ref(),
             Err(error) => Some(error),
         };
-        let outcome = main_request::settle_failed_activation(
+        let outcome = main_request::record_activation_failure(
             &self.db,
-            &row,
+            row,
             chrono::Utc::now().timestamp_millis(),
             progress.error_code(returned),
         )
@@ -163,25 +192,13 @@ impl SignalMainRequestExecutor {
         Ok(())
     }
 
-    async fn attempt(
+    async fn owned_attempt(
         &self,
         row: agent_main_request::Model,
+        execution_conversation_id: String,
         progress: Option<Arc<main_request::ActivationProgress>>,
     ) -> Result<Attempt, AgentError> {
         let owner = crate::control_authorizer::SINGLE_ACCOUNT_USER_ID;
-        if row.actor_id != owner.to_string() {
-            return Ok(Attempt::NotStarted);
-        }
-        let Some(execution_conversation_id) = self.ready(&row).await? else {
-            return Ok(Attempt::NotStarted);
-        };
-        // The attempt owns the request's call token from here; the turn
-        // registers the same token while this one is held.
-        let call = cancellation::register(owner, &row.request_id);
-        if let Some(progress) = &progress {
-            let call = call.clone();
-            progress.attach_cancellation(move || call.is_cancelled());
-        }
         let frozen = FrozenRequestInput::decode(&row).map_err(|error| error.into_agent_error())?;
         let now_ms = chrono::Utc::now().timestamp_millis();
         let issue_authority = frozen

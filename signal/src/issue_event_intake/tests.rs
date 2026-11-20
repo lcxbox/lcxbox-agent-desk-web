@@ -290,6 +290,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         .authorized_issue_on(&db, ACTOR, chrono::Utc::now().timestamp_millis())
         .await
         .unwrap()
+        .subscribed()
         .unwrap();
     assert_eq!(
         admitted.workset.comments[0].body,
@@ -334,6 +335,8 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
             .await
             .is_err()
     );
+    let policy_revision =
+        assert_source_rejection_at_admission(&db, &store, &input, queued, source, &policy).await;
     let receipt = store
         .admit_user_input(
             &input,
@@ -556,7 +559,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         ACTOR,
         &policy.subscription_id,
         IssueSubscriptionEnable {
-            expected_revision: policy.revision,
+            expected_revision: policy_revision,
             enabled: false,
         },
     )
@@ -743,6 +746,100 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
     assert_eq!(fixture.reads(), 0);
     assert_eq!(fixture.writes(), 0);
     fixture.stop().await;
+}
+
+/// Admission's recheck reports a paused or revoked source as a rejection,
+/// which the executor does not charge; unreadable authority is an error.
+/// Returns the subscription revision after the pause and resume.
+async fn assert_source_rejection_at_admission(
+    db: &DatabaseConnection,
+    store: &crate::agent_run_event_store::SignalAgentRunEventStore,
+    input: &crate::agent_run_event_store::AppendUserFollowupParams,
+    queued: &desk_assistant_data_store::entity::agent_main_request::Model,
+    source: &desk_diagnose_core::issue_authority::IssueWorkSource,
+    policy: &desk_diagnose_core::issue_authority::IssueSubscription,
+) -> u64 {
+    use desk_assistant_data_store::{
+        entity::agent_issue_admission as admission,
+        issue_authority,
+        main_request::{OwnerAdmission, OwnerAdmissionResult},
+    };
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
+    let activate = || OwnerAdmission::Activate {
+        request_id: &queued.request_id,
+        issue_source: Some(source),
+    };
+    let now = chrono::Utc::now().timestamp_millis();
+    let current = issue_authority::current(db, ACTOR, &policy.subscription_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut paused = current.clone();
+    paused.enabled = false;
+    let paused = issue_authority::put(db, paused, current.revision, now)
+        .await
+        .unwrap();
+    assert!(matches!(
+        store
+            .admit_user_input(input, None, activate())
+            .await
+            .unwrap(),
+        OwnerAdmissionResult::SourceRejected
+    ));
+    let mut resumed = paused.clone();
+    resumed.enabled = true;
+    let resumed = issue_authority::put(db, resumed, paused.revision, now)
+        .await
+        .unwrap();
+
+    let original = admission::Entity::find()
+        .filter(admission::Column::RequestId.eq(&queued.request_id))
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap();
+    let update = || admission::Entity::update_many().filter(admission::Column::Id.eq(original.id));
+    update()
+        .col_expr(admission::Column::StoppedAtMs, Expr::value(now))
+        .exec(db)
+        .await
+        .unwrap();
+    assert!(matches!(
+        store
+            .admit_user_input(input, None, activate())
+            .await
+            .unwrap(),
+        OwnerAdmissionResult::SourceRejected
+    ));
+    update()
+        .col_expr(admission::Column::StoppedAtMs, Expr::value(None::<i64>))
+        .col_expr(admission::Column::SnapshotJson, Expr::value("{}"))
+        .exec(db)
+        .await
+        .unwrap();
+    assert!(
+        store
+            .admit_user_input(input, None, activate())
+            .await
+            .is_err()
+    );
+    update()
+        .col_expr(
+            admission::Column::SnapshotJson,
+            Expr::value(original.snapshot_json.clone()),
+        )
+        .exec(db)
+        .await
+        .unwrap();
+    assert_eq!(
+        admission::Entity::find_by_id(original.id)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap(),
+        original
+    );
+    resumed.revision
 }
 
 #[actix_web::test]

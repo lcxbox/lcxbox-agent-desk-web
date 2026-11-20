@@ -30,7 +30,7 @@ mod tests;
 
 pub use activation::{
     ActivationFailureOutcome, ActivationProgress, MAX_ACTIVATION_ATTEMPTS,
-    record_activation_failure, settle_failed_activation, tracks_activation,
+    record_activation_failure, tracks_activation,
 };
 
 pub const QUEUED: &str = "queued";
@@ -163,6 +163,8 @@ pub enum OwnerAdmissionResult<R> {
     },
     Dispatched,
     Waiting,
+    /// Admission's recheck rejected the request's subscription source.
+    SourceRejected,
 }
 
 /// Queue retries and activation reuse the accepted binding. Remote name lookup
@@ -496,6 +498,24 @@ pub async fn delete_for_conversation(
     Ok(())
 }
 
+#[derive(Debug)]
+pub enum IssueAuthorization {
+    /// The owner's own request has no subscription source.
+    Owner,
+    Subscribed(Box<desk_diagnose_core::issue_authority::IssueAdmission>),
+    /// The source no longer authorizes this request.
+    Rejected,
+}
+
+impl IssueAuthorization {
+    pub fn subscribed(self) -> Option<desk_diagnose_core::issue_authority::IssueAdmission> {
+        match self {
+            Self::Subscribed(admission) => Some(*admission),
+            Self::Owner | Self::Rejected => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IssueQueueAuthority {
     Ready,
@@ -699,27 +719,31 @@ impl FrozenRequestInput {
         })
     }
 
+    /// Admission's recheck of a subscribed request. A source that is paused,
+    /// revoked or no longer allows the request's devices is rejected; the
+    /// executor's next source check defers or closes the request. Unreadable
+    /// authority data is an error.
     pub async fn authorized_issue_on(
         &self,
         db: &impl ConnectionTrait,
         actor: &str,
         now: i64,
-    ) -> Result<Option<desk_diagnose_core::issue_authority::IssueAdmission>, AssistantStoreError>
-    {
+    ) -> Result<IssueAuthorization, AssistantStoreError> {
         let Some(source) = &self.issue_source else {
-            return Ok(None);
+            return Ok(IssueAuthorization::Owner);
         };
         let [issue] = self.reads.external_issues.as_slice() else {
             return Err(AssistantStoreError::Inaccessible);
         };
-        let (admission, current) =
-            crate::issue_authority::resolve_work_source(db, actor, source, issue, now)
-                .await?
-                .ok_or(AssistantStoreError::Inaccessible)?;
+        let Some((admission, current)) =
+            crate::issue_authority::resolve_work_source(db, actor, source, issue, now).await?
+        else {
+            return Ok(IssueAuthorization::Rejected);
+        };
         if !self.targets.is_empty() && !admission.can_use_devices(&current, now) {
-            return Err(AssistantStoreError::Inaccessible);
+            return Ok(IssueAuthorization::Rejected);
         }
-        Ok(Some(admission))
+        Ok(IssueAuthorization::Subscribed(Box::new(admission)))
     }
 
     fn validate_issue_source(

@@ -656,6 +656,7 @@ async fn routed_work_uses_the_first_comment_and_header_without_expanding_origina
         .authorized_issue_on(&db, &root.actor_id, 2005)
         .await
         .unwrap()
+        .subscribed()
         .unwrap();
     assert_eq!(admitted.workset.title, header.title);
     assert_eq!(admitted.workset.comments[0].body, first.body);
@@ -838,6 +839,7 @@ async fn routed_work_uses_the_first_comment_and_header_without_expanding_origina
         .authorized_issue_on(&txn, &root.actor_id, 120_005)
         .await
         .unwrap()
+        .subscribed()
         .unwrap();
     assert_eq!(next_admission.workset.title, next_header.title);
     assert_eq!(
@@ -1110,15 +1112,12 @@ async fn unreadable_issue_authority_of_a_follower_does_not_hold_the_head() {
     assert!(root.main_coordination.is_none());
 }
 
-/// The executor saw the subscription ready, then the owner paused it before
-/// admission, whose recheck rejects the source. That rejection defers the
-/// request as paused instead of charging an activation failure.
-#[tokio::test]
-async fn a_subscription_paused_after_the_check_defers_instead_of_failing() {
-    use crate::{
-        issue_authority,
-        main_request::{self, ActivationFailureOutcome, FrozenRequestInput},
-    };
+/// A subscribed request routed into the workbench queue.
+async fn subscribed_request() -> (
+    DatabaseConnection,
+    IssueSubscription,
+    crate::entity::agent_main_request::Model,
+) {
     use desk_agent_protocol::{AgentScope, ExecutionMode, data_lineage::DestinationIdentity};
     use desk_diagnose_core::session::{AgentSessionSurface, PersistedAgentSession};
     use routing::FrozenIssueHeader;
@@ -1191,63 +1190,163 @@ async fn a_subscription_paused_after_the_check_defers_instead_of_failing() {
     .await
     .unwrap();
     txn.commit().await.unwrap();
-    let scanned = main_request::load(&db, &root.actor_id, &root.conversation_id, &request)
+    let row = crate::main_request::load(&db, &root.actor_id, &root.conversation_id, &request)
         .await
         .unwrap()
         .unwrap();
-    let frozen = FrozenRequestInput::decode(&scanned).unwrap();
+    (db, policy, row)
+}
+
+/// Paused between the executor's check and admission, then resumed before
+/// the attempt settles: admission rejects the source, the attempt is not
+/// charged, and the next scan admits it normally.
+#[tokio::test]
+async fn a_source_paused_at_admission_is_not_charged_and_admits_after_resuming() {
+    use crate::main_request::{self, ActivationProgress, FrozenRequestInput, IssueAuthorization};
+    let (db, policy, row) = subscribed_request().await;
+    let frozen = FrozenRequestInput::decode(&row).unwrap();
+    let now = chrono::Utc::now().timestamp_millis();
     assert_eq!(
         frozen
-            .issue_queue_authority(&db, &root.actor_id, now)
+            .issue_queue_authority(&db, &row.actor_id, now)
             .await
             .unwrap(),
         main_request::IssueQueueAuthority::Ready
     );
-
     let mut paused = policy.clone();
     paused.enabled = false;
-    let paused = issue_authority::put(&db, paused, policy.revision, now)
+    let paused = crate::issue_authority::put(&db, paused, policy.revision, now)
         .await
         .unwrap();
-    assert!(
+    assert!(matches!(
         frozen
-            .authorized_issue_on(&db, &root.actor_id, now)
-            .await
-            .is_err(),
-        "admission rejects the paused source"
-    );
-    assert_eq!(
-        main_request::settle_failed_activation(&db, &scanned, now, Some(7))
+            .authorized_issue_on(&db, &row.actor_id, now)
             .await
             .unwrap(),
-        ActivationFailureOutcome::Paused
-    );
-    let deferred = main_request::load(&db, &root.actor_id, &root.conversation_id, &request)
+        IssueAuthorization::Rejected
+    ));
+    let progress = ActivationProgress::default();
+    progress.attach_cancellation(|| false);
+    progress.mark_source_rejected();
+    assert!(!progress.failed());
+    let mut resumed = paused.clone();
+    resumed.enabled = true;
+    crate::issue_authority::put(&db, resumed, paused.revision, now + 1)
+        .await
+        .unwrap();
+    let saved = main_request::load(&db, &row.actor_id, &row.conversation_id, &row.request_id)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(deferred.state, main_request::QUEUED);
-    assert_eq!(deferred.activation_attempts, 0);
-    assert!(deferred.activation_retry_at_ms.is_none());
-    assert_eq!(deferred.retry_at_ms, Some(now + 5_000));
+    assert_eq!(saved, row, "nothing was recorded");
+    assert_eq!(
+        frozen
+            .issue_queue_authority(&db, &row.actor_id, now + 2)
+            .await
+            .unwrap(),
+        main_request::IssueQueueAuthority::Ready
+    );
+    assert!(matches!(
+        frozen
+            .authorized_issue_on(&db, &row.actor_id, now + 2)
+            .await
+            .unwrap(),
+        IssueAuthorization::Subscribed(_)
+    ));
+}
 
-    // Resumed, the request can start; a real failure is charged as usual.
-    let mut resumed = paused.clone();
-    resumed.enabled = true;
-    issue_authority::put(&db, resumed, paused.revision, now + 1)
+/// Revoked at admission: not charged, and the executor's next source check
+/// closes the request as an unavailable source.
+#[tokio::test]
+async fn a_source_revoked_at_admission_closes_as_unavailable_on_the_next_scan() {
+    use crate::main_request::{self, FrozenRequestInput, IssueAuthorization};
+    use desk_agent_protocol::ai_assistant::MainRequestFailure;
+    let (db, _, row) = subscribed_request().await;
+    let frozen = FrozenRequestInput::decode(&row).unwrap();
+    let now = chrono::Utc::now().timestamp_millis();
+    crate::issue_authority::stop_request(&db, &row.actor_id, &row.request_id, now)
+        .await
+        .unwrap();
+    assert!(matches!(
+        frozen
+            .authorized_issue_on(&db, &row.actor_id, now)
+            .await
+            .unwrap(),
+        IssueAuthorization::Rejected
+    ));
+    assert_eq!(
+        frozen
+            .issue_queue_authority(&db, &row.actor_id, now)
+            .await
+            .unwrap(),
+        main_request::IssueQueueAuthority::Unavailable
+    );
+    let scanned = main_request::load(&db, &row.actor_id, &row.conversation_id, &row.request_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(scanned.activation_attempts, 0);
+    main_request::fail_unactivated(&db, &scanned, now, MainRequestFailure::SourceUnavailable)
+        .await
+        .unwrap();
+    let receipt = main_request::receipts(
+        &db,
+        &row.actor_id,
+        &row.conversation_id,
+        Some(&row.request_id),
+    )
+    .await
+    .unwrap()
+    .remove(0);
+    assert_eq!(receipt.failure, Some(MainRequestFailure::SourceUnavailable));
+}
+
+/// Unreadable authority data is an ordinary failure: it is charged, backs
+/// off, and closes the request instead of holding the queue head.
+#[tokio::test]
+async fn unreadable_authority_at_admission_is_charged_until_the_request_fails() {
+    use crate::{
+        entity::agent_issue_admission as admission,
+        main_request::{self, ActivationFailureOutcome, FrozenRequestInput},
+    };
+    let (db, _, row) = subscribed_request().await;
+    let frozen = FrozenRequestInput::decode(&row).unwrap();
+    let now = chrono::Utc::now().timestamp_millis();
+    admission::Entity::update_many()
+        .col_expr(
+            admission::Column::SnapshotJson,
+            sea_orm::sea_query::Expr::value("{}"),
+        )
+        .filter(admission::Column::RequestId.eq(&row.request_id))
+        .exec(&db)
         .await
         .unwrap();
     assert!(
         frozen
-            .authorized_issue_on(&db, &root.actor_id, now + 1)
+            .authorized_issue_on(&db, &row.actor_id, now)
+            .await
+            .is_err()
+    );
+    for attempt in 1..=main_request::MAX_ACTIVATION_ATTEMPTS {
+        let scanned = main_request::load(&db, &row.actor_id, &row.conversation_id, &row.request_id)
             .await
             .unwrap()
-            .is_some()
-    );
-    assert!(matches!(
-        main_request::settle_failed_activation(&db, &deferred, now + 2, Some(7))
+            .unwrap();
+        let outcome =
+            main_request::record_activation_failure(&db, &scanned, now + i64::from(attempt), None)
+                .await
+                .unwrap();
+        if attempt < main_request::MAX_ACTIVATION_ATTEMPTS {
+            assert!(matches!(outcome, ActivationFailureOutcome::Deferred { .. }));
+        } else {
+            assert_eq!(outcome, ActivationFailureOutcome::Failed);
+        }
+    }
+    assert!(
+        main_request::recovery_heads(&db, 0, 10)
             .await
-            .unwrap(),
-        ActivationFailureOutcome::Deferred { .. }
-    ));
+            .unwrap()
+            .iter()
+            .all(|head| head.id != row.id)
+    );
 }

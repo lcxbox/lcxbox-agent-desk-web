@@ -412,7 +412,7 @@ impl SignalAgentRunEventStore {
                             "queued assistant input scope or destination changed",
                         ));
                     }
-                    if let Some(source) = frozen
+                    match frozen
                         .authorized_issue_on(
                             &txn,
                             &params.actor_id,
@@ -421,7 +421,13 @@ impl SignalAgentRunEventStore {
                         .await
                         .map_err(|error| error.into_agent_error())?
                     {
-                        session.bind_issue_work_source(&source).map_err(internal)?;
+                        main_request::IssueAuthorization::Owner => {}
+                        main_request::IssueAuthorization::Subscribed(source) => {
+                            session.bind_issue_work_source(&source).map_err(internal)?;
+                        }
+                        main_request::IssueAuthorization::Rejected => {
+                            return Ok(OwnerAdmissionResult::SourceRejected);
+                        }
                     }
                     Some(head)
                 }

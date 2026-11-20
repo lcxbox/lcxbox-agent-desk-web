@@ -3551,6 +3551,15 @@ async fn prepare_composed_turn(
                 ).await }).await;
                 return Ok(Some(LoopOutcome::SubAgentYielded));
             }
+            Ok(OwnerAdmissionResult::SourceRejected) => {
+                // The executor's next source check defers or closes the request.
+                if let Some(progress) = progress {
+                    progress.mark_source_rejected();
+                }
+                return Err(main_request::failure_error(
+                    desk_agent_protocol::ai_assistant::MainRequestFailure::SourceUnavailable,
+                ));
+            }
             Ok(OwnerAdmissionResult::Waiting) => {
                 if let Some(progress) = progress {
                     progress.mark_waiting();
