@@ -63,6 +63,15 @@ pub(super) fn central_reply_route(message: &ServiceToWorker) -> Option<(&str, Ex
                 SignalingType::TerminalCommandsListed,
             )
         }
+        // The physical-mode restore after the last connection left acts for no
+        // connection: the one that left may have been bound to another
+        // session's worker than the one restoring the mode.
+        ServiceToWorker::SetPhysicalDisplayMode(payload) if payload.connection_id.is_empty() => {
+            single(
+                payload.request_id.as_str(),
+                SignalingType::DisplaySettingsChanged,
+            )
+        }
         ServiceToWorker::InvokeRemoteRead(payload) => single(
             payload.request_id.as_str(),
             SignalingType::RemoteToolOutputUpdated,
@@ -443,5 +452,31 @@ mod tests {
             connection_id: Some("conn".into()),
         });
         assert_eq!(central_reply_route(&browser), None);
+    }
+
+    #[test]
+    fn only_a_connection_less_physical_mode_request_needs_a_route() {
+        use desk_ipc_protocol::message::{PhysicalDisplayAction, SetPhysicalDisplayModePayload};
+        let request = |connection_id: &str| {
+            ServiceToWorker::SetPhysicalDisplayMode(SetPhysicalDisplayModePayload {
+                request_id: "p1".into(),
+                connection_id: connection_id.into(),
+                connection_epoch: "epoch".into(),
+                device_name: "display".into(),
+                capture_backend: String::new(),
+                operation_id: 1,
+                action: PhysicalDisplayAction::Select {
+                    selector: "mode".into(),
+                },
+            })
+        };
+        assert_eq!(
+            central_reply_route(&request("")),
+            Some((
+                "p1",
+                ExpectedReply::single(SignalingType::DisplaySettingsChanged)
+            ))
+        );
+        assert_eq!(central_reply_route(&request("conn")), None);
     }
 }

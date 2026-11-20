@@ -177,18 +177,24 @@ async fn init_telemetry_inner(
 
     let _ = std::fs::create_dir_all(&log_dir);
 
-    // Determine log file name based on startup mode
-    let log_file_name = log_file_name_for(startup_mode);
-
-    // File appender
-    let file_appender = tracing_appender::rolling::daily(&log_dir, log_file_name);
-    let (non_blocking, guard) = non_blocking_writer(file_appender);
-    guards.push(guard);
-    let file_layer = fmt::layer()
-        .with_ansi(false)
-        .with_line_number(true)
-        .with_writer(non_blocking)
-        .with_filter(make_env_filter());
+    // File appender: never fatal (see `open_rolling_log`).
+    let user_sid = process_user_sid();
+    let (primary_name, fallback_name) = log_names_for(
+        log_file_name_for(startup_mode),
+        log_name_is_per_user(startup_mode),
+        user_sid.as_deref(),
+    );
+    let (file_appender, log_open_notes) =
+        open_rolling_log(&log_dir, &primary_name, fallback_name.as_deref());
+    let file_layer = file_appender.map(|appender| {
+        let (non_blocking, guard) = non_blocking_writer(appender);
+        guards.push(guard);
+        fmt::layer()
+            .with_ansi(false)
+            .with_line_number(true)
+            .with_writer(non_blocking)
+            .with_filter(make_env_filter())
+    });
 
     // 3. Setup OpenTelemetry (Optional based on consent)
     let consented = system_settings.telemetry_consent == Some(true);
@@ -284,6 +290,9 @@ async fn init_telemetry_inner(
     };
 
     registry.init();
+    for note in &log_open_notes {
+        tracing::warn!("[telemetry] {note}");
+    }
     if consented && !collector_configured {
         tracing::info!(
             "Telemetry consent is given but no OTLP collector is configured; \
@@ -398,26 +407,113 @@ pub fn is_headless_startup_mode(startup_mode: &StartupMode) -> bool {
 pub fn init_tauri_shell_telemetry(
     log_level: &str,
     log_dir: &std::path::Path,
-) -> Result<WorkerGuard> {
-    std::fs::create_dir_all(log_dir)?;
+) -> Result<Option<WorkerGuard>> {
+    let _ = std::fs::create_dir_all(log_dir);
 
     let env_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
 
-    let file_appender = tracing_appender::rolling::daily(log_dir, TAURI_SHELL_LOG_FILE_NAME);
-    let (non_blocking, guard) = non_blocking_writer(file_appender);
-    let file_layer = fmt::layer()
-        .with_ansi(false)
-        .with_line_number(true)
-        .with_writer(non_blocking);
+    // The tray shell runs as each logged-in user: one file per user.
+    let user_sid = process_user_sid();
+    let (primary_name, fallback_name) =
+        log_names_for(TAURI_SHELL_LOG_FILE_NAME, true, user_sid.as_deref());
+    let (file_appender, notes) = open_rolling_log(log_dir, &primary_name, fallback_name.as_deref());
+    let mut guard = None;
+    let file_layer = file_appender.map(|appender| {
+        let (non_blocking, writer_guard) = non_blocking_writer(appender);
+        guard = Some(writer_guard);
+        fmt::layer()
+            .with_ansi(false)
+            .with_line_number(true)
+            .with_writer(non_blocking)
+    });
 
     Registry::default()
         .with(env_filter)
         .with(file_layer)
         .try_init()
         .map_err(|e| anyhow::anyhow!("install tracing subscriber: {e}"))?;
+    for note in &notes {
+        tracing::warn!("[telemetry] {note}");
+    }
 
     Ok(guard)
+}
+
+/// The SID of the user this process runs as, unless it runs as SYSTEM.
+/// Windows only: there every user's processes share the host log directory,
+/// and a file one user created cannot be written by another standard user.
+fn process_user_sid() -> Option<String> {
+    #[cfg(windows)]
+    {
+        desk_file_recovery::windows::current_user_sid()
+            .ok()
+            .filter(|sid| sid != "S-1-5-18")
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// Modes that run as each logged-in user in the shared log directory, and so
+/// write one file per user.
+fn log_name_is_per_user(startup_mode: &StartupMode) -> bool {
+    matches!(startup_mode, StartupMode::SessionWorker)
+}
+
+/// `desk-worker.log` → `desk-worker-<sid>.log`. A SID is unique and only
+/// contains `S`, digits and `-`, so names never collide.
+fn per_user_log_name(base: &str, sid: &str) -> String {
+    match base.strip_suffix(".log") {
+        Some(stem) => format!("{stem}-{sid}.log"),
+        None => format!("{base}-{sid}"),
+    }
+}
+
+/// The log file to open and the one to try if it cannot be opened.
+fn log_names_for(base: &str, per_user: bool, user_sid: Option<&str>) -> (String, Option<String>) {
+    match user_sid {
+        Some(sid) if per_user => (per_user_log_name(base, sid), None),
+        Some(sid) => (base.to_owned(), Some(per_user_log_name(base, sid))),
+        None => (base.to_owned(), None),
+    }
+}
+
+/// Open a daily-rolling log, never panicking: `tracing_appender::rolling::daily`
+/// panics when the file cannot be created (a standard user's worker died on a
+/// log file another user created, on device 2026-11-20). Tries `primary`,
+/// then `fallback`, else no file log. Returns notes to log once the
+/// subscriber is installed.
+fn open_rolling_log(
+    dir: &std::path::Path,
+    primary: &str,
+    fallback: Option<&str>,
+) -> (
+    Option<tracing_appender::rolling::RollingFileAppender>,
+    Vec<String>,
+) {
+    let mut notes = Vec::new();
+    for name in std::iter::once(primary).chain(fallback.filter(|name| *name != primary)) {
+        match tracing_appender::rolling::RollingFileAppender::builder()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .filename_prefix(name)
+            .build(dir)
+        {
+            Ok(appender) => {
+                if name != primary {
+                    notes.push(format!("writing {name} instead"));
+                }
+                return (Some(appender), notes);
+            }
+            Err(error) => notes.push(format!(
+                "cannot open log {name} in {}: {error}",
+                dir.display()
+            )),
+        }
+    }
+    notes.push("running without a file log".into());
+    (None, notes)
 }
 
 /// How long to wait before re-reading the settings while cleanup is disabled.
@@ -484,17 +580,28 @@ fn spawn_log_cleanup_task(shared_settings: Arc<SharedSettings>, log_dir: std::pa
     });
 }
 
-/// The roll date of `file_name` if it is one of this project's rolled log files
-/// (`<base>.<date>` for a base in [`MANAGED_LOG_BASE_NAMES`]).
+/// The roll date of `file_name` if it is one of this project's rolled log files:
+/// `<base>.<date>` for a base in [`MANAGED_LOG_BASE_NAMES`], or the per-user
+/// form `<stem>-<SID>.log.<date>` (see [`per_user_log_name`]).
 ///
-/// The file currently being written has no date suffix and so yields `None`,
-/// which is what keeps the live log out of the sweep.
+/// With daily rotation the file being written is today's dated file; the
+/// retention window and [`eligible_under_disk_pressure`] keep it.
 fn rolled_log_date(file_name: &str) -> Option<chrono::NaiveDate> {
-    MANAGED_LOG_BASE_NAMES.iter().find_map(|base| {
-        file_name
-            .strip_prefix(base)
-            .and_then(|rest| rest.strip_prefix('.'))
+    let date_after = |rest: &str| {
+        rest.strip_prefix('.')
             .and_then(|date| chrono::NaiveDate::parse_from_str(date, LOG_DATE_FORMAT).ok())
+    };
+    MANAGED_LOG_BASE_NAMES.iter().find_map(|base| {
+        if let Some(rest) = file_name.strip_prefix(base) {
+            return date_after(rest);
+        }
+        let stem = base.strip_suffix(".log")?;
+        let rest = file_name.strip_prefix(stem)?.strip_prefix("-S-1-")?;
+        let (sid_tail, rest) = rest.split_once(".log")?;
+        let is_sid = !sid_tail.is_empty()
+            && sid_tail.chars().all(|c| c.is_ascii_digit() || c == '-')
+            && !sid_tail.ends_with('-');
+        if is_sid { date_after(rest) } else { None }
     })
 }
 
@@ -652,9 +759,83 @@ mod tests {
         assert!(MANAGED_LOG_BASE_NAMES.contains(&TAURI_SHELL_LOG_FILE_NAME));
     }
 
-    /// A rolled file is `<managed base>.<date>`. The live file has no date
-    /// suffix, and a file belonging to something else sharing the directory is
-    /// not ours to delete.
+    /// Regression (on device 2026-11-20): a standard user's worker panicked
+    /// opening `desk-worker.log`, which another user had created.
+    #[test]
+    fn a_user_process_writes_its_own_file_and_system_keeps_the_shared_one() {
+        let sid = "S-1-5-21-281717903-1272165582-2210059029-1007";
+        assert_eq!(
+            log_names_for("desk-worker.log", true, Some(sid)),
+            (format!("desk-worker-{sid}.log"), None)
+        );
+        assert_eq!(
+            log_names_for("desk-worker.log", true, None),
+            ("desk-worker.log".to_owned(), None)
+        );
+        assert_eq!(
+            log_names_for("desk-server.log", false, Some(sid)),
+            (
+                "desk-server.log".to_owned(),
+                Some(format!("desk-server-{sid}.log"))
+            )
+        );
+        assert!(log_name_is_per_user(&StartupMode::SessionWorker));
+        assert!(!log_name_is_per_user(&StartupMode::ServiceDaemon));
+    }
+
+    #[test]
+    fn a_log_that_cannot_be_opened_falls_back_and_never_panics() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let today = chrono::Utc::now().format(LOG_DATE_FORMAT).to_string();
+        // Today's primary file is a directory: it cannot be opened.
+        std::fs::create_dir(dir.path().join(format!("desk-daemon.log.{today}"))).unwrap();
+        let (appender, notes) = open_rolling_log(
+            dir.path(),
+            "desk-daemon.log",
+            Some("desk-daemon-S-1-5-21-1.log"),
+        );
+        assert!(appender.is_some());
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.contains("writing desk-daemon-S-1-5-21-1.log"))
+        );
+
+        // Nothing can be opened: no file log, no panic.
+        std::fs::create_dir(dir.path().join(format!("desk-worker.log.{today}"))).unwrap();
+        let (appender, notes) = open_rolling_log(dir.path(), "desk-worker.log", None);
+        assert!(appender.is_none());
+        assert_eq!(
+            notes.last().map(String::as_str),
+            Some("running without a file log")
+        );
+    }
+
+    #[test]
+    fn per_user_rolls_are_managed_too() {
+        assert_eq!(
+            rolled_log_date("desk-worker-S-1-5-21-281717903-1007.log.2026-11-19"),
+            Some(day("2026-11-19"))
+        );
+        assert_eq!(
+            rolled_log_date("desk-tauri-S-1-5-21-1.log.2026-11-19"),
+            Some(day("2026-11-19"))
+        );
+        assert_eq!(
+            rolled_log_date("desk-worker-S-1-5-21-1.log.2026-11-19.gz"),
+            None
+        );
+        assert_eq!(rolled_log_date("desk-worker-testuser.log.2026-11-19"), None);
+        assert_eq!(rolled_log_date("desk-worker-S-1-.log.2026-11-19"), None);
+        assert_eq!(rolled_log_date("desk-workerx.log.2026-11-19"), None);
+        assert_eq!(
+            rolled_log_date("desk-worker-S-1-5-21-1-.log.2026-11-19"),
+            None
+        );
+    }
+
+    /// A rolled file is `<managed base>.<date>`; a file belonging to something
+    /// else sharing the directory is not ours to delete.
     #[test]
     fn rolled_log_date_matches_only_this_project_s_rolls() {
         assert_eq!(

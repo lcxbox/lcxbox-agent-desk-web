@@ -40,7 +40,20 @@ pub(super) fn resident_output_admitted(
         WorkerToService::FileRecoveryQuotaRequested(_)
         | WorkerToService::StartApplicationHost(_)
         | WorkerToService::LocalFileRecoveryManaged(_) => true,
+        // The reply to a connection-less physical-mode restore, from the worker
+        // it was sent to. `connection_id()` is `Some("")` for it, so it must be
+        // matched here, before the ownership check below.
+        WorkerToService::PhysicalDisplayMode(payload) if payload.connection_id.is_empty() => {
+            requests.admit_reply(
+                &payload.request_id,
+                key,
+                incarnation,
+                SignalingType::DisplaySettingsChanged,
+            )
+        }
         // An error reply to a connection-less request names no connection.
+        // (A worker answers a physical-mode restore with `PhysicalDisplayMode`,
+        // never with an error, so this does not consume that route.)
         WorkerToService::SignalingError(payload) if payload.connection_id.is_empty() => requests
             .admit_reply(
                 &payload.request_id,

@@ -404,3 +404,58 @@ fn being_the_virtual_display_worker_admits_nothing_else_connection_less() {
     assert!(!from_worker(&other, true));
     assert!(!from_worker(&heartbeat("unbound"), true));
 }
+
+fn physical_mode_reply(request_id: &str, connection_id: &str) -> WorkerToService {
+    WorkerToService::PhysicalDisplayMode(
+        desk_ipc_protocol::message::PhysicalDisplayModeResponsePayload {
+            request_id: request_id.into(),
+            connection_id: connection_id.into(),
+            connection_epoch: "epoch".into(),
+            operation_id: 1,
+            outcome: desk_ipc_protocol::message::PhysicalDisplayModeOutcome::Failed("x".into()),
+        },
+    )
+}
+
+/// The restore after the last connection left names no connection; only the
+/// worker it was sent to may answer it, once (fast user switch: the last
+/// connection was bound to another session's worker).
+#[test]
+fn a_connection_less_physical_mode_reply_needs_its_route() {
+    let capacity = ExecCapacity::new();
+    let requests = ResidentRequestRoutes::default();
+    crate::daemon::worker_manager::resident_request_routes::record_for_test(
+        &requests,
+        "restore-1",
+        key("a"),
+        incarnation(),
+        crate::daemon::worker_manager::resident_request_routes::ExpectedReply::single_for_test(
+            SignalingType::DisplaySettingsChanged,
+        ),
+    );
+    let reply = physical_mode_reply("restore-1", "");
+    assert!(!admitted(&reply, &key("b"), &capacity, &requests));
+    assert!(admitted(&reply, &key("a"), &capacity, &requests));
+    // Consumed.
+    assert!(!admitted(&reply, &key("a"), &capacity, &requests));
+    // Without a route, nothing.
+    assert!(!admitted(
+        &physical_mode_reply("unknown", ""),
+        &key("a"),
+        &capacity,
+        &requests
+    ));
+    // A reply naming a connection still needs to own it.
+    assert!(admitted(
+        &physical_mode_reply("r", "owned"),
+        &key("a"),
+        &capacity,
+        &requests
+    ));
+    assert!(!admitted(
+        &physical_mode_reply("r", "other"),
+        &key("a"),
+        &capacity,
+        &requests
+    ));
+}
