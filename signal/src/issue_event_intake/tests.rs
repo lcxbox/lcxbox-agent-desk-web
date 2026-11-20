@@ -984,3 +984,218 @@ async fn issue_subscription_settings_bind_native_identity_and_pause_without_conn
         vec![paused]
     );
 }
+
+/// A subscribed request routed into the workbench queue, a model that refuses
+/// connections after admission, and the actual queue executor.
+async fn queued_subscription() -> (
+    DatabaseConnection,
+    IssueSubscription,
+    desk_assistant_data_store::entity::agent_main_request::Model,
+    crate::ai_assistant_orchestrator::main_requests::SignalMainRequestExecutor,
+    IssueFixture,
+) {
+    use desk_assistant_data_store::{
+        entity::agent_main_request, issue_events::routing::candidates_on,
+    };
+    crate::ai_assistant_gate::enable_test_host();
+    let db = database().await;
+    let gate = enabled_gate();
+    let fixture = IssueFixture::start_for(IssuePlatform::Gitea).await;
+    let (policy, connection) = subscribe(&db, &fixture).await;
+    fixture.seed_comment(7, "Third-party regression report".into());
+    let source_row = agent_issue_source::Entity::find()
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    poll_source(&db, &gate, &source_row, "executor-test")
+        .await
+        .unwrap();
+    let hint = candidates_on(&db, 0, 4).await.unwrap().pop().unwrap();
+    super::routing::route_event(&db, &gate, hint.clone())
+        .await
+        .unwrap();
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = closed.local_addr().unwrap();
+    drop(closed);
+    crate::model_provider::save(
+        &db,
+        crate::model_provider::ModelProviderConfig {
+            wire_protocol: Some(
+                desk_diagnose_core::model_profile::WireProtocol::OpenAiChatCompletions,
+            ),
+            model: Some("subscription-model".into()),
+            base_url: Some(format!("http://{address}")),
+            api_key: Some("test-only-key".into()),
+            max_context_bytes: Some(131_072),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let destination = crate::model_provider::load(&db)
+        .await
+        .unwrap()
+        .destination_identity()
+        .unwrap();
+    super::routing::commit_route(&db, &gate, &hint, &connection, Some(&destination))
+        .await
+        .unwrap();
+    let row = agent_main_request::Entity::find()
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    // Activation offers the targetless central web reads and admission
+    // compares them with the frozen input, while routing freezes none. Freeze
+    // them here so the scenario reaches admission's source recheck.
+    let mut frozen =
+        desk_assistant_data_store::main_request::FrozenRequestInput::decode(&row).unwrap();
+    frozen.reads.tool_names = vec![
+        desk_diagnose_core::web_research::WEB_FETCH_TOOL_NAME.into(),
+        desk_diagnose_core::web_research::WEB_SEARCH_TOOL_NAME.into(),
+    ];
+    {
+        use sea_orm::{ColumnTrait, QueryFilter, sea_query::Expr};
+        agent_main_request::Entity::update_many()
+            .col_expr(
+                agent_main_request::Column::PendingInputJson,
+                Expr::value(serde_json::to_string(&frozen).unwrap()),
+            )
+            .filter(agent_main_request::Column::Id.eq(row.id))
+            .exec(&db)
+            .await
+            .unwrap();
+    }
+    let row = agent_main_request::Entity::find_by_id(row.id)
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    let executor = crate::ai_assistant_orchestrator::main_requests::SignalMainRequestExecutor::new(
+        db.clone(),
+        actix_web::web::Data::new(
+            desk_signal_facade::model::connection::SharedConnectionMap::new_oss(),
+        ),
+        std::sync::Arc::new(enabled_gate()),
+    );
+    (db, policy, row, executor, fixture)
+}
+
+async fn reload_request(
+    db: &DatabaseConnection,
+    row: &desk_assistant_data_store::entity::agent_main_request::Model,
+) -> desk_assistant_data_store::entity::agent_main_request::Model {
+    use sea_orm::EntityTrait;
+    desk_assistant_data_store::entity::agent_main_request::Entity::find_by_id(row.id)
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap()
+}
+
+/// Paused after the executor's own check and before admission: the attempt
+/// is not charged, the next scan defers it as paused, and once resumed it is
+/// admitted.
+#[actix_web::test]
+async fn executor_defers_a_source_paused_before_admission_then_admits_it() {
+    use desk_assistant_data_store::entity::agent_main_request as request;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
+    let (db, policy, row, executor, _fixture) = queued_subscription().await;
+    let pause_db = db.clone();
+    let subscription = policy.subscription_id.clone();
+    crate::ai_assistant_orchestrator::activation_faults::run_before_admission(
+        &row.request_id,
+        move || async move {
+            let current = issue_authority::current(&pause_db, ACTOR, &subscription)
+                .await
+                .unwrap()
+                .unwrap();
+            let mut paused = current.clone();
+            paused.enabled = false;
+            issue_authority::put(&pause_db, paused, current.revision, 1)
+                .await
+                .unwrap();
+        },
+    );
+    executor.scan_once(0).await.unwrap();
+    let rejected = reload_request(&db, &row).await;
+    assert_eq!(rejected.state, "queued");
+    assert_eq!(rejected.activation_attempts, 0);
+    assert!(rejected.activation_retry_at_ms.is_none());
+    assert!(rejected.retry_at_ms.is_none());
+
+    executor.scan_once(0).await.unwrap();
+    let deferred = reload_request(&db, &row).await;
+    assert_eq!(deferred.state, "queued");
+    assert_eq!(deferred.activation_attempts, 0);
+    assert!(
+        deferred.retry_at_ms.is_some(),
+        "deferred as a paused source"
+    );
+
+    let current = issue_authority::current(&db, ACTOR, &policy.subscription_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut resumed = current.clone();
+    resumed.enabled = true;
+    issue_authority::put(&db, resumed, current.revision, 2)
+        .await
+        .unwrap();
+    request::Entity::update_many()
+        .col_expr(request::Column::RetryAtMs, Expr::value(1_i64))
+        .filter(request::Column::Id.eq(row.id))
+        .exec(&db)
+        .await
+        .unwrap();
+    executor.scan_once(0).await.unwrap();
+    let admitted = reload_request(&db, &row).await;
+    assert_eq!(admitted.state, "activated");
+    assert_eq!(admitted.activation_attempts, 0);
+}
+
+/// An unreadable authority snapshot is charged on each scan, backs off and
+/// closes the request instead of holding the queue head.
+#[actix_web::test]
+async fn executor_charges_unreadable_authority_until_the_request_fails() {
+    use desk_agent_protocol::ai_assistant::MainRequestFailure;
+    use desk_assistant_data_store::entity::{
+        agent_issue_admission as admission, agent_main_request as request,
+    };
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
+    let (db, _, row, executor, _fixture) = queued_subscription().await;
+    admission::Entity::update_many()
+        .col_expr(admission::Column::SnapshotJson, Expr::value("{}"))
+        .filter(admission::Column::RequestId.eq(&row.request_id))
+        .exec(&db)
+        .await
+        .unwrap();
+    for attempt in 1..desk_assistant_data_store::main_request::MAX_ACTIVATION_ATTEMPTS {
+        executor.scan_once(0).await.unwrap();
+        let saved = reload_request(&db, &row).await;
+        assert_eq!(saved.state, "queued");
+        assert_eq!(saved.activation_attempts, attempt);
+        assert!(saved.activation_retry_at_ms.is_some());
+        // The backoff holds the request until it elapses.
+        executor.scan_once(0).await.unwrap();
+        assert_eq!(reload_request(&db, &row).await.activation_attempts, attempt);
+        request::Entity::update_many()
+            .col_expr(request::Column::ActivationRetryAtMs, Expr::value(1_i64))
+            .filter(request::Column::Id.eq(row.id))
+            .exec(&db)
+            .await
+            .unwrap();
+    }
+    executor.scan_once(0).await.unwrap();
+    let failed = reload_request(&db, &row).await;
+    assert_eq!(failed.state, "failed");
+    assert_eq!(
+        failed.failure.as_deref(),
+        Some("activation_failed"),
+        "{:?}",
+        MainRequestFailure::ActivationFailed
+    );
+    executor.scan_once(0).await.unwrap();
+    assert_eq!(reload_request(&db, &row).await, failed);
+}

@@ -29,7 +29,7 @@ pub mod dispatch;
 mod tests;
 
 pub use activation::{
-    ActivationFailureOutcome, ActivationProgress, MAX_ACTIVATION_ATTEMPTS,
+    ActivationFailureOutcome, ActivationProgress, MAX_ACTIVATION_ATTEMPTS, claim_activation,
     record_activation_failure, tracks_activation,
 };
 
@@ -1173,6 +1173,7 @@ pub async fn enqueue(
         retry_at_ms: Set(None),
         activation_attempts: Set(0),
         activation_retry_at_ms: Set(None),
+        activation_claim: Set(0),
         failure_error_code: Set(None),
         pending_input_json: Set(Some(serde_json::to_string(input).map_err(|_| {
             AssistantStoreError::Invalid("Could not encode assistant request")

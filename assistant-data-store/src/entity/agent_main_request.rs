@@ -33,6 +33,10 @@ pub struct Model {
     /// Backoff after a failed activation; separate from the coordination and
     /// paused-source deferral in `retry_at_ms`.
     pub activation_retry_at_ms: Option<i64>,
+    /// Fencing token of the latest activation attempt that took over this
+    /// row. Only that attempt can record a failed activation.
+    #[sea_orm(default_value = 0)]
+    pub activation_claim: i64,
     /// The `DeskErrorCode` recorded when activation failed for good.
     pub failure_error_code: Option<i32>,
     pub input_revision: Option<i64>,

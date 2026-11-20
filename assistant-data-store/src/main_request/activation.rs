@@ -29,6 +29,7 @@ pub struct ActivationProgress {
     source_rejected: AtomicBool,
     error_code: Mutex<Option<i32>>,
     cancellation: OnceLock<Box<dyn Fn() -> bool + Send + Sync>>,
+    claim: OnceLock<i64>,
 }
 
 impl ActivationProgress {
@@ -87,16 +88,27 @@ impl ActivationProgress {
         self.cancellation.get().is_some()
     }
 
+    /// Keep the row's fencing token this attempt took with
+    /// [`claim_activation`]. The first value wins.
+    pub fn set_claim(&self, claim: i64) {
+        let _ = self.claim.set(claim);
+    }
+
+    pub fn claim(&self) -> Option<i64> {
+        self.claim.get().copied()
+    }
+
     /// An attempt cancelled by its owner is not an activation failure.
     pub fn cancelled(&self) -> bool {
         self.cancellation.get().is_some_and(|cancelled| cancelled())
     }
 
-    /// The finished attempt owned the call, neither reached admission nor
-    /// waited, was not refused for its source, and was not cancelled: it counts
-    /// as one failed activation.
+    /// The finished attempt owned the call and claimed the row, neither
+    /// reached admission nor waited, was not refused for its source, and was
+    /// not cancelled: it counts as one failed activation.
     pub fn failed(&self) -> bool {
         self.owns_call()
+            && self.claim().is_some()
             && self.state.load(Ordering::Acquire) == PENDING
             && !self.source_rejected.load(Ordering::Acquire)
             && !self.cancelled()
@@ -125,13 +137,39 @@ pub enum ActivationFailureOutcome {
     Stale,
 }
 
+/// Take over the scanned row for this attempt after owning the request's call.
+/// Returns the new fencing token, or `None` when the row changed or another
+/// attempt took it over since the scan; the attempt then ends uncharged. A
+/// failure recorded by an earlier attempt after this claim no longer matches.
+pub async fn claim_activation(
+    db: &impl ConnectionTrait,
+    scanned: &request::Model,
+) -> Result<Option<i64>, AssistantStoreError> {
+    use request::Column;
+    if !tracks_activation(scanned) {
+        return Ok(None);
+    }
+    let claim = scanned.activation_claim.saturating_add(1);
+    let claimed = pending_row_update(scanned)
+        .filter(Column::InputRevision.is_null())
+        .filter(Column::ActivationClaim.eq(scanned.activation_claim))
+        .filter(Column::ActivationAttempts.eq(scanned.activation_attempts))
+        .col_expr(Column::ActivationClaim, Expr::value(claim))
+        .exec(db)
+        .await?
+        .rows_affected
+        == 1;
+    Ok(claimed.then_some(claim))
+}
+
 /// Record one failed activation of the scanned row. Any change by another
 /// writer since the scan (cancellation, admission, a paused-source deferral, a
-/// coordination reservation or settlement, or a concurrent failure record)
-/// makes the record stale.
+/// coordination reservation or settlement, a concurrent failure record, or a
+/// newer attempt's claim) makes the record stale.
 pub async fn record_activation_failure(
     db: &impl ConnectionTrait,
     scanned: &request::Model,
+    claim: i64,
     now_ms: i64,
     error_code: Option<i32>,
 ) -> Result<ActivationFailureOutcome, AssistantStoreError> {
@@ -142,6 +180,7 @@ pub async fn record_activation_failure(
     let attempts = scanned.activation_attempts.saturating_add(1);
     let update = pending_row_update(scanned)
         .filter(Column::InputRevision.is_null())
+        .filter(Column::ActivationClaim.eq(claim))
         .filter(Column::ActivationAttempts.eq(scanned.activation_attempts))
         .filter(Column::CoordinationAttempts.eq(scanned.coordination_attempts))
         .filter(Column::Coordinated.eq(scanned.coordinated))

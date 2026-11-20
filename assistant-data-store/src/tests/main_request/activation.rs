@@ -34,7 +34,7 @@ async fn record(
     scanned: &request::Model,
     now: i64,
 ) -> ActivationFailureOutcome {
-    queue::record_activation_failure(db, scanned, now, Some(CODE))
+    queue::record_activation_failure(db, scanned, scanned.activation_claim, now, Some(CODE))
         .await
         .unwrap()
 }
@@ -148,9 +148,15 @@ async fn a_failure_without_an_error_code_closes_the_request_with_none() {
     let row = enqueue_at(&db, "a", now).await;
     for attempt in 1..=queue::MAX_ACTIVATION_ATTEMPTS {
         let scanned = reload(&db, &row).await;
-        queue::record_activation_failure(&db, &scanned, now + i64::from(attempt), None)
-            .await
-            .unwrap();
+        queue::record_activation_failure(
+            &db,
+            &scanned,
+            scanned.activation_claim,
+            now + i64::from(attempt),
+            None,
+        )
+        .await
+        .unwrap();
     }
     let receipt = queue::receipts(&db, "owner", "root", Some(&row.request_id))
         .await
@@ -614,7 +620,12 @@ fn progress_counts_only_an_uncancelled_attempt_that_neither_waited_nor_was_admit
     let pending = queue::ActivationProgress::default();
     assert!(!pending.owns_call() && !pending.failed() && pending.suppresses_stream());
     pending.attach_cancellation(|| false);
-    assert!(pending.owns_call() && pending.failed());
+    assert!(
+        pending.owns_call() && !pending.failed(),
+        "the row is not claimed yet"
+    );
+    pending.set_claim(1);
+    assert!(pending.failed());
     pending.note_error(&error(Some(7)));
     pending.note_error(&error(None));
     assert_eq!(pending.error_code(None), Some(7));
@@ -623,6 +634,7 @@ fn progress_counts_only_an_uncancelled_attempt_that_neither_waited_nor_was_admit
 
     let waiting = queue::ActivationProgress::default();
     waiting.attach_cancellation(|| false);
+    waiting.set_claim(1);
     waiting.mark_waiting();
     assert!(!waiting.failed() && waiting.suppresses_stream());
     waiting.mark_admitted();
@@ -633,6 +645,7 @@ fn progress_counts_only_an_uncancelled_attempt_that_neither_waited_nor_was_admit
     let flag = Arc::new(AtomicBool::new(false));
     let probe = flag.clone();
     cancelled.attach_cancellation(move || probe.load(Ordering::SeqCst));
+    cancelled.set_claim(1);
     assert!(cancelled.failed());
     flag.store(true, Ordering::SeqCst);
     assert!(!cancelled.failed());
@@ -656,6 +669,7 @@ fn progress_counts_only_an_uncancelled_attempt_that_neither_waited_nor_was_admit
         activation_attempts: 0,
         activation_retry_at_ms: None,
         failure_error_code: None,
+        activation_claim: 0,
         input_revision: None,
         accepted_at_ms: 0,
         updated_at_ms: 0,
@@ -705,4 +719,53 @@ async fn failed_receipts_list_the_latest_failures_by_when_they_failed() {
     assert_eq!(failed[0], rows[0].request_id);
     assert!(!failed.contains(&rows[1].request_id));
     assert!(!failed.contains(&rows[2].request_id));
+}
+
+/// The row's claim fences one attempt's failure record against a newer
+/// attempt in either order.
+#[tokio::test]
+async fn a_claim_fences_failure_records_between_attempts() {
+    let TestStore { db } = setup().await;
+    let now = chrono::Utc::now().timestamp_millis();
+    let row = enqueue_at(&db, "fenced", now).await;
+    // An older attempt claims, then a newer one takes the row over.
+    let older = queue::claim_activation(&db, &row).await.unwrap().unwrap();
+    let rescanned = reload(&db, &row).await;
+    let newer = queue::claim_activation(&db, &rescanned)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(newer > older);
+    assert_eq!(
+        queue::record_activation_failure(&db, &row, older, now, None)
+            .await
+            .unwrap(),
+        ActivationFailureOutcome::Stale
+    );
+    let saved = reload(&db, &row).await;
+    assert_eq!(saved.activation_attempts, 0);
+    assert_eq!(saved.state, queue::QUEUED);
+    // The newer attempt's own record still applies.
+    assert!(matches!(
+        queue::record_activation_failure(&db, &rescanned, newer, now, None)
+            .await
+            .unwrap(),
+        ActivationFailureOutcome::Deferred { .. }
+    ));
+
+    // An older attempt that records first leaves a newer claim of the old
+    // scan with nothing to take over.
+    let other = enqueue_at(&db, "first-wins", now).await;
+    let older = queue::claim_activation(&db, &other).await.unwrap().unwrap();
+    let claimed = reload(&db, &other).await;
+    // A claim leaves the version other writers compare untouched.
+    assert_eq!(claimed.updated_at_ms, other.updated_at_ms);
+    assert!(matches!(
+        queue::record_activation_failure(&db, &claimed, older, now, None)
+            .await
+            .unwrap(),
+        ActivationFailureOutcome::Deferred { .. }
+    ));
+    assert_eq!(queue::claim_activation(&db, &claimed).await.unwrap(), None);
+    assert_eq!(queue::claim_activation(&db, &other).await.unwrap(), None);
 }

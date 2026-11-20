@@ -151,6 +151,14 @@ impl SignalMainRequestExecutor {
         if let Some(progress) = &progress {
             let call = call.clone();
             progress.attach_cancellation(move || call.is_cancelled());
+            // Fence the row against a failure record of an earlier attempt.
+            let Some(claim) = main_request::claim_activation(&self.db, &row)
+                .await
+                .map_err(|error| error.into_agent_error())?
+            else {
+                return Ok(());
+            };
+            progress.set_claim(claim);
         }
         let result = self
             .owned_attempt(row.clone(), execution_conversation_id, progress.clone())
@@ -167,7 +175,10 @@ impl SignalMainRequestExecutor {
         progress: Option<&main_request::ActivationProgress>,
         result: Result<Attempt, AgentError>,
     ) -> Result<(), AgentError> {
-        let Some(progress) = progress.filter(|progress| progress.failed()) else {
+        let Some((progress, claim)) = progress
+            .filter(|progress| progress.failed())
+            .and_then(|progress| Some((progress, progress.claim()?)))
+        else {
             return result.map(|_| ());
         };
         let returned = match &result {
@@ -178,6 +189,7 @@ impl SignalMainRequestExecutor {
         let outcome = main_request::record_activation_failure(
             &self.db,
             row,
+            claim,
             chrono::Utc::now().timestamp_millis(),
             progress.error_code(returned),
         )

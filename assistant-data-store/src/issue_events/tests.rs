@@ -1332,10 +1332,15 @@ async fn unreadable_authority_at_admission_is_charged_until_the_request_fails() 
             .await
             .unwrap()
             .unwrap();
-        let outcome =
-            main_request::record_activation_failure(&db, &scanned, now + i64::from(attempt), None)
-                .await
-                .unwrap();
+        let outcome = main_request::record_activation_failure(
+            &db,
+            &scanned,
+            scanned.activation_claim,
+            now + i64::from(attempt),
+            None,
+        )
+        .await
+        .unwrap();
         if attempt < main_request::MAX_ACTIVATION_ATTEMPTS {
             assert!(matches!(outcome, ActivationFailureOutcome::Deferred { .. }));
         } else {

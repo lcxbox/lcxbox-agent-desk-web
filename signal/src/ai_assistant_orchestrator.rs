@@ -3515,6 +3515,8 @@ async fn prepare_composed_turn(
         });
         let event_store = crate::agent_run_event_store::SignalAgentRunEventStore::new(db.clone());
         let admission = owner_queue.as_deref().map_or(OwnerAdmission::Native, OwnerQueueTurn::admission);
+        #[cfg(test)]
+        activation_faults::before_admission(&request_id).await;
         let append_result = desk_diagnose_core::future::boxed(|| event_store.admit_user_input(&input, goal_start, admission)).await;
         let progress = owner_queue.as_deref().and_then(OwnerQueueTurn::activation_progress);
         let ack = match append_result {
@@ -3783,9 +3785,38 @@ async fn prepare_composed_turn(
 /// Test-only faults at preparation boundaries that configuration cannot reach.
 #[cfg(test)]
 pub(crate) mod activation_faults {
-    use std::{collections::BTreeSet, sync::Mutex};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        future::Future,
+        pin::Pin,
+        sync::Mutex,
+    };
+
+    type Hook = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>;
 
     static DESTINATION: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+    static BEFORE_ADMISSION: Mutex<BTreeMap<String, Hook>> = Mutex::new(BTreeMap::new());
+
+    /// Run `hook` once, after the executor's own checks and right before the
+    /// request's native admission.
+    pub(crate) fn run_before_admission<F>(
+        request_id: &str,
+        hook: impl FnOnce() -> F + Send + 'static,
+    ) where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        BEFORE_ADMISSION
+            .lock()
+            .unwrap()
+            .insert(request_id.into(), Box::new(move || Box::pin(hook())));
+    }
+
+    pub(super) async fn before_admission(request_id: &str) {
+        let hook = BEFORE_ADMISSION.lock().unwrap().remove(request_id);
+        if let Some(hook) = hook {
+            hook().await;
+        }
+    }
 
     pub(crate) fn fail_destination(request_id: &str) {
         DESTINATION.lock().unwrap().insert(request_id.into());
