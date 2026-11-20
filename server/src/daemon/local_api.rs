@@ -18,6 +18,30 @@ use utoipa_actix_web::AppExt as _;
 
 pub const SERVICE_API_PORT: u16 = 8082;
 
+/// The frontend's HTML must be revalidated on every load. Without a
+/// `Cache-Control` header browsers cache `index.html` heuristically, and
+/// after an update a navigation loaded the previous build's bundle
+/// (on device 2026-11-20). The bundle files have content hashes in their
+/// names, so they can stay cacheable.
+async fn revalidate_html(
+    req: actix_web::dev::ServiceRequest,
+    next: actix_web::middleware::Next<impl actix_web::body::MessageBody>,
+) -> Result<actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>, actix_web::Error> {
+    let mut response = next.call(req).await?;
+    let is_html = response
+        .headers()
+        .get(actix_web::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/html"));
+    if is_html {
+        response.headers_mut().insert(
+            actix_web::http::header::CACHE_CONTROL,
+            actix_web::http::header::HeaderValue::from_static("no-cache"),
+        );
+    }
+    Ok(response)
+}
+
 /// Run the daemon's local HTTP API.
 ///
 /// `host_control_hub` is the Aggregator-mode hub shared between this server and
@@ -136,6 +160,7 @@ pub async fn run_local_api(
         App::new()
             .into_utoipa_app()
             .map(|app| app.wrap(Logger::default()))
+            .map(|app| app.wrap(actix_web::middleware::from_fn(revalidate_html)))
             // App-level `app_data` (previously mounted inside `configure_api_routes`).
             .app_data(rc.settings.clone())
             .app_data(settings_coordinator_data.clone())
@@ -251,4 +276,41 @@ pub async fn run_local_api(
         error!("Local API server error: {e}");
         Box::new(e) as Box<dyn std::error::Error>
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::revalidate_html;
+    use actix_web::{
+        App, HttpResponse, http::header::CACHE_CONTROL, middleware::from_fn, test, web,
+    };
+
+    /// Regression (on device 2026-11-20): after an update, a navigation
+    /// reused a heuristically cached `index.html` and loaded the previous
+    /// build's bundle.
+    #[actix_web::test]
+    async fn html_is_revalidated_and_other_responses_are_left_alone() {
+        let app = test::init_service(
+            App::new()
+                .wrap(from_fn(revalidate_html))
+                .route(
+                    "/page",
+                    web::get().to(|| async {
+                        HttpResponse::Ok()
+                            .content_type("text/html; charset=utf-8")
+                            .body("<html></html>")
+                    }),
+                )
+                .route(
+                    "/api",
+                    web::get().to(|| async { HttpResponse::Ok().json(serde_json::json!({})) }),
+                ),
+        )
+        .await;
+        let page =
+            test::call_service(&app, test::TestRequest::get().uri("/page").to_request()).await;
+        assert_eq!(page.headers().get(CACHE_CONTROL).unwrap(), "no-cache");
+        let api = test::call_service(&app, test::TestRequest::get().uri("/api").to_request()).await;
+        assert!(api.headers().get(CACHE_CONTROL).is_none());
+    }
 }

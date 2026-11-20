@@ -17,6 +17,13 @@ struct ServerArgs {
     #[arg(long)]
     uninstall_service: bool,
 
+    /// Update the installed Windows service in place with this build
+    /// (requires elevation). Keeps its directory and config; restores the
+    /// previous build if the new one does not start.
+    #[cfg(target_os = "windows")]
+    #[arg(long)]
+    update_service: bool,
+
     /// Target installation directory for --install-service
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     #[arg(long)]
@@ -269,6 +276,18 @@ fn main() {
                 std::process::exit(1);
             }
             println!("Service installed successfully");
+            return;
+        }
+        if server_args.update_service {
+            use lcxl_remote_desk_server::daemon::windows_service::update_service;
+            if let Err(e) = update_service(
+                server_args.install_path.as_deref(),
+                server_args.install_idd_driver,
+                server_args.config_file_path.as_deref(),
+            ) {
+                eprintln!("Failed to update service: {e}");
+                std::process::exit(1);
+            }
             return;
         }
         if server_args.uninstall_service {
