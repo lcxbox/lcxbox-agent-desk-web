@@ -3128,6 +3128,9 @@ async fn prepare_composed_turn(
             heartbeat: Some(heartbeat.as_ref()),
         };
                                         if let Some(runtime) = delegated {
+                                            // The loop dependencies stay on the heap rather than
+                                            // inside this phase future.
+                                            let deps = Box::new(deps);
                                             return desk_diagnose_core::future::phase(|| async move {
                 let claim = Box::new(ClaimTurnParams {
                     conversation_id,
