@@ -2189,7 +2189,6 @@ export default {
   'pages.aiAssistant.autoApprovalUsage': '已审核 {{reviews}} 项 · 使用 {{tokens}} tokens',
   'pages.aiAssistant.approvalModelReason.approval_model_disabled': '审批模型已停用',
   'pages.aiAssistant.approvalModelReason.approval_model_not_configured': '未配置独立审批模型',
-  'pages.aiAssistant.approvalModelReason.approval_model_price_not_configured': '审批模型费用尚未配置',
   'pages.aiAssistant.approvalModelReason.unknown': '审批模型状态未知',
   'pages.aiAssistant.goalStartDescription': '将这条消息作为目标，分段继续处理；设备操作仍需逐项授权。',
   'pages.aiAssistant.goalLimitsSummary': '运行上限：累计活动 {{activeHours}} 小时、开启后 {{deadlineDays}} 天截止、模型 {{tokens}} tokens / {{modelCalls}} 次调用、工具 {{toolCalls}} 次调用、{{slices}} 个片段；连续 {{stalledSlices}} 个片段无进展则暂停。',

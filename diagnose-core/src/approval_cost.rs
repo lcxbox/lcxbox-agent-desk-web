@@ -1,6 +1,7 @@
 //! Integer-only cost accounting for an independent approval-model call.
 //! Prices are micro-units of the delegation's configured accounting currency
-//! per one million tokens. Missing prices or usage cannot become a zero bill.
+//! per one million tokens. A zero price charges nothing for that token class;
+//! missing usage still holds the reserved upper bound.
 
 use serde::{Deserialize, Serialize};
 
@@ -18,15 +19,10 @@ pub struct ApprovalTokenPrices {
 }
 
 impl ApprovalTokenPrices {
-    pub fn validate(self) -> Option<Self> {
-        (self.input_micros_per_million > 0 && self.output_micros_per_million > 0).then_some(self)
-    }
-
     /// Reserve the full request context and the configured runtime output budget.
     /// Cache classes use the maximum of their own configured price and the
     /// ordinary input price because the provider may change cache behavior.
     pub fn reserve(self, max_input_tokens: u64, max_output_tokens: u64) -> Option<u64> {
-        self.validate()?;
         let input_rate = self
             .input_micros_per_million
             .max(self.cache_read_micros_per_million)
@@ -40,7 +36,6 @@ impl ApprovalTokenPrices {
     /// Charge the four disjoint normalized token classes. Unknown base usage
     /// returns None so the caller retains the reserved upper-bound charge.
     pub fn actual(self, usage: TokenUsage) -> Option<u64> {
-        self.validate()?;
         let input = u64::try_from(usage.input_tokens?).ok()?;
         let output = u64::try_from(usage.output_tokens?).ok()?;
         let cache_read = u64::try_from(usage.cache_read_tokens.unwrap_or(0)).ok()?;
@@ -71,7 +66,7 @@ pub fn reviewer_reservation(
     )?;
     let input_upper = tokens.checked_sub(runtime_max_output_tokens)?;
     let cost = prices.reserve(input_upper, runtime_max_output_tokens)?;
-    (cost > 0).then_some((tokens, cost))
+    (tokens > 0).then_some((tokens, cost))
 }
 
 /// One record's contribution to the cumulative approval ledger. Unknown usage
@@ -94,7 +89,7 @@ impl ReviewUsageSettlement {
         reserved_tokens: u64,
         reserved_cost_micros: u64,
     ) -> Option<Self> {
-        if reserved_tokens == 0 || reserved_cost_micros == 0 {
+        if reserved_tokens == 0 {
             return None;
         }
         let (tokens, cost_micros, usage_known) = if provider_started {
@@ -133,7 +128,6 @@ impl ReviewUsageSettlement {
     pub fn validate(self, reserved_tokens: u64, reserved_cost_micros: u64) -> Option<Self> {
         if self.schema_version != 1
             || reserved_tokens == 0
-            || reserved_cost_micros == 0
             || !self.provider_started
                 && (!self.usage_known || self.tokens != 0 || self.cost_micros != 0)
             || self.provider_started
@@ -259,5 +253,75 @@ mod tests {
         invalid.provider_started = false;
         assert!(invalid.validate(100, 200).is_none());
         assert!(ReviewUsageSettlement::from_provider_fact(true, None, None, 0, 200).is_none());
+    }
+
+    #[test]
+    fn zero_prices_reserve_and_charge_nothing_but_keep_the_token_bound() {
+        let free = ApprovalTokenPrices {
+            input_micros_per_million: 0,
+            output_micros_per_million: 0,
+            cache_read_micros_per_million: 0,
+            cache_write_micros_per_million: 0,
+        };
+        assert_eq!(free.reserve(1_000_000, 1_000_000), Some(0));
+        assert_eq!(
+            free.actual(TokenUsage {
+                input_tokens: Some(500),
+                output_tokens: Some(100),
+                cache_read_tokens: Some(250),
+                cache_write_tokens: Some(250),
+            }),
+            Some(0)
+        );
+        assert_eq!(
+            free.actual(TokenUsage {
+                input_tokens: None,
+                output_tokens: Some(1),
+                ..Default::default()
+            }),
+            None
+        );
+        let (tokens, cost) = reviewer_reservation("review", free, 32_768, 2048).unwrap();
+        assert!(tokens > 2048);
+        assert_eq!(cost, 0);
+        assert!(reviewer_reservation("review", free, 32_768, 0).is_none());
+        assert!(reviewer_reservation("review", free, 100, 2048).is_none());
+
+        let input_only = ApprovalTokenPrices {
+            input_micros_per_million: 1_000_000,
+            ..free
+        };
+        assert_eq!(input_only.reserve(1_000, 2_000), Some(1_000));
+        assert_eq!(
+            input_only.actual(TokenUsage {
+                input_tokens: Some(10),
+                output_tokens: Some(1_000_000),
+                ..Default::default()
+            }),
+            Some(10)
+        );
+    }
+
+    #[test]
+    fn zero_cost_settlement_accepts_every_state_and_keeps_the_token_bound() {
+        let unstarted =
+            ReviewUsageSettlement::from_provider_fact(false, None, Some(0), 100, 0).unwrap();
+        assert_eq!(unstarted.state(), "unstarted");
+        assert_eq!((unstarted.tokens, unstarted.cost_micros), (0, 0));
+        assert_eq!(unstarted.validate(100, 0), Some(unstarted));
+
+        let known =
+            ReviewUsageSettlement::from_provider_fact(true, Some(42), Some(0), 100, 0).unwrap();
+        assert_eq!(known.state(), "known");
+        assert_eq!((known.tokens, known.cost_micros), (42, 0));
+        assert_eq!(known.validate(100, 0), Some(known));
+
+        let unknown = ReviewUsageSettlement::from_provider_fact(true, None, None, 100, 0).unwrap();
+        assert_eq!(unknown.state(), "unknown");
+        assert_eq!((unknown.tokens, unknown.cost_micros), (100, 0));
+        assert_eq!(unknown.validate(100, 0), Some(unknown));
+        assert!(unknown.validate(100, 1).is_none());
+        assert!(unknown.validate(0, 0).is_none());
+        assert!(ReviewUsageSettlement::from_provider_fact(true, None, None, 0, 0).is_none());
     }
 }

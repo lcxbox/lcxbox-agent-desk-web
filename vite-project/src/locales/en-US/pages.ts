@@ -2192,7 +2192,6 @@ export default {
   'pages.aiAssistant.autoApprovalUsage': '{{reviews}} reviews · {{tokens}} tokens used',
   'pages.aiAssistant.approvalModelReason.approval_model_disabled': 'Approval model is disabled',
   'pages.aiAssistant.approvalModelReason.approval_model_not_configured': 'A separate approval model is not configured',
-  'pages.aiAssistant.approvalModelReason.approval_model_price_not_configured': 'Approval model pricing is not configured',
   'pages.aiAssistant.approvalModelReason.unknown': 'Approval model status is unknown',
   'pages.aiAssistant.goalStartDescription': 'Treat this message as a goal and continue in bounded segments. Device actions still need individual approval.',
   'pages.aiAssistant.goalLimitsSummary': 'Limits: {{activeHours}} hours of active work, deadline {{deadlineDays}} days after opening, {{tokens}} model tokens / {{modelCalls}} model calls, {{toolCalls}} tool calls, {{slices}} segments; pause after {{stalledSlices}} consecutive segments without progress.',

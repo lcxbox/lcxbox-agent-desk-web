@@ -445,10 +445,7 @@ impl ApprovalDelegation {
         max_cost_micros: u64,
     ) -> Result<(), ApprovalDelegationError> {
         self.validate()?;
-        if self.status != ApprovalDelegationStatus::Active
-            || max_tokens == 0
-            || max_cost_micros == 0
-        {
+        if self.status != ApprovalDelegationStatus::Active || max_tokens == 0 {
             return Err(ApprovalDelegationError::InvalidState);
         }
         let mut staged = self.clone();
@@ -487,7 +484,6 @@ impl ApprovalDelegation {
     ) -> Result<(), ApprovalDelegationError> {
         self.validate()?;
         if reserved_tokens == 0
-            || reserved_cost_micros == 0
             || self.usage.reviews_reserved == 0
             || self.usage.tokens_reserved < reserved_tokens
             || self
@@ -579,7 +575,6 @@ impl ApprovalDelegation {
             || !actual.provider_started
             || !actual.usage_known
             || previous.tokens == 0
-            || previous.cost_micros == 0
             || self.usage.reviews_used == 0
         {
             return Err(ApprovalDelegationError::InvalidState);
@@ -875,6 +870,52 @@ mod tests {
                 .require_current("conversation", "owner", "device")
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn zero_cost_reviews_still_count_reviews_and_tokens() {
+        use crate::approval_cost::ReviewUsageSettlement;
+        let mut delegation = delegation();
+        assert_eq!(
+            delegation.reserve(0, 0),
+            Err(ApprovalDelegationError::InvalidState)
+        );
+        delegation.reserve(100, 0).unwrap();
+        assert_eq!(delegation.usage.reviews_reserved, 1);
+        assert_eq!(delegation.usage.tokens_reserved, 100);
+        assert_eq!(delegation.usage.cost_reserved_micros, Some(0));
+        delegation.reserve(40, 0).unwrap();
+        assert_eq!(delegation.usage.reviews_reserved, 2);
+        assert_eq!(delegation.usage.tokens_reserved, 140);
+
+        delegation.release_unstarted_review(40, 0).unwrap();
+        assert_eq!(delegation.usage.reviews_reserved, 1);
+        assert_eq!(delegation.usage.tokens_reserved, 100);
+        assert_eq!(delegation.usage.reviews_used, 0);
+        assert!(delegation.release_unstarted_review(0, 0).is_err());
+
+        delegation.settle(100, 0, None, None).unwrap();
+        assert_eq!(delegation.usage.reviews_used, 1);
+        assert_eq!(delegation.usage.tokens_used, 100);
+        assert_eq!(delegation.usage.cost_used_micros, Some(0));
+        assert_eq!(delegation.usage.reviews_reserved, 0);
+        assert_eq!(delegation.usage.tokens_reserved, 0);
+        assert_eq!(delegation.usage.cost_reserved_micros, Some(0));
+
+        let previous = ReviewUsageSettlement::from_provider_fact(true, None, None, 100, 0).unwrap();
+        assert_eq!(previous.cost_micros, 0);
+        let actual =
+            ReviewUsageSettlement::from_provider_fact(true, Some(7), Some(0), 100, 0).unwrap();
+        delegation.reconcile_review_usage(previous, actual).unwrap();
+        assert_eq!(delegation.usage.tokens_used, 7);
+        assert_eq!(delegation.usage.cost_used_micros, Some(0));
+        assert_eq!(delegation.usage.reviews_used, 1);
+
+        delegation.reserve(20, 0).unwrap();
+        delegation.settle(20, 0, Some(12), Some(0)).unwrap();
+        assert_eq!(delegation.usage.reviews_used, 2);
+        assert_eq!(delegation.usage.tokens_used, 19);
+        assert_eq!(delegation.usage.cost_used_micros, Some(0));
     }
 
     #[test]
