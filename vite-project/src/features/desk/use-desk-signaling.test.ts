@@ -397,3 +397,81 @@ describe("useDeskSignaling.subscribe (lossless delivery)", () => {
         expect(received).toEqual([1]);
     });
 });
+
+describe("useDeskSignaling heartbeat watchdog", () => {
+    let originalWebSocket: typeof WebSocket;
+    let intervals: Array<() => void>;
+
+    beforeEach(() => {
+        originalWebSocket = (globalThis as any).WebSocket;
+        (globalThis as any).WebSocket = StubWebSocket;
+        StubWebSocket.instances = [];
+        intervals = [];
+        // Ticks are run by hand, the way Chrome runs them in a tab hidden for
+        // over 5 minutes: once a minute, the heartbeat and the watchdog together.
+        vi.spyOn(window, "setInterval").mockImplementation(((cb: () => void) => {
+            intervals.push(cb);
+            return intervals.length;
+        }) as any);
+        vi.spyOn(window, "clearInterval").mockImplementation(() => {});
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(0);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+        (globalThis as any).WebSocket = originalWebSocket;
+    });
+
+    async function openSocket() {
+        renderHook(() => useDeskSignaling());
+        await act(async () => {
+            await new Promise((r) => setTimeout(r, 1));
+        });
+        const ws = StubWebSocket.instances[0];
+        const close = vi.spyOn(ws, "close");
+        const [sendHeartbeat, watchdog] = intervals;
+        const tick = (at: number) => {
+            vi.setSystemTime(at);
+            act(() => { sendHeartbeat(); watchdog(); });
+        };
+        const answerLast = () => {
+            const { request_id } = JSON.parse(ws.sent[ws.sent.length - 1]);
+            act(() => ws.onmessage?.({
+                data: JSON.stringify({
+                    signaling_type: SIGNALING_TYPE_CODE_HEARTBEAT_ACKNOWLEDGED,
+                    request_id,
+                    signaling_data: null,
+                }),
+            } as any));
+        };
+        return { close, tick, answerLast };
+    }
+
+    /** Regression (on device 2026-11-20): a background control page closed
+     *  its healthy signaling socket every ~5 minutes, at a minute-aligned
+     *  tick where the last answer was just over 60 s old; each reconnect
+     *  re-created the virtual display under a new DISPLAYn. */
+    it("keeps a healthy socket open when timers run once a minute", async () => {
+        const { close, tick, answerLast } = await openSocket();
+        tick(60_500);
+        vi.setSystemTime(60_510);
+        answerLast();
+        tick(121_200);
+        answerLast();
+        tick(182_000);
+        expect(close).not.toHaveBeenCalled();
+    });
+
+    it("closes the socket when a heartbeat stays unanswered past the timeout", async () => {
+        const { close, tick, answerLast } = await openSocket();
+        tick(30_000);
+        answerLast();
+        tick(60_000); // never answered
+        tick(90_000);
+        expect(close).not.toHaveBeenCalled();
+        tick(120_001);
+        expect(close).toHaveBeenCalledTimes(1);
+    });
+});
