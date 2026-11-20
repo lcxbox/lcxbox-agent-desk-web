@@ -82,6 +82,7 @@ import {
     SIGNALING_TYPE_CODE_RELEASE_CONTROL,
     SIGNALING_TYPE_CODE_CONTROL_RELEASED,
     SIGNALING_TYPE_CODE_CLOSE_REMOTE_SESSION,
+    SIGNALING_CLOSE_SESSION_CHANGED,
     SIGNALING_TYPE_CODE_CONTROL_ACCEPTED,
     SIGNALING_TYPE_CODE_CONTROL_DENIED,
     SIGNALING_TYPE_CODE_APPLY_REMOTE_SESSION_SETTINGS,
@@ -211,7 +212,7 @@ export default function DeskSession({
         timer: null as number | null,
     });
 
-    const { isConnected, subscribe, sendMessage, sendTracked, cancelQueued, cancelQueuedScope } = useDeskSignaling({ usePrepared: true })
+    const { isConnected, lastCloseCode, subscribe, sendMessage, sendTracked, cancelQueued, cancelQueuedScope } = useDeskSignaling({ usePrepared: true })
 
     // Restriction state derived from the redeemed grant (if any) for this target.
     const restricted = useRestrictedSession(deskId);
@@ -1248,6 +1249,23 @@ export default function DeskSession({
         // `initData` is read for the epoch at the moment of the drop only.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isConnected, resumeSlot]);
+    // The host moved this connection's desktop session off the console (fast
+    // user switch) and closed the socket with "session changed". The socket
+    // would reconnect on this mount, but only a fresh mount claims the resume
+    // intent and reopens the dialog: make sure the intent is armed, then mount
+    // the runtime afresh so it resumes on the session now on the console.
+    useEffect(() => {
+        if (isConnected || lastCloseCode !== SIGNALING_CLOSE_SESSION_CHANGED) return;
+        if (resumeSlot && reachedConnectedRef.current && !resumeSlot.peek()) {
+            const hadControl = hasControlRef.current;
+            resumeSlot.arm({
+                hadControl,
+                clipboard: hadControl ? clipboardEnabledRef.current : null,
+                armedAt: Date.now(),
+            });
+        }
+        target.remount?.();
+    }, [isConnected, lastCloseCode, resumeSlot, target]);
     // Only proof that the host session survived withdraws the intent: this
     // same mount being handed back the epoch it had before the drop. A mere
     // signaling reconnect is not that proof.

@@ -504,6 +504,8 @@ export function useDeskRTC({ deskId, subscribe, sendTracked, cancelQueued, cance
 
         pc.onconnectionstatechange = () => {
             console.log(`[WebRTC] Connection State changed to: ${pc.connectionState}`);
+            if (epoch !== coordinator.currentEpoch()) return;
+            if (pc.connectionState === 'failed') coordinator.onPeerFailed();
         }
 
         pc.onsignalingstatechange = () => {

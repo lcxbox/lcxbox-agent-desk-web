@@ -75,6 +75,10 @@ const RECONNECT_MAX_DELAY_MS = 30_000;
 export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolean } = {}) {
     const socketRef = useRef<WebSocket | null>(null);
     const [isConnected, setIsConnected] = useState(false);
+    /** Close code of the last unexpected socket close (`null` while open).
+     *  4002 = the host evicted this peer because its desktop session left
+     *  the console (see `SIGNALING_CLOSE_SESSION_CHANGED`). */
+    const [lastCloseCode, setLastCloseCode] = useState<number | null>(null);
     const messageQueue = useRef<QueuedMessage[]>([]);
     const subscribersRef = useRef<Set<SignalingSubscriber>>(new Set());
 
@@ -167,6 +171,7 @@ export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolea
         ws.onopen = () => {
             if (intentionalCloseRef.current || socketRef.current !== ws) return;
             console.log('Signaling WebSocket connected');
+            setLastCloseCode(null);
             setIsConnected(true);
             reconnectAttemptsRef.current = 0;
 
@@ -212,9 +217,11 @@ export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolea
             });
         };
 
-        ws.onclose = () => {
+        ws.onclose = (event: CloseEvent) => {
             if (!intentionalCloseRef.current) void refreshTarget?.();
-            console.log('Signaling WebSocket closed');
+            console.log(`Signaling WebSocket closed (code ${event.code})`);
+            // Same render batch as `isConnected`, so effects see both.
+            setLastCloseCode(event.code);
             setIsConnected(false);
             clearHeartbeat();
 
@@ -398,6 +405,7 @@ export function useDeskSignaling({ usePrepared = false }: { usePrepared?: boolea
 
     return {
         isConnected,
+        lastCloseCode,
         subscribe,
         sendMessage,
         sendTracked,

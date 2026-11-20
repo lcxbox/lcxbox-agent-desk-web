@@ -695,10 +695,25 @@ impl RemoteAccessCoordinator {
     }
 
     fn enqueue_peer_eviction(&self, target_connection_id: &str) {
+        self.evict_peer(
+            target_connection_id,
+            desk_signal_facade::model::remote_access::PeerEvictionReason::HostTerminated,
+        );
+    }
+
+    /// Ask the central (the signaling server holding the browser's socket)
+    /// to close this browser peer, telling it why. Best effort: only the
+    /// primary central link forwards it.
+    pub fn evict_peer(
+        &self,
+        target_connection_id: &str,
+        reason: desk_signal_facade::model::remote_access::PeerEvictionReason,
+    ) {
         let operation_id = uuid::Uuid::new_v4().to_string();
         let payload = desk_signal_facade::model::remote_access::TerminateRemotePeerData {
             operation_id: operation_id.clone(),
             target_connection_id: target_connection_id.to_string(),
+            reason,
         };
         let frame = desk_signal_facade::model::signal::SignalingModel::new(
             &operation_id,

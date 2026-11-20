@@ -540,3 +540,28 @@ describe("useDeskSignaling in the back/forward cache", () => {
         expect(close).not.toHaveBeenCalled();
     });
 });
+
+describe("useDeskSignaling close code", () => {
+    let originalWebSocket: typeof WebSocket;
+    beforeEach(() => {
+        originalWebSocket = (globalThis as any).WebSocket;
+        (globalThis as any).WebSocket = StubWebSocket;
+        StubWebSocket.instances = [];
+    });
+    afterEach(() => {
+        (globalThis as any).WebSocket = originalWebSocket;
+    });
+
+    it("reports the code of an unexpected close and clears it when open again", async () => {
+        const { result } = renderHook(() => useDeskSignaling());
+        await act(async () => {
+            await new Promise((r) => setTimeout(r, 1));
+        });
+        expect(result.current.lastCloseCode).toBeNull();
+        act(() => {
+            StubWebSocket.instances[0].onclose?.({ code: 4002 } as any);
+        });
+        expect(result.current.isConnected).toBe(false);
+        expect(result.current.lastCloseCode).toBe(4002);
+    });
+});

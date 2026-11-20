@@ -25,6 +25,7 @@ const fullscreenHarness = vi.hoisted(() => ({
 }));
 const resumeHarness = vi.hoisted(() => ({
   signalingConnected: true,
+  lastCloseCode: null as number | null,
   rtcConnected: false,
   initData: null as any,
   connect: vi.fn(),
@@ -38,6 +39,7 @@ void targetHarnessBox;
 const targetHarness = vi.hoisted(() => ({
   assertCurrent: vi.fn(async () => {}),
   refresh: vi.fn(async () => {}),
+  remount: vi.fn(),
   discoveryRevision: 0,
 }));
 // Mock routing
@@ -66,6 +68,7 @@ vi.mock('@/services/hooks/systemController/useQueryServerInfo', () => ({
 vi.mock('./use-desk-signaling', () => ({
   useDeskSignaling: () => ({
     isConnected: resumeHarness.signalingConnected,
+    lastCloseCode: resumeHarness.lastCloseCode,
     subscribe: (handler: (message: any) => void) => {
       signalingHarness.subscribers.add(handler);
       return () => signalingHarness.subscribers.delete(handler);
@@ -144,6 +147,7 @@ vi.mock('./device-target-context', async (importOriginal) => ({
     kind: 'device', connectionId: 'test-desk', deviceId: 'standalone-test-host',
     basePath: '/desk/device/standalone-test-host',
     assertCurrent: targetHarness.assertCurrent, refresh: targetHarness.refresh,
+    remount: targetHarness.remount,
     discoveryRevision: targetHarness.discoveryRevision,
     resume: resumeHarness.slot,
     resolution: { status: 'persistent', deviceKey: 'device:standalone-test-host' },
@@ -249,6 +253,8 @@ function liveSession() {
 describe('DeskSession resume after a host restart', () => {
   beforeEach(() => {
     resumeHarness.slot = createSessionResumeSlot();
+    resumeHarness.lastCloseCode = null;
+    targetHarness.remount.mockReset();
     resumeHarness.connect.mockReset();
     resumeHarness.dialogSubmits = [];
     resumeHarness.dialogMode = 'submit';
@@ -284,6 +290,28 @@ describe('DeskSession resume after a host restart', () => {
     c.rerender(<DeskSession />);
     expect(resumeHarness.slot.peek()).toBeNull();
     c.unmount();
+  });
+
+  /** Regression (fast user switch, on device 2026-11-20): the host evicted
+   *  the page with "session changed"; the socket would reconnect on this same
+   *  mount, which never claims the resume intent, so the page stayed stuck. */
+  it('remounts with the intent armed when the host moved the session off the console', () => {
+    const view = liveSession();
+    resumeHarness.signalingConnected = false;
+    resumeHarness.lastCloseCode = 4002;
+    view.rerender(<DeskSession />);
+    expect(resumeHarness.slot.peek()).not.toBeNull();
+    expect(targetHarness.remount).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  it('does not remount on an ordinary signaling drop', () => {
+    const view = liveSession();
+    resumeHarness.signalingConnected = false;
+    resumeHarness.lastCloseCode = 1006;
+    view.rerender(<DeskSession />);
+    expect(targetHarness.remount).not.toHaveBeenCalled();
+    view.unmount();
   });
 
   it('does not arm before the session ever had a live media link', () => {

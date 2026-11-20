@@ -150,6 +150,10 @@ export interface IceRetryCoordinator {
     ): CandidateDisposition;
     /** PC ICE connection-state change (already epoch-gated by the caller). */
     onIceStateChange(state: RTCIceConnectionState): void;
+    /** The peer connection itself reached `failed` (already epoch-gated).
+     *  Terminal: a connection the host closed cannot be ICE-restarted, and
+     *  Chrome may report it without an ICE `failed`. */
+    onPeerFailed(): void;
     /** Teardown: bump epoch, clear timers, stop retrying. */
     dispose(): void;
     /** Test/diagnostic snapshot. */
@@ -362,6 +366,11 @@ export function createIceRetryCoordinator(
 
         onIceStateChange: (state: RTCIceConnectionState) => {
             handleTrigger({ kind: 'ice-state', state });
+        },
+
+        onPeerFailed: () => {
+            if (phase === 'failed' || phase === 'idle') return;
+            failNow();
         },
 
         dispose: () => {

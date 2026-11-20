@@ -25,6 +25,13 @@ export const SIGNALING_TYPE_CODE_RETRY_MEDIA_PIPELINE = 218;
 export const SIGNALING_TYPE_CODE_CONTROL_RELEASED = 219;
 export const SIGNALING_TYPE_CODE_DISPLAY_SETTINGS_CHANGED = 220;
 export const SIGNALING_TYPE_CODE_CLOSE_REMOTE_SESSION = 221;
+
+/** WebSocket close code: the host terminated this peer. */
+export const SIGNALING_CLOSE_HOST_TERMINATED = 4001;
+/** WebSocket close code: the desktop session this peer was bound to left the
+ *  console (fast user switch, sign-out); reconnecting reaches the session now
+ *  on the console. */
+export const SIGNALING_CLOSE_SESSION_CHANGED = 4002;
 export const SIGNALING_TYPE_CODE_PRIVATE_SCREEN_VISIBILITY_SET = 222;
 export const SIGNALING_TYPE_CODE_MEDIA_PIPELINE_RETRY_COMPLETED = 223;
 export const SIGNALING_TYPE_CODE_MEDIA_CAPABILITIES_STATE_CHANGED = 224;

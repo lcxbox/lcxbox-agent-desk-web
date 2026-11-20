@@ -38,6 +38,9 @@ export interface DeviceTarget {
     refresh: () => Promise<void>;
     /** Survives the runtime remount a host restart causes; see `session-resume.ts`. */
     resume?: SessionResumeSlot;
+    /** Mount the page's runtime afresh (same target), e.g. after the host
+     *  moved the connection to another desktop session. */
+    remount?: () => void;
 }
 const DeviceTargetContext = createContext<DeviceTarget | undefined>(undefined);
 export const DeviceTargetProvider = DeviceTargetContext.Provider;
@@ -131,6 +134,8 @@ function ResolvedDeviceTarget({ accountKey, orgId, deviceId, children }: { accou
     const alive = useRef(true);
     useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
     const resume = useMemo(() => createSessionResumeSlot(), []);
+    const [runtimeGeneration, setRuntimeGeneration] = useState(0);
+    const remount = useCallback(() => setRuntimeGeneration((generation) => generation + 1), []);
     // An interrupted session resumes only on the page it was interrupted on.
     useEffect(() => { resume.clear(); }, [page, resume]);
     const refresh = useCallback(async () => { await client.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false }); }, [client, queryKey]);
@@ -149,14 +154,14 @@ function ResolvedDeviceTarget({ accountKey, orgId, deviceId, children }: { accou
         kind: 'device', orgId, claimSignalingSocket, discoveryRevision: query.dataUpdatedAt, path: (page = '') => devicePath(deviceId, page, orgId), connectionId: active.connection_id, deviceId,
         connection: active, basePath: devicePath(deviceId, '', orgId), exitPath: devicePath(deviceId, '', orgId),
         resolution: { status: 'persistent', connection: active, deviceKey: `device:${deviceId}` },
-        assertCurrent, refresh, resume,
-    } : undefined, [active, assertCurrent, claimSignalingSocket, deviceId, orgId, query.dataUpdatedAt, refresh, resume]);
+        assertCurrent, refresh, resume, remount,
+    } : undefined, [active, assertCurrent, claimSignalingSocket, deviceId, orgId, query.dataUpdatedAt, refresh, resume, remount]);
     if (!value) return query.isPending || (query.isFetching && !denied)
         ? <Skeleton className="m-6 h-48" />
         // Automatic retries keep fetching; only a manual retry disables the button.
         : <TargetUnavailable code={code} busy={query.isFetching && !isTransientTargetFailure(query.error)} retry={() => void refresh()} />;
     return <DeviceTargetContext.Provider value={value}>
-        <TargetRuntime key={active!.connection_id}>{children ?? <Outlet />}</TargetRuntime>
+        <TargetRuntime key={`${active!.connection_id}:${runtimeGeneration}`}>{children ?? <Outlet />}</TargetRuntime>
     </DeviceTargetContext.Provider>;
 }
 function TargetRuntime({ children }: { children: ReactNode }) { return <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">{children}</div>; }

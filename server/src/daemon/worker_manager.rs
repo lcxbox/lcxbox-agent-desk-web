@@ -905,7 +905,11 @@ impl WorkerManager {
                     ) => {
                         let session = linux_session_key(&logical_session, registration_generation);
                         targets.remove(&session);
+                        let mut session_changed = Vec::new();
                         for connection_id in mgr.connection_ids_for_session(&session) {
+                            if mgr.pc_registry.get(&connection_id).await.is_some() {
+                                session_changed.push(connection_id.clone());
+                            }
                             crate::daemon::pc_manager::force_disconnect_connection(
                                 &mgr.pc_registry,
                                 &mgr,
@@ -915,6 +919,8 @@ impl WorkerManager {
                             )
                             .await;
                         }
+                        // The target is already gone from the catalog.
+                        mgr.evict_for_session_change(&session_changed);
                         mgr.stop_resident_worker(&WorkerKey {
                             session,
                             desktop: DesktopTarget::LinuxSession,
@@ -1543,8 +1549,17 @@ impl WorkerManager {
             });
         }
 
+        // Remote-desktop connections of a session that left the console are
+        // evicted once the target catalog no longer offers that session (below),
+        // so the browser's reconnect lands on the session now on the console.
+        // Terminal, file and assistant connections are only ended: none of them
+        // may silently continue in another user's session.
+        let mut session_changed = Vec::new();
         for key in &plan.stop_sessions {
             for connection_id in self.connection_ids_for_session(key) {
+                if self.pc_registry.get(&connection_id).await.is_some() {
+                    session_changed.push(connection_id.clone());
+                }
                 crate::daemon::pc_manager::force_disconnect_connection(
                     &self.pc_registry,
                     self,
@@ -1605,6 +1620,7 @@ impl WorkerManager {
             });
         }
         self.session_targets.replace_all(candidates);
+        self.evict_for_session_change(&session_changed);
 
         for (key, session_id) in plan.start {
             if !self
@@ -1632,6 +1648,28 @@ impl WorkerManager {
                     self.record_resident_start_failure(&key);
                 }
             }
+        }
+    }
+
+    /// Close the browser sockets of remote-desktop connections whose session
+    /// left the console, with the "session changed" close code, so the
+    /// control page reconnects and is admitted to the current session.
+    fn evict_for_session_change(&self, connection_ids: &[String]) {
+        if connection_ids.is_empty() {
+            return;
+        }
+        let Some(coordinator) = self
+            .pc_registry
+            .host_control_hub()
+            .and_then(|hub| hub.remote_access_coordinator())
+        else {
+            return;
+        };
+        for connection_id in connection_ids {
+            coordinator.evict_peer(
+                connection_id,
+                desk_signal_facade::model::remote_access::PeerEvictionReason::SessionChanged,
+            );
         }
     }
 

@@ -102,6 +102,31 @@ describe('createIceRetryCoordinator', () => {
         vi.restoreAllMocks();
     });
 
+
+    /** Regression (fast user switch, on device 2026-11-20): Chrome reported
+     *  connectionState `failed` while ICE stayed `disconnected`; a connection
+     *  the host closed cannot be ICE-restarted. */
+    it('ends the attempt at once when the peer connection fails', async () => {
+        const { coord, resend, iceRestart, onFailed } = makeCoordinator();
+        coord.resetForNewPc();
+        const id = coord.beginOffer();
+        coord.markOfferSent(id);
+        coord.onPeerFailed();
+        expect(onFailed).toHaveBeenCalledTimes(1);
+        expect(coord.snapshot().phase).toBe('failed');
+        coord.onPeerFailed();
+        expect(onFailed).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(ANSWER_MS * 4);
+        expect(resend).not.toHaveBeenCalled();
+        expect(iceRestart).not.toHaveBeenCalled();
+    });
+
+    it('ignores a peer failure before any negotiation', () => {
+        const { coord, onFailed } = makeCoordinator();
+        coord.onPeerFailed();
+        expect(onFailed).not.toHaveBeenCalled();
+    });
+
     it('arms the ANSWER watchdog only once the OFFER is actually sent', async () => {
         const { coord, resend } = makeCoordinator();
         coord.resetForNewPc();

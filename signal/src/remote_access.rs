@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use desk_signal_facade::model::connection::{ConnectionState, SharedConnectionMap};
 use desk_signal_facade::model::remote_access::{
-    PeerEvictionOutcome, RemoteAccessLockUpdatedData, RemotePeerTerminationResolvedData,
-    TerminateRemotePeerData, UpdateRemoteAccessLockData,
+    PeerEvictionOutcome, PeerEvictionReason, RemoteAccessLockUpdatedData,
+    RemotePeerTerminationResolvedData, TerminateRemotePeerData, UpdateRemoteAccessLockData,
 };
 use desk_signal_facade::model::signal::{RemoteDeskTypeEnum, SignalingModel, SignalingType};
 use desk_signal_facade::service::{
@@ -19,11 +19,37 @@ use tokio::sync::RwLock;
 
 use crate::entity::{device_code, host_remote_access_state};
 
+/// Browser connection id -> client id of the host it was admitted to.
+type BrowserHosts = Arc<RwLock<HashMap<String, String>>>;
+
+/// One map for the whole process. A control is built per WebSocket
+/// (`handle_signaling`): the browser's admission records the host on the
+/// browser's control, and the host's eviction is checked on the host's
+/// control, so a per-instance map never saw the record and every eviction
+/// came back `Unavailable`.
+fn shared_browser_hosts() -> BrowserHosts {
+    static HOSTS: std::sync::OnceLock<BrowserHosts> = std::sync::OnceLock::new();
+    HOSTS.get_or_init(Default::default).clone()
+}
+
+/// Record that `browser` was admitted to `host`, dropping records of browser
+/// connections that are gone (an evicted browser's record is removed on
+/// delivery; one that simply disconnected is removed here).
+fn record_browser_host(
+    hosts: &mut HashMap<String, String>,
+    browser: String,
+    host: String,
+    is_live: impl Fn(&str) -> bool,
+) {
+    hosts.retain(|browser, _| is_live(browser));
+    hosts.insert(browser, host);
+}
+
 #[derive(Clone)]
 pub struct SignalRemoteAccessControl {
     db: DatabaseConnection,
     connections: Arc<SharedConnectionMap>,
-    browser_hosts: Arc<RwLock<HashMap<String, String>>>,
+    browser_hosts: BrowserHosts,
 }
 
 impl SignalRemoteAccessControl {
@@ -31,7 +57,7 @@ impl SignalRemoteAccessControl {
         Self {
             db,
             connections,
-            browser_hosts: Arc::new(RwLock::new(HashMap::new())),
+            browser_hosts: shared_browser_hosts(),
         }
     }
 
@@ -202,10 +228,13 @@ impl RemoteAccessAdmissionAuthorizer for SignalRemoteAccessControl {
             match self.is_client_locked(client_id).await {
                 Ok(false) => {
                     if model.signaling_type == SignalingType::RequestRemoteAccess {
-                        self.browser_hosts
-                            .write()
-                            .await
-                            .insert(source.model.connection_id.clone(), client_id.to_string());
+                        let live = connections.read().await;
+                        record_browser_host(
+                            &mut *self.browser_hosts.write().await,
+                            source.model.connection_id.clone(),
+                            client_id.to_string(),
+                            |browser| live.get(browser).is_some(),
+                        );
                     }
                     RemoteAccessAdmissionOutcome::Allow
                 }
@@ -289,7 +318,19 @@ impl HostRemoteAccessController for SignalRemoteAccessControl {
                     .remove(&request.target_connection_id);
                 if let Some(target) = target {
                     let session = target.session.read().await.clone();
-                    let _ = session.close(None).await;
+                    let code = request.reason.close_code();
+                    let _ = session
+                        .close(Some(actix_ws::CloseReason {
+                            code: actix_ws::CloseCode::Other(code),
+                            description: Some(
+                                match request.reason {
+                                    PeerEvictionReason::SessionChanged => "session changed",
+                                    _ => "terminated by host",
+                                }
+                                .to_owned(),
+                            ),
+                        }))
+                        .await;
                     self.browser_hosts
                         .write()
                         .await
@@ -348,6 +389,29 @@ mod tests {
         let connections = Arc::new(SharedConnectionMap::new());
         let control = SignalRemoteAccessControl::new(db.clone(), connections);
         (db, control)
+    }
+
+    /// Regression (on device 2026-11-20): admission and eviction run on
+    /// different per-socket controls; they must see the same records.
+    #[tokio::test]
+    async fn controls_of_different_sockets_share_browser_host_records() {
+        let (db, first) = setup().await;
+        let second = SignalRemoteAccessControl::new(db, Arc::new(SharedConnectionMap::new()));
+        assert!(Arc::ptr_eq(&first.browser_hosts, &second.browser_hosts));
+    }
+
+    #[test]
+    fn recording_a_browser_drops_records_of_gone_browsers() {
+        let mut hosts = HashMap::from([
+            ("gone".to_string(), "host-1".to_string()),
+            ("live".to_string(), "host-1".to_string()),
+        ]);
+        record_browser_host(&mut hosts, "new".into(), "host-2".into(), |browser| {
+            browser != "gone"
+        });
+        assert_eq!(hosts.len(), 2);
+        assert_eq!(hosts.get("live").map(String::as_str), Some("host-1"));
+        assert_eq!(hosts.get("new").map(String::as_str), Some("host-2"));
     }
 
     fn request(version: u64, lock_id: Option<&str>, locked: bool) -> UpdateRemoteAccessLockData {
