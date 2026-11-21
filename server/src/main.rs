@@ -348,8 +348,7 @@ fn main() {
             // The embedded signal polls on the system thread; a Windows main
             // thread has only 1 MiB of stack.
             let exit_code = lcxl_remote_desk_server::daemon::run_daemon_system(|| {
-                let system = actix_web::rt::System::new();
-                system.block_on(async {
+                lcxl_remote_desk_server::daemon::run_actix_system(async {
                     match lcxl_remote_desk_server::run().await {
                         Ok((server, _telemetry_guard)) => {
                             // Hold _telemetry_guard until server.await completes;

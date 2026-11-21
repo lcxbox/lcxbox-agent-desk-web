@@ -45,8 +45,7 @@ pub fn run_session_worker(args: Args, pipe_name: &str) -> Result<(), Box<dyn std
     // has only 1 MiB, too little for the deepest worker frames.
     let pipe_name = pipe_name.to_owned();
     crate::daemon::run_daemon_system(move || {
-        let system = actix_web::rt::System::new();
-        system.block_on(async {
+        crate::daemon::run_actix_system(async {
             match session::WorkerSession::run(args, &pipe_name).await {
                 Ok(()) => {
                     info!("SessionWorker exited normally");

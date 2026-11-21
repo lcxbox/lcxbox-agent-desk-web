@@ -170,8 +170,7 @@ mod windows_impl {
         ensure_failure_recovery();
 
         let failed = crate::daemon::run_daemon_system(move || {
-            let system = actix_web::rt::System::new();
-            system.block_on(async {
+            crate::daemon::run_actix_system(async {
                 use crate::daemon::run_service_daemon_inner;
                 use clap::Parser;
                 let args = crate::model::settings::Args::parse();

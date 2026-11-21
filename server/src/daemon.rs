@@ -71,8 +71,7 @@ pub fn run_service_daemon(args: Args) -> Result<(), Box<dyn std::error::Error>> 
     }
 
     run_daemon_system(move || {
-        let system = actix_web::rt::System::new();
-        system.block_on(async {
+        run_actix_system(async {
             run_service_daemon_inner(args, None)
                 .await
                 .map_err(|e| e.to_string())
@@ -100,6 +99,24 @@ pub fn run_daemon_system<T: Send + 'static>(daemon: impl FnOnce() -> T + Send + 
         Ok(result) => result,
         Err(panic) => std::panic::resume_unwind(panic),
     }
+}
+
+/// Run `future` on a new actix system, then drop the system inside its Tokio
+/// runtime context.
+///
+/// Dropping the system first drops its `LocalSet`, which cancels every task
+/// still pending there: the embedded signal's background executors and the
+/// per-connection tasks never finish on their own. Tokio does not enter the
+/// runtime context for that, so a cancelled task whose drop spawns (an SQLx
+/// pooled connection returns itself to the pool with `tokio::spawn`) would
+/// panic the system thread during shutdown.
+pub fn run_actix_system<F: std::future::Future>(future: F) -> F::Output {
+    let system = actix_web::rt::System::new();
+    let output = system.block_on(future);
+    let runtime = system.runtime().tokio_runtime().handle().clone();
+    let _context = runtime.enter();
+    drop(system);
+    output
 }
 
 /// Start the local API on the daemon's actix system. The API spawns its
@@ -786,7 +803,7 @@ mod linux_ai_input_route;
 
 #[cfg(test)]
 mod tests {
-    use super::{run_daemon_system, spawn_local_api_task};
+    use super::{run_actix_system, run_daemon_system, spawn_local_api_task};
 
     /// The daemon's system thread holds deeper frames than a test thread
     /// (2 MiB) or a Windows main thread (1 MiB) could.
@@ -817,6 +834,40 @@ mod tests {
             rx.await
         });
         assert!(spawned.is_ok());
+    }
+
+    /// Records whether a Tokio runtime is reachable when it is dropped, which
+    /// is what SQLx needs to return a pooled connection from its `Drop`.
+    struct RuntimeProbe(std::sync::Arc<std::sync::atomic::AtomicU8>);
+
+    impl Drop for RuntimeProbe {
+        fn drop(&mut self) {
+            let reachable = tokio::runtime::Handle::try_current().is_ok();
+            self.0
+                .store(1 + u8::from(reachable), std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// A background task still holding a pooled SQLite transaction when the
+    /// system stops is cancelled inside the runtime context. Tokio swallows a
+    /// panic raised while cancelling a task, but the panic hook still prints
+    /// it, so the probe checks the context that SQLx's spawn relies on.
+    #[test]
+    fn stopping_the_system_cancels_held_transactions_inside_the_runtime() {
+        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+        let probe = RuntimeProbe(dropped.clone());
+        run_actix_system(async move {
+            let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+            let (held_tx, held_rx) = tokio::sync::oneshot::channel();
+            actix_web::rt::spawn(async move {
+                let txn = sea_orm::TransactionTrait::begin(&db).await.unwrap();
+                let _ = held_tx.send(());
+                std::future::pending::<()>().await;
+                drop((txn, probe));
+            });
+            held_rx.await.unwrap();
+        });
+        assert_eq!(dropped.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     const STOP_CHILD_ENV: &str = "LCXL_DAEMON_STOP_SIGNAL_CHILD";
