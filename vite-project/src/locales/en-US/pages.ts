@@ -2563,6 +2563,7 @@ export default {
   'pages.agentError.scheduleModelBudgetExceeded': 'The scheduled task has insufficient model-token budget remaining. This model request was not sent. Review the task budget before running it again.',
   'pages.agentError.aiPlatformBusy':
     'The free AI queue is full right now. Please try again later.',
+  'pages.agentError.serviceRestarting': 'The service is restarting. Please try again shortly.',
   'pages.agentError.remoteDeskOffline':
     'The device disconnected or reconnected. Reopen its session and send again.',
   'pages.agentError.aiModelImageInputUnsupported':

@@ -2553,6 +2553,7 @@ export default {
   'pages.agentError.aiContextSummaryOutputTruncated': '上下文摘要输出被截断，本轮已停止，原始历史已保留。请在“上下文管理”中提高“摘要最大输出 token”，并检查模型运行时输出上限后继续。Manager 用户可联系平台管理员调整。',
   'pages.agentError.scheduleModelBudgetExceeded': '定时任务剩余的模型 token 预算不足，本次模型请求未发出。请审阅任务预算后再运行。',
   'pages.agentError.aiPlatformBusy': '免费 AI 队列当前已满，请稍后重试。',
+  'pages.agentError.serviceRestarting': '服务正在重启，请稍后重试。',
   'pages.agentError.remoteDeskOffline': '设备已断开或重新连接，请重新打开设备会话后再发送。',
   'pages.agentError.aiModelImageInputUnsupported':
     '当前选择的 AI 模型不支持截图输入。请选择已启用图片输入能力的模型，或关闭截图选项。',

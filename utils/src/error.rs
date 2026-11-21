@@ -534,6 +534,10 @@ desk_error_codes! {
 
     /// The authorized device has reconnected since this operation was prepared.
     TARGET_CONNECTION_CHANGED = 113,
+    /// The serving manager instance is stopping and no longer admits new work.
+    /// Nothing was started; retrying shortly reaches another instance or the
+    /// restarted one.
+    SERVICE_RESTARTING = 114,
 
     ACTION_NEED_RETRY = 1001,
 
@@ -865,6 +869,7 @@ mod tests {
         assert_eq!(DeskErrorCode::AGENT_SAME_TOOL_REPEAT_LIMIT.code(), 70);
         assert_eq!(DeskErrorCode::SHARED_STORE_UNAVAILABLE.code(), 109);
         assert_eq!(DeskErrorCode::TARGET_CONNECTION_CHANGED.code(), 113);
+        assert_eq!(DeskErrorCode::SERVICE_RESTARTING.code(), 114);
         assert_eq!(DeskErrorCode::AI_MODEL_IMAGE_INPUT_UNSUPPORTED.code(), 85);
         let codes = [
             DeskErrorCode::DEVICE_QUOTA_EXCEEDED.code(),

@@ -36,6 +36,7 @@ export const APPROVAL_MODEL_ERROR_KEYS: ErrorCodeKeyMap = {
 /** Skill management; other codes (such as a rejected package) show the backend reason. */
 export const SKILL_ERROR_KEYS: ErrorCodeKeyMap = {
     [deskErrorCodeEnum.REVISION_CONFLICT]: 'pages.assistantSkills.conflict',
+    [deskErrorCodeEnum.SERVICE_RESTARTING]: 'pages.agentError.serviceRestarting',
     [deskErrorCodeEnum.SYSTEM_ERROR]: 'pages.assistantSkills.failed',
 };
 
