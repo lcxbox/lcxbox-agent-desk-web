@@ -4799,3 +4799,92 @@ async fn pc_registry_supports_multiple_independent_connections() {
     assert!(registry.contains("b").await);
     assert_eq!(registry.len().await, 1);
 }
+
+/// A browser host candidate with its IP hidden behind an mDNS name, as Chrome
+/// sends it.
+fn mdns_host_candidate_model(connection_id: &str, connection_epoch: String) -> SignalingModel {
+    let payload = desk_signal_facade::model::remote_session::IceCandidatePayload {
+        connection_epoch,
+        candidate: webrtc::ice_transport::ice_candidate::RTCIceCandidateInit {
+            candidate: "candidate:1200491302 1 udp 2113937151 \
+                        71cf379a-8588-4fce-83dd-eec343adbc83.local 64440 typ host generation 0"
+                .to_string(),
+            sdp_mid: Some("0".to_string()),
+            sdp_mline_index: Some(0),
+            ..Default::default()
+        },
+    };
+    let mut model =
+        SignalingModel::new_request(SignalingType::IceCandidate, None, Some(&payload)).unwrap();
+    model.from_connection_id = Some(connection_id.to_string());
+    model
+}
+
+/// Regression (reboot acceptance, on device 2026-11-21): the handler resolved
+/// each `.local` candidate inline with an 800 ms timeout that never succeeded.
+/// It runs inline in the signaling proxy loop, so six candidates held the
+/// ANSWER back for ~5 s and the browser resent its OFFER. The candidate must
+/// be handed to the ICE agent (which resolves it in the background) at once,
+/// with or without a remote description.
+#[tokio::test]
+async fn an_mdns_host_candidate_does_not_hold_up_the_signaling_loop() {
+    use std::time::{Duration, Instant};
+
+    let registry = PcRegistry::new();
+    let request = RequestRemoteModel {
+        session_target_id: None,
+        requested_wayland_control_mode: Some("auto".into()),
+        purpose: RemoteSessionPurpose::RemoteDesktop,
+        ice_servers: vec![],
+        grant_session_id: None,
+        org_id: None,
+    };
+    let settings = settings_with_startup(StartupMode::ServiceDaemon);
+    let ctx = registry
+        .create_for_request_remote("conn-mdns", &request, &settings)
+        .await
+        .expect("create pc");
+    let (pc, epoch) = {
+        let guard = ctx.read().await;
+        (guard.pc.clone(), guard.connection_epoch.clone())
+    };
+
+    // Before the remote description: the add is refused (logged), quickly.
+    let started = Instant::now();
+    handle_ice_candidate(
+        &registry,
+        &mdns_host_candidate_model("conn-mdns", epoch.clone()),
+    )
+    .await
+    .expect("handled");
+    assert!(
+        started.elapsed() < Duration::from_millis(300),
+        "candidate before the remote description took {:?}",
+        started.elapsed()
+    );
+
+    // After the remote description: the candidate reaches the ICE agent.
+    let browser = build_peer_connection(vec![], &Settings::default())
+        .await
+        .expect("browser pc");
+    let _dc = browser
+        .create_data_channel("mdns-test", None)
+        .await
+        .expect("dc");
+    let offer = browser.create_offer(None).await.expect("offer");
+    pc.set_remote_description(offer)
+        .await
+        .expect("remote description");
+    let started = Instant::now();
+    handle_ice_candidate(&registry, &mdns_host_candidate_model("conn-mdns", epoch))
+        .await
+        .expect("handled");
+    assert!(
+        started.elapsed() < Duration::from_millis(300),
+        "candidate after the remote description took {:?}",
+        started.elapsed()
+    );
+
+    browser.close().await.unwrap();
+    pc.close().await.unwrap();
+}

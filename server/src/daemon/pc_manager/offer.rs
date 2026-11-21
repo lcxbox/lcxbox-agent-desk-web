@@ -707,8 +707,13 @@ async fn publish_offer_media_state(
     }
 }
 
-/// Daemon side of `SignalingType::IceCandidate` (ICE candidate). Mirrors the
-/// worker's mDNS rewrite path for `*.local` hosts.
+/// Daemon side of `SignalingType::IceCandidate` (ICE candidate).
+///
+/// A browser host candidate named `<uuid>.local` (mDNS-obfuscated host IP) is
+/// passed on as received: the ICE agent resolves it itself, in the
+/// background. This handler runs inline in the signaling proxy loop, so it
+/// must not wait on the network: an inline lookup here held back every
+/// outbound message, the ANSWER included, by its timeout per candidate.
 pub async fn handle_ice_candidate(
     registry: &PcRegistry,
     model: &SignalingModel,
@@ -733,7 +738,7 @@ pub async fn handle_ice_candidate(
             return Ok(());
         }
     }
-    let mut candidate_init = payload.candidate;
+    let candidate_init = payload.candidate;
     log::info!(
         "[pc_manager] ICE candidate for {from_connection_id}: candidate=\"{}\" sdp_mid={:?} \
          sdp_mline_index={:?} ufrag={:?}",
@@ -742,23 +747,6 @@ pub async fn handle_ice_candidate(
         candidate_init.sdp_mline_index,
         candidate_init.username_fragment,
     );
-    if candidate_init.candidate.contains(".local") {
-        let mut parts = candidate_init
-            .candidate
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
-        if parts.len() >= 6 {
-            let host = parts[4].clone();
-            if host.ends_with(".local")
-                && let Some(ip) = crate::service::signaling::resolve_mdns_host(&host).await
-            {
-                log::info!("[pc_manager] Resolved mDNS {host} -> {ip}");
-                parts[4] = ip.to_string();
-                candidate_init.candidate = parts.join(" ");
-            }
-        }
-    }
     let ctx = ctx.read().await;
     if let Err(e) = ctx.pc.add_ice_candidate(candidate_init).await {
         log::warn!("[pc_manager] add_ice_candidate failed: {e}");

@@ -120,7 +120,6 @@ webrtc-media = "0.17"
 webrtc-ice = "0.17"
 rtp = "0.17"
 rtcp = "0.17"
-webrtc-mdns = "0.17"
 
 strum = "0.27"
 strum_macros = "0.27"

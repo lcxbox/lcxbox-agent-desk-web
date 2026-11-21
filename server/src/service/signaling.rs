@@ -6,12 +6,11 @@
 //! [`DeskSession`] used by the worker IPC loop to dispatch typed-IPC
 //! requests for worker-owned `SignalingType`s (private screen, terminal,
 //! manager file/system queries, settings) plus a small number of helpers
-//! (`should_short_circuit_*`, `resolve_mdns_host`, `LocalNodeTokenValidator`)
+//! (`should_short_circuit_*`, `LocalNodeTokenValidator`)
 //! that are still consumed by daemon code.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
 
 use actix_web::web;
 use bytes::Bytes;
@@ -29,12 +28,8 @@ use crate::worker::connection_ceiling::ConnectionCeilingStore;
 use desk_utils::error::{CustomDeskError, DeskErrorCode};
 
 use log::{error, info};
-use once_cell::sync::OnceCell;
 use serde::Serialize;
-use std::net::IpAddr;
 use tokio::sync::mpsc;
-
-use webrtc_mdns::{config::Config as MdnsConfig, conn::DnsConn};
 
 use crate::host_control::HostControlHub;
 use crate::model::policy_access::{CachedDecision, PolicyAccess};
@@ -173,43 +168,6 @@ impl NodeTokenValidator for LocalNodeTokenValidator {
             }
             false
         })
-    }
-}
-
-static MDNS_CONN: OnceCell<std::sync::Arc<DnsConn>> = OnceCell::new();
-
-async fn get_mdns_conn() -> Result<std::sync::Arc<DnsConn>, webrtc_mdns::Error> {
-    if let Some(conn) = MDNS_CONN.get() {
-        return Ok(conn.clone());
-    }
-
-    let cfg = MdnsConfig {
-        query_interval: Duration::from_millis(200),
-        ..Default::default()
-    };
-
-    // Bind to an ephemeral port to avoid conflicts with any existing mDNS listener.
-    let conn = DnsConn::server("0.0.0.0:0".parse().expect("valid mdns bind"), cfg)?;
-    let conn = std::sync::Arc::new(conn);
-    let _ = MDNS_CONN.set(conn.clone());
-    Ok(conn)
-}
-
-pub(crate) async fn resolve_mdns_host(host: &str) -> Option<IpAddr> {
-    let conn = get_mdns_conn().await.ok()?;
-    let (_close_tx, close_rx) = mpsc::channel(1);
-
-    // Timeout quickly to avoid blocking ICE too long.
-    match tokio::time::timeout(Duration::from_millis(800), conn.query(host, close_rx)).await {
-        Ok(Ok((_answer, addr))) => Some(addr.ip()),
-        Ok(Err(e)) => {
-            log::warn!("mDNS query failed for {}: {:?}", host, e);
-            None
-        }
-        Err(_) => {
-            log::warn!("mDNS query timed out for {}", host);
-            None
-        }
     }
 }
 
