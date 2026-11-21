@@ -2411,8 +2411,13 @@ export function useAiAssistantChat({
             + (requestQueue?.conversation === conversationId.current ? requestQueue.items.filter(item => item.state === 'queued').length : 0),
         failedRequests: requestQueue?.conversation === conversationId.current
             ? requestQueue.items.filter(item => item.state === 'failed') : [],
-        waitingRequestIds: requestQueue?.conversation === conversationId.current
-            ? requestQueue.items.filter(item => isWaitingReceipt(item.state)).map(item => item.requestId) : [],
+        // A send shows as queued from its queued event, before any receipt read
+        // returns; a throttled background tab may first read it as failed.
+        waitingRequestIds: [...new Set([
+            ...queuedMessages.flatMap(item => item.requestId ? [item.requestId] : []),
+            ...(requestQueue?.conversation === conversationId.current
+                ? requestQueue.items.filter(item => isWaitingReceipt(item.state)).map(item => item.requestId) : []),
+        ])],
         cancelQueuedRequest,
         resumeQueue,
         resumingQueue,

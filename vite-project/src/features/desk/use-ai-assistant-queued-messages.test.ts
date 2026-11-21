@@ -1,5 +1,8 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, waitFor } from '@testing-library/react';
+import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { AssistantFailedRequests } from './assistant-failed-requests';
 
 import { SIGNALING_TYPE_CODE_AI_ASSISTANT_UPDATED } from './constants';
 import type { SignalingSubscriber } from './use-desk-signaling';
@@ -285,6 +288,42 @@ describe('assistant queued messages', () => {
                 errorCode: deskErrorCodeEnum.AI_CONTENT_SAFETY_UNAVAILABLE });
             expect(chat.result.current.waitingRequestIds).toEqual(['waiting']);
         } finally { chat.unmount(); }
+    });
+
+    it('opens the failure list for a send shown as queued that is first read back as failed', async () => {
+        const earlier = { ...receipt('earlier', 'earlier-input', 'failed', 1), failure: 'activation_failed' };
+        const chat = await setup({ active: true, requestId: 'running', mainRequests: [earlier] });
+        // The page passes the chat state to the list on every render.
+        const props = () => ({ failed: chat.result.current.failedRequests, waitingIds: chat.result.current.waitingRequestIds });
+        const list = render(createElement(AssistantFailedRequests, props()));
+        const sync = () => list.rerender(createElement(AssistantFailedRequests, props()));
+        const details = () => list.container.querySelector('details') as HTMLDetailsElement;
+        try {
+            await waitFor(() => expect(chat.result.current.failedRequests).toHaveLength(1));
+            sync();
+            expect(details().open).toBe(false);
+            chat.send('Mine');
+            const { id } = chat.input(0);
+            // A throttled background tab reads the receipts only after activation failed.
+            chat.server.holdLists = true;
+            chat.server.holdSnapshots = true;
+            chat.server.snapshot.mainRequests = [{ ...receipt('mine', id, 'failed', 2), failure: 'activation_failed' }, earlier];
+            await chat.queued(0, 'mine', true);
+            expect(chat.view().queued).toEqual(['Mine:queued']);
+            expect(chat.result.current.waitingRequestIds).toEqual(['mine']);
+            sync();
+            await chat.release();
+            expect(chat.view().queued).toEqual([]);
+            expect(chat.result.current.failedRequests.map(item => item.requestId)).toEqual(['mine', 'earlier']);
+            sync();
+            expect(details().open).toBe(true);
+            // Closed by the owner, it stays closed while nothing new fails.
+            details().open = false;
+            fireEvent(details(), new Event('toggle'));
+            await chat.refresh();
+            sync();
+            expect(details().open).toBe(false);
+        } finally { list.unmount(); chat.unmount(); }
     });
 
     it('keeps the workbench queue path free of conversation and queue entries', async () => {
