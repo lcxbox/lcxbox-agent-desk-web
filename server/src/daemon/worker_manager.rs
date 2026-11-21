@@ -1066,6 +1066,7 @@ impl WorkerManager {
     }
 
     /// Every session some connection is bound to, once each.
+    #[cfg(target_os = "windows")]
     fn connection_target_sessions(&self) -> Vec<desk_ipc_protocol::message::SessionKey> {
         let mut sessions: Vec<_> = self
             .connection_targets
