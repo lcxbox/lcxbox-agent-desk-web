@@ -42,13 +42,26 @@ async fn connect_with_stream(
     SignalingHandler<Owner>,
     actix_ws::AggregatedMessageStream,
 ) {
+    connect_with_payload(id, client, map, actix_web::dev::Payload::None).await
+}
+
+async fn connect_with_payload(
+    id: &str,
+    client: &str,
+    map: web::Data<SharedConnectionMap>,
+    mut inbound: actix_web::dev::Payload,
+) -> (
+    HttpResponse,
+    SignalingHandler<Owner>,
+    actix_ws::AggregatedMessageStream,
+) {
     let req = TestRequest::get()
         .insert_header(("upgrade", "websocket"))
         .insert_header(("connection", "upgrade"))
         .insert_header(("sec-websocket-version", "13"))
         .insert_header(("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ=="))
         .to_http_request();
-    let payload = web::Payload::from_request(&req, &mut actix_web::dev::Payload::None)
+    let payload = web::Payload::from_request(&req, &mut inbound)
         .await
         .unwrap();
     let (response, session, stream) = actix_ws::handle(&req, payload).unwrap();
@@ -194,6 +207,36 @@ async fn concurrent_publication_and_repeated_cleanup_keep_the_index_consistent()
         .unwrap();
         assert!(map.read().await.current_oss_server("device").is_none());
     }
+}
+
+/// actix-http drops the request payload of a connection that fails with an I/O
+/// error without ending it, and drops the response body that drains the
+/// session. The handler must still end and remove the connection.
+#[actix_web::test]
+async fn a_failed_transport_ends_the_handler_and_removes_the_connection() {
+    tokio::time::pause();
+    let map = web::Data::new(SharedConnectionMap::new_oss());
+    let never_ending = actix_web::dev::Payload::Stream {
+        payload: Box::pin(futures_util::stream::pending()) as _,
+    };
+    let (response, mut handler, stream) =
+        connect_with_payload("c1", "device", map.clone(), never_ending).await;
+    let lifecycle = handler.connection_state.lifecycle.clone();
+    let task = actix_web::rt::spawn(async move { handler.do_handle_signaling(stream).await });
+
+    tokio::time::sleep(Duration::from_secs(60)).await;
+    assert!(!task.is_finished(), "a live transport keeps its connection");
+    assert_eq!(map.read().await.len(), 1);
+
+    drop(response);
+    tokio::time::timeout(Duration::from_secs(30), task)
+        .await
+        .expect("the handler ends after its transport is gone")
+        .unwrap()
+        .unwrap();
+    assert!(lifecycle.is_retired());
+    assert!(map.read().await.is_empty());
+    assert!(map.read().await.current_oss_server("device").is_none());
 }
 
 #[actix_web::test]

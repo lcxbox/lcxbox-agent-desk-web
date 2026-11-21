@@ -267,6 +267,44 @@ impl<U: SignalingUser> Drop for SignalingHandler<U> {
     }
 }
 
+/// How often an idle signaling connection checks that its transport still
+/// exists.
+const TRANSPORT_PROBE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The next inbound frame, or `None` once the connection is gone.
+///
+/// actix-http drops a websocket's request payload without an end-of-stream
+/// when the connection fails with an I/O error (for example a peer reset), so
+/// the inbound stream can stay pending forever. The outbound session is closed
+/// in that case, so a periodic ping that fails ends the stream instead.
+async fn next_inbound_frame<S>(
+    stream: &mut S,
+    session: &RwLock<Session>,
+    probe: &mut tokio::time::Interval,
+) -> Option<S::Item>
+where
+    S: futures_util::Stream + Unpin,
+{
+    loop {
+        tokio::select! {
+            biased;
+            msg = stream.next() => return msg,
+            _ = probe.tick() => {
+                let closed = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                    let mut session = session.read().await.clone();
+                    session.ping(b"").await.is_err()
+                })
+                .await
+                .unwrap_or(false);
+                if closed {
+                    log::info!("WS transport closed");
+                    return None;
+                }
+            }
+        }
+    }
+}
+
 async fn close_connection(state: &ConnectionState) {
     // A backpressured or half-open old transport cannot delay a new publication.
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), async {
@@ -1516,11 +1554,20 @@ impl<U: SignalingUser> SignalingHandler<U> {
         mut stream: AggregatedMessageStream,
     ) -> Result<(), DeskSignalFacadeError> {
         let lifecycle = self.connection_state.lifecycle.clone();
+        let session = self.connection_state.session.clone();
+        let mut probe = tokio::time::interval_at(
+            tokio::time::Instant::now() + TRANSPORT_PROBE_INTERVAL,
+            TRANSPORT_PROBE_INTERVAL,
+        );
+        probe.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             let msg = tokio::select! {
                 biased;
                 () = lifecycle.retired() => break,
-                msg = stream.next() => match msg { Some(msg) => msg, None => break },
+                msg = next_inbound_frame(&mut stream, &session, &mut probe) => match msg {
+                    Some(msg) => msg,
+                    None => break,
+                },
             };
             if lifecycle.is_retired() {
                 break;
