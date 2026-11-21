@@ -8,6 +8,10 @@
 //!   desktop-switch call) are equally safe to retry.
 //!
 //! `E_ACCESSDENIED` (secure desktop) and every other error do not fall back.
+//!
+//! The configured backend may be DXGI or WGC: the capture factory replaces an
+//! unavailable WGC with DXGI for the instance, so a WGC configuration can meet
+//! the same DXGI errors. A configured GDI capture never falls back.
 
 use desk_capture_engine::{
     error::CaptureError,
@@ -43,7 +47,7 @@ fn with_device_fallback<T>(
         Err(error)
             if matches!(
                 settings.get_image_capture_type(),
-                Ok(ImageCaptureType::DXGI)
+                Ok(ImageCaptureType::DXGI | ImageCaptureType::WGC)
             ) && fallback_reason(&error).is_some() =>
         {
             // Preserve the exact resolved target. GDI's factory rejects missing
@@ -68,11 +72,19 @@ mod tests {
     /// Regression (on device 2026-11-21): with the DXGI backend, a screenshot
     /// of the display the remote page was streaming failed with E_INVALIDARG
     /// every time, because the media pipeline already duplicated that output.
+    /// A WGC configuration is covered too: the factory may have replaced an
+    /// unavailable WGC with DXGI for this capture.
     #[test]
     fn device_fallback_is_once_and_preserves_the_target_and_saved_settings() {
-        for code in [DXGI_ERROR_DEVICE_REMOVED, E_INVALIDARG] {
+        for (backend, code) in [
+            (None, DXGI_ERROR_DEVICE_REMOVED),
+            (None, E_INVALIDARG),
+            (Some("WGC"), DXGI_ERROR_DEVICE_REMOVED),
+            (Some("WGC"), E_INVALIDARG),
+        ] {
             let settings = DeskSettings {
                 video_device_name: r"\\.\DISPLAY2".into(),
+                image_capture: backend.map(Into::into),
                 ..Default::default()
             };
             let mut calls = 0;
@@ -81,13 +93,13 @@ mod tests {
                 assert_eq!(current.video_device_name, settings.video_device_name);
                 assert_eq!(
                     current.image_capture.as_deref(),
-                    if calls == 1 { None } else { Some("GDI") }
+                    if calls == 1 { backend } else { Some("GDI") }
                 );
                 Err(windows::core::Error::from_hresult(code).into())
             });
             assert!(result.is_err());
-            assert_eq!(calls, 2, "{code:?} must retry once with GDI");
-            assert!(settings.image_capture.is_none());
+            assert_eq!(calls, 2, "{backend:?} {code:?} must retry once with GDI");
+            assert_eq!(settings.image_capture.as_deref(), backend);
         }
     }
 
@@ -95,6 +107,7 @@ mod tests {
     fn access_denied_and_non_dxgi_errors_do_not_fall_back() {
         for (backend, code) in [
             ("DXGI", E_ACCESSDENIED),
+            ("WGC", E_ACCESSDENIED),
             ("GDI", DXGI_ERROR_DEVICE_REMOVED),
             ("GDI", E_INVALIDARG),
         ] {
