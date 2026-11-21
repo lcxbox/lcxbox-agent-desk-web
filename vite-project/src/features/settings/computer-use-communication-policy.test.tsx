@@ -59,4 +59,14 @@ describe('local message policy', () => {
         expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
         expect(api.save).not.toHaveBeenCalled();
     });
+    // The owner may use this device's console from another computer.
+    it('reads from a non-loopback console address', async () => {
+        vi.stubGlobal('location', { ...window.location, hostname: '192.168.50.5' });
+        try {
+            await openPolicy();
+            expect(api.load).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
 });

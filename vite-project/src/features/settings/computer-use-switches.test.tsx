@@ -53,4 +53,16 @@ describe('local Computer Use switches', () => {
         expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
         expect(api.save).toHaveBeenCalledTimes(1);
     });
+    // The owner may use this device's console from another computer.
+    it('reads and saves from a non-loopback console address', async () => {
+        vi.stubGlobal('location', { ...window.location, hostname: '192.168.50.5' });
+        try {
+            expect(window.location.hostname).toBe('192.168.50.5');
+            await open();
+            fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+            await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
 });

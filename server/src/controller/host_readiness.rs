@@ -68,7 +68,21 @@ pub(super) fn validate_local_mutation(req: &HttpRequest) -> Result<(), DeskError
             "Local permission requests are restricted to the loopback interface",
         ));
     }
+    let origin_url = validate_same_origin(req)?;
+    if !is_loopback_url_host(&origin_url) {
+        return Err(permission_error(
+            "Open this host UI locally using localhost or 127.0.0.1 to request desktop permissions",
+        ));
+    }
+    Ok(())
+}
 
+/// The browser boundary of an owner request: an `Origin` header whose origin
+/// (scheme, host and port) equals this server's `Host`. A cross-site page
+/// cannot produce it, and a rebinding page's origin does not carry the
+/// owner's host-only session cookie. Returns the parsed Origin.
+#[allow(clippy::result_large_err)]
+pub(super) fn validate_same_origin(req: &HttpRequest) -> Result<url::Url, DeskError> {
     let origin = req
         .headers()
         .get(header::ORIGIN)
@@ -93,12 +107,7 @@ pub(super) fn validate_local_mutation(req: &HttpRequest) -> Result<(), DeskError
             "Local permission request Origin does not match Host",
         ));
     }
-    if !is_loopback_url_host(&origin_url) {
-        return Err(permission_error(
-            "Open this host UI locally using localhost or 127.0.0.1 to request desktop permissions",
-        ));
-    }
-    Ok(())
+    Ok(origin_url)
 }
 
 #[allow(clippy::result_large_err)]

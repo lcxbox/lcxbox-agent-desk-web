@@ -8,8 +8,10 @@
 //! so an existing install's explicit `enabled = false` stays off. Central
 //! policy and remote clients may narrow
 //! these values when computing readiness, but no signaling or manager path may
-//! persist a wider value. The trusted local writer owns the capability switches
-//! and optional static application restriction; an empty list enables nothing.
+//! persist a wider value. Only the owner signed in to this device's own web
+//! console (any address, same-origin request; see
+//! `controller/computer_use_policy.rs`) writes the capability switches and the
+//! optional static application restriction; an empty list enables nothing.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;

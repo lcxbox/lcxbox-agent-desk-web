@@ -19,7 +19,6 @@ export function ComputerUseApplicationPolicySettings() {
     const [paths, setPaths] = useState('');
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState<'saved' | 'failed' | null>(null);
-    const local = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
     const apply = (next: ComputerUseApplicationPolicy) => {
         setPolicy(next);
         setRestricted(next.allowed_application_paths.length > 0);
@@ -72,7 +71,7 @@ export function ComputerUseApplicationPolicySettings() {
                             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                             <AlertDescription>{t('pages.applicationPolicy.localOnly')}</AlertDescription>
                         </Alert>
-                        {local && <Button variant="outline" disabled={busy} onClick={() => void load()}>{t('pages.applicationPolicy.load')}</Button>}
+                        <Button variant="outline" disabled={busy} onClick={() => void load()}>{t('pages.applicationPolicy.load')}</Button>
                         {policy && (
                             <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void save(); }}>
                                 <label className="block text-sm">

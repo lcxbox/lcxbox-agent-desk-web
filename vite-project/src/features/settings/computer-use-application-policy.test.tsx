@@ -57,4 +57,14 @@ describe('local application policy', () => {
         await screen.findByRole('status');
         expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     });
+    // The owner may use this device's console from another computer.
+    it('reads from a non-loopback console address', async () => {
+        vi.stubGlobal('location', { ...window.location, hostname: '192.168.50.5' });
+        try {
+            await openPolicy();
+            expect(api.load).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
 });

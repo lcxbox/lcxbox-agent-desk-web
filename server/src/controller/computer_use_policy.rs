@@ -1,9 +1,11 @@
-//! Owner-authenticated, same-origin loopback access only. No manager proxy.
+//! Device-wide Computer Use configuration, editable by the owner signed in to
+//! this device's own web console from any address. Requests must be
+//! same-origin (`Origin` equals `Host`). No signaling or manager path.
 
 use actix_web::{HttpRequest, HttpResponse, http::header, post, web};
 use desk_utils::rest::RestResponse;
 
-use super::host_readiness::validate_local_mutation;
+use super::host_readiness::validate_same_origin as validate_owner_request;
 use crate::{
     error::DeskError,
     model::{
@@ -27,7 +29,7 @@ pub async fn query_computer_use_application_policy(
     settings: web::Data<SharedSettings>,
 ) -> Result<HttpResponse, DeskError> {
     // POST intentionally requires the same browser Origin boundary as writes.
-    validate_local_mutation(&req)?;
+    validate_owner_request(&req)?;
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .json(RestResponse::succeed_with_data(
@@ -47,7 +49,7 @@ pub async fn update_computer_use_application_policy(
     request: web::Json<ComputerUseApplicationPolicyUpdate>,
     coordinator: web::Data<SettingsCoordinator>,
 ) -> Result<HttpResponse, DeskError> {
-    validate_local_mutation(&req)?;
+    validate_owner_request(&req)?;
     let update = request.into_inner();
     // Once accepted, finish persistence and worker convergence even if the
     // browser disconnects. Never leave a durable update half-published.
@@ -78,7 +80,7 @@ pub async fn query_computer_use_communication_policy(
     req: HttpRequest,
     settings: web::Data<SharedSettings>,
 ) -> Result<HttpResponse, DeskError> {
-    validate_local_mutation(&req)?;
+    validate_owner_request(&req)?;
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .json(RestResponse::succeed_with_data(
@@ -98,7 +100,7 @@ pub async fn update_computer_use_communication_policy(
     request: web::Json<ComputerUseCommunicationPolicyUpdate>,
     coordinator: web::Data<SettingsCoordinator>,
 ) -> Result<HttpResponse, DeskError> {
-    validate_local_mutation(&req)?;
+    validate_owner_request(&req)?;
     let update = request.into_inner();
     // Finish persistence and worker convergence even if the local page disconnects.
     let applied = actix_web::rt::spawn(async move {
@@ -128,7 +130,7 @@ pub async fn query_computer_use_switches(
     req: HttpRequest,
     settings: web::Data<SharedSettings>,
 ) -> Result<HttpResponse, DeskError> {
-    validate_local_mutation(&req)?;
+    validate_owner_request(&req)?;
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .json(RestResponse::succeed_with_data(
@@ -148,7 +150,7 @@ pub async fn update_computer_use_switches(
     request: web::Json<ComputerUseSwitchesUpdate>,
     coordinator: web::Data<SettingsCoordinator>,
 ) -> Result<HttpResponse, DeskError> {
-    validate_local_mutation(&req)?;
+    validate_owner_request(&req)?;
     let update = request.into_inner();
     // Finish persistence and worker convergence even if the local page disconnects.
     let applied = actix_web::rt::spawn(async move {
@@ -184,8 +186,12 @@ mod tests {
         HttpResponse::Ok().finish()
     }
 
+    /// The owner may change these from this device's web console at any
+    /// address (on device 2026-11-21: http://192.168.50.5:8082), but only with
+    /// a same-origin request: a cross-site page, another port of the same host
+    /// or a missing Origin cannot.
     #[actix_web::test]
-    async fn local_policies_require_owner_loopback_and_origin_and_use_cas() {
+    async fn owner_policies_require_an_owner_session_and_same_origin_and_use_cas() {
         for kind in ["applications", "communication", "switches"] {
             let communication = kind == "communication";
             let dir = tempfile::tempdir().unwrap();
@@ -244,23 +250,31 @@ mod tests {
                 anonymous.error_response().status(),
                 actix_web::http::StatusCode::UNAUTHORIZED
             );
-            for (peer, origin) in [
-                ("192.0.2.1:1234", "http://localhost"),
-                ("127.0.0.1:1234", "http://evil.example"),
-                ("127.0.0.1:1234", "null"),
+            for (peer, host, origin) in [
+                ("127.0.0.1:1234", "localhost", Some("http://evil.example")),
+                ("127.0.0.1:1234", "localhost", Some("null")),
+                (
+                    "192.0.2.1:1234",
+                    "192.0.2.10:8082",
+                    Some("http://192.0.2.10:9000"),
+                ),
+                (
+                    "192.0.2.1:1234",
+                    "192.0.2.10:8082",
+                    Some("http://evil.example"),
+                ),
+                ("192.0.2.1:1234", "192.0.2.10:8082", None),
             ] {
-                let response = test::call_service(
-                    &app,
-                    test::TestRequest::post()
-                        .uri(path)
-                        .cookie(cookie.clone())
-                        .peer_addr(peer.parse().unwrap())
-                        .insert_header((header::HOST, "localhost"))
-                        .insert_header((header::ORIGIN, origin))
-                        .set_json(&update)
-                        .to_request(),
-                )
-                .await;
+                let mut request = test::TestRequest::post()
+                    .uri(path)
+                    .cookie(cookie.clone())
+                    .peer_addr(peer.parse().unwrap())
+                    .insert_header((header::HOST, host));
+                if let Some(origin) = origin {
+                    request = request.insert_header((header::ORIGIN, origin));
+                }
+                let response =
+                    test::call_service(&app, request.set_json(&update).to_request()).await;
                 let body: serde_json::Value = test::read_body_json(response).await;
                 assert_ne!(
                     body["code"],
@@ -268,15 +282,17 @@ mod tests {
                 );
                 assert_eq!(shared.read().await.computer_use.revision, 0);
             }
+            // From another machine on the LAN; the second identical update is a
+            // stale revision.
             for _ in 0..2 {
                 let response = test::call_service(
                     &app,
                     test::TestRequest::post()
                         .uri(path)
                         .cookie(cookie.clone())
-                        .peer_addr("127.0.0.1:1234".parse().unwrap())
-                        .insert_header((header::HOST, "localhost"))
-                        .insert_header((header::ORIGIN, "http://localhost"))
+                        .peer_addr("192.0.2.1:1234".parse().unwrap())
+                        .insert_header((header::HOST, "192.0.2.10:8082"))
+                        .insert_header((header::ORIGIN, "http://192.0.2.10:8082"))
                         .set_json(&update)
                         .to_request(),
                 )

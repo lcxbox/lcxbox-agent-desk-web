@@ -27,14 +27,13 @@ export function ComputerUseSwitchesSettings() {
     const [status, setStatus] = useState<'saved' | 'failed' | null>(null);
     const pending = useRef(false);
     const generation = useRef(0);
-    const local = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
     useEffect(() => {
         generation.current += 1;
         return () => { generation.current += 1; };
     }, []);
 
     const perform = async (save: boolean) => {
-        if (!local || pending.current || (save && !switches)) return;
+        if (pending.current || (save && !switches)) return;
         pending.current = true;
         const current = generation.current;
         setBusy(true);
@@ -82,8 +81,8 @@ export function ComputerUseSwitchesSettings() {
                     <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                     <AlertDescription>{t('pages.computerUseSwitches.localOnly')}</AlertDescription>
                 </Alert>
-                {local && <Button variant="outline" disabled={busy} onClick={() => void perform(false)}>{t('pages.computerUseSwitches.load')}</Button>}
-                {local && switches && <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void perform(true); }}>
+                <Button variant="outline" disabled={busy} onClick={() => void perform(false)}>{t('pages.computerUseSwitches.load')}</Button>
+                {switches && <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void perform(true); }}>
                     <fieldset className="min-w-0 rounded-lg border p-4">
                         <legend className="px-1 text-sm font-medium">{t('pages.computerUseSwitches.group.master')}</legend>
                         <label className="flex items-start gap-3 text-sm">

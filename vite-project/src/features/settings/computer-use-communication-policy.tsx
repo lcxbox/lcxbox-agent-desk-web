@@ -23,14 +23,13 @@ export function ComputerUseCommunicationPolicySettings() {
     const [status, setStatus] = useState<'saved' | 'failed' | null>(null);
     const pending = useRef(false);
     const generation = useRef(0);
-    const local = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
     useEffect(() => {
         generation.current += 1;
         return () => { generation.current += 1; };
     }, []);
 
     const perform = async (save: boolean) => {
-        if (!local || pending.current || (save && !policy)) return;
+        if (pending.current || (save && !policy)) return;
         pending.current = true;
         const current = generation.current;
         setBusy(true);
@@ -71,8 +70,8 @@ export function ComputerUseCommunicationPolicySettings() {
                     <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                     <AlertDescription>{t('pages.communicationPolicy.localOnly')}</AlertDescription>
                 </Alert>
-                {local && <Button variant="outline" disabled={busy} onClick={() => void perform(false)}>{t('pages.communicationPolicy.load')}</Button>}
-                {local && policy && <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void perform(true); }}>
+                <Button variant="outline" disabled={busy} onClick={() => void perform(false)}>{t('pages.communicationPolicy.load')}</Button>
+                {policy && <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void perform(true); }}>
                     {!policy.enabled && <p className="text-sm text-muted-foreground">{t('pages.communicationPolicy.masterOff')}</p>}
                     {groups.map((group) => <fieldset key={group.name} className="min-w-0 rounded-lg border p-4">
                         <legend className="px-1 text-sm font-medium">{t(`pages.communicationPolicy.group.${group.name}`)}</legend>
