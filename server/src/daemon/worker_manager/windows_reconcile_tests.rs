@@ -445,20 +445,28 @@ fn capabilities_on(backends: &[&str], device_name: &str) -> MediaCapabilities {
     }
 }
 
+/// The sign-in (SYSTEM) worker never lists WGC, but serves WGC media through
+/// the capture factory's DXGI fallback, so WGC stays offered when it has
+/// DXGI (on device 2026-11-21 WGC had vanished from the offer).
 #[test]
 fn the_offer_keeps_only_what_the_sign_in_worker_can_also_serve() {
     let session = capabilities_on(&["WGC", "DXGI", "GDI"], r"\.\DISPLAY1");
     let mut secure = capabilities_on(&["DXGI", "GDI"], r"\.\DISPLAY1");
     secure.video_codecs = vec![desk_ipc_protocol::message::MediaCodec::H264];
-    let offer = offer_for_both_desktops(session, &secure);
+    let offer = offer_for_both_desktops(session.clone(), &secure);
     assert_eq!(
         offer.video_device_list.keys().collect::<Vec<_>>(),
-        ["DXGI", "GDI"]
+        ["DXGI", "GDI", "WGC"]
     );
     assert_eq!(
         offer.video_codecs,
         [desk_ipc_protocol::message::MediaCodec::H264]
     );
+
+    // Without DXGI on the sign-in worker nothing can stand in for WGC.
+    let gdi_only = capabilities_on(&["GDI"], r"\.\DISPLAY1");
+    let offer = offer_for_both_desktops(session, &gdi_only);
+    assert_eq!(offer.video_device_list.keys().collect::<Vec<_>>(), ["GDI"]);
 }
 
 #[test]
@@ -496,7 +504,14 @@ fn a_worker_continues_only_media_it_can_serve() {
         show_mouse: true,
     };
     assert!(worker_can_continue(&secure, &media("dxgi", r"\.\DISPLAY1")));
-    assert!(!worker_can_continue(&secure, &media("WGC", r"\.\DISPLAY1")));
+    // WGC media continues on DXGI for a display the worker knows.
+    assert!(worker_can_continue(&secure, &media("WGC", r"\.\DISPLAY1")));
+    assert!(worker_can_continue(&secure, &media("wgc", r"\.\DISPLAY1")));
+    assert!(!worker_can_continue(&secure, &media("WGC", r"\.\DISPLAY7")));
+    assert!(!worker_can_continue(
+        &capabilities_on(&["GDI"], r"\.\DISPLAY1"),
+        &media("WGC", r"\.\DISPLAY1")
+    ));
     assert!(!worker_can_continue(
         &secure,
         &media("DXGI", r"\.\DISPLAY7")
@@ -542,5 +557,45 @@ async fn a_remote_desktop_offer_falls_back_to_the_baseline_without_the_sign_in_w
         .remote_desktop_capabilities(&session(1, 1))
         .await
         .unwrap();
+    assert_eq!(
+        offer.video_device_list.keys().collect::<Vec<_>>(),
+        ["DXGI", "WGC"]
+    );
+    // The list pushed to open connections is the same offer, without waiting.
+    let started = tokio::time::Instant::now();
+    let now = manager
+        .remote_desktop_offer_now(&session(1, 1))
+        .await
+        .unwrap();
+    assert_eq!(started.elapsed(), Duration::ZERO);
+    assert_eq!(
+        now.video_device_list.keys().collect::<Vec<_>>(),
+        ["DXGI", "WGC"]
+    );
+}
+
+/// Before the sign-in worker reports, the pushed list is the baseline at once
+/// (no 2 s wait inside the signaling loop).
+#[cfg(target_os = "windows")]
+#[tokio::test(start_paused = true)]
+async fn the_pushed_offer_does_not_wait_for_the_sign_in_worker() {
+    let manager = resident_test_manager();
+    let (default_tx, _default_rx) = mpsc::unbounded_channel();
+    let default_key = key(1, 1, DesktopTarget::WindowsDefault);
+    manager
+        .install_resident_for_test(default_key.clone(), default_tx)
+        .await;
+    manager
+        .set_resident_worker_capabilities(
+            &default_key,
+            capabilities_on(&["WGC", "DXGI"], r"\.\DISPLAY1"),
+        )
+        .await;
+    let started = tokio::time::Instant::now();
+    let offer = manager
+        .remote_desktop_offer_now(&session(1, 1))
+        .await
+        .unwrap();
+    assert_eq!(started.elapsed(), Duration::ZERO);
     assert_eq!(offer.video_device_list.keys().collect::<Vec<_>>(), ["DXGI"]);
 }

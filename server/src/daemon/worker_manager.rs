@@ -2745,6 +2745,26 @@ impl WorkerManager {
         &self,
         session: &desk_ipc_protocol::message::SessionKey,
     ) -> Option<MediaCapabilities> {
+        self.remote_desktop_offer(session, SECURE_DESKTOP_CAPABILITIES_WAIT)
+            .await
+    }
+
+    /// The offer a new remote desktop of `session` would get now, without
+    /// waiting for the sign-in worker: the list pushed to open connections
+    /// when a worker reports, so the page shows what the device offers rather
+    /// than whichever worker reported last.
+    pub async fn remote_desktop_offer_now(
+        &self,
+        session: &desk_ipc_protocol::message::SessionKey,
+    ) -> Option<MediaCapabilities> {
+        self.remote_desktop_offer(session, Duration::ZERO).await
+    }
+
+    async fn remote_desktop_offer(
+        &self,
+        session: &desk_ipc_protocol::message::SessionKey,
+        secure_wait: Duration,
+    ) -> Option<MediaCapabilities> {
         let serving = self.session_worker_capabilities(session).await?;
         if !(cfg!(target_os = "windows") && self.uses_session_targeting()) {
             return Some(serving);
@@ -2756,7 +2776,7 @@ impl WorkerManager {
             session: session.clone(),
             desktop: DesktopTarget::WindowsWinlogon,
         };
-        let deadline = Instant::now() + SECURE_DESKTOP_CAPABILITIES_WAIT;
+        let deadline = Instant::now() + secure_wait;
         let secure = loop {
             if let Some(secure) = self.resident_worker_capabilities(&secure_key).await {
                 break Some(secure);
@@ -2769,10 +2789,12 @@ impl WorkerManager {
         Some(match secure {
             Some(secure) => offer_for_both_desktops(serving, &secure),
             None => {
-                warn!(
-                    "the sign-in worker of {session:?} has not reported capabilities; \
-                     offering the baseline capture backend"
-                );
+                if !secure_wait.is_zero() {
+                    warn!(
+                        "the sign-in worker of {session:?} has not reported capabilities; \
+                         offering the baseline capture backend"
+                    );
+                }
                 baseline_offer(serving)
             }
         })
@@ -4749,6 +4771,38 @@ fn has_capture_backend(caps: &MediaCapabilities, backend: &str) -> bool {
         .any(|(name, devices)| name.eq_ignore_ascii_case(backend) && !devices.is_empty())
 }
 
+/// Whether a worker reporting `caps` can capture with `backend`. A worker
+/// without WGC (the secure-desktop worker runs as SYSTEM, where WGC is
+/// unavailable) still serves WGC media: the capture factory replaces an
+/// unavailable WGC with DXGI for that instance
+/// (`capture-engine/src/image_capture/image_capture_factory.rs`).
+fn can_serve_capture_backend(caps: &MediaCapabilities, backend: &str) -> bool {
+    has_capture_backend(caps, backend)
+        || (backend.eq_ignore_ascii_case("WGC") && has_capture_backend(caps, "DXGI"))
+}
+
+/// The displays a worker reporting `caps` can capture with `backend`,
+/// following the same WGC→DXGI fallback.
+fn capture_devices<'a>(
+    caps: &'a MediaCapabilities,
+    backend: &str,
+) -> Option<&'a Vec<desk_signal_facade::model::image_capture::DisplayInfo>> {
+    let listed = |name: &str| {
+        caps.video_device_list
+            .iter()
+            .find(|(listed, _)| listed.eq_ignore_ascii_case(name))
+            .map(|(_, devices)| devices)
+    };
+    listed(backend)
+        .filter(|devices| !devices.is_empty())
+        .or_else(|| {
+            backend
+                .eq_ignore_ascii_case("WGC")
+                .then(|| listed("DXGI"))
+                .flatten()
+        })
+}
+
 /// The capture backend every desktop worker of a session can serve: DXGI,
 /// or GDI where DXGI is unavailable. Every encoder is software and is
 /// available to both workers.
@@ -4790,9 +4844,9 @@ fn offer_for_both_desktops(
             .iter()
             .any(|other| other.id == capability.id)
     });
-    offer
-        .video_device_list
-        .retain(|backend, devices| !devices.is_empty() && has_capture_backend(secure, backend));
+    offer.video_device_list.retain(|backend, devices| {
+        !devices.is_empty() && can_serve_capture_backend(secure, backend)
+    });
     let backends: Vec<String> = offer.video_device_list.keys().cloned().collect();
     offer.physical_display_capabilities.retain(|backend, _| {
         backends
@@ -4830,9 +4884,7 @@ fn worker_can_continue(
                 .video_encoders
                 .iter()
                 .any(|known| known.eq_ignore_ascii_case(encoder)))
-        && caps.video_device_list.iter().any(|(backend, devices)| {
-            backend.eq_ignore_ascii_case(&media.image_capture) && device_known(devices)
-        })
+        && capture_devices(caps, &media.image_capture).is_some_and(device_known)
 }
 
 #[cfg(test)]

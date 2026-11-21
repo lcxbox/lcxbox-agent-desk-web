@@ -691,6 +691,11 @@ pub async fn run_signaling_proxy(
         super::worker_manager::WorkerIncarnation,
     >::new();
     let mut unkeyed_capability_incarnation = None;
+    // The capture list last pushed to each session's connections.
+    let mut pushed_capabilities = std::collections::HashMap::<
+        desk_ipc_protocol::message::SessionKey,
+        serde_json::Value,
+    >::new();
     let mut retired_workers = worker_mgr.take_retired_worker_receiver();
     loop {
         let worker_message = tokio::select! {
@@ -879,15 +884,26 @@ pub async fn run_signaling_proxy(
                             }
                         });
                     }
-                    send_media_capabilities_notifications(
-                        &pc_registry,
-                        &worker_mgr,
-                        Some(key),
-                        &notification_caps,
+                    // Push what the device offers a remote desktop of this
+                    // session, not this worker's raw report: the secure-desktop
+                    // worker's report (no WGC, for example) must not replace
+                    // the page's list during a UAC prompt.
+                    if let Some((offer, fingerprint)) = resident_capabilities_push(
+                        pushed_capabilities.get(&key.session),
+                        worker_mgr.remote_desktop_offer_now(&key.session).await,
                         &external_changes,
-                        &outbound_tx,
-                    )
-                    .await;
+                    ) {
+                        pushed_capabilities.insert(key.session.clone(), fingerprint);
+                        send_media_capabilities_notifications(
+                            &pc_registry,
+                            &worker_mgr,
+                            Some(key),
+                            &offer,
+                            &external_changes,
+                            &outbound_tx,
+                        )
+                        .await;
+                    }
                     // A fresh resident worker starts from the policy in its
                     // Init at sequence zero, like the single worker below;
                     // restate the current policy on one numbering.

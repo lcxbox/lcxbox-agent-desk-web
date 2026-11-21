@@ -2,6 +2,27 @@
 
 use super::*;
 
+/// What to push to a session's connections after a resident worker reports:
+/// the device's current offer for that session, when it differs from the last
+/// list pushed or the report carries physical-display changes. Pushing an
+/// unchanged list would reset an open settings dialog. `None` when there is
+/// nothing to push (no offer yet: the serving worker has not reported, and its
+/// own report will follow). Returns the list's fingerprint to remember.
+pub(super) fn resident_capabilities_push(
+    last_pushed: Option<&serde_json::Value>,
+    offer: Option<desk_ipc_protocol::message::MediaCapabilities>,
+    external_changes: &[String],
+) -> Option<(
+    desk_ipc_protocol::message::MediaCapabilities,
+    serde_json::Value,
+)> {
+    let offer = offer?;
+    let fingerprint =
+        serde_json::json!([offer.video_device_list, offer.physical_display_capabilities]);
+    (!external_changes.is_empty() || last_pushed != Some(&fingerprint))
+        .then_some((offer, fingerprint))
+}
+
 pub(super) async fn send_media_capabilities_notifications(
     registry: &PcRegistry,
     worker_mgr: &WorkerManager,
@@ -245,5 +266,55 @@ pub(super) fn send_terminal_notification<T>(
             "[SignalingProxy] Failed to build {type_name} notification model for \
              {connection_id}: {e}"
         ),
+    }
+}
+
+#[cfg(test)]
+mod capability_push_tests {
+    use super::resident_capabilities_push;
+    use desk_ipc_protocol::message::MediaCapabilities;
+
+    fn offer(backends: &[&str]) -> MediaCapabilities {
+        MediaCapabilities {
+            video_device_list: backends
+                .iter()
+                .map(|backend| (backend.to_string(), Vec::new()))
+                .collect(),
+            ..MediaCapabilities::default()
+        }
+    }
+
+    /// Regression (on device 2026-11-21): the secure-desktop worker's report
+    /// during UAC replaced the page's capture list and WGC vanished. The
+    /// session's offer is pushed instead, once per change.
+    #[test]
+    fn the_offer_is_pushed_once_per_change() {
+        let (pushed, fingerprint) =
+            resident_capabilities_push(None, Some(offer(&["DXGI", "WGC"])), &[]).unwrap();
+        assert_eq!(
+            pushed.video_device_list.keys().collect::<Vec<_>>(),
+            ["DXGI", "WGC"]
+        );
+        // The other worker reports; the offer is unchanged: no push, so an
+        // open settings dialog is not reset.
+        assert!(
+            resident_capabilities_push(Some(&fingerprint), Some(offer(&["DXGI", "WGC"])), &[])
+                .is_none()
+        );
+        // Physical-display changes are always delivered.
+        assert!(
+            resident_capabilities_push(
+                Some(&fingerprint),
+                Some(offer(&["DXGI", "WGC"])),
+                &[r"\\.\DISPLAY1".to_string()]
+            )
+            .is_some()
+        );
+        // A different offer is pushed.
+        assert!(
+            resident_capabilities_push(Some(&fingerprint), Some(offer(&["DXGI"])), &[]).is_some()
+        );
+        // No offer yet: nothing to push.
+        assert!(resident_capabilities_push(None, None, &[]).is_none());
     }
 }
