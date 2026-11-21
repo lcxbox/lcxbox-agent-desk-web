@@ -40,6 +40,9 @@ pub struct DesktopReport {
     pub restricted: bool,
     /// System monotonic clock in milliseconds when probed.
     pub observed_tick_ms: u64,
+    /// The desktop differs from the previous report (not a repeat or a
+    /// requested re-report).
+    pub changed: bool,
 }
 
 /// Spawn the platform monitor on a dedicated thread. Setting `report_now`
@@ -80,13 +83,14 @@ fn run_loop(tx: UnboundedSender<DesktopReport>, report_now: Arc<AtomicBool>) {
             return;
         }
         let forced = report_now.swap(false, Ordering::AcqRel);
-        if let Some((name, restricted)) =
+        if let Some(((name, restricted), changed)) =
             state.observe(probe_input_desktop(), Instant::now(), forced)
             && tx
                 .send(DesktopReport {
                     name,
                     restricted,
                     observed_tick_ms: monotonic_tick_ms(),
+                    changed,
                 })
                 .is_err()
         {
@@ -104,13 +108,14 @@ struct DesktopMonitorState {
 }
 
 impl DesktopMonitorState {
-    /// The report to send for this poll, if any.
+    /// The report to send for this poll, if any, and whether the desktop
+    /// changed since the previous report.
     fn observe(
         &mut self,
         probe: InputDesktopProbe,
         now: Instant,
         forced: bool,
-    ) -> Option<(String, bool)> {
+    ) -> Option<((String, bool), bool)> {
         let current = match probe {
             InputDesktopProbe::Name(name) => (name, false),
             InputDesktopProbe::Restricted => (RESTRICTED_DESKTOP_NAME.to_string(), true),
@@ -141,7 +146,7 @@ impl DesktopMonitorState {
         }
         self.last_reported = Some(current.clone());
         self.last_sent_at = Some(now);
-        Some(current)
+        Some((current, changed))
     }
 }
 
@@ -263,12 +268,12 @@ mod tests {
 
         assert_eq!(
             state.observe(default(), at(0), false),
-            Some(("Default".to_string(), false))
+            Some((("Default".to_string(), false), true))
         );
         assert_eq!(state.observe(default(), at(1), false), None);
         assert_eq!(
             state.observe(InputDesktopProbe::Restricted, at(2), false),
-            Some(("Winlogon".to_string(), true))
+            Some((("Winlogon".to_string(), true), true))
         );
         assert_eq!(
             state.observe(InputDesktopProbe::Restricted, at(3), false),
@@ -276,15 +281,15 @@ mod tests {
         );
         assert_eq!(
             state.observe(InputDesktopProbe::Restricted, at(3), true),
-            Some(("Winlogon".to_string(), true))
+            Some((("Winlogon".to_string(), true), false))
         );
         assert_eq!(
             state.observe(InputDesktopProbe::Restricted, at(8), false),
-            Some(("Winlogon".to_string(), true))
+            Some((("Winlogon".to_string(), true), false))
         );
         assert_eq!(
             state.observe(default(), at(9), false),
-            Some(("Default".to_string(), false))
+            Some((("Default".to_string(), false), true))
         );
     }
 

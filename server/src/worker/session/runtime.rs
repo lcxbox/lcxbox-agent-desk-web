@@ -3619,6 +3619,13 @@ impl WorkerSession {
                 }
 
                 Some(report) = desktop_change_rx.recv() => {
+                    // A UAC prompt, the lock screen or the return to Default
+                    // changes Computer Use readiness (observation needs the
+                    // Default desktop): report it now rather than at the next
+                    // 25 s tick. Repeats and re-reports do not wake it.
+                    if report.changed {
+                        computer_use_broker.notify_readiness_change();
+                    }
                     let payload = WorkerToService::DesktopChanged(DesktopChangedPayload {
                         name: report.name,
                         restricted: report.restricted,

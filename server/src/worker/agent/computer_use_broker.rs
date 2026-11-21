@@ -1203,6 +1203,12 @@ impl ComputerUseBroker {
         self.readiness_changed.notified().await;
     }
 
+    /// Ask the readiness task to refresh now. A burst coalesces into one
+    /// refresh (`Notify` stores a single permit).
+    pub(crate) fn notify_readiness_change(&self) {
+        self.readiness_changed.notify_one();
+    }
+
     pub(crate) fn list_applications(
         &self,
         mut params: desk_agent_protocol::application_launch::ListApplicationsRequest,
@@ -6357,6 +6363,30 @@ mod tests {
                 (false, Some(expected))
             );
         }
+    }
+
+    /// An input-desktop change (UAC, lock, return to Default) asks for a
+    /// readiness refresh; a burst coalesces into one.
+    #[tokio::test]
+    async fn a_readiness_change_request_wakes_the_refresh_once() {
+        let broker = ComputerUseBroker::new();
+        broker.notify_readiness_change();
+        broker.notify_readiness_change();
+        tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            broker.wait_for_readiness_change(),
+        )
+        .await
+        .expect("a request made before the wait still wakes the refresh");
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(50),
+                broker.wait_for_readiness_change(),
+            )
+            .await
+            .is_err(),
+            "a burst of requests wakes the refresh only once"
+        );
     }
 
     #[test]
