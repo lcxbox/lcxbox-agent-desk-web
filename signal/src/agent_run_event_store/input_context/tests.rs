@@ -138,6 +138,7 @@ async fn select_live_document(store: &SignalAgentRunEventStore) {
             device_id: "device",
             destination: &destination(),
             now_unix_ms: now.timestamp_millis() as u64,
+            skip_unready: false,
         },
         || uuid::Uuid::new_v4().to_string(),
     )

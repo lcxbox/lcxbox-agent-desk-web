@@ -482,6 +482,7 @@ fn durable_selection_withdrawal_and_later_reselection_cannot_revive_old_input() 
                 device_id: "device",
                 destination: &destination,
                 now_unix_ms: at,
+                skip_unready: false,
             },
             || {
                 nonce += 1;
@@ -759,6 +760,7 @@ fn selected_live_reads_freeze_only_explicit_device_objects() {
                 device_id: device,
                 destination: &destination,
                 now_unix_ms: now(),
+                skip_unready: false,
             },
             || {
                 nonce += 1;

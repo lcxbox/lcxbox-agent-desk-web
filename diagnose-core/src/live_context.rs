@@ -37,6 +37,28 @@ pub struct LiveContextBuild<'a> {
     pub device_id: &'a str,
     pub destination: &'a DestinationIdentity,
     pub now_unix_ms: u64,
+    /// A selection the server rebuilt (a resume after a permission decision)
+    /// rather than one the owner just made: a selected capability that is not
+    /// ready now gets no candidate instead of failing the turn. It stays in
+    /// the claim's selection, so its existing attachment is marked stale for
+    /// an unavailable capability rather than detached as if deselected.
+    pub skip_unready: bool,
+}
+
+/// The selected capability IDs that are not ready in `inventory`, in order.
+pub fn unready_selected_capabilities(
+    inventory: &[CapabilityAvailability],
+    selected_capability_ids: &[String],
+) -> Vec<String> {
+    selected_capability_ids
+        .iter()
+        .filter(|capability_id| {
+            !inventory
+                .iter()
+                .any(|item| &item.capability_id == *capability_id && item.ready)
+        })
+        .cloned()
+        .collect()
 }
 
 fn invalid(message: impl Into<String>) -> AgentError {
@@ -103,22 +125,23 @@ pub fn build_live_context(
         device_id,
         destination,
         now_unix_ms,
+        skip_unready,
     } = params;
     crate::ai_assistant::selected_context_capabilities(selected_capability_ids).map_err(invalid)?;
+    let unready = unready_selected_capabilities(inventory, selected_capability_ids);
+    if let Some(capability_id) = unready.first()
+        && !skip_unready
+    {
+        return Err(invalid(format!(
+            "selected context capability is no longer ready: {capability_id}"
+        )));
+    }
+    // The selected capabilities that get a candidate attachment this turn.
     let selected = selected_capability_ids
         .iter()
+        .filter(|capability_id| !unready.contains(capability_id))
         .map(String::as_str)
         .collect::<std::collections::BTreeSet<_>>();
-    for capability_id in &selected {
-        if !inventory
-            .iter()
-            .any(|item| item.capability_id == *capability_id && item.ready)
-        {
-            return Err(invalid(format!(
-                "selected context capability is no longer ready: {capability_id}"
-            )));
-        }
-    }
 
     let (incarnation, readiness_expires_at_unix_ms) = match readiness {
         Some(readiness) => {
@@ -150,6 +173,9 @@ pub fn build_live_context(
         .collect::<Vec<_>>();
     let mut candidates = Vec::new();
     for capability_id in selected_capability_ids {
+        if !selected.contains(capability_id.as_str()) {
+            continue;
+        }
         // CurrentScreen is a sensitive one-turn grant. It controls tool
         // exposure for this turn, but must never become durable session
         // attachment metadata.

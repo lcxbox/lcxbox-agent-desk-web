@@ -87,10 +87,56 @@ fn build_for_device(
             device_id,
             destination: &destination(),
             now_unix_ms: now(),
+            skip_unready: false,
         },
         || {
             nonce += 1;
             format!("opaque-{request_id}-{nonce}")
+        },
+    )
+}
+
+/// A build where each selected ID's readiness is given individually.
+fn build_with(
+    ids: &[String],
+    readiness: Option<&ComputerUseReadiness>,
+    ready: impl Fn(&str) -> bool,
+    skip_unready: bool,
+) -> Result<ContextSelectionClaim, AgentError> {
+    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let inventory = ids
+        .iter()
+        .map(|id| CapabilityAvailability {
+            provider_id: registry
+                .provider_for_capability(id)
+                .map_or("unknown", |p| p.wire.provider_id.as_str())
+                .into(),
+            capability_id: id.clone(),
+            tool_name: "inspect".into(),
+            compiled: true,
+            enabled: true,
+            connected: ready(id),
+            ready: ready(id),
+            reason: None,
+        })
+        .collect::<Vec<_>>();
+    let mut nonce = 0;
+    build_live_context(
+        LiveContextBuild {
+            registry: &registry,
+            inventory: &inventory,
+            readiness,
+            selected_capability_ids: ids,
+            request_id: "resume-1",
+            actor_id: "owner-1",
+            device_id: "device-1",
+            destination: &destination(),
+            now_unix_ms: now(),
+            skip_unready,
+        },
+        || {
+            nonce += 1;
+            format!("opaque-resume-{nonce}")
         },
     )
 }
@@ -283,6 +329,68 @@ fn screen_is_ephemeral_and_invalid_or_unready_context_is_rejected() {
     expired.expires_at = "2026-08-31T00:00:00Z".into();
     assert!(build(&ids, Some(&expired), true).is_err());
     assert!(build(&["unrecognized".into()], Some(&readiness()), true).is_err());
+}
+
+/// Regression (UAC, on device 2026-11-21): a resume after a permission
+/// decision rebuilt a selection with desktop reads that were not ready on the
+/// secure desktop, failed here silently once a second and held the
+/// conversation until the desktop came back. A resume skips unready reads
+/// instead; an owner's own selection still fails.
+#[test]
+fn a_resume_skips_unready_reads_but_keeps_them_selected() {
+    let ids = vec![
+        "desktop.ui.inspect".to_string(),
+        "desktop.session.inspect".to_string(),
+    ];
+    let session_unready = |id: &str| id != "desktop.session.inspect";
+    assert!(build_with(&ids, Some(&readiness()), session_unready, false).is_err());
+
+    let claim = build_with(&ids, Some(&readiness()), session_unready, true).unwrap();
+    assert_eq!(claim.selected_capability_ids, ids);
+    assert_eq!(claim.candidates.len(), 1);
+    assert_eq!(
+        claim.candidates[0].object_ref.source_capability_id,
+        "desktop.ui.inspect"
+    );
+    assert_eq!(
+        unready_selected_capabilities(
+            &[CapabilityAvailability {
+                provider_id: "p".into(),
+                capability_id: "desktop.ui.inspect".into(),
+                tool_name: "inspect".into(),
+                compiled: true,
+                enabled: true,
+                connected: true,
+                ready: true,
+                reason: None,
+            }],
+            &ids
+        ),
+        vec!["desktop.session.inspect".to_string()]
+    );
+
+    // Nothing ready and no readiness at all: the resume still proceeds.
+    let none = build_with(&ids, None, |_| false, true).unwrap();
+    assert!(none.candidates.is_empty());
+    assert_eq!(none.selected_capability_ids, ids);
+}
+
+/// The skipped read stays selected, so its attachment reads as unavailable
+/// rather than detached by the owner, and comes back on a later turn.
+#[test]
+fn an_unready_read_in_a_resume_is_marked_unavailable_not_detached() {
+    let mut session = session();
+    reconcile_live_context(&mut session, "device-1", &selection()).unwrap();
+    let ids = vec!["desktop.ui.inspect".to_string()];
+    let during_uac = build_with(&ids, Some(&readiness()), |_| false, true).unwrap();
+    assert!(reconcile_live_context(&mut session, "device-1", &during_uac).unwrap());
+    assert_eq!(session.context_attachments.len(), 1);
+    assert_eq!(
+        session.context_attachments[0].state,
+        AttachmentState::Stale {
+            reason: AttachmentStaleReason::CapabilityUnavailable
+        }
+    );
 }
 
 #[test]

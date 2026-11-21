@@ -291,6 +291,7 @@ fn context_selection_claim(
     device_id: &str,
     destination: &DestinationIdentity,
     now_unix_ms: u64,
+    skip_unready: bool,
 ) -> Result<crate::agent_session_store::ContextSelectionClaim, AgentError> {
     desk_diagnose_core::live_context::build_live_context(
         desk_diagnose_core::live_context::LiveContextBuild {
@@ -303,6 +304,7 @@ fn context_selection_claim(
             device_id,
             destination,
             now_unix_ms,
+            skip_unready,
         },
         || uuid::Uuid::new_v4().to_string(),
     )
@@ -328,10 +330,44 @@ fn activation_error(
     seq: u32,
     error: AgentError,
 ) -> AgentEvent {
+    log_activation_error(request_id, &error);
     if let Some(progress) = owner_queue.and_then(OwnerQueueTurn::activation_progress) {
         progress.note_error(&error);
     }
     AgentEvent::error(request_id, seq, error)
+}
+
+/// Background activations (resumes, queued owner inputs) have no browser to
+/// receive their error and are retried about once a second, so a failure is
+/// logged here, at most once a minute per request.
+fn log_activation_error(request_id: &str, error: &AgentError) {
+    use std::time::{Duration, Instant};
+    static LAST: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, Instant>>> =
+        std::sync::LazyLock::new(Default::default);
+    let now = Instant::now();
+    {
+        let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if last
+            .get(request_id)
+            .is_some_and(|at| now.duration_since(*at) < Duration::from_secs(60))
+        {
+            return;
+        }
+        if last.len() >= 512 {
+            last.retain(|_, at| now.duration_since(*at) < Duration::from_secs(600));
+            if last.len() >= 512 {
+                last.clear();
+            }
+        }
+        last.insert(request_id.to_string(), now);
+    }
+    log::warn!(
+        "[ai-assistant] turn activation failed request_id={request_id} kind={:?} code={:?} retryable={}: {}",
+        error.kind,
+        error.error_code,
+        error.retryable,
+        error.message
+    );
 }
 
 fn transport_error(message: impl Into<String>) -> AgentError {
@@ -587,6 +623,8 @@ pub async fn update_context(
             &target_device_id,
             &destination,
             now_unix_ms,
+            // The owner's own selection: an unready capability is an error.
+            false,
         )?;
         params.selection = Some(selection);
         params.created_at = chrono::Utc::now().to_rfc3339();
@@ -2708,6 +2746,26 @@ async fn prepare_composed_turn(
                                     });
                                 }
                             }
+                            // A resume after a permission decision rebuilds the
+                            // selection from the original input. A capability
+                            // that is not ready now (e.g. desktop reads during a
+                            // UAC prompt) must not hold the resume: the model
+                            // still has to receive the decision.
+                            let after_permission_decision = resume_conversation_id
+                                .as_ref()
+                                .is_some_and(|resume| resume.permission_request_id.is_some());
+                            if after_permission_decision {
+                                let unready =
+                                    desk_diagnose_core::live_context::unready_selected_capabilities(
+                                        &inventory,
+                                        &ask.selected_capability_ids,
+                                    );
+                                if !unready.is_empty() {
+                                    log::info!(
+                                        "[ai-assistant] resume request_id={request_id} continues without unready context capabilities {unready:?}"
+                                    );
+                                }
+                            }
                             let context_selection = match context_selection_claim(
                                 &provider_registry,
                                 &inventory,
@@ -2718,6 +2776,7 @@ async fn prepare_composed_turn(
                                 &target_device_id,
                                 &destination,
                                 now_unix_ms,
+                                after_permission_decision,
                             ) {
                                 Ok(selection) => selection,
                                 Err(error) => {
