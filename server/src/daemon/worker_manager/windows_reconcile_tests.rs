@@ -30,7 +30,7 @@ fn key(id: u32, generation: u64, desktop: DesktopTarget) -> WorkerKey {
 
 #[test]
 fn a_signed_in_session_gets_both_workers() {
-    let plan = plan_windows_reconcile(&[], &[registration(1, 1, true)]);
+    let plan = plan_windows_reconcile(&[], &[], &[registration(1, 1, true)]);
     assert_eq!(
         plan.start,
         vec![
@@ -43,7 +43,7 @@ fn a_signed_in_session_gets_both_workers() {
 
 #[test]
 fn the_sign_in_screen_gets_only_the_restricted_worker() {
-    let plan = plan_windows_reconcile(&[], &[registration(1, 1, false)]);
+    let plan = plan_windows_reconcile(&[], &[], &[registration(1, 1, false)]);
     assert_eq!(
         plan.start,
         vec![(key(1, 1, DesktopTarget::WindowsWinlogon), 1)]
@@ -53,7 +53,7 @@ fn the_sign_in_screen_gets_only_the_restricted_worker() {
 #[test]
 fn signing_in_adds_the_default_worker_and_keeps_the_connections() {
     let current = [key(1, 1, DesktopTarget::WindowsWinlogon)];
-    let plan = plan_windows_reconcile(&current, &[registration(1, 1, true)]);
+    let plan = plan_windows_reconcile(&current, &[], &[registration(1, 1, true)]);
     assert_eq!(
         plan.start,
         vec![(key(1, 1, DesktopTarget::WindowsDefault), 1)]
@@ -71,10 +71,25 @@ fn a_session_that_is_gone_stops_its_workers_and_connections() {
         key(1, 1, DesktopTarget::WindowsDefault),
         key(1, 1, DesktopTarget::WindowsWinlogon),
     ];
-    let plan = plan_windows_reconcile(&current, &[registration(1, 2, true)]);
+    let plan = plan_windows_reconcile(&current, &[], &[registration(1, 2, true)]);
     assert_eq!(plan.stop_sessions, vec![session(1, 1)]);
     assert_eq!(plan.stop, current.to_vec());
     assert_eq!(plan.start.len(), 2);
+}
+
+/// Regression (sign-out, on device 2026-11-21): the signed-out session's
+/// workers had already exited with it, so no worker named the session and its
+/// remote-desktop connection was never ended or evicted: the page froze until
+/// a reload.
+#[test]
+fn a_gone_session_without_workers_still_ends_its_connections() {
+    let plan = plan_windows_reconcile(
+        &[key(4, 1, DesktopTarget::WindowsWinlogon)],
+        &[session(2, 6), session(4, 1)],
+        &[registration(4, 1, false)],
+    );
+    assert_eq!(plan.stop_sessions, vec![session(2, 6)]);
+    assert!(plan.stop.is_empty());
 }
 
 #[test]
@@ -83,7 +98,7 @@ fn a_session_without_a_user_keeps_no_default_worker() {
         key(1, 1, DesktopTarget::WindowsDefault),
         key(1, 1, DesktopTarget::WindowsWinlogon),
     ];
-    let plan = plan_windows_reconcile(&current, &[registration(1, 1, false)]);
+    let plan = plan_windows_reconcile(&current, &[], &[registration(1, 1, false)]);
     assert_eq!(plan.stop, vec![key(1, 1, DesktopTarget::WindowsDefault)]);
     assert!(plan.stop_sessions.is_empty());
     assert!(plan.start.is_empty());

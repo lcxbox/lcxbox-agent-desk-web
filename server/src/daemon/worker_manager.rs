@@ -1065,6 +1065,23 @@ impl WorkerManager {
             .remove(connection_id);
     }
 
+    /// Every session some connection is bound to, once each.
+    fn connection_target_sessions(&self) -> Vec<desk_ipc_protocol::message::SessionKey> {
+        let mut sessions: Vec<_> = self
+            .connection_targets
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect();
+        sessions.sort_by(|a, b| {
+            (&a.platform_session_id, a.session_generation)
+                .cmp(&(&b.platform_session_id, b.session_generation))
+        });
+        sessions.dedup();
+        sessions
+    }
+
     pub fn connection_target(
         &self,
         connection_id: &str,
@@ -1539,7 +1556,8 @@ impl WorkerManager {
             })
             .cloned()
             .collect();
-        let plan = plan_windows_reconcile(&current_keys, &registrations);
+        let bound_sessions = self.connection_target_sessions();
+        let plan = plan_windows_reconcile(&current_keys, &bound_sessions, &registrations);
         let console = registrations
             .iter()
             .find(|registration| registration.console && registration.has_user)
@@ -4660,6 +4678,7 @@ pub(crate) struct WindowsReconcilePlan {
 #[cfg(any(target_os = "windows", test))]
 pub(crate) fn plan_windows_reconcile(
     current: &[WorkerKey],
+    bound_sessions: &[desk_ipc_protocol::message::SessionKey],
     registrations: &[crate::daemon::session_monitor::WindowsSessionRegistration],
 ) -> WindowsReconcilePlan {
     let wanted: HashMap<
@@ -4684,6 +4703,14 @@ pub(crate) fn plan_windows_reconcile(
                 plan.stop.push(key.clone());
             }
             Some(_) => {}
+        }
+    }
+    // A session that ended (sign-out) may already have lost its workers,
+    // which exit with the session: its connections are still bound to it and
+    // must be ended and evicted like those of a session whose workers we stop.
+    for session in bound_sessions {
+        if !wanted.contains_key(session) && !plan.stop_sessions.contains(session) {
+            plan.stop_sessions.push(session.clone());
         }
     }
     for registration in registrations {
