@@ -2334,7 +2334,7 @@ pub fn candidate_sha256(
     candidate.validate()?;
     let bytes = serde_json::to_vec(candidate).map_err(|_| ApprovalReviewError::InvalidCandidate)?;
     let mut digest = Sha256::new();
-    digest.update(b"lcxl-ai-approval-review-v1\0");
+    digest.update(b"lcxbox-ai-approval-review-v1\0");
     digest.update(&bytes);
     Ok(format!("{:x}", digest.finalize()))
 }

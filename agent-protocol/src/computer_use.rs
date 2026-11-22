@@ -3639,7 +3639,7 @@ mod tests {
         sealed.action_request_id = "browser-call-1".into();
         sealed.adapter = ComputerUseAdapterRef {
             kind: ComputerUseAdapterKind::BrowserExtension,
-            version: "lcxl-browser-extension/1".into(),
+            version: "lcxbox-browser-extension/1".into(),
         };
         sealed.actions = vec![ComputerActionStep {
             target: ObjectRef {

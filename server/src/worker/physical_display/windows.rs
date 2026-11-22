@@ -60,7 +60,9 @@ fn selected_device(device_name: &str) -> Result<DISPLAY_DEVICEW, String> {
         utf16(&device.DeviceString)
     );
     if device.StateFlags.contains(DISPLAY_DEVICE_MIRRORING_DRIVER)
-        || identity.to_ascii_lowercase().contains("lcxlvirtualdisplay")
+        || identity
+            .to_ascii_lowercase()
+            .contains("lcxboxvirtualdisplay")
     {
         return Err("selected display is virtual or mirrored".into());
     }

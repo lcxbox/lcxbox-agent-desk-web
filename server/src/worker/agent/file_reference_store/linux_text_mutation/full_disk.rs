@@ -3,9 +3,12 @@ use super::*;
 use std::io::Write;
 
 #[test]
-#[ignore = "requires isolated bounded tmpfs; use pocs/poc-linux-file-storage/run.py"]
+#[ignore = "requires isolated bounded tmpfs; use scripts/linux-file-storage/run.py"]
 fn full_backup_filesystem_preserves_target() {
-    assert_eq!(std::env::var("LCXL_ISOLATED_FULL_DISK").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("LCXBOX_ISOLATED_FULL_DISK").as_deref(),
+        Ok("1")
+    );
     let backup = Path::new("/backup");
     let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
     assert_eq!(
@@ -111,9 +114,9 @@ fn full_backup_filesystem_preserves_target() {
 }
 
 #[test]
-#[ignore = "requires isolated ext4 image; use pocs/poc-linux-file-storage/run.py --target-ext4"]
+#[ignore = "requires isolated ext4 image; use scripts/linux-file-storage/run.py --target-ext4"]
 fn full_target_filesystem_preserves_target() {
-    assert_eq!(std::env::var("LCXL_ISOLATED_EXT4").as_deref(), Ok("1"));
+    assert_eq!(std::env::var("LCXBOX_ISOLATED_EXT4").as_deref(), Ok("1"));
     assert_ne!(unsafe { libc::geteuid() }, 0);
     let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
     assert_eq!(
@@ -251,9 +254,9 @@ fn full_target_filesystem_preserves_target() {
 }
 
 #[test]
-#[ignore = "requires isolated ext4 image; use pocs/poc-linux-file-storage/run.py --target-ext4 --commit-full"]
+#[ignore = "requires isolated ext4 image; use scripts/linux-file-storage/run.py --target-ext4 --commit-full"]
 fn full_target_after_staging_verifies_real_commit() {
-    assert_eq!(std::env::var("LCXL_ISOLATED_EXT4").as_deref(), Ok("1"));
+    assert_eq!(std::env::var("LCXBOX_ISOLATED_EXT4").as_deref(), Ok("1"));
     assert_ne!(unsafe { libc::geteuid() }, 0);
     let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
     assert_eq!(

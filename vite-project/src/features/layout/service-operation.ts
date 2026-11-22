@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { deskErrorCodeEnum } from '@/services/types'
 import type { ServiceOperationStatus } from '@/services/types'
 
-export const SERVICE_OPERATION_EVENT = 'lrd-service-operation'
+export const SERVICE_OPERATION_EVENT = 'lad-service-operation'
 const WAIT_MS = 600_000
 
 export class ServiceRequestError extends Error {

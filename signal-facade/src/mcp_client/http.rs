@@ -75,7 +75,7 @@ pub(super) fn client(extra_ca_pem: Option<&[u8]>) -> Result<BoundedHttp, McpClie
     .with_root_certificates(roots)
     .with_no_client_auth();
     Client::builder()
-        .user_agent("lcxl-remote-desk-issue-client")
+        .user_agent("lcxbox-agent-desk-issue-client")
         .tls_backend_preconfigured(tls)
         .http1_only()
         .redirect(reqwest_mcp::redirect::Policy::none())

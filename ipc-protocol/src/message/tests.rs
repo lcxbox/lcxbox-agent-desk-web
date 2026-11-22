@@ -300,13 +300,13 @@ fn worker_init_payload_round_trip_with_host_upstream_fields() {
         os_session_id: 7,
         desktop_name: Some("Default".to_string()),
         config_json: "{}".to_string(),
-        log_dir: Some(r"C:\ProgramData\LCXL Remote Desktop\logs".to_string()),
-        data_dir: Some(r"C:\ProgramData\LCXL Remote Desktop\data".to_string()),
+        log_dir: Some(r"C:\ProgramData\LCXBOX Agent Desk\logs".to_string()),
+        data_dir: Some(r"C:\ProgramData\LCXBOX Agent Desk\data".to_string()),
         signaling_url: None,
         auth_token: Some("ipc-token".to_string()),
         host_upstream_url: Some("ws://127.0.0.1:8082/ws/host_upstream".to_string()),
-        media_pipe_name: Some(r"\\.\pipe\lcxl-desk-ipc-7-uuid-media".to_string()),
-        file_pipe_name: Some(r"\\.\pipe\lcxl-desk-file-ipc-7-uuid".to_string()),
+        media_pipe_name: Some(r"\\.\pipe\lcxbox-desk-ipc-7-uuid-media".to_string()),
+        file_pipe_name: Some(r"\\.\pipe\lcxbox-desk-file-ipc-7-uuid".to_string()),
         remote_access_locked: true,
         remote_access_state_version: 8,
         connection_ceilings: Vec::new(),
@@ -1547,7 +1547,7 @@ fn service_to_worker_all_variants_round_trip() {
             refresh_hz: 60,
         }),
         ServiceToWorker::AttachVirtualDisplay(AttachVirtualDisplayPayload {
-            instance_id: "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay".to_string(),
+            instance_id: "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay".to_string(),
         }),
         ServiceToWorker::DetachVirtualDisplay,
         ServiceToWorker::RefreshCapabilities,
@@ -1915,7 +1915,7 @@ fn worker_to_service_all_variants_round_trip() {
             }),
         }),
         WorkerToService::VirtualDisplayAttachResult(VirtualDisplayAttachResultPayload {
-            instance_id: "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay".to_string(),
+            instance_id: "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay".to_string(),
             outcome: VirtualDisplayAttachOutcome::Attached("\\\\.\\DISPLAY4".to_string()),
         }),
         WorkerToService::AgentCapabilityCompleted(AgentResponsePayload {
@@ -2138,11 +2138,14 @@ fn set_virtual_display_mode_round_trips_serde_json() {
 #[test]
 fn attach_virtual_display_round_trips_wincode() {
     let msg = ServiceToWorker::AttachVirtualDisplay(AttachVirtualDisplayPayload {
-        instance_id: "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay".to_string(),
+        instance_id: "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay".to_string(),
     });
     match wincode_round_trip(&msg) {
         ServiceToWorker::AttachVirtualDisplay(p) => {
-            assert_eq!(p.instance_id, "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay");
+            assert_eq!(
+                p.instance_id,
+                "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay"
+            );
         }
         other => panic!("unexpected: {other:?}"),
     }
@@ -2151,13 +2154,16 @@ fn attach_virtual_display_round_trips_wincode() {
 #[test]
 fn attach_virtual_display_round_trips_serde_json() {
     let msg = ServiceToWorker::AttachVirtualDisplay(AttachVirtualDisplayPayload {
-        instance_id: "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay".to_string(),
+        instance_id: "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay".to_string(),
     });
     let json = serde_json::to_string(&msg).expect("encode");
     let back: ServiceToWorker = serde_json::from_str(&json).expect("decode");
     match back {
         ServiceToWorker::AttachVirtualDisplay(p) => {
-            assert_eq!(p.instance_id, "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay");
+            assert_eq!(
+                p.instance_id,
+                "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay"
+            );
         }
         other => panic!("unexpected: {other:?}"),
     }
@@ -2166,12 +2172,15 @@ fn attach_virtual_display_round_trips_serde_json() {
 #[test]
 fn virtual_display_attach_outcome_attached_wincode_roundtrip() {
     let original = WorkerToService::VirtualDisplayAttachResult(VirtualDisplayAttachResultPayload {
-        instance_id: "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay".to_string(),
+        instance_id: "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay".to_string(),
         outcome: VirtualDisplayAttachOutcome::Attached("\\\\.\\DISPLAY4".to_string()),
     });
     match wincode_round_trip(&original) {
         WorkerToService::VirtualDisplayAttachResult(p) => {
-            assert_eq!(p.instance_id, "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay");
+            assert_eq!(
+                p.instance_id,
+                "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay"
+            );
             assert_eq!(
                 p.outcome,
                 VirtualDisplayAttachOutcome::Attached("\\\\.\\DISPLAY4".to_string()),
@@ -2184,14 +2193,17 @@ fn virtual_display_attach_outcome_attached_wincode_roundtrip() {
 #[test]
 fn virtual_display_attach_outcome_failed_wincode_roundtrip() {
     let original = WorkerToService::VirtualDisplayAttachResult(VirtualDisplayAttachResultPayload {
-        instance_id: "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay".to_string(),
+        instance_id: "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay".to_string(),
         outcome: VirtualDisplayAttachOutcome::Failed(
             "find_display_name: seen=[] after 6 retries".to_string(),
         ),
     });
     match wincode_round_trip(&original) {
         WorkerToService::VirtualDisplayAttachResult(p) => {
-            assert_eq!(p.instance_id, "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay");
+            assert_eq!(
+                p.instance_id,
+                "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay"
+            );
             assert!(
                 matches!(p.outcome, VirtualDisplayAttachOutcome::Failed(ref msg) if msg.contains("seen=[]")),
                 "expected Failed with diagnostic message, got {:?}",
@@ -2211,11 +2223,11 @@ fn worker_to_service_virtual_display_attach_result_serde_attached_and_failed() {
     // attributes) gets flagged here.
     for case in [
         WorkerToService::VirtualDisplayAttachResult(VirtualDisplayAttachResultPayload {
-            instance_id: "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay".to_string(),
+            instance_id: "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay".to_string(),
             outcome: VirtualDisplayAttachOutcome::Attached("\\\\.\\DISPLAY4".to_string()),
         }),
         WorkerToService::VirtualDisplayAttachResult(VirtualDisplayAttachResultPayload {
-            instance_id: "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay".to_string(),
+            instance_id: "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay".to_string(),
             outcome: VirtualDisplayAttachOutcome::Failed("driver pipe IO failed".to_string()),
         }),
     ] {
@@ -3296,7 +3308,7 @@ fn file_recovery_quota_rpc_round_trip_preserves_identity_and_never_allows_restri
 fn application_host_start_is_a_session_user_only_exchange() {
     let request = WorkerToService::StartApplicationHost(ApplicationHostStart {
         request_id: "start".into(),
-        pipe_name: r"\\.\pipe\lrd-application-host-00000000-0000-0000-0000-000000000000".into(),
+        pipe_name: r"\\.\pipe\lad-application-host-00000000-0000-0000-0000-000000000000".into(),
     });
     let WorkerToService::StartApplicationHost(decoded) = wincode_round_trip(&request) else {
         panic!("variant changed");
@@ -3352,7 +3364,7 @@ fn application_host_start_is_a_session_user_only_exchange() {
 fn linux_ai_input_endpoint_is_a_session_user_lifecycle_message() {
     for path in [
         None,
-        Some("/run/user/1000/lcxl-ai-input/test.sock".to_string()),
+        Some("/run/user/1000/lcxbox-ai-input/test.sock".to_string()),
     ] {
         let message = WorkerToService::LinuxAiInputEndpoint(path.clone());
         assert!(message.allowed_for_profile(WorkerProfile::SessionUser));

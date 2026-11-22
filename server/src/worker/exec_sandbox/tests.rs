@@ -571,16 +571,16 @@ mod macos {
             &fixture.base,
             &[("PROBE", &probe), ("USER_TMP", &user_temp)],
             r#"set -e; echo x > "$PROBE"; mktemp > /dev/null
-               if echo x > "$USER_TMP/lcxl-rd-sandbox-test"; then exit 3; fi
-               if mkdir "$USER_TMP/lcxl-rd-x"; then exit 4; fi
-               if echo x >> "$USER_TMP/lcxl_remote_desk_server.lock"; then exit 5; fi
-               if echo x > "$USER_TMP/LCXL-RD-case"; then exit 6; fi"#,
+               if echo x > "$USER_TMP/lcxbox-ad-sandbox-test"; then exit 3; fi
+               if mkdir "$USER_TMP/lcxbox-ad-x"; then exit 4; fi
+               if echo x >> "$USER_TMP/lcxbox_agent_desk_server.lock"; then exit 5; fi
+               if echo x > "$USER_TMP/LCXBOX-AD-case"; then exit 6; fi"#,
         )
         .await;
         let _ = std::fs::remove_file(&probe);
         assert!(succeeded(&output), "{}", describe(&output));
-        assert!(!user_temp.join("lcxl-rd-sandbox-test").exists());
-        assert!(!user_temp.join("lcxl-rd-x").exists());
+        assert!(!user_temp.join("lcxbox-ad-sandbox-test").exists());
+        assert!(!user_temp.join("lcxbox-ad-x").exists());
     }
 
     #[tokio::test]

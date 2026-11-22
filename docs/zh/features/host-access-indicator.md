@@ -40,6 +40,6 @@
 
 ## 显示器与无界面模式
 
-状态窗口会跟随物理显示器热插拔和 DPI 变化。在 Windows 上，程序通过 <code>LcxlVirtualDisplay</code> 设备身份识别并排除 LCXL 虚拟显示器。独占虚拟屏模式将所有物理屏 detach 后，状态窗口不会出现在仅供远端使用的虚拟屏；物理屏重新 attach 后会恢复。
+状态窗口会跟随物理显示器热插拔和 DPI 变化。在 Windows 上，程序通过 <code>LcxboxVirtualDisplay</code> 设备身份识别并排除 LCXBOX 虚拟显示器。独占虚拟屏模式将所有物理屏 detach 后，状态窗口不会出现在仅供远端使用的虚拟屏；物理屏重新 attach 后会恢复。
 
 显式 headless DeskServer 仍会维护权威活动状态和清理语义，但因为没有 Tauri shell，不承诺提供本机可视指示器。

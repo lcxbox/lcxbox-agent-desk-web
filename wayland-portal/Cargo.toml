@@ -1,6 +1,6 @@
 [package]
 name = "desk-wayland-portal"
-description = "Shared xdg-desktop-portal session broker for Lcxl Remote Desk"
+description = "Shared xdg-desktop-portal session broker for LCXBOX Agent Desk"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

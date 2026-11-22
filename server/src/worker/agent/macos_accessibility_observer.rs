@@ -2244,7 +2244,7 @@ mod tests {
         .unwrap();
         assert!(shot.width > 0 && shot.height > 0);
         assert_eq!(&shot.image[..4], &[0x89, b'P', b'N', b'G']);
-        if let Ok(path) = std::env::var("LRDM_WINDOW_CAPTURE_TEST_OUTPUT") {
+        if let Ok(path) = std::env::var("LADM_WINDOW_CAPTURE_TEST_OUTPUT") {
             std::fs::write(path, &shot.image).unwrap();
         }
         assert_ne!(
@@ -2531,8 +2531,8 @@ mod tests {
             .expect("Calculator digit 1 button");
         let stale_fingerprint = button.fingerprint.clone();
 
-        let marker = std::env::var_os("LRD_AX_RESTART_READY_FILE")
-            .expect("LRD_AX_RESTART_READY_FILE must name an external-harness marker");
+        let marker = std::env::var_os("LAD_AX_RESTART_READY_FILE")
+            .expect("LAD_AX_RESTART_READY_FILE must name an external-harness marker");
         std::fs::write(&marker, application.process_id.to_string())
             .expect("write Calculator restart ready marker");
 

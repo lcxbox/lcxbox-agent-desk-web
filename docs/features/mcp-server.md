@@ -6,7 +6,7 @@ Running `--startup-mode mcp-stdio` turns the device into a [Model Context Protoc
 
 - Built on the official `rmcp` SDK over **stdio**.
 - Exposes a **static whitelist** of read-only context tools — by construction, there are **no execute, write, or control tools** ("undefined means unreachable").
-- There is **no `lcxl_diagnose` tool**: full AI diagnosis is orchestrated by the central signaling brain, not by a device. The MCP surface is purely read-only context for a local AI assistant; it never dials a model or captures the screen.
+- There is **no `lcxbox_diagnose` tool**: full AI diagnosis is orchestrated by the central signaling brain, not by a device. The MCP surface is purely read-only context for a local AI assistant; it never dials a model or captures the screen.
 
 ## Why a Separate Mode?
 

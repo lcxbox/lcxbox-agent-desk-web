@@ -1015,7 +1015,7 @@ mod tests {
             caller_type: CallerType::AiModel,
             model_provider: Some("openai-compatible".into()),
             model_name: Some("example-model".into()),
-            adapter: Some("lcxl-openai".into()),
+            adapter: Some("lcxbox-openai".into()),
         }
     }
 
@@ -1034,7 +1034,7 @@ mod tests {
         assert_eq!(e.result, "requested");
         assert_eq!(e.model_provider.as_deref(), Some("openai-compatible"));
         assert_eq!(e.model_name.as_deref(), Some("example-model"));
-        assert_eq!(e.adapter.as_deref(), Some("lcxl-openai"));
+        assert_eq!(e.adapter.as_deref(), Some("lcxbox-openai"));
         assert_eq!(e.input_tokens, Some(1234));
         assert_eq!(
             e.input_summary.as_deref(),

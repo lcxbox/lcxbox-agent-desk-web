@@ -366,13 +366,13 @@ mod tests {
     #[ignore = "opens one visible Outlook (new) compose handoff and never sends"]
     fn live_outlook_new_manual_handoff() {
         assert_eq!(
-            std::env::var("LCXL_LIVE_OUTLOOK_HANDOFF").as_deref(),
+            std::env::var("LCXBOX_LIVE_OUTLOOK_HANDOFF").as_deref(),
             Ok("1"),
-            "set LCXL_LIVE_OUTLOOK_HANDOFF=1 to acknowledge the cloud-draft side effect"
+            "set LCXBOX_LIVE_OUTLOOK_HANDOFF=1 to acknowledge the cloud-draft side effect"
         );
         let mut input = request();
         input.draft.recipients[0].address = "review@example.invalid".into();
-        input.draft.subject = "[LCXL test] Manual handoff - do not send".into();
+        input.draft.subject = "[LCXBOX test] Manual handoff - do not send".into();
         input.draft.body_plain_text =
             "This is a local development validation of Outlook compose handoff. Do not send."
                 .into();

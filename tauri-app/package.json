@@ -1,5 +1,5 @@
 {
-  "name": "lcxl-remote-desk-tauri-build",
+  "name": "lcxbox-agent-desk-tauri-build",
   "private": true,
   "scripts": {
     "tauri": "tauri"

@@ -794,7 +794,7 @@ mod tests {
         fs::write(&blocked_parent, b"block directory creation").expect("write blocker");
         let store = RestoreTokenStore::new(
             blocked_parent.join("wayland-portal.json"),
-            "com.lcxl.remote-desk",
+            "com.lcxbox.agent-desk",
             "gnome",
         );
         let broker = broker_with_store(vec![Ok((0, Some("next-token".into())))], Some(store)).await;
@@ -814,7 +814,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("tempdir");
         let store = RestoreTokenStore::new(
             directory.path().join("wayland-portal.json"),
-            "com.lcxl.remote-desk",
+            "com.lcxbox.agent-desk",
             "gnome",
         );
         let broker = broker_with_store(

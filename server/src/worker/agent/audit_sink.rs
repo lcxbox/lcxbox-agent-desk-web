@@ -116,7 +116,7 @@ mod tests {
             caller_type: CallerType::AiModel,
             model_provider: Some("anthropic".to_string()),
             model_name: Some("claude-x".to_string()),
-            adapter: Some("lcxl-anthropic".to_string()),
+            adapter: Some("lcxbox-anthropic".to_string()),
         };
         AuditEvent::model_responded(
             "evt-gate".to_string(),
@@ -161,7 +161,7 @@ mod tests {
             caller_type: CallerType::AiModel,
             model_provider: Some("anthropic".to_string()),
             model_name: Some("claude-x".to_string()),
-            adapter: Some("lcxl-anthropic".to_string()),
+            adapter: Some("lcxbox-anthropic".to_string()),
         };
         let event = AuditEvent::model_responded(
             "evt-1".to_string(),
@@ -175,7 +175,10 @@ mod tests {
         );
         let line = format_audit_line(&event);
         assert!(line.contains("provider=Some(\"anthropic\")"), "{line}");
-        assert!(line.contains("adapter=Some(\"lcxl-anthropic\")"), "{line}");
+        assert!(
+            line.contains("adapter=Some(\"lcxbox-anthropic\")"),
+            "{line}"
+        );
         assert!(line.contains("tokens_in=Some(1200)"), "{line}");
         assert!(line.contains("tokens_out=Some(80)"), "{line}");
         assert!(line.contains("parse=structured"), "{line}");

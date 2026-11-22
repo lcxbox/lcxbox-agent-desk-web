@@ -4,7 +4,7 @@
 //! This crate carries only the MCP protocol layer (tool whitelist, schemas,
 //! dispatch) on top of the official Rust SDK [`rmcp`] over a stdio transport. It
 //! depends solely on [`desk_agent_protocol`]; the concrete read agent is injected
-//! by `lcxl-remote-desk-server` through the [`ReadContextProvider`] trait, so
+//! by `lcxbox-agent-desk-server` through the [`ReadContextProvider`] trait, so
 //! there is no dependency cycle (server → mcp-server → agent-protocol) and the
 //! trust-field injection / auditing stay server-side.
 //!
@@ -13,7 +13,7 @@
 //!   / control tool exists — it cannot be reached because it is not defined. AI
 //!   diagnosis is **not** an MCP tool: it is orchestrated by the central signaling
 //!   brain, so the MCP surface stays a pure read-only context provider.
-//! - `lcxl_recent_logs` is refused unless the server policy permits log reads.
+//! - `lcxbox_recent_logs` is refused unless the server policy permits log reads.
 
 use std::sync::Arc;
 
@@ -45,13 +45,13 @@ pub trait ReadContextProvider: Send + Sync {
 }
 
 /// Tool name for the system-info read.
-pub const TOOL_SYSTEM_INFO: &str = "lcxl_system_info";
+pub const TOOL_SYSTEM_INFO: &str = "lcxbox_system_info";
 /// Tool name for the process-list read.
-pub const TOOL_PROCESS_LIST: &str = "lcxl_process_list";
+pub const TOOL_PROCESS_LIST: &str = "lcxbox_process_list";
 /// Tool name for the network-ports read.
-pub const TOOL_NETWORK_PORTS: &str = "lcxl_network_ports";
+pub const TOOL_NETWORK_PORTS: &str = "lcxbox_network_ports";
 /// Tool name for the recent-logs read (gated by the `allow_logs` policy).
-pub const TOOL_RECENT_LOGS: &str = "lcxl_recent_logs";
+pub const TOOL_RECENT_LOGS: &str = "lcxbox_recent_logs";
 
 #[cfg(test)]
 /// The complete, static set of exposed tool names. The list is fixed — there is
@@ -69,7 +69,7 @@ pub const TOOL_WHITELIST: &[&str] = &[
 /// implementation reads the authoritative (persisted) policy each time.
 #[async_trait]
 pub trait McpPolicy: Send + Sync {
-    /// Whether log reads (`lcxl_recent_logs`) are permitted right now.
+    /// Whether log reads (`lcxbox_recent_logs`) are permitted right now.
     async fn allow_logs(&self) -> bool;
 }
 
@@ -218,11 +218,11 @@ impl ServerHandler for McpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(
-                "lcxl-mcp-server",
+                "lcxbox-mcp-server",
                 env!("CARGO_PKG_VERSION"),
             ))
             .with_instructions(
-                "Read-only single-machine diagnostics for the lcxl remote desk \
+                "Read-only single-machine diagnostics for the LCXBOX Agent Desk \
                  agent. Exposes only read tools; no command execution.",
             )
     }
@@ -395,14 +395,14 @@ mod tests {
     async fn unknown_tool_is_rejected_without_touching_providers() {
         let (server, reader) = server(true);
         let err = server
-            .dispatch_tool("lcxl_exec", Map::new())
+            .dispatch_tool("lcxbox_exec", Map::new())
             .await
             .expect_err("unknown tool must be a protocol error");
         let _ = err;
         assert!(reader.calls.lock().unwrap().is_empty());
     }
 
-    /// `lcxl_diagnose` is no longer an MCP tool (diagnosis is orchestrated
+    /// `lcxbox_diagnose` is no longer an MCP tool (diagnosis is orchestrated
     /// centrally): it is rejected as an unknown tool, never reaching the reader.
     #[tokio::test]
     async fn diagnose_is_not_an_mcp_tool() {
@@ -410,7 +410,7 @@ mod tests {
         let mut args = Map::new();
         args.insert("question".into(), json!("why is the cpu high?"));
         let err = server
-            .dispatch_tool("lcxl_diagnose", args)
+            .dispatch_tool("lcxbox_diagnose", args)
             .await
             .expect_err("diagnose must be an unknown tool");
         let _ = err;
@@ -457,7 +457,7 @@ mod tests {
         assert!(matches!(calls[0], ContextKind::SystemInfo(_)));
     }
 
-    /// `lcxl_recent_logs` is refused (and the reader untouched) when log access
+    /// `lcxbox_recent_logs` is refused (and the reader untouched) when log access
     /// is disabled by policy.
     #[tokio::test]
     async fn recent_logs_denied_when_logs_disabled() {
@@ -474,7 +474,7 @@ mod tests {
     }
 
     /// The log gate is evaluated **live on every call**: revoking `allow_logs`
-    /// between calls denies the next `lcxl_recent_logs` without restarting.
+    /// between calls denies the next `lcxbox_recent_logs` without restarting.
     #[tokio::test]
     async fn recent_logs_gate_is_evaluated_live_per_call() {
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -514,7 +514,7 @@ mod tests {
         assert!(is_error(&r));
     }
 
-    /// `lcxl_recent_logs` reaches the reader when log access is permitted.
+    /// `lcxbox_recent_logs` reaches the reader when log access is permitted.
     #[tokio::test]
     async fn recent_logs_allowed_when_enabled() {
         let (server, reader) = server(true);

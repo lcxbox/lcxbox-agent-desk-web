@@ -43,7 +43,7 @@ impl Source for HostEnvironment {
         Box::new(self.clone())
     }
     fn collect(&self) -> Result<config::Map<String, config::Value>, config::ConfigError> {
-        let mut values = Environment::with_prefix("LRD").collect()?;
+        let mut values = Environment::with_prefix("LAD").collect()?;
         retain_host_environment(&mut values);
         Ok(values)
     }
@@ -386,6 +386,23 @@ mod tests {
         retain_host_environment(&mut values);
         assert_eq!(values.len(), 1);
         assert!(values.contains_key("system_port"));
+    }
+
+    /// Host overrides are read from `LAD_`-prefixed process variables.
+    #[test]
+    fn host_environment_reads_the_lad_prefix() {
+        const NAME: &str = "LAD_HOST_ENVIRONMENT_PREFIX_PROBE";
+        // SAFETY: the variable name is unique to this test and nothing else reads it.
+        unsafe { std::env::set_var(NAME, "present") };
+        let values = HostEnvironment.collect().unwrap();
+        // SAFETY: as above.
+        unsafe { std::env::remove_var(NAME) };
+        assert_eq!(
+            values
+                .get("host_environment_prefix_probe")
+                .map(|value| value.to_string()),
+            Some("present".to_owned())
+        );
     }
 
     fn settings_at(path: &std::path::Path, locale: &str) -> Settings {

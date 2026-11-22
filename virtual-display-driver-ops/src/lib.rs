@@ -1,8 +1,8 @@
-//! Windows IDD `LcxlVirtualDisplay` driver installer/uninstaller.
+//! Windows IDD `LcxboxVirtualDisplay` driver installer/uninstaller.
 //!
 //! Wraps `pnputil` (and PowerShell `Get-WindowsDriver` for structured
 //! enumeration) so the server can stage or remove the
-//! `LcxlVirtualDisplay` INF from a SCM-elevated `--install-service`
+//! `LcxboxVirtualDisplay` INF from a SCM-elevated `--install-service`
 //! flow or from a ServiceDaemon REST endpoint. The API is synchronous;
 //! callers are expected to offload via
 //! `tokio::task::spawn_blocking` + `tokio::time::timeout` if they
@@ -24,10 +24,10 @@ mod windows_impl;
 
 /// PnP hardware id used by the INF; also doubles as the leaf directory
 /// name under `<exe_dir>/drivers/`.
-pub const DRIVER_HW_ID: &str = "LcxlVirtualDisplay";
-pub const DRIVER_INF_BASENAME: &str = "LcxlVirtualDisplay.inf";
-pub const DRIVER_CAT_BASENAME: &str = "LcxlVirtualDisplay.cat";
-pub const DRIVER_DLL_BASENAME: &str = "LcxlVirtualDisplay.dll";
+pub const DRIVER_HW_ID: &str = "LcxboxVirtualDisplay";
+pub const DRIVER_INF_BASENAME: &str = "LcxboxVirtualDisplay.inf";
+pub const DRIVER_CAT_BASENAME: &str = "LcxboxVirtualDisplay.cat";
+pub const DRIVER_DLL_BASENAME: &str = "LcxboxVirtualDisplay.dll";
 /// WUDF reflector co-installed by the UMDF driver. The file is
 /// expected to be present in the staging dir; the WDK build copies it
 /// as `WUDFRD.dll` (upper-case), so the basename must match exactly.
@@ -100,7 +100,7 @@ pub enum InstallerError {
     Parse(String),
 }
 
-/// Looks for the driver files under `<base_dir>/drivers/LcxlVirtualDisplay/`.
+/// Looks for the driver files under `<base_dir>/drivers/LcxboxVirtualDisplay/`.
 ///
 /// Used by `windows_service::install_service` to discover files
 /// relative to the sidecar executable's own directory (not

@@ -15,10 +15,10 @@ HTTP、信令、Manager 设置、MCP 和远程终端请求都不能解锁。Taur
 无界面主机使用同一条本机安全通道：
 
 ```text
-lcxl-remote-desk-server access status
-lcxl-remote-desk-server access lock
-lcxl-remote-desk-server access unlock
-lcxl-remote-desk-server access disconnect <connection-id>
+lcxbox-agent-desk-server access status
+lcxbox-agent-desk-server access lock
+lcxbox-agent-desk-server access unlock
+lcxbox-agent-desk-server access disconnect <connection-id>
 ```
 
 `lock` 必须在本机交互式终端中运行；`unlock` 必须从已提升权限的终端运行，例如使用“以管理员身份运行”、`sudo` 或平台上的等效方式。守护进程离线时，`status` 只能查看已保存的状态；其余命令都要求守护进程正在运行。

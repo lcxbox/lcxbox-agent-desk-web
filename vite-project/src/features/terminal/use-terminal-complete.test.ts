@@ -166,7 +166,7 @@ describe('useTerminalComplete', () => {
                 completions: [
                     { completion: 'status nginx', note: 'status', risk: 'low', decision: 'not_executable' },
                 ],
-                provenance: { model_id: 'gpt-4o', marking_scheme: 'lcxl-ai-provenance/1' },
+                provenance: { model_id: 'gpt-4o', marking_scheme: 'lcxbox-ai-provenance/1' },
             }),
         );
         expect(result.current.provenance?.model_id).toBe('gpt-4o');

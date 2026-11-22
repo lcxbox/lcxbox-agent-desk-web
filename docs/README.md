@@ -1,6 +1,6 @@
-# LCXL Remote Desk — Documentation Site
+# LCXBOX Agent Desk — Documentation Site
 
-The documentation site for the open-source LCXL Remote Desk project, built with [VitePress](https://vitepress.dev/).
+The documentation site for the open-source LCXBOX Agent Desk project, built with [VitePress](https://vitepress.dev/).
 
 The site is bilingual: **English** is the default (`/`), **简体中文** lives under `/zh/`.
 

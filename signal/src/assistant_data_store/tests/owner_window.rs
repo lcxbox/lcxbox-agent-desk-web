@@ -224,7 +224,7 @@ async fn exercise_large_window(store: TestStore, sources: Vec<String>, text: Str
 
 #[test]
 fn retained_window_keeps_large_pages_whole_and_does_not_skip_rows_on_small_stacks() {
-    const CHILD: &str = "LRD_TEST_RETAINED_WINDOW_STACK_BYTES";
+    const CHILD: &str = "LAD_TEST_RETAINED_WINDOW_STACK_BYTES";
     if let Ok(value) = std::env::var(CHILD) {
         let bytes = value.parse::<usize>().unwrap();
         assert!([1_048_576, 2_097_152].contains(&bytes));

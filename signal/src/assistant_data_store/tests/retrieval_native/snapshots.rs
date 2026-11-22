@@ -475,7 +475,7 @@ async fn accepted_snapshot_keeps_its_body_after_source_update_or_ordinary_expiry
 
 #[test]
 fn independent_snapshot_lifecycle_fits_small_stacks() {
-    const CHILD: &str = "LRD_TEST_ASSISTANT_OWNED_SNAPSHOT_STACK_BYTES";
+    const CHILD: &str = "LAD_TEST_ASSISTANT_OWNED_SNAPSHOT_STACK_BYTES";
     if let Some(bytes) = std::env::var_os(CHILD) {
         let bytes: usize = bytes.to_str().unwrap().parse().unwrap();
         assert!([1024 * 1024, 2 * 1024 * 1024].contains(&bytes));

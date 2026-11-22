@@ -3470,7 +3470,7 @@ mod tests {
     #[tokio::test]
     async fn durable_ack_is_idempotent_and_survives_file_reopen() {
         let path =
-            std::env::temp_dir().join(format!("lrdm-agent-run-event-{}.db", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("ladm-agent-run-event-{}.db", uuid::Uuid::new_v4()));
         let db = file_db(&path).await;
         let store = SignalAgentRunEventStore::new(db.clone());
         let first = store

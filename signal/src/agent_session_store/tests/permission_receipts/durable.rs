@@ -34,8 +34,8 @@ async fn prepare(store: &SignalAgentSessionStore) -> (SignalAgentSessionStore, C
 
 #[tokio::test]
 async fn abrupt_process_exit_preserves_pending_and_started_fences() {
-    const CHILD_DATABASE: &str = "LRD_TEST_PERMISSION_RESUME_DATABASE";
-    const CHILD_PHASE: &str = "LRD_TEST_PERMISSION_RESUME_PHASE";
+    const CHILD_DATABASE: &str = "LAD_TEST_PERMISSION_RESUME_DATABASE";
+    const CHILD_PHASE: &str = "LAD_TEST_PERMISSION_RESUME_PHASE";
     if let Ok(url) = std::env::var(CHILD_DATABASE) {
         let (store, decisions) = seed(
             crate::config::test_support::Database::connect(&url)

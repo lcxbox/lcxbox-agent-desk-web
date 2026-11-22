@@ -2,7 +2,7 @@
 
 [简体中文](DEVELOPMENT_CN.md)
 
-This document provides a comprehensive guide for the LCXL Remote Desk Web project, including environment setup, development workflow, API documentation, and coding standards.
+This document provides a comprehensive guide for the LCXBOX Agent Desk Web project, including environment setup, development workflow, API documentation, and coding standards.
 
 ## Table of Contents
 
@@ -220,7 +220,7 @@ inventory of its API surface; the frontend client is generated offline anyway.
 Generate the spec locally with the offline subcommand:
 
 ```bash
-cargo run -p lcxl-remote-desk-server -- dump-openapi --out openapi.json
+cargo run -p lcxbox-agent-desk-server -- dump-openapi --out openapi.json
 ```
 
 The frontend regeneration scripts instead use an automatically cleaned

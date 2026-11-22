@@ -3,8 +3,8 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Set-Location $ScriptDir
 
-Write-Host "Building Rust server (lcxl-remote-desk-server)..."
-cargo build -p lcxl-remote-desk-server
+Write-Host "Building Rust server (lcxbox-agent-desk-server)..."
+cargo build -p lcxbox-agent-desk-server
 
 Write-Host "Building Vite project..."
 Push-Location "$ScriptDir\vite-project"

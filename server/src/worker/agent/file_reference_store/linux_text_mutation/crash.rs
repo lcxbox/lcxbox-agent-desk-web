@@ -2,9 +2,9 @@
 use super::*;
 use std::process::{Child, Command, Stdio};
 
-const ROOT_ENV: &str = "LCXL_NATIVE_TEXT_CRASH_ROOT";
-const PHASE_ENV: &str = "LCXL_NATIVE_TEXT_CRASH_PHASE";
-const CHANGE_ENV: &str = "LCXL_NATIVE_TEXT_CRASH_CHANGE";
+const ROOT_ENV: &str = "LCXBOX_NATIVE_TEXT_CRASH_ROOT";
+const PHASE_ENV: &str = "LCXBOX_NATIVE_TEXT_CRASH_PHASE";
+const CHANGE_ENV: &str = "LCXBOX_NATIVE_TEXT_CRASH_CHANGE";
 const CRASH_EXIT: i32 = 86;
 
 fn context(root: &Path) -> RecoveryContext {
@@ -42,7 +42,7 @@ fn subprocess_crash_point() {
             .unwrap()
             .to_str()
             .unwrap()
-            .starts_with("lcxl-text-crash-")
+            .starts_with("lcxbox-text-crash-")
     );
     assert_eq!(
         std::fs::read(root.join("fixture-marker")).unwrap(),
@@ -106,7 +106,7 @@ fn interrupted_transactions_preserve_target_and_fence_replay() {
     for change in ["update", "delete"] {
         for phase in ["prepared", "intent", "namespace"] {
             let root = tempfile::Builder::new()
-                .prefix("lcxl-text-crash-")
+                .prefix("lcxbox-text-crash-")
                 .tempdir()
                 .unwrap();
             std::fs::write(

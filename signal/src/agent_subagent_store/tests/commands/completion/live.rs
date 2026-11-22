@@ -12,16 +12,16 @@ use desk_diagnose_core::{
 async fn live_project_model_subagent_completion() {
     let config = crate::model_provider::ModelProviderConfig {
         wire_protocol: Some(WireProtocol::OpenAiChatCompletions),
-        model: Some(std::env::var("LRD_LIVE_DEEPSEEK_MODEL").unwrap()),
-        base_url: Some(std::env::var("LRD_LIVE_DEEPSEEK_BASE_URL").unwrap()),
-        api_key: Some(std::env::var("LRD_LIVE_DEEPSEEK_API_KEY").unwrap()),
+        model: Some(std::env::var("LAD_LIVE_DEEPSEEK_MODEL").unwrap()),
+        base_url: Some(std::env::var("LAD_LIVE_DEEPSEEK_BASE_URL").unwrap()),
+        api_key: Some(std::env::var("LAD_LIVE_DEEPSEEK_API_KEY").unwrap()),
         request_options: serde_json::json!({"thinking":{"type":"enabled"}}),
         max_context_bytes: Some(131072),
         runtime_max_output_tokens: 1024,
         ..Default::default()
     };
     let started = std::time::Instant::now();
-    let evidence_path = std::env::var("LRD_LIVE_SUBAGENT_EVIDENCE_PATH").unwrap();
+    let evidence_path = std::env::var("LAD_LIVE_SUBAGENT_EVIDENCE_PATH").unwrap();
     let model = crate::model_dial::SignalModelSeam::from_config(&config).unwrap();
     let mut request = ModelRequest::text_only(
         vec![
@@ -260,9 +260,9 @@ async fn live_project_model_subagent_concise_result() {
     use sha2::{Digest, Sha256};
     let config = crate::model_provider::ModelProviderConfig {
         wire_protocol: Some(WireProtocol::OpenAiChatCompletions),
-        model: Some(std::env::var("LRD_LIVE_DEEPSEEK_MODEL").unwrap()),
-        base_url: Some(std::env::var("LRD_LIVE_DEEPSEEK_BASE_URL").unwrap()),
-        api_key: Some(std::env::var("LRD_LIVE_DEEPSEEK_API_KEY").unwrap()),
+        model: Some(std::env::var("LAD_LIVE_DEEPSEEK_MODEL").unwrap()),
+        base_url: Some(std::env::var("LAD_LIVE_DEEPSEEK_BASE_URL").unwrap()),
+        api_key: Some(std::env::var("LAD_LIVE_DEEPSEEK_API_KEY").unwrap()),
         request_options: serde_json::json!({"thinking":{"type":"enabled"}}),
         max_context_bytes: Some(131072),
         runtime_max_output_tokens: 4096,
@@ -306,12 +306,12 @@ async fn live_project_model_subagent_concise_result() {
             "arguments_json_valid":proposal.tool_calls.first().map(|call|serde_json::from_str::<serde_json::Value>(&call.arguments_json).is_ok()),
             "arguments_bytes":proposal.tool_calls.first().map(|call|call.arguments_json.len())}]});
     std::fs::write(
-        std::env::var("LRD_LIVE_SUBAGENT_EVIDENCE_PATH").unwrap(),
+        std::env::var("LAD_LIVE_SUBAGENT_EVIDENCE_PATH").unwrap(),
         serde_json::to_string_pretty(&proposal_check).unwrap(),
     )
     .unwrap();
     #[cfg(unix)]
-    if let Ok(path) = std::env::var("LRD_LIVE_CONCISE_PROPOSAL_DIAGNOSTIC") {
+    if let Ok(path) = std::env::var("LAD_LIVE_CONCISE_PROPOSAL_DIAGNOSTIC") {
         use std::{io::Write, os::unix::fs::OpenOptionsExt};
         let mut file = std::fs::OpenOptions::new()
             .write(true)
@@ -366,7 +366,7 @@ async fn live_project_model_subagent_concise_result() {
         ..Default::default()
     };
     #[cfg(unix)]
-    if let Ok(path) = std::env::var("LRD_LIVE_CONCISE_PROPOSAL_DIAGNOSTIC") {
+    if let Ok(path) = std::env::var("LAD_LIVE_CONCISE_PROPOSAL_DIAGNOSTIC") {
         use std::{io::Write, os::unix::fs::OpenOptionsExt};
         let mut file = std::fs::OpenOptions::new()
             .write(true)
@@ -430,7 +430,7 @@ async fn live_project_model_subagent_concise_result() {
             "report_page_bytes":serde_json::to_vec(&page).unwrap().len(),"answer_sha256":format!("{:x}",Sha256::digest(answer.text.as_bytes())),
             "original_answer_preserved":original_answer_preserved,"usage":[proposal.usage,answer.usage],"report_correction_calls":0}]});
     std::fs::write(
-        std::env::var("LRD_LIVE_SUBAGENT_EVIDENCE_PATH").unwrap(),
+        std::env::var("LAD_LIVE_SUBAGENT_EVIDENCE_PATH").unwrap(),
         serde_json::to_string_pretty(&evidence).unwrap(),
     )
     .unwrap();

@@ -104,7 +104,7 @@ pub(crate) fn extract(
         match marker {
             PageMarkerStyle::None => {}
             PageMarkerStyle::HtmlComment => {
-                part.push_str(&format!("<!-- lcxl-page: {page_number} -->\n\n"));
+                part.push_str(&format!("<!-- lcxbox-page: {page_number} -->\n\n"));
             }
             PageMarkerStyle::PlainText => {
                 part.push_str(&format!("--- page {page_number} ---\n\n"));

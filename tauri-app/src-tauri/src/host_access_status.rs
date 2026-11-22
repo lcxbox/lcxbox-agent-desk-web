@@ -1,5 +1,5 @@
 use desk_utils::host_data_paths::HostDataPaths;
-use lcxl_remote_desk_server::{
+use lcxbox_agent_desk_server::{
     daemon::{
         local_access_control::HostAccessControlAction,
         local_access_control_transport::{endpoint_for_paths, execute_native},
@@ -39,8 +39,8 @@ pub struct HostAccessStatusManager {
     control_config_override: Option<PathBuf>,
 }
 
-const CONTROL_EVENT: &str = "lcxl-host-access-control";
-const CONTROL_RESULT_EVENT: &str = "lcxl-host-access-control-result";
+const CONTROL_EVENT: &str = "lcxbox-host-access-control";
+const CONTROL_RESULT_EVENT: &str = "lcxbox-host-access-control-result";
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -333,9 +333,9 @@ fn dispatch_control_result(app_handle: &AppHandle, result: &UiControlResult) {
 
 fn sidecar_path() -> PathBuf {
     let name = if cfg!(target_os = "windows") {
-        "lcxl-remote-desk-server.exe"
+        "lcxbox-agent-desk-server.exe"
     } else {
-        "lcxl-remote-desk-server"
+        "lcxbox-agent-desk-server"
     };
     std::env::current_exe()
         .ok()
@@ -555,9 +555,9 @@ fn build_status_window(
         .visible(false)
         .on_document_title_changed(|window, title| {
             let height = match title.as_str() {
-                "lcxl-host-access:expanded" => STATUS_WINDOW_EXPANDED_HEIGHT,
-                "lcxl-host-access:collapsed" => STATUS_WINDOW_COLLAPSED_HEIGHT,
-                "lcxl-host-access:locked" => STATUS_WINDOW_LOCKED_HEIGHT,
+                "lcxbox-host-access:expanded" => STATUS_WINDOW_EXPANDED_HEIGHT,
+                "lcxbox-host-access:collapsed" => STATUS_WINDOW_COLLAPSED_HEIGHT,
+                "lcxbox-host-access:locked" => STATUS_WINDOW_LOCKED_HEIGHT,
                 _ => return,
             };
             let _ = window.set_size(LogicalSize::new(STATUS_WINDOW_WIDTH, height));
@@ -697,9 +697,9 @@ fn dispatch_snapshot(window: &WebviewWindow, snapshot: &HostAccessSnapshot) {
         return;
     };
     let script = format!(
-        "window.__lcxlHostAccessSnapshot = JSON.parse({encoded}); \
-         window.dispatchEvent(new CustomEvent('lcxl-host-access-snapshot', \
-         {{ detail: window.__lcxlHostAccessSnapshot }}));"
+        "window.__lcxboxHostAccessSnapshot = JSON.parse({encoded}); \
+         window.dispatchEvent(new CustomEvent('lcxbox-host-access-snapshot', \
+         {{ detail: window.__lcxboxHostAccessSnapshot }}));"
     );
     if let Err(error) = window.eval(&script) {
         log::warn!("Failed to update host-access window: {error}");
@@ -796,7 +796,8 @@ mod tests {
             indicator_enabled: true,
             total_session_count: 0,
             sessions: Vec::new(),
-            remote_access: lcxl_remote_desk_server::host_control::HostRemoteAccessStatus::default(),
+            remote_access: lcxbox_agent_desk_server::host_control::HostRemoteAccessStatus::default(
+            ),
         }
     }
 

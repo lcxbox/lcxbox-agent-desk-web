@@ -40,7 +40,7 @@ Windows uses the native Service Control Manager. Linux provides a systemd servic
 
 Run these from an elevated prompt with the server binary of the build you want to install (`static/` must sit next to it):
 
-- `--install-service [--install-path <dir>] [--config-file-path <config.toml>] [--install-idd-driver]` copies the build (default `C:\Program Files\LCXL Remote Desktop`), registers `LcxlDeskService` and starts it. It refuses when the service is already installed.
+- `--install-service [--install-path <dir>] [--config-file-path <config.toml>] [--install-idd-driver]` copies the build (default `C:\Program Files\LCXBOX Agent Desk`), registers `LcxboxDeskService` and starts it. It refuses when the service is already installed.
 - `--update-service` replaces the installed build in place: the new files are staged next to the old ones while the service still runs, then the service is stopped, the files are swapped and the service is started again. The service keeps its directory, start type and `--config-file-path` unless you pass a new one; other hand-added launch arguments are not kept. If the new build does not start, the previous one is restored and started.
 - `--uninstall-service` stops the service, removes the virtual display driver, the service and the install directory. Data and configuration are kept.
 
@@ -50,7 +50,7 @@ When you stop the service yourself, `Stop-Service` returns a few milliseconds be
 
 In the local desktop client, sign in as the device owner and open **System Settings → Linux System Service**. Choose **Install Service**, then approve the desktop's administrator authorization prompt. Installation requires systemd, `pkexec`, and a working desktop authentication agent. The client never receives your administrator password. No experimental opt-in is required.
 
-The installation path is fixed at `/usr/lib/lcxl-remote-desk`; the system configuration is stored in `/etc/lcxl-remote-desk/config.toml`. The daemon runs as root, while desktop workers run as the logged-in user. Windows virtual display driver options do not apply to Linux.
+The installation path is fixed at `/usr/lib/lcxbox-agent-desk`; the system configuration is stored in `/etc/lcxbox-agent-desk/config.toml`. The daemon runs as root, while desktop workers run as the logged-in user. Windows virtual display driver options do not apply to Linux.
 
 The dialog waits for the installer process to finish and reports completion, cancelled or failed authorization, missing `pkexec`, an operation already in progress, or an installer failure. A submitted request alone is not an installation success. The local client can report completion even if uninstalling stops its connection to the daemon. If no final result is available, it reports an unknown result without automatically repeating the operation. The service card separately shows whether the service is installed and running.
 

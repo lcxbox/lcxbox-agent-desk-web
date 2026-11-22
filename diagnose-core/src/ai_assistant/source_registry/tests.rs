@@ -870,7 +870,7 @@ fn renamed_malformed_weakened_and_cyclic_controls_remain_unresolved() {
 
 #[test]
 fn native_control_registration_fits_small_stacks() {
-    const STACK: &str = "LRD_TEST_CONTROL_SOURCE_STACK_BYTES";
+    const STACK: &str = "LAD_TEST_CONTROL_SOURCE_STACK_BYTES";
     if let Some(bytes) = std::env::var_os(STACK) {
         let bytes: usize = bytes.to_str().unwrap().parse().unwrap();
         assert!([1024 * 1024, 2 * 1024 * 1024].contains(&bytes));

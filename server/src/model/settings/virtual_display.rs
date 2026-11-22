@@ -20,7 +20,7 @@ pub const DEFAULT_EXCLUSIVE_PROMPT_MS: u32 = 5_000;
 /// Virtual display (Windows IDD) settings. Pulled out into its own
 /// section because the knob is system-level (only the
 /// `ServiceDaemon` startup mode acts on it, and changing it requires
-/// the `LcxlVirtualDisplay` driver to already be staged) — not a
+/// the `LcxboxVirtualDisplay` driver to already be staged) — not a
 /// per-session capture setting. Kept as a struct rather than a bare
 /// `bool` so future fields (e.g. exclusive-mode toggle, pre-detach
 /// prompt duration) slot in without another schema migration.

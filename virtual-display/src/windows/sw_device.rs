@@ -1,6 +1,6 @@
 //! PnP software-device lifecycle for the virtual display.
 //!
-//! Materialises the lcxl IDD as a software device via `SwDeviceCreate`,
+//! Materialises the lcxbox IDD as a software device via `SwDeviceCreate`,
 //! waits for the OS to confirm creation, and holds the handle so
 //! `SwDeviceClose` fires on drop. It follows the IddCx sample while
 //! exposing only the signatures the production trait needs.
@@ -32,18 +32,18 @@ use windows::core::{BOOL, Owned, PCWSTR};
 
 use crate::{VirtualDisplayError, VirtualDisplayHandleInner};
 
-/// Hardware ID published by the lcxl production virtual-display INF.
+/// Hardware ID published by the lcxbox production virtual-display INF.
 /// Production installs MUST advertise this exact string in their INF,
 /// or the OS will not match a driver and `SwDeviceCreate` reports
 /// no-match. Deliberately distinct from the sample driver's HW ID
 /// `LcxlIddSampleDriver` so the two INFs can coexist on a developer
 /// test machine without overlapping.
-pub const LCXL_IDD_HARDWARE_ID: &str = "LcxlVirtualDisplay";
+pub const LCXBOX_IDD_HARDWARE_ID: &str = "LcxboxVirtualDisplay";
 /// Instance ID requested when materialising the device. Stable across
 /// restarts so the PnP manager can find the same node.
-pub const LCXL_IDD_INSTANCE_ID: &str = "LcxlVirtualDisplay";
+pub const LCXBOX_IDD_INSTANCE_ID: &str = "LcxboxVirtualDisplay";
 /// Friendly description shown by the OS in Device Manager.
-pub const LCXL_IDD_DESCRIPTION: &str = "Lcxl Virtual Display";
+pub const LCXBOX_IDD_DESCRIPTION: &str = "Lcxbox Virtual Display";
 
 /// Maximum time we are willing to wait for the OS to confirm the device
 /// has been installed before giving up. Driver installations on a clean
@@ -159,7 +159,7 @@ unsafe extern "system" fn creation_callback(
 }
 
 /// Create the virtual display software device and return its PnP
-/// instance id (e.g. `SWD\LcxlVirtualDisplay\LcxlVirtualDisplay`). The
+/// instance id (e.g. `SWD\LcxboxVirtualDisplay\LcxboxVirtualDisplay`). The
 /// returned [`SwDeviceHandle`] keeps the device alive for as long as it
 /// lives.
 ///
@@ -176,12 +176,12 @@ pub fn create_virtual_display_with_timeout(
 ) -> Result<(SwDeviceHandle, String), VirtualDisplayError> {
     // Buffers must outlive the SwDeviceCreate call. Keep them on the
     // stack frame and pass raw PCWSTR pointers.
-    let instance_id_buf = encode_pcwstr(LCXL_IDD_INSTANCE_ID);
-    let hardware_ids = encode_pczzwstr(&[LCXL_IDD_HARDWARE_ID]);
-    let compatible_ids = encode_pczzwstr(&[LCXL_IDD_HARDWARE_ID]);
-    let description = encode_pcwstr(LCXL_IDD_DESCRIPTION);
+    let instance_id_buf = encode_pcwstr(LCXBOX_IDD_INSTANCE_ID);
+    let hardware_ids = encode_pczzwstr(&[LCXBOX_IDD_HARDWARE_ID]);
+    let compatible_ids = encode_pczzwstr(&[LCXBOX_IDD_HARDWARE_ID]);
+    let description = encode_pcwstr(LCXBOX_IDD_DESCRIPTION);
     let parent_device_instance = encode_pcwstr("HTREE\\ROOT\\0");
-    let enumerator_name = encode_pcwstr(LCXL_IDD_HARDWARE_ID);
+    let enumerator_name = encode_pcwstr(LCXBOX_IDD_HARDWARE_ID);
 
     let create_info = SW_DEVICE_CREATE_INFO {
         cbSize: std::mem::size_of::<SW_DEVICE_CREATE_INFO>() as u32,
@@ -302,18 +302,18 @@ pub fn create_virtual_display_with_timeout(
 /// See the module doc-comment for the chain of evidence.
 ///
 /// **Matching strategy**: today this function matches on the
-/// [`LCXL_IDD_HARDWARE_ID`] substring rather than the supplied
+/// [`LCXBOX_IDD_HARDWARE_ID`] substring rather than the supplied
 /// `instance_id` argument. The argument is only embedded in the error
-/// message on miss. This is safe under the current "at most one lcxl
+/// message on miss. This is safe under the current "at most one lcxbox
 /// virtual display per host" assumption (driven by the fixed
-/// [`LCXL_IDD_INSTANCE_ID`] constant). When multi-virtual-display is
+/// [`LCXBOX_IDD_INSTANCE_ID`] constant). When multi-virtual-display is
 /// added, this match must be tightened to compare against the supplied
 /// `instance_id` instead, otherwise the wrong `\\.\DISPLAYn` could be
 /// returned. The substring-on-HW-id choice also smooths over PnP id
 /// casing/format differences across Windows versions for the single
 /// virtual display case.
 pub fn find_display_name(instance_id: &str) -> Result<String, VirtualDisplayError> {
-    let needle = LCXL_IDD_HARDWARE_ID.to_ascii_uppercase();
+    let needle = LCXBOX_IDD_HARDWARE_ID.to_ascii_uppercase();
     let mut last_seen: Vec<String> = Vec::new();
     let mut candidate: Option<String> = None;
     for idevnum in 0u32..MAX_DISPLAY_ENUM_INDEX {
@@ -337,7 +337,7 @@ pub fn find_display_name(instance_id: &str) -> Result<String, VirtualDisplayErro
     }
     let candidate = candidate.ok_or_else(|| {
         VirtualDisplayError::DeviceCreate(format!(
-            "no GDI display matches lcxl IDD instance {instance_id}; seen=[{}]",
+            "no GDI display matches lcxbox IDD instance {instance_id}; seen=[{}]",
             last_seen.join(", ")
         ))
     })?;
@@ -366,7 +366,7 @@ pub fn find_display_name(instance_id: &str) -> Result<String, VirtualDisplayErro
         Ok(candidate)
     } else {
         Err(VirtualDisplayError::DeviceCreate(format!(
-            "lcxl IDD instance {instance_id} resolves to {candidate} but the \
+            "lcxbox IDD instance {instance_id} resolves to {candidate} but the \
              monitor is not yet attached to the desktop (EnumDisplayMonitors \
              returned [{}]); retry pending IDD bring-up",
             attached.join(", ")
@@ -496,9 +496,9 @@ mod tests {
         // deliberately different from the IddCx sample driver's HW ID
         // (`LcxlIddSampleDriver`) so the two INFs can coexist on a
         // dev box.
-        assert_eq!(LCXL_IDD_HARDWARE_ID, "LcxlVirtualDisplay");
-        assert_eq!(LCXL_IDD_INSTANCE_ID, "LcxlVirtualDisplay");
-        assert_ne!(LCXL_IDD_HARDWARE_ID, "LcxlIddSampleDriver");
+        assert_eq!(LCXBOX_IDD_HARDWARE_ID, "LcxboxVirtualDisplay");
+        assert_eq!(LCXBOX_IDD_INSTANCE_ID, "LcxboxVirtualDisplay");
+        assert_ne!(LCXBOX_IDD_HARDWARE_ID, "LcxlIddSampleDriver");
     }
 
     /// Happy path: candidate appears in the attached list — Attached

@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: LCXL Remote Desk
+  name: LCXBOX Agent Desk
   text: AI 原生远程桌面
   tagline: 一款高性能、开源的 WebRTC 远程桌面，把 AI 当作与浏览器并列的一等控制端——安全优先、模型无关。
   actions:

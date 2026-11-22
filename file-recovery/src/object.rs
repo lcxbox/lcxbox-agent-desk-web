@@ -8,7 +8,7 @@
 use std::io;
 use zstd::zstd_safe::{CCtx, CParameter, DCtx, DParameter};
 
-const MAGIC: &[u8; 4] = b"LRDO";
+const MAGIC: &[u8; 4] = b"LADO";
 const VERSION: u8 = 1;
 pub(crate) const HEADER_BYTES: usize = 48;
 const LEVEL: i32 = 3;

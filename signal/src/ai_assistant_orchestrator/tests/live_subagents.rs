@@ -25,9 +25,9 @@ impl log::Log for LiveWarnings {
 fn config() -> crate::model_provider::ModelProviderConfig {
     crate::model_provider::ModelProviderConfig {
         wire_protocol: Some(desk_diagnose_core::model_profile::WireProtocol::OpenAiChatCompletions),
-        model: Some(std::env::var("LRD_LIVE_DEEPSEEK_MODEL").unwrap()),
-        base_url: Some(std::env::var("LRD_LIVE_DEEPSEEK_BASE_URL").unwrap()),
-        api_key: Some(std::env::var("LRD_LIVE_DEEPSEEK_API_KEY").unwrap()),
+        model: Some(std::env::var("LAD_LIVE_DEEPSEEK_MODEL").unwrap()),
+        base_url: Some(std::env::var("LAD_LIVE_DEEPSEEK_BASE_URL").unwrap()),
+        api_key: Some(std::env::var("LAD_LIVE_DEEPSEEK_API_KEY").unwrap()),
         request_options: json!({"thinking":{"type":"disabled"}}),
         max_context_bytes: Some(131_072),
         runtime_max_output_tokens: 4096,
@@ -650,7 +650,7 @@ async fn sample(
                     "durable_wait":state.subagent_wait.is_some(),
                     "lease_released":row.lease_deadline.is_none(),
                     "unfinished_children":store.queued_task_candidates(0,32).await.unwrap().len(),
-                    "configured_model_max_inflight":std::env::var("LRD_MODEL_MAX_INFLIGHT").ok(),
+                    "configured_model_max_inflight":std::env::var("LAD_MODEL_MAX_INFLIGHT").ok(),
                 });
             }
             let mut driver_errors = Vec::new();
@@ -905,16 +905,16 @@ async fn live_project_model_subagent_corpus() {
     let _ = log::set_logger(&WARNINGS);
     log::set_max_level(log::LevelFilter::Warn);
     let corpus: Value = serde_json::from_str(
-        &std::fs::read_to_string(std::env::var("LRD_LIVE_SUBAGENT_CORPUS_PATH").unwrap()).unwrap(),
+        &std::fs::read_to_string(std::env::var("LAD_LIVE_SUBAGENT_CORPUS_PATH").unwrap()).unwrap(),
     )
     .unwrap();
-    let selected = std::env::var("LRD_LIVE_SUBAGENT_CASE").unwrap_or_else(|_| "all".into());
-    let count = std::env::var("LRD_LIVE_SUBAGENT_REPETITIONS")
+    let selected = std::env::var("LAD_LIVE_SUBAGENT_CASE").unwrap_or_else(|_| "all".into());
+    let count = std::env::var("LAD_LIVE_SUBAGENT_REPETITIONS")
         .ok()
         .map(|s| s.parse::<usize>().unwrap())
         .unwrap_or(5);
     assert!((1..=5).contains(&count));
-    let seed = std::env::var("LRD_LIVE_SUBAGENT_COMPARISON_SEED")
+    let seed = std::env::var("LAD_LIVE_SUBAGENT_COMPARISON_SEED")
         .expect("runner must record an explicit randomization seed")
         .parse::<u64>()
         .unwrap();
@@ -971,11 +971,11 @@ async fn live_project_model_subagent_corpus() {
             }
         }
     }
-    let artifact = std::env::var("LRD_LIVE_SUBAGENT_EVIDENCE_PATH").unwrap();
+    let artifact = std::env::var("LAD_LIVE_SUBAGENT_EVIDENCE_PATH").unwrap();
     std::fs::write(artifact, serde_json::to_vec_pretty(&json!({"schema_version":1,
         "scope":"production_oss_entry_real_model_synthetic_device_route_no_device_io",
         "answer_acceptance":"passed requires correct output as a complete JSON object or complete fenced JSON object; functional_passed also accepts the first JSON object after explanatory prose, with all runtime checks unchanged",
-        "profile":{"model":std::env::var("LRD_LIVE_DEEPSEEK_MODEL").unwrap(),"thinking":"disabled","max_context_bytes":131072,"output_limit":4096},
+        "profile":{"model":std::env::var("LAD_LIVE_DEEPSEEK_MODEL").unwrap(),"thinking":"disabled","max_context_bytes":131072,"output_limit":4096},
         "randomization":{"seed":seed,"algorithm":"xorshift64_fisher_yates_per_case_repetition","execution_order":"results array order"},
         "cache_method":"observed per-call usage; no equal-cache cost or latency claim",
         "deadline_method":"one 900-second external absolute cutoff per case/repetition shared by all three arms; immutable production source deadlines remain independently recorded in group ledgers",

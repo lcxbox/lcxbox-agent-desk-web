@@ -731,7 +731,7 @@ impl RemoteAccessCoordinator {
 
 fn central_request_id(state: &RemoteAccessState, lock_id: Option<&str>) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"lcxl-remote-access-central-request-v1");
+    digest.update(b"lcxbox-remote-access-central-request-v1");
     digest.update(state.state_version.to_le_bytes());
     digest.update([u8::from(state.is_locked())]);
     digest.update(lock_id.unwrap_or_default().as_bytes());

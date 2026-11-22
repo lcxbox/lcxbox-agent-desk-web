@@ -5,7 +5,7 @@ param(
     [int]$DurationSeconds = 300,
     [int]$ExpectedTransitions = 40,
     [int]$SampleIntervalMs = 200,
-    [string]$ServerExecutableName = "lcxl-remote-desk-server.exe",
+    [string]$ServerExecutableName = "lcxbox-agent-desk-server.exe",
     [string]$EvidenceDirectory = ".\resident-worker-evidence"
 )
 
@@ -85,7 +85,7 @@ $startedAt = [DateTime]::UtcNow
 $initialLogLength = (Get-Item -LiteralPath $LogPath).Length
 $baseline = Get-ResidentWorkerSnapshot -ExecutableName $ServerExecutableName
 if ($baseline.Count -lt 2) {
-    throw "Expected at least one Default/Winlogon worker pair, found $($baseline.Count). Is the LCXL Remote Desktop service running with a signed-in user?"
+    throw "Expected at least one Default/Winlogon worker pair, found $($baseline.Count). Is the LCXBOX Agent Desk service running with a signed-in user?"
 }
 
 $baselineGroups = @($baseline | Group-Object SessionId)

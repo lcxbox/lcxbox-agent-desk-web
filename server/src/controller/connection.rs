@@ -60,7 +60,7 @@ pub struct ConnectionVerifyParams {
     /// (domain-field blur), supplied when checking whether the token is accepted.
     pub token: Option<String>,
     /// Deployment bootstrap token used only while the standalone server is not
-    /// initialized and was started with `LRD_BOOTSTRAP_TOKEN`.
+    /// initialized and was started with `LAD_BOOTSTRAP_TOKEN`.
     #[serde(default)]
     pub bootstrap_token: Option<String>,
 }

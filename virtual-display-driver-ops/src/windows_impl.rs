@@ -17,7 +17,7 @@ const PS_ARGS: &[&str] = &[
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    "Get-WindowsDriver -Online | Where-Object { $_.OriginalFileName -and ([System.IO.Path]::GetFileName($_.OriginalFileName) -ieq 'LcxlVirtualDisplay.inf') } | Select-Object Driver, OriginalFileName | ConvertTo-Json -Compress",
+    "Get-WindowsDriver -Online | Where-Object { $_.OriginalFileName -and ([System.IO.Path]::GetFileName($_.OriginalFileName) -ieq 'LcxboxVirtualDisplay.inf') } | Select-Object Driver, OriginalFileName | ConvertTo-Json -Compress",
 ];
 
 pub(crate) fn query_install_status(
@@ -184,7 +184,7 @@ mod tests {
     fn ps_success_short_circuits_pnputil() {
         let runner = MockRunner::new(vec![MockReply::Ok {
             status: Some(0),
-            stdout: r#"{"Driver":"oem23.inf","OriginalFileName":"X\\LcxlVirtualDisplay.inf"}"#
+            stdout: r#"{"Driver":"oem23.inf","OriginalFileName":"X\\LcxboxVirtualDisplay.inf"}"#
                 .into(),
             stderr: String::new(),
         }]);
@@ -206,7 +206,7 @@ mod tests {
             },
             MockReply::Ok {
                 status: Some(0),
-                stdout: "Published Name : oem55.inf\nOriginal Name : LcxlVirtualDisplay.inf\n"
+                stdout: "Published Name : oem55.inf\nOriginal Name : LcxboxVirtualDisplay.inf\n"
                     .into(),
                 stderr: String::new(),
             },
@@ -226,7 +226,7 @@ mod tests {
             MockReply::Err(std::io::ErrorKind::NotFound),
             MockReply::Ok {
                 status: Some(0),
-                stdout: "Published Name : oem55.inf\nOriginal Name : LcxlVirtualDisplay.inf\n"
+                stdout: "Published Name : oem55.inf\nOriginal Name : LcxboxVirtualDisplay.inf\n"
                     .into(),
                 stderr: String::new(),
             },
@@ -266,9 +266,9 @@ mod tests {
             stderr: String::new(),
         }]);
         let dir = PathBuf::from(if cfg!(target_os = "windows") {
-            "C:\\drivers\\LcxlVirtualDisplay"
+            "C:\\drivers\\LcxboxVirtualDisplay"
         } else {
-            "/tmp/drivers/LcxlVirtualDisplay"
+            "/tmp/drivers/LcxboxVirtualDisplay"
         });
         let files = DriverFiles::from_dir(dir);
         install(&runner, &files).unwrap();
@@ -276,7 +276,7 @@ mod tests {
         assert_eq!(invocations.len(), 1);
         assert_eq!(invocations[0].0, "pnputil");
         assert_eq!(invocations[0].1[0], "/add-driver");
-        assert!(invocations[0].1[1].ends_with("LcxlVirtualDisplay.inf"));
+        assert!(invocations[0].1[1].ends_with("LcxboxVirtualDisplay.inf"));
         assert_eq!(invocations[0].1[2], "/install");
     }
 
@@ -319,7 +319,7 @@ mod tests {
         let runner = MockRunner::new(vec![
             MockReply::Ok {
                 status: Some(0),
-                stdout: r#"[{"Driver":"oem23.inf","OriginalFileName":"X\\LcxlVirtualDisplay.inf"},{"Driver":"oem55.inf","OriginalFileName":"Y\\LcxlVirtualDisplay.inf"}]"#.into(),
+                stdout: r#"[{"Driver":"oem23.inf","OriginalFileName":"X\\LcxboxVirtualDisplay.inf"},{"Driver":"oem55.inf","OriginalFileName":"Y\\LcxboxVirtualDisplay.inf"}]"#.into(),
                 stderr: String::new(),
             },
             MockReply::Ok {
@@ -354,7 +354,7 @@ mod tests {
         let runner = MockRunner::new(vec![
             MockReply::Ok {
                 status: Some(0),
-                stdout: r#"[{"Driver":"oem23.inf","OriginalFileName":"X\\LcxlVirtualDisplay.inf"},{"Driver":"oem55.inf","OriginalFileName":"Y\\LcxlVirtualDisplay.inf"}]"#.into(),
+                stdout: r#"[{"Driver":"oem23.inf","OriginalFileName":"X\\LcxboxVirtualDisplay.inf"},{"Driver":"oem55.inf","OriginalFileName":"Y\\LcxboxVirtualDisplay.inf"}]"#.into(),
                 stderr: String::new(),
             },
             MockReply::Ok {

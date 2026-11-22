@@ -168,14 +168,14 @@ describe("SecurityApprovalPage", () => {
         expect(navigator.sendBeacon).toHaveBeenCalledTimes(1);
     });
 
-    it("exposes window.__lcxlApprovalDeny which sends a deny beacon", async () => {
+    it("exposes window.__lcxboxApprovalDeny which sends a deny beacon", async () => {
         mockFetch({ ackReady: true });
         renderPage(QUERY);
         await waitFor(() =>
             expect(screen.getByRole("button", { name: "Allow" })).not.toBeDisabled(),
         );
-        type Hook = { __lcxlApprovalDeny?: () => void };
-        const deny = (window as unknown as Hook).__lcxlApprovalDeny;
+        type Hook = { __lcxboxApprovalDeny?: () => void };
+        const deny = (window as unknown as Hook).__lcxboxApprovalDeny;
         expect(typeof deny).toBe("function");
         deny!();
         expect(navigator.sendBeacon).toHaveBeenCalledTimes(1);
@@ -185,11 +185,11 @@ describe("SecurityApprovalPage", () => {
         expect(JSON.parse(text)).toMatchObject({ req_id: "r1", approved: false });
     });
 
-    it("__lcxlApprovalDeny works even while ack is still pending", () => {
+    it("__lcxboxApprovalDeny works even while ack is still pending", () => {
         mockDeferredAck();
         renderPage(QUERY);
-        type Hook = { __lcxlApprovalDeny?: () => void };
-        (window as unknown as Hook).__lcxlApprovalDeny!();
+        type Hook = { __lcxboxApprovalDeny?: () => void };
+        (window as unknown as Hook).__lcxboxApprovalDeny!();
         expect(navigator.sendBeacon).toHaveBeenCalledTimes(1);
     });
 
@@ -199,8 +199,8 @@ describe("SecurityApprovalPage", () => {
         await waitFor(() =>
             expect(screen.getByRole("button", { name: "Allow" })).not.toBeDisabled(),
         );
-        type Hook = { __lcxlApprovalDeny?: () => void };
-        (window as unknown as Hook).__lcxlApprovalDeny!();
+        type Hook = { __lcxboxApprovalDeny?: () => void };
+        (window as unknown as Hook).__lcxboxApprovalDeny!();
         window.dispatchEvent(new Event("beforeunload"));
         expect(navigator.sendBeacon).toHaveBeenCalledTimes(1);
     });
@@ -212,8 +212,8 @@ describe("SecurityApprovalPage", () => {
         await waitFor(() => expect(allow).not.toBeDisabled());
         fireEvent.click(allow);
         await waitFor(() => expect(submitCalls()).toHaveLength(1));
-        type Hook = { __lcxlApprovalDeny?: () => void };
-        (window as unknown as Hook).__lcxlApprovalDeny!();
+        type Hook = { __lcxboxApprovalDeny?: () => void };
+        (window as unknown as Hook).__lcxboxApprovalDeny!();
         expect(navigator.sendBeacon).not.toHaveBeenCalled();
     });
 

@@ -41,8 +41,8 @@ async fn committed_response_and_ack_survive_separate_process_reopen_without_rede
         )
         .arg("--ignored")
         .arg("--nocapture")
-        .env("LRD_RESPONSE_REOPEN_DB", &file)
-        .env("LRD_RESPONSE_REOPEN_EXPECTED", &expected)
+        .env("LAD_RESPONSE_REOPEN_DB", &file)
+        .env("LAD_RESPONSE_REOPEN_EXPECTED", &expected)
         .kill_on_drop(true);
     let output = tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
         .await
@@ -66,9 +66,9 @@ async fn committed_response_and_ack_survive_separate_process_reopen_without_rede
 #[tokio::test]
 #[ignore = "launched only by the committed response reopen test"]
 async fn response_reopen_worker() {
-    let file = std::env::var("LRD_RESPONSE_REOPEN_DB").unwrap();
+    let file = std::env::var("LAD_RESPONSE_REOPEN_DB").unwrap();
     let expected: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(std::env::var("LRD_RESPONSE_REOPEN_EXPECTED").unwrap()).unwrap(),
+        &std::fs::read(std::env::var("LAD_RESPONSE_REOPEN_EXPECTED").unwrap()).unwrap(),
     )
     .unwrap();
     assert!(std::fs::metadata(&file).unwrap().len() > 0);

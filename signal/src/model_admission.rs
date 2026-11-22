@@ -28,7 +28,7 @@ fn configured_limit(value: Option<&str>) -> Result<usize, String> {
             .parse::<usize>()
             .ok()
             .filter(|limit| (1..=MAX_INFLIGHT).contains(limit))
-            .ok_or_else(|| "LRD_MODEL_MAX_INFLIGHT must be an integer in 1..=64".into()),
+            .ok_or_else(|| "LAD_MODEL_MAX_INFLIGHT must be an integer in 1..=64".into()),
     }
 }
 
@@ -96,11 +96,11 @@ impl ModelAdmission {
 pub(crate) async fn acquire(cancel: &CancellationToken) -> Result<ModelPermit, AgentError> {
     let queue = ADMISSION
         .get_or_init(|| {
-            let value = match std::env::var("LRD_MODEL_MAX_INFLIGHT") {
+            let value = match std::env::var("LAD_MODEL_MAX_INFLIGHT") {
                 Ok(value) => Some(value),
                 Err(std::env::VarError::NotPresent) => None,
                 Err(std::env::VarError::NotUnicode(_)) => {
-                    return Err("LRD_MODEL_MAX_INFLIGHT is not valid Unicode".into());
+                    return Err("LAD_MODEL_MAX_INFLIGHT is not valid Unicode".into());
                 }
             };
             configured_limit(value.as_deref()).map(ModelAdmission::new)

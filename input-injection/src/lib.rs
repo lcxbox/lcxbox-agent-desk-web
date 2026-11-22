@@ -1,6 +1,6 @@
 //! # desk-input-injection
 //!
-//! Input injection and host control engine for lcxl-remote-desk.
+//! Input injection and host control engine for lcxbox-agent-desk.
 //!
 //! This crate provides platform-abstracted interfaces and implementations for:
 //! - Mouse event injection (Windows, Linux/uinput, Linux/Wayland Portal, macOS)

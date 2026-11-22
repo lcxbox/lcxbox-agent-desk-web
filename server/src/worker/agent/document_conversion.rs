@@ -731,7 +731,7 @@ mod tests {
         };
         let extracted = convert_source(&pdf, &options, &sandbox::in_process_runner).unwrap();
         let text = String::from_utf8(extracted.bytes).unwrap();
-        assert!(text.starts_with("<!-- lcxl-page: 2 -->"), "{text}");
+        assert!(text.starts_with("<!-- lcxbox-page: 2 -->"), "{text}");
         assert!(text.contains("Two") && !text.contains("Three"));
         assert_eq!(extracted.media_type, "text/markdown;charset=utf-8");
         let generation_with_pages = DocumentConversionOptions {

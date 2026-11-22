@@ -1053,7 +1053,7 @@ mod platform {
                 )
             });
 
-            let canary = b"lcxl-pty-input-canary-93f1\n";
+            let canary = b"lcxbox-pty-input-canary-93f1\n";
             let mut live_output = Vec::new();
             let opened = tokio::time::timeout(Duration::from_secs(3), async {
                 loop {
@@ -1127,7 +1127,7 @@ mod platform {
                 other => panic!("expected PTY result, got {other:?}"),
             };
             assert!(terminal.contains("accepted"), "{terminal:?}");
-            assert!(!terminal.contains("lcxl-pty-input-canary-93f1"));
+            assert!(!terminal.contains("lcxbox-pty-input-canary-93f1"));
         }
 
         /// A sandboxed PTY command writes its root and its own terminal but

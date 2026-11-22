@@ -215,7 +215,7 @@ mod tests {
 
     /// Regenerate the committed fixtures from the in-code scenario builders.
     /// Ignored by default — run explicitly after changing a builder:
-    /// `cargo test -p lcxl-remote-desk-server regenerate_evidence_fixtures -- --ignored`.
+    /// `cargo test -p lcxbox-agent-desk-server regenerate_evidence_fixtures -- --ignored`.
     #[test]
     #[ignore = "regenerates committed fixtures; run explicitly"]
     fn regenerate_evidence_fixtures() {

@@ -99,7 +99,7 @@ async fn init_telemetry_inner(
 
     let resource = Resource::builder()
         .with_attributes(vec![
-            KeyValue::new("service.name", "lcxl-remote-desk-server"),
+            KeyValue::new("service.name", "lcxbox-agent-desk-server"),
             KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
             KeyValue::new("service.build_number", SERVER_BUILD_NUMBER as i64),
             KeyValue::new("service.commit_hash", SERVER_COMMIT_HASH),
@@ -215,7 +215,7 @@ async fn init_telemetry_inner(
 
         let tracer = opentelemetry::trace::TracerProvider::tracer(
             &tracer_provider,
-            "lcxl-remote-desk-server",
+            "lcxbox-agent-desk-server",
         );
 
         global::set_tracer_provider(tracer_provider);

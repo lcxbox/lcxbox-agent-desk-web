@@ -128,7 +128,7 @@ mod tests {
 
     /// Measurement harness. Ignored by default (it is a calibration run, not an
     /// assertion). Run with:
-    /// `cargo test -p lcxl-remote-desk-server measure_full_collection -- --ignored --nocapture`
+    /// `cargo test -p lcxbox-agent-desk-server measure_full_collection -- --ignored --nocapture`
     #[tokio::test]
     #[ignore = "measurement harness; run explicitly with --nocapture"]
     async fn measure_full_collection_prints_table() {

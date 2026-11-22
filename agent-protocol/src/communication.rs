@@ -80,7 +80,7 @@ pub enum CommunicationSurfaceKind {
     /// WebView2-based Outlook (new). The initial adapter may open a compose
     /// handoff but cannot claim semantic read-back or AI send authority.
     OutlookNewDesktop,
-    /// Generic paired LCXL Chrome extension Provider. Gmail, Slack, and
+    /// Generic paired LCXBOX Chrome extension Provider. Gmail, Slack, and
     /// future sites are semantic adapters above this browser surface.
     ChromeExtension,
     /// Built-in UIA/vision assistance. It may prepare a visible compose UI but
@@ -1522,7 +1522,7 @@ mod tests {
                 os_session_id: "session-1".into(),
                 browser_major_version: 151,
                 browser_version: "151.0.0.0".into(),
-                adapter_id: "lcxl-browser-extension".into(),
+                adapter_id: "lcxbox-browser-extension".into(),
                 adapter_version: "1.7.0".into(),
                 profile_incarnation: "profile-1".into(),
                 connection_revision: 7,
@@ -1620,7 +1620,7 @@ mod tests {
             },
             device_id: "device-1".into(),
             os_session_id: "session-1".into(),
-            adapter_id: "lcxl-browser-extension".into(),
+            adapter_id: "lcxbox-browser-extension".into(),
             adapter_version: "0.1.0".into(),
             profile_id: "profile-1".into(),
             account_id: "gmail-web-current-profile".into(),

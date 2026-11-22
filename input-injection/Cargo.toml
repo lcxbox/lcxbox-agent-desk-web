@@ -1,6 +1,6 @@
 [package]
 name = "desk-input-injection"
-description = "Input injection and host control engine for lcxl-remote-desk"
+description = "Input injection and host control engine for lcxbox-agent-desk"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

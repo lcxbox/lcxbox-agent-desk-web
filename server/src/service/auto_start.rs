@@ -53,7 +53,7 @@ pub fn update_auto_start_status(
         )
     })?;
 
-    let app_name = "lcxl-remote-desk";
+    let app_name = "lcxbox-agent-desk";
     let app_path = current_exe.to_string_lossy().to_string();
     let hidden_arg = "--hidden";
 

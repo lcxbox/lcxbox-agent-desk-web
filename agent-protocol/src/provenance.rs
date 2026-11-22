@@ -23,7 +23,7 @@ use wincode::{SchemaRead, SchemaWrite};
 
 /// Identifier of the marking scheme this crate currently emits. Bump when the
 /// marking convention changes so detectors can tell versions apart.
-pub const AI_MARKING_SCHEME_V1: &str = "lcxl-ai-provenance/1";
+pub const AI_MARKING_SCHEME_V1: &str = "lcxbox-ai-provenance/1";
 
 /// Machine-readable marking for a unit of AI-generated content.
 #[derive(

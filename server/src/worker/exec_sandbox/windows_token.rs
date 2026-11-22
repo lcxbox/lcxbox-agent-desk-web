@@ -262,7 +262,7 @@ impl PrivateDesktop {
         let ws =
             unsafe { GetProcessWindowStation() }.map_err(|e| win(e, "GetProcessWindowStation"))?;
         let winsta = object_name(HANDLE(ws.0))?;
-        let name = format!("lcxl-exec-sandbox-{}", uuid::Uuid::new_v4().simple());
+        let name = format!("lcxbox-exec-sandbox-{}", uuid::Uuid::new_v4().simple());
         // A Low IL token must be able to create windows on its desktop:
         // unlabelled objects count as Medium.
         let sddl = wide(&format!(

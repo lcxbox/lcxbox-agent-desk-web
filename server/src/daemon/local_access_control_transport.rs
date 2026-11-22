@@ -15,7 +15,7 @@ use crate::host_control::HostRemoteAccessStatus;
 
 const MAX_FRAME_BYTES: usize = 1024 * 1024;
 #[cfg(target_os = "windows")]
-pub const LOCAL_ACCESS_CONTROL_ENDPOINT: &str = r"\\.\pipe\lcxl-remote-desk-local-access-control";
+pub const LOCAL_ACCESS_CONTROL_ENDPOINT: &str = r"\\.\pipe\lcxbox-agent-desk-local-access-control";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -158,10 +158,10 @@ fn executable_is_from_installation(path: &Path) -> bool {
         .to_ascii_lowercase();
     matches!(
         name.as_str(),
-        "lcxl-remote-desk-server"
-            | "lcxl-remote-desk-server.exe"
-            | "lcxl-remote-desk-tauri"
-            | "lcxl-remote-desk-tauri.exe"
+        "lcxbox-agent-desk-server"
+            | "lcxbox-agent-desk-server.exe"
+            | "lcxbox-agent-desk-tauri"
+            | "lcxbox-agent-desk-tauri.exe"
     )
 }
 
@@ -508,7 +508,7 @@ mod tests {
         let sid = super::super::pipe_security::query_current_process_user_sid().unwrap();
         let sddl = super::super::pipe_security::build_pipe_sddl(Some(&sid));
         let endpoint = format!(
-            r"\\.\pipe\lcxl-remote-desk-local-access-control-test-{}",
+            r"\\.\pipe\lcxbox-agent-desk-local-access-control-test-{}",
             uuid::Uuid::new_v4()
         );
         let server = create_windows_pipe(&endpoint, &sddl).unwrap();

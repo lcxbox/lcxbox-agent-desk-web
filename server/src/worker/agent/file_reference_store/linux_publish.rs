@@ -77,7 +77,7 @@ pub(super) fn publish_with_limit(
             false,
         )
     })?;
-    let stage_name = CString::new(format!(".lrd-artifact-{}", uuid::Uuid::new_v4()))
+    let stage_name = CString::new(format!(".lad-artifact-{}", uuid::Uuid::new_v4()))
         .expect("UUID artifact stage name has no NUL");
     let stored = resolve(directory)?;
     // Opening an exchanged FIFO must not wait for a writer.

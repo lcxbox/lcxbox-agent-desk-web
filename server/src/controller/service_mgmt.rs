@@ -25,7 +25,7 @@ pub const TAG: &str = "Service";
 pub struct InstallServiceRequest {
     /// Installation directory. Uses the platform default when absent.
     pub install_path: Option<String>,
-    /// Whether to also stage the LcxlVirtualDisplay IDD driver during
+    /// Whether to also stage the LcxboxVirtualDisplay IDD driver during
     /// the install flow. The Tauri shell sets this from the
     /// "install IDD virtual display driver" checkbox on the install
     /// dialog; defaults to `false` for older clients that don't send
@@ -615,9 +615,9 @@ mod tests {
 
         #[test]
         fn accepts_typical_windows_paths() {
-            validate_install_path("C:\\Program Files\\LCXL Remote Desktop").unwrap();
+            validate_install_path("C:\\Program Files\\LCXBOX Agent Desk").unwrap();
             validate_install_path("D:\\foo\\bar").unwrap();
-            validate_install_path("/opt/lcxl-remote-desk").unwrap();
+            validate_install_path("/opt/lcxbox-agent-desk").unwrap();
         }
 
         #[test]

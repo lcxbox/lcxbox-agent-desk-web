@@ -43,7 +43,7 @@ export function AssistantBrowserPairing({ assistantEnabled }: { assistantEnabled
             <CardContent className="space-y-3">
                 {!pairing && <>
                     <p className="text-sm text-muted-foreground">{t('pages.aiAssistant.browserExtensionLocalProofHelp')}</p>
-                    <code className="block break-all text-xs">lcxl-remote-desk-server browser-pairing-proof</code>
+                    <code className="block break-all text-xs">lcxbox-agent-desk-server browser-pairing-proof</code>
                     <Input type="password" autoComplete="off" value={localPairingProof}
                         aria-label={t('pages.aiAssistant.browserExtensionLocalProof')}
                         placeholder={t('pages.aiAssistant.browserExtensionLocalProof')}

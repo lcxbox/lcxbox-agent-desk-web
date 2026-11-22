@@ -5797,7 +5797,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
-name = "lcxl-remote-desk-server"
+name = "lcxbox-agent-desk-server"
 version = "0.1.0"
 dependencies = [
  "actix-files",
@@ -5929,7 +5929,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lcxl-remote-desk-tauri"
+name = "lcxbox-agent-desk-tauri"
 version = "0.1.0"
 dependencies = [
  "actix-rt",
@@ -5948,7 +5948,7 @@ dependencies = [
  "desk-virtual-display",
  "evdev",
  "futures-util",
- "lcxl-remote-desk-server",
+ "lcxbox-agent-desk-server",
  "log",
  "objc2 0.5.2",
  "raw-window-handle",

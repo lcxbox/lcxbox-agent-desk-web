@@ -36,7 +36,7 @@ pub(super) fn publish(
     hub.publish_linux_session_input(registry, registration, path, incarnation.get(), gate);
 }
 fn valid_endpoint(runtime: &Path, path: &Path) -> bool {
-    if !runtime.is_absolute() || path.parent() != Some(runtime.join("lcxl-ai-input").as_path()) {
+    if !runtime.is_absolute() || path.parent() != Some(runtime.join("lcxbox-ai-input").as_path()) {
         return false;
     }
     let Some(name) = path
@@ -58,13 +58,13 @@ mod tests {
         let id = uuid::Uuid::new_v4();
         assert!(valid_endpoint(
             runtime,
-            &runtime.join(format!("lcxl-ai-input/{id}.sock"))
+            &runtime.join(format!("lcxbox-ai-input/{id}.sock"))
         ));
         for path in [
-            format!("/run/user/1001/lcxl-ai-input/{id}.sock"),
+            format!("/run/user/1001/lcxbox-ai-input/{id}.sock"),
             format!("/tmp/{id}.sock"),
-            "/run/user/1000/lcxl-ai-input/../other.sock".into(),
-            "/run/user/1000/lcxl-ai-input/not-a-worker.sock".into(),
+            "/run/user/1000/lcxbox-ai-input/../other.sock".into(),
+            "/run/user/1000/lcxbox-ai-input/not-a-worker.sock".into(),
         ] {
             assert!(!valid_endpoint(runtime, Path::new(&path)));
         }

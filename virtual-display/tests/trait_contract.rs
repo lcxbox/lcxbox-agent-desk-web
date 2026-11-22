@@ -125,7 +125,7 @@ fn platform_factory_returns_real_windows_provider() {
     let lc = lifecycle_provider();
     let err = lc
         .create()
-        .expect_err("CI host has no lcxl IDD driver installed");
+        .expect_err("CI host has no lcxbox IDD driver installed");
     assert!(
         !matches!(err, VirtualDisplayError::NotSupported),
         "Windows factory regressed to the NotSupported stub: {err}"

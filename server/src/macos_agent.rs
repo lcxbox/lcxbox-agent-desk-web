@@ -41,7 +41,7 @@ use crate::error::DeskError;
 /// Stable LaunchAgent label / plist basename. Kept identical to the historical
 /// `auto-launch` app name so an upgrade reuses the same single plist file
 /// instead of orphaning the old one.
-pub const AGENT_LABEL: &str = "lcxl-remote-desk";
+pub const AGENT_LABEL: &str = "lcxbox-agent-desk";
 
 /// Parameters needed to render the plist.
 pub struct AgentSpec {
@@ -99,7 +99,7 @@ fn service_target() -> String {
     format!("gui/{}/{}", current_uid(), AGENT_LABEL)
 }
 
-/// Default absolute log directory for the agent: `~/Library/Logs/lcxl-remote-desk`.
+/// Default absolute log directory for the agent: `~/Library/Logs/lcxbox-agent-desk`.
 fn default_log_dir() -> Result<PathBuf, DeskError> {
     HostDataPaths::resolve(HostDataScope::User, None)
         .map(|paths| paths.log_dir().to_path_buf())
@@ -365,12 +365,12 @@ mod tests {
     fn spec() -> AgentSpec {
         AgentSpec {
             program: PathBuf::from(
-                "/Applications/LCXL Remote Desktop.app/Contents/MacOS/lcxl-remote-desk-server",
+                "/Applications/LCXBOX Agent Desk.app/Contents/MacOS/lcxbox-agent-desk-server",
             ),
             config_file_path: Some(PathBuf::from(
-                "/Users/x/Library/Application Support/lcxl/config",
+                "/Users/x/Library/Application Support/lcxbox/config",
             )),
-            log_dir: PathBuf::from("/Users/x/Library/Logs/lcxl"),
+            log_dir: PathBuf::from("/Users/x/Library/Logs/lcxbox"),
         }
     }
 
@@ -388,9 +388,9 @@ mod tests {
         assert!(data.contains("<key>ThrottleInterval</key>"));
         assert!(data.contains("<key>RunAtLoad</key>"));
         // The program is the .app's own binary, not a separate sidecar path.
-        assert!(data.contains("Contents/MacOS/lcxl-remote-desk-server"));
+        assert!(data.contains("Contents/MacOS/lcxbox-agent-desk-server"));
         // Absolute config + log paths.
-        assert!(data.contains("Application Support/lcxl/config"));
+        assert!(data.contains("Application Support/lcxbox/config"));
         assert!(data.contains("auto-start.out.log"));
         assert!(data.contains("auto-start.err.log"));
     }
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn resolve_app_bundle_none_for_bare_binary() {
-        let p = Path::new("/Users/x/code/target/debug/lcxl-remote-desk-server");
+        let p = Path::new("/Users/x/code/target/debug/lcxbox-agent-desk-server");
         assert_eq!(resolve_app_bundle(p), None);
     }
 
@@ -473,7 +473,7 @@ mod tests {
         let prog = parse_program_from_plist(&data).expect("program parsed");
         assert_eq!(
             prog,
-            "/Applications/LCXL Remote Desktop.app/Contents/MacOS/lcxl-remote-desk-server"
+            "/Applications/LCXBOX Agent Desk.app/Contents/MacOS/lcxbox-agent-desk-server"
         );
     }
 

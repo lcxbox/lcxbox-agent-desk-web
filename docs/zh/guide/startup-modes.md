@@ -40,7 +40,7 @@ Windows 通过原生服务控制管理器运行服务；Linux 提供 systemd 服
 
 以管理员身份，用要安装的那个版本的 server 程序运行以下命令（`static/` 须在程序旁边）：
 
-- `--install-service [--install-path <目录>] [--config-file-path <config.toml>] [--install-idd-driver]`：复制程序（默认 `C:\Program Files\LCXL Remote Desktop`），注册并启动 `LcxlDeskService`。服务已安装时会拒绝执行。
+- `--install-service [--install-path <目录>] [--config-file-path <config.toml>] [--install-idd-driver]`：复制程序（默认 `C:\Program Files\LCXBOX Agent Desk`），注册并启动 `LcxboxDeskService`。服务已安装时会拒绝执行。
 - `--update-service`：原地更新已安装的服务。新文件先在服务运行时放到旧文件旁边，然后停止服务、替换文件、重新启动。服务保留原来的目录、启动类型和 `--config-file-path`（除非另行指定）；手工添加的其他启动参数不会保留。新版本启动失败时会恢复并启动旧版本。
 - `--uninstall-service`：停止服务，卸载虚拟显示器驱动，删除服务和安装目录。数据和配置保留。
 
@@ -50,7 +50,7 @@ Windows 通过原生服务控制管理器运行服务；Linux 提供 systemd 服
 
 在本机桌面客户端以设备 owner 登录，进入**系统设置 → Linux 系统服务**，点击**安装服务**，再完成桌面的管理员授权。安装需要 systemd、`pkexec` 和可用的桌面授权代理；客户端不会接收管理员密码。无需再启用实验性开关。
 
-安装路径固定为 `/usr/lib/lcxl-remote-desk`，系统配置位于 `/etc/lcxl-remote-desk/config.toml`。守护进程以 root 运行，桌面 worker 以已登录用户身份运行。Linux 不提供 Windows 虚拟显示驱动选项。
+安装路径固定为 `/usr/lib/lcxbox-agent-desk`，系统配置位于 `/etc/lcxbox-agent-desk/config.toml`。守护进程以 root 运行，桌面 worker 以已登录用户身份运行。Linux 不提供 Windows 虚拟显示驱动选项。
 
 弹窗会等待安装进程结束，分别提示完成、取消授权、授权未通过、缺少 `pkexec`、已有操作进行中或安装器失败。“请求已提交”本身不代表安装成功。卸载导致与 daemon 的连接断开后，本机客户端仍可显示最终结果；如果无法取得最终回执，会提示结果未知，不自动重复操作。服务卡另外显示服务是否已安装、是否正在运行。
 

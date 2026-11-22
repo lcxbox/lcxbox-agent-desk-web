@@ -525,7 +525,7 @@ async fn the_native_session_update_precedes_history_quota_and_no_original_sessio
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn main_delegation_save_keeps_history_atomic_on_small_stacks() {
-    const STACK: &str = "LRD_TEST_MAIN_HISTORY_STACK_BYTES";
+    const STACK: &str = "LAD_TEST_MAIN_HISTORY_STACK_BYTES";
     let Some(bytes) = std::env::var_os(STACK) else {
         for bytes in [1024 * 1024, 2 * 1024 * 1024] {
             assert!(

@@ -51,7 +51,7 @@ async function send(site, existing, onClick, accountOptions = {}) {
         chrome: { runtime: { onMessage: { addListener: fn => { listener = fn; } } } }
     });
     vm.runInContext(source, context);
-    const request = action => new Promise(resolve => listener({ type: "lcxl_browser_action", action }, {}, resolve));
+    const request = action => new Promise(resolve => listener({ type: "lcxbox_browser_action", action }, {}, resolve));
     const captured = await request({ action: "take_snapshot", max_elements: 64 });
     assert.equal(captured.ok, true);
     const snapshot = captured.result.snapshot;

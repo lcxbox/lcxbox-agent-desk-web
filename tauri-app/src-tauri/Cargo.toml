@@ -1,12 +1,12 @@
 [package]
-name = "lcxl-remote-desk-tauri"
+name = "lcxbox-agent-desk-tauri"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-lcxl-remote-desk-server = { workspace = true }
+lcxbox-agent-desk-server = { workspace = true }
 desk-signal = { workspace = true }
 desk-signal-facade = { workspace = true }
 desk-utils = { workspace = true }

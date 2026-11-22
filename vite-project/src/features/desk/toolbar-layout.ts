@@ -5,7 +5,7 @@ export type ToolbarPreferences = { version: 1; placement: ToolbarPlacement; expa
 export type ToolbarPoint = { x: number; y: number };
 export type ToolbarRect = ToolbarPoint & { width: number; height: number };
 export type ToolbarSize = { width: number; height: number };
-export const TOOLBAR_STORAGE_KEY = 'lrdm.remoteDesk.toolbarLayout.v1';
+export const TOOLBAR_STORAGE_KEY = 'ladm.remoteDesk.toolbarLayout.v1';
 export const TOOLBAR_EDGES: ToolbarEdge[] = ['top', 'bottom', 'left', 'right'];
 export const DEFAULT_TOOLBAR_PREFERENCES: ToolbarPreferences = {
     version: 1, placement: { kind: 'floating', x: .5, y: 1 }, expanded: false,

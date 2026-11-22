@@ -96,7 +96,7 @@ mod tests {
     use super::*;
 
     /// Smoke test that exercises the full daemon-side `create` path.
-    /// Ignored by default because it requires the lcxl IDD driver to be
+    /// Ignored by default because it requires the lcxbox IDD driver to be
     /// installed on the host. Run manually with:
     /// `cargo test -p desk-virtual-display --release -- --ignored create_virtual_display_returns_instance_id_format`
     ///
@@ -106,7 +106,7 @@ mod tests {
     /// against a regression where someone re-introduces an
     /// EnumDisplayDevicesW call in the daemon path.
     #[test]
-    #[ignore = "requires lcxl IDD driver installed and signed (manual E2E only)"]
+    #[ignore = "requires lcxbox IDD driver installed and signed (manual E2E only)"]
     fn create_virtual_display_returns_instance_id_format() {
         let lifecycle = WindowsLifecycle::new();
         let handle = lifecycle
@@ -114,7 +114,7 @@ mod tests {
             .expect("SwDeviceCreate should succeed when driver is installed");
         assert!(
             handle.instance_id.starts_with("SWD\\"),
-            "expected PnP instance id (e.g. SWD\\LcxlVirtualDisplay\\…), got {:?}",
+            "expected PnP instance id (e.g. SWD\\LcxboxVirtualDisplay\\…), got {:?}",
             handle.instance_id
         );
         assert!(
@@ -130,13 +130,13 @@ mod tests {
     /// JSON pipe server to be running and a virtual display name already
     /// known. Skip in CI.
     #[test]
-    #[ignore = "requires running lcxl IDD driver + active virtual display"]
+    #[ignore = "requires running lcxbox IDD driver + active virtual display"]
     fn windows_controller_set_mode_smoke() {
         let ctrl = WindowsController::new();
         // Use a placeholder display name; a real run would supply the
         // value returned by WindowsLifecycle::create above.
-        let display = std::env::var("LCXL_VD_DISPLAY_NAME")
-            .expect("set LCXL_VD_DISPLAY_NAME before running --ignored smoke test");
+        let display = std::env::var("LCXBOX_VD_DISPLAY_NAME")
+            .expect("set LCXBOX_VD_DISPLAY_NAME before running --ignored smoke test");
         let mode = VirtualDisplayMode {
             width: 1280,
             height: 720,

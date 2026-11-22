@@ -14,7 +14,7 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 $specPath = Join-Path ([System.IO.Path]::GetTempPath()) (
-    "lcxl-desk-openapi-{0}.json" -f [System.Guid]::NewGuid()
+    "lcxbox-desk-openapi-{0}.json" -f [System.Guid]::NewGuid()
 )
 $previousInputPath = $env:KUBB_OPENAPI_PATH
 
@@ -22,7 +22,7 @@ try {
     # $ErrorActionPreference = "Stop" does not catch native (exe) non-zero
     # exits, so check $LASTEXITCODE after each command.
     Write-Host "Dumping OpenAPI spec (offline)..."
-    cargo run -q -p lcxl-remote-desk-server -- dump-openapi --out $specPath
+    cargo run -q -p lcxbox-agent-desk-server -- dump-openapi --out $specPath
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     $env:KUBB_OPENAPI_PATH = $specPath

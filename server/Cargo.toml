@@ -1,5 +1,5 @@
 [package]
-name = "lcxl-remote-desk-server"
+name = "lcxbox-agent-desk-server"
 description.workspace = true
 version.workspace = true
 edition.workspace = true

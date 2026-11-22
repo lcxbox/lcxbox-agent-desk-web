@@ -18,10 +18,10 @@ use core_graphics::event::{CGEvent, CGEventTapLocation, EventField};
 /// Value written into `EVENT_SOURCE_USER_DATA` on every injected event.
 ///
 /// Chosen to be non-zero and specific enough that an unrelated producer is
-/// unlikely to collide with it by accident: ASCII `LCXLRD` followed by a
+/// unlikely to collide with it by accident: ASCII `LCXBOX` followed by a
 /// version byte pair. The default value of the field is `0`, so untouched
 /// physical events never match.
-pub const REMOTE_INPUT_MARKER: i64 = 0x4C43_584C_5244_0001;
+pub const REMOTE_INPUT_MARKER: i64 = 0x4C43_5842_4F58_0001;
 
 /// The marker has to stay non-zero and positive so it survives both the signed
 /// and unsigned readings of the Quartz field.
@@ -78,6 +78,12 @@ mod tests {
     #[test]
     fn the_marker_value_itself_matches() {
         assert!(is_remote_input_marker(REMOTE_INPUT_MARKER));
+    }
+
+    /// The marker spells the product brand followed by the version pair.
+    #[test]
+    fn the_marker_encodes_the_brand_and_version() {
+        assert_eq!(REMOTE_INPUT_MARKER.to_be_bytes(), *b"LCXBOX\x00\x01");
     }
 
     /// Marking writes the agreed field, and reading it back identifies the

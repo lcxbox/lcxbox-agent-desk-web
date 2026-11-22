@@ -348,20 +348,20 @@ mod tests {
     #[test]
     #[ignore = "requires a visible interactive Windows desktop and explicit fixture environment"]
     fn live_foreground_fixture_executes_one_marked_step_and_reobserves() {
-        let process_id = std::env::var("LRD_RAW_INPUT_TEST_FOREGROUND_PID")
+        let process_id = std::env::var("LAD_RAW_INPUT_TEST_FOREGROUND_PID")
             .expect("foreground PID")
             .parse::<u32>()
             .expect("numeric PID");
-        let display = std::env::var("LRD_RAW_INPUT_TEST_DISPLAY").expect("selected display");
-        let width = std::env::var("LRD_RAW_INPUT_TEST_WIDTH")
+        let display = std::env::var("LAD_RAW_INPUT_TEST_DISPLAY").expect("selected display");
+        let width = std::env::var("LAD_RAW_INPUT_TEST_WIDTH")
             .expect("display width")
             .parse::<u32>()
             .expect("numeric width");
-        let height = std::env::var("LRD_RAW_INPUT_TEST_HEIGHT")
+        let height = std::env::var("LAD_RAW_INPUT_TEST_HEIGHT")
             .expect("display height")
             .parse::<u32>()
             .expect("numeric height");
-        let dpi = std::env::var("LRD_RAW_INPUT_TEST_DPI")
+        let dpi = std::env::var("LAD_RAW_INPUT_TEST_DPI")
             .expect("foreground DPI")
             .parse::<u32>()
             .expect("numeric DPI");

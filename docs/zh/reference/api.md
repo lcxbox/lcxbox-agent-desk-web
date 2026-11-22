@@ -9,7 +9,7 @@
 用 `dump-openapi` 子命令生成一份查看：
 
 ```bash
-cargo run -p lcxl-remote-desk-server -- dump-openapi --out openapi.json
+cargo run -p lcxbox-agent-desk-server -- dump-openapi --out openapi.json
 ```
 
 该子命令直接从路由注册导出，不连 DB / Redis，也不启动 HTTP 服务，因此在任何一份源码副本上都能跑。

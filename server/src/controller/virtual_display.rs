@@ -135,7 +135,7 @@ async fn build_status(
 
 #[utoipa::path(
     tag = TAG,
-    summary = "Query LcxlVirtualDisplay IDD driver status",
+    summary = "Query LcxboxVirtualDisplay IDD driver status",
     responses(
         (status = 200, description = "Driver status (never reports failure as HTTP error; check body `code`)", body = RestResponse<VirtualDisplayDriverStatusResponse>),
     ),
@@ -164,7 +164,7 @@ async fn release_parked_virtual_display(slot: &Option<web::Data<SupervisorSlot>>
 
 #[utoipa::path(
     tag = TAG,
-    summary = "Install LcxlVirtualDisplay IDD driver",
+    summary = "Install LcxboxVirtualDisplay IDD driver",
     responses(
         (status = 200, description = "Install result (check body `code`: 0=ok, 4=permission, 11=files missing)", body = RestResponse<VirtualDisplayDriverStatusResponse>),
     ),
@@ -214,7 +214,7 @@ pub async fn install_driver(
         None => {
             return DeskError::custom_error(
                 DeskErrorCode::FILE_PATH_NOT_FOUND,
-                "LcxlVirtualDisplay driver files not found under <exe_dir>/drivers/LcxlVirtualDisplay/",
+                "LcxboxVirtualDisplay driver files not found under <exe_dir>/drivers/LcxboxVirtualDisplay/",
             );
         }
     };
@@ -258,7 +258,7 @@ pub async fn install_driver(
 
 #[utoipa::path(
     tag = TAG,
-    summary = "Uninstall every LcxlVirtualDisplay IDD driver copy",
+    summary = "Uninstall every LcxboxVirtualDisplay IDD driver copy",
     responses(
         (status = 200, description = "Uninstall result (check body `code`)", body = RestResponse<VirtualDisplayDriverStatusResponse>),
     ),

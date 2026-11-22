@@ -26,7 +26,7 @@ export function uninstallDriverMutationOptions<TContext = unknown>(config: Parti
 }
 
 /**
- * @summary Uninstall every LcxlVirtualDisplay IDD driver copy
+ * @summary Uninstall every LcxboxVirtualDisplay IDD driver copy
  * {@link /api/virtual-display/driver/uninstall}
  */
 export function useUninstallDriver<TContext>(options: 

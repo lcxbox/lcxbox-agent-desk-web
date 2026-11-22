@@ -145,7 +145,7 @@ impl IssueFixture {
                                      id: web::Path<u64>| async move {
                                         assert_eq!(
                                             req.headers().get("user-agent").unwrap(),
-                                            "lcxl-remote-desk-issue-client"
+                                            "lcxbox-agent-desk-issue-client"
                                         );
                                         let mut comment = state
                                             .comments

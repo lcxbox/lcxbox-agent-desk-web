@@ -26,7 +26,7 @@ async function capture(name, value) {
     });
     vm.runInContext(source, context);
     const response = await new Promise(resolve => listener({
-        type: 'lcxl_browser_action', action: { action: 'take_snapshot', max_elements: 64 },
+        type: 'lcxbox_browser_action', action: { action: 'take_snapshot', max_elements: 64 },
     }, {}, resolve));
     assert.equal(response.ok, true);
     return response.result.snapshot;

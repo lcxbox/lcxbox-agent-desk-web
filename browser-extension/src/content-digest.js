@@ -3,7 +3,7 @@ import { assertHostPermissionForUrl } from './host-permissions.js';
 // HTTP content scripts lack SubtleCrypto. Hashing stays inside the extension.
 export function registerContentDigest(chromeApi) {
     chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (message?.type !== 'lcxl_content_digest') return false;
+        if (message?.type !== 'lcxbox_content_digest') return false;
         const digest = async () => {
             if (sender.id !== chromeApi.runtime.id || !Number.isInteger(sender.tab?.id)
                 || typeof sender.url !== 'string' || typeof message.base64 !== 'string'

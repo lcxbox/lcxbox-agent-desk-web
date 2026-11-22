@@ -1,4 +1,4 @@
-# Lcxl Excel read bridge
+# Lcxbox Excel read bridge
 
 This independent OSS Office add-in hosts the production read-only Excel semantic bridge. It is not part of an npm workspace and it does not import the isolated proof-of-concept under `pocs/`.
 

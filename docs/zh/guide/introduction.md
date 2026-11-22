@@ -1,6 +1,6 @@
 # 介绍
 
-**LCXL Remote Desk** 是一款 AI 原生、开源且高性能的远程桌面。AI 与浏览器一样，都是系统正式支持的控制入口：内置AI 助手可以读取设备状态并提出命令建议，设备所有者逐条确认后才会执行；外部 AI 助手则只能通过只读 [MCP](https://modelcontextprotocol.io/) 服务获取信息。
+**LCXBOX Agent Desk** 是一款 AI 原生、开源且高性能的远程桌面。AI 与浏览器一样，都是系统正式支持的控制入口：内置AI 助手可以读取设备状态并提出命令建议，设备所有者逐条确认后才会执行；外部 AI 助手则只能通过只读 [MCP](https://modelcontextprotocol.io/) 服务获取信息。
 
 后端使用 Rust 和 Actix Web，前端使用 React、Vite 与 Tailwind CSS。
 

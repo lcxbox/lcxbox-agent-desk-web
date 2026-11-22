@@ -145,10 +145,10 @@ fn half_written_material_is_replaced_and_swept() {
     // name that no record references.
     fs::write(
         directory.join("tmp").join(format!("{sha}-crashed")),
-        &b"LRD"[..],
+        &b"LAD"[..],
     )
     .unwrap();
-    fs::write(directory.join(&sha), b"LRDO").unwrap();
+    fs::write(directory.join(&sha), b"LADO").unwrap();
     let record = v
         .backup(edit("c", "second", content, b"later"), 0, no_quota)
         .unwrap();

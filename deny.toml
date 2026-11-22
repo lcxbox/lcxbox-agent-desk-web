@@ -1,4 +1,4 @@
-# cargo-deny policy for the lcxl-remote-desk open-source web project.
+# cargo-deny policy for the lcxbox-agent-desk open-source web project.
 # Run: cargo deny check
 #
 # This config governs the standalone (open-source) build of `web`, which

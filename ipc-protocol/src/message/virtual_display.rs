@@ -24,7 +24,7 @@ pub struct SetVirtualDisplayModePayload {
 
 /// Payload for [`ServiceToWorker::AttachVirtualDisplay`]. The daemon
 /// holds the `SwDevice` handle and forwards the OS-assigned PnP
-/// instance id (e.g. `SWD\LcxlVirtualDisplay\LcxlVirtualDisplay`) the
+/// instance id (e.g. `SWD\LcxboxVirtualDisplay\LcxboxVirtualDisplay`) the
 /// IDD monitor was assigned. The worker resolves the instance id to a
 /// GDI `\\.\DISPLAYn` from inside the user session (where
 /// `EnumDisplayDevicesW` actually sees the virtual monitor) and replies

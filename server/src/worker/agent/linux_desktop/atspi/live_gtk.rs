@@ -27,14 +27,15 @@ fn params() -> UiInspectParams {
 }
 
 #[tokio::test]
-#[ignore = "requires local enabled accessibility and GNOME Wayland; see PoC README; timeout 60s"]
+#[ignore = "requires local enabled accessibility and GNOME Wayland; set LCXBOX_GTK_ATSPI_SCRIPT to the PoC gtk_fixture.py (see PoC README); timeout 60s"]
 async fn live_gtk_tree_redacts_password_and_rejects_exited_application() {
     // Fail before creating a window when local prerequisites are absent. Never
     // enable org.a11y.Status or change a dconf preference from this test.
     Bus::connect()
         .await
         .expect("local accessibility must already be enabled");
-    let script = std::env::var_os("LCXL_GTK_ATSPI_SCRIPT").expect("explicit fixture path required");
+    let script =
+        std::env::var_os("LCXBOX_GTK_ATSPI_SCRIPT").expect("explicit fixture path required");
     let mut fixture = Fixture(
         Command::new("/usr/bin/python3")
             .arg(script)

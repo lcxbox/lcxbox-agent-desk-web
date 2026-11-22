@@ -10,11 +10,11 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
-pub const SERVICE_UNIT_NAME: &str = "lcxl-remote-desk.service";
-const SYSTEM_UNIT_PATH: &str = "/etc/systemd/system/lcxl-remote-desk.service";
-const SYSTEM_CONFIG_PATH: &str = "/etc/lcxl-remote-desk/config.toml";
-const INSTALLED_SERVER_NAME: &str = "lcxl-remote-desk-server";
-const DEFAULT_INSTALL_DIR: &str = "/usr/lib/lcxl-remote-desk";
+pub const SERVICE_UNIT_NAME: &str = "lcxbox-agent-desk.service";
+const SYSTEM_UNIT_PATH: &str = "/etc/systemd/system/lcxbox-agent-desk.service";
+const SYSTEM_CONFIG_PATH: &str = "/etc/lcxbox-agent-desk/config.toml";
+const INSTALLED_SERVER_NAME: &str = "lcxbox-agent-desk-server";
+const DEFAULT_INSTALL_DIR: &str = "/usr/lib/lcxbox-agent-desk";
 
 type ServiceResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -152,7 +152,7 @@ fn validate_config_source(path: &Path) -> ServiceResult<()> {
 fn render_unit(executable: &Path, install_dir: &Path) -> String {
     format!(
         "[Unit]\n\
-         Description=LCXL Remote Desktop ServiceDaemon\n\
+         Description=LCXBOX Agent Desk ServiceDaemon\n\
          After=network-online.target\n\
          Wants=network-online.target\n\n\
          [Service]\n\
@@ -163,16 +163,16 @@ fn render_unit(executable: &Path, install_dir: &Path) -> String {
          ExecStart={} --startup-mode service-daemon\n\
          Restart=on-failure\n\
          RestartSec=2s\n\
-         RuntimeDirectory=lcxl-remote-desk\n\
+         RuntimeDirectory=lcxbox-agent-desk\n\
          RuntimeDirectoryMode=0711\n\
-         StateDirectory=lcxl-remote-desk\n\
+         StateDirectory=lcxbox-agent-desk\n\
          StateDirectoryMode=0700\n\
-         LogsDirectory=lcxl-remote-desk\n\
+         LogsDirectory=lcxbox-agent-desk\n\
          LogsDirectoryMode=0750\n\
          LimitNOFILE=65536\n\
          TasksMax=512\n\
          ProtectSystem=full\n\
-         ReadWritePaths=/etc/lcxl-remote-desk /var/lib/lcxl-remote-desk /var/log/lcxl-remote-desk /run/lcxl-remote-desk\n\
+         ReadWritePaths=/etc/lcxbox-agent-desk /var/lib/lcxbox-agent-desk /var/log/lcxbox-agent-desk /run/lcxbox-agent-desk\n\
          ProtectKernelTunables=true\n\
          ProtectKernelModules=true\n\
          ProtectControlGroups=false\n\
@@ -649,11 +649,11 @@ mod tests {
     #[test]
     fn unit_runs_the_installed_binary_as_service_daemon() {
         let unit = render_unit(
-            Path::new("/usr/lib/lcxl-remote-desk/lcxl-remote-desk-server"),
-            Path::new("/usr/lib/lcxl-remote-desk"),
+            Path::new("/usr/lib/lcxbox-agent-desk/lcxbox-agent-desk-server"),
+            Path::new("/usr/lib/lcxbox-agent-desk"),
         );
         assert!(unit.contains(
-            "ExecStart=/usr/lib/lcxl-remote-desk/lcxl-remote-desk-server --startup-mode service-daemon"
+            "ExecStart=/usr/lib/lcxbox-agent-desk/lcxbox-agent-desk-server --startup-mode service-daemon"
         ));
         assert!(unit.contains("User=root"));
         assert!(unit.contains("RuntimeDirectoryMode=0711"));
@@ -665,12 +665,12 @@ mod tests {
     fn install_directory_validation_rejects_root_and_parent_components() {
         assert!(validate_install_dir(Path::new("/")).is_err());
         assert!(validate_install_dir(Path::new("relative/path")).is_err());
-        assert!(validate_install_dir(Path::new("/opt/../tmp/lcxl")).is_err());
+        assert!(validate_install_dir(Path::new("/opt/../tmp/lcxbox")).is_err());
         assert_eq!(
-            validate_install_dir(Path::new("/usr/lib/lcxl-remote-desk")).unwrap(),
-            Path::new("/usr/lib/lcxl-remote-desk")
+            validate_install_dir(Path::new("/usr/lib/lcxbox-agent-desk")).unwrap(),
+            Path::new("/usr/lib/lcxbox-agent-desk")
         );
-        assert!(validate_install_dir(Path::new("/opt/lcxl-remote-desk")).is_err());
+        assert!(validate_install_dir(Path::new("/opt/lcxbox-agent-desk")).is_err());
     }
 
     #[test]

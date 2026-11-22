@@ -241,7 +241,7 @@ async fn staged_batch_prepares_all_sources_before_native_work_and_advances_only_
 }
 
 async fn exercise_staged_batch(fixture: Fixture) {
-    if std::env::var_os("LRD_TEST_HISTORY_WRITE_STACK_BYTES").is_some() {
+    if std::env::var_os("LAD_TEST_HISTORY_WRITE_STACK_BYTES").is_some() {
         assert_eq!(std::thread::current().name(), Some("history-write-stack"));
     }
     let captures = fixture.captures();
@@ -362,7 +362,7 @@ async fn a_failed_first_or_middle_unit_does_not_advance_generation_or_poison_the
 }
 
 async fn exercise_failed_unit(fixture: Fixture, failure: usize) {
-    if std::env::var_os("LRD_TEST_HISTORY_WRITE_STACK_BYTES").is_some() {
+    if std::env::var_os("LAD_TEST_HISTORY_WRITE_STACK_BYTES").is_some() {
         assert_eq!(std::thread::current().name(), Some("history-write-stack"));
     }
     let captures = fixture.captures();
@@ -533,7 +533,7 @@ async fn a_duplicate_unit_is_rejected_before_native_or_quota_writes_and_outer_ro
 }
 
 async fn exercise_outer_rollback(fixture: Fixture) {
-    if std::env::var_os("LRD_TEST_HISTORY_WRITE_STACK_BYTES").is_some() {
+    if std::env::var_os("LAD_TEST_HISTORY_WRITE_STACK_BYTES").is_some() {
         assert_eq!(std::thread::current().name(), Some("history-write-stack"));
     }
     let captures = fixture.captures();
@@ -619,7 +619,7 @@ async fn exercise_outer_rollback(fixture: Fixture) {
 
 #[test]
 fn staged_history_batch_failures_and_outer_rollback_fit_small_stacks() {
-    const STACK: &str = "LRD_TEST_HISTORY_WRITE_STACK_BYTES";
+    const STACK: &str = "LAD_TEST_HISTORY_WRITE_STACK_BYTES";
     if let Ok(value) = std::env::var(STACK) {
         let bytes = value.parse::<usize>().unwrap();
         assert!([1_048_576, 2_097_152].contains(&bytes));

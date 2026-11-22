@@ -17,7 +17,7 @@ own protection settings, described below.
 
 ## Initialization token
 
-Set `LRD_BOOTSTRAP_TOKEN` before the first initialization to prevent an
+Set `LAD_BOOTSTRAP_TOKEN` before the first initialization to prevent an
 unauthorized first visitor from claiming the administrator account. Only wrong
 tokens consume the shared `/api/init` and pre-initialization connection-verify
 budget: 20 failures per 10 minutes. Authorized external connection probes have
@@ -31,7 +31,7 @@ the environment token are unchanged. Restart is not a defense against ongoing
 traffic and is not the capacity strategy for the always-on redeem endpoint.
 
 Send the token only in the POST body. For access from another machine, terminate
-TLS in front of the server and set `LRD_COOKIE_SECURE=true`; plain HTTP can expose
+TLS in front of the server and set `LAD_COOKIE_SECURE=true`; plain HTTP can expose
 the token and session cookie to the network.
 
 ## Access-code redemption
@@ -45,7 +45,7 @@ New attempts adopt saved parameters without clearing counters or locks. Existing
 Redemption and password login have independent state. Successful redemption or
 password login does not clear redemption failures; records and locks expire
 naturally. A full bounded table rejects new sources without evicting live failure
-records. Capacity uses `LRD_AUTH_RATE_LIMIT_MAX_BUCKETS` (default 65536). Successful
+records. Capacity uses `LAD_AUTH_RATE_LIMIT_MAX_BUCKETS` (default 65536). Successful
 requests consume only the short-term quota and do not create long-term failure
 records. Existing connections and redeemed grants are unaffected. Throttling
 returns business code `32` with HTTP 200.
@@ -53,7 +53,7 @@ returns business code `32` with HTTP 200.
 ## Reverse proxies
 
 Loopback peers (`127.0.0.0/8`, `::1`) are trusted by default. Add other proxy
-addresses with `LRD_TRUSTED_PROXIES`; never trust a broad LAN merely for
+addresses with `LAD_TRUSTED_PROXIES`; never trust a broad LAN merely for
 convenience. `X-Forwarded-For` is ignored unless the immediate peer is trusted.
 IPv4-mapped IPv6 addresses are normalized before trust and rate-limit decisions.
 

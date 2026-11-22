@@ -77,7 +77,7 @@ permission remains enforced even when the indicator is hidden.
 ## Displays and Headless Modes
 
 Status windows follow physical-display hot-plug and DPI changes. On Windows, the
-LCXL virtual display is identified through its <code>LcxlVirtualDisplay</code>
+LCXBOX virtual display is identified through its <code>LcxboxVirtualDisplay</code>
 device identity and excluded. In exclusive virtual-display mode, no status
 window is placed on the remote-only virtual display while all physical displays
 are detached; it returns when a physical display is reattached.

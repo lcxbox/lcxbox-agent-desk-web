@@ -1,6 +1,6 @@
 use clap::Parser as _;
 use desk_utils::host_data_paths::HostDataPaths;
-use lcxl_remote_desk_server::model::settings::{Args, StartupMode};
+use lcxbox_agent_desk_server::model::settings::{Args, StartupMode};
 use std::path::PathBuf;
 
 /// Extra flags for install/uninstall — parsed before the main startup-mode dispatch.
@@ -34,7 +34,7 @@ struct ServerArgs {
     #[arg(long)]
     config_file_path: Option<PathBuf>,
 
-    /// Also stage the LcxlVirtualDisplay IDD driver during
+    /// Also stage the LcxboxVirtualDisplay IDD driver during
     /// `--install-service`. Ignored unless `--install-service` is set.
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     #[arg(long)]
@@ -87,8 +87,8 @@ enum AccessCommand {
 }
 
 fn run_access_cli(cli: AccessCli) -> anyhow::Result<()> {
-    use lcxl_remote_desk_server::daemon::local_access_control::HostAccessControlAction;
-    use lcxl_remote_desk_server::daemon::local_access_control_transport::{
+    use lcxbox_agent_desk_server::daemon::local_access_control::HostAccessControlAction;
+    use lcxbox_agent_desk_server::daemon::local_access_control_transport::{
         endpoint_for_paths, execute_native, query_native,
     };
 
@@ -99,7 +99,7 @@ fn run_access_cli(cli: AccessCli) -> anyhow::Result<()> {
             let status = match query_native(&endpoint).await {
                 Ok(status) => status,
                 Err(_) => {
-                    let state = lcxl_remote_desk_server::daemon::remote_access::RemoteAccessStateStore::new(
+                    let state = lcxbox_agent_desk_server::daemon::remote_access::RemoteAccessStateStore::new(
                         paths.remote_access_state_file().to_path_buf(),
                     )
                     .load_read_only();
@@ -158,11 +158,11 @@ fn main() {
     }
     // The Windows command-sandbox launcher keeps the full 32-bit exit code.
     #[cfg(windows)]
-    if let Some(code) = lcxl_remote_desk_server::exec_sandbox_launcher::run_if_requested() {
+    if let Some(code) = lcxbox_agent_desk_server::exec_sandbox_launcher::run_if_requested() {
         std::process::exit(code);
     }
     #[cfg(windows)]
-    if let Some(code) = lcxl_remote_desk_server::windows_application_host::run_if_requested() {
+    if let Some(code) = lcxbox_agent_desk_server::windows_application_host::run_if_requested() {
         std::process::exit(code);
     }
     #[cfg(windows)]
@@ -171,13 +171,13 @@ fn main() {
         let _ = args.next();
         if args.next().as_deref()
             == Some(std::ffi::OsStr::new(
-                lcxl_remote_desk_server::windows_office_helper::MODE,
+                lcxbox_agent_desk_server::windows_office_helper::MODE,
             ))
         {
             if args.next().is_some() {
                 std::process::exit(2);
             }
-            std::process::exit(lcxl_remote_desk_server::windows_office_helper::run_stdio());
+            std::process::exit(lcxbox_agent_desk_server::windows_office_helper::run_stdio());
         }
     }
     // This private launcher is entered before clap, logging, settings, or any
@@ -191,14 +191,14 @@ fn main() {
         if launcher_args.next().as_deref() == Some(std::ffi::OsStr::new("exec-pty-launcher"))
             && launcher_args.next().is_none()
         {
-            let code = lcxl_remote_desk_server::daemon::linux_exec_pty::run_launcher_mode();
+            let code = lcxbox_agent_desk_server::daemon::linux_exec_pty::run_launcher_mode();
             std::process::exit(code);
         }
     }
 
     #[cfg(target_os = "linux")]
     if std::env::args().nth(1).as_deref() == Some("ai-input-control") {
-        if let Err(error) = lcxl_remote_desk_server::worker::agent::run_linux_input_control_cli() {
+        if let Err(error) = lcxbox_agent_desk_server::worker::agent::run_linux_input_control_cli() {
             eprintln!("ai-input-control: {error}");
             std::process::exit(1);
         }
@@ -209,7 +209,7 @@ fn main() {
         let cli = BrowserPairingCli::parse_from(std::env::args().skip(1));
         let result = (|| -> anyhow::Result<String> {
             let paths = HostDataPaths::resolve_current(cli.config_file_path.as_deref())?;
-            Ok(lcxl_remote_desk_server::worker::agent::browser_extension_bridge::pairing::issue_local_proof(paths.data_root())?)
+            Ok(lcxbox_agent_desk_server::worker::agent::browser_extension_bridge::pairing::issue_local_proof(paths.data_root())?)
         })();
         match result {
             Ok(proof) => println!("{proof}"),
@@ -239,7 +239,7 @@ fn main() {
     // clap's ignored bin-name slot, leaving only `--out` to parse.
     if std::env::args().nth(1).as_deref() == Some("dump-openapi") {
         let cli = DumpOpenapiCli::parse_from(std::env::args().skip(1));
-        let spec = lcxl_remote_desk_server::build_openapi();
+        let spec = lcxbox_agent_desk_server::build_openapi();
         match spec.to_json() {
             Ok(json) => {
                 if let Err(e) = std::fs::write(&cli.out, json) {
@@ -262,7 +262,7 @@ fn main() {
     {
         let server_args = ServerArgs::parse();
         if server_args.install_service {
-            use lcxl_remote_desk_server::daemon::windows_service::{
+            use lcxbox_agent_desk_server::daemon::windows_service::{
                 default_install_dir, install_service,
             };
             let default_dir = default_install_dir();
@@ -279,7 +279,7 @@ fn main() {
             return;
         }
         if server_args.update_service {
-            use lcxl_remote_desk_server::daemon::windows_service::update_service;
+            use lcxbox_agent_desk_server::daemon::windows_service::update_service;
             if let Err(e) = update_service(
                 server_args.install_path.as_deref(),
                 server_args.install_idd_driver,
@@ -291,7 +291,7 @@ fn main() {
             return;
         }
         if server_args.uninstall_service {
-            use lcxl_remote_desk_server::daemon::windows_service::uninstall_service;
+            use lcxbox_agent_desk_server::daemon::windows_service::uninstall_service;
             if let Err(e) = uninstall_service() {
                 eprintln!("Failed to uninstall service: {e}");
                 std::process::exit(1);
@@ -301,7 +301,7 @@ fn main() {
             // other users are revoked by their own workers or stay until
             // those users run the revocation themselves.
             let (revoked, in_use) =
-                lcxl_remote_desk_server::exec_sandbox_launcher::revoke_current_user_labels();
+                lcxbox_agent_desk_server::exec_sandbox_launcher::revoke_current_user_labels();
             if revoked + in_use > 0 {
                 println!("Revoked {revoked} command sandbox label(s); {in_use} still in use");
             }
@@ -313,9 +313,9 @@ fn main() {
     {
         let server_args = ServerArgs::parse();
         if server_args.install_service {
-            use lcxl_remote_desk_server::daemon::linux_service::install_service;
+            use lcxbox_agent_desk_server::daemon::linux_service::install_service;
             let default_dir =
-                lcxl_remote_desk_server::daemon::windows_service::default_install_dir();
+                lcxbox_agent_desk_server::daemon::windows_service::default_install_dir();
             let dir = server_args.install_path.as_deref().unwrap_or(&default_dir);
             if server_args.install_idd_driver {
                 eprintln!("--install-idd-driver is unsupported on Linux");
@@ -329,7 +329,7 @@ fn main() {
             return;
         }
         if server_args.uninstall_service {
-            if let Err(error) = lcxl_remote_desk_server::daemon::linux_service::uninstall_service()
+            if let Err(error) = lcxbox_agent_desk_server::daemon::linux_service::uninstall_service()
             {
                 eprintln!("Failed to uninstall service: {error}");
                 std::process::exit(linux_service_exit_code(error.as_ref()));
@@ -347,9 +347,9 @@ fn main() {
             // Do NOT initialise any logger here — it would conflict.
             // The embedded signal polls on the system thread; a Windows main
             // thread has only 1 MiB of stack.
-            let exit_code = lcxl_remote_desk_server::daemon::run_daemon_system(|| {
-                lcxl_remote_desk_server::daemon::run_actix_system(async {
-                    match lcxl_remote_desk_server::run().await {
+            let exit_code = lcxbox_agent_desk_server::daemon::run_daemon_system(|| {
+                lcxbox_agent_desk_server::daemon::run_actix_system(async {
+                    match lcxbox_agent_desk_server::run().await {
                         Ok((server, _telemetry_guard)) => {
                             // Hold _telemetry_guard until server.await completes;
                             // dropping earlier closes the non-blocking log writer
@@ -373,7 +373,7 @@ fn main() {
             std::process::exit(exit_code);
         }
         StartupMode::ServiceDaemon => {
-            if let Err(e) = lcxl_remote_desk_server::daemon::run_service_daemon(args) {
+            if let Err(e) = lcxbox_agent_desk_server::daemon::run_service_daemon(args) {
                 eprintln!("ServiceDaemon failed: {e}");
                 std::process::exit(1);
             }
@@ -383,14 +383,14 @@ fn main() {
                 eprintln!("--pipe argument is required for SessionWorker mode");
                 std::process::exit(1);
             });
-            if let Err(e) = lcxl_remote_desk_server::worker::run_session_worker(args, &pipe_name) {
+            if let Err(e) = lcxbox_agent_desk_server::worker::run_session_worker(args, &pipe_name) {
                 eprintln!("SessionWorker failed: {e}");
                 std::process::exit(1);
             }
         }
         StartupMode::McpStdio => {
             // stdout carries the MCP protocol — never print to it here.
-            if let Err(e) = lcxl_remote_desk_server::mcp::run_mcp_stdio(args) {
+            if let Err(e) = lcxbox_agent_desk_server::mcp::run_mcp_stdio(args) {
                 eprintln!("McpStdio failed: {e}");
                 std::process::exit(1);
             }
@@ -400,8 +400,8 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 fn linux_service_exit_code(error: &(dyn std::error::Error + 'static)) -> i32 {
-    if error.is::<lcxl_remote_desk_server::daemon::linux_service::ServiceOperationBusy>() {
-        lcxl_remote_desk_server::daemon::linux_service::SERVICE_OPERATION_BUSY_EXIT_CODE
+    if error.is::<lcxbox_agent_desk_server::daemon::linux_service::ServiceOperationBusy>() {
+        lcxbox_agent_desk_server::daemon::linux_service::SERVICE_OPERATION_BUSY_EXIT_CODE
     } else {
         1
     }

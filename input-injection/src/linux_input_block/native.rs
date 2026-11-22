@@ -100,7 +100,7 @@ fn open(path: std::path::PathBuf) -> io::Result<Option<(NativeDevice, bool)>> {
     // authentication boundary and this backend does not claim full isolation.
     if matches!(
         device.name(),
-        Some("lcxl-web-remote-desk-mouse" | "lcxl-web-remote-desk-keyboard")
+        Some("lcxbox-agent-desk-web-mouse" | "lcxbox-agent-desk-web-keyboard")
     ) {
         return Ok(None);
     }

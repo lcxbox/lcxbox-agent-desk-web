@@ -20,7 +20,7 @@ struct PsDriverEntry {
 ///
 /// Returns the list of `Driver` (published `oem##.inf`) values for
 /// entries whose `OriginalFileName` basename matches
-/// `LcxlVirtualDisplay.inf` (case-insensitive).
+/// `LcxboxVirtualDisplay.inf` (case-insensitive).
 pub(crate) fn parse_ps_get_windows_driver(stdout: &str) -> Result<Vec<String>, InstallerError> {
     let trimmed = stdout.trim();
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("null") {
@@ -57,7 +57,7 @@ fn filter_matching(entries: Vec<PsDriverEntry>) -> Vec<String> {
 /// Best-effort English-locale parser for `pnputil /enum-drivers`.
 /// Mirrors the install-or-update.ps1 fallback: walks pairs of
 /// "Published Name" + "Original Name" and emits the published name
-/// whenever the original matches `LcxlVirtualDisplay.inf`.
+/// whenever the original matches `LcxboxVirtualDisplay.inf`.
 ///
 /// Locale-sensitive — non-English Windows builds will skip records.
 /// The primary path (`Get-WindowsDriver`) returns structured DISM
@@ -120,21 +120,21 @@ mod tests {
 
     #[test]
     fn ps_single_object_for_single_match() {
-        let stdout = r#"{"Driver":"oem23.inf","OriginalFileName":"C:\\Windows\\System32\\DriverStore\\FileRepository\\lcxlvirtualdisplay.inf_amd64_xxxx\\LcxlVirtualDisplay.inf"}"#;
+        let stdout = r#"{"Driver":"oem23.inf","OriginalFileName":"C:\\Windows\\System32\\DriverStore\\FileRepository\\lcxboxvirtualdisplay.inf_amd64_xxxx\\LcxboxVirtualDisplay.inf"}"#;
         let v = parse_ps_get_windows_driver(stdout).unwrap();
         assert_eq!(v, vec!["oem23.inf".to_owned()]);
     }
 
     #[test]
     fn ps_array_for_multiple_matches() {
-        let stdout = r#"[{"Driver":"oem23.inf","OriginalFileName":"X\\LcxlVirtualDisplay.inf"},{"Driver":"oem55.inf","OriginalFileName":"Y\\lcxlvirtualdisplay.inf"}]"#;
+        let stdout = r#"[{"Driver":"oem23.inf","OriginalFileName":"X\\LcxboxVirtualDisplay.inf"},{"Driver":"oem55.inf","OriginalFileName":"Y\\lcxboxvirtualdisplay.inf"}]"#;
         let v = parse_ps_get_windows_driver(stdout).unwrap();
         assert_eq!(v, vec!["oem23.inf".to_owned(), "oem55.inf".to_owned()]);
     }
 
     #[test]
     fn ps_skips_non_matching_inf_in_array() {
-        let stdout = r#"[{"Driver":"oem23.inf","OriginalFileName":"X\\OtherDriver.inf"},{"Driver":"oem55.inf","OriginalFileName":"Y\\LcxlVirtualDisplay.inf"}]"#;
+        let stdout = r#"[{"Driver":"oem23.inf","OriginalFileName":"X\\OtherDriver.inf"},{"Driver":"oem55.inf","OriginalFileName":"Y\\LcxboxVirtualDisplay.inf"}]"#;
         let v = parse_ps_get_windows_driver(stdout).unwrap();
         assert_eq!(v, vec!["oem55.inf".to_owned()]);
     }
@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn ps_entry_without_driver_field_skipped() {
-        let stdout = r#"{"OriginalFileName":"X\\LcxlVirtualDisplay.inf"}"#;
+        let stdout = r#"{"OriginalFileName":"X\\LcxboxVirtualDisplay.inf"}"#;
         assert!(parse_ps_get_windows_driver(stdout).unwrap().is_empty());
     }
 
@@ -158,12 +158,12 @@ mod tests {
     fn pnputil_parses_multiple_records_in_order() {
         let stdout = "\n\
         Published Name :     oem23.inf\n\
-        Original Name :      LcxlVirtualDisplay.inf\n\
-        Provider Name :      Lcxl\n\
+        Original Name :      LcxboxVirtualDisplay.inf\n\
+        Provider Name :      Lcxbox\n\
         \n\
         Published Name :     oem55.inf\n\
-        Original Name :      C:\\path\\LcxlVirtualDisplay.inf\n\
-        Provider Name :      Lcxl\n\
+        Original Name :      C:\\path\\LcxboxVirtualDisplay.inf\n\
+        Provider Name :      Lcxbox\n\
         \n\
         Published Name :     oem99.inf\n\
         Original Name :      OtherDriver.inf\n";
@@ -180,7 +180,7 @@ mod tests {
     fn pnputil_record_missing_original_skipped() {
         let stdout = "\n\
         Published Name :     oem23.inf\n\
-        Provider Name :      Lcxl\n";
+        Provider Name :      Lcxbox\n";
         assert!(parse_pnputil_enum(stdout).is_empty());
     }
 }

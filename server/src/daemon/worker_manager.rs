@@ -662,8 +662,8 @@ fn linux_worker_runtime_dirs(
     let data_root = environment_path(registration, b"XDG_DATA_HOME")
         .filter(|path| path.is_absolute())
         .unwrap_or_else(|| home.join(".local/share"));
-    let log_dir = state_root.join("lcxl-remote-desk/logs");
-    let data_dir = data_root.join("lcxl-remote-desk");
+    let log_dir = state_root.join("lcxbox-agent-desk/logs");
+    let data_dir = data_root.join("lcxbox-agent-desk");
     Ok((
         log_dir
             .into_os_string()
@@ -1281,7 +1281,7 @@ impl WorkerManager {
             starting: &self.starting_resident_workers,
             key: &key,
         };
-        let pipe_name = format!("lcxl-desk-ipc-{session_id}-{}", uuid::Uuid::new_v4());
+        let pipe_name = format!("lcxbox-desk-ipc-{session_id}-{}", uuid::Uuid::new_v4());
         let (ipc_cmd_tx, ipc_cmd_rx) = mpsc::unbounded_channel::<ServiceToWorker>();
         let (config_json, ipc_token, log_dir, data_dir) = {
             let settings = self.settings.read().await;
@@ -1764,7 +1764,7 @@ impl WorkerManager {
         }
 
         #[cfg(target_os = "windows")]
-        let pipe_name = format!("lcxl-desk-ipc-{}-{}", session_id, uuid::Uuid::new_v4());
+        let pipe_name = format!("lcxbox-desk-ipc-{}-{}", session_id, uuid::Uuid::new_v4());
         #[cfg(not(target_os = "windows"))]
         let pipe_name = allocate_worker_socket_path(session_id)?;
 

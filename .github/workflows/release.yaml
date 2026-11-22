@@ -45,10 +45,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Build the Tauri desktop shell as a portable zip. The shell spawns the
-  # lcxl-remote-desk-server sidecar from its own directory (find_server_binary)
+  # lcxbox-agent-desk-server sidecar from its own directory (find_server_binary)
   # and that server serves the frontend from a sibling static/ dir, so the zip
   # ships all three flat in one directory:
-  #   lcxl-remote-desk-tauri[.exe] + lcxl-remote-desk-server[.exe] + static/
+  #   lcxbox-agent-desk-tauri[.exe] + lcxbox-agent-desk-server[.exe] + static/
   # macOS gets the same three files inside a hand-assembled .app in a drag-to-
   # Applications .dmg. Either way the icon is embedded at build time by
   # tauri-build, so no cargo tauri build / bundling toolchain is needed.
@@ -99,7 +99,7 @@ jobs:
         run: |
           sudo apt-get update
           # Tauri 2 GUI deps (note: webkit2gtk-4.1, not 4.0) + the capture/input
-          # native deps pulled in transitively via lcxl-remote-desk-server.
+          # native deps pulled in transitively via lcxbox-agent-desk-server.
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
             patchelf libayatana-appindicator3-dev build-essential pkg-config \
             libpipewire-0.3-dev libclang-dev libasound2-dev libssl-dev libvpx-dev \
@@ -147,7 +147,7 @@ jobs:
       - name: Build Tauri Shell + Server
         # Single line: Windows runners default to PowerShell, which does not
         # understand bash `\` line continuations.
-        run: cargo build --release --target ${{ matrix.target }} --bin lcxl-remote-desk-tauri --bin lcxl-remote-desk-server
+        run: cargo build --release --target ${{ matrix.target }} --bin lcxbox-agent-desk-tauri --bin lcxbox-agent-desk-server
 
       - name: Import macOS Developer ID certificate
         if: matrix.platform == 'macos' && startsWith(github.ref, 'refs/tags/')
@@ -163,7 +163,7 @@ jobs:
           : "${APPLE_SIGNING_IDENTITY:?missing APPLE_SIGNING_IDENTITY}"
           : "${MACOS_KEYCHAIN_PASSWORD:?missing MACOS_KEYCHAIN_PASSWORD}"
           certificate="$RUNNER_TEMP/developer-id.p12"
-          keychain="$RUNNER_TEMP/lcxl-release.keychain-db"
+          keychain="$RUNNER_TEMP/lcxbox-release.keychain-db"
           printf '%s' "$APPLE_CERTIFICATE_P12_BASE64" | openssl base64 -d -A -out "$certificate"
           security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
@@ -179,8 +179,8 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           mkdir -p release
-          cp "target/${{ matrix.target }}/release/lcxl-remote-desk-tauri" release/
-          cp "target/${{ matrix.target }}/release/lcxl-remote-desk-server" release/
+          cp "target/${{ matrix.target }}/release/lcxbox-agent-desk-tauri" release/
+          cp "target/${{ matrix.target }}/release/lcxbox-agent-desk-server" release/
           cp -r server/static release/static
           (cd release && zip -r "../tauri-${{ matrix.platform }}-${{ matrix.arch }}.zip" .)
 
@@ -195,13 +195,13 @@ jobs:
           else
             VERSION="0.0.0-dev"
           fi
-          APP="dist/LCXL Remote Desktop.app"
+          APP="dist/LCXBOX Agent Desk.app"
           # Shell, sidecar and static all sit under Contents/MacOS so that the
           # shell's find_server_binary() (looks next to its own exe) and the
           # server's static lookup (looks next to its own exe) both resolve.
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          cp "target/${{ matrix.target }}/release/lcxl-remote-desk-tauri" "$APP/Contents/MacOS/"
-          cp "target/${{ matrix.target }}/release/lcxl-remote-desk-server" "$APP/Contents/MacOS/"
+          cp "target/${{ matrix.target }}/release/lcxbox-agent-desk-tauri" "$APP/Contents/MacOS/"
+          cp "target/${{ matrix.target }}/release/lcxbox-agent-desk-server" "$APP/Contents/MacOS/"
           cp -R server/static "$APP/Contents/MacOS/static"
           cp tauri-app/src-tauri/icons/icon.icns "$APP/Contents/Resources/icon.icns"
           cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -209,10 +209,10 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>CFBundleName</key><string>LCXL Remote Desktop</string>
-            <key>CFBundleDisplayName</key><string>LCXL Remote Desktop</string>
-            <key>CFBundleIdentifier</key><string>com.lcxl.remote-desk</string>
-            <key>CFBundleExecutable</key><string>lcxl-remote-desk-tauri</string>
+            <key>CFBundleName</key><string>LCXBOX Agent Desk</string>
+            <key>CFBundleDisplayName</key><string>LCXBOX Agent Desk</string>
+            <key>CFBundleIdentifier</key><string>com.lcxbox.agent-desk</string>
+            <key>CFBundleExecutable</key><string>lcxbox-agent-desk-tauri</string>
             <key>CFBundleIconFile</key><string>icon.icns</string>
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>CFBundleVersion</key><string>__VERSION__</string>
@@ -232,8 +232,8 @@ jobs:
             # Apple Events, so it and the responsible app identity both carry
             # the frozen Automation entitlement under hardened runtime.
             for executable in \
-              "$APP/Contents/MacOS/lcxl-remote-desk-server" \
-              "$APP/Contents/MacOS/lcxl-remote-desk-tauri"; do
+              "$APP/Contents/MacOS/lcxbox-agent-desk-server" \
+              "$APP/Contents/MacOS/lcxbox-agent-desk-tauri"; do
               codesign --force --timestamp --options runtime \
                 --entitlements tauri-app/src-tauri/Entitlements.plist \
                 --keychain "$MACOS_SIGNING_KEYCHAIN" \
@@ -247,8 +247,8 @@ jobs:
             # workflow_dispatch is a non-releasable packaging dry-run. Apple
             # Silicon still requires an ad-hoc signature to launch the bundle.
             for executable in \
-              "$APP/Contents/MacOS/lcxl-remote-desk-server" \
-              "$APP/Contents/MacOS/lcxl-remote-desk-tauri"; do
+              "$APP/Contents/MacOS/lcxbox-agent-desk-server" \
+              "$APP/Contents/MacOS/lcxbox-agent-desk-tauri"; do
               codesign --force --options runtime \
                 --entitlements tauri-app/src-tauri/Entitlements.plist \
                 --sign - "$executable"
@@ -259,13 +259,13 @@ jobs:
           fi
           codesign --verify --deep --strict --verbose=2 "$APP"
           /usr/libexec/PlistBuddy -c 'Print :NSAppleEventsUsageDescription' "$APP/Contents/Info.plist"
-          codesign -d --entitlements :- "$APP/Contents/MacOS/lcxl-remote-desk-server" 2>&1 \
+          codesign -d --entitlements :- "$APP/Contents/MacOS/lcxbox-agent-desk-server" 2>&1 \
             | grep -F 'com.apple.security.automation.apple-events'
           # Lay out a drag-to-Applications disk image and compress it.
           mkdir -p dmg
           cp -R "$APP" dmg/
           ln -s /Applications dmg/Applications
-          hdiutil create -volname "LCXL Remote Desktop" -srcfolder dmg -ov -format UDZO \
+          hdiutil create -volname "LCXBOX Agent Desk" -srcfolder dmg -ov -format UDZO \
             "tauri-${{ matrix.platform }}-${{ matrix.arch }}.dmg"
 
       - name: Notarize and staple macOS release
@@ -302,8 +302,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Copy-Item "target\${{ matrix.target }}\release\lcxl-remote-desk-tauri.exe" -Destination release\
-          Copy-Item "target\${{ matrix.target }}\release\lcxl-remote-desk-server.exe" -Destination release\
+          Copy-Item "target\${{ matrix.target }}\release\lcxbox-agent-desk-tauri.exe" -Destination release\
+          Copy-Item "target\${{ matrix.target }}\release\lcxbox-agent-desk-server.exe" -Destination release\
           Copy-Item -Recurse "server\static" -Destination release\static
           Compress-Archive -Path release\* -DestinationPath "tauri-${{ matrix.platform }}-${{ matrix.arch }}.zip"
 

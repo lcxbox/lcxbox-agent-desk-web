@@ -14,11 +14,11 @@ services:
       # directory. It runs as root here, which selects the Linux system scope,
       # so these three hold everything that must outlive the container:
       # config.toml, the signal / exec-ledger databases, and rolling logs.
-      - ./conf:/etc/lcxl-remote-desk
-      - ./data:/var/lib/lcxl-remote-desk
-      - ./logs:/var/log/lcxl-remote-desk
+      - ./conf:/etc/lcxbox-agent-desk
+      - ./data:/var/lib/lcxbox-agent-desk
+      - ./logs:/var/log/lcxbox-agent-desk
     environment:
-      LRD_BOOTSTRAP_TOKEN: ${LRD_BOOTSTRAP_TOKEN:?Set LRD_BOOTSTRAP_TOKEN in .env before starting}
+      LAD_BOOTSTRAP_TOKEN: ${LAD_BOOTSTRAP_TOKEN:?Set LAD_BOOTSTRAP_TOKEN in .env before starting}
     restart: always
     # Default command is defined in Dockerfile, but can be overridden here
-    # command: ["./lcxl-remote-desk-server", "--startup-mode", "default"]
+    # command: ["./lcxbox-agent-desk-server", "--startup-mode", "default"]

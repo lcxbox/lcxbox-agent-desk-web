@@ -1385,9 +1385,9 @@ pub(super) fn prepare_native_artifact_stage(
         ));
     }
 
-    let stage_leaf = format!(".lrd-iwork-stage-{}", uuid::Uuid::new_v4());
+    let stage_leaf = format!(".lad-iwork-stage-{}", uuid::Uuid::new_v4());
     let validation_leaf = format!(
-        ".lrd-iwork-validation-{}{}",
+        ".lad-iwork-validation-{}{}",
         uuid::Uuid::new_v4(),
         validation_extension
     );

@@ -34,15 +34,15 @@ jobs:
         include:
           - platform: linux
             os: ubuntu-latest
-            bin_name: lcxl-remote-desk-server
+            bin_name: lcxbox-agent-desk-server
             target: x86_64-unknown-linux-gnu
           - platform: windows
             os: windows-latest
-            bin_name: lcxl-remote-desk-server.exe
+            bin_name: lcxbox-agent-desk-server.exe
             target: x86_64-pc-windows-msvc
           - platform: macos
             os: macos-latest
-            bin_name: lcxl-remote-desk-server
+            bin_name: lcxbox-agent-desk-server
             target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.os }}
@@ -75,7 +75,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build Server
-        run: cargo build --release --bin lcxl-remote-desk-server --target ${{ matrix.target }}
+        run: cargo build --release --bin lcxbox-agent-desk-server --target ${{ matrix.target }}
 
       # Prepare Package
       - name: Create Package (Unix)

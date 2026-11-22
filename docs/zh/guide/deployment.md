@@ -3,7 +3,7 @@
 ## Docker（信令服务器推荐方式）
 
 ```bash
-printf 'LRD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
+printf 'LAD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
 docker compose up -d
 ```
 
@@ -18,9 +18,9 @@ docker compose up -d
 
 | 宿主机路径 | 容器内路径 | 内容 |
 |---|---|---|
-| `./conf` | `/etc/lcxl-remote-desk` | `config.toml` |
-| `./data` | `/var/lib/lcxl-remote-desk` | 信令与执行台账数据库、远程访问状态 |
-| `./logs` | `/var/log/lcxl-remote-desk` | 滚动日志 |
+| `./conf` | `/etc/lcxbox-agent-desk` | `config.toml` |
+| `./data` | `/var/lib/lcxbox-agent-desk` | 信令与执行台账数据库、远程访问状态 |
+| `./logs` | `/var/log/lcxbox-agent-desk` | 滚动日志 |
 
 丢失 `./data` 会一并丢掉信令侧状态、访问码、AI 服务商配置与审计记录，请与 `./conf` 一起备份。
 
@@ -109,17 +109,17 @@ Computer Use 总开关及桌面与应用能力在被控端 **系统设置 → AI
 
 把 server 暴露到公网时（通常置于终结 TLS 的反向代理之后），注意：
 
-- **`LRD_COOKIE_SECURE`**——控制会话 Cookie 的 `Secure` 属性。默认 `false`，以便本地 / 局域网 HTTP 访问保留会话。HTTPS 部署应设 `LRD_COOKIE_SECURE=true`，使 Cookie 仅经 HTTPS 发送。
-- **`LRD_BOOTSTRAP_TOKEN`**——在 Compose 示例以外是可选项；配置后，初始化向导及初始化前的连接探测都必须携带该值。变量存在但为空会导致启动失败。请使用至少 32 个随机字节，不要放入 URL 或日志。Compose 示例通过 `${...:?}` 强制要求它。
-- **`LRD_TRUSTED_PROXIES`**——逗号分隔的代理 IP/CIDR。默认信任回环地址（`127.0.0.0/8`、`::1`），其他代理或容器网段必须显式配置。只有可信 peer 才能提供 `X-Forwarded-For`。除非服务器只能经会覆盖 XFF 的代理访问，否则不要使用 `*`。
-- **`LRD_AUTH_IPV6_PREFIX_LEN`**——IPv6 限流前缀，默认 `64`，合法范围 `1..=128`；IPv4 固定为 `/32`。
-- **`LRD_AUTH_RATE_LIMIT_MAX_BUCKETS`**——登录和 redeem 的有界容量档位，默认 `65536`，普通部署无需调整。
-- **`LRD_PROVIDER_SSRF_MODE`**——防护中心大脑代用户拨号其配置的模型供应商 `base_url` 时的 SSRF（指向内网服务或云元数据端点）。**只管私网可达性**（与下方 TLS 开关正交）；云元数据段在任何模式下都被拦截。取值：
+- **`LAD_COOKIE_SECURE`**——控制会话 Cookie 的 `Secure` 属性。默认 `false`，以便本地 / 局域网 HTTP 访问保留会话。HTTPS 部署应设 `LAD_COOKIE_SECURE=true`，使 Cookie 仅经 HTTPS 发送。
+- **`LAD_BOOTSTRAP_TOKEN`**——在 Compose 示例以外是可选项；配置后，初始化向导及初始化前的连接探测都必须携带该值。变量存在但为空会导致启动失败。请使用至少 32 个随机字节，不要放入 URL 或日志。Compose 示例通过 `${...:?}` 强制要求它。
+- **`LAD_TRUSTED_PROXIES`**——逗号分隔的代理 IP/CIDR。默认信任回环地址（`127.0.0.0/8`、`::1`），其他代理或容器网段必须显式配置。只有可信 peer 才能提供 `X-Forwarded-For`。除非服务器只能经会覆盖 XFF 的代理访问，否则不要使用 `*`。
+- **`LAD_AUTH_IPV6_PREFIX_LEN`**——IPv6 限流前缀，默认 `64`，合法范围 `1..=128`；IPv4 固定为 `/32`。
+- **`LAD_AUTH_RATE_LIMIT_MAX_BUCKETS`**——登录和 redeem 的有界容量档位，默认 `65536`，普通部署无需调整。
+- **`LAD_PROVIDER_SSRF_MODE`**——防护中心大脑代用户拨号其配置的模型供应商 `base_url` 时的 SSRF（指向内网服务或云元数据端点）。**只管私网可达性**（与下方 TLS 开关正交）；云元数据段在任何模式下都被拦截。取值：
   - `relaxed`（默认）——允许私网 / 回环目标（本地模型网关，如 `http://localhost:11434`）。
   - `strict`——拒绝私网 / 回环 / CGNAT / ULA 目标；连接期再校验解析到的 IP（防 DNS 重绑定）。当不可信用户可配置供应商时使用。
-- **`LRD_ENFORCE_PUBLIC_TLS`**——是否允许以**明文**（`http`）拨号**公网**目标。默认 `true`（仅显式设为 `false` / `0` / `no` / `off` 才关闭）。开启时，对公网地址的明文拨号会在连接前被拒（api_key 绝不明文外泄）；私网 / 回环 / 局域网目标始终豁免，云元数据段无论如何始终拦截。与 SSRF 模式正交：要放行公网明文供应商，关闭本开关即可，**无需**切到 `relaxed`（那会额外放开私网目标）。
-- **`LRD_MODEL_MAX_INFLIGHT`**——单实例中心大脑的真实模型调用并发上限，默认 `2`，合法范围 `1..=64`。主助手、子助手、上下文压缩与审批模型共用先进先出队列；等待队列最多为并发数的 `8` 倍，最长等待 `60` 秒。等待子任务、权限决定或后台命令不占模型槽位；排队结束仍须重新核对原来源、租约和模型配置。变量在进程内首次调用时读取，修改后重启；非法值拒绝新调用。已进入持久化发送边界但没有真实用量回执的调用继续保留未知用量，未进入该边界的预留可释放。
-- **Web Search**——在中央服务器的**系统设置 → 网页搜索**（`/system/web-search`）配置，内嵌及独立信令模式均支持。首次初始化默认 DuckDuckGo，无需 API Key；也可选择 Brave 或 Tavily 并填写对应密钥。配置保存在当前 `config.toml` 的 `[web_search]`，不接受 `LRD_*` 覆盖。密钥只写不回显，切换厂商清除前一家密钥；选择 API 厂商后缺少密钥时不可用，不会自动回退。
+- **`LAD_ENFORCE_PUBLIC_TLS`**——是否允许以**明文**（`http`）拨号**公网**目标。默认 `true`（仅显式设为 `false` / `0` / `no` / `off` 才关闭）。开启时，对公网地址的明文拨号会在连接前被拒（api_key 绝不明文外泄）；私网 / 回环 / 局域网目标始终豁免，云元数据段无论如何始终拦截。与 SSRF 模式正交：要放行公网明文供应商，关闭本开关即可，**无需**切到 `relaxed`（那会额外放开私网目标）。
+- **`LAD_MODEL_MAX_INFLIGHT`**——单实例中心大脑的真实模型调用并发上限，默认 `2`，合法范围 `1..=64`。主助手、子助手、上下文压缩与审批模型共用先进先出队列；等待队列最多为并发数的 `8` 倍，最长等待 `60` 秒。等待子任务、权限决定或后台命令不占模型槽位；排队结束仍须重新核对原来源、租约和模型配置。变量在进程内首次调用时读取，修改后重启；非法值拒绝新调用。已进入持久化发送边界但没有真实用量回执的调用继续保留未知用量，未进入该边界的预留可释放。
+- **Web Search**——在中央服务器的**系统设置 → 网页搜索**（`/system/web-search`）配置，内嵌及独立信令模式均支持。首次初始化默认 DuckDuckGo，无需 API Key；也可选择 Brave 或 Tavily 并填写对应密钥。配置保存在当前 `config.toml` 的 `[web_search]`，不接受 `LAD_*` 覆盖。密钥只写不回显，切换厂商清除前一家密钥；选择 API 厂商后缺少密钥时不可用，不会自动回退。
 - **测试与授权**——加载和保存配置不触发搜索。**测试连接**仅发送固定公开词“Rust programming language”，可能消耗厂商配额，不保存当前编辑、不使用会话内容；它是独立于AI助手任务的管理连接测试。助手查询仍须逐字来自当前用户消息，通过精确 ExportData 授权并遵循助手总开关。切换厂商或更新配置后，旧搜索授权不能用于后续派发；配置冲突或保存结果不确定时请重新加载。DuckDuckGo 免 API 配置不代表无限请求，限流、验证码及异常页面正常报错，不伪装为空结果；模型费用另计。
 - **没有运行时 API 文档端点**：server 不提供 Swagger UI / ReDoc / RapiDoc / Scalar，也不提供 `/openapi.json`，公网上因此没有这一类可被探测的面。需要规范时用离线 `dump-openapi` 生成（见 [REST API 参考](/zh/reference/api)）。
 - 把 server 置于反向代理之后，由其终结 TLS、透传 `Host`，并为信令转发 WebSocket `Upgrade` 头。

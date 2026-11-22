@@ -1,6 +1,6 @@
 use windows::Win32::UI::Input::KeyboardAndMouse::BlockInput;
 
-const LCXL_VIRTUAL_DISPLAY_INSTANCE_ID: &str = r"SWD\LcxlVirtualDisplay\LcxlVirtualDisplay";
+const LCXBOX_VIRTUAL_DISPLAY_INSTANCE_ID: &str = r"SWD\LcxboxVirtualDisplay\LcxboxVirtualDisplay";
 
 pub fn block_input(block: bool) -> Result<(), String> {
     let result = unsafe { BlockInput(block) };
@@ -14,5 +14,5 @@ pub fn block_input(block: bool) -> Result<(), String> {
 }
 
 pub fn virtual_display_name() -> Option<String> {
-    desk_virtual_display::resolve_display_name(LCXL_VIRTUAL_DISPLAY_INSTANCE_ID).ok()
+    desk_virtual_display::resolve_display_name(LCXBOX_VIRTUAL_DISPLAY_INSTANCE_ID).ok()
 }

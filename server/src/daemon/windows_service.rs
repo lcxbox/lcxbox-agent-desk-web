@@ -31,8 +31,8 @@ mod windows_impl {
         service_manager::{ServiceManager, ServiceManagerAccess},
     };
 
-    pub const SERVICE_NAME: &str = "LcxlDeskService";
-    pub const SERVICE_DISPLAY_NAME: &str = "LCXL Remote Desktop Service";
+    pub const SERVICE_NAME: &str = "LcxboxDeskService";
+    pub const SERVICE_DISPLAY_NAME: &str = "LCXBOX Agent Desk Service";
 
     define_windows_service!(ffi_service_main, service_main);
 
@@ -642,7 +642,7 @@ mod windows_impl {
     /// CI host. Copies `<src_dir>/drivers/` into `<install_path>/drivers/`
     /// (recreating an existing directory) and, when
     /// `install_idd_driver` is true, asks `installer` to stage the
-    /// LcxlVirtualDisplay driver.
+    /// LcxboxVirtualDisplay driver.
     pub fn copy_drivers_and_install_if_requested(
         src_dir: &Path,
         install_path: &Path,
@@ -674,12 +674,12 @@ mod windows_impl {
             let files = installer.discover(install_path)?.ok_or_else(|| {
                 format!(
                     "IDD driver files missing under '{}'. \
-                     Place LcxlVirtualDisplay driver files in <install_dir>/drivers/LcxlVirtualDisplay/.",
+                     Place LcxboxVirtualDisplay driver files in <install_dir>/drivers/LcxboxVirtualDisplay/.",
                     install_path.display()
                 )
             })?;
             installer.install(&files)?;
-            println!("LcxlVirtualDisplay driver staged via pnputil");
+            println!("LcxboxVirtualDisplay driver staged via pnputil");
         }
         Ok(())
     }
@@ -762,8 +762,8 @@ mod windows_impl {
     /// pnputil state.
     pub fn uninstall_driver_after_service_stopped(installer: &dyn DriverInstallerOps) {
         match installer.uninstall_all() {
-            Ok(0) => println!("No LcxlVirtualDisplay driver package to uninstall"),
-            Ok(n) => println!("Uninstalled {n} LcxlVirtualDisplay driver package(s)"),
+            Ok(0) => println!("No LcxboxVirtualDisplay driver package to uninstall"),
+            Ok(n) => println!("Uninstalled {n} LcxboxVirtualDisplay driver package(s)"),
             Err(e) => {
                 eprintln!("Warning: driver uninstall failed: {e}; continuing with service removal")
             }
@@ -1021,14 +1021,14 @@ pub fn default_install_dir() -> String {
     #[cfg(target_os = "windows")]
     {
         let pf = std::env::var("PROGRAMFILES").unwrap_or_else(|_| "C:\\Program Files".to_string());
-        format!("{}\\LCXL Remote Desktop", pf)
+        format!("{}\\LCXBOX Agent Desk", pf)
     }
     #[cfg(target_os = "linux")]
     {
-        "/usr/lib/lcxl-remote-desk".to_string()
+        "/usr/lib/lcxbox-agent-desk".to_string()
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        "/opt/lcxl-remote-desk".to_string()
+        "/opt/lcxbox-agent-desk".to_string()
     }
 }

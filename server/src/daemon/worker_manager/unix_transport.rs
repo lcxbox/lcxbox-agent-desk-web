@@ -33,11 +33,11 @@ pub(super) fn allocate_worker_socket_path_for(
 
     let effective_uid = unsafe { libc::geteuid() };
     let runtime_root = if effective_uid == 0 {
-        std::path::PathBuf::from("/run/lcxl-remote-desk/workers")
+        std::path::PathBuf::from("/run/lcxbox-agent-desk/workers")
     } else {
         // Keep the name short: macOS per-user temp directories are long and a
         // Unix socket path must fit `sun_path` (104 bytes on macOS).
-        std::env::temp_dir().join(format!("lcxl-rd-{effective_uid}"))
+        std::env::temp_dir().join(format!("lcxbox-ad-{effective_uid}"))
     };
     let (root_mode, forbidden_bits) = worker_runtime_root_mode(effective_uid);
     std::fs::create_dir_all(&runtime_root)?;

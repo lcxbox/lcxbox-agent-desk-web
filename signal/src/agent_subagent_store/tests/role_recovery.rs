@@ -157,8 +157,8 @@ async fn raw_child_writes_stay_forbidden_after_compaction_permission_resume_and_
         )
         .arg("--ignored")
         .arg("--nocapture")
-        .env("LRD_ROLE_REOPEN_DB", &file)
-        .env("LRD_ROLE_REOPEN_CHILD", &child.conversation_id)
+        .env("LAD_ROLE_REOPEN_DB", &file)
+        .env("LAD_ROLE_REOPEN_CHILD", &child.conversation_id)
         .kill_on_drop(true);
     let output = tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
         .await
@@ -179,8 +179,8 @@ async fn raw_child_writes_stay_forbidden_after_compaction_permission_resume_and_
 #[tokio::test]
 #[ignore = "launched by the child role recovery test only"]
 async fn role_reopen_worker() {
-    let file = std::env::var("LRD_ROLE_REOPEN_DB").unwrap();
-    let id = std::env::var("LRD_ROLE_REOPEN_CHILD").unwrap();
+    let file = std::env::var("LAD_ROLE_REOPEN_DB").unwrap();
+    let id = std::env::var("LAD_ROLE_REOPEN_CHILD").unwrap();
     let db = crate::config::test_support::Database::connect(format!("sqlite://{file}?mode=rw"))
         .await
         .unwrap();

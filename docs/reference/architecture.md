@@ -1,6 +1,6 @@
 # Architecture
 
-A developer-oriented overview of how LCXL Remote Desk is put together. For a gentler introduction, see [Core Concepts](/guide/concepts).
+A developer-oriented overview of how LCXBOX Agent Desk is put together. For a gentler introduction, see [Core Concepts](/guide/concepts).
 
 ## Connection & Media Path
 

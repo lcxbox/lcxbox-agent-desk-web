@@ -219,7 +219,7 @@ fn launch(
     user: &str,
 ) -> io::Result<Launched> {
     let exe = std::env::current_exe()?;
-    let name = format!("lcxl-exec-sandbox-{}", uuid::Uuid::new_v4().simple());
+    let name = format!("lcxbox-exec-sandbox-{}", uuid::Uuid::new_v4().simple());
     let pipe = control_pipe(&name, user)?;
     let mut attrs = AttrList::with_job(job)?;
     let mut si = STARTUPINFOEXW::default();

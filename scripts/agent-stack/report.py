@@ -118,9 +118,9 @@ def retain_entity_identity(data, package):
     Physical symbols remain recorded for review. This does not change sizes,
     execution coverage or the identity of any operation function.
     """
-    if package not in ('lcxl-remote-desk-manager', 'desk-signal'):
+    if package not in ('lcxbox-agent-desk-manager', 'desk-signal'):
         return data
-    prefix = ('desk_database::entity::' if package == 'lcxl-remote-desk-manager'
+    prefix = ('desk_database::entity::' if package == 'lcxbox-agent-desk-manager'
               else 'desk_signal::entity::')
     current = 'desk_assistant_data_store::entity::'
     frames, origins = {}, {}

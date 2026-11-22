@@ -2,7 +2,7 @@ use super::*;
 use crate::model::settings::{SharedSettings, StartupMode, SystemSettings, TraversalMode};
 use desk_ipc_protocol::message::MediaCodec;
 use desk_signal_facade::model::media_capability::{VideoEncoderCapability, VideoEncoderId};
-use desk_signal_facade::model::signal::{LcxlRTCIceServer, RemoteSessionPurpose};
+use desk_signal_facade::model::signal::{LcxboxRTCIceServer, RemoteSessionPurpose};
 use desk_turn::model::TurnSettings;
 
 #[test]
@@ -361,8 +361,8 @@ fn daemon_ft_window_buffered_avg_integer_rounding() {
     );
 }
 
-fn ice(url: &str) -> LcxlRTCIceServer {
-    LcxlRTCIceServer {
+fn ice(url: &str) -> LcxboxRTCIceServer {
+    LcxboxRTCIceServer {
         urls: vec![url.to_string()],
         username: String::new(),
         credential: String::new(),
@@ -619,7 +619,7 @@ fn filter_drops_self_hosted_turn() {
 /// remote URL (and its credential); only the self URL is removed.
 #[test]
 fn filter_partial_drops_self_url_keeps_remote() {
-    let request = vec![LcxlRTCIceServer {
+    let request = vec![LcxboxRTCIceServer {
         urls: vec![
             "turn:192.168.50.5:3479?transport=udp".to_string(),
             "turn:relay.example.com:3478?transport=udp".to_string(),
@@ -641,7 +641,7 @@ fn filter_partial_drops_self_url_keeps_remote() {
 /// When every URL of an object is self-hosted, the whole object is dropped.
 #[test]
 fn filter_drops_object_when_all_urls_self() {
-    let request = vec![LcxlRTCIceServer {
+    let request = vec![LcxboxRTCIceServer {
         urls: vec![
             "turn:192.168.50.5:3479?transport=udp".to_string(),
             "turn:192.168.50.5:3478?transport=tcp".to_string(),

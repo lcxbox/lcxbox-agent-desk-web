@@ -355,7 +355,7 @@ fn a_central_action_reports_start_and_completion_and_a_stop_its_state() {
 
 fn attach_result() -> WorkerToService {
     WorkerToService::VirtualDisplayAttachResult(VirtualDisplayAttachResultPayload {
-        instance_id: r"SWD\LcxlVirtualDisplay\LcxlVirtualDisplay".into(),
+        instance_id: r"SWD\LcxboxVirtualDisplay\LcxboxVirtualDisplay".into(),
         outcome: VirtualDisplayAttachOutcome::Attached(r"\\.\DISPLAY4".into()),
     })
 }

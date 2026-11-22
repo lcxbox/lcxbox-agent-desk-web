@@ -172,7 +172,7 @@ mod generated {
             MAX_OUTPUT_BYTES,
         );
         let extracted = extract_pdf(&source, &exact, &in_process_runner).unwrap();
-        assert!(extracted.text.contains("<!-- lcxl-page: 2 -->"));
+        assert!(extracted.text.contains("<!-- lcxbox-page: 2 -->"));
         assert!(extracted.text.contains("Page 3"));
         assert!(!extracted.text.contains("Page 1"));
         assert!(!extracted.truncated);

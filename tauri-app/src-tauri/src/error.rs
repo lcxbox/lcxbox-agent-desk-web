@@ -11,7 +11,7 @@ pub enum DeskTauriError {
     /// Tauri error
     TauriError(tauri::Error),
     /// Desk error
-    DeskError(lcxl_remote_desk_server::error::DeskError),
+    DeskError(lcxbox_agent_desk_server::error::DeskError),
     /// Desk custom error
     CustomError(CustomDeskError),
 }
@@ -52,8 +52,8 @@ impl From<tauri::Error> for DeskTauriError {
     }
 }
 
-impl From<lcxl_remote_desk_server::error::DeskError> for DeskTauriError {
-    fn from(err: lcxl_remote_desk_server::error::DeskError) -> Self {
+impl From<lcxbox_agent_desk_server::error::DeskError> for DeskTauriError {
+    fn from(err: lcxbox_agent_desk_server::error::DeskError) -> Self {
         DeskTauriError::DeskError(err)
     }
 }

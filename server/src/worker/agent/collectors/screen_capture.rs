@@ -369,8 +369,8 @@ mod tests {
     #[test]
     #[ignore = "requires an active interactive Windows display"]
     fn live_windows_capture_requires_a_real_png() {
-        let display = std::env::var("LRD_SCREEN_CAPTURE_TEST_DISPLAY")
-            .expect("LRD_SCREEN_CAPTURE_TEST_DISPLAY must name the owner-selected display");
+        let display = std::env::var("LAD_SCREEN_CAPTURE_TEST_DISPLAY")
+            .expect("LAD_SCREEN_CAPTURE_TEST_DISPLAY must name the owner-selected display");
         let settings = DeskSettings {
             video_device_name: display,
             // The development VM exposes Microsoft Basic Render Driver; its
@@ -379,7 +379,7 @@ mod tests {
             // capture-engine fallback that exercises the same owner-selected
             // display contract without depending on that virtual GPU path.
             image_capture: Some(
-                std::env::var("LRD_SCREEN_CAPTURE_TEST_BACKEND")
+                std::env::var("LAD_SCREEN_CAPTURE_TEST_BACKEND")
                     .unwrap_or_else(|_| "GDI".to_string()),
             ),
             ..Default::default()

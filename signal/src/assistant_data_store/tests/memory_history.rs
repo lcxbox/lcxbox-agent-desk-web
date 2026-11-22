@@ -422,7 +422,7 @@ async fn complete_history_versions_that_exceed_the_response_budget_fail_without_
 
 #[test]
 fn memory_history_read_and_replay_fit_one_and_two_mib_stacks() {
-    const STACK: &str = "LRD_TEST_MEMORY_HISTORY_STACK_BYTES";
+    const STACK: &str = "LAD_TEST_MEMORY_HISTORY_STACK_BYTES";
     if let Some(bytes) = std::env::var_os(STACK) {
         let bytes: usize = bytes.to_str().unwrap().parse().unwrap();
         assert!([1024 * 1024, 2 * 1024 * 1024].contains(&bytes));

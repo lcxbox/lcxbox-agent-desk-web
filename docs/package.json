@@ -1,9 +1,9 @@
 {
-  "name": "lcxl-remote-desk-docs",
+  "name": "lcxbox-agent-desk-docs",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Documentation site for LCXL Remote Desk (open-source web project), built with VitePress.",
+  "description": "Documentation site for LCXBOX Agent Desk (open-source web project), built with VitePress.",
   "scripts": {
     "docs:dev": "vitepress dev",
     "docs:build": "vitepress build",

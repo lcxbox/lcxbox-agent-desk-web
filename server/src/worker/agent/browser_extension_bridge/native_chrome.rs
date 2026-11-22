@@ -6,7 +6,7 @@ use std::{panic::AssertUnwindSafe, process::Stdio};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[actix_web::test]
-#[ignore = "requires native Chrome, Node 22 and LCXL_BROWSER_RUNTIME_PEER; run exact test with external timeout"]
+#[ignore = "requires native Chrome, Node 22 and LCXBOX_BROWSER_RUNTIME_PEER; run exact test with external timeout"]
 async fn native_chrome_authenticates_and_round_trips_form_actions() {
     let started = std::time::Instant::now();
     let phase = |name: &str| {
@@ -15,8 +15,8 @@ async fn native_chrome_authenticates_and_round_trips_form_actions() {
             started.elapsed().as_millis()
         )
     };
-    let script = std::env::var_os("LCXL_BROWSER_RUNTIME_PEER")
-        .expect("set LCXL_BROWSER_RUNTIME_PEER to the explicit native Chrome peer script");
+    let script = std::env::var_os("LCXBOX_BROWSER_RUNTIME_PEER")
+        .expect("set LCXBOX_BROWSER_RUNTIME_PEER to the explicit native Chrome peer script");
     let root = private_test_directory();
     let bound = endpoint::bind(root.path(), "native-fixture").unwrap();
     let broker = Arc::new(BrowserExtensionBroker::default());

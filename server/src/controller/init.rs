@@ -39,7 +39,7 @@ pub struct InitParams {
     #[serde(default)]
     pub security: Option<SecuritySettings>,
     /// Deployment bootstrap token. Required only when the server process was
-    /// started with `LRD_BOOTSTRAP_TOKEN`.
+    /// started with `LAD_BOOTSTRAP_TOKEN`.
     #[serde(default)]
     pub bootstrap_token: Option<String>,
 }

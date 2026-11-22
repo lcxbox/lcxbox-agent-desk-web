@@ -23,7 +23,7 @@ const SUBMIT_URL = "/api/desk/security-settings/approval/submit";
 // origin). The window is closed by the backend (Finish broadcast -> Rust
 // `destroy()`), never by the page itself. A user closing the native window is
 // mapped to a Deny: the webview never fires `beforeunload` on a native close,
-// so Rust calls the exposed `window.__lcxlApprovalDeny` hook from its
+// so Rust calls the exposed `window.__lcxboxApprovalDeny` hook from its
 // CloseRequested handler (the page only exposes the hook + a browser fallback).
 type AckState = "pending" | "ready" | "failed";
 
@@ -86,7 +86,7 @@ export default function SecurityApprovalPage() {
 
     // A user closing the native window (X) is a Deny. The external-URL webview
     // does NOT fire `beforeunload` on a native window close, so the Rust side
-    // (which owns the window) invokes `window.__lcxlApprovalDeny` from its
+    // (which owns the window) invokes `window.__lcxboxApprovalDeny` from its
     // CloseRequested handler instead. `beforeunload` is kept only as a fallback
     // for a real browser context. The deny is sent regardless of ackState: the
     // hub may be in its readiness-probe phase or already waiting for the user,
@@ -111,12 +111,12 @@ export default function SecurityApprovalPage() {
             );
             navigator.sendBeacon(SUBMIT_URL, blob);
         };
-        const w = window as unknown as { __lcxlApprovalDeny?: () => void };
-        w.__lcxlApprovalDeny = sendDeny;
+        const w = window as unknown as { __lcxboxApprovalDeny?: () => void };
+        w.__lcxboxApprovalDeny = sendDeny;
         window.addEventListener("beforeunload", sendDeny);
         return () => {
             window.removeEventListener("beforeunload", sendDeny);
-            if (w.__lcxlApprovalDeny === sendDeny) delete w.__lcxlApprovalDeny;
+            if (w.__lcxboxApprovalDeny === sendDeny) delete w.__lcxboxApprovalDeny;
         };
     }, [reqId]);
 

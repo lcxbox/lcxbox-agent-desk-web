@@ -1,6 +1,6 @@
 //! # desk-capture-engine
 //!
-//! Screen/audio capture and video/audio encoding engine for lcxl-remote-desk.
+//! Screen/audio capture and video/audio encoding engine for lcxbox-agent-desk.
 //!
 //! This crate provides platform-abstracted interfaces and implementations for:
 //! - Screen capture (DXGI, GDI, X11, Wayland Portal, ScreenCaptureKit)

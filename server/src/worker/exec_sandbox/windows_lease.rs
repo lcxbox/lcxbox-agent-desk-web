@@ -1,7 +1,7 @@
 //! Lease store of the Low labels on write roots (plan 6.5.3, part two).
 //!
 //! One store per user, shared by every worker process of that user:
-//! `%LOCALAPPDATA%\lcxl-remote-desk-worker\exec-sandbox-labels\labels.json`
+//! `%LOCALAPPDATA%\lcxbox-agent-desk-worker\exec-sandbox-labels\labels.json`
 //! with a store lock file and one lock file per record (`locks\`). Lock files
 //! are never deleted: deleting and recreating one would let two parties each
 //! hold "the same" lock.
@@ -185,7 +185,7 @@ pub(crate) fn worker_app_dir() -> Option<PathBuf> {
     local_app_data().ok().map(|local| local.join(APP_DIR))
 }
 
-const APP_DIR: &str = "lcxl-remote-desk-worker";
+const APP_DIR: &str = "lcxbox-agent-desk-worker";
 
 /// Open (creating if needed) a private child of the worker's application
 /// directory below `local`. The application directory is created only here,
@@ -211,7 +211,7 @@ const STORE_DIR: &str = "exec-sandbox-labels";
 #[cfg(test)]
 fn open_store() -> io::Result<Store> {
     let dir = std::env::temp_dir().join(format!(
-        "lcxl-exec-sandbox-test-store-{}",
+        "lcxbox-exec-sandbox-test-store-{}",
         std::process::id()
     ));
     std::fs::create_dir_all(dir.join("locks"))?;

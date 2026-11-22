@@ -554,7 +554,7 @@ pub fn message_payload_bytes(
     crate::image_input::validate_image_data_url(image_data_url)
         .map_err(|error| ModelEgressError::Encode(error.to_string()))?;
 
-    const IMAGE_PAYLOAD_TAG: &[u8] = b"lrd-model-image-v1\0";
+    const IMAGE_PAYLOAD_TAG: &[u8] = b"lad-model-image-v1\0";
     let text_len = u64::try_from(text.len())
         .map_err(|_| ModelEgressError::Encode("message text is too large".into()))?;
     let image_len = u64::try_from(image_data_url.len())

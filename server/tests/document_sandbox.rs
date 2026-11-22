@@ -12,7 +12,7 @@ use desk_document_conversion::{
 use desk_utils::process_sandbox::{self, SandboxFailure, SandboxSpec};
 
 fn server() -> &'static Path {
-    Path::new(env!("CARGO_BIN_EXE_lcxl-remote-desk-server"))
+    Path::new(env!("CARGO_BIN_EXE_lcxbox-agent-desk-server"))
 }
 
 /// Runs requests in the built server executable.
@@ -88,7 +88,7 @@ fn pdf_extraction_keeps_exact_pages_markers_and_errors() {
         &server_runner,
     )
     .unwrap();
-    assert!(extracted.text.starts_with("<!-- lcxl-page: 2 -->"));
+    assert!(extracted.text.starts_with("<!-- lcxbox-page: 2 -->"));
     assert!(extracted.text.contains("Page 2") && !extracted.text.contains("Page 3"));
     assert!(matches!(
         extracted.details,
@@ -182,7 +182,7 @@ fn an_unknown_service_or_program_is_unavailable() {
         process_sandbox::run_program(server(), "missing", &request, b"Hello", &tight());
     assert!(matches!(unknown, Err(SandboxFailure::Unavailable(_))));
     let missing: Result<(SandboxResponse, Vec<u8>), _> = process_sandbox::run_program(
-        Path::new("/nonexistent/lcxl-document-sandbox"),
+        Path::new("/nonexistent/lcxbox-document-sandbox"),
         SERVICE_NAME,
         &request,
         b"Hello",

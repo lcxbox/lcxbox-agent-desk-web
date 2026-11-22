@@ -175,7 +175,7 @@ pub async fn query_server_info(
     #[cfg(target_os = "linux")]
     let platform_service_name = crate::daemon::linux_service::SERVICE_UNIT_NAME;
     #[cfg(not(target_os = "linux"))]
-    let platform_service_name = "LcxlDeskService";
+    let platform_service_name = "LcxboxDeskService";
     let service_installed = desk_utils::permission::is_service_installed(platform_service_name);
     let service_running = desk_utils::permission::is_service_running(platform_service_name);
     // In ServiceDaemon mode the process runs as SYSTEM (is_admin always true).
@@ -300,12 +300,12 @@ fn macos_autologin_status() -> MacosAutologin {
     }
 }
 
-/// Check whether the `lcxl-remote-desk-server` binary is available for service
+/// Check whether the `lcxbox-agent-desk-server` binary is available for service
 /// installation.
 ///
 /// Returns `true` when:
-/// - The current executable IS `lcxl-remote-desk-server` (standalone mode), or
-/// - `lcxl-remote-desk-server(.exe)` exists in the same directory as the current
+/// - The current executable IS `lcxbox-agent-desk-server` (standalone mode), or
+/// - `lcxbox-agent-desk-server(.exe)` exists in the same directory as the current
 ///   executable (Tauri mode — both binaries share the same target/ directory).
 fn server_binary_available() -> bool {
     let Ok(current_exe) = std::env::current_exe() else {
@@ -316,7 +316,7 @@ fn server_binary_available() -> bool {
     if current_exe
         .file_stem()
         .and_then(|s| s.to_str())
-        .map(|s| s == "lcxl-remote-desk-server")
+        .map(|s| s == "lcxbox-agent-desk-server")
         .unwrap_or(false)
     {
         return true;
@@ -327,9 +327,9 @@ fn server_binary_available() -> bool {
         return false;
     };
     #[cfg(target_os = "windows")]
-    let name = "lcxl-remote-desk-server.exe";
+    let name = "lcxbox-agent-desk-server.exe";
     #[cfg(not(target_os = "windows"))]
-    let name = "lcxl-remote-desk-server";
+    let name = "lcxbox-agent-desk-server";
 
     dir.join(name).exists()
 }

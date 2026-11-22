@@ -285,7 +285,7 @@ The standalone assistant fills the available page area without an outer title or
 
 The conversation header contains **Conversation history** and **New conversation**. There is no separate connection status row. The icon before the conversation title is green when signaling is connected, amber while connecting, and gray when the assistant is disabled. Hover for its status explanation; screen readers can also read it. Hover over the conversation title to see the selected target name. History lists the 100 most recent conversations for the current device; select one to restore and continue it. You can browse the list during a task or request, but switch only after it finishes. Empty conversations use only the input placeholder, without a duplicate explanatory paragraph.
 
-In addition to manual control, LCXL Remote Desk lets AI models **read and analyze** device state and, when the authenticated owner explicitly approves a command, act on the diagnosis.
+In addition to manual control, LCXBOX Agent Desk lets AI models **read and analyze** device state and, when the authenticated owner explicitly approves a command, act on the diagnosis.
 
 ::: info Under a shared access code
 When you connect by an [access code](/guide/access-codes) rather than as the owner, the session is capability-scoped. It never receives owner free-form command admission; non-owner and shared-access execution remains template-constrained or disabled.
@@ -503,7 +503,7 @@ Portable Tauri mode provides an “AI Input Control” tray window. Select a dur
 A local command can also establish an input control period. Find `Local AI best-effort input control endpoint` in the current session worker log, then run the command in a local terminal as the same ordinary desktop user (use the actual current worker path):
 
 ```bash
-lcxl-remote-desk-server ai-input-control /run/user/1000/lcxl-ai-input/<worker-id>.sock --seconds 60
+lcxbox-agent-desk-server ai-input-control /run/user/1000/lcxbox-ai-input/<worker-id>.sock --seconds 60
 ```
 
 Read the explanation, type `START`, then release all keys during the three-second delay before blocking is attempted. Partial failure is rejected by default; add `--allow-partial` only if you explicitly accept partial coverage. The command reports actual acquired, failed and skipped counts. Press `Ctrl+Alt+L` to release input. Expiry (at most 300 seconds), device failure, command disconnection, desktop identity loss or worker exit also ends control. Keep the command connected. After the first desktop action binds a turn, the application checks its state with that central server and releases input control when the turn ends, is cancelled, is superseded, or loses its execution lease. Unavailable queries or network connections do not extend the local deadline; local stop remains available. The period binds to the first admitted desktop action’s upstream, user and complete turn identity. Another turn requires starting a new local control period and cannot reuse the previous one. An accepted cancellation of the currently bound desktop action also releases control. Ordinary action completion does not end the whole period, and cancellation of another or older action does not close a new period. It does not hide the screen. Browser and file actions do not depend on this control period.
@@ -559,7 +559,7 @@ Each device additionally keeps two **local** controls in its own settings: an **
 
 The evidence collection policy allows screenshots by default (`allow_screen = true`) and disables logs by default (`allow_logs = false`). Explicitly saved opt-outs are preserved. Allowing screenshots does not grant a conversation permission; actual collection still requires the applicable authorization.
 
-On Linux, the same local AI policy page also controls **one-shot PTY execution** for approved commands that need standard input. It is a machine-wide setting and is enabled by default; turning it off blocks new PTY dispatches but does not terminate a command that is already running. **Interactive elevation** is a separate, default-off subordinate setting. It remains disabled in the UI until the ServiceDaemon root-containment path is available. PTY input is relayed as ordinary bytes: the remote program controls terminal echo, and LCXL does not identify, retain, or add a separate password field for that input.
+On Linux, the same local AI policy page also controls **one-shot PTY execution** for approved commands that need standard input. It is a machine-wide setting and is enabled by default; turning it off blocks new PTY dispatches but does not terminate a command that is already running. **Interactive elevation** is a separate, default-off subordinate setting. It remains disabled in the UI until the ServiceDaemon root-containment path is available. PTY input is relayed as ordinary bytes: the remote program controls terminal echo, and LCXBOX does not identify, retain, or add a separate password field for that input.
 
 ## Security
 

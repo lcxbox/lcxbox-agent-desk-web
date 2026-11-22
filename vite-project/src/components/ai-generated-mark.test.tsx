@@ -28,7 +28,7 @@ describe("AiGeneratedMark", () => {
                 provenance={{
                     model_id: "gpt-4o",
                     generated_at: "2026-07-14T00:00:00Z",
-                    marking_scheme: "lcxl-ai-provenance/1",
+                    marking_scheme: "lcxbox-ai-provenance/1",
                 }}
             />,
         );

@@ -1,6 +1,6 @@
 # Contributing Guide
 
-Thank you for your interest in LCXL Remote Desk Web! We welcome all forms of contributions, including bug fixes, documentation improvements, new feature suggestions, or code submissions.
+Thank you for your interest in LCXBOX Agent Desk Web! We welcome all forms of contributions, including bug fixes, documentation improvements, new feature suggestions, or code submissions.
 
 ## How to Participate
 

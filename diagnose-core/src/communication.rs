@@ -314,7 +314,7 @@ pub fn render_local_draft_text(
     draft: &LocalDraftDocument,
 ) -> Result<Vec<u8>, CommunicationSealError> {
     draft.validate()?;
-    let mut output = String::from("LCXL LOCAL COMMUNICATION DRAFT\n");
+    let mut output = String::from("LCXBOX LOCAL COMMUNICATION DRAFT\n");
     output.push_str("UNVERIFIED RECIPIENT INTENT - NOT SENT\n\n");
     for role in [
         RecipientRole::To,

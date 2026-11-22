@@ -597,7 +597,7 @@ pub(crate) mod tests {
 
     #[test]
     fn scheduled_retrieval_consent_fits_small_stacks() {
-        const STACK: &str = "LRD_TEST_SCHEDULE_CONSENT_STACK_BYTES";
+        const STACK: &str = "LAD_TEST_SCHEDULE_CONSENT_STACK_BYTES";
         if let Some(bytes) = std::env::var_os(STACK) {
             let bytes: usize = bytes.to_str().unwrap().parse().unwrap();
             assert!([1024 * 1024, 2 * 1024 * 1024].contains(&bytes));

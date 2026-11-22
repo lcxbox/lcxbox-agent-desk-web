@@ -110,7 +110,7 @@ impl ScreenOutput {
         //   cursor / resolution residue that the per-rect compose
         //   path accumulates. Skips `read_frame_metadata` because
         //   moves/dirties are unused in this branch.
-        // - per-rect compose (LCXL_DXGI_DIRTY_COMPOSE opt-out): MSDN
+        // - per-rect compose (LCXBOX_DXGI_DIRTY_COMPOSE opt-out): MSDN
         //   `composition_plan` — read move + dirty metadata, copy
         //   move rects, render dirty rects. The resulting
         //   moves/dirties feed `build_dirty_hint` below.
@@ -200,7 +200,7 @@ impl ScreenOutput {
         // cursor itself (`embedded_now`): the cursor pixel is
         // baked into `acquired_desktop_image` but is not advertised
         // in the move/dirty metadata, so even the per-rect opt-out
-        // path (`LCXL_DXGI_DIRTY_COMPOSE=1`) would miss the cursor's
+        // path (`LCXBOX_DXGI_DIRTY_COMPOSE=1`) would miss the cursor's
         // previous position and accumulate ghosts. Force YUV
         // update_full whenever the cursor is embedded.
         // Cursor-aware hint optimisation is left as a follow-up.

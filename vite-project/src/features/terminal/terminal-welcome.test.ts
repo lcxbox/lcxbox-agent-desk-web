@@ -10,20 +10,20 @@ function visibleLines(banner: string): string[] {
 }
 
 describe("terminalWelcomeBanner", () => {
-    it("renders the full LCXL Remote Desk artwork when it fits", () => {
+    it("renders the full LCXBOX Agent Desk artwork when it fits", () => {
         const columns = 76;
         const lines = visibleLines(terminalWelcomeBanner(columns));
 
-        expect(lines).toHaveLength(10);
-        expect(lines.some((line) => line.includes("____                      _"))).toBe(true);
+        expect(lines).toHaveLength(11);
+        expect(lines.some((line) => line.includes("|____/  \\___||___/|_|\\_\\"))).toBe(true);
         expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(columns);
     });
 
     it("uses the compact banner on narrow terminals", () => {
         expect(visibleLines(terminalWelcomeBanner(40))).toEqual([
-            "+------------------+",
-            "| LCXL Remote Desk |",
-            "+------------------+",
+            "+-------------------+",
+            "| LCXBOX Agent Desk |",
+            "+-------------------+",
         ]);
     });
 });

@@ -2058,7 +2058,7 @@ export default function DeskSession({
                             onContextMenu={(e) => { e.preventDefault() }}
                         >
                             <div className="placeholderContent">
-                                <span className="artText">LCXL Remote Desk</span>
+                                <span className="artText">LCXBOX Agent Desk</span>
                                 <div className="videoLoadingBar" aria-hidden="true" />
                                 <p className="videoLoadingText" aria-live="polite">
                                     {t(isVideoTransitioning

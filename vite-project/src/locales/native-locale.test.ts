@@ -57,7 +57,7 @@ describe('changeApplicationLanguage', () => {
 
     it('commits through the native bridge before changing a Tauri page', async () => {
         sessionStorage.setItem(TAURI_SHELL_SESSION_KEY, '1')
-        sessionStorage.setItem('lcxl.nativeBridgeToken', 'session-token')
+        sessionStorage.setItem('lcxbox.nativeBridgeToken', 'session-token')
         const fetchMock = vi.fn().mockResolvedValue(
             new Response(JSON.stringify({ locale: 'en-US' }), {
                 status: 200,
@@ -81,7 +81,7 @@ describe('changeApplicationLanguage', () => {
 
     it('does not silently fall back to a web-only change when native commit fails', async () => {
         sessionStorage.setItem(TAURI_SHELL_SESSION_KEY, '1')
-        sessionStorage.setItem('lcxl.nativeBridgeToken', 'session-token')
+        sessionStorage.setItem('lcxbox.nativeBridgeToken', 'session-token')
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 500 })))
 
         await expect(changeApplicationLanguage('en-US')).rejects.toThrow(
@@ -102,7 +102,7 @@ describe('changeApplicationLanguage', () => {
         initializeNativeLocaleBridge()
 
         window.dispatchEvent(
-            new CustomEvent('lcxl-native-bridge-ready', {
+            new CustomEvent('lcxbox-native-bridge-ready', {
                 detail: {
                     token: 'first-session',
                     locale: 'zh-CN',

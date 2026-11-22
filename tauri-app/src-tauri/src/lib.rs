@@ -24,10 +24,10 @@ static IS_EXITING: AtomicBool = AtomicBool::new(false);
 pub(crate) static HOST_ACCESS_BLOCKS_EXIT: AtomicBool = AtomicBool::new(false);
 
 use clap::Parser as _;
-use lcxl_remote_desk_server::model::settings::{Args, Settings};
+use lcxbox_agent_desk_server::model::settings::{Args, Settings};
 // StartupMode only gates the (non-macOS) elevate tray item.
 #[cfg(not(target_os = "macos"))]
-use lcxl_remote_desk_server::model::settings::StartupMode;
+use lcxbox_agent_desk_server::model::settings::StartupMode;
 use private_screen::PrivateScreenManager;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use whiteboard::WhiteboardManager;
@@ -64,9 +64,9 @@ fn native_bridge_script(token: &str, locale: &str, locale_persisted: bool) -> St
     })
     .to_string();
     format!(
-        "sessionStorage.setItem('lcxl.tauriShell','1');\
-         sessionStorage.setItem('lcxl.nativeBridgeToken',{});\
-         window.dispatchEvent(new CustomEvent('lcxl-native-bridge-ready',{{detail:{detail}}}));",
+        "sessionStorage.setItem('lcxbox.tauriShell','1');\
+         sessionStorage.setItem('lcxbox.nativeBridgeToken',{});\
+         window.dispatchEvent(new CustomEvent('lcxbox-native-bridge-ready',{{detail:{detail}}}));",
         serde_json::to_string(token).expect("serialize bridge token")
     )
 }
@@ -173,11 +173,11 @@ fn start_native_bridge_event_loop(
                     (None, locale, true, false)
                 }
             };
-            let Some(locale) = lcxl_remote_desk_server::locale::canonicalize(&locale) else {
+            let Some(locale) = lcxbox_agent_desk_server::locale::canonicalize(&locale) else {
                 log::warn!("[NativeI18n] ignored unsupported locale {locale:?}");
                 continue;
             };
-            let _ = lcxl_remote_desk_server::locale::set_global_locale(locale);
+            let _ = lcxbox_agent_desk_server::locale::set_global_locale(locale);
             {
                 let mut state = native_bridge_state().lock().unwrap();
                 match (token, state.as_mut()) {
@@ -202,7 +202,7 @@ fn start_native_bridge_event_loop(
                     } else {
                         let detail = serde_json::json!({ "locale": locale }).to_string();
                         let _ = window.eval(format!(
-                            "window.dispatchEvent(new CustomEvent('lcxl-global-locale-changed',\
+                            "window.dispatchEvent(new CustomEvent('lcxbox-global-locale-changed',\
                              {{detail:{detail}}}));"
                         ));
                     }
@@ -214,11 +214,11 @@ fn start_native_bridge_event_loop(
 
 /// Platform service name registered by the install flow.
 #[cfg(target_os = "windows")]
-const SERVICE_NAME: &str = "LcxlDeskService";
+const SERVICE_NAME: &str = "LcxboxDeskService";
 #[cfg(target_os = "linux")]
-const SERVICE_NAME: &str = "lcxl-remote-desk.service";
+const SERVICE_NAME: &str = "lcxbox-agent-desk.service";
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-const SERVICE_NAME: &str = "LcxlDeskService";
+const SERVICE_NAME: &str = "LcxboxDeskService";
 
 /// Build the Tauri context. With the `macos-private-api` feature enabled,
 /// `tauri::generate_context!()` embeds the macOS Info.plist as a static with a
@@ -267,7 +267,7 @@ pub fn run() -> Result<(), DeskTauriError> {
 fn run_tauri_service_shell(settings: &Settings) -> Result<(), DeskTauriError> {
     // Hold the WorkerGuard alive for the full process lifetime — dropping it
     // early would close the non-blocking writer thread mid-run.
-    let _telemetry_guard = match lcxl_remote_desk_server::telemetry::init_tauri_shell_telemetry(
+    let _telemetry_guard = match lcxbox_agent_desk_server::telemetry::init_tauri_shell_telemetry(
         &settings.log.log_level,
         settings.paths().log_dir(),
     ) {
@@ -299,7 +299,7 @@ fn run_tauri_service_shell(settings: &Settings) -> Result<(), DeskTauriError> {
     let (wb_cmd_tx, wb_cmd_rx) =
         std::sync::mpsc::channel::<desk_input_injection::model::host_control::WhiteboardCommand>();
     let (sa_tx, sa_rx) = std::sync::mpsc::channel::<
-        lcxl_remote_desk_server::model::security_approval::SecurityApprovalCommand,
+        lcxbox_agent_desk_server::model::security_approval::SecurityApprovalCommand,
     >();
     let (svc_op_tx, svc_op_rx) = std::sync::mpsc::sync_channel::<service_operations::ServiceJob>(8);
     let (host_access_tx, host_access_rx) =
@@ -533,15 +533,15 @@ fn run_tauri_service_shell(settings: &Settings) -> Result<(), DeskTauriError> {
     Ok(())
 }
 
-/// Find the lcxl-remote-desk-server sidecar executable next to the Tauri app binary.
+/// Find the lcxbox-agent-desk-server sidecar executable next to the Tauri app binary.
 fn find_server_binary() -> std::path::PathBuf {
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
         #[cfg(target_os = "windows")]
-        let name = "lcxl-remote-desk-server.exe";
+        let name = "lcxbox-agent-desk-server.exe";
         #[cfg(not(target_os = "windows"))]
-        let name = "lcxl-remote-desk-server";
+        let name = "lcxbox-agent-desk-server";
 
         let candidate = dir.join(name);
         if candidate.exists() {
@@ -549,14 +549,14 @@ fn find_server_binary() -> std::path::PathBuf {
         }
     }
     #[cfg(target_os = "windows")]
-    return std::path::PathBuf::from("lcxl-remote-desk-server.exe");
+    return std::path::PathBuf::from("lcxbox-agent-desk-server.exe");
     #[cfg(not(target_os = "windows"))]
-    return std::path::PathBuf::from("lcxl-remote-desk-server");
+    return std::path::PathBuf::from("lcxbox-agent-desk-server");
 }
 
-/// Elevate and run `lcxl-remote-desk-server <args>` to install or uninstall the OS service.
+/// Elevate and run `lcxbox-agent-desk-server <args>` to install or uninstall the OS service.
 fn handle_service_op(
-    op: lcxl_remote_desk_server::ServiceOp,
+    op: lcxbox_agent_desk_server::ServiceOp,
     config_override: Option<&std::path::Path>,
 ) -> service_operations::Outcome {
     let sidecar = find_server_binary();
@@ -569,7 +569,7 @@ fn handle_service_op(
         use windows::core::PCWSTR;
 
         let params_str = match &op {
-            lcxl_remote_desk_server::ServiceOp::Install {
+            lcxbox_agent_desk_server::ServiceOp::Install {
                 install_path,
                 install_idd_driver,
             } => {
@@ -586,7 +586,7 @@ fn handle_service_op(
                 }
                 s
             }
-            lcxl_remote_desk_server::ServiceOp::Uninstall => "--uninstall-service".to_string(),
+            lcxbox_agent_desk_server::ServiceOp::Uninstall => "--uninstall-service".to_string(),
         };
 
         log::info!("Service op: running {} {}", sidecar.display(), params_str);
@@ -612,7 +612,7 @@ fn handle_service_op(
                 SW_SHOW,
             )
         };
-        use lcxl_remote_desk_server::host_control::service_operations::{
+        use lcxbox_agent_desk_server::host_control::service_operations::{
             ServiceOperationError as Error, ServiceOperationState as State,
         };
         return if (launch.0 as isize) > 32 {
@@ -640,7 +640,7 @@ fn handle_service_op(
         log::warn!(
             "Service op requested on macOS; ignored (auto-start is managed via the LaunchAgent)"
         );
-        use lcxl_remote_desk_server::host_control::service_operations::{
+        use lcxbox_agent_desk_server::host_control::service_operations::{
             ServiceOperationError as Error, ServiceOperationState as State,
         };
         return (State::Failed, Some(Error::Unsupported), None);
@@ -746,7 +746,7 @@ mod quote_cmd_arg_tests {
 
     #[test]
     fn path_with_spaces() {
-        round_trip("C:\\Program Files\\LCXL Remote Desktop");
+        round_trip("C:\\Program Files\\LCXBOX Agent Desk");
     }
 
     #[test]
@@ -800,7 +800,7 @@ pub fn run_tauri_app(settings: &Settings) -> Result<(), DeskTauriError> {
                 desk_input_injection::model::host_control::WhiteboardCommand,
             >();
             let (sa_tx, sa_rx) = std::sync::mpsc::channel::<
-                lcxl_remote_desk_server::model::security_approval::SecurityApprovalCommand,
+                lcxbox_agent_desk_server::model::security_approval::SecurityApprovalCommand,
             >();
             let (svc_op_tx, svc_op_rx) =
                 std::sync::mpsc::sync_channel::<service_operations::ServiceJob>(8);
@@ -862,7 +862,7 @@ pub fn run_tauri_app(settings: &Settings) -> Result<(), DeskTauriError> {
             // hub: the embedded server is the producer, ipc_client below is the
             // consumer that fans out into the GUI managers' mpsc channels.
             let host_control_hub =
-                std::sync::Arc::new(lcxl_remote_desk_server::host_control::HostControlHub::new_local());
+                std::sync::Arc::new(lcxbox_agent_desk_server::host_control::HostControlHub::new_local());
 
             #[cfg(not(target_os = "macos"))]
             let startup_mode = settings.args.startup_mode.clone();
@@ -871,7 +871,7 @@ pub fn run_tauri_app(settings: &Settings) -> Result<(), DeskTauriError> {
             std::thread::spawn(move || {
                 let system = actix_rt::System::new();
                 system.block_on(async {
-                    match lcxl_remote_desk_server::run_with_hub(
+                    match lcxbox_agent_desk_server::run_with_hub(
                         &server_settings,
                         Some(hub_for_server),
                     )
@@ -883,7 +883,7 @@ pub fn run_tauri_app(settings: &Settings) -> Result<(), DeskTauriError> {
                             // non-blocking log writer thread and silently
                             // discards all subsequent lines.
                             let result = server.await;
-                            lcxl_remote_desk_server::shutdown_model_metrics().await;
+                            lcxbox_agent_desk_server::shutdown_model_metrics().await;
                             if let Err(e) = result {
                                 log::error!("Server error: {}", e);
                             }
@@ -1301,7 +1301,7 @@ fn confirm_exit_with_remote_access() -> bool {
     let message = serde_json::to_string(rust_i18n::t!("host_access_exit_confirm").as_ref())
         .unwrap_or_else(|_| "\"Exit?\"".to_string());
     let title = serde_json::to_string(rust_i18n::t!("host_access_dialog_title").as_ref())
-        .unwrap_or_else(|_| "\"LCXL Remote Desktop\"".to_string());
+        .unwrap_or_else(|_| "\"LCXBOX Agent Desk\"".to_string());
     let cancel = serde_json::to_string(rust_i18n::t!("button_cancel").as_ref()).unwrap();
     let exit = serde_json::to_string(rust_i18n::t!("button_exit").as_ref()).unwrap();
     let script = format!(

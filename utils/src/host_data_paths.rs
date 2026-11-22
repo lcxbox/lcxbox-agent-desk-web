@@ -4,11 +4,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-const APP_DIR_UNIX: &str = "lcxl-remote-desk";
+const APP_DIR_UNIX: &str = "lcxbox-agent-desk";
 #[cfg(target_os = "windows")]
-const APP_DIR_WINDOWS: &str = "LCXL Remote Desktop";
+const APP_DIR_WINDOWS: &str = "LCXBOX Agent Desk";
 #[cfg(target_os = "macos")]
-const APP_ID_MACOS: &str = "com.lcxl.remote-desk";
+const APP_ID_MACOS: &str = "com.lcxbox.agent-desk";
 const REMOTE_ACCESS_STATE_FILE: &str = "remote-access-state.toml";
 const LOCAL_ACCESS_SOCKET_FILE: &str = "remote-access-control.sock";
 
@@ -328,14 +328,14 @@ impl HostDataPaths {
             HostDataScope::System => Self::assemble(
                 scope,
                 false,
-                PathBuf::from("/etc/lcxl-remote-desk/config.toml"),
-                PathBuf::from("/var/lib/lcxl-remote-desk"),
-                Some(PathBuf::from("/run/lcxl-remote-desk")),
-                PathBuf::from("/var/log/lcxl-remote-desk"),
-                PathBuf::from("/var/lib/lcxl-remote-desk"),
-                PathBuf::from("/var/lib/lcxl-remote-desk"),
-                PathBuf::from("/var/lib/lcxl-remote-desk").join(REMOTE_ACCESS_STATE_FILE),
-                Some(PathBuf::from("/run/lcxl-remote-desk").join(LOCAL_ACCESS_SOCKET_FILE)),
+                PathBuf::from("/etc/lcxbox-agent-desk/config.toml"),
+                PathBuf::from("/var/lib/lcxbox-agent-desk"),
+                Some(PathBuf::from("/run/lcxbox-agent-desk")),
+                PathBuf::from("/var/log/lcxbox-agent-desk"),
+                PathBuf::from("/var/lib/lcxbox-agent-desk"),
+                PathBuf::from("/var/lib/lcxbox-agent-desk"),
+                PathBuf::from("/var/lib/lcxbox-agent-desk").join(REMOTE_ACCESS_STATE_FILE),
+                Some(PathBuf::from("/run/lcxbox-agent-desk").join(LOCAL_ACCESS_SOCKET_FILE)),
             ),
             HostDataScope::User => {
                 let home = absolute_environment_path("HOME");
@@ -576,18 +576,18 @@ mod tests {
         let paths = HostDataPaths::resolve(HostDataScope::System, None).expect("system paths");
         assert_eq!(
             paths.config_file(),
-            Path::new("/etc/lcxl-remote-desk/config.toml")
+            Path::new("/etc/lcxbox-agent-desk/config.toml")
         );
-        assert_eq!(paths.data_root(), Path::new("/var/lib/lcxl-remote-desk"));
+        assert_eq!(paths.data_root(), Path::new("/var/lib/lcxbox-agent-desk"));
         assert_eq!(
             paths.signal_db_dir(),
-            Path::new("/var/lib/lcxl-remote-desk")
+            Path::new("/var/lib/lcxbox-agent-desk")
         );
         assert_eq!(
             paths.exec_ledger_dir(),
-            Path::new("/var/lib/lcxl-remote-desk")
+            Path::new("/var/lib/lcxbox-agent-desk")
         );
-        assert_eq!(paths.log_dir(), Path::new("/var/log/lcxl-remote-desk"));
+        assert_eq!(paths.log_dir(), Path::new("/var/log/lcxbox-agent-desk"));
         assert!(!paths.is_explicit());
     }
 

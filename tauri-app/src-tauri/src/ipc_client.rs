@@ -5,10 +5,10 @@ use desk_input_injection::model::host_control::{
     HostControlEventType, PrivateScreenCommand, WhiteboardCommand,
 };
 use futures_util::{SinkExt, StreamExt};
-use lcxl_remote_desk_server::host_control::service_operations::{
+use lcxbox_agent_desk_server::host_control::service_operations::{
     ServiceOperationError, ServiceOperationState, ServiceOperationStatus,
 };
-use lcxl_remote_desk_server::{
+use lcxbox_agent_desk_server::{
     ServiceOp,
     host_control::{ClientRole, HostControlMessage, ServiceOpKind},
     model::security_approval::{SecurityApprovalCommand, SecurityApprovalRequest},
@@ -19,7 +19,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 #[cfg(target_os = "linux")]
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 #[cfg(target_os = "linux")]
-use lcxl_remote_desk_server::host_control::{
+use lcxbox_agent_desk_server::host_control::{
     EnvironmentEntryBase64, SESSION_SHELL_PROTOCOL_VERSION, SessionShellInfo,
 };
 #[cfg(target_os = "linux")]
@@ -575,13 +575,14 @@ mod tests {
         let (svc_tx, _) = std::sync::mpsc::sync_channel::<ServiceJob>(1);
         let (status_tx, status_rx) = std::sync::mpsc::channel();
         let token_holder = Arc::new(Mutex::new(None));
-        let snapshot = lcxl_remote_desk_server::host_control::HostAccessSnapshot {
+        let snapshot = lcxbox_agent_desk_server::host_control::HostAccessSnapshot {
             epoch: "epoch-1".to_string(),
             revision: 4,
             indicator_enabled: false,
             total_session_count: 0,
             sessions: Vec::new(),
-            remote_access: lcxl_remote_desk_server::host_control::HostRemoteAccessStatus::default(),
+            remote_access: lcxbox_agent_desk_server::host_control::HostRemoteAccessStatus::default(
+            ),
         };
 
         handle_server_msg(

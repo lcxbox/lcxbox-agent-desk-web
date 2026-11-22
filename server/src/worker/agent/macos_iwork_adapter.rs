@@ -1561,27 +1561,27 @@ mod tests {
     #[test]
     #[ignore = "requires a running iWork application, an open document, and Automation permission"]
     fn live_observation_uses_the_production_scripting_bridge_adapter() {
-        let app = std::env::var("LRD_IWORK_LIVE_APP").expect("set LRD_IWORK_LIVE_APP");
+        let app = std::env::var("LAD_IWORK_LIVE_APP").expect("set LAD_IWORK_LIVE_APP");
         let app = match app.as_str() {
             "numbers" => IworkApplication::Numbers,
             "pages" => IworkApplication::Pages,
             "keynote" => IworkApplication::Keynote,
-            _ => panic!("LRD_IWORK_LIVE_APP must be numbers, pages, or keynote"),
+            _ => panic!("LAD_IWORK_LIVE_APP must be numbers, pages, or keynote"),
         };
         observe(app).unwrap();
     }
 
     #[test]
-    #[ignore = "requires a running iWork app, Automation permission, and LRD_IWORK_BATCH_SOURCE"]
+    #[ignore = "requires a running iWork app, Automation permission, and LAD_IWORK_BATCH_SOURCE"]
     fn live_batch_observation_opens_the_selected_file_and_closes_without_saving() {
-        let app = std::env::var("LRD_IWORK_LIVE_APP").expect("set LRD_IWORK_LIVE_APP");
-        let source = std::env::var("LRD_IWORK_BATCH_SOURCE")
-            .expect("set LRD_IWORK_BATCH_SOURCE to a disposable native iWork file");
+        let app = std::env::var("LAD_IWORK_LIVE_APP").expect("set LAD_IWORK_LIVE_APP");
+        let source = std::env::var("LAD_IWORK_BATCH_SOURCE")
+            .expect("set LAD_IWORK_BATCH_SOURCE to a disposable native iWork file");
         let application = match app.as_str() {
             "numbers" => IworkApplication::Numbers,
             "pages" => IworkApplication::Pages,
             "keynote" => IworkApplication::Keynote,
-            _ => panic!("LRD_IWORK_LIVE_APP must be numbers, pages, or keynote"),
+            _ => panic!("LAD_IWORK_LIVE_APP must be numbers, pages, or keynote"),
         };
         let before = std::fs::read(&source).unwrap();
         observe_batch(application, Path::new(&source)).unwrap();
@@ -1589,18 +1589,18 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires a running iWork app, Automation permission, and a disposable LRD_IWORK_BATCH_SOURCE"]
+    #[ignore = "requires a running iWork app, Automation permission, and a disposable LAD_IWORK_BATCH_SOURCE"]
     fn live_batch_mutation_saves_verified_native_and_pdf_copies_without_changing_source() {
-        let app = std::env::var("LRD_IWORK_LIVE_APP").expect("set LRD_IWORK_LIVE_APP");
-        let source = std::env::var("LRD_IWORK_BATCH_SOURCE")
-            .expect("set LRD_IWORK_BATCH_SOURCE to a disposable native iWork file");
+        let app = std::env::var("LAD_IWORK_LIVE_APP").expect("set LAD_IWORK_LIVE_APP");
+        let source = std::env::var("LAD_IWORK_BATCH_SOURCE")
+            .expect("set LAD_IWORK_BATCH_SOURCE to a disposable native iWork file");
         let (application, extension) = match app.as_str() {
             "numbers" => (IworkApplication::Numbers, "numbers"),
             "pages" => (IworkApplication::Pages, "pages"),
             "keynote" => (IworkApplication::Keynote, "key"),
-            _ => panic!("LRD_IWORK_LIVE_APP must be numbers, pages, or keynote"),
+            _ => panic!("LAD_IWORK_LIVE_APP must be numbers, pages, or keynote"),
         };
-        let marker = format!("LRD_IWORK_BATCH_{}", std::process::id());
+        let marker = format!("LAD_IWORK_BATCH_{}", std::process::id());
         let output_parent = Path::new(&source).parent().unwrap();
         let native = output_parent.join(format!("{marker}.{extension}"));
         let pdf = output_parent.join(format!("{marker}.pdf"));
@@ -1654,7 +1654,7 @@ mod tests {
     #[test]
     #[ignore = "requires a running iWork application, an open document, and Automation permission"]
     fn live_stale_locator_is_rejected_before_mutation() {
-        let app = std::env::var("LRD_IWORK_LIVE_APP").expect("set LRD_IWORK_LIVE_APP");
+        let app = std::env::var("LAD_IWORK_LIVE_APP").expect("set LAD_IWORK_LIVE_APP");
         let (application, before, error) = match app.as_str() {
             "numbers" => {
                 let before = observe(IworkApplication::Numbers).unwrap();
@@ -1713,7 +1713,7 @@ mod tests {
                     .unwrap_err(),
                 )
             }
-            _ => panic!("LRD_IWORK_LIVE_APP must be numbers, pages, or keynote"),
+            _ => panic!("LAD_IWORK_LIVE_APP must be numbers, pages, or keynote"),
         };
         assert_eq!(error.kind, AgentErrorKind::InvalidInput);
         assert!(!error.retryable);
@@ -1723,8 +1723,8 @@ mod tests {
     #[test]
     #[ignore = "mutates the front iWork document; use only with a disposable test document"]
     fn live_mutation_round_trip_uses_typed_actions_and_exact_readback() {
-        let app = std::env::var("LRD_IWORK_LIVE_APP").expect("set LRD_IWORK_LIVE_APP");
-        let marker = format!("LRD_IWORK_TYPED_ROUND_TRIP_{}", std::process::id());
+        let app = std::env::var("LAD_IWORK_LIVE_APP").expect("set LAD_IWORK_LIVE_APP");
+        let marker = format!("LAD_IWORK_TYPED_ROUND_TRIP_{}", std::process::id());
         match app.as_str() {
             "numbers" => {
                 let IworkObservation::Numbers {
@@ -1824,7 +1824,7 @@ mod tests {
                     .verified
                 );
             }
-            _ => panic!("LRD_IWORK_LIVE_APP must be numbers, pages, or keynote"),
+            _ => panic!("LAD_IWORK_LIVE_APP must be numbers, pages, or keynote"),
         }
     }
 

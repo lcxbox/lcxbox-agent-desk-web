@@ -2651,7 +2651,7 @@ mod tests {
                 "os_session_id": "session-1",
                 "browser_major_version": 151,
                 "browser_version": "151.0.0.0",
-                "adapter_id": "lcxl-browser-extension",
+                "adapter_id": "lcxbox-browser-extension",
                 "adapter_version": "1.7.0",
                 "profile_incarnation": "profile-1",
                 "connection_revision": 7
@@ -3368,7 +3368,7 @@ mod tests {
                     "os_session_id": "session-1",
                     "browser_major_version": 151,
                     "browser_version": "151.0.0.0",
-                    "adapter_id": "lcxl-browser-extension",
+                    "adapter_id": "lcxbox-browser-extension",
                     "adapter_version": "1.7.0",
                     "profile_incarnation": "profile-1",
                     "connection_revision": 7
@@ -3453,7 +3453,7 @@ mod tests {
                 "os_session_id": "session-1",
                 "browser_major_version": 151,
                 "browser_version": "151.0.0.0",
-                "adapter_id": "lcxl-browser-extension",
+                "adapter_id": "lcxbox-browser-extension",
                 "adapter_version": "1.7.0",
                 "profile_incarnation": "profile-1",
                 "connection_revision": 7

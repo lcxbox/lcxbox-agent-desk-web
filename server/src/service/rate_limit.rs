@@ -14,7 +14,7 @@ use opentelemetry::{
 use super::client_ip::NetworkKey;
 use desk_signal_facade::access_code_protection::AccessCodeProtectionPolicy;
 
-pub const MAX_BUCKETS_ENV: &str = "LRD_AUTH_RATE_LIMIT_MAX_BUCKETS";
+pub const MAX_BUCKETS_ENV: &str = "LAD_AUTH_RATE_LIMIT_MAX_BUCKETS";
 pub const DEFAULT_MAX_BUCKETS: usize = 65_536;
 pub const SECURITY_SMALL_CAPACITY: usize = 4_096;
 const CAPACITY_SWEEP_INTERVAL_MS: u64 = 1_000;
@@ -117,7 +117,7 @@ struct AuthRateLimitMetrics {
 
 impl AuthRateLimitMetrics {
     fn new() -> Self {
-        let meter = global::meter("lcxl-remote-desk-server");
+        let meter = global::meter("lcxbox-agent-desk-server");
         Self {
             evictions: meter
                 .u64_counter("auth_rate_limit_evictions_total")

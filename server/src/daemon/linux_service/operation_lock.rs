@@ -16,7 +16,7 @@ impl std::fmt::Display for ServiceOperationBusy {
 impl std::error::Error for ServiceOperationBusy {}
 
 pub(super) fn acquire() -> super::ServiceResult<File> {
-    lock(Path::new("/run/lock/lcxl-remote-desk-service.lock"), 0)
+    lock(Path::new("/run/lock/lcxbox-agent-desk-service.lock"), 0)
 }
 
 fn lock(path: &Path, owner: u32) -> super::ServiceResult<File> {

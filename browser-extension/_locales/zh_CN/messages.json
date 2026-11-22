@@ -1,9 +1,9 @@
 {
   "extensionName": {
-    "message": "LCXL 浏览器助手"
+    "message": "LCXBOX 浏览器助手"
   },
   "extensionDescription": {
-    "message": "将本机 LCXL AI 助手连接到用户明确允许的浏览器页面。"
+    "message": "将本机 LCXBOX AI 助手连接到用户明确允许的浏览器页面。"
   },
   "bridgeUrlLabel": {
     "message": "本机桥地址"
@@ -18,16 +18,16 @@
     "message": "允许当前站点"
   },
   "connection_connecting": {
-    "message": "正在连接 LCXL…"
+    "message": "正在连接 LCXBOX…"
   },
   "connection_connected": {
-    "message": "已连接 LCXL"
+    "message": "已连接 LCXBOX"
   },
   "connection_disconnected": {
     "message": "尚未连接"
   },
   "pairingCodeRequired": {
-    "message": "请输入 LCXL 显示的配对码。"
+    "message": "请输入 LCXBOX 显示的配对码。"
   },
   "pairingSaved": {
     "message": "已保存，扩展正在连接这台设备。"
@@ -62,7 +62,7 @@
     "message": "只能添加 HTTP 或 HTTPS 站点。"
   },
   "pairingInvalid": {
-    "message": "请输入 LCXL 显示的完整本机桥地址和配对码。"
+    "message": "请输入 LCXBOX 显示的完整本机桥地址和配对码。"
   },
   "pairingSaveFailed": {
     "message": "无法保存配对配置，请重试。"

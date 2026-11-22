@@ -826,13 +826,13 @@ impl PreparedExecutable {
 mod tests {
     use super::*;
     #[test]
-    #[ignore = "requires LRDM_TEST_ELEVATION_FIXTURE, a controlled requireAdministrator executable"]
+    #[ignore = "requires LADM_TEST_ELEVATION_FIXTURE, a controlled requireAdministrator executable"]
     fn controlled_elevation_failures_keep_native_diagnostics() {
         assert!(
             !current_elevated().unwrap(),
             "Run this check from an ordinary user process"
         );
-        let target = std::env::var("LRDM_TEST_ELEVATION_FIXTURE").expect("controlled fixture path");
+        let target = std::env::var("LADM_TEST_ELEVATION_FIXTURE").expect("controlled fixture path");
         let sid = storage_user_sid().unwrap();
         let session: u32 = catalog_session_identity()
             .unwrap()

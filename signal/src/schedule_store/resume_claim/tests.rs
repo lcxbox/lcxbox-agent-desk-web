@@ -299,7 +299,7 @@ async fn actual_occurrence_retrieval_binding_rolls_back_and_keeps_original_budge
 
 #[test]
 fn actual_occurrence_retrieval_fits_small_stacks() {
-    const STACK: &str = "LRD_TEST_OCCURRENCE_RETRIEVAL_STACK_BYTES";
+    const STACK: &str = "LAD_TEST_OCCURRENCE_RETRIEVAL_STACK_BYTES";
     if let Some(bytes) = std::env::var_os(STACK) {
         let bytes: usize = bytes.to_str().unwrap().parse().unwrap();
         assert!([1024 * 1024, 2 * 1024 * 1024].contains(&bytes));

@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 async fn live_project_model_thinking_replay() {
     let config = ModelProviderConfig {
         wire_protocol: Some(WireProtocol::OpenAiChatCompletions),
-        model: Some(std::env::var("LRD_LIVE_DEEPSEEK_MODEL").unwrap()),
-        base_url: Some(std::env::var("LRD_LIVE_DEEPSEEK_BASE_URL").unwrap()),
-        api_key: Some(std::env::var("LRD_LIVE_DEEPSEEK_API_KEY").unwrap()),
+        model: Some(std::env::var("LAD_LIVE_DEEPSEEK_MODEL").unwrap()),
+        base_url: Some(std::env::var("LAD_LIVE_DEEPSEEK_BASE_URL").unwrap()),
+        api_key: Some(std::env::var("LAD_LIVE_DEEPSEEK_API_KEY").unwrap()),
         request_options: json!({"thinking":{"type":"enabled"}}),
         max_context_bytes: Some(131_072),
         runtime_max_output_tokens: 1024,
@@ -102,7 +102,7 @@ async fn live_project_model_thinking_replay() {
             "first_usage":first.usage,"second_usage":second.usage,"elapsed_ms":started.elapsed().as_millis()}]
     });
     std::fs::write(
-        std::env::var("LRD_LIVE_SUBAGENT_EVIDENCE_PATH").unwrap(),
+        std::env::var("LAD_LIVE_SUBAGENT_EVIDENCE_PATH").unwrap(),
         serde_json::to_string_pretty(&evidence).unwrap(),
     )
     .unwrap();

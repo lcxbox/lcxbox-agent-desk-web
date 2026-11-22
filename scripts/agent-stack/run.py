@@ -129,56 +129,56 @@ REQUIRED = {
                     '^desk_signal::agent_run_event_store::write_input_goal_events_on.*closure',
                     'agent_run_event_store::.*handled_outcome', 'agent_goal_store::settle_slice_afterimage',
                     'agent_goal_store::persist_slice_on', 'agent_goal_store::validate_slice_session_on'],
-    'lcxl-remote-desk-manager': [r'^lcxl_remote_desk_manager::service::assistant_data_store::memory_control::native::forget_on::_\{\{closure\}\}$',
+    'lcxbox-agent-desk-manager': [r'^lcxbox_agent_desk_manager::service::assistant_data_store::memory_control::native::forget_on::_\{\{closure\}\}$',
                                'agent_loop_driver::prepare_composed_turn', 'manager_provider_tools::.*prepare_execution',
-                               '^lcxl_remote_desk_manager::service::agent_subagent_store::observation::save_main_delegation_session.*closure',
-                               '^lcxl_remote_desk_manager::service::agent_subagent_store::observation::save_main_history_on.*closure',
+                               '^lcxbox_agent_desk_manager::service::agent_subagent_store::observation::save_main_delegation_session.*closure',
+                               '^lcxbox_agent_desk_manager::service::agent_subagent_store::observation::save_main_history_on.*closure',
                     '^desk_diagnose_core::agent_loop::fresh_task::resume_claimed_fresh_task_turn.*closure',
                     '^desk_diagnose_core::schedule::dispatch::dispatch_continuation.*closure',
                     '^desk_diagnose_core::schedule::dispatch::dispatch_fresh.*closure',
-                    'lcxl_remote_desk_manager::service::schedule_executor::continuation::ContinuationHost.*ContinuationDispatchHost.*run_turn.*closure',
-                    'lcxl_remote_desk_manager::service::schedule_executor::fresh::FreshHost.*FreshDispatchHost.*run_turn.*closure',
+                    'lcxbox_agent_desk_manager::service::schedule_executor::continuation::ContinuationHost.*ContinuationDispatchHost.*run_turn.*closure',
+                    'lcxbox_agent_desk_manager::service::schedule_executor::fresh::FreshHost.*FreshDispatchHost.*run_turn.*closure',
                     'review_budget::reserve_review_attempt_on', 'agent_approval_reviewer::call_claimed',
                     'agent_model::.*ModelSeam.*call', 'capability_provider_work::dispatch',
                     'capability_grant_store::task_authority::match_current_on',
-                    '^lcxl_remote_desk_manager::service::assistant_data_store::output_archive::gc::collect_actor_transaction.*closure',
-                    '^lcxl_remote_desk_manager::service::assistant_data_store::output_archive::gc::collect_archive_on.*closure',
-                    '^lcxl_remote_desk_manager::service::assistant_data_store::owner_source::history_source_on.*closure',
-                    '^lcxl_remote_desk_manager::service::assistant_data_store::model_sources::validate_history_on.*closure',
-                    '^lcxl_remote_desk_manager::service::assistant_data_store::history::staged::write::write_on.*closure',
-                    '^lcxl_remote_desk_manager::service::assistant_data_store::history::staged::write::write_conversation_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::assistant_data_store::output_archive::gc::collect_actor_transaction.*closure',
+                    '^lcxbox_agent_desk_manager::service::assistant_data_store::output_archive::gc::collect_archive_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::assistant_data_store::owner_source::history_source_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::assistant_data_store::model_sources::validate_history_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::assistant_data_store::history::staged::write::write_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::assistant_data_store::history::staged::write::write_conversation_on.*closure',
                     '^desk_assistant_data_store::schedule::create::create_task_on.*closure',
                     '^desk_assistant_data_store::schedule::create::capture_retrieval_consent_on.*closure',
                     '^desk_assistant_data_store::schedule::create::capture_definition_consent_on.*closure',
-                    '^lcxl_remote_desk_manager::service::schedule_store::fresh_session::_<impl lcxl_remote_desk_manager::service::schedule_store::ScheduleStore>::insert_fresh_session_inner.*closure',
-                    '^lcxl_remote_desk_manager::service::schedule_store::fresh_session::_<impl lcxl_remote_desk_manager::service::schedule_store::ScheduleStore>::initialize_fresh_assistant_on.*closure',
-                    '^lcxl_remote_desk_manager::service::schedule_store::fresh_session::_<impl lcxl_remote_desk_manager::service::schedule_store::ScheduleStore>::owner_prompt_retention_on.*closure',
-                    '^lcxl_remote_desk_manager::service::schedule_store::fresh_session::_<impl lcxl_remote_desk_manager::service::schedule_store::ScheduleStore>::record_prompt_retention_on.*closure',
-                    '^lcxl_remote_desk_manager::service::schedule_store::fresh_session::_<impl lcxl_remote_desk_manager::service::schedule_store::ScheduleStore>::published_input_retention_on.*closure',
-                    '^lcxl_remote_desk_manager::service::assistant_data_store::visible_history::native::inputs::published_on::.*closure.*closure',
-                    '^lcxl_remote_desk_manager::service::schedule_store::fresh_recovery::_<impl lcxl_remote_desk_manager::service::schedule_store::ScheduleStore>::recover_action_free_fresh_task::.*closure.*closure',
+                    '^lcxbox_agent_desk_manager::service::schedule_store::fresh_session::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::insert_fresh_session_inner.*closure',
+                    '^lcxbox_agent_desk_manager::service::schedule_store::fresh_session::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::initialize_fresh_assistant_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::schedule_store::fresh_session::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::owner_prompt_retention_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::schedule_store::fresh_session::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::record_prompt_retention_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::schedule_store::fresh_session::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::published_input_retention_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::assistant_data_store::visible_history::native::inputs::published_on::.*closure.*closure',
+                    '^lcxbox_agent_desk_manager::service::schedule_store::fresh_recovery::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::recover_action_free_fresh_task::.*closure.*closure',
                     '^desk_assistant_data_store::schedule::fresh_recovery::recover_action_free_fresh_task_on.*closure',
                     '^desk_assistant_data_store::schedule::fresh_recovery::reconcile_expired_fresh_task.*closure',
                     '^desk_assistant_data_store::schedule::fresh_recovery::settle_expired_fresh_task.*closure',
                     '^desk_assistant_data_store::schedule::fresh_recovery::children::recover.*closure',
                     '^desk_assistant_data_store::schedule::fresh_recovery::permission::recover.*closure',
-                    '^lcxl_remote_desk_manager::service::schedule_store::fresh_children_settlement::_<impl lcxl_remote_desk_manager::service::schedule_store::ScheduleStore>::settle_fresh_children_wait_with_observer.*closure',
+                    '^lcxbox_agent_desk_manager::service::schedule_store::fresh_children_settlement::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::settle_fresh_children_wait_with_observer.*closure',
                     '^desk_assistant_data_store::schedule::fresh_children_settlement::settle_fresh_children_wait_on.*closure',
                     '^desk_assistant_data_store::schedule::fresh_children_settlement::load_fresh_children_wait.*closure',
-                    '^lcxl_remote_desk_manager::service::schedule_store::cancel::_<impl lcxl_remote_desk_manager::service::schedule_store::ScheduleStore>::cancel_run.*closure',
-                    '^lcxl_remote_desk_manager::service::schedule_store::cancel::_<impl lcxl_remote_desk_manager::service::schedule_store::ScheduleStore>::record_run_cancellation.*closure',
+                    '^lcxbox_agent_desk_manager::service::schedule_store::cancel::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::cancel_run.*closure',
+                    '^lcxbox_agent_desk_manager::service::schedule_store::cancel::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::record_run_cancellation.*closure',
                     '^desk_assistant_data_store::schedule::scan::scan_wait_expiry_once::.*closure.*closure',
                     '^desk_assistant_data_store::schedule::scan::scan_children_wait_settlement_once::.*closure.*closure',
-                    '^lcxl_remote_desk_manager::service::agent_subagent_store::main_stop::_<impl lcxl_remote_desk_manager::service::agent_subagent_store::SubAgentStore>::stop_for_owner.*closure',
+                    '^lcxbox_agent_desk_manager::service::agent_subagent_store::main_stop::_<impl lcxbox_agent_desk_manager::service::agent_subagent_store::SubAgentStore>::stop_for_owner.*closure',
                     '^desk_assistant_data_store::schedule::fresh_children_settlement::prepare_fresh_children_close.*closure',
                     '^desk_assistant_data_store::schedule::fresh_children_settlement::close_fresh_children_source.*closure',
                     '^desk_assistant_data_store::schedule::fresh_children_settlement::persist_fresh_children_close.*closure',
-                    '^lcxl_remote_desk_manager::service::schedule_store::fresh_children_settlement::_<impl lcxl_remote_desk_manager::service::schedule_store::ScheduleStore>::reconcile_fresh_children_receipts_inner.*closure',
+                    '^lcxbox_agent_desk_manager::service::schedule_store::fresh_children_settlement::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::reconcile_fresh_children_receipts_inner.*closure',
                     '^desk_assistant_data_store::schedule::fresh_children_settlement::reconcile_fresh_children_receipts_on.*closure',
                     '^desk_assistant_data_store::schedule::fresh_children_settlement::load_fresh_children_receipts.*closure',
                     '^desk_assistant_data_store::schedule::fresh_children_settlement::load_fresh_receipt_root.*closure',
                     '^desk_assistant_data_store::schedule::fresh_children_settlement::persist_fresh_children_receipts.*closure',
-                    '^lcxl_remote_desk_manager::service::schedule_store::resume_claim::_<impl lcxl_remote_desk_manager::service::schedule_store::ScheduleStore>::claim_continuation_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::schedule_store::resume_claim::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::claim_continuation_on.*closure',
                     '^desk_assistant_data_store::schedule::resume_claim::claim_continuation_on.*closure',
                     '^desk_assistant_data_store::schedule::resume_claim::prepare_continuation_task_on.*closure',
                     '^desk_assistant_data_store::schedule::resume_claim::bind_continuation_session_on.*closure',
@@ -186,17 +186,17 @@ REQUIRED = {
                     '^desk_assistant_data_store::schedule::resume_admission::lock_action_session.*closure',
                     '^desk_assistant_data_store::schedule::resume_admission::lock_fresh_action_session_on.*closure',
                     '^desk_assistant_data_store::schedule::resume_admission::validate_continuation_action_on.*closure',
-                    '^lcxl_remote_desk_manager::service::agent_goal_store::claim_slice::.*closure.*closure',
-                    '^lcxl_remote_desk_manager::service::agent_goal_store::claim_slice_source_on.*closure',
-                    '^lcxl_remote_desk_manager::service::agent_goal_store::scheduler_transition.*closure',
-                    '^lcxl_remote_desk_manager::service::assistant_data_store::accept_input_on.*closure',
-                    '^lcxl_remote_desk_manager::service::agent_run_event_store::ManagerRunEventStore::admit_user_input.*closure',
-                    '^lcxl_remote_desk_manager::service::agent_run_event_store::persist_input_on.*closure',
-                    '^lcxl_remote_desk_manager::service::agent_run_event_store::prepare_input_goals_on.*closure',
-                    '^lcxl_remote_desk_manager::service::agent_run_event_store::file_scope::_<impl lcxl_remote_desk_manager::service::agent_run_event_store::ManagerRunEventStore>::update_file_scope_guarded.*closure',
-                    '^lcxl_remote_desk_manager::service::agent_run_event_store::file_scope::load_session_on.*closure',
-                    '^lcxl_remote_desk_manager::service::agent_run_event_store::file_scope::persist_update_on.*closure',
-                    '^lcxl_remote_desk_manager::service::agent_run_event_store::write_input_goal_events_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::agent_goal_store::claim_slice::.*closure.*closure',
+                    '^lcxbox_agent_desk_manager::service::agent_goal_store::claim_slice_source_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::agent_goal_store::scheduler_transition.*closure',
+                    '^lcxbox_agent_desk_manager::service::assistant_data_store::accept_input_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::agent_run_event_store::ManagerRunEventStore::admit_user_input.*closure',
+                    '^lcxbox_agent_desk_manager::service::agent_run_event_store::persist_input_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::agent_run_event_store::prepare_input_goals_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::agent_run_event_store::file_scope::_<impl lcxbox_agent_desk_manager::service::agent_run_event_store::ManagerRunEventStore>::update_file_scope_guarded.*closure',
+                    '^lcxbox_agent_desk_manager::service::agent_run_event_store::file_scope::load_session_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::agent_run_event_store::file_scope::persist_update_on.*closure',
+                    '^lcxbox_agent_desk_manager::service::agent_run_event_store::write_input_goal_events_on.*closure',
                     'agent_run_event_store::.*read_user_input_state', 'agent_goal_store::settle_slice_afterimage',
                     'agent_goal_store::persist_slice_on', 'agent_goal_store::validate_slice_session_on'],
 }
@@ -209,7 +209,7 @@ REQUIRED['desk-diagnose-core'] += [
 ]
 
 for _package, _host in [('desk-signal', 'desk_signal'),
-                        ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+                        ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
     for _path in ['visible_history::snapshot::prepare_on',
                   'visible_history::native::resolve_policy_on',
                   'visible_history::native::citation_roots_on',
@@ -221,28 +221,28 @@ for _package, _host in [('desk-signal', 'desk_signal'),
 
 # Schedule storage retains its actual native poll, beyond the trait adapter.
 for _package, _host in [('desk-signal', 'desk_signal'),
-                        ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+                        ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
     REQUIRED[_package].append('^_<' + _host + r'::agent_session_store::.* as desk_diagnose_core::seam::SessionSeam>::manage_schedule_tool::_\{\{closure\}\}$')
 
 # Direct writes retain physical ownership and require actual execution polls.
 for _package, _host in [('desk-signal', 'desk_signal'),
-                        ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+                        ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
     for _operation in ('write', 'write_on'):
         REQUIRED[_package].append('^' + _host + r'::assistant_data_store::memory_write::' + _operation + r'::_\{\{closure\}\}$')
     for _path in ('memory_write::apply_on', 'memory_write::sources::load_on', 'memory_write::receipts::collect_on'):
         REQUIRED[_package].append('^desk_assistant_data_store::' + _path + r'::_\{\{closure\}\}$')
 REQUIRED['desk-signal'].append(r'^desk_signal::model_egress_store::.*read_context_output_with_archive_on::_\{\{closure\}\}$')
-REQUIRED['lcxl-remote-desk-manager'].append(r'^lcxl_remote_desk_manager::service::ai_call_request::read_context_output_with_archive_on::_\{\{closure\}\}$')
+REQUIRED['lcxbox-agent-desk-manager'].append(r'^lcxbox_agent_desk_manager::service::ai_call_request::read_context_output_with_archive_on::_\{\{closure\}\}$')
 
 # Naming metadata phases retain the original caller and must expose their real polls.
 for _package, _host in [('desk-signal', 'desk_signal'),
-                        ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+                        ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
     for _method in ('load_title_limit', 'store_title'):
         REQUIRED[_package].append('^' + _host + r'::agent_session_store::title::.*' + _method + r'::_\{\{closure\}\}::_\{\{closure\}\}$')
 
 # Unsupported snapshots must retain measured retirement and child-control execution.
 for _package, _host in [('desk-signal', 'desk_signal'),
-                        ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+                        ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
     for _path in ('agent_subagent_store::retention::close_root_for_subject_on',
                   'agent_subagent_store::retention::close_child_on',
                   'agent_session_store::management::retire_unsupported_for_expiry'):
@@ -251,15 +251,15 @@ for _package, _host in [('desk-signal', 'desk_signal'),
 
 # Candidate metadata scans keep the caller's ownership and expose their actual poll.
 for _package, _host in [('desk-signal', 'desk_signal'),
-                        ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+                        ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
     REQUIRED[_package].append('^' + _host + r'::agent_subagent_store::candidates::.*root_wait_candidates::_\{\{closure\}\}::_\{\{closure\}\}$')
 
 REQUIRED['desk-diagnose-core'].append('^desk_diagnose_core::permission_grant::apply_automatic_grant_failure$')
 REQUIRED['desk-signal'].append(r'^desk_signal::agent_session_store.*decide_permission_request_with_authority::_\{\{closure\}\}$')
-REQUIRED['lcxl-remote-desk-manager'].append(r'^lcxl_remote_desk_manager::service::agent_permission_store.*decide_with_authority::_\{\{closure\}\}$')
+REQUIRED['lcxbox-agent-desk-manager'].append(r'^lcxbox_agent_desk_manager::service::agent_permission_store.*decide_with_authority::_\{\{closure\}\}$')
 
 # The hosts instantiate shared discovery, cursor and single-pass execution polls.
-for _package in ('desk-signal', 'lcxl-remote-desk-manager'):
+for _package in ('desk-signal', 'lcxbox-agent-desk-manager'):
     for _operation in ('due_actors_on', 'claim_on', 'finish_quota_on'):
         REQUIRED[_package].append(
             '^desk_assistant_data_store::output_gc::' + _operation + r'::_\{\{closure\}\}::_\{\{closure\}\}$')
@@ -270,7 +270,7 @@ for _package in ('desk-signal', 'lcxl-remote-desk-manager'):
 REQUIRED['desk-diagnose-core'].append(
     '^desk_diagnose_core::ai_assistant::retrieval_response::fit_memory_history$')
 for _package, _host in [('desk-signal', 'desk_signal'),
-                        ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+                        ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
     for _path in ('memory_history::read_on',
                   'memory_view::read_history_on', 'memory_view::read_proof_on'):
         REQUIRED[_package].append('^' + _host + '::assistant_data_store::' + _path + r'::_\{\{closure\}\}$')
@@ -278,18 +278,18 @@ for _package, _host in [('desk-signal', 'desk_signal'),
         REQUIRED[_package].append('^desk_assistant_data_store::memory_history::' + _path + r'::_\{\{closure\}\}$')
 
 
-REQUIRED['lcxl-remote-desk-manager'].append(
-    r'^lcxl_remote_desk_manager::service::capability_grant_store::read_use::.*::read_use::_\{\{closure\}\}$')
+REQUIRED['lcxbox-agent-desk-manager'].append(
+    r'^lcxbox_agent_desk_manager::service::capability_grant_store::read_use::.*::read_use::_\{\{closure\}\}$')
 
 # The trait future owns manifest validation after optimized inlining.
 for _package, _store in [
         ('desk-signal', 'desk_signal::agent_session_store::SignalAgentSessionStore'),
-        ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service::agent_session_store::AgentSessionStore')]:
+        ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service::agent_session_store::AgentSessionStore')]:
     REQUIRED[_package].append(
         '^_<' + _store + r' as desk_diagnose_core::seam::SessionSeam>::assistant_data_request_manifest::_\{\{closure\}\}$')
 
 
-for _package in ('desk-signal', 'lcxl-remote-desk-manager'):
+for _package in ('desk-signal', 'lcxbox-agent-desk-manager'):
     REQUIRED[_package].append(r'^desk_signal_facade::service::lease_heartbeat::renew_until_lost::_\{\{closure\}\}::_\{\{closure\}\}$')
 
 
@@ -304,9 +304,9 @@ def required_patterns(package, profile):
         patterns.append(r'^desk_diagnose_core::agent_loop::task_permission::pause::_\{\{closure\}\}$')
     if package == 'desk-agent-protocol' and profile == 'debug':
         patterns.append('^desk_agent_protocol::ai_assistant::memory::validate_draft_limits$')
-    if profile != 'release' or package not in ('desk-signal', 'lcxl-remote-desk-manager'):
+    if profile != 'release' or package not in ('desk-signal', 'lcxbox-agent-desk-manager'):
         return patterns
-    host = 'desk_signal' if package == 'desk-signal' else 'lcxl_remote_desk_manager::service'
+    host = 'desk_signal' if package == 'desk-signal' else 'lcxbox_agent_desk_manager::service'
     # Optimized generic polls are inlined into their unchanged caller-owned phases.
     owners = {
         'memory_write::sources::load_on': '^' + host + r'::assistant_data_store::memory_write::write_on::_\{\{closure\}\}$',

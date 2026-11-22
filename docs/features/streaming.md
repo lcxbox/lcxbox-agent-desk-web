@@ -1,6 +1,6 @@
 # Remote Control & Streaming
 
-LCXL Remote Desk streams the remote screen and audio over **WebRTC** for ultra-low latency, with full keyboard and mouse control.
+LCXBOX Agent Desk streams the remote screen and audio over **WebRTC** for ultra-low latency, with full keyboard and mouse control.
 
 ## Video Encoding
 

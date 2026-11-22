@@ -1,5 +1,5 @@
 //! Native service-operation results survive an embedded server/daemon disconnect.
-use lcxl_remote_desk_server::{
+use lcxbox_agent_desk_server::{
     ServiceOp,
     host_control::{
         ServiceOpKind,
@@ -52,7 +52,7 @@ pub(crate) fn start(handle: tauri::AppHandle, rx: Receiver<ServiceJob>, config: 
                 && let Ok(json) = serde_json::to_string(&status)
             {
                 let _ = window.eval(&format!(
-                    "window.dispatchEvent(new CustomEvent('lrd-service-operation', {{detail:{json}}}));"
+                    "window.dispatchEvent(new CustomEvent('lad-service-operation', {{detail:{json}}}));"
                 ));
             }
         }
@@ -101,7 +101,7 @@ fn run(command: &mut std::process::Command) -> Outcome {
             Some(0) => (State::Succeeded, None, Some(0)),
             Some(126) => (State::Cancelled, None, Some(126)),
             Some(127) => (State::Failed, Some(Error::AuthorizationNotGranted), Some(127)),
-            Some(code) if code == lcxl_remote_desk_server::daemon::linux_service::SERVICE_OPERATION_BUSY_EXIT_CODE =>
+            Some(code) if code == lcxbox_agent_desk_server::daemon::linux_service::SERVICE_OPERATION_BUSY_EXIT_CODE =>
                 (State::Failed, Some(Error::Busy), Some(code)),
             Some(code) => (State::Failed, Some(Error::InstallerFailed), Some(code)),
             None => (State::Unknown, Some(Error::ConnectionLost), None),
@@ -145,7 +145,7 @@ mod tests {
             command.args(["-c", &format!("exit {code}")]);
             assert_eq!(run(&mut command), (state, error, Some(code)));
         }
-        let mut missing = std::process::Command::new("/nonexistent/lrd-test-pkexec");
+        let mut missing = std::process::Command::new("/nonexistent/lad-test-pkexec");
         assert_eq!(
             run(&mut missing).1,
             Some(ServiceOperationError::MissingPkexec)

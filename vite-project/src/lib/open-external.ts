@@ -17,9 +17,9 @@
 export function isTauriShell(): boolean {
     try {
         if (new URLSearchParams(window.location.search).get("tauri") === "1") {
-            sessionStorage.setItem("lcxl.tauriShell", "1")
+            sessionStorage.setItem("lcxbox.tauriShell", "1")
         }
-        return sessionStorage.getItem("lcxl.tauriShell") === "1"
+        return sessionStorage.getItem("lcxbox.tauriShell") === "1"
     } catch {
         return false
     }

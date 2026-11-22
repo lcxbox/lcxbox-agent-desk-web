@@ -1,6 +1,6 @@
 # config.toml Reference
 
-Server settings use a startup-mode-independent platform default: `%ProgramData%\LCXL Remote Desktop\config\config.toml` on Windows, `XDG_CONFIG_HOME/lcxl-remote-desk/config.toml` (or `~/.config/lcxl-remote-desk/config.toml`) for a non-root Linux user, `/etc/lcxl-remote-desk/config.toml` for Linux root, and `~/Library/Application Support/com.lcxl.remote-desk/config/config.toml` on macOS. `-c, --config-file-path <PATH>` explicitly selects another profile; services and LaunchAgents inherit it only when it was explicitly supplied.
+Server settings use a startup-mode-independent platform default: `%ProgramData%\LCXBOX Agent Desk\config\config.toml` on Windows, `XDG_CONFIG_HOME/lcxbox-agent-desk/config.toml` (or `~/.config/lcxbox-agent-desk/config.toml`) for a non-root Linux user, `/etc/lcxbox-agent-desk/config.toml` for Linux root, and `~/Library/Application Support/com.lcxbox.agent-desk/config/config.toml` on macOS. `-c, --config-file-path <PATH>` explicitly selects another profile; services and LaunchAgents inherit it only when it was explicitly supplied.
 
 After saving system, connection, log, TURN, TURN client or AI execution and collection settings, the page rereads the saved configuration and updates its cache. Returning to the page shows the saved values. The save button stays disabled until this refresh finishes; edits made during the refresh are preserved. If the write succeeds but this read fails, the message confirms that settings were saved and asks you to reload the page to check the saved values.
 
@@ -209,7 +209,7 @@ the user answered is still honored on its own.
 
 ## OSS global configuration
 
-OSS saves AI gateways, search and global policies in the same `config.toml` as host settings, selected by the active profile or `--config-file-path`. Settings pages persist changes immediately. To edit the file manually, stop the service, edit, and restart. These sections and `[oss_config_metadata]` do not accept `LRD_*` overrides; other host settings keep their existing environment behavior.
+OSS saves AI gateways, search and global policies in the same `config.toml` as host settings, selected by the active profile or `--config-file-path`. Settings pages persist changes immediately. To edit the file manually, stop the service, edit, and restart. These sections and `[oss_config_metadata]` do not accept `LAD_*` overrides; other host settings keep their existing environment behavior.
 
 | Section | Fields and meaning |
 | --- | --- |

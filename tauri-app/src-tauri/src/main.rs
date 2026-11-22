@@ -14,11 +14,11 @@ fn main() -> ExitCode {
     // The Windows command-sandbox launcher must keep the full 32-bit exit
     // code, which `ExitCode::from(u8)` would truncate.
     #[cfg(windows)]
-    if let Some(code) = lcxl_remote_desk_server::exec_sandbox_launcher::run_if_requested() {
+    if let Some(code) = lcxbox_agent_desk_server::exec_sandbox_launcher::run_if_requested() {
         std::process::exit(code);
     }
     #[cfg(windows)]
-    if let Some(code) = lcxl_remote_desk_server::windows_application_host::run_if_requested() {
+    if let Some(code) = lcxbox_agent_desk_server::windows_application_host::run_if_requested() {
         return ExitCode::from(code as u8);
     }
     #[cfg(windows)]
@@ -27,18 +27,18 @@ fn main() -> ExitCode {
         let _ = args.next();
         if args.next().as_deref()
             == Some(std::ffi::OsStr::new(
-                lcxl_remote_desk_server::windows_office_helper::MODE,
+                lcxbox_agent_desk_server::windows_office_helper::MODE,
             ))
         {
             if args.next().is_some() {
                 return ExitCode::from(2);
             }
             return ExitCode::from(
-                lcxl_remote_desk_server::windows_office_helper::run_stdio() as u8
+                lcxbox_agent_desk_server::windows_office_helper::run_stdio() as u8
             );
         }
     }
-    let run_result = lcxl_remote_desk_tauri::run();
+    let run_result = lcxbox_agent_desk_tauri::run();
     match run_result {
         Ok(_) => {
             log::info!("Server exit normally");

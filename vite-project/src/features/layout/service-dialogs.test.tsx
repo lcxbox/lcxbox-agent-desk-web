@@ -52,7 +52,7 @@ describe("service mutation dialogs", () => {
             <ServiceInstallDialog
                 open
                 onOpenChange={onOpenChange}
-                defaultInstallPath="C:\\Program Files\\lcxl"
+                defaultInstallPath="C:\\Program Files\\lcxbox"
             />,
         )
         const confirm = await screen.findByRole("button", { name: "Install Service" })
@@ -93,7 +93,7 @@ describe("service mutation dialogs", () => {
         const onOpenChange = vi.fn()
         const onCompleted = vi.fn()
         render(<ServiceInstallDialog open platform="linux" onOpenChange={onOpenChange}
-            onCompleted={onCompleted} defaultInstallPath="/usr/lib/lcxl-remote-desk" />)
+            onCompleted={onCompleted} defaultInstallPath="/usr/lib/lcxbox-agent-desk" />)
         expect(global.fetch).not.toHaveBeenCalled()
         expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
         expect(screen.getByRole('textbox')).toHaveAttribute('readonly')

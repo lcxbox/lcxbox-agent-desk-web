@@ -4,8 +4,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "Building Rust server (lcxl-remote-desk-server)..."
-cargo build -p lcxl-remote-desk-server
+echo "Building Rust server (lcxbox-agent-desk-server)..."
+cargo build -p lcxbox-agent-desk-server
 
 echo "Building Vite project..."
 pushd "$SCRIPT_DIR/vite-project" > /dev/null

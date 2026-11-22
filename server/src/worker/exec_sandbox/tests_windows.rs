@@ -13,7 +13,7 @@ use std::sync::Mutex;
 /// pipe name as an extra (never matching) test filter.
 #[test]
 fn launcher_entry() {
-    if let Some(pipe) = std::env::args().find(|a| a.starts_with("lcxl-exec-sandbox-")) {
+    if let Some(pipe) = std::env::args().find(|a| a.starts_with("lcxbox-exec-sandbox-")) {
         std::process::exit(crate::exec_sandbox_launcher::run_with_pipe(&pipe));
     }
 }
@@ -147,7 +147,7 @@ fn the_label_store_opens_after_the_self_test_in_a_fresh_profile() {
     // An application directory created with an inherited DACL is refused,
     // so nothing but the private-directory code may create it.
     let plain = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(plain.path().join("lcxl-remote-desk-worker").join("probe")).unwrap();
+    std::fs::create_dir_all(plain.path().join("lcxbox-agent-desk-worker").join("probe")).unwrap();
     assert!(windows_lease::open_store_in(plain.path()).is_err());
 }
 
@@ -197,7 +197,7 @@ fn a_missing_program_is_reported_as_not_started() {
     let f = fixture();
     let output = run(
         &f,
-        &plan("lcxl-exec-sandbox-no-such-program.exe", &[], None),
+        &plan("lcxbox-exec-sandbox-no-such-program.exe", &[], None),
     );
     assert!(!output.started, "{output:?}");
 }
@@ -403,7 +403,7 @@ fn a_medium_process_of_the_user_can_still_end_a_protected_process() {
             "--nocapture",
             "-q",
         ])
-        .env("LCXL_PROTECTED_CHILD", "1")
+        .env("LCXBOX_PROTECTED_CHILD", "1")
         .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
@@ -426,7 +426,7 @@ fn a_medium_process_of_the_user_can_still_end_a_protected_process() {
 #[test]
 #[ignore = "started by a_medium_process_of_the_user_can_still_end_a_protected_process"]
 fn protected_child_entry() {
-    if std::env::var_os("LCXL_PROTECTED_CHILD").is_none() {
+    if std::env::var_os("LCXBOX_PROTECTED_CHILD").is_none() {
         return;
     }
     platform::protect_worker_process();

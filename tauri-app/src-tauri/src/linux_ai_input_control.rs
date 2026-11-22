@@ -1,5 +1,5 @@
 //! Local consent window and connection ownership for GNOME input control.
-use lcxl_remote_desk_server::worker::agent::{InputControlCancellation, NativeInputControlClient};
+use lcxbox_agent_desk_server::worker::agent::{InputControlCancellation, NativeInputControlClient};
 use serde::Serialize;
 use std::{
     path::PathBuf,
@@ -46,7 +46,7 @@ fn snapshot() -> View {
         accept_partial: s.accept_partial,
         report: s.report,
         message: s.message.clone(),
-        locale: lcxl_remote_desk_server::locale::current_locale(),
+        locale: lcxbox_agent_desk_server::locale::current_locale(),
     }
 }
 fn revoke(s: &mut State) {

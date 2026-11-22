@@ -30,7 +30,7 @@ impl Platform {
     pub fn prepare(generation: &str) -> Result<(Self, Option<String>), ContainmentError> {
         // Named so a leaked job is identifiable in a diagnostic tool; the name
         // plays no part in reclamation.
-        let name = format!("Local\\LcxlExec-{generation}");
+        let name = format!("Local\\LcxboxExec-{generation}");
         let job = unsafe { CreateJobObjectW(None, &HSTRING::from(&name)) }.map_err(|e| {
             ContainmentError(
                 desk_agent_protocol::native_diagnostic::NativeDiagnostic::new(

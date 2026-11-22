@@ -268,11 +268,11 @@ impl WorkerSession {
             == LinuxDisplayServer::Wayland
         {
             let backend = Arc::new(desk_wayland_portal::XdgPortalBackend::new(
-                "com.lcxl.remote-desk",
+                "com.lcxbox.agent-desk",
             ));
             match desk_wayland_portal::WaylandPortalBroker::new(
                 backend,
-                desk_wayland_portal::RestoreTokenStore::for_current_user("com.lcxl.remote-desk"),
+                desk_wayland_portal::RestoreTokenStore::for_current_user("com.lcxbox.agent-desk"),
             )
             .await
             {
@@ -440,7 +440,7 @@ impl WorkerSession {
                 // Per-execution sandbox temporary directories live in the
                 // worker's private data directory, which is the user's own
                 // storage for every user-session worker (a Linux ServiceDaemon
-                // worker uses `$XDG_DATA_HOME/lcxl-remote-desk`).
+                // worker uses `$XDG_DATA_HOME/lcxbox-agent-desk`).
                 let sandbox = crate::worker::exec_sandbox::ExecSandbox::start(
                     data_root.clone(),
                     protected.clone(),

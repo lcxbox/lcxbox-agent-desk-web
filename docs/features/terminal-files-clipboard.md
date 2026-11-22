@@ -1,6 +1,6 @@
 # Terminal, Files & Clipboard
 
-Beyond screen control, LCXL Remote Desk combines WebRTC data-channel features with a separately authenticated remote terminal.
+Beyond screen control, LCXBOX Agent Desk combines WebRTC data-channel features with a separately authenticated remote terminal.
 
 ::: info Under a shared access code
 When you connect by redeeming an [access code](/guide/access-codes) (a device or support code) rather than as the device owner, the terminal, file and clipboard capabilities below are subject to that code's capability ceiling, the host's global access settings, and live approval — not automatically available.
@@ -12,7 +12,7 @@ A built-in [xterm.js](https://xtermjs.org/) terminal supports full shell interac
 
 The shell selector shows each discovered command once, even when PATH repeats a directory. Commands with different executable paths or arguments remain separate, so distinct Python installations and virtual environments are still selectable.
 
-The terminal displays an LCXL Remote Desk welcome banner while connecting. After
+The terminal displays an LCXBOX Agent Desk welcome banner while connecting. After
 the host confirms that the terminal session has started, closing or reloading the
 page triggers the browser's leave confirmation because disconnecting ends that
 remote shell and any processes running inside it. The shell-selection page and a

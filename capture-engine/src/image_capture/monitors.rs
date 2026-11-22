@@ -9,7 +9,7 @@
 //! `HMONITOR` is a GDI-layer handle — the natural enumeration source
 //! is `EnumDisplayMonitors`, not `IDXGIAdapter::EnumOutputs`. DXGI
 //! also enumerates the same monitors (including IDD virtual displays
-//! attached through `LcxlVirtualDisplay`, which register a virtual
+//! attached through `LcxboxVirtualDisplay`, which register a virtual
 //! `IDXGIAdapter`), but DXGI hands back `IDXGIOutput`, not
 //! `HMONITOR`, so WGC needs its own enumerator regardless.
 //!

@@ -87,7 +87,7 @@ impl Endpoint {
             return Err(io::Error::other("Runtime path is not absolute"));
         }
         private_directory(&runtime, uid)?;
-        let directory = runtime.join("lcxl-ai-input");
+        let directory = runtime.join("lcxbox-ai-input");
         match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}

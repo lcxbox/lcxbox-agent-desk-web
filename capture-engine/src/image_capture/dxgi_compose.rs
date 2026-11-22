@@ -348,9 +348,9 @@ pub fn build_dirty_hint(
 /// including the variable being unset — returns `false`.
 ///
 /// Originally named `decide_full_frame_blit` and gated DXGI's
-/// `LCXL_DXGI_FULL_BLIT` diagnostic switch. The capture-resolution
+/// `LCXBOX_DXGI_FULL_BLIT` diagnostic switch. The capture-resolution
 /// fix made full_frame_blit the default; the parser now backs the
-/// inverse opt-out `LCXL_DXGI_DIRTY_COMPOSE` (and is intentionally
+/// inverse opt-out `LCXBOX_DXGI_DIRTY_COMPOSE` (and is intentionally
 /// renamed to neutral wording so future callers can reuse it
 /// without reading the doc as a recommendation).
 pub fn parse_env_flag(env_value: Option<&str>) -> bool {

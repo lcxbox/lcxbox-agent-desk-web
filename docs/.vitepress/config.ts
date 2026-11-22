@@ -142,7 +142,7 @@ const zhSidebar = [
 
 export default defineConfig({
     base,
-    title: 'LCXL Remote Desk',
+    title: 'LCXBOX Agent Desk',
     description:
       'An AI-native, open-source high-performance WebRTC remote desktop.',
     lastUpdated: true,

@@ -5440,8 +5440,8 @@ mod tests {
             })
             .expect("acquire macOS live writer lease");
 
-        let marker = std::env::var_os("LRD_INPUT_PREEMPT_READY_FILE")
-            .expect("LRD_INPUT_PREEMPT_READY_FILE must name an external-harness marker");
+        let marker = std::env::var_os("LAD_INPUT_PREEMPT_READY_FILE")
+            .expect("LAD_INPUT_PREEMPT_READY_FILE must name an external-harness marker");
         std::fs::write(&marker, b"ready").expect("write input-preemption ready marker");
 
         let deadline = StdInstant::now() + StdDuration::from_secs(30);
@@ -5666,7 +5666,7 @@ mod tests {
     #[test]
     fn batch_preflight_rejects_source_drift_before_may_have_started() {
         let root =
-            std::env::temp_dir().join(format!("lrd-iwork-preflight-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("lad-iwork-preflight-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&root).unwrap();
         let source_path = root.join("source.numbers");
         std::fs::write(&source_path, b"PK\x03\x04AAAA").unwrap();
@@ -6550,7 +6550,7 @@ mod tests {
     #[test]
     #[ignore = "requires the requested non-sensitive application in the foreground"]
     fn live_windows_foreground_safety_and_screen_capture() {
-        let expected = std::env::var("LRD_SCREEN_SAFETY_TEST_PROCESS_ID")
+        let expected = std::env::var("LAD_SCREEN_SAFETY_TEST_PROCESS_ID")
             .unwrap()
             .parse::<u32>()
             .unwrap();
@@ -6596,8 +6596,8 @@ mod tests {
     #[test]
     #[ignore = "requires an allowlisted foreground Windows fixture"]
     fn interactive_uia_observation_is_bounded_and_redacts_protected_controls() {
-        let image_path = std::env::var("LRD_COMPUTER_USE_TEST_APP")
-            .expect("LRD_COMPUTER_USE_TEST_APP must name the foreground fixture executable");
+        let image_path = std::env::var("LAD_COMPUTER_USE_TEST_APP")
+            .expect("LAD_COMPUTER_USE_TEST_APP must name the foreground fixture executable");
         let ceiling = ComputerUseSettings {
             enabled: true,
             observe: true,

@@ -39,8 +39,8 @@ export interface DeskPreferenceScope {
     restricted: boolean
 }
 
-const DEVICE_KEY_PREFIX = "lrdm.remoteDesk.devicePreferences.v1:"
-const USER_KEY_PREFIX = "lrdm.remoteDesk.userPreferences.v1:"
+const DEVICE_KEY_PREFIX = "ladm.remoteDesk.devicePreferences.v1:"
+const USER_KEY_PREFIX = "ladm.remoteDesk.userPreferences.v1:"
 const AUDIO_DATA_FLOWS = new Set<AudioDataFlow>(["Render", "Capture"])
 const WAYLAND_CONTROL_MODES = new Set<WaylandControlMode>([
     "auto",

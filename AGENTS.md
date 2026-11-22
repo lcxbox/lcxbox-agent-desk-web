@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-`lcxl-remote-desk` 是一个 **AI 原生（AI-Native）** 的开源 WebRTC 远程桌面解决方案，把 AI 当作与浏览器并列的一等控制端。后端使用 Rust (Actix-Web)，前端使用 React + TypeScript (Vite)。除了浏览器远程控制，它还内置了一个**设备诊断 AI Agent**（模型无关：OpenAI 兼容 / Anthropic），可读取设备状态排障，或在设备策略允许且取得逐项批准后执行命令（见 `agent-protocol/src/exec.rs` 与 `signal/src/agent_exec.rs`）。项目同时以一个**只读 MCP 服务**把设备的只读能力开放给外部 AI 助手。
+`lcxbox-agent-desk` 是一个 **AI 原生（AI-Native）** 的开源 WebRTC 远程桌面解决方案，把 AI 当作与浏览器并列的一等控制端。后端使用 Rust (Actix-Web)，前端使用 React + TypeScript (Vite)。除了浏览器远程控制，它还内置了一个**设备诊断 AI Agent**（模型无关：OpenAI 兼容 / Anthropic），可读取设备状态排障，或在设备策略允许且取得逐项批准后执行命令（见 `agent-protocol/src/exec.rs` 与 `signal/src/agent_exec.rs`）。项目同时以一个**只读 MCP 服务**把设备的只读能力开放给外部 AI 助手。
 
 > 诊断 Agent 可执行按当前设备策略及审批模式获准的操作。**对外 MCP 服务保持只读**（静态白名单，不含 exec / write / control 工具）。写文档或对外文案时不要再复述“只读诊断 AI Agent”。
 
@@ -22,8 +22,8 @@
 
 ```bash
 # 后端
-cargo run -p lcxl-remote-desk-server                  # default (完整) 模式
-cargo run -p lcxl-remote-desk-server -- --help         # 查看所有启动标志
+cargo run -p lcxbox-agent-desk-server                  # default (完整) 模式
+cargo run -p lcxbox-agent-desk-server -- --help         # 查看所有启动标志
 cargo build --workspace --release
 cargo test --workspace
 
@@ -61,7 +61,7 @@ sudo apt install -y build-essential pkg-config libssl-dev libasound2-dev \
 
 ### API 文档 (离线生成)
 
-运行时**不再**提供 Swagger UI / ReDoc / RapiDoc / Scalar 与 `/openapi.json`（无鉴权、公网自建会暴露 API 攻击面，且前端客户端已走离线生成）。如需查看规范，用离线子命令本地生成：`cargo run -p lcxl-remote-desk-server -- dump-openapi --out openapi.json`。
+运行时**不再**提供 Swagger UI / ReDoc / RapiDoc / Scalar 与 `/openapi.json`（无鉴权、公网自建会暴露 API 攻击面，且前端客户端已走离线生成）。如需查看规范，用离线子命令本地生成：`cargo run -p lcxbox-agent-desk-server -- dump-openapi --out openapi.json`。
 
 ## 模块概览
 
@@ -125,7 +125,7 @@ sudo apt install -y build-essential pkg-config libssl-dev libasound2-dev \
 - **脱敏 fail-closed**：诊断编排器（`server/src/diagnose/mod.rs`）按 **采集 → 脱敏 → 模型 → 渲染** 运行；脱敏失败会在调用模型**之前**中止。证据在到达模型 trait 之前一定已脱敏。
 - **API Key 是服务端密钥**：AI 模型 api_key 绝不回传浏览器、不进任何 `/settings` 公开 DTO、不写日志。公共审计、日志与模型调用指标只记录无内容的摘要（计数 / 大小 / token 用量 / provider / adapter），不得留存原始输出、截图或 prompt。独立 `agent_approval_trace` / `_part` 是明确的受限例外：可保存当次审批请求的可读投影和供应商返回的可读思考/答复，所有读取必须同时要求全局管理员和本人会话归属，且具备独立开关、保留与容量清理；绝不保存/返回 API Key、请求头、思考签名、加密回传或图片正文，不把详情加入普通 snapshot/SSE/模型上下文。平台审批统计仅返回跨 owner 聚合，不能开放他人逐条事实。
 - **模型无关**：`diagnose-core/src/model_profile.rs` 冻结通用 profile / wire contract；`signal/src/model_dial.rs` 与父仓 `backend/manager/src/service/model_dialect.rs` 用 adapter 隔离 OpenAI-compatible Chat Completions / Anthropic Messages。新增 wire 协议需新增 adapter，不改共享编排器，也不得按模型名猜测协议行为。
-- **MCP 只读**：`mcp-server` 工具集是**静态白名单**，刻意不存在 exec / write / control 工具（「未定义即不可达」）；`lcxl_diagnose` 的 provider 签名不带截图选项，MCP 客户端在结构上无法抓屏。`mcp-stdio` 模式下 stdin/stdout 承载 MCP JSON-RPC，**绝不能向 stdout 打日志**。
+- **MCP 只读**：`mcp-server` 工具集是**静态白名单**，刻意不存在 exec / write / control 工具（「未定义即不可达」）；`lcxbox_diagnose` 的 provider 签名不带截图选项，MCP 客户端在结构上无法抓屏。`mcp-stdio` 模式下 stdin/stdout 承载 MCP JSON-RPC，**绝不能向 stdout 打日志**。
 
 ## 前端规则
 

@@ -29,10 +29,10 @@ version, an expired challenge, or replay leaves the host locked.
 Headless hosts use the same native channel:
 
 ```text
-lcxl-remote-desk-server access status
-lcxl-remote-desk-server access lock
-lcxl-remote-desk-server access unlock
-lcxl-remote-desk-server access disconnect <connection-id>
+lcxbox-agent-desk-server access status
+lcxbox-agent-desk-server access lock
+lcxbox-agent-desk-server access unlock
+lcxbox-agent-desk-server access disconnect <connection-id>
 ```
 
 Run `lock` from an interactive local terminal. Run `unlock` from an elevated

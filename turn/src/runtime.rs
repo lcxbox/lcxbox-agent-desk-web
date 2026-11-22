@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use desk_signal_facade::model::signal::{LcxlRTCIceServer, TurnProvider};
+use desk_signal_facade::model::signal::{LcxboxRTCIceServer, TurnProvider};
 use tokio::sync::watch;
 
 use crate::interface::RejectedTurnInterface;
@@ -175,16 +175,16 @@ impl LiveTurnProvider {
 
 #[async_trait]
 impl TurnProvider for LiveTurnProvider {
-    async fn get_ice_servers(&self, username: &str, credential: &str) -> LcxlRTCIceServer {
+    async fn get_ice_servers(&self, username: &str, credential: &str) -> LcxboxRTCIceServer {
         match self.view.runtime() {
             Some(state) => state.settings.get_ice_servers(username, credential),
             // An entry with no URLs; callers already skip it rather than hand a
             // peer a relay it cannot reach.
-            None => LcxlRTCIceServer::default(),
+            None => LcxboxRTCIceServer::default(),
         }
     }
 
-    async fn get_rest_ice_servers(&self, name: &str, ttl_secs: u64) -> Option<LcxlRTCIceServer> {
+    async fn get_rest_ice_servers(&self, name: &str, ttl_secs: u64) -> Option<LcxboxRTCIceServer> {
         self.view
             .runtime()?
             .settings

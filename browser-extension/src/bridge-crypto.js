@@ -56,9 +56,9 @@ export async function createBridgeCipher(secret, metadata) {
             const challenge = JSON.parse(text);
             const nonce = decode(challenge.server_nonce, 32);
             if (challenge.version !== VERSION || nonce.length !== 32 || encode(nonce) !== challenge.server_nonce) throw new Error("invalid_challenge");
-            const bytes = transcript(["lcxl-browser-v2", clientNonce, challenge.server_nonce, challenge.device_id, challenge.os_session_id, metadata.extension_version, metadata.browser_version, metadata.profile_incarnation]);
+            const bytes = transcript(["lcxbox-browser-v2", clientNonce, challenge.server_nonce, challenge.device_id, challenge.os_session_id, metadata.extension_version, metadata.browser_version, metadata.profile_incarnation]);
             hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-            const key = async (purpose) => crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: hash, info: encoder.encode(`lcxl-browser-v2/${purpose}`) }, material, 256);
+            const key = async (purpose) => crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: hash, info: encoder.encode(`lcxbox-browser-v2/${purpose}`) }, material, 256);
             const proofKey = async (purpose, usages) => crypto.subtle.importKey("raw", await key(purpose), { name: "HMAC", hash: "SHA-256" }, false, usages);
             const valid = await crypto.subtle.verify("HMAC", await proofKey("server-proof", ["verify"]), decode(challenge.server_proof, 32), bytes);
             if (!valid) throw new Error("server_authentication_failed");

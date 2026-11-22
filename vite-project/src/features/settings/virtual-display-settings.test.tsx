@@ -48,7 +48,7 @@ function mockFetch(handler: FetchHandler) {
 
 const INSTALLED_STATUS = {
     files_available: true,
-    files_dir: "C:\\lcxl\\drivers\\LcxlVirtualDisplay",
+    files_dir: "C:\\lcxbox\\drivers\\LcxboxVirtualDisplay",
     installed: true,
     installed_oem_infs: ["oem99.inf"],
     can_modify: true,

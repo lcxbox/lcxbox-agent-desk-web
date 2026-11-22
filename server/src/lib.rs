@@ -619,18 +619,18 @@ pub fn api_json_config() -> web::JsonConfig {
 /// the typed frontend client locally and in CI. Reuses the exact same
 /// registration the live servers serve, so the spec cannot drift.
 /// Whether the session cookie should carry the `Secure` attribute, read from the
-/// `LRD_COOKIE_SECURE` environment variable.
+/// `LAD_COOKIE_SECURE` environment variable.
 ///
 /// Defaults to `false` so the common local / LAN HTTP setup keeps working (a
 /// `Secure` cookie is dropped by the browser over plain HTTP, which would lose the
 /// session). A public deployment served over HTTPS (typically behind a TLS-
-/// terminating reverse proxy) should set `LRD_COOKIE_SECURE=true` so the cookie is
+/// terminating reverse proxy) should set `LAD_COOKIE_SECURE=true` so the cookie is
 /// only ever sent over HTTPS.
 pub fn cookie_secure_from_env() -> bool {
-    parse_cookie_secure(std::env::var("LRD_COOKIE_SECURE").ok().as_deref())
+    parse_cookie_secure(std::env::var("LAD_COOKIE_SECURE").ok().as_deref())
 }
 
-/// Parse the `LRD_COOKIE_SECURE` value, defaulting to `false` when absent or
+/// Parse the `LAD_COOKIE_SECURE` value, defaulting to `false` when absent or
 /// unrecognized. Split out from [`cookie_secure_from_env`] so it is unit-testable
 /// without mutating the process environment.
 fn parse_cookie_secure(raw: Option<&str>) -> bool {
@@ -661,7 +661,7 @@ pub fn build_openapi() -> utoipa::openapi::OpenApi {
 /// server and fulfilled by the Tauri host (which has UAC elevation ability).
 ///
 /// `install_idd_driver` rides along on the `Install` variant: when `true`,
-/// the elevated sidecar will stage the LcxlVirtualDisplay IDD driver as
+/// the elevated sidecar will stage the LcxboxVirtualDisplay IDD driver as
 /// part of the install. The flag is intentionally part of the wire-level
 /// command (rather than a separate REST op) so the user only has to
 /// approve the UAC prompt once.
@@ -752,7 +752,7 @@ pub async fn run_with_hub(
     host_control_hub: Option<Arc<host_control::HostControlHub>>,
 ) -> Result<ServerHandle, DeskError> {
     // Create a lock file to prevent multiple instances of the server from running simultaneously.
-    let lock_file_path = env::temp_dir().join("lcxl_remote_desk_server.lock");
+    let lock_file_path = env::temp_dir().join("lcxbox_agent_desk_server.lock");
     let lock_file = File::create(lock_file_path)?;
     if let Err(TryLockError::WouldBlock) = lock_file.try_lock() {
         error!("Failed to lock file, is another instance running?");

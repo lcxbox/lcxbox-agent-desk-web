@@ -1,4 +1,4 @@
-# LCXL Remote Desk Web
+# LCXBOX Agent Desk Web
 
 [English](README.md)
 
@@ -8,7 +8,7 @@
 > 
 > **安全风险提示**：本项目禁止在任何非法场景下使用，作者不对因使用本项目而导致的任何损害承担责任。
 
-LCXL Remote Desk Web 是一款 **AI 原生（AI-Native）**的开源高性能远程桌面。
+LCXBOX Agent Desk Web 是一款 **AI 原生（AI-Native）**的开源高性能远程桌面。
 
 * 原生基于 WebRTC 技术，不需要下载单独的控制端，只需要有现代游览器就能拥有原生的远程桌面的体验；
 * 被控端原生支持 Windows，MacOS 和 Linux，支持 4K @ 60 Hz 屏幕采集和输出；
@@ -55,7 +55,7 @@ LCXL Remote Desk Web 是一款 **AI 原生（AI-Native）**的开源高性能远
 
    这些包都是 Tauri 桌面外壳：它在进程内内嵌被控端服务（即 `default` 模式：内置信令 + 被控端流水线），并额外提供本地渲染的防窥屏与白板。
 
-2. **Windows / Linux** 解压后运行 `lcxl-remote-desk-tauri`；压缩包内还有 `lcxl-remote-desk-server` 与 `static/`（Web 控制台静态资源），**三者必须保持同级**。**macOS** 打开 `.dmg`，把 **LCXL Remote Desktop** 拖入「应用程序」后启动。
+2. **Windows / Linux** 解压后运行 `lcxbox-agent-desk-tauri`；压缩包内还有 `lcxbox-agent-desk-server` 与 `static/`（Web 控制台静态资源），**三者必须保持同级**。**macOS** 打开 `.dmg`，把 **LCXBOX Agent Desk** 拖入「应用程序」后启动。
 
 3. 外壳会自带窗口打开控制台；局域网内其他机器访问同一控制台的地址是 `http://<被控机地址>:8081`。按向导创建管理员账号并设置入站安全策略，随后即可从同一局域网（或可直连该公网 IP 的任意网络）远程控制这台设备。
 
@@ -73,7 +73,7 @@ LCXL Remote Desk Web 是一款 **AI 原生（AI-Native）**的开源高性能远
    ```bash
    git clone https://github.com/lcxl-remote/lcxl-remote-desk-web.git
    cd lcxl-remote-desk-web
-   printf 'LRD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
+   printf 'LAD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
    docker compose up -d
    ```
 
@@ -102,12 +102,12 @@ LCXL Remote Desk Web 是一款 **AI 原生（AI-Native）**的开源高性能远
 3. 前端就绪后，在另一个终端启动带 Tauri 界面的被控端（内嵌完整服务端，隐私屏、远程白板等本地 GUI 集成只在这个外壳里可用）：
 
    ```bash
-   cargo run -p lcxl-remote-desk-tauri
+   cargo run -p lcxbox-agent-desk-tauri
    ```
 
-   如果只需要纯后端而不要 GUI 外壳，改跑 `cargo run -p lcxl-remote-desk-server`（默认 `default` 模式），然后在浏览器访问 `http://localhost:5174`。
+   如果只需要纯后端而不要 GUI 外壳，改跑 `cargo run -p lcxbox-agent-desk-server`（默认 `default` 模式），然后在浏览器访问 `http://localhost:5174`。
 
-> 三种方式的完整步骤、前置条件与下一步指引请参考[快速开始](docs/zh/guide/quick-start.md)；公网加固、系统依赖、容器持久化目录与 `LRD_*` 环境变量请参考[部署](docs/zh/guide/deployment.md)。
+> 三种方式的完整步骤、前置条件与下一步指引请参考[快速开始](docs/zh/guide/quick-start.md)；公网加固、系统依赖、容器持久化目录与 `LAD_*` 环境变量请参考[部署](docs/zh/guide/deployment.md)。
 
 ---
 
@@ -117,12 +117,12 @@ LCXL Remote Desk Web 是一款 **AI 原生（AI-Native）**的开源高性能远
 
 | 平台 | 配置文件 | 日志目录 |
 |---|---|---|
-| Windows | `%ProgramData%\LCXL Remote Desktop\config\config.toml` | `%ProgramData%\LCXL Remote Desktop\logs` |
-| Linux（root） | `/etc/lcxl-remote-desk/config.toml` | `/var/log/lcxl-remote-desk` |
-| Linux（普通用户） | `$XDG_CONFIG_HOME/lcxl-remote-desk/config.toml`（未设置时为 `~/.config/lcxl-remote-desk/config.toml`） | `$XDG_STATE_HOME/lcxl-remote-desk/logs`（未设置时为 `~/.local/state/lcxl-remote-desk/logs`） |
-| macOS | `~/Library/Application Support/com.lcxl.remote-desk/config/config.toml` | `~/Library/Logs/lcxl-remote-desk` |
+| Windows | `%ProgramData%\LCXBOX Agent Desk\config\config.toml` | `%ProgramData%\LCXBOX Agent Desk\logs` |
+| Linux（root） | `/etc/lcxbox-agent-desk/config.toml` | `/var/log/lcxbox-agent-desk` |
+| Linux（普通用户） | `$XDG_CONFIG_HOME/lcxbox-agent-desk/config.toml`（未设置时为 `~/.config/lcxbox-agent-desk/config.toml`） | `$XDG_STATE_HOME/lcxbox-agent-desk/logs`（未设置时为 `~/.local/state/lcxbox-agent-desk/logs`） |
+| macOS | `~/Library/Application Support/com.lcxbox.agent-desk/config/config.toml` | `~/Library/Logs/lcxbox-agent-desk` |
 
-用 `-c, --config-file-path <PATH>` 可显式切换到其他 profile，数据库、运行时套接字等同级文件会跟随该路径；主机设置仍可用 `LRD_*` 环境变量覆盖；OSS 全局 AI、搜索及策略段仅从文件加载。文件不存在时按默认值自动生成：监听 `0.0.0.0` / `::` 的 `8081` 端口、启用 IPv6、信令与 Manager 地址为空（即只用内置信令）、默认拒绝以明文连接公网信令；内置 TURN 开关默认打开，但要等配置了 `[[turn.interfaces]]` 才会真正提供中继。完整字段见 [config.toml 参考](docs/zh/config/config-toml.md)。
+用 `-c, --config-file-path <PATH>` 可显式切换到其他 profile，数据库、运行时套接字等同级文件会跟随该路径；主机设置仍可用 `LAD_*` 环境变量覆盖；OSS 全局 AI、搜索及策略段仅从文件加载。文件不存在时按默认值自动生成：监听 `0.0.0.0` / `::` 的 `8081` 端口、启用 IPv6、信令与 Manager 地址为空（即只用内置信令）、默认拒绝以明文连接公网信令；内置 TURN 开关默认打开，但要等配置了 `[[turn.interfaces]]` 才会真正提供中继。完整字段见 [config.toml 参考](docs/zh/config/config-toml.md)。
 
 以下主机侧设置可在本地控制台保存：
 
@@ -175,7 +175,7 @@ AI 推理由中心服务统一编排，被控设备只负责证据采集和最�
 - **默认只提出建议**：命令建议使用独立的授权流程，必须通过风险检查和黑名单检查，并由设备所有者逐条确认；服务端会固化获批的命令与参数，被控端再次核对不可变字段和风险上限后才会执行。
 - **保护隐私的审计**：模型调用、批准/拒绝、脱敏失败和执行结果会产生审计元数据与摘要；审计事件不保存原始提问、模型回复、stdout 或截图。
 
-**面向外部的 MCP 服务。** `mcp-stdio` 与内置AI 助手完全分离，只提供 `lcxl_system_info`、`lcxl_process_list`、`lcxl_network_ports` 和 `lcxl_recent_logs`。其中日志工具每次调用都会实时检查 `allow_logs`；MCP 不调用模型，也不提供截图、命令执行、远程控制或其他写入工具。
+**面向外部的 MCP 服务。** `mcp-stdio` 与内置AI 助手完全分离，只提供 `lcxbox_system_info`、`lcxbox_process_list`、`lcxbox_network_ports` 和 `lcxbox_recent_logs`。其中日志工具每次调用都会实时检查 `allow_logs`；MCP 不调用模型，也不提供截图、命令执行、远程控制或其他写入工具。
 
 > 模型服务商配置与实际使用步骤请参考 [AI 诊断](docs/zh/features/ai-diagnostics.md)，信任边界、脱敏与审计的完整约束请参考 [AI 安全模型](docs/zh/security/ai-security-model.md)，外部助手接入方式请参考 [MCP 服务](docs/zh/features/mcp-server.md)。
 

@@ -27,7 +27,7 @@ export function queryDriverStatusSuspenseQueryOptions(config: Partial<RequestCon
 }
 
 /**
- * @summary Query LcxlVirtualDisplay IDD driver status
+ * @summary Query LcxboxVirtualDisplay IDD driver status
  * {@link /api/virtual-display/driver/status}
  */
 export function useQueryDriverStatusSuspense<TData = QueryDriverStatusQueryResponse, TQueryKey extends QueryKey = QueryDriverStatusSuspenseQueryKey>(options: 

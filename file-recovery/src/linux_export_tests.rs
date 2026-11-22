@@ -26,9 +26,9 @@ fn peer(root: &Path, id: &str, mode: &str) -> Peer {
     Peer(
         Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "linux_export_tests::export_cleanup_peer"])
-            .env("LCXL_RECOVERY_EXPORT_ROOT", root)
-            .env("LCXL_RECOVERY_EXPORT_ID", id)
-            .env("LCXL_RECOVERY_EXPORT_MODE", mode)
+            .env("LCXBOX_RECOVERY_EXPORT_ROOT", root)
+            .env("LCXBOX_RECOVERY_EXPORT_ID", id)
+            .env("LCXBOX_RECOVERY_EXPORT_MODE", mode)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
@@ -120,13 +120,16 @@ fn original(package: Vec<u8>) {
 
 #[test]
 fn export_cleanup_peer() {
-    let Ok(root) = std::env::var("LCXL_RECOVERY_EXPORT_ROOT") else {
+    let Ok(root) = std::env::var("LCXBOX_RECOVERY_EXPORT_ROOT") else {
         return;
     };
     let root = Path::new(&root);
     let vault = Vault::open(root).unwrap();
-    let id = std::env::var("LCXL_RECOVERY_EXPORT_ID").unwrap();
-    match std::env::var("LCXL_RECOVERY_EXPORT_MODE").unwrap().as_str() {
+    let id = std::env::var("LCXBOX_RECOVERY_EXPORT_ID").unwrap();
+    match std::env::var("LCXBOX_RECOVERY_EXPORT_MODE")
+        .unwrap()
+        .as_str()
+    {
         "cleanup" => {
             assert!(
                 vault.try_lock().unwrap().is_none(),

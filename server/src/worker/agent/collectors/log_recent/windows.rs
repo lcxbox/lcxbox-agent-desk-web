@@ -16,10 +16,10 @@ use super::severity_to_levels;
 const SCRIPT: &str = r"
 $ErrorActionPreference = 'Stop'
 $filter = @{}
-if ($env:LCXL_LOG_SOURCE) { $filter['LogName'] = $env:LCXL_LOG_SOURCE } else { $filter['LogName'] = @('System','Application') }
-if ($env:LCXL_LOG_LEVELS) { $filter['Level'] = [int[]]($env:LCXL_LOG_LEVELS -split ',') }
-if ($env:LCXL_LOG_SINCE_MIN) { $filter['StartTime'] = (Get-Date).AddMinutes(-[double]$env:LCXL_LOG_SINCE_MIN) }
-$max = [int]$env:LCXL_LOG_MAX
+if ($env:LCXBOX_LOG_SOURCE) { $filter['LogName'] = $env:LCXBOX_LOG_SOURCE } else { $filter['LogName'] = @('System','Application') }
+if ($env:LCXBOX_LOG_LEVELS) { $filter['Level'] = [int[]]($env:LCXBOX_LOG_LEVELS -split ',') }
+if ($env:LCXBOX_LOG_SINCE_MIN) { $filter['StartTime'] = (Get-Date).AddMinutes(-[double]$env:LCXBOX_LOG_SINCE_MIN) }
+$max = [int]$env:LCXBOX_LOG_MAX
 $events = Get-WinEvent -FilterHashtable $filter -MaxEvents $max -ErrorAction SilentlyContinue | Select-Object @{N='timestamp';E={$_.TimeCreated.ToUniversalTime().ToString('o')}}, @{N='level';E={[int]$_.Level}}, @{N='source';E={$_.ProviderName}}, @{N='message';E={$_.Message}}
 ConvertTo-Json -InputObject @($events) -Depth 3 -Compress
 ";
@@ -30,7 +30,7 @@ pub(super) fn query(params: &LogRecentParams, limit: u32) -> Result<String, Agen
     command.args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT]);
 
     if let Some(source) = &params.source {
-        command.env("LCXL_LOG_SOURCE", source);
+        command.env("LCXBOX_LOG_SOURCE", source);
     }
     let levels = severity_to_levels(&params.severity);
     if !levels.is_empty() {
@@ -39,12 +39,12 @@ pub(super) fn query(params: &LogRecentParams, limit: u32) -> Result<String, Agen
             .map(|level| level.to_string())
             .collect::<Vec<_>>()
             .join(",");
-        command.env("LCXL_LOG_LEVELS", joined);
+        command.env("LCXBOX_LOG_LEVELS", joined);
     }
     if let Some(since) = params.since_minutes {
-        command.env("LCXL_LOG_SINCE_MIN", since.to_string());
+        command.env("LCXBOX_LOG_SINCE_MIN", since.to_string());
     }
-    command.env("LCXL_LOG_MAX", limit.to_string());
+    command.env("LCXBOX_LOG_MAX", limit.to_string());
 
     let output = command.output().map_err(|e| AgentError {
         kind: AgentErrorKind::Internal,

@@ -25,7 +25,7 @@
 //! ## Class name uniqueness
 //!
 //! Each `spawn()` derives a class name like
-//! `LcxlDisplayWatcher-<pid>-<n>` where `n` is a process-wide
+//! `LcxboxDisplayWatcher-<pid>-<n>` where `n` is a process-wide
 //! monotonic counter. This prevents `ERROR_CLASS_ALREADY_EXISTS` when
 //! the same process spawns multiple watchers serially (e.g. during a
 //! worker restart inside a portable host).
@@ -182,7 +182,7 @@ fn real_runner(
 ) {
     let class_id = CLASS_COUNTER.fetch_add(1, Ordering::Relaxed);
     let class_name_owned: Vec<u16> =
-        format!("LcxlDisplayWatcher-{}-{}", std::process::id(), class_id)
+        format!("LcxboxDisplayWatcher-{}-{}", std::process::id(), class_id)
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect();
@@ -227,7 +227,7 @@ fn real_runner(
     // SAFETY: window-name / class-name UTF-16 buffers stay alive until
     // CreateWindowExW returns (owned in this stack frame); state_ptr
     // is passed via lpCreateParams and unboxed in WM_NCCREATE.
-    let window_name: Vec<u16> = "LcxlDisplayWatcherWindow\0".encode_utf16().collect();
+    let window_name: Vec<u16> = "LcxboxDisplayWatcherWindow\0".encode_utf16().collect();
     let hwnd_res = unsafe {
         CreateWindowExW(
             WINDOW_EX_STYLE(0),

@@ -3,7 +3,7 @@
 ## Docker (Recommended for a Signaling Server)
 
 ```bash
-printf 'LRD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
+printf 'LAD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
 docker compose up -d
 ```
 
@@ -20,9 +20,9 @@ Compose file bind-mounts the three directories that must outlive the container:
 
 | Host path | Container path | Contents |
 |---|---|---|
-| `./conf` | `/etc/lcxl-remote-desk` | `config.toml` |
-| `./data` | `/var/lib/lcxl-remote-desk` | Signal and execution-ledger databases, remote-access state |
-| `./logs` | `/var/log/lcxl-remote-desk` | Rolling logs |
+| `./conf` | `/etc/lcxbox-agent-desk` | `config.toml` |
+| `./data` | `/var/lib/lcxbox-agent-desk` | Signal and execution-ledger databases, remote-access state |
+| `./logs` | `/var/log/lcxbox-agent-desk` | Rolling logs |
 
 Losing `./data` discards the admin account's signaling state, access codes, AI
 provider configuration, and audit history — back it up alongside `./conf`.
@@ -119,17 +119,17 @@ For same-computer testing, use **Observe in 5 seconds** and switch to the target
 
 When exposing the server to the public internet (typically behind a TLS-terminating reverse proxy), note:
 
-- **`LRD_COOKIE_SECURE`** — controls the session cookie `Secure` attribute. It defaults to `false` so a local / LAN HTTP setup keeps its session. Set `LRD_COOKIE_SECURE=true` for an HTTPS deployment so the cookie is only ever sent over HTTPS.
-- **`LRD_BOOTSTRAP_TOKEN`** — optional outside the provided Compose example; when set, the initialization wizard and its pre-initialization connection probes require this value. A present but blank value is a startup error. Use at least 32 random bytes and never put it in a URL or log. The Compose example makes it mandatory with `${...:?}`.
-- **`LRD_TRUSTED_PROXIES`** — comma-separated proxy IP/CIDR list. Loopback (`127.0.0.0/8`, `::1`) is trusted by default; other proxy/container networks must be explicit. Only trusted peers may supply `X-Forwarded-For`. Do not use `*` unless the server cannot be reached except through a proxy that overwrites XFF.
-- **`LRD_AUTH_IPV6_PREFIX_LEN`** — IPv6 rate-limit prefix, default `64` (`1..=128`). IPv4 always uses `/32`.
-- **`LRD_AUTH_RATE_LIMIT_MAX_BUCKETS`** — bounded login and redeem capacity tier, default `65536`. Ordinary deployments should leave it unchanged.
-- **`LRD_PROVIDER_SSRF_MODE`** — guards the central brain's outbound dial to a user-configured model provider `base_url` against SSRF (an internal service or a cloud metadata endpoint). Governs **private reachability only** (orthogonal to the TLS switch below); the cloud-metadata ranges are blocked in every mode. Values:
+- **`LAD_COOKIE_SECURE`** — controls the session cookie `Secure` attribute. It defaults to `false` so a local / LAN HTTP setup keeps its session. Set `LAD_COOKIE_SECURE=true` for an HTTPS deployment so the cookie is only ever sent over HTTPS.
+- **`LAD_BOOTSTRAP_TOKEN`** — optional outside the provided Compose example; when set, the initialization wizard and its pre-initialization connection probes require this value. A present but blank value is a startup error. Use at least 32 random bytes and never put it in a URL or log. The Compose example makes it mandatory with `${...:?}`.
+- **`LAD_TRUSTED_PROXIES`** — comma-separated proxy IP/CIDR list. Loopback (`127.0.0.0/8`, `::1`) is trusted by default; other proxy/container networks must be explicit. Only trusted peers may supply `X-Forwarded-For`. Do not use `*` unless the server cannot be reached except through a proxy that overwrites XFF.
+- **`LAD_AUTH_IPV6_PREFIX_LEN`** — IPv6 rate-limit prefix, default `64` (`1..=128`). IPv4 always uses `/32`.
+- **`LAD_AUTH_RATE_LIMIT_MAX_BUCKETS`** — bounded login and redeem capacity tier, default `65536`. Ordinary deployments should leave it unchanged.
+- **`LAD_PROVIDER_SSRF_MODE`** — guards the central brain's outbound dial to a user-configured model provider `base_url` against SSRF (an internal service or a cloud metadata endpoint). Governs **private reachability only** (orthogonal to the TLS switch below); the cloud-metadata ranges are blocked in every mode. Values:
   - `relaxed` (default) — allows private / loopback targets (local model gateways like `http://localhost:11434`).
   - `strict` — rejects private / loopback / CGNAT / ULA targets; re-validates the resolved IP at connect time (anti DNS-rebinding). Use this if untrusted users can configure the provider.
-- **`LRD_ENFORCE_PUBLIC_TLS`** — whether a *public* target may be dialed over *plaintext* (`http`). Defaults to `true` (only an explicit `false` / `0` / `no` / `off` turns it off). When on, a plaintext dial to a public address is refused before connecting, so the api_key never leaves in the clear; private / loopback / LAN targets are always exempt and the cloud-metadata floor is always blocked regardless. Orthogonal to the SSRF mode: to allow a public plaintext provider, turn this off — you do **not** need `relaxed` (which would additionally open private targets).
-- **`LRD_MODEL_MAX_INFLIGHT`** — concurrency for physical model calls in the single-instance central brain, default `2`, valid range `1..=64`. Main and child Assistants, context compression and approval models share a FIFO queue with at most `8 × concurrency` waiters and a `60`-second wait. Waiting for children, permission decisions or background commands holds no model slot. Source, planner lease and pinned model configuration are rechecked after queuing. The value is read on the first call in each process; restart after changing it. Invalid values reject new calls. Calls that crossed the durable provider-start boundary retain unknown usage until actual receipts arrive; allocations that never crossed it can be released.
-- **Web Search** — configure through **System settings → Web Search** (`/system/web-search`) on the central server, in both embedded and standalone signaling modes. The first initialization selects DuckDuckGo without an API key. Brave and Tavily can be selected with their own keys. Configuration lives in the active `config.toml` under `[web_search]`, without `LRD_*` overrides. Keys are write-only; changing providers clears the previous key. A selected API provider without a key is unavailable and never falls back automatically.
+- **`LAD_ENFORCE_PUBLIC_TLS`** — whether a *public* target may be dialed over *plaintext* (`http`). Defaults to `true` (only an explicit `false` / `0` / `no` / `off` turns it off). When on, a plaintext dial to a public address is refused before connecting, so the api_key never leaves in the clear; private / loopback / LAN targets are always exempt and the cloud-metadata floor is always blocked regardless. Orthogonal to the SSRF mode: to allow a public plaintext provider, turn this off — you do **not** need `relaxed` (which would additionally open private targets).
+- **`LAD_MODEL_MAX_INFLIGHT`** — concurrency for physical model calls in the single-instance central brain, default `2`, valid range `1..=64`. Main and child Assistants, context compression and approval models share a FIFO queue with at most `8 × concurrency` waiters and a `60`-second wait. Waiting for children, permission decisions or background commands holds no model slot. Source, planner lease and pinned model configuration are rechecked after queuing. The value is read on the first call in each process; restart after changing it. Invalid values reject new calls. Calls that crossed the durable provider-start boundary retain unknown usage until actual receipts arrive; allocations that never crossed it can be released.
+- **Web Search** — configure through **System settings → Web Search** (`/system/web-search`) on the central server, in both embedded and standalone signaling modes. The first initialization selects DuckDuckGo without an API key. Brave and Tavily can be selected with their own keys. Configuration lives in the active `config.toml` under `[web_search]`, without `LAD_*` overrides. Keys are write-only; changing providers clears the previous key. A selected API provider without a key is unavailable and never falls back automatically.
 - **Search test and authorization** — loading/saving settings never searches. **Test connection** sends only the fixed public query “Rust programming language”, may consume provider quota, and does not save edits or use conversation content. This is an administrative connectivity check, separate from device-specific Assistant work. Assistant queries still must appear verbatim in the current user message, consume the required exact ExportData grant, and obey the Assistant master switch. Switching provider or updating configuration invalidates old search authority for subsequent dispatch. Reload after a configuration conflict or an uncertain save. DuckDuckGo is free of API-key setup, not a guarantee of unlimited requests; rate limits, verification challenges and unexpected pages are reported as failures, not empty results. Model charges are separate.
 - **There are no runtime API docs endpoints**: the server serves no Swagger UI / ReDoc / RapiDoc / Scalar and no `/openapi.json`, so none of that is probeable on a public host. Generate the spec offline with `dump-openapi` when you need it (see the [REST API reference](/reference/api)).
 - Put the server behind a reverse proxy that terminates TLS, passes through `Host`, and forwards the WebSocket `Upgrade` headers for signaling.

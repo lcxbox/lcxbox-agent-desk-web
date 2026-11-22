@@ -47,7 +47,7 @@ pub const MEMORY_LIMIT_ENFORCED: bool = platform::MEMORY_LIMIT_ENFORCED;
 
 /// Private first argument that turns the executable into a sandbox child; the
 /// second argument names the service.
-pub const SUBCOMMAND: &str = "__lcxl-sandbox";
+pub const SUBCOMMAND: &str = "__lcxbox-sandbox";
 
 /// Exit code of a child asked for a service its executable did not register.
 /// Distinct from usage errors (2) and panics (101).

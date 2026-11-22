@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use desk_signal_facade::model::signal::{LcxlRTCIceServer, TurnTransport};
+use desk_signal_facade::model::signal::{LcxboxRTCIceServer, TurnTransport};
 use desk_turn::model::{TurnApiState, TurnSettings};
 use tokio::sync::watch;
 use webrtc::api::APIBuilder;
@@ -68,7 +68,7 @@ impl OwnTurnEndpoints {
 }
 
 /// Extract the `external` (`host:port`) token from a `turn:host:port?...` URL.
-/// Only the `turn:` scheme is handled because [`LcxlRTCIceServer::transport`]
+/// Only the `turn:` scheme is handled because [`LcxboxRTCIceServer::transport`]
 /// reports `Turn` solely for `turn:`-prefixed URLs (`turns:` never reaches the
 /// TURN branch), so this is only ever called on `turn:` URLs.
 fn turn_url_endpoint(url: &str) -> Option<&str> {
@@ -96,10 +96,10 @@ fn turn_url_endpoint(url: &str) -> Option<&str> {
 /// Servers with no / unrecognised transport are skipped with a warning.
 /// Pure function — no I/O, no settings lookup, easy to unit test.
 pub fn filter_ice_servers(
-    request_ice_servers: &[LcxlRTCIceServer],
+    request_ice_servers: &[LcxboxRTCIceServer],
     traversal_mode: &TraversalMode,
     own_turn_endpoints: &HashSet<String>,
-) -> Vec<LcxlRTCIceServer> {
+) -> Vec<LcxboxRTCIceServer> {
     let mut filtered = Vec::new();
     for ice_server in request_ice_servers {
         match ice_server.transport() {
@@ -132,7 +132,7 @@ pub fn filter_ice_servers(
                     .cloned()
                     .collect();
                 if !kept_urls.is_empty() {
-                    filtered.push(LcxlRTCIceServer {
+                    filtered.push(LcxboxRTCIceServer {
                         urls: kept_urls,
                         username: ice_server.username.clone(),
                         credential: ice_server.credential.clone(),
@@ -190,7 +190,7 @@ pub(super) fn resolve_ice_timeouts(system: &SystemSettings) -> (Duration, Durati
     (disconnected, failed)
 }
 
-/// Build an `RTCPeerConnection` with the lcxl-remote-desk daemon
+/// Build an `RTCPeerConnection` with the lcxbox-agent-desk daemon
 /// defaults:
 ///
 /// - 127.0.0.1 host candidate is included so loopback browser / Tauri

@@ -3,10 +3,10 @@ import i18n, {
     ensureLocaleLoaded,
 } from './i18n'
 
-export const TAURI_SHELL_SESSION_KEY = 'lcxl.tauriShell'
-const NATIVE_BRIDGE_TOKEN_KEY = 'lcxl.nativeBridgeToken'
-const BRIDGE_READY_EVENT = 'lcxl-native-bridge-ready'
-const GLOBAL_LOCALE_EVENT = 'lcxl-global-locale-changed'
+export const TAURI_SHELL_SESSION_KEY = 'lcxbox.tauriShell'
+const NATIVE_BRIDGE_TOKEN_KEY = 'lcxbox.nativeBridgeToken'
+const BRIDGE_READY_EVENT = 'lcxbox-native-bridge-ready'
+const GLOBAL_LOCALE_EVENT = 'lcxbox-global-locale-changed'
 
 function rememberShellMarker(): void {
     try {

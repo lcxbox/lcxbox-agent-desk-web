@@ -20,7 +20,7 @@ class Reports(unittest.TestCase):
         constructor = 'desk_signal_facade::service::lease_heartbeat::renew_until_lost'
         poll = constructor + '::_{{closure}}::_{{closure}}'
         self.assertTrue(report.protected(poll))
-        for package in ('desk-signal', 'lcxl-remote-desk-manager'):
+        for package in ('desk-signal', 'lcxbox-agent-desk-manager'):
             for profile in ('debug', 'release'):
                 patterns = [value for value in gate.required_patterns(package, profile) if 'lease_heartbeat' in value]
                 self.assertEqual(len(patterns), 1)
@@ -40,7 +40,7 @@ class Reports(unittest.TestCase):
     def test_manifest_admission_requires_the_executing_host_trait_future(self):
         for package, store in [
                 ('desk-signal', 'desk_signal::agent_session_store::SignalAgentSessionStore'),
-                ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service::agent_session_store::AgentSessionStore')]:
+                ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service::agent_session_store::AgentSessionStore')]:
             constructor = '_<' + store + ' as desk_diagnose_core::seam::SessionSeam>::assistant_data_request_manifest'
             poll = constructor + '::_{{closure}}'
             parts = store.split('::') + ['assistant_data_request_manifest', 'h0123456789abcdef']
@@ -114,7 +114,7 @@ class Reports(unittest.TestCase):
             ('desk-diagnose-core', 'desk_diagnose_core::provider_preflight::read::output_digest'),
             ('desk-diagnose-core', 'desk_diagnose_core::provider_preflight::read::error_output_digest'),
             ('desk-diagnose-core', 'desk_diagnose_core::agent_loop::task_permission::pause::_{{closure}}'),
-            ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service::capability_grant_store::read_use::impl::read_use::_{{closure}}'),
+            ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service::capability_grant_store::read_use::impl::read_use::_{{closure}}'),
         ]
         for package, symbol in symbols:
             patterns = [p for p in gate.required_patterns(package, 'debug') if re.search(p, symbol)]
@@ -126,7 +126,7 @@ class Reports(unittest.TestCase):
             self.assertEqual(report.check_ceiling({'frames': {symbol: 4096}}, report.HARD_FRAME_LIMIT, patterns), [])
             self.assertTrue(report.check_ceiling({'frames': {symbol: report.HARD_FRAME_LIMIT + 1}}, report.HARD_FRAME_LIMIT, patterns))
             self.assertTrue(report.check_ceiling({'frames': {'core::ptr::drop_in_place::' + symbol: 32}}, report.HARD_FRAME_LIMIT, patterns))
-        self.assertTrue(report.protected('lcxl_remote_desk_manager::service::remote_tool_routing::read_grants::output_digest'))
+        self.assertTrue(report.protected('lcxbox_agent_desk_manager::service::remote_tool_routing::read_grants::output_digest'))
 
     def test_release_schedule_error_alias_still_requires_the_real_constructor(self):
         patterns = [p for p in gate.required_patterns('desk-diagnose-core', 'release') if 'proposal::invalid_input' in p]
@@ -152,7 +152,7 @@ class Reports(unittest.TestCase):
             self.assertTrue(required)
             self.assertEqual(report.check_ceiling({'frames': {symbol: 4096}}, report.HARD_FRAME_LIMIT, required), [])
             self.assertTrue(report.check_ceiling({'frames': {'core::ptr::drop_in_place<' + symbol + '>': 32}}, report.HARD_FRAME_LIMIT, required))
-        for package, host in [('desk-signal', 'desk_signal'), ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+        for package, host in [('desk-signal', 'desk_signal'), ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
             base = '_<' + host + '::agent_session_store::Store as desk_diagnose_core::seam::SessionSeam>::manage_schedule_tool'
             required = [p for p in gate.REQUIRED[package] if 'manage_schedule_tool' in p]
             self.assertTrue(report.protected(base + '::_{{closure}}'))
@@ -163,7 +163,7 @@ class Reports(unittest.TestCase):
     def test_conversation_titles_require_real_polls_and_pure_title_logic(self):
         core = 'desk_diagnose_core::agent_loop::title::generate'
         checks = [('desk-diagnose-core', core)]
-        for package, host in [('desk-signal', 'desk_signal'), ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+        for package, host in [('desk-signal', 'desk_signal'), ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
             for method in ('load_title_limit', 'store_title'):
                 checks.append((package, host + '::agent_session_store::title::impl::' + method))
         for package, base in checks:
@@ -200,7 +200,7 @@ class Reports(unittest.TestCase):
 
     def test_unsupported_session_retirement_requires_real_execution(self):
         for package, host in [('desk-signal', 'desk_signal'),
-                              ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+                              ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
             for path in ('agent_subagent_store::retention::close_root_for_subject_on',
                          'agent_subagent_store::retention::close_child_on',
                          'agent_session_store::management::retire_unsupported_for_expiry'):
@@ -218,7 +218,7 @@ class Reports(unittest.TestCase):
     def test_permission_finalization_covers_actual_transaction_poll(self):
         for package, symbol in [
             ('desk-signal', 'desk_signal::agent_session_store::SignalAgentSessionStore::decide_permission_request_with_authority::_{{closure}}'),
-            ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service::agent_permission_store::ManagerPermissionStore::decide_with_authority::_{{closure}}'),
+            ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service::agent_permission_store::ManagerPermissionStore::decide_with_authority::_{{closure}}'),
         ]:
             self.assertTrue(report.protected(symbol))
             self.assertTrue(any(re.search(pattern, symbol) for pattern in gate.REQUIRED[package]))
@@ -226,7 +226,7 @@ class Reports(unittest.TestCase):
 
     def test_root_wait_scan_requires_its_actual_poll(self):
         for package, host in [('desk-signal', 'desk_signal'),
-                              ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+                              ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
             base = host + '::agent_subagent_store::candidates::_<impl ' + host + '::agent_subagent_store::SubAgentStore>::root_wait_candidates'
             poll = base + '::_{{closure}}::_{{closure}}'
             patterns = [pattern for pattern in gate.REQUIRED[package] if 'root_wait_candidates' in pattern]
@@ -243,7 +243,7 @@ class Reports(unittest.TestCase):
 
     def test_direct_memory_writes_require_real_polls_and_keep_physical_identity(self):
         for package, host in [('desk-signal', 'desk_signal'),
-                              ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service')]:
+                              ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
             constructor = host + '::assistant_data_store::memory_write::write_on'
             poll = constructor + '::_{{closure}}'
             patterns = [pattern for pattern in gate.REQUIRED[package] if 'memory_write::write_on' in pattern]
@@ -255,7 +255,7 @@ class Reports(unittest.TestCase):
 
     def test_native_archive_reader_stays_protected_and_requires_its_poll(self):
         for package, symbol in [('desk-signal', 'desk_signal::model_egress_store::SignalModelEgressStore::read_context_output_with_archive_on'),
-                                ('lcxl-remote-desk-manager', 'lcxl_remote_desk_manager::service::ai_call_request::read_context_output_with_archive_on')]:
+                                ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service::ai_call_request::read_context_output_with_archive_on')]:
             poll = symbol + '::_{{closure}}'
             patterns = [pattern for pattern in gate.REQUIRED[package] if 'read_context_output_with_archive_on' in pattern]
             self.assertTrue(report.protected(poll))
@@ -263,7 +263,7 @@ class Reports(unittest.TestCase):
             self.assertTrue(report.check_ceiling({'frames':{symbol:64}},report.HARD_FRAME_LIMIT,patterns))
 
     def test_optimized_memory_helpers_require_the_real_owner_poll(self):
-        for package, host in [('desk-signal','desk_signal'), ('lcxl-remote-desk-manager','lcxl_remote_desk_manager::service')]:
+        for package, host in [('desk-signal','desk_signal'), ('lcxbox-agent-desk-manager','lcxbox_agent_desk_manager::service')]:
             for child, owner in [('memory_write::sources::load_on','memory_write::write_on'),
                                  ('memory_write::receipts::collect_on','output_archive::gc::collect_actor_transaction')]:
                 original = '^desk_assistant_data_store::' + child + r'::_\{\{closure\}\}$'
@@ -281,12 +281,12 @@ class Reports(unittest.TestCase):
     def test_entity_relocation_retains_original_report_identity(self):
         old = 'core::ptr::drop_in_place<desk_database::entity::agent_assistant_model_output::Model>'
         actual = old.replace('desk_database::entity::', 'desk_assistant_data_store::entity::')
-        data = report.retain_entity_identity({'frames': {actual: 64}}, 'lcxl-remote-desk-manager')
+        data = report.retain_entity_identity({'frames': {actual: 64}}, 'lcxbox-agent-desk-manager')
         self.assertEqual(data['frames'], {old: 64})
         self.assertEqual(data['entity_symbol_relocations'], {old: actual})
         self.assertEqual(report.check_ceiling(data, report.HARD_FRAME_LIMIT, []), [])
         with self.assertRaisesRegex(ValueError, 'two physical owners'):
-            report.retain_entity_identity({'frames': {old: 32, actual: 32}}, 'lcxl-remote-desk-manager')
+            report.retain_entity_identity({'frames': {old: 32, actual: 32}}, 'lcxbox-agent-desk-manager')
 
     def test_signal_native_quota_extension_is_not_aliased_to_the_shared_counter_view(self):
         native = 'core::ptr::drop_in_place<desk_signal::entity::agent_assistant_quota::Model>'
@@ -314,7 +314,7 @@ class Reports(unittest.TestCase):
             self.assertEqual(len(patterns), 1)
             self.assertTrue(report.protected(symbol))
             self.assertEqual(report.check_ceiling({'frames': {symbol: 128}}, report.HARD_FRAME_LIMIT, patterns), [])
-        for package in ['desk-signal', 'lcxl-remote-desk-manager']:
+        for package in ['desk-signal', 'lcxbox-agent-desk-manager']:
             patterns = [pattern for pattern in gate.REQUIRED[package] if any(name in pattern for name in [
                 'owner_prompt_retention_on', 'record_prompt_retention_on', 'published_input_retention_on', 'native::inputs::published_on'])]
             self.assertEqual(len(patterns), 4)
@@ -335,13 +335,13 @@ class Reports(unittest.TestCase):
             self.assertTrue(report.protected(symbol))
             self.assertEqual(report.check_ceiling({'frames': {symbol: 512}}, report.HARD_FRAME_LIMIT, patterns), [])
             self.assertTrue(report.check_ceiling({'frames': {'core::ptr::drop_in_place<' + symbol + '>': 32}}, report.HARD_FRAME_LIMIT, patterns))
-        for package in ['desk-signal', 'lcxl-remote-desk-manager']:
+        for package in ['desk-signal', 'lcxbox-agent-desk-manager']:
             self.assertTrue(any('visible_history::snapshot::prepare_on' in p for p in gate.REQUIRED[package]))
             self.assertTrue(any('visible_history::native::resolve_policy_on' in p for p in gate.REQUIRED[package]))
 
     def test_history_readers_require_actual_polls(self):
-        for package in ['desk-signal', 'lcxl-remote-desk-manager']:
-            prefix = 'desk_signal' if package == 'desk-signal' else 'lcxl_remote_desk_manager::service'
+        for package in ['desk-signal', 'lcxbox-agent-desk-manager']:
+            prefix = 'desk_signal' if package == 'desk-signal' else 'lcxbox_agent_desk_manager::service'
             for name in ['owner_source::history_source_on', 'model_sources::validate_history_on']:
                 constructor = prefix + '::assistant_data_store::' + name
                 patterns = [pattern for pattern in gate.REQUIRED[package] if name in pattern]
@@ -355,8 +355,8 @@ class Reports(unittest.TestCase):
 
 
     def test_expired_fresh_context_recovery_requires_the_native_poll(self):
-        for package in ['desk-signal', 'lcxl-remote-desk-manager']:
-            prefix = 'desk_signal' if package == 'desk-signal' else 'lcxl_remote_desk_manager::service'
+        for package in ['desk-signal', 'lcxbox-agent-desk-manager']:
+            prefix = 'desk_signal' if package == 'desk-signal' else 'lcxbox_agent_desk_manager::service'
             patterns = [pattern for pattern in gate.REQUIRED[package]
                         if prefix + '::schedule_store::fresh_recovery' in pattern]
             self.assertEqual(len(patterns), 1)
@@ -379,7 +379,7 @@ class Reports(unittest.TestCase):
 
     def test_fresh_children_settlement_requires_each_shared_phase_poll(self):
         shared = 'desk_assistant_data_store::schedule::fresh_children_settlement::'
-        for package in ['desk-signal', 'lcxl-remote-desk-manager']:
+        for package in ['desk-signal', 'lcxbox-agent-desk-manager']:
             for name in ['settle_fresh_children_wait_on', 'load_fresh_children_wait',
                          'prepare_fresh_children_close', 'close_fresh_children_source',
                          'persist_fresh_children_close', 'reconcile_fresh_children_receipts_on',
@@ -394,7 +394,7 @@ class Reports(unittest.TestCase):
                     self.assertEqual(report.check_ceiling({'frames': {phase + '::_{{closure}}': 65536}}, report.HARD_FRAME_LIMIT, phases), [])
 
     def test_fresh_task_entry_requires_its_actual_shared_poll_in_each_host(self):
-        for package in ['desk-signal', 'lcxl-remote-desk-manager']:
+        for package in ['desk-signal', 'lcxbox-agent-desk-manager']:
             patterns = [pattern for pattern in gate.REQUIRED[package]
                         if 'fresh_task::resume_claimed_fresh_task_turn' in pattern]
             self.assertEqual(len(patterns), 1)
@@ -407,7 +407,7 @@ class Reports(unittest.TestCase):
     def test_scheduled_dispatch_requires_shared_flows_and_host_turns_in_each_host(self):
         hosts = {
             'desk-signal': 'desk_signal::schedule_executor',
-            'lcxl-remote-desk-manager': 'lcxl_remote_desk_manager::service::schedule_executor',
+            'lcxbox-agent-desk-manager': 'lcxbox_agent_desk_manager::service::schedule_executor',
         }
         for package, prefix in hosts.items():
             patterns = [pattern for pattern in gate.REQUIRED[package]
@@ -427,7 +427,7 @@ class Reports(unittest.TestCase):
             self.assertTrue(report.check_ceiling({'frames': missing}, report.HARD_FRAME_LIMIT, patterns))
 
     def test_metadata_required_poll_frames_reject_constructors_and_drop(self):
-        for package in ['desk-signal', 'lcxl-remote-desk-manager']:
+        for package in ['desk-signal', 'lcxbox-agent-desk-manager']:
             patterns = [pattern for pattern in gate.REQUIRED[package]
                         if 'closure' in pattern and any(name in pattern for name in [
                             'assistant_data_store::', 'schedule_store::', 'agent_goal_store::claim_slice',
@@ -449,9 +449,9 @@ class Reports(unittest.TestCase):
             ['desk_diagnose_core', 'ai_assistant', 'data_control', 'ProjectionRecovery', 'accept_owner_input'],
             ['desk_signal', 'assistant_data_store', 'memory_write', 'write_on'],
             ['desk_signal', 'agent_run_event_store', 'SignalAgentRunEventStore', 'handled_outcome'],
-            ['lcxl_remote_desk_manager', 'service', 'agent_run_event_store', 'ManagerRunEventStore', 'read_user_input_state'],
-            ['lcxl_remote_desk_manager', 'service', 'assistant_data_store', 'memory_write', 'write_on'],
-            ['lcxl_remote_desk_manager', 'service', 'agent_goal_store', 'settle_slice_afterimage'],
+            ['lcxbox_agent_desk_manager', 'service', 'agent_run_event_store', 'ManagerRunEventStore', 'read_user_input_state'],
+            ['lcxbox_agent_desk_manager', 'service', 'assistant_data_store', 'memory_write', 'write_on'],
+            ['lcxbox_agent_desk_manager', 'service', 'agent_goal_store', 'settle_slice_afterimage'],
             ['desk_signal', 'agent_goal_store', 'settle_slice'],
             ['desk_signal', 'agent_goal_store', 'persist_slice_on'],
             ['desk_signal', 'agent_goal_store', 'validate_slice_session_on'],
@@ -460,14 +460,14 @@ class Reports(unittest.TestCase):
             ['desk_assistant_data_store', 'schedule', 'create', 'capture_definition_consent_on'],
             ['desk_signal', 'schedule_store', 'fresh_session', 'ScheduleStore', 'insert_fresh_session_inner'],
             ['desk_signal', 'schedule_store', 'context_wait', 'ScheduleStore', 'settle_context_wait_inner'],
-            ['lcxl_remote_desk_manager', 'service', 'schedule_store', 'context_wait', 'ScheduleStore', 'lock_context_pause_on'],
-            ['lcxl_remote_desk_manager', 'service', 'schedule_store', 'fresh_session', 'ScheduleStore', 'initialize_fresh_assistant_on'],
+            ['lcxbox_agent_desk_manager', 'service', 'schedule_store', 'context_wait', 'ScheduleStore', 'lock_context_pause_on'],
+            ['lcxbox_agent_desk_manager', 'service', 'schedule_store', 'fresh_session', 'ScheduleStore', 'initialize_fresh_assistant_on'],
             ['desk_signal', 'schedule_store', 'resume_admission', 'ScheduleStore', 'assistant_retrieval_deadline_on'],
-            ['lcxl_remote_desk_manager', 'service', 'schedule_store', 'resume_claim', 'ScheduleStore', 'claim_continuation_on'],
+            ['lcxbox_agent_desk_manager', 'service', 'schedule_store', 'resume_claim', 'ScheduleStore', 'claim_continuation_on'],
             ['desk_assistant_data_store', 'schedule', 'create', 'create_task_on'],
-            ['lcxl_remote_desk_manager', 'service', 'agent_goal_store', 'scheduler_transition'],
+            ['lcxbox_agent_desk_manager', 'service', 'agent_goal_store', 'scheduler_transition'],
             ['desk_signal', 'schedule_executor', 'SignalScheduleExecutor', 'process_goal'],
-            ['lcxl_remote_desk_manager', 'service', 'schedule_executor', 'goal', 'ScheduleExecutor', 'scan_goals_once'],
+            ['lcxbox_agent_desk_manager', 'service', 'schedule_executor', 'goal', 'ScheduleExecutor', 'scan_goals_once'],
             ['desk_diagnose_core', 'ai_assistant', 'memory_evidence', 'MemoryEvidenceRetentionProof', 'from_snapshot'],
             ['desk_diagnose_core', 'model_context', 'checkpoint', 'ContextProtectionSet', 'validate_references'],
             ['desk_diagnose_core', 'goal', 'GoalRun', 'finish_assistant_context_wait_slice'],

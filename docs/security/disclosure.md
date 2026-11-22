@@ -1,6 +1,6 @@
 # Vulnerability Disclosure
 
-We take the security of LCXL Remote Desk seriously. Remote desktop technology involves deep access to computer systems, so responsible disclosure matters.
+We take the security of LCXBOX Agent Desk seriously. Remote desktop technology involves deep access to computer systems, so responsible disclosure matters.
 
 ## Reporting a Vulnerability
 

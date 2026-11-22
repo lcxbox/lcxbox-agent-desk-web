@@ -410,7 +410,7 @@ export function toRemoteSessionSettings(
  * (each session after an idle period), so the GDI name of last session's
  * virtual display never matches the next one.
  */
-export const VIRTUAL_DISPLAY_DEVICE = "lcxl:virtual-display"
+export const VIRTUAL_DISPLAY_DEVICE = "lcxbox:virtual-display"
 
 /**
  * The display a saved `videoDeviceName` means on this host now. The virtual

@@ -6,8 +6,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use actix_web::HttpRequest;
 use ipnet::IpNet;
 
-pub const TRUSTED_PROXIES_ENV: &str = "LRD_TRUSTED_PROXIES";
-pub const IPV6_PREFIX_LEN_ENV: &str = "LRD_AUTH_IPV6_PREFIX_LEN";
+pub const TRUSTED_PROXIES_ENV: &str = "LAD_TRUSTED_PROXIES";
+pub const IPV6_PREFIX_LEN_ENV: &str = "LAD_AUTH_IPV6_PREFIX_LEN";
 pub const TRUST_ALL_TOKEN: &str = "*";
 pub const DEFAULT_IPV6_PREFIX_LEN: u8 = 64;
 

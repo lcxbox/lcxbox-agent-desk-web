@@ -588,7 +588,7 @@ export default function InitPage() {
             </main>
 
             <footer className="w-full px-4 pb-6 text-center text-sm font-medium text-white/60 drop-shadow-md">
-                © {new Date().getFullYear()} LCXL Team. Built with Passion.
+                © {new Date().getFullYear()} LCXBOX Team. Built with Passion.
             </footer>
         </div>
     )

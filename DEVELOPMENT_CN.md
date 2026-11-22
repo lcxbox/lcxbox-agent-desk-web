@@ -2,7 +2,7 @@
 
 [English](DEVELOPMENT.md)
 
-本文档提供 LCXL Remote Desk Web 项目的完整开发指南，包括环境配置、开发流程、API 文档和代码规范。
+本文档提供 LCXBOX Agent Desk Web 项目的完整开发指南，包括环境配置、开发流程、API 文档和代码规范。
 
 ## 目录
 
@@ -276,7 +276,7 @@ video_fps = 30               # 开发时可降低帧率以减少资源消耗
 运行中的服务器不提供 API 文档 UI（Swagger UI / ReDoc / RapiDoc / Scalar），也不提供 `/openapi.json`，公网部署因此不会暴露出一份可被任意访问的 API 清单；前端客户端本来就走离线生成。如需查看规范，用离线子命令在本地生成：
 
 ```bash
-cargo run -p lcxl-remote-desk-server -- dump-openapi --out openapi.json
+cargo run -p lcxbox-agent-desk-server -- dump-openapi --out openapi.json
 ```
 
 前端重新生成脚本使用生成后自动清理的临时规范文件，因此 Git 不跟踪生成的 `openapi.json`。

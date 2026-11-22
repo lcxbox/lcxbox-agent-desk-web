@@ -1,6 +1,6 @@
 [package]
 name = "desk-capture-engine"
-description = "Screen/audio capture and encoding engine for lcxl-remote-desk"
+description = "Screen/audio capture and encoding engine for lcxbox-agent-desk"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

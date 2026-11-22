@@ -323,7 +323,7 @@ mod tests {
             unsafe {
                 libc::fsetxattr(
                     file.as_raw_fd(),
-                    c"com.lcxl.recovery-test".as_ptr(),
+                    c"com.lcxbox.recovery-test".as_ptr(),
                     value.as_ptr().cast(),
                     value.len(),
                     0,
@@ -336,7 +336,7 @@ mod tests {
             serde_json::from_slice(&capture_metadata(&file, path.to_str().unwrap()).unwrap())
                 .unwrap();
         assert!(metadata["acl_text"].as_str().unwrap().contains("allow"));
-        assert_eq!(metadata["xattrs_hex"]["com.lcxl.recovery-test"], "00ff2a");
+        assert_eq!(metadata["xattrs_hex"]["com.lcxbox.recovery-test"], "00ff2a");
         assert_eq!(metadata["uid"], unsafe { libc::geteuid() });
         assert!(metadata["created_seconds"].as_i64().unwrap() > 0);
         make_private(&file).unwrap();

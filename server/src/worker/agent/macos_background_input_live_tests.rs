@@ -26,8 +26,8 @@ fn text_range(pid: u32, path: &str, id: &str, attribute: &str) -> TextRange {
 #[test]
 #[ignore = "requires authorized desktop and a dedicated background TextEdit document"]
 fn production_background_input_textedit() {
-    let title = std::env::var("LRDM_BACKGROUND_TEST_DOCUMENT").expect("test document title");
-    assert!(title.starts_with("LRDM-Background-Input-"));
+    let title = std::env::var("LADM_BACKGROUND_TEST_DOCUMENT").expect("test document title");
+    assert!(title.starts_with("LADM-Background-Input-"));
     let app = running_applications()
         .unwrap()
         .into_iter()
@@ -117,7 +117,7 @@ fn production_background_input_textedit() {
         n.role.starts_with("AXWindow")
             && n.name
                 .as_deref()
-                .is_some_and(|name| name.starts_with("LRDM-Background-Input-") && name != title)
+                .is_some_and(|name| name.starts_with("LADM-Background-Input-") && name != title)
     }) {
         assert!(
             background_target(
@@ -139,7 +139,7 @@ fn production_background_input_textedit() {
     )
     .unwrap();
     assert!(shot.window_geometry.is_some());
-    std::fs::write("/tmp/lrdm-bg-production-window.png", shot.image).unwrap();
+    std::fs::write("/tmp/ladm-bg-production-window.png", shot.image).unwrap();
     let point = target.element_point.unwrap();
     let geometry = WindowInputGeometry {
         width_pixels: shot.width,

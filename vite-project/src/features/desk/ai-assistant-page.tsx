@@ -410,7 +410,7 @@ export function AiAssistantWorkspace({
     }, [startGoal, chat.pendingGoalOpenRequest?.requestId, chat.goal?.goalId]);
     const [previousCompletedGoalId, setPreviousCompletedGoalId] = useState<string | null>(null);
     const [offPageReminderAvailable, setOffPageReminderAvailable] = useState(() => {
-        try { return sessionStorage.getItem('lcxl.tauriShell') === '1'; }
+        try { return sessionStorage.getItem('lcxbox.tauriShell') === '1'; }
         catch { return false; }
     });
     useEffect(() => {

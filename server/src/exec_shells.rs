@@ -186,7 +186,7 @@ mod tests {
     fn missing_program_is_not_available() {
         assert_eq!(
             probe(
-                "lcxl-shell-probe-program-that-does-not-exist",
+                "lcxbox-shell-probe-program-that-does-not-exist",
                 &["exit", "0"]
             ),
             ProbeOutcome::Failed

@@ -65,7 +65,7 @@ pub trait VirtualDisplayHandleInner: Send + Sync {}
 ///
 /// `instance_id` carries the **PnP device instance id** assigned by the
 /// OS during `SwDeviceCreate` (e.g.
-/// `SWD\LcxlVirtualDisplay\LcxlVirtualDisplay`). It is **not** a GDI
+/// `SWD\LcxboxVirtualDisplay\LcxboxVirtualDisplay`). It is **not** a GDI
 /// display name (`\\.\DISPLAYn`); the LocalSystem daemon cannot resolve
 /// the instance id locally because `EnumDisplayDevicesW` is
 /// thread-desktop-bound and returns an empty enumeration from Session 0.
@@ -187,7 +187,7 @@ pub fn validate_mode(mode: VirtualDisplayMode) -> Result<(), VirtualDisplayError
 
 /// Named pipe path of the driver's control endpoint. Shared between the
 /// Rust controller (client) and the C++ driver (server).
-pub const PIPE_NAME: &str = r"\\.\pipe\LcxlVirtualDisplay";
+pub const PIPE_NAME: &str = r"\\.\pipe\LcxboxVirtualDisplay";
 
 // ───── Driver pipe protocol (shared with C++ driver via JSON schema) ─────
 //
@@ -306,7 +306,7 @@ pub fn controller_provider() -> Box<dyn VirtualDisplayController> {
 }
 
 /// Resolve the OS-level PnP instance id (e.g.
-/// `SWD\LcxlVirtualDisplay\LcxlVirtualDisplay`) returned by
+/// `SWD\LcxboxVirtualDisplay\LcxboxVirtualDisplay`) returned by
 /// [`VirtualDisplayLifecycle::create`] to a GDI display name
 /// (`\\.\DISPLAYn`) usable by `ChangeDisplaySettingsExW`.
 ///
@@ -538,7 +538,7 @@ mod tests {
 
     #[test]
     fn pipe_name_constant_unchanged() {
-        assert_eq!(PIPE_NAME, r"\\.\pipe\LcxlVirtualDisplay");
+        assert_eq!(PIPE_NAME, r"\\.\pipe\LcxboxVirtualDisplay");
     }
 
     #[test]
@@ -684,7 +684,7 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn resolve_display_name_returns_not_supported_on_non_windows() {
-        let err = resolve_display_name("SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay")
+        let err = resolve_display_name("SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay")
             .expect_err("non-Windows must reject");
         assert!(matches!(err, VirtualDisplayError::NotSupported));
     }

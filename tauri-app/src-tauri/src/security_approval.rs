@@ -1,4 +1,4 @@
-use lcxl_remote_desk_server::model::security_approval::{
+use lcxbox_agent_desk_server::model::security_approval::{
     SecurityApprovalCommand, SecurityApprovalReceiver, SecurityApprovalRequest,
     SecurityPermissionType,
 };
@@ -343,7 +343,7 @@ fn destroy_window(app_handle: &AppHandle, label: &str) {
 /// reached only for genuine user-initiated closes — never for programmatic ones.
 pub(crate) fn on_approval_window_close(app_handle: &AppHandle, label: &str) {
     if let Some(window) = app_handle.get_webview_window(label) {
-        let _ = window.eval("window.__lcxlApprovalDeny && window.__lcxlApprovalDeny();");
+        let _ = window.eval("window.__lcxboxApprovalDeny && window.__lcxboxApprovalDeny();");
     }
     let app_handle = app_handle.clone();
     let label = label.to_string();
@@ -356,7 +356,7 @@ pub(crate) fn on_approval_window_close(app_handle: &AppHandle, label: &str) {
 }
 
 // TODO(virtual-display): a per-monitor approval window is also created on the
-// virtual display (HW id `LcxlVirtualDisplay`), where the remote peer could
+// virtual display (HW id `LcxboxVirtualDisplay`), where the remote peer could
 // click it. Filter the virtual display out (by device name) once exclusive mode
 // settles, so only physically-present screens get an approval dialog.
 

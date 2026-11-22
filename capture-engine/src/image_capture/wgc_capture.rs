@@ -1003,7 +1003,7 @@ mod tests {
         }
     }
 
-    /// Hardware smoke: when an `lcxl` IDD virtual monitor is attached,
+    /// Hardware smoke: when an `lcxbox` IDD virtual monitor is attached,
     /// the GDI-backed WGC enumerator must list it. WGC needs HMONITOR
     /// (which only `EnumDisplayMonitors` returns), so this test guards
     /// the GDI side of the cross-backend select-by-name contract from
@@ -1020,13 +1020,13 @@ mod tests {
         let has_idd = infos.iter().any(|info| {
             info.display_device_name
                 .as_deref()
-                .map(|n| n.to_ascii_lowercase().contains("lcxl"))
+                .map(|n| n.to_ascii_lowercase().contains("lcxbox"))
                 .unwrap_or(false)
         });
         assert!(
             has_idd,
             "expected at least one DisplayInfo whose display_device_name contains \
-             'Lcxl' (the IDD virtual display); enumerated: {:?}",
+             'Lcxbox' (the IDD virtual display); enumerated: {:?}",
             infos
                 .iter()
                 .map(|i| (i.device_name.clone(), i.display_device_name.clone()))

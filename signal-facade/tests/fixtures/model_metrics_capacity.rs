@@ -9,7 +9,7 @@ use super::Store;
 type Failure=Box<dyn std::error::Error>;
 
 pub fn sample_count() -> Result<usize,Failure> {
-    let count=std::env::var("LRDM_METRICS_CAPACITY_SAMPLES").unwrap_or_else(|_|"1000000".into()).parse::<usize>()?;
+    let count=std::env::var("LADM_METRICS_CAPACITY_SAMPLES").unwrap_or_else(|_|"1000000".into()).parse::<usize>()?;
     if !(1_000..=5_000_000).contains(&count) || !count.is_multiple_of(100) {
         return Err("sample count must be a multiple of 100 between 1000 and 5000000".into());
     }

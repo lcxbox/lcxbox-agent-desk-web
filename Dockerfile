@@ -72,8 +72,8 @@ RUN sed -i 's/^VERSION_ID=.*/VERSION_ID="22.04"/' /etc/os-release
 # Build the main server
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
-    cargo build --release --bin lcxl-remote-desk-server && \
-    cp target/release/lcxl-remote-desk-server .
+    cargo build --release --bin lcxbox-agent-desk-server && \
+    cp target/release/lcxbox-agent-desk-server .
 
 # Stage 3: Runtime
 FROM debian:bookworm-slim AS runtime
@@ -101,13 +101,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy binary and static files
-COPY --from=rust-builder /app/lcxl-remote-desk-server ./
+COPY --from=rust-builder /app/lcxbox-agent-desk-server ./
 COPY --from=rust-builder /app/server/static ./static
 
 # Runtime state lives under the platform-standard paths the server resolves for
 # the Linux system scope (it runs as root here), not under the working
 # directory. Pre-creating them keeps the bind-mount targets explicit.
-RUN mkdir -p /etc/lcxl-remote-desk /var/lib/lcxl-remote-desk /var/log/lcxl-remote-desk
+RUN mkdir -p /etc/lcxbox-agent-desk /var/lib/lcxbox-agent-desk /var/log/lcxbox-agent-desk
 
 # Set environment variables
 ENV RUST_LOG=info
@@ -116,4 +116,4 @@ ENV RUST_LOG=info
 EXPOSE 8081
 
 # Start the server
-CMD ["./lcxl-remote-desk-server", "--startup-mode", "signaling"]
+CMD ["./lcxbox-agent-desk-server", "--startup-mode", "signaling"]

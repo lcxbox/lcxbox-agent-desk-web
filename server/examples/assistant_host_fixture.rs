@@ -1,7 +1,7 @@
 //! Isolated protocol fixture using the same hub entry point as the desktop shell.
 //! This is not a replacement for native dialog/UI validation.
 use clap::Parser;
-use lcxl_remote_desk_server::{
+use lcxbox_agent_desk_server::{
     host_control::HostControlHub,
     model::settings::{Args, Settings, StartupMode},
 };
@@ -9,7 +9,7 @@ use std::{path::Path, sync::Arc};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
-    if let Some(code) = lcxl_remote_desk_server::windows_application_host::run_if_requested() {
+    if let Some(code) = lcxbox_agent_desk_server::windows_application_host::run_if_requested() {
         std::process::exit(code);
     }
     #[cfg(windows)]
@@ -17,13 +17,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut args = std::env::args_os().skip(1);
         if args.next().as_deref()
             == Some(std::ffi::OsStr::new(
-                lcxl_remote_desk_server::windows_office_helper::MODE,
+                lcxbox_agent_desk_server::windows_office_helper::MODE,
             ))
         {
             if args.next().is_some() {
                 std::process::exit(2);
             }
-            std::process::exit(lcxl_remote_desk_server::windows_office_helper::run_stdio());
+            std::process::exit(lcxbox_agent_desk_server::windows_office_helper::run_stdio());
         }
     }
     run()
@@ -47,7 +47,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let settings =
         Settings::new(&args).map_err(|error| std::io::Error::other(error.to_string()))?;
-    let (server, _telemetry) = lcxl_remote_desk_server::run_with_hub(
+    let (server, _telemetry) = lcxbox_agent_desk_server::run_with_hub(
         &settings,
         Some(Arc::new(HostControlHub::new_local())),
     )

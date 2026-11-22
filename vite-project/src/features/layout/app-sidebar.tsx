@@ -101,7 +101,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                 </div>
                                 <div className="grid flex-1 text-left text-sm leading-tight">
                                     <span className="truncate font-semibold flex items-center gap-2">
-                                        LCXL Remote
+                                        LCXBOX Remote
                                         {serverInfo && (
                                             <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
                                                 {startupModeLabel(serverInfo.startup_mode)}

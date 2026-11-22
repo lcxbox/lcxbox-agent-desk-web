@@ -22,7 +22,7 @@ pub(super) fn open() -> anyhow::Result<(PathBuf, PrivateDirectory)> {
     let path = unsafe { raw.to_string() }.map(PathBuf::from);
     unsafe { CoTaskMemFree(Some(raw.0.cast())) };
     let base = path?;
-    let root = PrivateDirectory::open_data_root(&base, "lcxl-remote-desk-office")?;
+    let root = PrivateDirectory::open_data_root(&base, "lcxbox-agent-desk-office")?;
     // A packaged launcher may redirect LocalAppData into its private cache.
     // Excel is an independent COM server and does not inherit that namespace.
     // Use the actual pinned directory's path, never reconstruct the alias.

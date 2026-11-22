@@ -485,7 +485,7 @@ fn peer_path(
 }
 
 fn token(prefix: &str) -> String {
-    format!("lrd_{prefix}_{}", rand::random::<u64>())
+    format!("lad_{prefix}_{}", rand::random::<u64>())
 }
 
 async fn session_closed_token(
@@ -531,13 +531,13 @@ mod tests {
         let applications = temp.path().join("applications");
         fs::create_dir_all(&applications).expect("create applications");
         fs::write(
-            applications.join("com.lcxl.remote-desk.desktop"),
-            "[Desktop Entry]\nName=Lcxl Remote Desk\n",
+            applications.join("com.lcxbox.agent-desk.desktop"),
+            "[Desktop Entry]\nName=LCXBOX Agent Desk\n",
         )
         .expect("write desktop entry");
 
         let roots = [temp.path().to_path_buf()];
-        assert!(desktop_entry_exists_in("com.lcxl.remote-desk", &roots));
+        assert!(desktop_entry_exists_in("com.lcxbox.agent-desk", &roots));
         assert!(!desktop_entry_exists_in("com.example.portable", &roots));
     }
 }

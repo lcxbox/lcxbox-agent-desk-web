@@ -1,7 +1,7 @@
 //! Private data directory of a user-session worker on Unix.
 //!
 //! A system daemon hands its session workers the user's data directory (for
-//! example `$XDG_DATA_HOME/lcxl-remote-desk`), which nothing else creates; the
+//! example `$XDG_DATA_HOME/lcxbox-agent-desk`), which nothing else creates; the
 //! recovery library and the other user stores create only their own entries
 //! below it.
 
@@ -31,7 +31,7 @@ mod tests {
     #[test]
     fn a_missing_data_directory_is_created_private_and_opens_the_recovery_library() {
         let home = tempfile::tempdir().unwrap();
-        let data_dir = home.path().join(".local/share/lcxl-remote-desk");
+        let data_dir = home.path().join(".local/share/lcxbox-agent-desk");
         assert!(desk_file_recovery::Vault::open(&data_dir).is_err());
 
         prepare(&data_dir).unwrap();

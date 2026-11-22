@@ -3,7 +3,7 @@
 //! The profile allows everything except file writes, then allows writes below
 //! the write roots, the execution's temporary directory and the user
 //! temporary directory (`DARWIN_USER_TEMP_DIR`, without this product's
-//! `lcxl-`/`lcxl_` entries), plus the data of a few character devices and
+//! `lcxbox-`/`lcxbox_` entries), plus the data of a few character devices and
 //! `/dev/fd/N`. Every path reaches the profile as a `-D` parameter, never as
 //! profile text, so directory names cannot inject rules; parameters are real
 //! paths taken from opened handles because Seatbelt matches resolved paths.
@@ -145,8 +145,8 @@ impl Prepared {
         if user_temp.is_some() {
             profile.push_str(concat!(
                 "(deny file-write*\n",
-                "  (prefix (string-append (param \"USER_TMP\") \"/lcxl-\"))\n",
-                "  (prefix (string-append (param \"USER_TMP\") \"/lcxl_\")))\n",
+                "  (prefix (string-append (param \"USER_TMP\") \"/lcxbox-\"))\n",
+                "  (prefix (string-append (param \"USER_TMP\") \"/lcxbox_\")))\n",
             ));
         }
         profile.push_str("(allow file-write-data");

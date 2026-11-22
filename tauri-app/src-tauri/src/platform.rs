@@ -44,7 +44,7 @@ pub fn block_input(
     }
 }
 
-/// Resolve the attached LCXL virtual display to the OS monitor name.
+/// Resolve the attached LCXBOX virtual display to the OS monitor name.
 pub fn virtual_display_name() -> Option<String> {
     #[cfg(target_os = "windows")]
     {

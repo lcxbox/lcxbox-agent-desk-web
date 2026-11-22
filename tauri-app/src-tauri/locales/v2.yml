@@ -1,7 +1,7 @@
 _version: 2
 app_title:
-  en: LCXL Remote Desktop
-  zh-CN: LCXL 远程桌面
+  en: LCXBOX Agent Desk
+  zh-CN: LCXBOX Agent Desk
 ai_attention:
   title:
     en: AI Assistant
@@ -40,8 +40,8 @@ ai_attention:
     en: Issue reply needs attention
     zh-CN: 工单回复待核对
 tray_active_sessions:
-  en: "LCXL Remote Desktop — %{count} remote session(s) active"
-  zh-CN: "LCXL 远程桌面 — %{count} 个远程会话正在进行"
+  en: "LCXBOX Agent Desk — %{count} remote session(s) active"
+  zh-CN: "LCXBOX Agent Desk — %{count} 个远程会话正在进行"
 button_cancel:
   en: Cancel
   zh-CN: 取消
@@ -92,8 +92,8 @@ host_access_exit_confirm:
   en: Remote access is active or locked. Exiting only closes this UI; a safety lock remains locked. Exit anyway?
   zh-CN: 远程访问仍在进行或已锁定。退出只会关闭界面，安全锁仍会保持。仍要退出吗？
 host_access_dialog_title:
-  en: LCXL Remote Desktop
-  zh-CN: LCXL 远程桌面
+  en: LCXBOX Agent Desk
+  zh-CN: LCXBOX Agent Desk
 security_approval_title:
   en: "Security Approval Required"
   zh-CN: "需要安全授权"

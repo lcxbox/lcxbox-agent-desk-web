@@ -47,7 +47,7 @@ mod tests {
         let resolve = windows::current;
         #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         {
-            const EXPECTED: &str = "LRD_TEST_EXPECTED_DOWNLOAD_DIRECTORY";
+            const EXPECTED: &str = "LAD_TEST_EXPECTED_DOWNLOAD_DIRECTORY";
             if let Some(expected) = std::env::var_os(EXPECTED) {
                 assert_eq!(resolve().unwrap(), PathBuf::from(expected));
                 return;

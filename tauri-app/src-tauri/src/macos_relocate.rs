@@ -112,7 +112,7 @@ fn is_in_standard_apps_dir(bundle: &Path, home: Option<&Path>) -> bool {
 fn target_in_applications(bundle: &Path) -> PathBuf {
     let name = bundle
         .file_name()
-        .unwrap_or_else(|| std::ffi::OsStr::new("LCXL Remote Desktop.app"));
+        .unwrap_or_else(|| std::ffi::OsStr::new("LCXBOX Agent Desk.app"));
     Path::new("/Applications").join(name)
 }
 

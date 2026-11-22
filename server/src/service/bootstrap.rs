@@ -7,7 +7,7 @@ use super::{
     rate_limit::{AuthRateLimiter, BootstrapAttempt},
 };
 
-pub const BOOTSTRAP_TOKEN_ENV: &str = "LRD_BOOTSTRAP_TOKEN";
+pub const BOOTSTRAP_TOKEN_ENV: &str = "LAD_BOOTSTRAP_TOKEN";
 
 #[derive(Clone)]
 pub struct BootstrapToken(Option<Vec<u8>>);

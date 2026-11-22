@@ -4,12 +4,12 @@ use file_reference_store::windows_publish::PublishFailure;
 use sha2::{Digest, Sha256};
 
 #[test]
-#[ignore = "requires production LRD_TEST_SERVER_BINARY, synthetic LRD_EXCEL_INPUT and empty LRD_EXCEL_WORK_DIR"]
+#[ignore = "requires production LAD_TEST_SERVER_BINARY, synthetic LAD_EXCEL_INPUT and empty LAD_EXCEL_WORK_DIR"]
 fn native_excel_copy_requires_lease_preserves_conflicts_and_rejects_cancelled_work() {
     let _guard = file_reference_store::file_store_test_lock();
-    let root = std::path::PathBuf::from(std::env::var_os("LRD_EXCEL_WORK_DIR").unwrap());
+    let root = std::path::PathBuf::from(std::env::var_os("LAD_EXCEL_WORK_DIR").unwrap());
     assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
-    let bytes = std::fs::read(std::env::var_os("LRD_EXCEL_INPUT").unwrap()).unwrap();
+    let bytes = std::fs::read(std::env::var_os("LAD_EXCEL_INPUT").unwrap()).unwrap();
     let source_path = root.join("源表格.xlsx");
     std::fs::write(&source_path, &bytes).unwrap();
     let output_dir = root.join("输出目录 with spaces");

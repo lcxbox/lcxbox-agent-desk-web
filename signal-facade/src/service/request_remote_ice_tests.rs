@@ -34,11 +34,11 @@ struct FakeTurn {
 }
 #[async_trait::async_trait]
 impl TurnProvider for FakeTurn {
-    async fn get_ice_servers(&self, _username: &str, _credential: &str) -> LcxlRTCIceServer {
+    async fn get_ice_servers(&self, _username: &str, _credential: &str) -> LcxboxRTCIceServer {
         unreachable!("REQUEST_REMOTE injection must use get_rest_ice_servers")
     }
-    async fn get_rest_ice_servers(&self, name: &str, _ttl: u64) -> Option<LcxlRTCIceServer> {
-        self.issue.then(|| LcxlRTCIceServer {
+    async fn get_rest_ice_servers(&self, name: &str, _ttl: u64) -> Option<LcxboxRTCIceServer> {
+        self.issue.then(|| LcxboxRTCIceServer {
             urls: vec!["turn:host:3478?transport=udp".to_string()],
             username: format!("9999999999:{name}"),
             credential: "pw".to_string(),
@@ -151,7 +151,7 @@ fn turn_rebuild_preserves_requested_wayland_control_mode() {
         Some(serde_json::to_value(payload).unwrap()),
         None,
     );
-    let ice = LcxlRTCIceServer {
+    let ice = LcxboxRTCIceServer {
         urls: vec!["turn:host:3478".to_string()],
         username: "host-1".to_string(),
         credential: "secret".to_string(),
@@ -223,7 +223,7 @@ fn turn_rebuild_preserves_org_id() {
         org_id: Some(7),
         ..RequestRemoteModel::default()
     };
-    let ice = LcxlRTCIceServer {
+    let ice = LcxboxRTCIceServer {
         urls: vec!["turn:host:3478".to_string()],
         username: "host-1".to_string(),
         credential: "secret".to_string(),

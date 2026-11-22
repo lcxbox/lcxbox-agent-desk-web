@@ -1264,7 +1264,7 @@ mod tests {
     #[tokio::test]
     async fn missing_program_is_an_error() {
         let mut p = plan("echo hi", 10_000, 65_536);
-        p.program = "lcxl-definitely-not-a-real-binary".into();
+        p.program = "lcxbox-definitely-not-a-real-binary".into();
         p.argv = Vec::new();
         let output = exec_output(execute_plan(&p).await);
         assert!(!output.started);

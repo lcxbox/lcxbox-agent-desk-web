@@ -26,7 +26,7 @@ export function installDriverMutationOptions<TContext = unknown>(config: Partial
 }
 
 /**
- * @summary Install LcxlVirtualDisplay IDD driver
+ * @summary Install LcxboxVirtualDisplay IDD driver
  * {@link /api/virtual-display/driver/install}
  */
 export function useInstallDriver<TContext>(options: 

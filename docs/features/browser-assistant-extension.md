@@ -1,6 +1,6 @@
 # Browser Assistant extension
 
-The LCXL Chrome extension is the only supported browser adapter for AI Assistant. It runs in Chrome on the controlled device and connects to an authenticated loopback bridge. The DevTools MCP adapter, configuration switch and startup path have been removed.
+The LCXBOX Chrome extension is the only supported browser adapter for AI Assistant. It runs in Chrome on the controlled device and connects to an authenticated loopback bridge. The DevTools MCP adapter, configuration switch and startup path have been removed.
 
 ## Pair once
 
@@ -29,7 +29,7 @@ Exact-send also requires an identifiable signed-in account. Gmail uses the accou
 
 ## Local pairing proof
 
-On the controlled device, run `lcxl-remote-desk-server browser-pairing-proof` as the same ordinary OS user running the host. With a custom configuration, append `--config-file-path <path>`. Enter the returned one-time code in the local Assistant page opened through `localhost` or `127.0.0.1`, then choose **Show pairing code**. The one-time code expires after five minutes; generating a new code invalidates the previous one. The HTTP request requires an owner login, matching local origin, and this OS-user proof. The old GET endpoint does not disclose pairing secrets.
+On the controlled device, run `lcxbox-agent-desk-server browser-pairing-proof` as the same ordinary OS user running the host. With a custom configuration, append `--config-file-path <path>`. Enter the returned one-time code in the local Assistant page opened through `localhost` or `127.0.0.1`, then choose **Show pairing code**. The one-time code expires after five minutes; generating a new code invalidates the previous one. The HTTP request requires an owner login, matching local origin, and this OS-user proof. The old GET endpoint does not disclose pairing secrets.
 
 If the bridge is not initialized or its pairing information cannot be read, the request does not consume a valid proof. After resolving the problem, you can submit it again within its original lifetime. Successful redemption remains one-use; retries do not extend the five-minute expiry.
 

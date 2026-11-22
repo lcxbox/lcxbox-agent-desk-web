@@ -1,6 +1,6 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 
-use desk_signal_facade::model::signal::LcxlRTCIceServer;
+use desk_signal_facade::model::signal::LcxboxRTCIceServer;
 use serde::{Deserialize, Serialize};
 use turn::server::Server;
 use utoipa::{IntoParams, ToSchema};
@@ -10,7 +10,7 @@ use crate::interface::RejectedTurnInterface;
 
 #[rustfmt::skip]
 pub static SOFTWARE: &str = concat!(
-    "lcxl-remote-desk-turn-rs.",
+    "lcxbox-agent-desk-turn-rs.",
     env!("CARGO_PKG_VERSION")
 );
 
@@ -293,8 +293,8 @@ impl TurnSettings {
             .collect()
     }
 
-    pub fn get_ice_servers(&self, username: &str, credential: &str) -> LcxlRTCIceServer {
-        LcxlRTCIceServer {
+    pub fn get_ice_servers(&self, username: &str, credential: &str) -> LcxboxRTCIceServer {
+        LcxboxRTCIceServer {
             urls: self.turn_urls(),
             username: username.to_owned(),
             credential: credential.to_owned(),
@@ -305,7 +305,7 @@ impl TurnSettings {
     /// (username `{expiration}:{name}`, password `HMAC(secret, username)`) valid
     /// for `ttl_secs`. Returns `None` when there is no `static_auth_secret` or no
     /// TURN interface to advertise, so callers never inject an unusable entry.
-    pub fn get_rest_ice_servers(&self, name: &str, ttl_secs: u64) -> Option<LcxlRTCIceServer> {
+    pub fn get_rest_ice_servers(&self, name: &str, ttl_secs: u64) -> Option<LcxboxRTCIceServer> {
         let secret = self.static_auth_secret.as_ref()?;
         let urls = self.turn_urls();
         if urls.is_empty() {
@@ -313,7 +313,7 @@ impl TurnSettings {
         }
         let (username, credential) =
             crate::utils::generate_turn_credentials(secret, name, ttl_secs);
-        Some(LcxlRTCIceServer {
+        Some(LcxboxRTCIceServer {
             urls,
             username,
             credential,
@@ -482,14 +482,14 @@ mod rest_ice_server_tests {
 
 #[async_trait::async_trait]
 impl desk_signal_facade::model::signal::TurnProvider for TurnSettings {
-    async fn get_ice_servers(&self, username: &str, credential: &str) -> LcxlRTCIceServer {
+    async fn get_ice_servers(&self, username: &str, credential: &str) -> LcxboxRTCIceServer {
         // Delegates to the inherent (sync, pure) method of the same name;
         // inherent methods take precedence in resolution, so this does not
         // recurse into the trait method.
         self.get_ice_servers(username, credential)
     }
 
-    async fn get_rest_ice_servers(&self, name: &str, ttl_secs: u64) -> Option<LcxlRTCIceServer> {
+    async fn get_rest_ice_servers(&self, name: &str, ttl_secs: u64) -> Option<LcxboxRTCIceServer> {
         self.get_rest_ice_servers(name, ttl_secs)
     }
 }

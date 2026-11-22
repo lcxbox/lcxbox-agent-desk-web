@@ -30,7 +30,7 @@ test('HTTP content script describes a page without secure-context crypto APIs', 
         MutationObserver: class { observe() {} },
         chrome: { runtime: { sendMessage, onMessage: { addListener(fn) { listener = fn; } } } },
     });
-    const reply = await new Promise(resolve => listener({ type: 'lcxl_browser_action', action: { action: 'describe_page' } }, {}, resolve));
+    const reply = await new Promise(resolve => listener({ type: 'lcxbox_browser_action', action: { action: 'describe_page' } }, {}, resolve));
     assert.equal(reply.ok, true);
     assert.equal(reply.result.page.origin.kind, 'http');
     assert.equal(reply.result.page.origin.port, 8080);
@@ -38,7 +38,7 @@ test('HTTP content script describes a page without secure-context crypto APIs', 
 });
 
 test('digest bridge rejects unprivileged senders and revoked site access', async () => {
-    const message = { type: 'lcxl_content_digest', base64: btoa('example') };
+    const message = { type: 'lcxbox_content_digest', base64: btoa('example') };
     assert.equal((await digestBridge()(message, { id: 'other', tab: { id: 1 }, url: 'http://example.com/' })).error, 'digest_unavailable');
     assert.equal((await digestBridge(false)(message)).error, 'digest_unavailable');
 });

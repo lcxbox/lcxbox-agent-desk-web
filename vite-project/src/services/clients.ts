@@ -3801,7 +3801,7 @@ function getInstallDriverUrl() {
 }
 
 /**
- * @summary Install LcxlVirtualDisplay IDD driver
+ * @summary Install LcxboxVirtualDisplay IDD driver
  * {@link /api/virtual-display/driver/install}
  */
 export async function installDriver(config: Partial<RequestConfig> & { client?: Client } = {}) {
@@ -3819,7 +3819,7 @@ function getQueryDriverStatusUrl() {
 }
 
 /**
- * @summary Query LcxlVirtualDisplay IDD driver status
+ * @summary Query LcxboxVirtualDisplay IDD driver status
  * {@link /api/virtual-display/driver/status}
  */
 export async function queryDriverStatus(config: Partial<RequestConfig> & { client?: Client } = {}) {
@@ -3837,7 +3837,7 @@ function getUninstallDriverUrl() {
 }
 
 /**
- * @summary Uninstall every LcxlVirtualDisplay IDD driver copy
+ * @summary Uninstall every LcxboxVirtualDisplay IDD driver copy
  * {@link /api/virtual-display/driver/uninstall}
  */
 export async function uninstallDriver(config: Partial<RequestConfig> & { client?: Client } = {}) {

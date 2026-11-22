@@ -1,4 +1,4 @@
-//! Device-local wire contract for the paired LCXL Chrome extension.
+//! Device-local wire contract for the paired LCXBOX Chrome extension.
 //!
 //! Shared Browser actions are converted here only after the worker has
 //! validated them. Uploads replace the edge-only ObjectRef with exact verified
@@ -592,7 +592,7 @@ impl BrowserExtensionBroker {
             os_session_id: os_session_id.to_string(),
             browser_major_version,
             browser_version: hello.browser_version.clone(),
-            adapter_id: "lcxl-browser-extension".into(),
+            adapter_id: "lcxbox-browser-extension".into(),
             adapter_version: hello.extension_version.clone(),
             profile_incarnation: hello.profile_incarnation.clone(),
             connection_revision: revision,
@@ -1509,7 +1509,7 @@ mod tests {
                 os_session_id: "session-1".into(),
                 browser_major_version: 151,
                 browser_version: "151.0.1".into(),
-                adapter_id: "lcxl-browser-extension".into(),
+                adapter_id: "lcxbox-browser-extension".into(),
                 adapter_version: "0.1.0".into(),
                 profile_incarnation: "profile-1".into(),
                 connection_revision: 1,

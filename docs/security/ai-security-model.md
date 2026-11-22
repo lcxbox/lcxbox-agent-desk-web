@@ -1,6 +1,6 @@
 # AI Security Model
 
-Remote desktop with AI that reads system state is powerful — and demands a strong trust boundary. LCXL Remote Desk treats AI as a first-class control plane, governed by invariants that are **security-relevant: breaking them is a regression**.
+Remote desktop with AI that reads system state is powerful — and demands a strong trust boundary. LCXBOX Agent Desk treats AI as a first-class control plane, governed by invariants that are **security-relevant: breaking them is a regression**.
 
 ## The Server Is the Sole Source of Truth
 

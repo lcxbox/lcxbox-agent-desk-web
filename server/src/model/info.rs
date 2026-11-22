@@ -227,14 +227,14 @@ pub struct ServerInfo {
     pub api_version: i32,
     /// Indicates whether the system is initialized (e.g., admin password set)
     pub initialized: bool,
-    /// Whether the OS system service (LcxlDeskService) is installed
+    /// Whether the OS system service (LcxboxDeskService) is installed
     pub service_installed: bool,
     /// Whether the Windows service is currently running.
     pub service_running: bool,
     /// Whether the current process has admin/root privileges
     pub is_admin: bool,
     /// Whether the server binary is available for service installation.
-    /// True when lcxl-remote-desk-server(.exe) exists alongside the current
+    /// True when lcxbox-agent-desk-server(.exe) exists alongside the current
     /// executable (both binaries share the same target directory in dev and
     /// the same install directory in production).
     pub server_binary_available: bool,

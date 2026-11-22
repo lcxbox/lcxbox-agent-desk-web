@@ -51,7 +51,7 @@ mod imp {
 
     use super::{HwndWrapper, PromptShared};
 
-    const CLASS_NAME: &str = "LcxlExclusivePromptWindow";
+    const CLASS_NAME: &str = "LcxboxExclusivePromptWindow";
     /// Prompt window size — generous enough for two short lines of
     /// 36 pt text on a 1080p screen.
     const PROMPT_WIDTH: i32 = 600;

@@ -161,7 +161,7 @@ impl ContextPolicyKey {
         if policy.preserve_history {
             digest.update(b"durable-history-v1");
         }
-        digest.update(b"lrdm-context-policy-v1\0");
+        digest.update(b"ladm-context-policy-v1\0");
         for component in [
             policy.source_context_key.as_str().to_string(),
             policy.profile_revision.to_string(),

@@ -26,13 +26,13 @@ cargo test -p desk-signal --lib --release command_history -- --nocapture
 python3 web/scripts/agent-stack/run.py --workspace . --package desk-diagnose-core --output target/agent-stack/core-debug.json
 python3 web/scripts/agent-stack/run.py --workspace . --package desk-signal-facade --output target/agent-stack/assistant-pages-debug.json
 python3 web/scripts/agent-stack/run.py --workspace . --package desk-signal-facade --profile release --output target/agent-stack/assistant-pages-release.json
-python3 web/scripts/agent-stack/run.py --workspace . --package lcxl-remote-desk-manager --output target/agent-stack/manager-debug.json
-cargo test -p lcxl-remote-desk-manager --lib --features desk-diagnose-core/stack-budget -- --skip assistant_data_store::tests::retrieval_native::memory_mutation::
-cargo test -p lcxl-remote-desk-manager --lib --features desk-diagnose-core/stack-budget assistant_data_store::tests::retrieval_native::memory_mutation:: -- --test-threads=1
-LRDM_TEST_REDIS_URL=redis://127.0.0.1:6379/15 cargo test -p lcxl-remote-desk-manager --lib --features desk-diagnose-core/stack-budget automatic_ui_review_with_command_history_fits_small_stacks -- --ignored --nocapture
+python3 web/scripts/agent-stack/run.py --workspace . --package lcxbox-agent-desk-manager --output target/agent-stack/manager-debug.json
+cargo test -p lcxbox-agent-desk-manager --lib --features desk-diagnose-core/stack-budget -- --skip assistant_data_store::tests::retrieval_native::memory_mutation::
+cargo test -p lcxbox-agent-desk-manager --lib --features desk-diagnose-core/stack-budget assistant_data_store::tests::retrieval_native::memory_mutation:: -- --test-threads=1
+LADM_TEST_REDIS_URL=redis://127.0.0.1:6379/15 cargo test -p lcxbox-agent-desk-manager --lib --features desk-diagnose-core/stack-budget automatic_ui_review_with_command_history_fits_small_stacks -- --ignored --nocapture
 ```
 
-Redis 必须为隔离测试实例。Manager 的并发事务证明测试另使用 `LRDM_TEST_PG_URL` 指向隔离 PostgreSQL；不要指向产品运行库。测试网关和设备回执均为合成数据。
+Redis 必须为隔离测试实例。Manager 的并发事务证明测试另使用 `LADM_TEST_PG_URL` 指向隔离 PostgreSQL；不要指向产品运行库。测试网关和设备回执均为合成数据。
 
 交互记忆的真实两阶段小栈组，以及 Signal 桌面审批/对象许可组分别串行运行，避免多个合成网关、小栈子进程和数据库夹具争用调度时间。其余用例继续并发；两宿主交互维护测试的阶段保护等待为 30 秒，覆盖 debug 数据库及模拟模型往返；该值不是产品超时。串行 CI 分组、生产任务边界及 1 MiB/2 MiB 限制保持。
 

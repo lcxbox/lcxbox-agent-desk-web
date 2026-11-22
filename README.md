@@ -1,4 +1,4 @@
-# LCXL Remote Desk Web
+# LCXBOX Agent Desk Web
 
 [中文](README_CN.md)
 
@@ -8,7 +8,7 @@
 >
 > **Security Warning**: This project must not be used for any unlawful purpose. The author(s) accept no liability for any damage arising from its use.
 
-LCXL Remote Desk Web is an **AI-native**, open-source high-performance remote desktop.
+LCXBOX Agent Desk Web is an **AI-native**, open-source high-performance remote desktop.
 
 * Built natively on WebRTC — there is no separate control client to install; any modern browser gives you a native remote-desktop experience.
 * The host runs natively on Windows, macOS, and Linux, with 4K @ 60 Hz screen capture and output.
@@ -55,7 +55,7 @@ LCXL Remote Desk Web is an **AI-native**, open-source high-performance remote de
 
    Every package is the Tauri desktop shell: it embeds the host server in-process — `default` mode, i.e. embedded signaling plus the controlled-device pipeline — and adds the locally-rendered privacy screen and whiteboard.
 
-2. Run it. On **Windows / Linux**, unpack the zip and launch `lcxl-remote-desk-tauri`; the archive also holds `lcxl-remote-desk-server` and a `static/` directory (the web console assets), and **all three must stay side by side**. On **macOS**, open the `.dmg` and drag **LCXL Remote Desktop** into Applications, then launch it.
+2. Run it. On **Windows / Linux**, unpack the zip and launch `lcxbox-agent-desk-tauri`; the archive also holds `lcxbox-agent-desk-server` and a `static/` directory (the web console assets), and **all three must stay side by side**. On **macOS**, open the `.dmg` and drag **LCXBOX Agent Desk** into Applications, then launch it.
 
 3. The shell opens the console in its own window — from another machine the same console is at `http://<host-address>:8081`. Follow the wizard to create the admin account and set the inbound security policy, then control the device from the same LAN — or from anywhere that can reach its public IP.
 
@@ -73,7 +73,7 @@ Use this when the controlled device has no public IP and you want to own the who
    ```bash
    git clone https://github.com/lcxl-remote/lcxl-remote-desk-web.git
    cd lcxl-remote-desk-web
-   printf 'LRD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
+   printf 'LAD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
    docker compose up -d
    ```
 
@@ -102,12 +102,12 @@ Use this when the controlled device has no public IP and you want to own the who
 3. Once the frontend is ready, start the Tauri host shell in another terminal. It embeds the full server, and local GUI integrations such as the Privacy Screen and Whiteboard are only available in this shell:
 
    ```bash
-   cargo run -p lcxl-remote-desk-tauri
+   cargo run -p lcxbox-agent-desk-tauri
    ```
 
-   For a headless backend without the GUI shell, run `cargo run -p lcxl-remote-desk-server` (`default` mode) instead and open `http://localhost:5174` in a browser.
+   For a headless backend without the GUI shell, run `cargo run -p lcxbox-agent-desk-server` (`default` mode) instead and open `http://localhost:5174` in a browser.
 
-> For the full walkthrough of all three options, their prerequisites, and next steps, see [Quick Start](docs/guide/quick-start.md). Public-endpoint hardening, system dependencies, container persistence, and the `LRD_*` variables are covered in [Deployment](docs/guide/deployment.md).
+> For the full walkthrough of all three options, their prerequisites, and next steps, see [Quick Start](docs/guide/quick-start.md). Public-endpoint hardening, system dependencies, container persistence, and the `LAD_*` variables are covered in [Deployment](docs/guide/deployment.md).
 
 ---
 
@@ -117,12 +117,12 @@ Controlled-device settings live at **platform-standard paths** — one profile s
 
 | Platform | Config file | Log directory |
 |---|---|---|
-| Windows | `%ProgramData%\LCXL Remote Desktop\config\config.toml` | `%ProgramData%\LCXL Remote Desktop\logs` |
-| Linux (root) | `/etc/lcxl-remote-desk/config.toml` | `/var/log/lcxl-remote-desk` |
-| Linux (regular user) | `$XDG_CONFIG_HOME/lcxl-remote-desk/config.toml` (`~/.config/lcxl-remote-desk/config.toml` when unset) | `$XDG_STATE_HOME/lcxl-remote-desk/logs` (`~/.local/state/lcxl-remote-desk/logs` when unset) |
-| macOS | `~/Library/Application Support/com.lcxl.remote-desk/config/config.toml` | `~/Library/Logs/lcxl-remote-desk` |
+| Windows | `%ProgramData%\LCXBOX Agent Desk\config\config.toml` | `%ProgramData%\LCXBOX Agent Desk\logs` |
+| Linux (root) | `/etc/lcxbox-agent-desk/config.toml` | `/var/log/lcxbox-agent-desk` |
+| Linux (regular user) | `$XDG_CONFIG_HOME/lcxbox-agent-desk/config.toml` (`~/.config/lcxbox-agent-desk/config.toml` when unset) | `$XDG_STATE_HOME/lcxbox-agent-desk/logs` (`~/.local/state/lcxbox-agent-desk/logs` when unset) |
+| macOS | `~/Library/Application Support/com.lcxbox.agent-desk/config/config.toml` | `~/Library/Logs/lcxbox-agent-desk` |
 
-Use `-c, --config-file-path <PATH>` for an explicit profile override; the databases, runtime socket, and other sibling files follow that path. `LRD_*` environment variables can still override host settings; OSS global AI/search/policy sections are file-only. When the file is absent it is generated from defaults: port `8081` bound to `0.0.0.0` / `::`, IPv6 enabled, no signaling or manager URL (embedded signaling only), and plaintext dials to public signaling refused. The bundled TURN switch defaults on, but relays nothing until `[[turn.interfaces]]` is configured. See the [config.toml reference](docs/config/config-toml.md) for every field.
+Use `-c, --config-file-path <PATH>` for an explicit profile override; the databases, runtime socket, and other sibling files follow that path. `LAD_*` environment variables can still override host settings; OSS global AI/search/policy sections are file-only. When the file is absent it is generated from defaults: port `8081` bound to `0.0.0.0` / `::`, IPv6 enabled, no signaling or manager URL (embedded signaling only), and plaintext dials to public signaling refused. The bundled TURN switch defaults on, but relays nothing until `[[turn.interfaces]]` is configured. See the [config.toml reference](docs/config/config-toml.md) for every field.
 
 The local console persists host settings such as:
 
@@ -176,7 +176,7 @@ AI inference is centrally orchestrated, while the controlled device is a thin ev
 - **Suggest-Only by Default**: A proposed command crosses a separate authorization path. It requires risk and blocklist checks plus per-command owner confirmation; the server seals the approved argv plan, and the edge independently checks its immutable fields and risk ceiling before execution.
 - **Privacy-Preserving Audit**: Model calls, approvals, denials, redaction failures, and execution outcomes emit audit metadata and summaries; raw prompts, model responses, stdout, and screenshots are not stored in audit events.
 
-**MCP Server.** `mcp-stdio` is intentionally separate from the AI assistant. It exposes exactly `lcxl_system_info`, `lcxl_process_list`, `lcxl_network_ports`, and `lcxl_recent_logs`; the last tool is evaluated against `allow_logs` on every call. The MCP server never calls a model and never exposes screenshots, execution, remote control, or writes.
+**MCP Server.** `mcp-stdio` is intentionally separate from the AI assistant. It exposes exactly `lcxbox_system_info`, `lcxbox_process_list`, `lcxbox_network_ports`, and `lcxbox_recent_logs`; the last tool is evaluated against `allow_logs` on every call. The MCP server never calls a model and never exposes screenshots, execution, remote control, or writes.
 
 > For provider configuration and day-to-day usage see [AI Diagnostics](docs/features/ai-diagnostics.md), for the complete trust boundary, redaction, and audit constraints see [AI Security Model](docs/security/ai-security-model.md), and for wiring up an external assistant see [MCP Server](docs/features/mcp-server.md).
 

@@ -511,7 +511,7 @@ mod tests {
     }
 
     /// Run in an elevated shell of a UAC administrator:
-    /// `cargo test -p lcxl-remote-desk-server --lib -- --ignored derived_token_starts_an_ordinary_process`
+    /// `cargo test -p lcxbox-agent-desk-server --lib -- --ignored derived_token_starts_an_ordinary_process`
     #[test]
     #[ignore = "requires an elevated process of a UAC administrator (elevation type Full)"]
     fn derived_token_starts_an_ordinary_process() {

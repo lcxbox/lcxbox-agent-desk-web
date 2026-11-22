@@ -2,8 +2,8 @@
 use super::*;
 use std::process::{Child, Command, Stdio};
 
-const ROOT_ENV: &str = "LCXL_TEXT_WRITE_LIMIT_FIXTURE";
-const CHANGE_ENV: &str = "LCXL_TEXT_WRITE_LIMIT_CHANGE";
+const ROOT_ENV: &str = "LCXBOX_TEXT_WRITE_LIMIT_FIXTURE";
+const CHANGE_ENV: &str = "LCXBOX_TEXT_WRITE_LIMIT_CHANGE";
 /// 64 KiB of letters that compress to far more than the 4 KiB write limit.
 fn original_text() -> Vec<u8> {
     let mut state = 0x2545_f491_u32;
@@ -34,7 +34,7 @@ fn limited_write_child() {
             .unwrap()
             .to_str()
             .unwrap()
-            .starts_with("lcxl-text-limit-")
+            .starts_with("lcxbox-text-limit-")
     );
     assert_eq!(
         std::fs::read(root.join("marker")).unwrap(),
@@ -127,7 +127,7 @@ fn kernel_write_failures_preserve_target() {
             large.as_slice()
         };
         let root = tempfile::Builder::new()
-            .prefix("lcxl-text-limit-")
+            .prefix("lcxbox-text-limit-")
             .tempdir()
             .unwrap();
         std::fs::write(root.path().join("marker"), b"text-limit-fixture").unwrap();

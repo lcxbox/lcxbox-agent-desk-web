@@ -1,4 +1,4 @@
-//! Device Capability Protocol — the LCXL-internal contract for what an AI
+//! Device Capability Protocol — the LCXBOX-internal contract for what an AI
 //! caller may do to a remote device.
 //!
 //! This crate is **pure protocol**: wire types + the [`DeviceAgent`] trait,
@@ -289,7 +289,7 @@ pub enum CallerType {
     Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
 )]
 pub struct AuditMeta {
-    /// Must originate from the LCXL confirmation flow; model-supplied values
+    /// Must originate from the LCXBOX confirmation flow; model-supplied values
     /// are rejected.
     pub approval_id: Option<String>,
     /// Free-text "why" from the control end; flows into the audit event.
@@ -1377,7 +1377,7 @@ mod tests {
                 caller_type: CallerType::AiModel,
                 model_provider: Some("example".into()),
                 model_name: Some("example-model".into()),
-                adapter: Some("lcxl-openai-tools".into()),
+                adapter: Some("lcxbox-openai-tools".into()),
             },
             scope: AgentScope {
                 granted: vec![Capability::ProcessList, Capability::SystemInfo],

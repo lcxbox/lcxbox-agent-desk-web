@@ -39,7 +39,7 @@ const MAX_LAUNCH_ARG_BYTES: usize = 128 * 1024;
 const MAX_LAUNCH_ARGS: usize = 4_096;
 const MAX_LAUNCH_ENV_ENTRIES: usize = 4_096;
 const PREPARE_TIMEOUT: Duration = Duration::from_secs(5);
-const READY_MARKER: &[u8] = b"LRD-PTY-READY\x01";
+const READY_MARKER: &[u8] = b"LAD-PTY-READY\x01";
 const RESULT_REDACTION_MARGIN: usize = 8 * 1024;
 const STOP_NONE: u8 = 0;
 const STOP_CARRIER: u8 = 2;
@@ -545,7 +545,7 @@ pub async fn reconcile_containment_identity(identity: &str) -> Result<(), String
     let Some(unit_name) = identity.strip_prefix("systemd-scope:") else {
         return Ok(());
     };
-    if !unit_name.starts_with("lrd-exec-pty-")
+    if !unit_name.starts_with("lad-exec-pty-")
         || !unit_name.ends_with(".scope")
         || !unit_name
             .bytes()
@@ -1100,7 +1100,7 @@ async fn start_scope(
 ) -> Result<SystemdScope, String> {
     let manager = systemd_manager(connection).await?;
     let properties = vec![
-        ("Description", Value::from("LCXL one-shot elevated PTY")),
+        ("Description", Value::from("LCXBOX one-shot elevated PTY")),
         ("PIDs", Value::from(vec![pid])),
         ("KillMode", Value::from("control-group")),
         ("CollectMode", Value::from("inactive-or-failed")),
@@ -1230,7 +1230,7 @@ fn scope_name(generation: &str) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    format!("lrd-exec-pty-{suffix}.scope")
+    format!("lad-exec-pty-{suffix}.scope")
 }
 
 fn wait_stopped(pid: u32, timeout: Duration) -> Result<(), String> {
@@ -1354,7 +1354,7 @@ mod tests {
         let first = scope_name("secret-generation-value");
         assert_eq!(first, scope_name("secret-generation-value"));
         assert_ne!(first, scope_name("another-generation"));
-        assert!(first.starts_with("lrd-exec-pty-"));
+        assert!(first.starts_with("lad-exec-pty-"));
         assert!(first.ends_with(".scope"));
         assert!(!first.contains("secret"));
     }

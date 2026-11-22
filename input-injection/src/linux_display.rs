@@ -40,9 +40,9 @@ use crate::error::InputError;
 /// uinput virtual-device name used by the keyboard injection backend.
 /// Shared so the local-input grabber can skip the device we inject
 /// through (see `host_control::input_grab`).
-pub const UINPUT_KEYBOARD_DEVICE_NAME: &str = "lcxl-web-remote-desk-keyboard";
+pub const UINPUT_KEYBOARD_DEVICE_NAME: &str = "lcxbox-agent-desk-web-keyboard";
 /// uinput virtual-device name used by the mouse injection backend.
-pub const UINPUT_MOUSE_DEVICE_NAME: &str = "lcxl-web-remote-desk-mouse";
+pub const UINPUT_MOUSE_DEVICE_NAME: &str = "lcxbox-agent-desk-web-mouse";
 
 /// Detect the active display backend from one coherent environment snapshot.
 pub fn detect_backend() -> Backend {

@@ -52,7 +52,7 @@ pub async fn fetch_public_web_page(
             )
             .header(
                 reqwest::header::USER_AGENT,
-                "lcxl-remote-desk-web-research/1",
+                "lcxbox-agent-desk-web-research/1",
             )
             .send();
         let response = tokio::time::timeout(HEADER_TIMEOUT, request)

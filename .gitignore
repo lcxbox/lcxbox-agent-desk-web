@@ -44,7 +44,7 @@ logs/
 /server-run*.log
 /vite-run*.log
 
-# Compose env file: holds LRD_BOOTSTRAP_TOKEN
+# Compose env file: holds LAD_BOOTSTRAP_TOKEN
 /.env
 
 # Python bytecode

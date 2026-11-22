@@ -26,7 +26,7 @@ use crate::{
         },
         peer::SignalingPeer,
         signal::{
-            ForwardSignalingSender, LcxlRTCIceServer, RemoteAccessInitializedData,
+            ForwardSignalingSender, LcxboxRTCIceServer, RemoteAccessInitializedData,
             RemoteDeskTypeEnum, RequestRemoteModel, SignalingModel, SignalingType, SignalingUser,
             TurnProvider, TurnRemoteSessionPeerRequest, TurnRemoteSessionRequest,
         },
@@ -49,7 +49,7 @@ async fn build_request_remote_ice(
     actor_user_id: i32,
     turn: Option<&Arc<dyn TurnProvider>>,
     ttl_secs: u64,
-) -> Option<LcxlRTCIceServer> {
+) -> Option<LcxboxRTCIceServer> {
     let request =
         build_remote_session_request(model, controller_connection_id, actor_user_id, ttl_secs)?;
     turn?.get_remote_session_ice_servers(&request).await
@@ -94,7 +94,7 @@ fn build_remote_session_peer_request(
 /// of the regression surface instead of relying on an authorizer to preserve it.
 fn rebuild_request_remote_with_ice(
     model: &SignalingModel,
-    ice_server: Option<LcxlRTCIceServer>,
+    ice_server: Option<LcxboxRTCIceServer>,
 ) -> Result<SignalingModel, DeskSignalFacadeError> {
     let Some(ice_server) = ice_server else {
         return Ok(model.clone());
@@ -128,7 +128,7 @@ fn rebuild_request_remote_with_ice(
 /// unchanged so the controller can act on their typed `response_state`.
 fn rebuild_remote_access_initialized_with_ice(
     model: &SignalingModel,
-    ice_server: Option<LcxlRTCIceServer>,
+    ice_server: Option<LcxboxRTCIceServer>,
 ) -> Result<SignalingModel, DeskSignalFacadeError> {
     if model
         .response_state

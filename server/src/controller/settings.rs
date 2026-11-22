@@ -722,7 +722,7 @@ mod tests {
     /// Unsupported elevation cannot be staged for a future runtime.
     #[actix_web::test]
     async fn update_ai_policy_settings_applies_update() {
-        let tmp = std::env::temp_dir().join(format!("lrd-pr0-{}.toml", uuid::Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("lad-pr0-{}.toml", uuid::Uuid::new_v4()));
         let settings = Settings::for_test_config(&tmp);
         let shared = Arc::new(SharedSettings::from(settings));
         let coordinator = web::Data::from(Arc::new(
@@ -938,7 +938,7 @@ mod tests {
         use desk_turn::supervisor::{BackoffConfig, DesiredState, spawn};
         use std::time::Duration;
 
-        let tmp = std::env::temp_dir().join(format!("lrd-turn-{}.toml", uuid::Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("lad-turn-{}.toml", uuid::Uuid::new_v4()));
         let settings = Settings::for_test_config(&tmp);
         let shared = web::Data::new(SharedSettings::from(settings));
 
@@ -1041,7 +1041,7 @@ mod tests {
         // A regular file where a directory would have to be: the save fails on
         // its first step, before anything is written anywhere.
         let blocker =
-            std::env::temp_dir().join(format!("lrd-turn-blocked-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("lad-turn-blocked-{}", uuid::Uuid::new_v4()));
         std::fs::write(&blocker, b"not a directory").unwrap();
         let mut settings = Settings::for_test_config(&blocker.join("config.toml"));
         settings.turn.realm = "before".into();

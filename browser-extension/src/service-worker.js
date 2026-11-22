@@ -18,7 +18,7 @@ async function sendSecure(activeSocket, payload) {
     if (socket !== activeSocket || activeSocket.readyState !== WebSocket.OPEN) throw new Error("bridge_disconnected");
     activeSocket.send(encrypted);
 }
-const RECONNECT_ALARM = "lcxl-browser-extension-reconnect";
+const RECONNECT_ALARM = "lcxbox-browser-extension-reconnect";
 const RECONNECT_MAX_MS = 30000;
 const KEEPALIVE_INTERVAL_MS = 20000;
 const NAVIGATION_SETTLE_TIMEOUT_MS = 15000;
@@ -107,7 +107,7 @@ function withTimeout(promise, timeoutMs, errorCode) {
 
 async function sendTabMessage(tabId, action, timeoutMs = null, guard = () => {}) {
     guard();
-    const request = chrome.tabs.sendMessage(tabId, { type: "lcxl_browser_action", action });
+    const request = chrome.tabs.sendMessage(tabId, { type: "lcxbox_browser_action", action });
     return timeoutMs === null
         ? request
         : withTimeout(request, timeoutMs, "content_script_timeout");

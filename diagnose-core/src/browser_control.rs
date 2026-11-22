@@ -81,7 +81,7 @@ mod tests {
                 browser_major_version: 144,
                 browser_version: "144.0.7559.0".into(),
                 adapter_id: "browser.chrome_extension.edge".into(),
-                adapter_version: "lcxl-browser-extension/1".into(),
+                adapter_version: "lcxbox-browser-extension/1".into(),
                 profile_incarnation: "profile-incarnation-1".into(),
                 connection_revision: 7,
             },

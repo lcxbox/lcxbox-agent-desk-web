@@ -68,7 +68,7 @@ impl Handshake {
         nonce(&server_nonce)?;
         let mut transcript = Vec::new();
         for value in [
-            "lcxl-browser-v2",
+            "lcxbox-browser-v2",
             &hello.client_nonce,
             &server_nonce,
             device_id,
@@ -102,7 +102,7 @@ impl Handshake {
     fn key(&self, purpose: &str) -> Result<[u8; 32]> {
         let mut key = [0; 32];
         self.hkdf
-            .expand(format!("lcxl-browser-v2/{purpose}").as_bytes(), &mut key)
+            .expand(format!("lcxbox-browser-v2/{purpose}").as_bytes(), &mut key)
             .map_err(|_| "key derivation failed")?;
         Ok(key)
     }

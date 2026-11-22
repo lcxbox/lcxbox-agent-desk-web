@@ -334,7 +334,7 @@ async fn a_command_that_never_started_reports_nothing_and_aborts_its_snapshot() 
     let fixture = Fixture::new();
     fixture.write("a.txt", "a 1\n");
     let mut plan = fixture.plan("", 10_000);
-    plan.program = "lcxl-definitely-not-a-real-binary".into();
+    plan.program = "lcxbox-definitely-not-a-real-binary".into();
     plan.argv.clear();
     let output = fixture.run(&plan, None).await;
     assert!(!output.started);

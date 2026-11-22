@@ -26,7 +26,7 @@ exclude = ["web", "third-deps"]
 resolver = "3"
 
 [workspace.package]
-description = "Lcxl Remote Desk Web Server"
+description = "LCXBOX Agent Desk Web Server"
 license = "Apache-2.0"
 version = "0.1.0"
 edition = "2024"
@@ -45,7 +45,7 @@ desk-signal-facade = { path = "signal-facade" }
 desk-server-version = { path = "server-version" }
 desk-signal = { path = "signal" }
 desk-server-user = { path = "server-user" }
-lcxl-remote-desk-server = { path = "server" }
+lcxbox-agent-desk-server = { path = "server" }
 desk-capture-engine = { path = "capture-engine" }
 desk-input-injection = { path = "input-injection" }
 desk-virtual-display = { path = "virtual-display" }

@@ -36,7 +36,7 @@ pub enum TurnTransport {
 
 /// RTC IceServer
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, Hash, ToSchema)]
-pub struct LcxlRTCIceServer {
+pub struct LcxboxRTCIceServer {
     /// List of URLs associated with the ICE server, e.g. ["stun:stun.l.google.com:19302"]
     pub urls: Vec<String>,
     /// Username for the ICE server, if any.
@@ -45,7 +45,7 @@ pub struct LcxlRTCIceServer {
     pub credential: String,
 }
 
-impl LcxlRTCIceServer {
+impl LcxboxRTCIceServer {
     /// Get transport type from url
     pub fn transport(&self) -> Option<TurnTransport> {
         if self.urls.is_empty() {
@@ -62,9 +62,9 @@ impl LcxlRTCIceServer {
     }
 }
 
-impl From<RTCIceServer> for LcxlRTCIceServer {
+impl From<RTCIceServer> for LcxboxRTCIceServer {
     fn from(value: RTCIceServer) -> Self {
-        LcxlRTCIceServer {
+        LcxboxRTCIceServer {
             urls: value.urls,
             username: value.username,
             credential: value.credential,
@@ -72,8 +72,8 @@ impl From<RTCIceServer> for LcxlRTCIceServer {
     }
 }
 
-impl From<&LcxlRTCIceServer> for RTCIceServer {
-    fn from(val: &LcxlRTCIceServer) -> Self {
+impl From<&LcxboxRTCIceServer> for RTCIceServer {
+    fn from(val: &LcxboxRTCIceServer) -> Self {
         RTCIceServer {
             urls: val.urls.clone(),
             username: val.username.clone(),
@@ -106,7 +106,7 @@ pub struct RequestRemoteModel {
     pub requested_wayland_control_mode: Option<String>,
     /// ICE servers, the value comes from signaling server
     #[serde(default)]
-    pub ice_servers: Vec<LcxlRTCIceServer>,
+    pub ice_servers: Vec<LcxboxRTCIceServer>,
     /// Browser-writable, **untrusted** selector naming which grant session this
     /// request redeems (set after redeeming a device / support code). It only
     /// *selects* a grant; the authorization fact — whether it is honored and what
@@ -201,7 +201,7 @@ impl Default for AdaptiveResolutionParams {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RemoteAccessInitializedData {
     // ICE servers, the value comes from signaling server
-    pub ice_servers: Vec<LcxlRTCIceServer>,
+    pub ice_servers: Vec<LcxboxRTCIceServer>,
     /// User name for signaling.
     pub user_name: String,
     /// Audio device list
@@ -384,7 +384,7 @@ pub struct OfferModel {
 pub enum RemoteDeskTypeEnum {
     /// Browser type
     Browser,
-    /// Lcxl remote desktop server type
+    /// Lcxbox remote desktop server type
     Server,
 }
 
@@ -410,13 +410,17 @@ pub trait SignalingUser: Send + Sync {
 /// establishment (not per packet).
 #[async_trait::async_trait]
 pub trait TurnProvider: Send + Sync {
-    async fn get_ice_servers(&self, username: &str, credential: &str) -> LcxlRTCIceServer;
+    async fn get_ice_servers(&self, username: &str, credential: &str) -> LcxboxRTCIceServer;
 
     /// Build an ICE server with a self-signed TURN REST credential for `name`,
     /// valid for `ttl_secs`. Returns `None` when the provider cannot issue one
     /// (no static auth secret / no interface), so callers never inject an
     /// unusable entry. Default `None` keeps non-TURN providers compiling.
-    async fn get_rest_ice_servers(&self, _name: &str, _ttl_secs: u64) -> Option<LcxlRTCIceServer> {
+    async fn get_rest_ice_servers(
+        &self,
+        _name: &str,
+        _ttl_secs: u64,
+    ) -> Option<LcxboxRTCIceServer> {
         None
     }
 
@@ -427,7 +431,7 @@ pub trait TurnProvider: Send + Sync {
     async fn get_remote_session_ice_servers(
         &self,
         request: &TurnRemoteSessionRequest,
-    ) -> Option<LcxlRTCIceServer> {
+    ) -> Option<LcxboxRTCIceServer> {
         self.get_rest_ice_servers(&request.host_connection_id, request.ttl_secs)
             .await
     }
@@ -438,7 +442,7 @@ pub trait TurnProvider: Send + Sync {
     async fn get_remote_session_peer_ice_servers(
         &self,
         request: &TurnRemoteSessionPeerRequest,
-    ) -> Option<LcxlRTCIceServer> {
+    ) -> Option<LcxboxRTCIceServer> {
         let candidate = self
             .get_ice_servers(
                 &request.host_connection_id,

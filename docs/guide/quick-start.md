@@ -1,6 +1,6 @@
 # Quick Start
 
-There are three ways to get LCXL Remote Desk running. Pick the one that matches your network.
+There are three ways to get LCXBOX Agent Desk running. Pick the one that matches your network.
 
 ## Option 1: Download and Run the Host (Recommended)
 
@@ -19,8 +19,8 @@ There are three ways to get LCXL Remote Desk running. Pick the one that matches 
 
 2. Run it:
 
-   - **Windows / Linux** — unpack the zip and launch `lcxl-remote-desk-tauri`. The archive holds that executable plus `lcxl-remote-desk-server` and a `static/` directory (the web console assets); **keep all three side by side**.
-   - **macOS** — open the `.dmg` and drag **LCXL Remote Desktop** into Applications, then launch it.
+   - **Windows / Linux** — unpack the zip and launch `lcxbox-agent-desk-tauri`. The archive holds that executable plus `lcxbox-agent-desk-server` and a `static/` directory (the web console assets); **keep all three side by side**.
+   - **macOS** — open the `.dmg` and drag **LCXBOX Agent Desk** into Applications, then launch it.
 
 3. The shell opens the console in its own window and finishes setup there. From another machine on the network the same console is at `http://<host-address>:8081`. The wizard creates the admin account, optionally connects a manager, and configures inbound security and telemetry. After that, control the device from the same LAN — or from anywhere that can reach its public IP.
 
@@ -39,13 +39,13 @@ Use this when the controlled device has no public IP and you want to own the who
    ```bash
    git clone https://github.com/lcxl-remote/lcxl-remote-desk-web.git
    cd lcxl-remote-desk-web
-   printf 'LRD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
+   printf 'LAD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
    docker compose up -d
    ```
 
 2. Open `http://<vps-address>:8081`. In the first step, enter the deployment token saved in `.env`, create the admin account, and accept the agreements. Keep `.env` after initialization because Compose validates the required variable on every startup.
 
-3. Harden the endpoint before relying on it: TLS on a reverse proxy, TURN interfaces and relay ports, and the `LRD_*` variables are all covered in [Deployment](/guide/deployment).
+3. Harden the endpoint before relying on it: TLS on a reverse proxy, TURN interfaces and relay ports, and the `LAD_*` variables are all covered in [Deployment](/guide/deployment).
 
 4. Copy the token from the signaling server's **Signaling Access Token** page. Run the host as in Option 1, then on its **Outbound Connection** settings page set the signaling URL to `wss://<your-domain>/api/desk/signaling` and paste that token. The host then treats this server as its central: remote desktop, the terminal, and the AI Assistant all run through it.
 
@@ -86,10 +86,10 @@ The dev server listens on `http://localhost:5174`.
 ### Then Start the Host Shell
 
 ```bash
-cargo run -p lcxl-remote-desk-tauri
+cargo run -p lcxbox-agent-desk-tauri
 ```
 
-It embeds the full server and adds the Privacy Screen and Whiteboard. For a headless backend without the GUI shell, run `cargo run -p lcxl-remote-desk-server` instead and open `http://localhost:5174` in a browser.
+It embeds the full server and adds the Privacy Screen and Whiteboard. For a headless backend without the GUI shell, run `cargo run -p lcxbox-agent-desk-server` instead and open `http://localhost:5174` in a browser.
 
 ## Next Steps
 

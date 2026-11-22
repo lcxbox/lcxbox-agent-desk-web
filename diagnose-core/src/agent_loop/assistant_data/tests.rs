@@ -813,7 +813,7 @@ async fn exercise_data_followup(history_mode: bool) {
 }
 
 fn check_data_followup_stacks(test_name: &str, history: bool) {
-    const STACK: &str = "LRD_TEST_FORGET_FOLLOWUP_STACK_BYTES";
+    const STACK: &str = "LAD_TEST_FORGET_FOLLOWUP_STACK_BYTES";
     if let Some(bytes) = std::env::var_os(STACK) {
         let bytes: usize = bytes.to_str().unwrap().parse().unwrap();
         assert!([1024 * 1024, 2 * 1024 * 1024].contains(&bytes));

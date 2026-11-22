@@ -1862,7 +1862,7 @@ pub(super) async fn removed_administrator_template_stays_non_executable() {
         &ctx,
         &confirm_exec_model(
             "admin-browser",
-            "systemctl restart lcxl-remote-desk.service",
+            "systemctl restart lcxbox-agent-desk.service",
         ),
     )
     .await

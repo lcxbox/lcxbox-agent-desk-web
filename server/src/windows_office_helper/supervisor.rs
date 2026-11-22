@@ -40,7 +40,7 @@ pub(crate) fn calculate(
     // never consults an environment override for its executable.
     #[cfg(test)]
     let executable =
-        std::path::PathBuf::from(std::env::var_os("LRD_TEST_SERVER_BINARY").ok_or_else(|| {
+        std::path::PathBuf::from(std::env::var_os("LAD_TEST_SERVER_BINARY").ok_or_else(|| {
             anyhow::anyhow!("native tests require the production helper executable")
         })?);
     calculate_with_executable(bytes, still_authorized, &executable)
@@ -180,12 +180,12 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
-    #[ignore = "requires production LRD_TEST_SERVER_BINARY, synthetic LRD_EXCEL_INPUT and new LRD_EXCEL_OUTPUT"]
+    #[ignore = "requires production LAD_TEST_SERVER_BINARY, synthetic LAD_EXCEL_INPUT and new LAD_EXCEL_OUTPUT"]
     fn native_supervisor_rechecks_authority_and_preserves_source_package() {
         let executable =
-            std::env::var_os("LRD_TEST_SERVER_BINARY").expect("production helper binary");
-        let source = std::env::var_os("LRD_EXCEL_INPUT").expect("synthetic input workbook");
-        let output = std::env::var_os("LRD_EXCEL_OUTPUT").expect("new output file");
+            std::env::var_os("LAD_TEST_SERVER_BINARY").expect("production helper binary");
+        let source = std::env::var_os("LAD_EXCEL_INPUT").expect("synthetic input workbook");
+        let output = std::env::var_os("LAD_EXCEL_OUTPUT").expect("new output file");
         let input = std::fs::read(&source).unwrap();
         let checks = AtomicUsize::new(0);
         let (merged, readback) = calculate_with_executable(

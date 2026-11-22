@@ -430,7 +430,7 @@ fn replacement_preserves_permissions_and_extended_attributes() {
         unsafe {
             libc::fsetxattr(
                 source.as_raw_fd(),
-                c"com.lcxl.text-test".as_ptr(),
+                c"com.lcxbox.text-test".as_ptr(),
                 value.as_ptr().cast(),
                 value.len(),
                 0,
@@ -450,7 +450,7 @@ fn replacement_preserves_permissions_and_extended_attributes() {
     let size = unsafe {
         libc::fgetxattr(
             result.as_raw_fd(),
-            c"com.lcxl.text-test".as_ptr(),
+            c"com.lcxbox.text-test".as_ptr(),
             actual.as_mut_ptr().cast(),
             actual.len(),
             0,

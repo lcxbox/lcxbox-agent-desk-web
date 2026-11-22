@@ -234,7 +234,7 @@ fn checked_url<'a>(value: &'a str, warnings: &mut Vec<ConversionWarning>) -> Opt
 fn exact_page_marker(value: &str) -> Option<u32> {
     let value = value.trim();
     let number = value
-        .strip_prefix("<!-- lcxl-page: ")?
+        .strip_prefix("<!-- lcxbox-page: ")?
         .strip_suffix(" -->")?;
     if number.is_empty() || number.starts_with('0') || !number.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -297,7 +297,7 @@ mod tests {
     #[test]
     fn rejects_html_but_accepts_exact_internal_page_marker() {
         assert!(to_typst("<script>alert(1)</script>").is_err());
-        let rendered = to_typst("before\n\n<!-- lcxl-page: 2 -->\n\nafter").unwrap();
+        let rendered = to_typst("before\n\n<!-- lcxbox-page: 2 -->\n\nafter").unwrap();
         assert!(rendered.typst.contains("#pagebreak()"));
     }
 

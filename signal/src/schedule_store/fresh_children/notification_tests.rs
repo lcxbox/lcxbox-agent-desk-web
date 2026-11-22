@@ -448,8 +448,8 @@ async fn scheduled_optional_child_continues_in_original_occurrence_after_process
         )
         .arg("--ignored")
         .arg("--nocapture")
-        .env("LRD_SCHEDULED_REOPEN_DB", &file)
-        .env("LRD_SCHEDULED_REOPEN_EXPECTED", &expected)
+        .env("LAD_SCHEDULED_REOPEN_DB", &file)
+        .env("LAD_SCHEDULED_REOPEN_EXPECTED", &expected)
         .kill_on_drop(true);
     let output = tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
         .await
@@ -470,9 +470,9 @@ async fn scheduled_optional_child_continues_in_original_occurrence_after_process
 #[tokio::test]
 #[ignore = "launched only by scheduled process reopen test"]
 async fn scheduled_reopen_worker() {
-    let file = std::env::var("LRD_SCHEDULED_REOPEN_DB").unwrap();
+    let file = std::env::var("LAD_SCHEDULED_REOPEN_DB").unwrap();
     let expected: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(std::env::var("LRD_SCHEDULED_REOPEN_EXPECTED").unwrap()).unwrap(),
+        &std::fs::read(std::env::var("LAD_SCHEDULED_REOPEN_EXPECTED").unwrap()).unwrap(),
     )
     .unwrap();
     let db = crate::config::test_support::Database::connect(format!("sqlite://{file}?mode=rw"))

@@ -15,9 +15,9 @@ use desk_agent_protocol::{AgentError, AgentErrorKind};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const BASE_URL_ENV: &str = "LRD_OFFICE_BRIDGE_BASE_URL";
-const TOKEN_FILE_ENV: &str = "LRD_OFFICE_BRIDGE_ADMIN_TOKEN_FILE";
-const CA_CERT_FILE_ENV: &str = "LRD_OFFICE_BRIDGE_CA_CERT_FILE";
+const BASE_URL_ENV: &str = "LAD_OFFICE_BRIDGE_BASE_URL";
+const TOKEN_FILE_ENV: &str = "LAD_OFFICE_BRIDGE_ADMIN_TOKEN_FILE";
+const CA_CERT_FILE_ENV: &str = "LAD_OFFICE_BRIDGE_CA_CERT_FILE";
 const MAX_CA_CERT_BYTES: usize = 64 * 1024;
 const MAX_BRIDGE_RESPONSE_BYTES: usize = 256 * 1024;
 const MAX_EXCEL_CELLS: usize = 16;

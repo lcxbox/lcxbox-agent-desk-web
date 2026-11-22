@@ -1650,7 +1650,7 @@ async fn dispatch_attach_result_drops_message_when_supervisor_disabled() {
         VirtualDisplayAttachOutcome, VirtualDisplayAttachResultPayload,
     };
     let payload = VirtualDisplayAttachResultPayload {
-        instance_id: "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay".to_string(),
+        instance_id: "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay".to_string(),
         outcome: VirtualDisplayAttachOutcome::Attached(r"\\.\DISPLAY4".to_string()),
     };
     // No panic, no error — just a warn-and-drop side effect.

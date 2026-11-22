@@ -1,8 +1,8 @@
 (() => {
-    if (globalThis.__lcxlBrowserAssistantLoaded) {
+    if (globalThis.__lcxboxBrowserAssistantLoaded) {
         return;
     }
-    globalThis.__lcxlBrowserAssistantLoaded = true;
+    globalThis.__lcxboxBrowserAssistantLoaded = true;
     function randomId() {
         const bytes = crypto.getRandomValues(new Uint8Array(16));
         bytes[6] = (bytes[6] & 15) | 64;
@@ -103,7 +103,7 @@
         for (let offset = 0; offset < bytes.length; offset += 32768) {
             binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
         }
-        const result = await chrome.runtime.sendMessage({ type: 'lcxl_content_digest', base64: btoa(binary) });
+        const result = await chrome.runtime.sendMessage({ type: 'lcxbox_content_digest', base64: btoa(binary) });
         if (!/^[a-f0-9]{64}$/.test(result?.sha256 ?? '')) throw new Error('digest_unavailable');
         return result.sha256;
     }
@@ -562,7 +562,7 @@
     }
 
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-        if (message?.type !== "lcxl_browser_action") {
+        if (message?.type !== "lcxbox_browser_action") {
             return false;
         }
         void handle(message.action)

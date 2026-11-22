@@ -22,18 +22,18 @@ jobs:
       # Compilation covers the Windows worker and isolated Office helper without
       # activating Office, connecting accounts or sending external messages.
       - name: Compile Windows server and test targets
-        run: cargo test --locked -p lcxl-remote-desk-server --no-run
+        run: cargo test --locked -p lcxbox-agent-desk-server --no-run
       - name: Windows Office source and prepared-copy contracts
         run: |
-          cargo test --locked -p lcxl-remote-desk-server --lib worker::agent::computer_use_writer::
+          cargo test --locked -p lcxbox-agent-desk-server --lib worker::agent::computer_use_writer::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p lcxl-remote-desk-server --lib worker::agent::file_reference_store::publication::tests::
+          cargo test --locked -p lcxbox-agent-desk-server --lib worker::agent::file_reference_store::publication::tests::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p lcxl-remote-desk-server --lib worker::agent::file_reference_store::windows_batch::tests::
+          cargo test --locked -p lcxbox-agent-desk-server --lib worker::agent::file_reference_store::windows_batch::tests::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p lcxl-remote-desk-server --lib worker::agent::windows_excel_batch::tests::
+          cargo test --locked -p lcxbox-agent-desk-server --lib worker::agent::windows_excel_batch::tests::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p lcxl-remote-desk-server --lib worker::agent::windows_word_batch::tests::
+          cargo test --locked -p lcxbox-agent-desk-server --lib worker::agent::windows_word_batch::tests::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # The ServiceDaemon runs only resident workers: session scheduling,
       # start back-off, secret trimming, desktop routing, offers both desktop
@@ -41,17 +41,17 @@ jobs:
       # ledger. Switching on a real secure desktop is an on-device acceptance.
       - name: Windows ServiceDaemon resident workers
         run: |
-          cargo test --locked -p lcxl-remote-desk-server --lib daemon::worker_manager::windows_reconcile_tests::
+          cargo test --locked -p lcxbox-agent-desk-server --lib daemon::worker_manager::windows_reconcile_tests::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p lcxl-remote-desk-server --lib daemon::worker_manager::desktop_routing_tests::
+          cargo test --locked -p lcxbox-agent-desk-server --lib daemon::worker_manager::desktop_routing_tests::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p lcxl-remote-desk-server --lib daemon::worker_manager::exec_sandbox_labels::
+          cargo test --locked -p lcxbox-agent-desk-server --lib daemon::worker_manager::exec_sandbox_labels::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p lcxl-remote-desk-server --lib daemon::session_monitor::
+          cargo test --locked -p lcxbox-agent-desk-server --lib daemon::session_monitor::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p lcxl-remote-desk-server --lib daemon::tests::
+          cargo test --locked -p lcxbox-agent-desk-server --lib daemon::tests::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p lcxl-remote-desk-server --lib worker::desktop_monitor::
+          cargo test --locked -p lcxbox-agent-desk-server --lib worker::desktop_monitor::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p lcxl-remote-desk-server --lib file_recovery_service::ledger_tests::
+          cargo test --locked -p lcxbox-agent-desk-server --lib file_recovery_service::ledger_tests::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

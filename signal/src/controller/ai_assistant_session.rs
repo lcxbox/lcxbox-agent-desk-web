@@ -1550,7 +1550,7 @@ mod tests {
                 },
                 device_id: "device-1".into(),
                 os_session_id: "session-1".into(),
-                adapter_id: "lcxl-browser-extension".into(),
+                adapter_id: "lcxbox-browser-extension".into(),
                 adapter_version: "0.1.0".into(),
                 profile_id: "profile-1".into(),
                 account_id: "gmail-web-current-profile".into(),

@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn the_installed_config_is_read_like_the_service_reads_it() {
-        let exe = r"C:\Program Files\LCXL Remote Desktop\lcxl-remote-desk-server.exe";
+        let exe = r"C:\Program Files\LCXBOX Agent Desk\lcxbox-agent-desk-server.exe";
         for args in [
             argv(&[
                 exe,
@@ -245,11 +245,11 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn the_command_line_is_split_with_windows_quoting() {
-        let line = r#""C:\Program Files\LCXL Remote Desktop\lcxl-remote-desk-server.exe" --startup-mode service-daemon --config-file-path "D:\my data\config.toml""#;
+        let line = r#""C:\Program Files\LCXBOX Agent Desk\lcxbox-agent-desk-server.exe" --startup-mode service-daemon --config-file-path "D:\my data\config.toml""#;
         let command = installed_command(&split_command_line(line)).unwrap();
         assert_eq!(
             command.exe,
-            PathBuf::from(r"C:\Program Files\LCXL Remote Desktop\lcxl-remote-desk-server.exe")
+            PathBuf::from(r"C:\Program Files\LCXBOX Agent Desk\lcxbox-agent-desk-server.exe")
         );
         assert_eq!(
             command.config_file_path,

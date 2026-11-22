@@ -546,7 +546,7 @@ async fn open_exec_ledger(
         .map_err(|error| format!("Failed to inspect in-flight executions: {error}"))?
     {
         if let Some(identity) = row.containment_identity.as_deref()
-            && identity.starts_with("systemd-scope:lrd-exec-pty-")
+            && identity.starts_with("systemd-scope:lad-exec-pty-")
         {
             crate::daemon::linux_exec_pty::reconcile_containment_identity(identity)
                 .await
@@ -870,7 +870,7 @@ mod tests {
         assert_eq!(dropped.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
-    const STOP_CHILD_ENV: &str = "LCXL_DAEMON_STOP_SIGNAL_CHILD";
+    const STOP_CHILD_ENV: &str = "LCXBOX_DAEMON_STOP_SIGNAL_CHILD";
 
     /// Runs only as the child process of the test below, so that its SIGTERM
     /// reaches no other test in this process.

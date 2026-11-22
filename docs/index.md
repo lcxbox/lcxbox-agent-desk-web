@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: LCXL Remote Desk
+  name: LCXBOX Agent Desk
   text: AI-native remote desktop
   tagline: A high-performance, open-source WebRTC remote desktop that treats AI as a first-class control plane alongside the browser — security-first and model-agnostic.
   actions:

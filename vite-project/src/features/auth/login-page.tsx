@@ -210,7 +210,7 @@ export default function LoginPage() {
                     <div className="flex justify-center mb-4">
                         <img alt="logo" src="/logo.svg" className="h-10 w-10" />
                     </div>
-                    <CardTitle className="text-2xl font-bold">LCXL Web Remote Desk</CardTitle>
+                    <CardTitle className="text-2xl font-bold">LCXBOX Agent Desk Web</CardTitle>
                     <CardDescription>
                         {t('pages.layouts.userLayout.title')}
                     </CardDescription>
@@ -319,7 +319,7 @@ export default function LoginPage() {
             </Card>
             {/* Footer component placeholder */}
             <div className="fixed bottom-4 w-full text-center text-sm text-gray-500">
-                LCXL Remote Desk Design
+                LCXBOX Agent Desk Design
             </div>
         </div>
     )

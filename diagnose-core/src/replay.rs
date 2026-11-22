@@ -45,7 +45,7 @@ impl SourceContextKey {
         model_string: &str,
     ) -> Self {
         let mut digest = Sha256::new();
-        digest.update(b"lrdm-source-context-v1\0");
+        digest.update(b"ladm-source-context-v1\0");
         for component in [
             protocol.as_str(),
             endpoint_or_connection_identity,

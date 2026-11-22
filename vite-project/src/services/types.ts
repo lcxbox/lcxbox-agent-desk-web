@@ -6992,7 +6992,7 @@ export type ConnectionSettingsEffect = ConnectionSettingsEffectEnumKey;
 
 export type ConnectionVerifyParams = {
     /**
-     * @description Deployment bootstrap token used only while the standalone server is not\ninitialized and was started with `LRD_BOOTSTRAP_TOKEN`.
+     * @description Deployment bootstrap token used only while the standalone server is not\ninitialized and was started with `LAD_BOOTSTRAP_TOKEN`.
      * @type string,null
     */
     bootstrap_token?: string | null;
@@ -8895,7 +8895,7 @@ export type GoalBudgetPolicy = {
 
 export type InitParams = {
     /**
-     * @description Deployment bootstrap token. Required only when the server process was\nstarted with `LRD_BOOTSTRAP_TOKEN`.
+     * @description Deployment bootstrap token. Required only when the server process was\nstarted with `LAD_BOOTSTRAP_TOKEN`.
      * @type string,null
     */
     bootstrap_token?: string | null;
@@ -8940,7 +8940,7 @@ export type InitRequirementsDto = {
 */
 export type InstallServiceRequest = {
     /**
-     * @description Whether to also stage the LcxlVirtualDisplay IDD driver during\nthe install flow. The Tauri shell sets this from the\n\"install IDD virtual display driver\" checkbox on the install\ndialog; defaults to `false` for older clients that don\'t send\nthe field.
+     * @description Whether to also stage the LcxboxVirtualDisplay IDD driver during\nthe install flow. The Tauri shell sets this from the\n\"install IDD virtual display driver\" checkbox on the install\ndialog; defaults to `false` for older clients that don\'t send\nthe field.
      * @type boolean | undefined
     */
     install_idd_driver?: boolean;
@@ -9418,7 +9418,7 @@ export type KeyboardEventData = {
 /**
  * @description RTC IceServer
 */
-export type LcxlRTCIceServer = {
+export type LcxboxRTCIceServer = {
     /**
      * @description Credential for the ICE server, if any.
      * @type string
@@ -11771,7 +11771,7 @@ export type RemoteAccessInitializedData = {
     /**
      * @type array
     */
-    ice_servers: LcxlRTCIceServer[];
+    ice_servers: LcxboxRTCIceServer[];
     /**
      * @description Whether the server is running with administrative privileges
      * @type boolean
@@ -11977,7 +11977,7 @@ export type RequestRemoteModel = {
      * @description ICE servers, the value comes from signaling server
      * @type array | undefined
     */
-    ice_servers?: LcxlRTCIceServer[];
+    ice_servers?: LcxboxRTCIceServer[];
     /**
      * @description Browser-supplied organization-context selector. It never grants access or\nchooses a payer by itself: a central manager must validate membership and\nthe organization\'s target-device grant before using it. Standalone signal\nservers ignore it. `None` is personal context.
      * @type integer,null, int32
@@ -16344,12 +16344,12 @@ export type RestResponseServerInfo = {
         */
         platform: string;
         /**
-         * @description Whether the server binary is available for service installation.\nTrue when lcxl-remote-desk-server(.exe) exists alongside the current\nexecutable (both binaries share the same target directory in dev and\nthe same install directory in production).
+         * @description Whether the server binary is available for service installation.\nTrue when lcxbox-agent-desk-server(.exe) exists alongside the current\nexecutable (both binaries share the same target directory in dev and\nthe same install directory in production).
          * @type boolean
         */
         server_binary_available: boolean;
         /**
-         * @description Whether the OS system service (LcxlDeskService) is installed
+         * @description Whether the OS system service (LcxboxDeskService) is installed
          * @type boolean
         */
         service_installed: boolean;
@@ -18198,7 +18198,7 @@ export type RestResponseVirtualDisplaySettings = {
     */
     code: number;
     /**
-     * @description Virtual display (Windows IDD) settings. Pulled out into its own\nsection because the knob is system-level (only the\n`ServiceDaemon` startup mode acts on it, and changing it requires\nthe `LcxlVirtualDisplay` driver to already be staged) — not a\nper-session capture setting. Kept as a struct rather than a bare\n`bool` so future fields (e.g. exclusive-mode toggle, pre-detach\nprompt duration) slot in without another schema migration.
+     * @description Virtual display (Windows IDD) settings. Pulled out into its own\nsection because the knob is system-level (only the\n`ServiceDaemon` startup mode acts on it, and changing it requires\nthe `LcxboxVirtualDisplay` driver to already be staged) — not a\nper-session capture setting. Kept as a struct rather than a bare\n`bool` so future fields (e.g. exclusive-mode toggle, pre-detach\nprompt duration) slot in without another schema migration.
      * @type object | undefined
     */
     data?: {
@@ -19606,12 +19606,12 @@ export type ServerInfo = {
     */
     platform: string;
     /**
-     * @description Whether the server binary is available for service installation.\nTrue when lcxl-remote-desk-server(.exe) exists alongside the current\nexecutable (both binaries share the same target directory in dev and\nthe same install directory in production).
+     * @description Whether the server binary is available for service installation.\nTrue when lcxbox-agent-desk-server(.exe) exists alongside the current\nexecutable (both binaries share the same target directory in dev and\nthe same install directory in production).
      * @type boolean
     */
     server_binary_available: boolean;
     /**
-     * @description Whether the OS system service (LcxlDeskService) is installed
+     * @description Whether the OS system service (LcxboxDeskService) is installed
      * @type boolean
     */
     service_installed: boolean;
@@ -20692,7 +20692,7 @@ export type VirtualDisplayDriverStatusResponse = {
 };
 
 /**
- * @description Virtual display (Windows IDD) settings. Pulled out into its own\nsection because the knob is system-level (only the\n`ServiceDaemon` startup mode acts on it, and changing it requires\nthe `LcxlVirtualDisplay` driver to already be staged) — not a\nper-session capture setting. Kept as a struct rather than a bare\n`bool` so future fields (e.g. exclusive-mode toggle, pre-detach\nprompt duration) slot in without another schema migration.
+ * @description Virtual display (Windows IDD) settings. Pulled out into its own\nsection because the knob is system-level (only the\n`ServiceDaemon` startup mode acts on it, and changing it requires\nthe `LcxboxVirtualDisplay` driver to already be staged) — not a\nper-session capture setting. Kept as a struct rather than a bare\n`bool` so future fields (e.g. exclusive-mode toggle, pre-detach\nprompt duration) slot in without another schema migration.
 */
 export type VirtualDisplaySettings = {
     /**

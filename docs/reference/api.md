@@ -9,7 +9,7 @@ The spec is generated locally, on demand. A running server serves neither intera
 Use the `dump-openapi` subcommand to produce one:
 
 ```bash
-cargo run -p lcxl-remote-desk-server -- dump-openapi --out openapi.json
+cargo run -p lcxbox-agent-desk-server -- dump-openapi --out openapi.json
 ```
 
 The subcommand exports straight from the route registration; it touches no DB or Redis and starts no HTTP server, so it runs against any checkout.

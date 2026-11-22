@@ -50,7 +50,7 @@ const snapshot: HostAccessSnapshot = {
 describe('host access status controls', () => {
     beforeEach(() => {
         emit.mockClear();
-        Object.defineProperty(window, '__lcxlHostAccessSnapshot', {
+        Object.defineProperty(window, '__lcxboxHostAccessSnapshot', {
             configurable: true,
             value: snapshot,
         });
@@ -70,7 +70,7 @@ describe('host access status controls', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'hostAccess.lockAll' }));
         await waitFor(() => expect(emit).toHaveBeenCalledWith(
-            'lcxl-host-access-control',
+            'lcxbox-host-access-control',
             {
                 request_id: REQUEST_ID,
                 action: 'lock',
@@ -79,7 +79,7 @@ describe('host access status controls', () => {
         expect(screen.getByRole('button', { name: 'hostAccess.applying' })).toBeDisabled();
         expect(screen.queryByText('hostAccess.lockedTitle')).not.toBeInTheDocument();
 
-        act(() => window.dispatchEvent(new CustomEvent('lcxl-host-access-control-result', {
+        act(() => window.dispatchEvent(new CustomEvent('lcxbox-host-access-control-result', {
             detail: {
                 request_id: REQUEST_ID,
                 ok: true,
@@ -102,7 +102,7 @@ describe('host access status controls', () => {
 
         await waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
         expect(screen.getByRole('button', { name: 'hostAccess.disconnecting' })).toBeDisabled();
-        act(() => window.dispatchEvent(new CustomEvent('lcxl-host-access-control-result', {
+        act(() => window.dispatchEvent(new CustomEvent('lcxbox-host-access-control-result', {
             detail: {
                 request_id: REQUEST_ID,
                 ok: true,
@@ -115,7 +115,7 @@ describe('host access status controls', () => {
     });
 
     it('allows local unlock while central synchronization is pending', async () => {
-        Object.defineProperty(window, '__lcxlHostAccessSnapshot', {
+        Object.defineProperty(window, '__lcxboxHostAccessSnapshot', {
             configurable: true,
             value: {
                 ...snapshot,
@@ -138,7 +138,7 @@ describe('host access status controls', () => {
         expect(screen.getByRole('button', { name: 'hostAccess.unlock' })).toBeEnabled();
         fireEvent.click(screen.getByRole('button', { name: 'hostAccess.unlock' }));
         await waitFor(() => expect(emit).toHaveBeenCalledWith(
-            'lcxl-host-access-control',
+            'lcxbox-host-access-control',
             {
                 request_id: REQUEST_ID,
                 action: 'unlock',
@@ -148,7 +148,7 @@ describe('host access status controls', () => {
     });
 
     it('allows an authenticated local unlock from recovery-locked state', () => {
-        Object.defineProperty(window, '__lcxlHostAccessSnapshot', {
+        Object.defineProperty(window, '__lcxboxHostAccessSnapshot', {
             configurable: true,
             value: {
                 ...snapshot,
@@ -171,7 +171,7 @@ describe('host access status controls', () => {
     });
 
     it('offers a lock retry instead of unlock when persistence failed', async () => {
-        Object.defineProperty(window, '__lcxlHostAccessSnapshot', {
+        Object.defineProperty(window, '__lcxboxHostAccessSnapshot', {
             configurable: true,
             value: {
                 ...snapshot,
@@ -190,7 +190,7 @@ describe('host access status controls', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'hostAccess.retryLock' }));
         await waitFor(() => expect(emit).toHaveBeenCalledWith(
-            'lcxl-host-access-control',
+            'lcxbox-host-access-control',
             {
                 request_id: REQUEST_ID,
                 action: 'lock',

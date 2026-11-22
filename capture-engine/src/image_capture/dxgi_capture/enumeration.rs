@@ -132,7 +132,7 @@ pub(crate) fn output_device_name(desc: &DXGI_OUTPUT_DESC) -> String {
 /// is mentioned as an alternative backend only for triage: both
 /// backends now enumerate the same set of GDI device names (DXGI via
 /// `IDXGIAdapter::EnumOutputs`, WGC via `EnumDisplayMonitors`,
-/// including IDD virtual displays attached through `LcxlVirtualDisplay`),
+/// including IDD virtual displays attached through `LcxboxVirtualDisplay`),
 /// so a name missing on one is usually missing on the other too.
 pub(crate) fn find_device_name_index(
     names: &[String],

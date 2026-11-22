@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
-  <title id="title">LCXL Remote Desk 连接与媒体链路</title>
+  <title id="title">LCXBOX Agent Desk 连接与媒体链路</title>
   <desc id="desc">浏览器和被控设备通过信令及 STUN 或 TURN 建立 WebRTC 直连，穿透失败时回退到 TURN 中继。</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1020"/><stop offset="1" stop-color="#111b33"/></linearGradient>

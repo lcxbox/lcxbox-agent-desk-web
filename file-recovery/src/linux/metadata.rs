@@ -204,7 +204,7 @@ mod tests {
             unsafe {
                 libc::fsetxattr(
                     file.as_raw_fd(),
-                    c"user.lcxl-test".as_ptr(),
+                    c"user.lcxbox-test".as_ptr(),
                     bytes.as_ptr().cast(),
                     bytes.len(),
                     0,
@@ -215,7 +215,7 @@ mod tests {
         let metadata: serde_json::Value =
             serde_json::from_slice(&capture_metadata(&file, "/selected.txt").unwrap()).unwrap();
         assert_eq!(
-            metadata["xattrs"]["user.lcxl-test"],
+            metadata["xattrs"]["user.lcxbox-test"],
             serde_json::json!([0, 255, 42])
         );
         assert_eq!(metadata["uid"], unsafe { libc::geteuid() });

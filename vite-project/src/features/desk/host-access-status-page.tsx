@@ -62,7 +62,7 @@ export type HostAccessSnapshot = {
 };
 
 type SnapshotWindow = Window & {
-    __lcxlHostAccessSnapshot?: HostAccessSnapshot;
+    __lcxboxHostAccessSnapshot?: HostAccessSnapshot;
 };
 
 type ControlResult = {
@@ -71,8 +71,8 @@ type ControlResult = {
     error: string | null;
 };
 
-const CONTROL_EVENT = 'lcxl-host-access-control';
-const CONTROL_RESULT_EVENT = 'lcxl-host-access-control-result';
+const CONTROL_EVENT = 'lcxbox-host-access-control';
+const CONTROL_RESULT_EVENT = 'lcxbox-host-access-control-result';
 
 export type HostActivityKind = 'desktop' | 'audio' | 'control' | 'terminal' | 'files' | 'transfer';
 
@@ -124,7 +124,7 @@ export function makePageBackgroundTransparent(documentRef: Document): () => void
 export default function HostAccessStatusPage() {
     const { t } = useTranslation();
     const [snapshot, setSnapshot] = useState<HostAccessSnapshot | null>(
-        () => (window as SnapshotWindow).__lcxlHostAccessSnapshot ?? null,
+        () => (window as SnapshotWindow).__lcxboxHostAccessSnapshot ?? null,
     );
     const [open, setOpen] = useState(false);
     const [pendingRequest, setPendingRequest] = useState<string | null>(null);
@@ -137,20 +137,20 @@ export default function HostAccessStatusPage() {
 
     useEffect(() => {
         document.title = remoteAccessLocked
-            ? 'lcxl-host-access:locked'
+            ? 'lcxbox-host-access:locked'
             : open
-                ? 'lcxl-host-access:expanded'
-                : 'lcxl-host-access:collapsed';
+                ? 'lcxbox-host-access:expanded'
+                : 'lcxbox-host-access:collapsed';
     }, [open, remoteAccessLocked]);
 
     useEffect(() => {
         const receive = (event: Event) => {
             setSnapshot((event as CustomEvent<HostAccessSnapshot>).detail);
         };
-        window.addEventListener('lcxl-host-access-snapshot', receive);
-        const current = (window as SnapshotWindow).__lcxlHostAccessSnapshot;
+        window.addEventListener('lcxbox-host-access-snapshot', receive);
+        const current = (window as SnapshotWindow).__lcxboxHostAccessSnapshot;
         if (current) setSnapshot(current);
-        return () => window.removeEventListener('lcxl-host-access-snapshot', receive);
+        return () => window.removeEventListener('lcxbox-host-access-snapshot', receive);
     }, []);
 
     useEffect(() => {

@@ -243,8 +243,8 @@ fn temporary_product_entries() -> Vec<PathBuf> {
     let temp = std::env::temp_dir();
     let euid = unsafe { libc::geteuid() };
     vec![
-        temp.join("lcxl_remote_desk_server.lock"),
-        temp.join(format!("lcxl-rd-{euid}")),
+        temp.join("lcxbox_agent_desk_server.lock"),
+        temp.join(format!("lcxbox-ad-{euid}")),
     ]
 }
 

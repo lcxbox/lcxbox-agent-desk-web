@@ -78,7 +78,7 @@ fn probe_local_root() -> io::Result<std::path::PathBuf> {
 #[cfg(test)]
 fn probe_local_root() -> io::Result<std::path::PathBuf> {
     let dir = std::env::temp_dir().join(format!(
-        "lcxl-exec-sandbox-test-local-{}",
+        "lcxbox-exec-sandbox-test-local-{}",
         std::process::id()
     ));
     std::fs::create_dir_all(&dir)?;
@@ -100,7 +100,7 @@ pub(super) fn self_test_in(local: &std::path::Path) -> io::Result<()> {
     std::fs::create_dir_all(&root)?;
     std::fs::create_dir_all(&sibling)?;
     let result = (|| {
-        std::fs::write(root.join("probe.txt"), b"lcxl")?;
+        std::fs::write(root.join("probe.txt"), b"lcxbox")?;
         let handle = {
             use std::os::windows::fs::OpenOptionsExt;
             // FILE_FLAG_BACKUP_SEMANTICS: required to open a directory.

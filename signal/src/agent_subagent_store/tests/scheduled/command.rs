@@ -651,7 +651,7 @@ async fn missing_native_or_dispatch_proof_keeps_original_unknown_fact_unresolved
 
 #[test]
 fn scheduled_native_receipt_recovery_fits_small_stacks() {
-    const STACK: &str = "LRD_TEST_SCHEDULE_NATIVE_RECEIPT_STACK_BYTES";
+    const STACK: &str = "LAD_TEST_SCHEDULE_NATIVE_RECEIPT_STACK_BYTES";
     if let Some(bytes) = std::env::var_os(STACK) {
         let bytes: usize = bytes.to_str().unwrap().parse().unwrap();
         assert!([1024 * 1024, 2 * 1024 * 1024].contains(&bytes));

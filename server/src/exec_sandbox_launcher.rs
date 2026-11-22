@@ -141,7 +141,7 @@ mod imp {
         };
         match request {
             Request::SelfTest { inside, outside } => {
-                let write = |path: &str| std::fs::write(path, b"lcxl").is_ok();
+                let write = |path: &str| std::fs::write(path, b"lcxbox").is_ok();
                 let inside = write(&inside);
                 let outside = write(&outside);
                 reply(&Reply::SelfTest { inside, outside });

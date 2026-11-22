@@ -70,7 +70,7 @@ impl RestoreTokenStore {
             .filter(|value| !value.is_empty())?;
         Some(Self::new(
             state_root
-                .join("lcxl-remote-desk")
+                .join("lcxbox-agent-desk")
                 .join("wayland-portal.json"),
             app_id,
             &desktop_fingerprint,
@@ -224,7 +224,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("tempdir");
         let store = RestoreTokenStore::new(
             directory.path().join("wayland-portal.json"),
-            "com.lcxl.remote-desk",
+            "com.lcxbox.agent-desk",
             "GNOME:GNOME",
         );
         let token = RestoreToken {
@@ -248,11 +248,11 @@ mod tests {
     fn corrupt_or_empty_token_fails_closed() {
         let directory = tempfile::tempdir().expect("tempdir");
         let path = directory.path().join("wayland-portal.json");
-        let store = RestoreTokenStore::new(path.clone(), "com.lcxl.remote-desk", "gnome");
+        let store = RestoreTokenStore::new(path.clone(), "com.lcxbox.agent-desk", "gnome");
         fs::write(&path, b"not-json").expect("write corrupt token");
         assert!(matches!(store.consume(), Err(PortalError::Json(_))));
 
-        fs::write(&path, br#"{"state":"available","version":1,"app_id":"com.lcxl.remote-desk","desktop_fingerprint":"gnome","target":"screen_only","token":""}"#)
+        fs::write(&path, br#"{"state":"available","version":1,"app_id":"com.lcxbox.agent-desk","desktop_fingerprint":"gnome","target":"screen_only","token":""}"#)
             .expect("write empty token");
         assert!(matches!(
             store.consume(),
@@ -264,14 +264,14 @@ mod tests {
     fn identity_mismatch_is_rejected_without_exposing_token() {
         let directory = tempfile::tempdir().expect("tempdir");
         let path = directory.path().join("wayland-portal.json");
-        let gnome = RestoreTokenStore::new(path.clone(), "com.lcxl.remote-desk", "gnome");
+        let gnome = RestoreTokenStore::new(path.clone(), "com.lcxbox.agent-desk", "gnome");
         gnome
             .rotate(Some(&RestoreToken {
                 target: AuthorizationTarget::ScreenAndInput,
                 token: "secret-token".into(),
             }))
             .expect("store token");
-        let kde = RestoreTokenStore::new(path, "com.lcxl.remote-desk", "kde");
+        let kde = RestoreTokenStore::new(path, "com.lcxbox.agent-desk", "kde");
         assert!(matches!(kde.consume(), Err(PortalError::InvalidTokenStore)));
         assert!(
             !format!(
@@ -290,7 +290,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("tempdir");
         let store = RestoreTokenStore::new(
             directory.path().join("wayland-portal.json"),
-            "com.lcxl.remote-desk",
+            "com.lcxbox.agent-desk",
             "gnome",
         );
         store
@@ -317,7 +317,7 @@ mod tests {
         let state = directory.path().join("state");
         let store = RestoreTokenStore::new(
             state.join("wayland-portal.json"),
-            "com.lcxl.remote-desk",
+            "com.lcxbox.agent-desk",
             "gnome",
         );
         store.consume().expect("empty consume");

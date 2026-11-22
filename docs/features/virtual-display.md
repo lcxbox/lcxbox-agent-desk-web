@@ -1,6 +1,6 @@
 # Virtual Display
 
-LCXL Remote Desk can present a **virtual display** to the controlled device, useful for headless hosts or for dedicating a screen to the remote session.
+LCXBOX Agent Desk can present a **virtual display** to the controlled device, useful for headless hosts or for dedicating a screen to the remote session.
 
 ::: tip Platform support
 The virtual display is based on the Windows Indirect Display Driver (**IddCx**) and requires an installed driver. It is effective only in specific startup modes; other modes reject the related signaling.

@@ -1,6 +1,6 @@
 # 浏览器助手扩展
 
-LCXL Chrome 扩展是AI助手唯一支持的浏览器适配器。它运行在被控端 Chrome 中，通过带认证的 loopback bridge 与被控端连接。DevTools MCP 适配器、配置开关和启动逻辑均已移除。
+LCXBOX Chrome 扩展是AI助手唯一支持的浏览器适配器。它运行在被控端 Chrome 中，通过带认证的 loopback bridge 与被控端连接。DevTools MCP 适配器、配置开关和启动逻辑均已移除。
 
 ## 一次配对
 
@@ -29,7 +29,7 @@ exact-send 回执检查会排除激活前已存在的成功提示和同正文消
 
 ## 本机配对验证码
 
-在被控机本地终端，以运行被控端的普通 OS 用户执行 `lcxl-remote-desk-server browser-pairing-proof`；自定义配置添加 `--config-file-path <路径>`。通过 `localhost` 或 `127.0.0.1` 打开本机助手页面，输入命令返回的一次性验证码，再点击“显示配对码”。验证码五分钟有效，生成新码会使旧码失效。HTTP 请求同时要求 owner 登录、同源本机来源及本机 OS 用户验证码；旧 GET 接口不再返回配对密钥。
+在被控机本地终端，以运行被控端的普通 OS 用户执行 `lcxbox-agent-desk-server browser-pairing-proof`；自定义配置添加 `--config-file-path <路径>`。通过 `localhost` 或 `127.0.0.1` 打开本机助手页面，输入命令返回的一次性验证码，再点击“显示配对码”。验证码五分钟有效，生成新码会使旧码失效。HTTP 请求同时要求 owner 登录、同源本机来源及本机 OS 用户验证码；旧 GET 接口不再返回配对密钥。
 
 如果桥尚未初始化或配对信息读取失败，本次请求不会消耗有效验证码；排除故障后可在原有效期内重新提交。成功兑换仍只允许一次，重试不会延长五分钟有效期。
 

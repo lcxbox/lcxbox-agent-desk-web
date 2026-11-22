@@ -169,7 +169,7 @@ impl LocalUserAuthenticator for ElevatedPeerAuthenticator {
 
 pub fn elevated_proof_signature(challenge: &LocalAccessAuthChallenge) -> Vec<u8> {
     let mut digest = Sha256::new();
-    digest.update(b"lcxl-local-access-elevated-proof-v1");
+    digest.update(b"lcxbox-local-access-elevated-proof-v1");
     digest.update(&challenge.nonce);
     digest.update(challenge.action_digest);
     digest.update(challenge.expires_at.timestamp_millis().to_le_bytes());

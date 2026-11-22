@@ -1204,7 +1204,7 @@ mod tests {
             os_session_id: "session-1".into(),
             browser_major_version: 144,
             browser_version: "144.0.7559.0".into(),
-            adapter_id: "lcxl-browser-extension".into(),
+            adapter_id: "lcxbox-browser-extension".into(),
             adapter_version: "1.7.0".into(),
             profile_incarnation: "profile-incarnation-1".into(),
             connection_revision: 7,

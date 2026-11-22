@@ -9,10 +9,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use lcxl_remote_desk_server::host_control::{
+use lcxbox_agent_desk_server::host_control::{
     ApprovalRequest, ApprovalResponse, HostControlHub, HostControlMessage, UpstreamForwarder,
 };
-use lcxl_remote_desk_server::model::security_approval::SecurityPermissionType;
+use lcxbox_agent_desk_server::model::security_approval::SecurityPermissionType;
 
 fn req(id: &str) -> ApprovalRequest {
     ApprovalRequest {

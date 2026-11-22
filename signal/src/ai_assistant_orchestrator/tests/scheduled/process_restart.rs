@@ -58,19 +58,19 @@ async fn start(executable: &str, config: &Path, port: u16, log: &Path) -> Server
 }
 
 #[actix_web::test]
-#[ignore = "requires LRD_TEST_SERVER_BINARY pointing to the current built OSS server"]
+#[ignore = "requires LAD_TEST_SERVER_BINARY pointing to the current built OSS server"]
 async fn real_process_restart_materializes_timer_and_preserves_offline_wait() {
     exercise_process(false).await;
 }
 
 #[actix_web::test]
-#[ignore = "requires current LRD_TEST_SERVER_BINARY and loopback networking"]
+#[ignore = "requires current LAD_TEST_SERVER_BINARY and loopback networking"]
 async fn real_process_restart_resumes_same_conversation_after_host_reconnects() {
     exercise_process(true).await;
 }
 
 async fn exercise_process(reconnect: bool) {
-    let executable = std::env::var("LRD_TEST_SERVER_BINARY").expect("current OSS server binary");
+    let executable = std::env::var("LAD_TEST_SERVER_BINARY").expect("current OSS server binary");
     let listener = std::sync::Arc::new(TcpListener::bind("127.0.0.1:0").await.unwrap());
     let address = listener.local_addr().unwrap();
     let gateway = actix_web::rt::spawn(async move {
@@ -409,7 +409,7 @@ async fn exercise_process(reconnect: bool) {
         assert_eq!(after.latest_input_seq, before.latest_input_seq);
     }
     drop(third);
-    if let Ok(destination) = std::env::var("LRD_TEST_BROWSER_FIXTURE_PATH") {
+    if let Ok(destination) = std::env::var("LAD_TEST_BROWSER_FIXTURE_PATH") {
         // Keep the authenticated runtime fixture for manual browser acceptance.
         // Ordinary test runs retain automatic temporary-directory cleanup.
         db.close().await.unwrap();

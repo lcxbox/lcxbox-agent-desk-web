@@ -183,7 +183,7 @@ mod tests {
                 caller_type: CallerType::AiModel,
                 model_provider: Some("example".into()),
                 model_name: Some("m".into()),
-                adapter: Some("lcxl-openai-tools".into()),
+                adapter: Some("lcxbox-openai-tools".into()),
             },
             scope: AgentScope {
                 granted: vec![Capability::SystemInfo],

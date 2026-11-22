@@ -338,19 +338,19 @@ fn enumerate_all_outputs_returns_nonempty_on_windows() {
 #[cfg(target_os = "windows")]
 #[test]
 #[ignore]
-fn enumerate_all_outputs_finds_lcxl_idd_when_present() {
+fn enumerate_all_outputs_finds_lcxbox_idd_when_present() {
     initialize();
     let outputs = enumerate_all_outputs().expect("enumerate_all_outputs");
-    let lcxl = outputs.iter().find(|o| {
+    let lcxbox = outputs.iter().find(|o| {
         let info = from_dxgi_output_desc(&o.desc);
         info.display_device_name
             .as_deref()
-            .map(|s| s.to_ascii_lowercase().contains("lcxl"))
+            .map(|s| s.to_ascii_lowercase().contains("lcxbox"))
             .unwrap_or(false)
     });
     assert!(
-        lcxl.is_some(),
-        "expected to find an output whose EnumDisplayDevicesW DeviceString contains 'Lcxl'. \
+        lcxbox.is_some(),
+        "expected to find an output whose EnumDisplayDevicesW DeviceString contains 'Lcxbox'. \
              Confirm `cargo run -p poc-indirect-display -- create-device` is running before running this test."
     );
 }

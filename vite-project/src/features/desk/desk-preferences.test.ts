@@ -74,7 +74,7 @@ describe("desk preference keys", () => {
 
     it("does not build persistent keys for grants or missing identities", () => {
         expect(devicePreferenceStorageKey(persistentScope)).toBe(
-            "lrdm.remoteDesk.devicePreferences.v1:u:7:device:abc",
+            "ladm.remoteDesk.devicePreferences.v1:u:7:device:abc",
         )
         expect(devicePreferenceStorageKey({
             ...persistentScope,

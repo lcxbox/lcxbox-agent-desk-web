@@ -368,7 +368,7 @@ pub struct FileRecoveryQuotaReply {
 }
 
 /// Start the ordinary-user application host listening on `pipe_name`, which
-/// must be `\\.\pipe\lrd-application-host-<uuid>`. Session, user and the
+/// must be `\\.\pipe\lad-application-host-<uuid>`. Session, user and the
 /// host's parent PID argument are the daemon's own facts about the requesting
 /// worker, never fields of this request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead)]
@@ -378,7 +378,7 @@ pub struct ApplicationHostStart {
 }
 
 /// The only pipe names an application host listens on.
-pub const APPLICATION_HOST_PIPE_PREFIX: &str = r"\\.\pipe\lrd-application-host-";
+pub const APPLICATION_HOST_PIPE_PREFIX: &str = r"\\.\pipe\lad-application-host-";
 
 impl ApplicationHostStart {
     /// `pipe_name` is the fixed prefix and a lowercase hyphenated UUID, so it

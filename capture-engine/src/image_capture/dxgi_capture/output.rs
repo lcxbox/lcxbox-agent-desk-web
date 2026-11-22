@@ -51,7 +51,7 @@ pub struct ScreenOutput {
     /// When `true`, `get_frame` skips the MSDN dirty/move composition
     /// path and instead `CopyResource`s the entire acquired desktop
     /// texture into the persistent RT each frame. Toggled by the
-    /// `LCXL_DXGI_FULL_BLIT` environment variable at `ScreenOutput`
+    /// `LCXBOX_DXGI_FULL_BLIT` environment variable at `ScreenOutput`
     /// construction time — diagnostic A/B switch only, not exposed
     /// to the UI.
     pub full_frame_blit: bool,
@@ -181,17 +181,17 @@ impl ScreenOutput {
             // full_frame_blit is the default since the
             // 2026-05-21 capture-resolution + cursor-residue fix —
             // the legacy per-rect compose path is reachable only via
-            // the inverse opt-out env var `LCXL_DXGI_DIRTY_COMPOSE`
+            // the inverse opt-out env var `LCXBOX_DXGI_DIRTY_COMPOSE`
             // (for A/B diagnostics). Per-rect compose leaves cursor
             // ghosts on software-cursor frames because SyncNative
             // mode never populates `cursor_after.rect`, so
             // `build_dirty_hint` cannot include cursor move deltas.
             full_frame_blit: {
-                let env_val = std::env::var("LCXL_DXGI_DIRTY_COMPOSE").ok();
+                let env_val = std::env::var("LCXBOX_DXGI_DIRTY_COMPOSE").ok();
                 let force_dirty = dxgi_compose::parse_env_flag(env_val.as_deref());
                 if force_dirty {
                     log::warn!(
-                        "[DXGI] LCXL_DXGI_DIRTY_COMPOSE enabled (raw={:?}) — \
+                        "[DXGI] LCXBOX_DXGI_DIRTY_COMPOSE enabled (raw={:?}) — \
                          output_index={} will use legacy per-rect compose; may \
                          exhibit cursor / resolution-change ghosting.",
                         env_val,

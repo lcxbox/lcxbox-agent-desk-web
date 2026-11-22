@@ -61,7 +61,7 @@ const REQUEST_TIMEOUT_SECS: u64 = 180;
 /// defaults to [`ProviderSsrfMode::Relaxed`]: a self-hosted brain commonly points
 /// at a local model gateway (`http://localhost:11434`, `http://192.168.x.x`),
 /// which Relaxed permits while still blocking the cloud-metadata floor.
-const SSRF_MODE_ENV: &str = "LRD_PROVIDER_SSRF_MODE";
+const SSRF_MODE_ENV: &str = "LAD_PROVIDER_SSRF_MODE";
 
 /// Environment variable toggling public-plaintext TLS enforcement on the model
 /// dial (`true` / `false`). Defaults to `true` (enforce): a dial to a *public*
@@ -70,7 +70,7 @@ const SSRF_MODE_ENV: &str = "LRD_PROVIDER_SSRF_MODE";
 /// (`http://localhost`, `http://192.168.x.x`) is unaffected — private / loopback
 /// targets are always allowed over plaintext. Mirrors the manager's cluster-shared
 /// `enforce_public_tls`; signal is single-instance so this is a process setting.
-const ENFORCE_PUBLIC_TLS_ENV: &str = "LRD_ENFORCE_PUBLIC_TLS";
+const ENFORCE_PUBLIC_TLS_ENV: &str = "LAD_ENFORCE_PUBLIC_TLS";
 
 /// Resolve the configured SSRF mode from the environment, defaulting to
 /// `Relaxed` when unset or unparseable.
@@ -3652,10 +3652,10 @@ mod tests {
     }
 
     #[actix_web::test]
-    #[ignore = "requires LRD_LIVE_DEEPSEEK_API_KEY and public network access"]
+    #[ignore = "requires LAD_LIVE_DEEPSEEK_API_KEY and public network access"]
     async fn live_deepseek_disabled_thinking_uses_the_oss_streaming_seam() {
-        let api_key = std::env::var("LRD_LIVE_DEEPSEEK_API_KEY")
-            .expect("set LRD_LIVE_DEEPSEEK_API_KEY for the explicit live test");
+        let api_key = std::env::var("LAD_LIVE_DEEPSEEK_API_KEY")
+            .expect("set LAD_LIVE_DEEPSEEK_API_KEY for the explicit live test");
         let config = ModelProviderConfig {
             wire_protocol: Some(WireProtocol::OpenAiChatCompletions),
             model: Some("deepseek-v4-flash".into()),
@@ -3955,13 +3955,13 @@ mod tests {
     }
 
     #[actix_web::test]
-    #[ignore = "requires LRD_LIVE_DEEPSEEK_API_KEY and public network access"]
+    #[ignore = "requires LAD_LIVE_DEEPSEEK_API_KEY and public network access"]
     async fn live_deepseek_progressive_disclosure_fixed_eval() {
-        let api_key = std::env::var("LRD_LIVE_DEEPSEEK_API_KEY")
-            .expect("set LRD_LIVE_DEEPSEEK_API_KEY for the explicit live test");
-        let model = std::env::var("LRD_LIVE_DEEPSEEK_MODEL")
+        let api_key = std::env::var("LAD_LIVE_DEEPSEEK_API_KEY")
+            .expect("set LAD_LIVE_DEEPSEEK_API_KEY for the explicit live test");
+        let model = std::env::var("LAD_LIVE_DEEPSEEK_MODEL")
             .unwrap_or_else(|_| "deepseek-v4-flash".to_string());
-        let base_url = std::env::var("LRD_LIVE_DEEPSEEK_BASE_URL")
+        let base_url = std::env::var("LAD_LIVE_DEEPSEEK_BASE_URL")
             .unwrap_or_else(|_| "https://api.deepseek.com".to_string());
         let config = ModelProviderConfig {
             wire_protocol: Some(WireProtocol::OpenAiChatCompletions),
@@ -3977,15 +3977,15 @@ mod tests {
     }
 
     #[actix_web::test]
-    #[ignore = "requires LRD_LIVE_STRICT_PROVIDER_* and public network access"]
+    #[ignore = "requires LAD_LIVE_STRICT_PROVIDER_* and public network access"]
     async fn live_strict_provider_progressive_disclosure_fixed_eval() {
-        let api_key = std::env::var("LRD_LIVE_STRICT_PROVIDER_API_KEY")
-            .expect("set LRD_LIVE_STRICT_PROVIDER_API_KEY for the explicit live test");
-        let model = std::env::var("LRD_LIVE_STRICT_PROVIDER_MODEL")
-            .expect("set LRD_LIVE_STRICT_PROVIDER_MODEL for the explicit live test");
-        let base_url = std::env::var("LRD_LIVE_STRICT_PROVIDER_BASE_URL")
-            .expect("set LRD_LIVE_STRICT_PROVIDER_BASE_URL for the explicit live test");
-        let wire_protocol = match std::env::var("LRD_LIVE_STRICT_PROVIDER_WIRE_PROTOCOL")
+        let api_key = std::env::var("LAD_LIVE_STRICT_PROVIDER_API_KEY")
+            .expect("set LAD_LIVE_STRICT_PROVIDER_API_KEY for the explicit live test");
+        let model = std::env::var("LAD_LIVE_STRICT_PROVIDER_MODEL")
+            .expect("set LAD_LIVE_STRICT_PROVIDER_MODEL for the explicit live test");
+        let base_url = std::env::var("LAD_LIVE_STRICT_PROVIDER_BASE_URL")
+            .expect("set LAD_LIVE_STRICT_PROVIDER_BASE_URL for the explicit live test");
+        let wire_protocol = match std::env::var("LAD_LIVE_STRICT_PROVIDER_WIRE_PROTOCOL")
             .as_deref()
             .unwrap_or("open_ai_chat_completions")
         {
@@ -3993,13 +3993,13 @@ mod tests {
             "anthropic_messages" => WireProtocol::AnthropicMessages,
             other => panic!("unsupported strict-provider wire protocol: {other}"),
         };
-        let request_options = std::env::var("LRD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS")
+        let request_options = std::env::var("LAD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS")
             .map(|value| {
                 let parsed: Value = serde_json::from_str(&value)
-                    .expect("LRD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS must be valid JSON");
+                    .expect("LAD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS must be valid JSON");
                 assert!(
                     parsed.is_object(),
-                    "LRD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS must be a JSON object"
+                    "LAD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS must be a JSON object"
                 );
                 parsed
             })
@@ -4493,18 +4493,18 @@ mod tests {
     }
 
     #[actix_web::test]
-    #[ignore = "requires LRD_LIVE_DEEPSEEK_API_KEY and public network access"]
+    #[ignore = "requires LAD_LIVE_DEEPSEEK_API_KEY and public network access"]
     async fn live_deepseek_long_conversation_fixed_eval() {
-        let api_key = std::env::var("LRD_LIVE_DEEPSEEK_API_KEY")
-            .expect("set LRD_LIVE_DEEPSEEK_API_KEY for the explicit live test");
+        let api_key = std::env::var("LAD_LIVE_DEEPSEEK_API_KEY")
+            .expect("set LAD_LIVE_DEEPSEEK_API_KEY for the explicit live test");
         let config = ModelProviderConfig {
             wire_protocol: Some(WireProtocol::OpenAiChatCompletions),
             model: Some(
-                std::env::var("LRD_LIVE_DEEPSEEK_MODEL")
+                std::env::var("LAD_LIVE_DEEPSEEK_MODEL")
                     .unwrap_or_else(|_| "deepseek-v4-flash".to_string()),
             ),
             base_url: Some(
-                std::env::var("LRD_LIVE_DEEPSEEK_BASE_URL")
+                std::env::var("LAD_LIVE_DEEPSEEK_BASE_URL")
                     .unwrap_or_else(|_| "https://api.deepseek.com".to_string()),
             ),
             api_key: Some(api_key),
@@ -4518,15 +4518,15 @@ mod tests {
     }
 
     #[actix_web::test]
-    #[ignore = "requires LRD_LIVE_STRICT_PROVIDER_* and public network access"]
+    #[ignore = "requires LAD_LIVE_STRICT_PROVIDER_* and public network access"]
     async fn live_strict_provider_long_conversation_fixed_eval() {
-        let api_key = std::env::var("LRD_LIVE_STRICT_PROVIDER_API_KEY")
-            .expect("set LRD_LIVE_STRICT_PROVIDER_API_KEY for the explicit live test");
-        let model = std::env::var("LRD_LIVE_STRICT_PROVIDER_MODEL")
-            .expect("set LRD_LIVE_STRICT_PROVIDER_MODEL for the explicit live test");
-        let base_url = std::env::var("LRD_LIVE_STRICT_PROVIDER_BASE_URL")
-            .expect("set LRD_LIVE_STRICT_PROVIDER_BASE_URL for the explicit live test");
-        let wire_protocol = match std::env::var("LRD_LIVE_STRICT_PROVIDER_WIRE_PROTOCOL")
+        let api_key = std::env::var("LAD_LIVE_STRICT_PROVIDER_API_KEY")
+            .expect("set LAD_LIVE_STRICT_PROVIDER_API_KEY for the explicit live test");
+        let model = std::env::var("LAD_LIVE_STRICT_PROVIDER_MODEL")
+            .expect("set LAD_LIVE_STRICT_PROVIDER_MODEL for the explicit live test");
+        let base_url = std::env::var("LAD_LIVE_STRICT_PROVIDER_BASE_URL")
+            .expect("set LAD_LIVE_STRICT_PROVIDER_BASE_URL for the explicit live test");
+        let wire_protocol = match std::env::var("LAD_LIVE_STRICT_PROVIDER_WIRE_PROTOCOL")
             .as_deref()
             .unwrap_or("open_ai_chat_completions")
         {
@@ -4534,13 +4534,13 @@ mod tests {
             "anthropic_messages" => WireProtocol::AnthropicMessages,
             other => panic!("unsupported strict-provider wire protocol: {other}"),
         };
-        let request_options = std::env::var("LRD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS")
+        let request_options = std::env::var("LAD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS")
             .map(|value| {
                 let parsed: Value = serde_json::from_str(&value)
-                    .expect("LRD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS must be valid JSON");
+                    .expect("LAD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS must be valid JSON");
                 assert!(
                     parsed.is_object(),
-                    "LRD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS must be a JSON object"
+                    "LAD_LIVE_STRICT_PROVIDER_REQUEST_OPTIONS must be a JSON object"
                 );
                 parsed
             })
@@ -4559,13 +4559,13 @@ mod tests {
     }
 
     #[actix_web::test]
-    #[ignore = "requires LRD_LIVE_DEEPSEEK_API_KEY and public network access"]
+    #[ignore = "requires LAD_LIVE_DEEPSEEK_API_KEY and public network access"]
     async fn live_deepseek_vision_proves_image_access_through_the_oss_seam() {
-        let api_key = std::env::var("LRD_LIVE_DEEPSEEK_API_KEY")
-            .expect("set LRD_LIVE_DEEPSEEK_API_KEY for the explicit live test");
-        let model = std::env::var("LRD_LIVE_DEEPSEEK_VISION_MODEL")
+        let api_key = std::env::var("LAD_LIVE_DEEPSEEK_API_KEY")
+            .expect("set LAD_LIVE_DEEPSEEK_API_KEY for the explicit live test");
+        let model = std::env::var("LAD_LIVE_DEEPSEEK_VISION_MODEL")
             .unwrap_or_else(|_| "deepseek-v4-flash-vision-exp".to_string());
-        let base_url = std::env::var("LRD_LIVE_DEEPSEEK_BASE_URL")
+        let base_url = std::env::var("LAD_LIVE_DEEPSEEK_BASE_URL")
             .unwrap_or_else(|_| "https://api.deepseek.com/v1".to_string());
         let config = ModelProviderConfig {
             wire_protocol: Some(WireProtocol::OpenAiChatCompletions),

@@ -27,7 +27,7 @@ export function queryDriverStatusQueryOptions(config: Partial<RequestConfig> & {
 }
 
 /**
- * @summary Query LcxlVirtualDisplay IDD driver status
+ * @summary Query LcxboxVirtualDisplay IDD driver status
  * {@link /api/virtual-display/driver/status}
  */
 export function useQueryDriverStatus<TData = QueryDriverStatusQueryResponse, TQueryData = QueryDriverStatusQueryResponse, TQueryKey extends QueryKey = QueryDriverStatusQueryKey>(options: 

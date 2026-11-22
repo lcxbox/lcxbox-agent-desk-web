@@ -325,14 +325,14 @@ impl PreparedExecutable {
             }
         };
         let name = format!(
-            "lcxl-application-{:x}.service",
+            "lcxbox-application-{:x}.service",
             Sha256::digest(dispatch_id.as_bytes())
         );
         let argv: Vec<String> = std::iter::once(self.identity.canonical_target.clone())
             .chain(self.request.args.clone())
             .collect();
         let properties = vec![
-            ("Description", Value::from("LCXL approved application")),
+            ("Description", Value::from("LCXBOX approved application")),
             ("Type", Value::from("exec")),
             ("ExitType", Value::from("cgroup")),
             ("CollectMode", Value::from("inactive-or-failed")),

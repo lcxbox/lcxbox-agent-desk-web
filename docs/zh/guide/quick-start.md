@@ -1,6 +1,6 @@
 # 快速开始
 
-运行 LCXL Remote Desk 有三种方式，按你的网络环境选择。
+运行 LCXBOX Agent Desk 有三种方式，按你的网络环境选择。
 
 ## 方式一：下载被控端直接运行（推荐）
 
@@ -19,8 +19,8 @@
 
 2. 运行：
 
-   - **Windows / Linux**：解压后运行 `lcxl-remote-desk-tauri`。压缩包内还有 `lcxl-remote-desk-server` 与 `static/`（Web 控制台静态资源），**三者必须保持同级**。
-   - **macOS**：打开 `.dmg`，把 **LCXL Remote Desktop** 拖入「应用程序」后启动。
+   - **Windows / Linux**：解压后运行 `lcxbox-agent-desk-tauri`。压缩包内还有 `lcxbox-agent-desk-server` 与 `static/`（Web 控制台静态资源），**三者必须保持同级**。
+   - **macOS**：打开 `.dmg`，把 **LCXBOX Agent Desk** 拖入「应用程序」后启动。
 
 3. 外壳会自带窗口打开控制台，初始化在其中完成；局域网内其他机器访问同一控制台的地址是 `http://<被控机地址>:8081`。向导会引导你创建管理员账户、可选地连接 Manager，并设置入站安全策略与遥测选项。之后即可从同一局域网（或任何能直连该公网 IP 的网络）远程控制这台设备。
 
@@ -39,13 +39,13 @@
    ```bash
    git clone https://github.com/lcxl-remote/lcxl-remote-desk-web.git
    cd lcxl-remote-desk-web
-   printf 'LRD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
+   printf 'LAD_BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
    docker compose up -d
    ```
 
 2. 访问 `http://<VPS 地址>:8081`。第一步填写 `.env` 中保存的部署初始化令牌、创建管理员账户并同意协议。初始化后仍需保留 `.env`，因为 Compose 每次启动都会校验该必填变量。
 
-3. 正式投入使用前请先加固：反向代理终结 TLS、TURN 接口与中继端口、各项 `LRD_*` 变量，都在[部署](/zh/guide/deployment)中说明。
+3. 正式投入使用前请先加固：反向代理终结 TLS、TURN 接口与中继端口、各项 `LAD_*` 变量，都在[部署](/zh/guide/deployment)中说明。
 
 4. 在信令服务器控制台的**信令接入令牌**页复制令牌。被控端按方式一下载运行，然后在它的**出站连接**设置页把信令服务器地址填成 `wss://<你的域名>/api/desk/signaling`，令牌填刚才复制的值。之后被控端把这台服务器当作自己的中心，远程桌面、终端和 AI 助手都经它使用。
 
@@ -86,10 +86,10 @@ npm run dev
 ### 再启动被控端外壳
 
 ```bash
-cargo run -p lcxl-remote-desk-tauri
+cargo run -p lcxbox-agent-desk-tauri
 ```
 
-它内嵌完整服务端，并额外提供防窥屏与白板。如果只需要纯后端而不要 GUI 外壳，改跑 `cargo run -p lcxl-remote-desk-server`，然后在浏览器访问 `http://localhost:5174`。
+它内嵌完整服务端，并额外提供防窥屏与白板。如果只需要纯后端而不要 GUI 外壳，改跑 `cargo run -p lcxbox-agent-desk-server`，然后在浏览器访问 `http://localhost:5174`。
 
 ## 下一步
 

@@ -215,7 +215,7 @@ enum MonitorOp {
 /// the router treats as inactive.
 ///
 /// `instance_id` is the **PnP device instance id** assigned by
-/// `SwDeviceCreate` (e.g. `SWD\LcxlVirtualDisplay\LcxlVirtualDisplay`).
+/// `SwDeviceCreate` (e.g. `SWD\LcxboxVirtualDisplay\LcxboxVirtualDisplay`).
 /// It is the same value forwarded to the worker over IPC. The worker
 /// (running inside the interactive user session) is responsible for
 /// turning it into a GDI display name via

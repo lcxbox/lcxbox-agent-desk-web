@@ -25,7 +25,7 @@ pub(super) fn prepare(configured_daemon_root: &Path) -> io::Result<PathBuf> {
         .map_err(io::Error::other);
     unsafe { CoTaskMemFree(Some(raw.0.cast())) };
     let local = converted?;
-    let app = PrivateDirectory::open_data_root(&local, "lcxl-remote-desk-worker")?;
+    let app = PrivateDirectory::open_data_root(&local, "lcxbox-agent-desk-worker")?;
     let configured = configured_daemon_root
         .to_str()
         .ok_or_else(|| io::Error::other("worker data root encoding unavailable"))?
@@ -35,7 +35,7 @@ pub(super) fn prepare(configured_daemon_root: &Path) -> io::Result<PathBuf> {
     let key = format!("host-{:x}", Sha256::digest(configured.as_bytes()));
     let host = app.open_child(&key)?;
     host.validate()?;
-    let result = local.join("lcxl-remote-desk-worker").join(key);
+    let result = local.join("lcxbox-agent-desk-worker").join(key);
     // The recovery library independently reopens and validates every ancestor.
     let _vault = desk_file_recovery::Vault::open(&result)?;
     Ok(result)

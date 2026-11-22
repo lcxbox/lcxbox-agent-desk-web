@@ -1024,7 +1024,7 @@ mod tests {
         };
         let (sleep_log, sleeper) = make_recording_sleeper();
         let outcome = resolve_attach_with_backoff(
-            "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay",
+            "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay",
             resolver,
             sleeper,
         )
@@ -1063,7 +1063,7 @@ mod tests {
         };
         let (sleep_log, sleeper) = make_recording_sleeper();
         let outcome = resolve_attach_with_backoff(
-            "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay",
+            "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay",
             resolver,
             sleeper,
         )
@@ -1091,7 +1091,7 @@ mod tests {
         };
         let (sleep_log, sleeper) = make_recording_sleeper();
         let outcome = resolve_attach_with_backoff(
-            "SWD\\LcxlVirtualDisplay\\LcxlVirtualDisplay",
+            "SWD\\LcxboxVirtualDisplay\\LcxboxVirtualDisplay",
             resolver,
             sleeper,
         )
