@@ -101,6 +101,11 @@ impl SignalPermissionResumeExecutor {
         else {
             return Ok(false);
         };
+        // A grouped request resumes only once its whole group is decided; the
+        // last decision's resume continues the step. No claim is attempted.
+        if !session.permission_request_group_settled(&candidate.request_id) {
+            return Ok(false);
+        }
         let connection_id = if session.device_id.is_empty() {
             String::new()
         } else {

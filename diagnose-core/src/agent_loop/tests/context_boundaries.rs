@@ -459,6 +459,7 @@ async fn run_permission_compaction_case(mutation: u8) {
             reason: "Open the requested app".into(),
         }],
         created_at: "1970-01-01T00:00:00.100Z".into(),
+        group: None,
     });
     snapshot.ready_capabilities = vec![descriptor.required_capability];
     let destination = DestinationIdentity::Model {

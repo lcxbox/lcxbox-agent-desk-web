@@ -1538,6 +1538,7 @@ async fn seed_command_history(db: &crate::config::connection::DatabaseConnection
                 state: PermissionRequestState::Denied,
                 items: vec![item],
                 created_at: Utc::now().to_rfc3339(),
+                group: None,
             },
         );
         session.last_event_seq += 1;

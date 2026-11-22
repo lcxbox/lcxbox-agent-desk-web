@@ -43,6 +43,7 @@ pub(super) fn request(session: &mut PersistedAgentSession) -> PermissionRequeste
             reason: "Inspect original delegated target".into(),
         }],
         created_at: chrono::Utc::now().to_rfc3339(),
+        group: None,
     };
     session.add_permission_request(request.clone()).unwrap();
     session.last_event_seq += 1;

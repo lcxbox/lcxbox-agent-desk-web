@@ -138,7 +138,11 @@ async fn approve_held_command(policy_changed: bool) {
         request: request.clone(),
     };
     let sessions = SignalAgentSessionStore::new(db.clone());
-    session.pause_for_permission(HELD_CALL, &request.request_id);
+    session.pause_for_permission(desk_diagnose_core::session::AwaitingPermission {
+        tool_call_id: HELD_CALL.into(),
+        request_id: request.request_id.clone(),
+        ..Default::default()
+    });
     sessions
         .save_permission_request(&mut session, &event)
         .await

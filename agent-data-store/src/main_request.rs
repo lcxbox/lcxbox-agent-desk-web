@@ -277,9 +277,9 @@ pub fn holds_input_slot(session: &PersistedAgentSession) -> bool {
         // A release whose call already has a result was closed by recovery or a
         // superseded settlement; the next turn clears it, and it holds nothing.
         || session.released_permission_call.as_ref().is_some_and(|released| {
-            session
-                .unclosed_tool_call_ids()
-                .contains(&released.tool_call_id)
+            let open = session.unclosed_tool_call_ids();
+            open.contains(&released.tool_call_id)
+                || released.pending_call_ids.iter().any(|id| open.contains(id))
         })
         || session.permission_requests.iter().any(|permission| {
             permission.input_revision == session.input_revision

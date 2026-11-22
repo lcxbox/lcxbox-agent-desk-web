@@ -262,3 +262,82 @@ async fn recovery_observes_a_paused_source_without_claiming_or_resetting_it() {
             .is_none()
     );
 }
+
+/// An interrupted child continuing a released step: its unstarted mutation and
+/// memory calls are closed first, so recovery settles instead of refusing
+/// calls it cannot read back.
+#[tokio::test]
+async fn an_interrupted_child_with_pending_mutation_and_memory_calls_settles() {
+    use desk_diagnose_core::chat::{ChatMessage, ToolCallRef};
+    let db = database().await;
+    let (store, runtime) = child(&db).await;
+    let RuntimeTurn::Child { run, .. } = runtime else {
+        panic!("child context");
+    };
+    let SubAgentClaimOutcome::Claimed(claimed) = store
+        .claim_child(
+            &super::creation::claim_params(&run),
+            &run.binding.task_id,
+            run.fence(),
+            &super::creation::destination(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("child lease");
+    };
+    let mut session = claimed.session.clone();
+    let call = |id: &str, name: &str| ToolCallRef {
+        id: id.into(),
+        name: name.into(),
+        arguments_json: "{}".into(),
+    };
+    let mut step = ChatMessage::agent_tool_calls_with_replay(
+        "earlier-step",
+        "",
+        vec![
+            call("held", "read_text_file"),
+            call("mutation", "create_text_file"),
+            call("memory", "manage_memories"),
+        ],
+        desk_diagnose_core::replay::ReplayDisposition::legacy_unknown(),
+    );
+    step.turn_id = Some("earlier-turn".into());
+    session.conversation.push(step);
+    let mut held = ChatMessage::tool_result("held-result", "held", "done");
+    held.turn_id = Some("earlier-turn".into());
+    session.conversation.push(held);
+    session.released_permission_call =
+        Some(Box::new(desk_diagnose_core::session::AwaitingPermission {
+            tool_call_id: "held".into(),
+            request_id: "request-1".into(),
+            issuing_message_id: "earlier-step".into(),
+            pending_call_ids: vec!["mutation".into(), "memory".into()],
+            ..Default::default()
+        }));
+    session_row::Entity::update_many()
+        .set(session_row::ActiveModel {
+            state_json: Set(session.encode_json_for_storage().unwrap()),
+            lease_deadline: Set(Some(chrono::Utc::now() - chrono::Duration::seconds(1))),
+            ..Default::default()
+        })
+        .filter(session_row::Column::ConversationId.eq(&run.child_conversation_id))
+        .exec(&db)
+        .await
+        .unwrap();
+    assert!(store.reconcile_task(&run.binding.task_id).await.unwrap());
+    let row = session_row::Entity::find()
+        .filter(session_row::Column::ConversationId.eq(&run.child_conversation_id))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    let recovered = PersistedAgentSession::decode_json(&row.state_json).unwrap();
+    assert!(recovered.unclosed_tool_call_ids().is_empty());
+    for id in ["mutation", "memory"] {
+        assert!(recovered.conversation.iter().any(|message| {
+            message.tool_call_id.as_deref() == Some(id)
+                && message.text == desk_diagnose_core::session::RELEASED_TURN_ENDED
+        }));
+    }
+}

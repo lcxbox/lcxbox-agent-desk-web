@@ -273,7 +273,8 @@ async fn a_skill_proposal_ends_the_turn_and_later_calls_wait_for_the_decision() 
         // The later call of the same batch did not run.
         assert!(saved.conversation.iter().any(|m| {
             m.tool_call_id.as_deref() == Some("after")
-                && m.text.contains("waiting for the proposal decision")
+                && m.text
+                    .contains("this step paused for a decision on an earlier call")
         }));
     }
 

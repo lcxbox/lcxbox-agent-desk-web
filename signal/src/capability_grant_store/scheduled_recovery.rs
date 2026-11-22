@@ -86,16 +86,36 @@ async fn reconcile_inner_on(
     let mut matched = BTreeSet::new();
     let mut matched_actions = Vec::new();
     let open: BTreeSet<_> = session.unclosed_tool_call_ids().into_iter().collect();
+    // A continued step's calls run under the resume turn while their message
+    // keeps the turn that issued them: only the released or dispatching call
+    // of that message is accepted.
+    let released_source = session.released_permission_call.as_ref().map(|released| {
+        (
+            released.issuing_message_id.clone(),
+            [
+                Some(released.tool_call_id.clone()),
+                released.dispatching.clone(),
+            ],
+        )
+    });
     for row in rows {
         if delegated {
             let open_proposal = session
                 .conversation
                 .iter()
-                .filter(|message| {
-                    message.role == ChatRole::Assistant
-                        && message.turn_id.as_deref() == Some(row.turn_id.as_str())
+                .filter(|message| message.role == ChatRole::Assistant)
+                .flat_map(|message| {
+                    let turn_match = message.turn_id.as_deref() == Some(row.turn_id.as_str());
+                    let released = released_source
+                        .as_ref()
+                        .filter(|(issuing, _)| *issuing == message.message_id);
+                    message.tool_calls.iter().filter(move |call| {
+                        turn_match
+                            || released.is_some_and(|(_, ids)| {
+                                ids.iter().flatten().any(|id| *id == call.id)
+                            })
+                    })
                 })
-                .flat_map(|message| &message.tool_calls)
                 .any(|call| {
                     open.contains(&call.id)
                         && desk_diagnose_core::native_ids::background_action(

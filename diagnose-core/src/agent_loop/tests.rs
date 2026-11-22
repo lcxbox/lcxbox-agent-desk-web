@@ -84,7 +84,7 @@ fn goal_progress_uses_original_result_digest_and_ignores_skipped_calls() {
     session.conversation.push(ChatMessage::tool_result(
         "result-skipped",
         "skipped",
-        "not executed: waiting for user permission decision",
+        crate::session::AWAITING_STEP_CALL_CLOSED,
     ));
     assert_eq!(
         settled_goal_result_fingerprints(&session, &registry, &HashSet::new()),
@@ -429,6 +429,12 @@ struct MemSession {
     latest_completed_goal: Option<crate::goal::GoalRun>,
     goal: RefCell<Option<crate::goal::GoalRun>>,
     goal_ends: RefCell<Vec<crate::goal::GoalSegmentEnd>>,
+    /// Reject the approval group member at this order when the group is saved.
+    reject_group_order: Option<u16>,
+    /// Sizes of the approval groups saved, one entry per group save.
+    group_saves: RefCell<Vec<usize>>,
+    /// Calls the model guard reported without a result.
+    missing_reports: RefCell<Vec<Vec<String>>>,
 }
 #[async_trait(?Send)]
 impl SessionSeam for MemSession {
@@ -568,6 +574,30 @@ impl SessionSeam for MemSession {
         _request: &crate::dynamic_run::PermissionRequest,
     ) -> Result<bool, AgentError> {
         Ok(self.allow_permission_renewal)
+    }
+
+    fn report_step_result_missing(&self, _: &str, call_ids: &[String]) {
+        self.missing_reports.borrow_mut().push(call_ids.to_vec());
+    }
+
+    async fn save_permission_request_group(
+        &self,
+        session: &mut PersistedAgentSession,
+        events: &[crate::dynamic_run::PermissionRequestedEvent],
+    ) -> Result<(), AgentError> {
+        if let Some(rejected) = events.iter().find(|event| {
+            event
+                .request
+                .group
+                .as_ref()
+                .is_some_and(|group| Some(group.order) == self.reject_group_order)
+        }) {
+            return Err(crate::dynamic_run::group_member_rejected(
+                &rejected.request.request_id,
+            ));
+        }
+        self.group_saves.borrow_mut().push(events.len());
+        self.save(session).await
     }
 
     async fn propose_directory(
@@ -4585,6 +4615,7 @@ async fn projection_metrics_preserve_history_and_keep_capability_catalog_bounded
                     reason: "read selected file".into(),
                 }],
                 created_at: "2026-09-03T00:00:03Z".into(),
+                group: None,
             });
         *sess.inner.borrow_mut() = Some(session);
 
@@ -8639,6 +8670,7 @@ fn browser_permission_references_must_match_unexpired_verified_edge_evidence() {
             reason: "Activate Compose".into(),
         }],
         created_at: "1970-01-01T00:00:01Z".into(),
+        group: None,
     };
     let exact = serde_json::json!({"page": page, "element": element});
     assert!(
@@ -9062,6 +9094,7 @@ async fn exercise_scheduled_permission_pause() {
             suggested_max_uses: 1,
             reason: "Approve this exact read".into(),
         }],
+        group: None,
     };
     let mut serial = 0;
     let mut mint = || {

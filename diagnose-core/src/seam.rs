@@ -1629,6 +1629,26 @@ pub trait SessionSeam {
         self.save(session).await
     }
 
+    /// Save every request of one approval group and its events in one
+    /// transaction. A request that fails its per-request authority or
+    /// validation check fails the whole save with
+    /// `PERMISSION_GROUP_MEMBER_REJECTED`; other failures fail the turn.
+    /// Report calls the model guard found without a result before a model
+    /// request. Each is already closed with a "no result was recorded" result;
+    /// this is a defect report for the host's error log, never a turn failure.
+    fn report_step_result_missing(&self, conversation_id: &str, call_ids: &[String]) {
+        let _ = (conversation_id, call_ids);
+    }
+
+    async fn save_permission_request_group(
+        &self,
+        session: &mut PersistedAgentSession,
+        events: &[crate::dynamic_run::PermissionRequestedEvent],
+    ) -> Result<(), AgentError> {
+        let _ = events;
+        self.save(session).await
+    }
+
     /// Return the latest durable user-input revision for the run. Runtimes that
     /// do not support concurrent durable follow-ups return `None`.
     async fn latest_input_revision(

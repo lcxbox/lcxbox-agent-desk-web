@@ -94,6 +94,14 @@ impl SubAgentStore {
         }
         let original_session = session.clone();
         let previous_revision = run.state_revision;
+        // The unstarted calls of a released step get their result first; only
+        // the call being dispatched is left to the reconciliation below.
+        session
+            .close_released_unstarted(
+                desk_diagnose_core::session::RELEASED_TURN_ENDED,
+                desk_diagnose_core::session::RELEASED_TURN_ENDED,
+            )
+            .map_err(|_| invalid())?;
         crate::capability_grant_store::scheduled_recovery::reconcile_child_on(
             &txn,
             &mut session,

@@ -86,6 +86,9 @@ pub async fn claim_fresh_approval_on<C: ConnectionTrait, H: ScheduleHostStores<C
     session
         .release_awaiting_permission(request_id)
         .map_err(|_| ScheduleStoreError::Invalid)?;
+    // This claim adopts the release directly, without `begin_turn`; nothing
+    // later must take it for a release left over from an earlier turn.
+    session.released_in_claim = false;
     // Preserve original turn counters, input, history, step evidence and
     // started_at. Approval is a continuation, not a new budget allocation.
     session.version = row

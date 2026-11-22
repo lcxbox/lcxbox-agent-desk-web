@@ -230,6 +230,14 @@ async fn reconcile_expired_fresh_task<C: ConnectionTrait, H: ScheduleHostStores<
     {
         return Ok(Finish::Rollback(false));
     }
+    // The unstarted calls of a released step get their result first; only the
+    // call being dispatched is left for the restore below.
+    session
+        .close_released_unstarted(
+            desk_diagnose_core::session::RELEASED_TURN_ENDED,
+            desk_diagnose_core::session::RELEASED_TURN_ENDED,
+        )
+        .map_err(|_| ScheduleStoreError::Conflict)?;
     if !session.unclosed_tool_call_ids().is_empty()
         || session.execution_state != ExecutionState::None
     {

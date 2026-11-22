@@ -504,7 +504,11 @@ mod held_call_tests {
                     arguments_json: "{}".into(),
                 }],
             ));
-        session.pause_for_permission("call-1", "request");
+        session.pause_for_permission(crate::session::AwaitingPermission {
+            tool_call_id: "call-1".into(),
+            request_id: "request".into(),
+            ..Default::default()
+        });
         session
     }
 

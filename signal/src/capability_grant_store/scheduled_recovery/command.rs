@@ -349,11 +349,16 @@ async fn validate_command_origin_on(
     let proposals: Vec<_> = session
         .conversation
         .iter()
-        .filter(|m| {
-            m.role == ChatRole::Assistant && m.turn_id.as_deref() == Some(work.turn_id.as_str())
+        .filter(|m| m.role == ChatRole::Assistant)
+        .flat_map(|m| m.tool_calls.iter().map(move |call| (m, call)))
+        // A call continued after an approval pause was issued by an earlier
+        // turn's message; the released step marker pins that message.
+        .filter(|(m, call)| {
+            call.id == origin.tool_call_id
+                && (m.turn_id.as_deref() == Some(work.turn_id.as_str())
+                    || session.released_step_source(m, &call.id))
         })
-        .flat_map(|m| m.tool_calls.iter())
-        .filter(|call| call.id == origin.tool_call_id)
+        .map(|(_, call)| call)
         .collect();
     if proposals.len() != 1 {
         return Err(invalid());
@@ -378,7 +383,8 @@ async fn validate_command_origin_on(
     if history.is_some()
         && !session.conversation.iter().any(|message| {
             message.role == ChatRole::Assistant
-                && message.turn_id.as_deref() == Some(work.turn_id.as_str())
+                && (message.turn_id.as_deref() == Some(work.turn_id.as_str())
+                    || session.released_step_source(message, &call.id))
                 && message
                     .tool_calls
                     .iter()

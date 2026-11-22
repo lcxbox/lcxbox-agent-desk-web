@@ -1178,6 +1178,7 @@ pub fn build_permission_request(
         state: PermissionRequestState::Pending,
         items,
         created_at,
+        group: None,
     };
     request
         .validate()
@@ -1332,7 +1333,7 @@ pub(crate) fn equivalent_permission_request(
     })
 }
 
-fn same_permission_action(
+pub(crate) fn same_permission_action(
     left: &crate::dynamic_run::GrantRequestItem,
     right: &crate::dynamic_run::GrantRequestItem,
 ) -> bool {
@@ -3217,6 +3218,7 @@ mod tests {
                 reason: "Activate the approved element".into(),
             }],
             created_at: "2026-08-28T00:00:00Z".into(),
+            group: None,
         };
 
         assert_eq!(

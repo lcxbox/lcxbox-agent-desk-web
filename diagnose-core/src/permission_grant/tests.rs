@@ -68,6 +68,7 @@ fn decision_fixture() -> (
             reason: "Inspect the current device".into(),
         }],
         created_at: "2026-08-30T00:00:00Z".into(),
+        group: None,
     };
     let decisions = vec![PermissionDecisionItem {
         item_id: "inspect".into(),
@@ -254,6 +255,7 @@ fn web_host_grants_reuse_urls_until_expiry_on_both_surfaces() {
                     reason: "The owner asked for this page".into(),
                     provenance: None,
                 }],
+                goal_binding: None,
             },
         };
         let mut ai_grants = vec![targetless_grant.clone()];
@@ -485,6 +487,7 @@ fn check_ai_permission_grant(child: bool) {
                 reason: "Only current device is read".into(),
                 provenance: None,
             }],
+            goal_binding: None,
         },
     };
     bind_ai_permission_grants(
@@ -753,6 +756,7 @@ fn owner_freeform_approval_is_exact_one_shot_and_rechecks_the_frozen_policy() {
             delegation_revision: 1,
             reviews: vec![],
             failures: vec![],
+            goal_binding: None,
         };
         let mut denied = decisions.clone();
         assert!(apply_automatic_grant_failure(
@@ -1917,6 +1921,7 @@ fn conversion_permission_freezes_source_and_directory_for_manual_and_ai_on_both_
                     reason: "Exact source and destination".into(),
                     provenance: None,
                 }],
+                goal_binding: None,
             },
         };
         bind_ai_permission_grants(
@@ -1955,6 +1960,7 @@ fn automatic_grant_failure_keeps_transient_and_internal_errors_retryable() {
             delegation_revision: 1,
             reviews: vec![],
             failures: vec![],
+            goal_binding: None,
         };
         let before = source.clone();
         let mut decisions = original.clone();

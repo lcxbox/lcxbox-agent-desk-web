@@ -286,7 +286,7 @@ pub fn authorize_source_review_egress(
         .find(|message| {
             message.role == ChatRole::Assistant
                 && (message.turn_id.as_deref() == Some(binding.turn_id)
-                    || released_by_approval(session, binding.tool_call_id))
+                    || session.released_step_source(message, binding.tool_call_id))
                 && message
                     .tool_calls
                     .iter()
@@ -345,15 +345,6 @@ pub fn authorize_source_review_egress(
         now_unix_ms,
         source_ids,
     )
-}
-
-/// The call an approval resume released was issued in the turn that paused
-/// for that approval, not in the resume turn that now runs it.
-fn released_by_approval(session: &PersistedAgentSession, tool_call_id: &str) -> bool {
-    session
-        .released_permission_call
-        .as_ref()
-        .is_some_and(|released| released.tool_call_id == tool_call_id)
 }
 
 pub fn validate_source_review_current(
@@ -427,7 +418,7 @@ pub fn validate_source_review_current(
         .find(|message| {
             message.role == ChatRole::Assistant
                 && (message.turn_id.as_deref() == Some(binding.turn_id)
-                    || released_by_approval(session, binding.tool_call_id))
+                    || session.released_step_source(message, binding.tool_call_id))
                 && message
                     .tool_calls
                     .iter()
@@ -1249,6 +1240,7 @@ mod tests {
                 reason: "Update the report".into(),
             }],
             created_at: "2026-09-23T00:00:00Z".into(),
+            group: None,
         };
         let mut session = PersistedAgentSession::new(
             "conversation",

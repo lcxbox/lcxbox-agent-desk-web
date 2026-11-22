@@ -69,11 +69,14 @@ pub(super) async fn reconcile_on(
     let proposals: Vec<_> = session
         .conversation
         .iter()
-        .filter(|message| {
-            message.role == ChatRole::Assistant
-                && message.turn_id.as_deref() == Some(work.turn_id.as_str())
-        })
+        .filter(|message| message.role == ChatRole::Assistant)
         .flat_map(|message| message.tool_calls.iter().map(move |call| (message, call)))
+        // A call continued after an approval pause was issued by an earlier
+        // turn's message; the released step marker pins that message.
+        .filter(|(message, call)| {
+            message.turn_id.as_deref() == Some(work.turn_id.as_str())
+                || session.released_step_source(message, &call.id)
+        })
         .filter(|(_, call)| {
             desk_diagnose_core::native_ids::background_action(
                 &session.conversation_id,

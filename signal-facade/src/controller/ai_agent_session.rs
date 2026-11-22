@@ -2130,6 +2130,19 @@ pub struct PermissionRequestDto {
     pub items: Vec<GrantRequestItemDto>,
     pub created_at: String,
     pub decision: Option<PermissionDecisionSummaryDto>,
+    /// The approval group of one model step this request belongs to; the
+    /// step continues once every request of the group is decided.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<PermissionRequestGroupDto>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionRequestGroupDto {
+    pub group_id: String,
+    /// The request's position in the step's execution order, from 0.
+    pub order: u16,
+    pub size: u16,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -2305,6 +2318,11 @@ impl From<desk_diagnose_core::dynamic_run::PermissionRequest> for PermissionRequ
                 .collect(),
             created_at: request.created_at,
             decision: None,
+            group: request.group.map(|group| PermissionRequestGroupDto {
+                group_id: group.group_id,
+                order: group.order,
+                size: group.size,
+            }),
         }
     }
 }

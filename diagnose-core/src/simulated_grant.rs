@@ -160,6 +160,7 @@ mod tests {
                 },
             ],
             created_at: "2026-08-26T00:00:00Z".into(),
+            group: None,
         }
     }
 

@@ -604,6 +604,7 @@ mod tests {
                 suggested_max_uses: 1,
                 reason: "approved".into(),
             }],
+            group: None,
         });
         let origin = ActionResultOrigin::capture_confirmed_command(
             &registry,

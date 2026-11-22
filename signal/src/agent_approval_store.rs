@@ -1279,6 +1279,41 @@ pub async fn expire_review_leases(
     Ok(settled)
 }
 
+/// The delegation `delegation_id` and the session's active goal binding, as
+/// an AI-reviewed permission's grants are bound when they are issued.
+pub(crate) async fn ai_grant_parent_on(
+    txn: &DatabaseTransaction,
+    session: &PersistedAgentSession,
+    delegation_id: &str,
+) -> Result<(ApprovalDelegation, Option<(String, u64)>), DbErr> {
+    let stored = delegation_row::Entity::find()
+        .filter(delegation_row::Column::DelegationId.eq(delegation_id))
+        .filter(
+            delegation_row::Column::ConversationId
+                .eq(session.approval_delegation_conversation_id()),
+        )
+        .filter(delegation_row::Column::ActorId.eq(&session.actor_id))
+        .filter(delegation_row::Column::DeviceId.eq(&session.device_id))
+        .one(txn)
+        .await?
+        .ok_or_else(|| invalid())?;
+    let delegation = decode(&stored)?;
+    let goal = goal_row::Entity::find()
+        .filter(goal_row::Column::ConversationId.eq(&session.conversation_id))
+        .filter(goal_row::Column::ActorId.eq(&session.actor_id))
+        .filter(goal_row::Column::DeviceId.eq(&session.device_id))
+        .filter(goal_row::Column::Status.is_not_in(["completed", "failed", "cancelled"]))
+        .one(txn)
+        .await?
+        .as_ref()
+        .map(crate::agent_goal_store::decode)
+        .transpose()?;
+    Ok((
+        delegation,
+        goal.map(|goal| (goal.goal_id, goal.goal_revision)),
+    ))
+}
+
 pub(crate) struct ReviewedPermissionBatch {
     pub decisions: Vec<desk_diagnose_core::dynamic_run::PermissionDecisionItem>,
     pub source: PermissionDecisionSource,
@@ -1504,6 +1539,7 @@ pub(crate) async fn reviewed_permission_batch_on(
         }
         reviews.push(review);
     }
+    let goal_binding = goal.map(|goal| (goal.goal_id, goal.goal_revision));
     let (decisions, source) = permission_decision_from_reviews(
         session,
         request,
@@ -1512,13 +1548,14 @@ pub(crate) async fn reviewed_permission_batch_on(
         &reviews,
         &failures,
         &model_revisions,
+        goal_binding.clone(),
     )
     .map_err(|_| invalid())?;
     Ok(ReviewedPermissionBatch {
         decisions,
         source,
         delegation,
-        goal_binding: goal.map(|goal| (goal.goal_id, goal.goal_revision)),
+        goal_binding,
     })
 }
 
@@ -2404,6 +2441,7 @@ async fn commit_directory_on(
                             .map(|ai| ai.provenance.clone()),
                     },
                 ],
+                goal_binding: None,
             },
             reason: review.reason.clone(),
             candidate_id: Some(row.candidate_id.clone()),
@@ -2801,6 +2839,7 @@ async fn commit_goal_on(
                         provenance: None,
                     },
                 ],
+                goal_binding: None,
             },
             decision.reason.clone(),
         )

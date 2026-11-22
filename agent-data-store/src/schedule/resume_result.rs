@@ -347,6 +347,16 @@ pub async fn record_committed_continuation_on<C: ConnectionTrait, H: ScheduleHos
             )
         }
     };
+    // The unstarted calls of a released step get their result before the host
+    // reconciles dispatched work; only the call being dispatched is left open.
+    if interrupted {
+        session
+            .close_released_unstarted(
+                desk_diagnose_core::session::RELEASED_TURN_ENDED,
+                desk_diagnose_core::session::RELEASED_TURN_ENDED,
+            )
+            .map_err(|_| ScheduleStoreError::Conflict)?;
+    }
     let before_recovery = session.clone();
     if interrupted {
         host.reconcile_scheduled_actions(txn, &mut session, now)

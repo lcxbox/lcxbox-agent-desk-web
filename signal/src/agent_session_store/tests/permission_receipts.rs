@@ -3,6 +3,7 @@ use super::*;
 use actix_web::web;
 
 mod durable;
+mod group;
 mod http;
 mod scheduled;
 
@@ -51,6 +52,7 @@ async fn seed(db: DatabaseConnection) -> (SignalAgentSessionStore, Vec<Permissio
             })
             .collect(),
         created_at: Utc::now().to_rfc3339(),
+        group: None,
     };
     session.add_permission_request(request.clone()).unwrap();
     session.last_event_seq += 1;

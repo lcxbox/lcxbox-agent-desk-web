@@ -784,54 +784,40 @@ async fn drive_claimed_inner(
     // Append the user input or server control bridge, when supplied, and persist
     // before the first model call. Completion-only turns use the existing tail.
     let mut newer_user_inputs_after_request = 0_u64;
-    // A released paused call is itself the continuation: its result follows its
-    // call group directly, so the permission-resume bridge is not appended.
-    let to_append = to_append.filter(|message| {
-        session.released_permission_call.is_none()
-            || !crate::permission_resume::is_permission_resume_message(message)
-    });
-    if let Some(message) = to_append {
-        let message = message.with_turn_id(turn_id.clone());
-        if let Some(position) = session
-            .conversation
-            .iter()
-            .position(|existing| existing.message_id == message.message_id)
+    // A released held call is itself the continuation: its result follows its
+    // call group directly, so the permission-resume bridge is dropped. A
+    // receipt pause has no held result: its decision reaches the model only
+    // through the bridge, which waits until the step's calls all have results.
+    let mut deferred_bridge = None;
+    let to_append = match to_append {
+        Some(message)
+            if crate::permission_resume::is_permission_resume_message(&message)
+                && session.released_permission_call.is_some() =>
         {
-            newer_user_inputs_after_request = session.conversation[position + 1..]
-                .iter()
-                .filter(|message| {
-                    if message.role != ChatRole::User {
-                        return false;
-                    }
-                    let continuation =
-                        crate::permission_resume::is_permission_resume_message(message)
-                            || crate::permission_resume::is_scheduled_resume_message(message);
-                    !continuation
+            if session
+                .released_permission_call
+                .as_ref()
+                .is_some_and(|released| {
+                    released.owes_resume_bridge
+                        || session
+                            .marker_issuing_index(released)
+                            .is_some_and(|issuing| {
+                                session.answered_after(issuing, &released.tool_call_id)
+                            })
                 })
-                .count() as u64;
-        }
-        if let Some(existing) = session
-            .conversation
-            .iter_mut()
-            .find(|existing| existing.message_id == message.message_id)
-        {
-            // The runtime can durably append a user follow-up before claiming its
-            // model turn. Adopt the turn id without duplicating the message.
-            let mut expected = message.clone();
-            expected.turn_id = existing.turn_id.clone();
-            if *existing != expected {
-                return Err(AgentError {
-                    kind: AgentErrorKind::Internal,
-                    message: "durable user message id collision".into(),
-                    retryable: false,
-                    safe_for_model: false,
-                    error_code: None,
-                });
+            {
+                deferred_bridge = Some(message);
             }
-            existing.turn_id = Some(turn_id.clone());
-        } else {
-            session.conversation.push(message);
+            None
         }
+        other => other,
+    };
+    if let Some(message) = to_append {
+        newer_user_inputs_after_request = admit_turn_message(
+            &mut session,
+            message.with_turn_id(turn_id.clone()),
+            &turn_id,
+        )?;
     }
     if newer_user_inputs_after_request == 0
         && session.trigger_origin.is_request_input()
@@ -867,7 +853,7 @@ async fn drive_claimed_inner(
             current_input_revision: session.input_revision,
         })
     } else {
-        run_inner(deps, &mut session, &turn_id, sink).await
+        run_inner(deps, &mut session, &turn_id, deferred_bridge, sink).await
     };
     if matches!(&result, Ok(LoopOutcome::SubAgentYielded)) {
         return result;
@@ -881,11 +867,12 @@ async fn drive_claimed_inner(
     if let Some(outcome) = settle_if_superseded(deps, &session, sink).await? {
         return Ok(outcome);
     }
-    if result.is_err() {
-        // A release still set here was never started by `run`. The turn already
-        // fails with its own error; settling must not be skipped for a second one.
-        let _ = released_dispatch::close_unstarted(&mut session, sink);
-    }
+    // A released step still set here ended before all its calls ran: each
+    // unstarted call gets its only result, whatever the outcome and origin,
+    // so no later provider request carries an unanswered call. The call being
+    // dispatched is left to its origin's recovery. The turn's own error is
+    // kept; settling must not be skipped for a second one.
+    let _ = released_dispatch::close_unstarted(&mut session, sink);
     if result.is_err() && deps.content_safety.is_enforced() {
         // The provider/session error is intentionally not copied into a retraction
         // frame. The closed `Incomplete` reason selects local UI text without
@@ -2322,19 +2309,163 @@ async fn refresh_reference_sources_impl(
 }
 
 #[inline(never)]
+/// Append `message` to the conversation for this turn, or adopt the copy a
+/// runtime already appended durably. Returns how many newer owner inputs
+/// follow it; a positive count means this turn was superseded.
+fn admit_turn_message(
+    session: &mut PersistedAgentSession,
+    message: ChatMessage,
+    turn_id: &str,
+) -> Result<u64, AgentError> {
+    let mut newer = 0_u64;
+    if let Some(position) = session
+        .conversation
+        .iter()
+        .position(|existing| existing.message_id == message.message_id)
+    {
+        newer = session.conversation[position + 1..]
+            .iter()
+            .filter(|message| {
+                if message.role != ChatRole::User {
+                    return false;
+                }
+                let continuation = crate::permission_resume::is_permission_resume_message(message)
+                    || crate::permission_resume::is_scheduled_resume_message(message);
+                !continuation
+            })
+            .count() as u64;
+    }
+    if let Some(existing) = session
+        .conversation
+        .iter_mut()
+        .find(|existing| existing.message_id == message.message_id)
+    {
+        // The runtime can durably append a user follow-up before claiming its
+        // model turn. Adopt the turn id without duplicating the message.
+        let mut expected = message.clone();
+        expected.turn_id = existing.turn_id.clone();
+        if *existing != expected {
+            return Err(AgentError {
+                kind: AgentErrorKind::Internal,
+                message: "durable user message id collision".into(),
+                retryable: false,
+                safe_for_model: false,
+                error_code: None,
+            });
+        }
+        existing.turn_id = Some(turn_id.to_owned());
+    } else {
+        session.conversation.push(message);
+    }
+    Ok(newer)
+}
+
+/// Append the resume bridge a continued step deferred, once every call of
+/// the step has its result. Returns the outcome when newer owner input
+/// superseded this turn.
+pub(super) fn append_deferred_bridge(
+    session: &mut PersistedAgentSession,
+    bridge: ChatMessage,
+    turn_id: &str,
+) -> Result<Option<LoopOutcome>, AgentError> {
+    let newer = admit_turn_message(session, bridge.with_turn_id(turn_id.to_owned()), turn_id)?;
+    Ok((newer > 0).then(|| LoopOutcome::Superseded {
+        previous_input_revision: session.input_revision.saturating_sub(newer),
+        current_input_revision: session.input_revision,
+    }))
+}
+
+/// Close calls of the latest agent message that have no result before the
+/// model is called. Every path is meant to give each call its result, so this
+/// is a defect net: the provider must never receive an unanswered call. A
+/// call whose execution is still in flight fails the turn instead.
+pub(super) fn close_untracked_unanswered_calls(
+    session: &mut PersistedAgentSession,
+) -> Result<Vec<String>, AgentError> {
+    let open = session.unclosed_tool_call_ids();
+    let Some(issuing) = session
+        .conversation
+        .iter()
+        .rposition(|message| message.role == ChatRole::Assistant && !message.tool_calls.is_empty())
+    else {
+        return Ok(Vec::new());
+    };
+    let missing = session.conversation[issuing]
+        .tool_calls
+        .iter()
+        .filter(|call| open.contains(&call.id) && !session.answered_after(issuing, &call.id))
+        .map(|call| call.id.clone())
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return Ok(Vec::new());
+    }
+    if matches!(session.execution_state, ExecutionState::Executing { .. }) {
+        return Err(AgentError {
+            kind: AgentErrorKind::Internal,
+            message: "a tool call is still in flight before the model request".into(),
+            retryable: false,
+            safe_for_model: false,
+            error_code: None,
+        });
+    }
+    let parent = session.conversation[issuing].data_envelope.clone();
+    for call_id in &missing {
+        // Each result goes at the end of its call group, before any later
+        // message, so the group stays contiguous.
+        let mut end = issuing + 1;
+        while session
+            .conversation
+            .get(end)
+            .is_some_and(|message| message.role == ChatRole::Tool)
+        {
+            end += 1;
+        }
+        session.conversation.insert(
+            end,
+            ChatMessage::tool_result_from(
+                crate::native_ids::stable(
+                    crate::native_ids::Kind::Message,
+                    &(
+                        "step-result-missing",
+                        session.conversation[issuing].message_id.as_str(),
+                        call_id.as_str(),
+                    ),
+                ),
+                call_id,
+                &crate::model_content::ModelContent::constant(STEP_RESULT_MISSING),
+                parent.as_ref(),
+                ServerResultSource::StepResultMissing,
+            )?,
+        );
+    }
+    Ok(missing)
+}
+
+/// Result of a call the model guard found without a result.
+const STEP_RESULT_MISSING: &str =
+    "not executed: no result was recorded for this call; call it again if still needed";
+
 fn run_inner<'a, 'd: 'a>(
     deps: &'a LoopDeps<'d>,
     session: &'a mut PersistedAgentSession,
     turn_id: &'a str,
+    deferred_bridge: Option<ChatMessage>,
     sink: &'a mut dyn TurnSink,
 ) -> std::pin::Pin<Box<impl std::future::Future<Output = Result<LoopOutcome, AgentError>> + 'a>> {
-    Box::pin(run_inner_impl(deps, session, turn_id, sink))
+    Box::pin(run_inner_impl(
+        deps,
+        session,
+        turn_id,
+        deferred_bridge,
+        sink,
+    ))
 }
 
 async fn run_inner_impl(
     deps: &LoopDeps<'_>,
     session: &mut crate::session::PersistedAgentSession,
     turn_id: &str,
+    deferred_bridge: Option<ChatMessage>,
     sink: &mut dyn TurnSink,
 ) -> Result<LoopOutcome, AgentError> {
     crate::conversation_attachment::delivery::resolve_session(deps.session_seam, session).await?;
@@ -2375,6 +2506,7 @@ async fn run_inner_impl(
         required_tool_choice_rejected,
         physical_model_attempt,
         exact_mismatch_hinted: HashSet::new(),
+        deferred_resume_bridge: deferred_bridge,
     });
     loop {
         let outcome = phases::run_iteration(deps, session, turn_id, sink, &mut state).await?;
@@ -4610,9 +4742,11 @@ async fn run_wait<F: FnMut() -> String>(
 #[cfg(test)]
 mod tests;
 
+mod permission_group;
 mod permission_proposal;
 mod read_call;
 mod released_dispatch;
+mod step_calls;
 mod task_permission;
 
 async fn read_conversation_attachment(

@@ -813,6 +813,12 @@ impl CommandConfirmation {
                         PermissionRequestState::Approved
                             | PermissionRequestState::PartiallyApproved
                     )
+                    // An approval in a group takes effect only once the
+                    // whole group is decided.
+                    && request
+                        .group
+                        .as_ref()
+                        .is_none_or(|group| session.permission_group_issued(&group.group_id))
             })
             .flat_map(|request| {
                 request

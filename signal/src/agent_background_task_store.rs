@@ -1765,6 +1765,7 @@ mod tests {
                 reason: "inspect the selected workbook directory".into(),
             }],
             created_at: "2026-08-26T00:00:00Z".into(),
+            group: None,
         };
         let decisions = vec![PermissionDecisionItem {
             item_id: "inspect-directory".into(),

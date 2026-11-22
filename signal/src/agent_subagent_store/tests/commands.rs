@@ -220,6 +220,7 @@ async fn approved_child_with_source_on(
             reason: "Run the delegated check".into(),
         }],
         created_at: chrono::Utc::now().to_rfc3339(),
+        group: None,
     };
     child.add_permission_request(request.clone()).unwrap();
     child.last_event_seq += 1;

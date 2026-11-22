@@ -715,11 +715,16 @@ pub struct PersistedAgentSession {
     /// A direct call paused for its own approval. It has no result yet and is
     /// not reported as unclosed: nothing is running for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub awaiting_permission: Option<AwaitingPermission>,
+    pub awaiting_permission: Option<Box<AwaitingPermission>>,
     /// The paused call released by its approval resume; the loop dispatches it
     /// before calling the model. From release on it is an ordinary open call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub released_permission_call: Option<AwaitingPermission>,
+    pub released_permission_call: Option<Box<AwaitingPermission>>,
+    /// Set by a resume claim's release and consumed by the `begin_turn` of the
+    /// same claim, so that `begin_turn` settles only a release left over from
+    /// an earlier turn. Never persisted.
+    #[serde(skip)]
+    pub released_in_claim: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_control_connection_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -804,11 +809,61 @@ pub struct PersistedAgentSession {
     pub version: i64,
 }
 
-/// One direct call and the approval request it is waiting for.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// One direct call and the approval request it is waiting for, together with
+/// the rest of its model step. The same marker records the release that
+/// continues that step.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AwaitingPermission {
     pub tool_call_id: String,
     pub request_id: String,
+    /// The agent message that issued the step.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub issuing_message_id: String,
+    /// Later calls of that step, in call order, without a result yet. A call
+    /// leaves this list only once it has a result.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_call_ids: Vec<String>,
+    /// The marker call currently being dispatched (released marker only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatching: Option<String>,
+    /// The step began as a receipt pause whose resume bridge is still owed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub owes_resume_bridge: bool,
+    /// The approval group the run waits for: every request of it must be
+    /// settled before the step continues.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    /// Pending calls whose own approval request was created up front, keyed by
+    /// call id. Carried across re-pauses until the call has a result.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pre_requested: Vec<PreRequested>,
+}
+
+/// A pending call of a paused step and the request created for it up front.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreRequested {
+    pub call_id: String,
+    pub request_id: String,
+}
+
+impl AwaitingPermission {
+    /// Whether this marker names `request_id`: its own request or a request
+    /// created up front for one of its pending calls.
+    pub fn references_request(&self, request_id: &str) -> bool {
+        self.request_id == request_id
+            || self
+                .pre_requested
+                .iter()
+                .any(|entry| entry.request_id == request_id)
+    }
+
+    /// The request created up front for pending call `call_id`.
+    pub fn pre_requested_for(&self, call_id: &str) -> Option<&str> {
+        self.pre_requested
+            .iter()
+            .find(|entry| entry.call_id == call_id)
+            .map(|entry| entry.request_id.as_str())
+    }
 }
 
 /// Which step of an approval resume claim failed.
@@ -816,6 +871,9 @@ pub struct AwaitingPermission {
 pub enum ResumeClaimError {
     /// The paused call could not be released or closed.
     Release,
+    /// Another request of the paused step's approval group is still pending.
+    /// The resume is not ready yet; nothing is consumed.
+    GroupPending,
     /// The session cannot begin a turn now.
     Busy,
 }
@@ -1662,6 +1720,7 @@ impl PersistedAgentSession {
             review_denials: Default::default(),
             awaiting_permission: None,
             released_permission_call: None,
+            released_in_claim: false,
             active_control_connection_id: None,
             current_request_id: None,
             current_turn_id: None,
@@ -2318,11 +2377,12 @@ impl PersistedAgentSession {
             // owner can still decide and evict only the oldest settled or
             // revalidation-required entry. The append-only run events and any
             // grants minted from older decisions remain durable elsewhere.
-            let Some(index) = self
-                .permission_requests
-                .iter()
-                .position(|existing| !existing.state.can_user_decide())
-            else {
+            // A request a paused or continuing step still reads is kept with
+            // its decision: the step needs the decision of each of its calls.
+            let Some(index) = self.permission_requests.iter().position(|existing| {
+                !existing.state.can_user_decide()
+                    && !self.marker_referenced_request(&existing.request_id)
+            }) else {
                 return Err(
                     crate::dynamic_run::DynamicRunContractError::InvalidPermissionItemCount,
                 );
@@ -2603,6 +2663,13 @@ impl PersistedAgentSession {
     ) -> Result<(), TurnClaimError> {
         if self.main_stopped || !self.turn_state.can_claim() {
             return Err(TurnClaimError::Busy);
+        }
+        // A release left over from an earlier turn (a yielded or source-paused
+        // child) is settled first; a release made by this claim is kept.
+        if !std::mem::take(&mut self.released_in_claim) && self.released_permission_call.is_some() {
+            self.close_released_unstarted(RELEASED_TURN_ENDED, RELEASED_TURN_ENDED)
+                .map_err(|_| TurnClaimError::Busy)?;
+            self.released_permission_call = None;
         }
         // Any claim other than its own approval resume (which released it
         // first) ends the wait: the call did not run and may be called again.
@@ -3283,18 +3350,266 @@ impl PersistedAgentSession {
     /// [`SessionSeam`]: crate::seam::SessionSeam
     pub fn unclosed_tool_call_ids(&self) -> Vec<String> {
         let mut open = unclosed_tool_call_ids(&self.conversation);
+        // A paused step runs nothing: neither its held call nor the later calls
+        // of the step are in flight. Released calls are ordinary open calls.
         if let Some(waiting) = &self.awaiting_permission {
-            open.retain(|id| *id != waiting.tool_call_id);
+            open.retain(|id| *id != waiting.tool_call_id && !waiting.pending_call_ids.contains(id));
         }
         open
     }
 
-    /// Record that `tool_call_id` waits for `request_id` without a result.
-    pub fn pause_for_permission(&mut self, tool_call_id: &str, request_id: &str) {
-        self.awaiting_permission = Some(AwaitingPermission {
-            tool_call_id: tool_call_id.into(),
-            request_id: request_id.into(),
-        });
+    /// Record that a step waits for an approval decision. `waiting` names the
+    /// held call (or the receipt-paused request call), its request, the issuing
+    /// message and the step's later calls, which keep no result while waiting.
+    /// A re-pause inside a continuation replaces the release, carrying over the
+    /// up-front requests of calls still pending and an owed resume bridge.
+    pub fn pause_for_permission(&mut self, mut waiting: AwaitingPermission) {
+        // A release of another step is left in place: the turn's settlement
+        // closes its unstarted calls.
+        if self
+            .released_permission_call
+            .as_ref()
+            .is_some_and(|released| released.issuing_message_id == waiting.issuing_message_id)
+            && let Some(released) = self.released_permission_call.take()
+        {
+            for entry in released.pre_requested {
+                if waiting.pending_call_ids.contains(&entry.call_id)
+                    && waiting.pre_requested_for(&entry.call_id).is_none()
+                {
+                    waiting.pre_requested.push(entry);
+                }
+            }
+            waiting.owes_resume_bridge |= released.owes_resume_bridge;
+        }
+        self.released_in_claim = false;
+        self.awaiting_permission = Some(Box::new(waiting));
+    }
+
+    /// Index of the agent message that issued a marker's step: the recorded
+    /// issuing message, or the latest message issuing its call.
+    pub fn marker_issuing_index(&self, marker: &AwaitingPermission) -> Option<usize> {
+        if marker.issuing_message_id.is_empty() {
+            return self.conversation.iter().rposition(|message| {
+                message.role == crate::chat::ChatRole::Assistant
+                    && message
+                        .tool_calls
+                        .iter()
+                        .any(|call| call.id == marker.tool_call_id)
+            });
+        }
+        self.conversation.iter().rposition(|message| {
+            message.role == crate::chat::ChatRole::Assistant
+                && message.message_id == marker.issuing_message_id
+        })
+    }
+
+    /// Index just past the call group of the agent message at `issuing`.
+    fn issuing_group_end(&self, issuing: usize) -> usize {
+        let calls = &self.conversation[issuing].tool_calls;
+        let mut end = issuing + 1;
+        while self.conversation.get(end).is_some_and(|message| {
+            message.role == crate::chat::ChatRole::Tool
+                && message
+                    .tool_call_id
+                    .as_deref()
+                    .is_some_and(|id| calls.iter().any(|call| call.id == id))
+        }) {
+            end += 1;
+        }
+        end
+    }
+
+    /// Whether `call_id` has a result after the agent message at `issuing`.
+    pub fn answered_after(&self, issuing: usize, call_id: &str) -> bool {
+        self.conversation[issuing + 1..]
+            .iter()
+            .any(|message| message.tool_call_id.as_deref() == Some(call_id))
+    }
+
+    /// Close the unanswered `calls` of the step issued at `issuing`, in order,
+    /// at the end of its call group so the group stays contiguous. Returns the
+    /// closed ids.
+    fn close_step_calls(
+        &mut self,
+        issuing: usize,
+        calls: &[(&str, &'static str)],
+        source: crate::model_message_labels::ServerResultSource,
+        id_prefix: &str,
+    ) -> Result<Vec<String>, AgentError> {
+        let parent = self.conversation[issuing].data_envelope.clone();
+        let issuing_message_id = self.conversation[issuing].message_id.clone();
+        let mut closed = Vec::new();
+        for (call_id, text) in calls {
+            if !self.conversation[issuing]
+                .tool_calls
+                .iter()
+                .any(|call| call.id == *call_id)
+                || self.answered_after(issuing, call_id)
+            {
+                continue;
+            }
+            let end = self.issuing_group_end(issuing);
+            let message_id = if id_prefix == PAUSE_CLOSED_ID_PREFIX {
+                format!("{id_prefix}-{call_id}")
+            } else {
+                crate::native_ids::stable(
+                    crate::native_ids::Kind::Message,
+                    &(id_prefix, issuing_message_id.as_str(), *call_id),
+                )
+            };
+            let mut message = crate::chat::ChatMessage::tool_result_from(
+                message_id,
+                call_id,
+                &crate::model_content::ModelContent::constant(text),
+                parent.as_ref(),
+                source,
+            )?;
+            message.turn_id = self.conversation[end - 1].turn_id.clone();
+            self.conversation.insert(end, message);
+            closed.push((*call_id).to_string());
+        }
+        Ok(closed)
+    }
+
+    /// The step calls of the released marker, for recovery: the issuing
+    /// message id and the released, dispatching and pending call ids.
+    pub fn released_step_calls(&self) -> Option<(&str, Vec<String>)> {
+        let released = self.released_permission_call.as_ref()?;
+        let mut ids = vec![released.tool_call_id.clone()];
+        for id in released
+            .dispatching
+            .iter()
+            .chain(released.pending_call_ids.iter())
+        {
+            if !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+        Some((released.issuing_message_id.as_str(), ids))
+    }
+
+    /// Whether `message` is the action source of `call_id` in a continued
+    /// step: the released call or the call being dispatched, only in the
+    /// message that issued the step. Providers may reuse call ids across
+    /// turns, so the message is pinned as well as the call.
+    pub fn released_step_source(&self, message: &crate::chat::ChatMessage, call_id: &str) -> bool {
+        self.released_permission_call
+            .as_ref()
+            .is_some_and(|released| {
+                (released.tool_call_id == call_id
+                    || released.dispatching.as_deref() == Some(call_id))
+                    && message.message_id == released.issuing_message_id
+            })
+    }
+
+    /// Settle the unstarted calls of a released step: the released call gets
+    /// `released_text` and each pending call `pending_text`, unless it is the
+    /// call being dispatched or already has a result. The marker is kept, so
+    /// recovery can still tell which calls belong to the step. Returns the
+    /// closed ids.
+    pub fn close_released_unstarted(
+        &mut self,
+        released_text: &'static str,
+        pending_text: &'static str,
+    ) -> Result<Vec<String>, AgentError> {
+        let Some(released) = self.released_permission_call.clone() else {
+            return Ok(Vec::new());
+        };
+        let Some(issuing) = self.marker_issuing_index(&released) else {
+            return Ok(Vec::new());
+        };
+        let dispatching = released.dispatching.as_deref();
+        let mut calls = Vec::new();
+        if dispatching != Some(released.tool_call_id.as_str()) {
+            calls.push((released.tool_call_id.as_str(), released_text));
+        }
+        calls.extend(
+            released
+                .pending_call_ids
+                .iter()
+                .filter(|id| Some(id.as_str()) != dispatching && **id != released.tool_call_id)
+                .map(|id| (id.as_str(), pending_text)),
+        );
+        self.close_step_calls(
+            issuing,
+            &calls,
+            crate::model_message_labels::ServerResultSource::PermissionResumeNotExecuted,
+            "released-not-started",
+        )
+    }
+
+    /// Whether every request of approval group `group_id` is settled: none
+    /// can still be decided by the owner or an AI reviewer.
+    pub fn permission_group_settled(&self, group_id: &str) -> bool {
+        permission_group_settled(&self.permission_requests, group_id)
+    }
+
+    /// Whether approval group `group_id` ended by decisions: every request
+    /// is approved, partially approved or denied. Only such a group issues
+    /// its grants; a group that also ended by withdrawal, revalidation or
+    /// replacement grants nothing.
+    pub fn permission_group_issued(&self, group_id: &str) -> bool {
+        self.permission_requests
+            .iter()
+            .filter(|request| {
+                request
+                    .group
+                    .as_ref()
+                    .is_some_and(|group| group.group_id == group_id)
+            })
+            .all(|request| {
+                matches!(
+                    request.state,
+                    crate::dynamic_run::PermissionRequestState::Approved
+                        | crate::dynamic_run::PermissionRequestState::PartiallyApproved
+                        | crate::dynamic_run::PermissionRequestState::Denied
+                )
+            })
+    }
+
+    /// Whether the request `request_id` may resume now: it has no group, or
+    /// its group is settled.
+    pub fn permission_request_group_settled(&self, request_id: &str) -> bool {
+        self.permission_requests
+            .iter()
+            .find(|request| request.request_id == request_id)
+            .and_then(|request| request.group.as_ref())
+            .is_none_or(|group| self.permission_group_settled(&group.group_id))
+    }
+
+    /// Whether `request_id` is the marker's own request or belongs to the
+    /// approval group the marker waits for.
+    fn marker_accepts_request(&self, marker: &AwaitingPermission, request_id: &str) -> bool {
+        marker.request_id == request_id
+            || marker.group_id.as_deref().is_some_and(|group_id| {
+                self.permission_requests.iter().any(|request| {
+                    request.request_id == request_id
+                        && request
+                            .group
+                            .as_ref()
+                            .is_some_and(|group| group.group_id == group_id)
+                })
+            })
+    }
+
+    /// Whether a paused or continuing step still reads `request_id`.
+    fn marker_referenced_request(&self, request_id: &str) -> bool {
+        self.awaiting_permission
+            .iter()
+            .chain(self.released_permission_call.iter())
+            .any(|marker| marker.references_request(request_id))
+    }
+
+    /// Requests the projection cannot evict: every pending request and every
+    /// request a step marker references.
+    pub fn non_evictable_permission_requests(&self) -> usize {
+        self.permission_requests
+            .iter()
+            .filter(|request| {
+                request.state.can_user_decide()
+                    || self.marker_referenced_request(&request.request_id)
+            })
+            .count()
     }
 
     /// Index just past the call group that issued `tool_call_id`: the agent
@@ -3342,43 +3657,31 @@ impl PersistedAgentSession {
         let Some(waiting) = self.awaiting_permission.take() else {
             return Ok(());
         };
-        let invalid = || AgentError {
-            kind: AgentErrorKind::Internal,
-            message: "paused permission call is missing".into(),
-            retryable: false,
-            safe_for_model: false,
-            error_code: None,
-        };
-        let end = self
-            .call_group_end(&waiting.tool_call_id)
-            .ok_or_else(invalid)?;
-        // A reused call id may have results from earlier turns; only results
-        // after the latest issuing message belong to the paused call.
-        let issuing = self.conversation[..end]
-            .iter()
-            .rposition(|message| message.role == crate::chat::ChatRole::Assistant)
-            .ok_or_else(invalid)?;
-        if self.conversation[issuing + 1..]
-            .iter()
-            .any(|message| message.tool_call_id.as_deref() == Some(waiting.tool_call_id.as_str()))
-        {
-            return Ok(());
-        }
-        let parent = self.conversation[..end]
-            .iter()
-            .rev()
-            .find(|message| message.role == crate::chat::ChatRole::Assistant)
-            .and_then(|message| message.data_envelope.clone());
-        let message_id = format!("permission-pause-closed-{}", waiting.tool_call_id);
-        let mut message = crate::chat::ChatMessage::tool_result_from(
-            message_id,
-            &waiting.tool_call_id,
-            &crate::model_content::ModelContent::constant(text),
-            parent.as_ref(),
+        let issuing = self
+            .marker_issuing_index(&waiting)
+            .ok_or_else(|| AgentError {
+                kind: AgentErrorKind::Internal,
+                message: "paused permission call is missing".into(),
+                retryable: false,
+                safe_for_model: false,
+                error_code: None,
+            })?;
+        // A receipt pause has an answered held call; its later calls still need
+        // their results. A reused call id may have results from earlier turns;
+        // only results after the issuing message belong to this step.
+        let mut calls = vec![(waiting.tool_call_id.as_str(), text)];
+        calls.extend(
+            waiting
+                .pending_call_ids
+                .iter()
+                .map(|id| (id.as_str(), AWAITING_STEP_CALL_CLOSED)),
+        );
+        self.close_step_calls(
+            issuing,
+            &calls,
             crate::model_message_labels::ServerResultSource::PermissionPauseClosed,
+            PAUSE_CLOSED_ID_PREFIX,
         )?;
-        message.turn_id = self.conversation[end - 1].turn_id.clone();
-        self.conversation.insert(end, message);
         Ok(())
     }
 
@@ -3396,6 +3699,11 @@ impl PersistedAgentSession {
         current_pdp_scope: AgentScope,
         now: impl Into<String>,
     ) -> Result<(), ResumeClaimError> {
+        // A grouped request resumes only once every request of its group is
+        // settled; until then the resume stays pending and nothing changes.
+        if !self.permission_request_group_settled(request_id) {
+            return Err(ResumeClaimError::GroupPending);
+        }
         self.release_awaiting_permission(request_id)
             .map_err(|_| ResumeClaimError::Release)?;
         self.begin_turn(
@@ -3418,12 +3726,18 @@ impl PersistedAgentSession {
         let Some(waiting) = self
             .awaiting_permission
             .as_ref()
-            .filter(|waiting| waiting.request_id == request_id)
+            .filter(|waiting| self.marker_accepts_request(waiting, request_id))
         else {
             return Ok(false);
         };
-        if self.call_group_end(&waiting.tool_call_id) == Some(self.conversation.len()) {
+        // Any request of the waited group releases the step; the marker keeps
+        // its own request, whose decision the held call reads.
+        if self
+            .marker_issuing_index(waiting)
+            .is_some_and(|issuing| self.issuing_group_end(issuing) == self.conversation.len())
+        {
             self.released_permission_call = self.awaiting_permission.take();
+            self.released_in_claim = true;
             return Ok(true);
         }
         self.close_awaiting_permission(AWAITING_PERMISSION_INTERRUPTED)?;
@@ -3621,6 +3935,27 @@ fn recovery_message_id(tool_call_id: &str) -> String {
 /// Result of a paused call whose wait ended without its approval resume.
 pub const AWAITING_PERMISSION_INTERRUPTED: &str =
     "not executed: the wait for approval ended before this call ran; call it again if still needed";
+/// Result of a later call of a paused step whose wait ended.
+pub const AWAITING_STEP_CALL_CLOSED: &str = "not executed: an earlier call in this step was waiting for approval, and the wait ended before this call ran; call it again if still needed";
+/// Result of an unstarted call of a released step whose turn ended.
+pub const RELEASED_TURN_ENDED: &str =
+    "not executed: the turn ended before this call ran; call it again if still needed";
+/// Message id prefix of a result closing a paused step's call.
+const PAUSE_CLOSED_ID_PREFIX: &str = "permission-pause-closed";
+
+/// Whether every request of approval group `group_id` is settled.
+pub fn permission_group_settled(
+    requests: &[crate::dynamic_run::PermissionRequest],
+    group_id: &str,
+) -> bool {
+    !requests.iter().any(|request| {
+        request.state.can_user_decide()
+            && request
+                .group
+                .as_ref()
+                .is_some_and(|group| group.group_id == group_id)
+    })
+}
 
 fn unclosed_tool_call_ids(conversation: &[crate::chat::ChatMessage]) -> Vec<String> {
     let answered: std::collections::HashSet<&str> = conversation
@@ -3749,7 +4084,11 @@ mod tests {
             "later",
             "not executed",
         ));
-        state.pause_for_permission("paused", "request");
+        state.pause_for_permission(crate::session::AwaitingPermission {
+            tool_call_id: "paused".into(),
+            request_id: "request".into(),
+            ..Default::default()
+        });
         state
     }
 
@@ -4057,6 +4396,7 @@ mod tests {
                 reason: "test request".into(),
             }],
             created_at: "2026-08-29T00:00:00Z".into(),
+            group: None,
         }
     }
 
@@ -5157,10 +5497,11 @@ mod tests {
         let mut s = session();
         s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
             .unwrap();
-        s.released_permission_call = Some(AwaitingPermission {
+        s.released_permission_call = Some(Box::new(AwaitingPermission {
             tool_call_id: "call-r".into(),
             request_id: "req-r".into(),
-        });
+            ..Default::default()
+        }));
         s.finish_turn(TurnState::Failed, "t2");
         assert!(s.released_permission_call.is_none());
     }
@@ -5183,7 +5524,11 @@ mod tests {
             String::new(),
             vec![call("call-open"), call("call-waiting")],
         ));
-        s.pause_for_permission("call-waiting", "req-1");
+        s.pause_for_permission(crate::session::AwaitingPermission {
+            tool_call_id: "call-waiting".into(),
+            request_id: "req-1".into(),
+            ..Default::default()
+        });
         s.recover_session(RecoveryVerdict::NotExecuted, "t2");
         let results = |id: &str| {
             s.conversation
@@ -5313,7 +5658,11 @@ mod tests {
         ));
         s.conversation
             .push(ChatMessage::tool_result("r1", "call-exec", "background j1"));
-        s.pause_for_permission("call-paused", "rq-1");
+        s.pause_for_permission(crate::session::AwaitingPermission {
+            tool_call_id: "call-paused".into(),
+            request_id: "rq-1".into(),
+            ..Default::default()
+        });
         assert!(s.apply_completion("j1:done", "gen-1", "call-exec", "j1", "exit_code=0", "t2"));
         s.close_awaiting_permission("not executed: approval expired before this call ran")
             .unwrap();
@@ -5835,6 +6184,414 @@ mod tests {
         let replay = crate::thinking_context::protected_replay_ids(&session);
         assert!(!replay.contains("agent-0"));
         assert!(replay.contains("agent-1"));
+    }
+
+    /// A step `[held, b, c]` issued by `assistant`, paused at `held`.
+    fn paused_step(marker: AwaitingPermission) -> PersistedAgentSession {
+        let mut state = session();
+        state.input_revision = 1;
+        let call = |id: &str| crate::chat::ToolCallRef {
+            id: id.into(),
+            name: "inspect_desktop_session".into(),
+            arguments_json: "{}".into(),
+        };
+        state.conversation.push(ChatMessage::agent_tool_calls(
+            "assistant",
+            String::new(),
+            vec![call("held"), call("b"), call("c")],
+        ));
+        state.pause_for_permission(marker);
+        state
+    }
+
+    fn step_marker(request_id: &str) -> AwaitingPermission {
+        AwaitingPermission {
+            tool_call_id: "held".into(),
+            request_id: request_id.into(),
+            issuing_message_id: "assistant".into(),
+            pending_call_ids: vec!["b".into(), "c".into()],
+            ..Default::default()
+        }
+    }
+
+    fn grouped(id: usize, state: PermissionRequestState, order: u16) -> PermissionRequest {
+        PermissionRequest {
+            group: Some(crate::dynamic_run::PermissionRequestGroup {
+                group_id: "group".into(),
+                order,
+                size: 2,
+            }),
+            ..permission_request(id, state)
+        }
+    }
+
+    fn result_texts(state: &PersistedAgentSession) -> Vec<(String, String)> {
+        state
+            .conversation
+            .iter()
+            .filter_map(|message| {
+                message
+                    .tool_call_id
+                    .clone()
+                    .map(|id| (id, message.text.clone()))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_paused_step_keeps_its_later_calls_pending_until_release() {
+        let mut state = paused_step(step_marker("request"));
+        // Nothing of the paused step is in flight.
+        assert!(state.unclosed_tool_call_ids().is_empty());
+        assert!(state.release_awaiting_permission("request").unwrap());
+        let released = state.released_permission_call.as_ref().unwrap();
+        assert_eq!(released.pending_call_ids, ["b", "c"]);
+        assert_eq!(released.issuing_message_id, "assistant");
+        // Released, the whole step is ordinary open calls.
+        assert_eq!(state.unclosed_tool_call_ids(), ["held", "b", "c"]);
+    }
+
+    #[test]
+    fn closing_a_paused_step_answers_every_call_in_order_and_contiguously() {
+        let mut state = paused_step(step_marker("request"));
+        state
+            .close_awaiting_permission("not executed: held")
+            .unwrap();
+        assert_eq!(
+            result_texts(&state),
+            [
+                ("held".to_string(), "not executed: held".to_string()),
+                ("b".to_string(), AWAITING_STEP_CALL_CLOSED.to_string()),
+                ("c".to_string(), AWAITING_STEP_CALL_CLOSED.to_string()),
+            ]
+        );
+        assert_eq!(state.conversation.len(), 4);
+        assert!(state.unclosed_tool_call_ids().is_empty());
+
+        // A receipt pause has an answered request call; its later calls still
+        // get their results, right after the group.
+        let mut state = paused_step(step_marker("request"));
+        state
+            .conversation
+            .push(ChatMessage::tool_result("receipt", "held", "pending"));
+        state.close_awaiting_permission("unused").unwrap();
+        assert_eq!(
+            result_texts(&state),
+            [
+                ("held".to_string(), "pending".to_string()),
+                ("b".to_string(), AWAITING_STEP_CALL_CLOSED.to_string()),
+                ("c".to_string(), AWAITING_STEP_CALL_CLOSED.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_group_gate_waits_for_every_request() {
+        let mut marker = step_marker("permission-1");
+        marker.group_id = Some("group".into());
+        marker.pre_requested = vec![PreRequested {
+            call_id: "b".into(),
+            request_id: "permission-2".into(),
+        }];
+        let mut state = paused_step(marker);
+        state
+            .add_permission_request(grouped(1, PermissionRequestState::Approved, 0))
+            .unwrap();
+        state
+            .add_permission_request(grouped(2, PermissionRequestState::Pending, 1))
+            .unwrap();
+        let before = state.clone();
+        for request_id in ["permission-1", "permission-2"] {
+            assert_eq!(
+                state.claim_permission_resume(
+                    request_id,
+                    "turn",
+                    None,
+                    None,
+                    7,
+                    state.scope_snapshot.clone(),
+                    "2026-06-20T00:00:01Z",
+                ),
+                Err(ResumeClaimError::GroupPending)
+            );
+            assert_eq!(state, before, "an unsettled group changes nothing");
+        }
+        assert!(!state.permission_group_settled("group"));
+        state.permission_requests[1].state = PermissionRequestState::Denied;
+        assert!(state.permission_group_settled("group"));
+    }
+
+    #[test]
+    fn group_release_accepts_any_member_request() {
+        let mut marker = step_marker("permission-1");
+        marker.group_id = Some("group".into());
+        let mut state = paused_step(marker);
+        state
+            .add_permission_request(grouped(1, PermissionRequestState::Approved, 0))
+            .unwrap();
+        state
+            .add_permission_request(grouped(2, PermissionRequestState::Denied, 1))
+            .unwrap();
+        // A request outside the group does not release the step.
+        state
+            .add_permission_request(permission_request(3, PermissionRequestState::Approved))
+            .unwrap();
+        assert!(!state.release_awaiting_permission("permission-3").unwrap());
+        state
+            .claim_permission_resume(
+                "permission-2",
+                "turn",
+                None,
+                None,
+                7,
+                state.scope_snapshot.clone(),
+                "2026-06-20T00:00:01Z",
+            )
+            .unwrap();
+        // The released marker keeps the held call's own request.
+        assert_eq!(
+            state.released_permission_call.as_ref().unwrap().request_id,
+            "permission-1"
+        );
+        assert!(!state.released_in_claim);
+    }
+
+    #[test]
+    fn a_referenced_decided_request_is_not_evicted() {
+        let mut marker = step_marker("permission-0");
+        marker.pre_requested = vec![PreRequested {
+            call_id: "b".into(),
+            request_id: "permission-1".into(),
+        }];
+        let mut state = paused_step(marker);
+        for id in 0..crate::dynamic_run::MAX_PERMISSION_REQUESTS {
+            state
+                .add_permission_request(permission_request(id, PermissionRequestState::Denied))
+                .unwrap();
+        }
+        assert_eq!(state.non_evictable_permission_requests(), 2);
+        state
+            .add_permission_request(permission_request(99, PermissionRequestState::Pending))
+            .unwrap();
+        let ids = state
+            .permission_requests
+            .iter()
+            .map(|request| request.request_id.as_str())
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&"permission-0") && ids.contains(&"permission-1"));
+        assert!(
+            !ids.contains(&"permission-2"),
+            "the oldest unreferenced goes"
+        );
+    }
+
+    #[test]
+    fn close_released_unstarted_skips_dispatching_and_keeps_the_marker() {
+        let mut state = paused_step(step_marker("request"));
+        assert!(state.release_awaiting_permission("request").unwrap());
+        state.released_permission_call.as_mut().unwrap().dispatching = Some("b".into());
+        let closed = state
+            .close_released_unstarted("released", RELEASED_TURN_ENDED)
+            .unwrap();
+        assert_eq!(closed, ["held", "c"]);
+        assert_eq!(
+            result_texts(&state),
+            [
+                ("held".to_string(), "released".to_string()),
+                ("c".to_string(), RELEASED_TURN_ENDED.to_string()),
+            ]
+        );
+        // The dispatched call stays open for its origin's recovery, and the
+        // marker still names the step.
+        assert_eq!(state.unclosed_tool_call_ids(), ["b"]);
+        let (issuing, ids) = state.released_step_calls().unwrap();
+        assert_eq!(issuing, "assistant");
+        assert_eq!(ids, ["held", "b", "c"]);
+        // Nothing is answered twice.
+        assert!(
+            state
+                .close_released_unstarted("released", RELEASED_TURN_ENDED)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn released_step_source_pins_the_issuing_message() {
+        let mut state = session();
+        let call = |id: &str| crate::chat::ToolCallRef {
+            id: id.into(),
+            name: "inspect_desktop_session".into(),
+            arguments_json: "{}".into(),
+        };
+        // An older message reused the call id.
+        state.conversation.push(ChatMessage::agent_tool_calls(
+            "older",
+            String::new(),
+            vec![call("b")],
+        ));
+        state
+            .conversation
+            .push(ChatMessage::tool_result("older-result", "b", "done"));
+        state.conversation.push(ChatMessage::agent_tool_calls(
+            "assistant",
+            String::new(),
+            vec![call("held"), call("b"), call("c")],
+        ));
+        state.pause_for_permission(step_marker("request"));
+        assert!(state.release_awaiting_permission("request").unwrap());
+        let older = state.conversation[0].clone();
+        let issuing = state.conversation[2].clone();
+        assert!(state.released_step_source(&issuing, "held"));
+        // A pending call is a source only while it is being dispatched.
+        assert!(!state.released_step_source(&issuing, "b"));
+        state.released_permission_call.as_mut().unwrap().dispatching = Some("b".into());
+        assert!(state.released_step_source(&issuing, "b"));
+        assert!(!state.released_step_source(&older, "b"));
+        assert!(!state.released_step_source(&issuing, "c"));
+    }
+
+    #[test]
+    fn the_step_marker_round_trips_with_its_fields_absent_or_present() {
+        let lone: AwaitingPermission =
+            serde_json::from_str(r#"{"tool_call_id":"held","request_id":"request"}"#).unwrap();
+        assert_eq!(
+            lone,
+            AwaitingPermission {
+                tool_call_id: "held".into(),
+                request_id: "request".into(),
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            serde_json::to_string(&lone).unwrap(),
+            r#"{"tool_call_id":"held","request_id":"request"}"#
+        );
+        let full = AwaitingPermission {
+            dispatching: Some("b".into()),
+            owes_resume_bridge: true,
+            group_id: Some("group".into()),
+            pre_requested: vec![PreRequested {
+                call_id: "c".into(),
+                request_id: "other".into(),
+            }],
+            ..step_marker("request")
+        };
+        let json = serde_json::to_string(&full).unwrap();
+        assert_eq!(
+            serde_json::from_str::<AwaitingPermission>(&json).unwrap(),
+            full
+        );
+    }
+
+    #[test]
+    fn a_repause_carries_pre_requested_calls_and_the_owed_bridge() {
+        let mut marker = step_marker("request");
+        marker.owes_resume_bridge = true;
+        marker.pre_requested = vec![PreRequested {
+            call_id: "c".into(),
+            request_id: "for-c".into(),
+        }];
+        let mut state = paused_step(marker);
+        assert!(state.release_awaiting_permission("request").unwrap());
+        // The continuation pauses again at `b`; `c` keeps its first request.
+        state.pause_for_permission(AwaitingPermission {
+            tool_call_id: "b".into(),
+            request_id: "for-b".into(),
+            issuing_message_id: "assistant".into(),
+            pending_call_ids: vec!["c".into()],
+            ..Default::default()
+        });
+        assert!(state.released_permission_call.is_none());
+        let waiting = state.awaiting_permission.as_ref().unwrap();
+        assert_eq!(waiting.pre_requested_for("c"), Some("for-c"));
+        assert!(waiting.owes_resume_bridge);
+    }
+
+    #[test]
+    fn a_leftover_release_is_settled_by_the_next_claim_and_a_fresh_one_is_kept() {
+        let mut state = paused_step(step_marker("request"));
+        state
+            .claim_permission_resume(
+                "request",
+                "turn",
+                None,
+                None,
+                7,
+                state.scope_snapshot.clone(),
+                "2026-06-20T00:00:01Z",
+            )
+            .unwrap();
+        // The claim's own release survives its begin_turn.
+        assert!(state.released_permission_call.is_some());
+        assert!(result_texts(&state).is_empty());
+        // The turn ends without finishing (a yielded child keeps the marker);
+        // the next claim settles the leftover release.
+        state.turn_state = TurnState::Idle;
+        state
+            .begin_turn(
+                "next",
+                None,
+                None,
+                7,
+                state.scope_snapshot.clone(),
+                "2026-06-20T00:00:02Z",
+            )
+            .unwrap();
+        assert!(state.released_permission_call.is_none());
+        assert_eq!(
+            result_texts(&state)
+                .into_iter()
+                .map(|(id, text)| (id, text == RELEASED_TURN_ENDED))
+                .collect::<Vec<_>>(),
+            [
+                ("held".to_string(), true),
+                ("b".to_string(), true),
+                ("c".to_string(), true)
+            ]
+        );
+    }
+
+    #[test]
+    fn ending_the_wait_treats_members_like_a_lone_request() {
+        let mut marker = step_marker("permission-1");
+        marker.group_id = Some("group".into());
+        let mut state = paused_step(marker);
+        state
+            .add_permission_request(grouped(1, PermissionRequestState::Pending, 0))
+            .unwrap();
+        state
+            .add_permission_request(grouped(2, PermissionRequestState::Pending, 1))
+            .unwrap();
+        // Another claim closes the step; the members stay decidable.
+        let mut other = state.clone();
+        other
+            .begin_turn(
+                "work",
+                None,
+                None,
+                7,
+                other.scope_snapshot.clone(),
+                "2026-06-20T00:00:01Z",
+            )
+            .unwrap();
+        assert!(other.awaiting_permission.is_none());
+        assert!(
+            other
+                .permission_requests
+                .iter()
+                .all(|request| request.state == PermissionRequestState::Pending)
+        );
+        assert_eq!(result_texts(&other).len(), 3);
+        // New owner input moves every member to revalidation.
+        state.begin_focus_epoch(2, Vec::new()).unwrap();
+        assert!(
+            state
+                .permission_requests
+                .iter()
+                .all(|request| request.state == PermissionRequestState::NeedsRevalidation)
+        );
+        assert_eq!(result_texts(&state).len(), 3);
     }
 }
 

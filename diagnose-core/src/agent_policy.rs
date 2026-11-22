@@ -872,6 +872,7 @@ mod tests {
                 reason: "The owner asked for this page".into(),
                 provenance: None,
             }],
+            goal_binding: None,
         });
         validate_permission_resume_claim(&session, &params, &reviewed).unwrap();
         validate_permission_resume_claim(

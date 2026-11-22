@@ -92,6 +92,7 @@ server_result_sources! {
     InterruptedCallRecovery => "interrupted_call_recovery",
     ManualOutcomeDisposition => "manual_outcome_disposition",
     PermissionPauseClosed => "permission_pause_closed",
+    StepResultMissing => "step_result_missing",
     // A failed call's error built from its typed origin (`ToolError`).
     ToolCallError => "tool_call_error",
     // The skill catalogue, labelled by its stored skills.

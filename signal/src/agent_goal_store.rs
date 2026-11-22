@@ -496,8 +496,40 @@ pub async fn wake_for_permission_decision(
         // the scanner retries after that settlement instead of losing it.
         return Ok(GoalPermissionWake::Held);
     }
+    // The goal waits for the request it paused on and, when that request is
+    // in an approval group, for the whole group: any member's decision wakes
+    // it, but only once every member is decided.
+    let waited_group = goal
+        .status_reason
+        .as_deref()
+        .and_then(|waited| {
+            session
+                .permission_requests
+                .iter()
+                .find(|request| request.request_id == waited)
+        })
+        .and_then(|request| request.group.as_ref())
+        .map(|group| group.group_id.clone());
+    let in_waited_group = waited_group.as_deref().is_some_and(|group_id| {
+        session.permission_requests.iter().any(|request| {
+            request.request_id == request_id
+                && request
+                    .group
+                    .as_ref()
+                    .is_some_and(|group| group.group_id == group_id)
+        })
+    });
     let waiting_for_this_request = goal.state == GoalState::Waiting(GoalWaitReason::Approval)
-        && goal.status_reason.as_deref() == Some(request_id);
+        && (goal.status_reason.as_deref() == Some(request_id) || in_waited_group);
+    if waiting_for_this_request
+        && waited_group
+            .as_deref()
+            .is_some_and(|group_id| !session.permission_group_settled(group_id))
+    {
+        // Other cards of the step are still undecided: keep this decision's
+        // resume pending until the last one wakes the goal.
+        return Ok(GoalPermissionWake::Held);
+    }
     if waiting_for_this_request
         && (!session.turn_state.can_claim()
             || session_row
@@ -566,6 +598,30 @@ pub async fn wake_for_permission_decision(
         }
         .insert(&txn)
         .await?;
+        // The woken goal continues the whole group's step; the other
+        // members' resumes are handled with it.
+        if let Some(group_id) = &waited_group {
+            for member in session.permission_requests.iter().filter(|request| {
+                request.request_id != request_id
+                    && request
+                        .group
+                        .as_ref()
+                        .is_some_and(|group| &group.group_id == group_id)
+            }) {
+                resume_row::Entity::update_many()
+                    .col_expr(resume_row::Column::State, Expr::value("goal_handled"))
+                    .col_expr(
+                        resume_row::Column::Version,
+                        sea_orm::ExprTrait::add(Expr::col(resume_row::Column::Version), 1),
+                    )
+                    .col_expr(resume_row::Column::UpdatedAt, Expr::value(now))
+                    .filter(resume_row::Column::RunId.eq(&goal.conversation_id))
+                    .filter(resume_row::Column::RequestId.eq(&member.request_id))
+                    .filter(resume_row::Column::State.eq("pending"))
+                    .exec(&txn)
+                    .await?;
+            }
+        }
         GoalPermissionWake::Queued
     } else {
         GoalPermissionWake::Held
@@ -1611,8 +1667,11 @@ pub fn claim_slice<'a>(
             if let Some(request_id) = session
                 .awaiting_permission
                 .as_ref()
-                .filter(|waiting| {
-                    session.permission_requests.iter().any(|request| {
+                .filter(|waiting| match &waiting.group_id {
+                    // A step waiting for an approval group continues only once
+                    // every card of the group is decided.
+                    Some(group_id) => session.permission_group_settled(group_id),
+                    None => session.permission_requests.iter().any(|request| {
                         request.request_id == waiting.request_id
                             && matches!(
                                 request.state,
@@ -1620,7 +1679,7 @@ pub fn claim_slice<'a>(
                                     | desk_diagnose_core::dynamic_run::PermissionRequestState::PartiallyApproved
                                     | desk_diagnose_core::dynamic_run::PermissionRequestState::Denied
                             )
-                    })
+                    }),
                 })
                 .map(|waiting| waiting.request_id.clone())
             {
@@ -2287,6 +2346,7 @@ async fn persist_slice_on(
 #[cfg(test)]
 mod lifecycle_tests {
     mod continuation;
+    mod permission_group;
     use super::*;
 
     async fn db() -> DatabaseConnection {

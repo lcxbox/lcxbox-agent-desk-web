@@ -1879,7 +1879,11 @@ fn a_worker_session_admits_its_next_request_like_a_new_owner_input() {
             ],
         ));
     // A request can also end while one call still waits for approval.
-    session.pause_for_permission("awaiting", "rq-awaiting");
+    session.pause_for_permission(crate::session::AwaitingPermission {
+        tool_call_id: "awaiting".into(),
+        request_id: "rq-awaiting".into(),
+        ..Default::default()
+    });
     session
         .permission_requests
         .push(crate::dynamic_run::PermissionRequest {
@@ -1907,6 +1911,7 @@ fn a_worker_session_admits_its_next_request_like_a_new_owner_input() {
                 reason: "test request".into(),
             }],
             created_at: "2026-09-30T00:00:02Z".into(),
+            group: None,
         });
     assert_eq!(session.unclosed_tool_call_ids(), ["left-open"]);
     let history = session.conversation.len() + 2;

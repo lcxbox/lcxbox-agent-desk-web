@@ -821,6 +821,42 @@ pub struct PermissionRequest {
     /// requested them, recorded by the host when the request is saved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_source: Option<Box<crate::model_content::StoredTextSource>>,
+    /// The approval group of one model step this request belongs to. The step
+    /// continues only once every request of the group is decided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<PermissionRequestGroup>,
+}
+
+/// Prefix of the message of an error rejecting one request of a group save.
+const MEMBER_REJECTED_PREFIX: &str = "permission group member rejected: ";
+
+/// The error a host returns when one request of a group fails its
+/// per-request authority or validation check during the group save.
+pub fn group_member_rejected(request_id: &str) -> desk_agent_protocol::AgentError {
+    desk_agent_protocol::AgentError {
+        kind: desk_agent_protocol::AgentErrorKind::PermissionDenied,
+        message: format!("{MEMBER_REJECTED_PREFIX}{request_id}"),
+        retryable: false,
+        safe_for_model: false,
+        error_code: Some(desk_utils::error::DeskErrorCode::PERMISSION_GROUP_MEMBER_REJECTED.code()),
+    }
+}
+
+/// The request a group save rejected, when `error` is that rejection.
+pub fn rejected_group_member(error: &desk_agent_protocol::AgentError) -> Option<&str> {
+    (error.error_code
+        == Some(desk_utils::error::DeskErrorCode::PERMISSION_GROUP_MEMBER_REJECTED.code()))
+    .then(|| error.message.strip_prefix(MEMBER_REJECTED_PREFIX))
+    .flatten()
+}
+
+/// Position of a request in the approval group created for one model step.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionRequestGroup {
+    pub group_id: String,
+    /// The call's position in execution order, from 0.
+    pub order: u16,
+    pub size: u16,
 }
 
 impl PermissionRequest {
@@ -865,6 +901,12 @@ impl PermissionRequest {
         validate_text("permission_created_at", &self.created_at, MAX_RUN_EVENT_IDS)?;
         if self.items.is_empty() || self.items.len() > MAX_PERMISSION_REQUEST_ITEMS {
             return Err(DynamicRunContractError::InvalidPermissionItemCount);
+        }
+        if let Some(group) = &self.group {
+            validate_id("permission_group_id", &group.group_id)?;
+            if group.order >= group.size || usize::from(group.size) > MAX_PERMISSION_REQUESTS {
+                return Err(DynamicRunContractError::InvalidPermissionItemCount);
+            }
         }
         if self
             .items
@@ -967,6 +1009,10 @@ pub enum PermissionDecisionSource {
         delegation_revision: u64,
         reviews: Vec<AiPermissionDecisionEvidence>,
         failures: Vec<SystemPermissionDecisionEvidence>,
+        /// The goal binding the review was bound to, so a grouped request's
+        /// grant minted at group settlement checks the same goal.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        goal_binding: Option<(String, u64)>,
     },
     /// The server refused automatic permission issuance. This non-execution
     /// decision is never attributed to the reviewer model or owner.
@@ -1239,6 +1285,7 @@ impl PermissionDecidedEvent {
             delegation_revision,
             reviews,
             failures,
+            ..
         } = &self.decision_source
         {
             validate_id("approval_delegation_id", delegation_id)?;
@@ -1589,6 +1636,7 @@ mod tests {
                 reason: "Create the report requested by the user".into(),
             }],
             created_at: "2026-08-25T00:00:00Z".into(),
+            group: None,
         }
     }
 
@@ -1713,6 +1761,7 @@ mod tests {
                     reason: "The proposed output path includes unrelated files".into(),
                     provenance: None,
                 }],
+                goal_binding: None,
             },
         };
         event.validate().unwrap();

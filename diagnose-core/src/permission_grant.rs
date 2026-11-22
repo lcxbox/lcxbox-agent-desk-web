@@ -1097,6 +1097,60 @@ pub fn permission_device_id<'a>(
     &session.device_id
 }
 
+/// How a decision on a grouped request issues grants. A grouped request's
+/// grants are issued only by the decision that settles its whole group, and
+/// that decision issues them for every approved member at once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GroupIssuance<'a> {
+    /// The request has no group: its own decision issues its grants.
+    Lone,
+    /// The group is not decided in full (another request is still pending,
+    /// or ended without a decision): this decision issues nothing; its grants
+    /// are built only to validate the decision.
+    Deferred,
+    /// This decision settles the group: issue the grants of these members
+    /// (approved or partially approved, the deciding request included).
+    Settles(Vec<&'a crate::dynamic_run::PermissionRequest>),
+}
+
+/// How the decision just applied to `request_id` issues grants. `session`
+/// already carries that decision.
+pub fn group_issuance<'a>(
+    session: &'a PersistedAgentSession,
+    request_id: &str,
+) -> GroupIssuance<'a> {
+    let Some(group) = session
+        .permission_requests
+        .iter()
+        .find(|request| request.request_id == request_id)
+        .and_then(|request| request.group.as_ref())
+    else {
+        return GroupIssuance::Lone;
+    };
+    // A group issues only once every request is decided; a group that also
+    // ended by withdrawal, revalidation or replacement issues nothing.
+    if !session.permission_group_issued(&group.group_id) {
+        return GroupIssuance::Deferred;
+    }
+    GroupIssuance::Settles(
+        session
+            .permission_requests
+            .iter()
+            .filter(|request| {
+                request
+                    .group
+                    .as_ref()
+                    .is_some_and(|member| member.group_id == group.group_id)
+                    && matches!(
+                        request.state,
+                        crate::dynamic_run::PermissionRequestState::Approved
+                            | crate::dynamic_run::PermissionRequestState::PartiallyApproved
+                    )
+            })
+            .collect(),
+    )
+}
+
 /// Renewal is a new owner decision, never restoration of previous authority.
 pub fn permission_request_can_renew(
     session: &PersistedAgentSession,
@@ -1104,6 +1158,32 @@ pub fn permission_request_can_renew(
     grants: &[desk_agent_protocol::capability_grant::CapabilityGrant],
     now: u64,
 ) -> bool {
+    // A settled group whose approval issued no grant (a member's issuance
+    // failed at settlement) is asked for again, never answered as approved.
+    if request
+        .group
+        .as_ref()
+        .is_some_and(|group| session.permission_group_settled(&group.group_id))
+        && matches!(
+            request.state,
+            crate::dynamic_run::PermissionRequestState::Approved
+                | crate::dynamic_run::PermissionRequestState::PartiallyApproved
+        )
+        && request.input_revision == session.input_revision
+        && crate::agent_policy::permits_permission_request(session, request)
+        && session
+            .permission_decisions
+            .iter()
+            .filter(|decision| decision.request_id == request.request_id)
+            .flat_map(|decision| decision.items.iter())
+            .filter(|item| item.approved)
+            .any(|item| {
+                let id = permission_item_grant_id(&session.conversation_id, request, &item.item_id);
+                !grants.iter().any(|grant| grant.grant_id == id)
+            })
+    {
+        return true;
+    }
     request.state == crate::dynamic_run::PermissionRequestState::Approved
         && request.input_revision == session.input_revision
         && crate::agent_policy::permits_permission_request(session, request)

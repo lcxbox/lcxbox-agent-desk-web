@@ -391,6 +391,7 @@ async fn permission_resume_keeps_scoped_prerequisites_and_validates_exact_grants
                 reason: "open app".into(),
             }],
             created_at: "1970-01-01T00:00:00.100Z".into(),
+            group: None,
         });
         snapshot.ready_capabilities = if blocked == "offline" {
             vec![]
@@ -1360,5 +1361,1329 @@ async fn a_review_denied_read_shows_the_traced_reason_under_the_proposing_output
     assert_eq!(
         label.provenance.source_envelope_ids[0],
         proposing.envelope_id
+    );
+}
+
+/// A call-time case with two ungranted conversation-device reads:
+/// `inspect_desktop_session` and `read_current_screen`.
+fn group_case(
+    reject_group_order: Option<u16>,
+) -> (
+    MemSession,
+    crate::provider_registry::ProviderRegistry,
+    crate::grant_disclosure::GrantDisclosureSnapshot,
+    Vec<crate::capability_availability::CapabilityAvailability>,
+    Vec<RegisteredTool>,
+    AgentScope,
+) {
+    let (session, providers, mut snapshot, mut inventory, target, mut scope) = call_time_case(true);
+    let screen = providers
+        .capability_for_tool("read_current_screen")
+        .unwrap();
+    snapshot.ready_capabilities.push(screen.required_capability);
+    scope.granted.push(screen.required_capability);
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        stored
+            .scope_snapshot
+            .granted
+            .push(screen.required_capability);
+        stored
+            .turn_start_scope
+            .granted
+            .push(screen.required_capability);
+    }
+    inventory.push(crate::capability_availability::CapabilityAvailability {
+        provider_id: providers
+            .provider_for_capability(&screen.wire.capability_id)
+            .unwrap()
+            .wire
+            .provider_id
+            .clone(),
+        capability_id: screen.wire.capability_id.clone(),
+        tool_name: "read_current_screen".into(),
+        compiled: true,
+        enabled: true,
+        connected: true,
+        ready: true,
+        reason: None,
+    });
+    let mut registry = vec![target, screen.registered_tool()];
+    registry.extend(crate::capability_disclosure::capability_discovery_tool_registry());
+    let session = MemSession {
+        reject_group_order,
+        ..session
+    };
+    (session, providers, snapshot, inventory, registry, scope)
+}
+
+fn load_reads() -> ModelTurn {
+    ModelTurn {
+        tool_calls: vec![ToolCall {
+            id: "load".into(),
+            name: crate::capability_disclosure::LOAD_CAPABILITY_DETAILS_TOOL_NAME.into(),
+            arguments_json: serde_json::json!({
+                "tool_names": ["inspect_desktop_session", "read_current_screen"]
+            })
+            .to_string(),
+        }],
+        stop_reason: StopReason::ToolUse,
+        provider_meta: tool_meta(),
+        ..Default::default()
+    }
+}
+
+/// One step: `a` reads the screen, `b` inspects the session, and `c` loads a
+/// definition, which needs no approval. A screen read resolves ids against
+/// observations, so it is never requested ahead of the calls before it; as
+/// the first call needing approval it pauses the step.
+fn grouped_step() -> ModelTurn {
+    ModelTurn {
+        tool_calls: vec![
+            ToolCall {
+                id: "a".into(),
+                name: "read_current_screen".into(),
+                arguments_json: "{}".into(),
+            },
+            ToolCall {
+                id: "b".into(),
+                name: "inspect_desktop_session".into(),
+                arguments_json: "{}".into(),
+            },
+            ToolCall {
+                id: "c".into(),
+                name: crate::capability_disclosure::LOAD_CAPABILITY_DETAILS_TOOL_NAME.into(),
+                arguments_json: serde_json::json!({"tool_names": ["inspect_desktop_session"]})
+                    .to_string(),
+            },
+        ],
+        stop_reason: StopReason::ToolUse,
+        provider_meta: tool_meta(),
+        ..Default::default()
+    }
+}
+
+fn decide(stored: &mut PersistedAgentSession, request_id: &str, item_id: &str, approved: bool) {
+    let request = stored
+        .permission_requests
+        .iter_mut()
+        .find(|request| request.request_id == request_id)
+        .unwrap();
+    request.state = if approved {
+        crate::dynamic_run::PermissionRequestState::Approved
+    } else {
+        crate::dynamic_run::PermissionRequestState::Denied
+    };
+    stored
+        .permission_decisions
+        .push(crate::dynamic_run::PermissionDecisionProjection {
+            request_id: request_id.into(),
+            input_revision: stored.input_revision,
+            actor: crate::dynamic_run::PermissionDecisionActor::Owner,
+            items: vec![crate::dynamic_run::PermissionItemDisposition {
+                item_id: item_id.into(),
+                approved,
+                actor: crate::dynamic_run::PermissionDecisionActor::Owner,
+            }],
+        });
+}
+
+/// Run the step until it pauses; returns the pausing request id.
+async fn pause_grouped_step(
+    session: &MemSession,
+    deps: &LoopDeps<'_>,
+    scope: AgentScope,
+    sink: &mut dyn TurnSink,
+) -> String {
+    let outcome = run_agent_turn(
+        deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope,
+            ..claim()
+        },
+        ChatMessage::text("u", ChatRole::User, "inspect the session and the screen"),
+        sink,
+    )
+    .await
+    .unwrap();
+    let LoopOutcome::PermissionRequested { request_id } = outcome else {
+        panic!("{outcome:?}")
+    };
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    // Nothing of the step ran or got a result while it waits.
+    for id in ["a", "b", "c"] {
+        assert!(
+            !stored
+                .conversation
+                .iter()
+                .any(|message| message.tool_call_id.as_deref() == Some(id)),
+            "{id} has no result yet"
+        );
+    }
+    assert!(stored.unclosed_tool_call_ids().is_empty());
+    request_id
+}
+
+async fn resume(deps: &LoopDeps<'_>, scope: &AgentScope) -> LoopOutcome {
+    resume_agent_turn(
+        deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope.clone(),
+            trigger_origin: crate::session::TriggerOrigin::PermissionDecision,
+            ..claim()
+        },
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn two_determinable_calls_get_one_group_and_both_run() {
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(None);
+    let resume_scope = scope.clone();
+    let requests = Rc::new(RefCell::new(vec![]));
+    let model = ScriptModel {
+        turns: RefCell::new([load_reads(), grouped_step(), answer("done")].into()),
+        requests: requests.clone(),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let mut sink = SafetyEventLog(events.clone());
+    let held = pause_grouped_step(&session, &deps, scope.clone(), &mut sink).await;
+    // Planning started no tool for the later call and ran nothing.
+    assert!(!events.borrow().iter().any(|event| event.ends_with(":b")));
+    assert_eq!(tools.reads.get(), 0);
+    assert_eq!(*session.group_saves.borrow(), [2], "one atomic group save");
+    let member = {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        let [first, second] = stored.permission_requests.as_slice() else {
+            panic!("two requests: {:?}", stored.permission_requests)
+        };
+        assert_eq!(first.request_id, held);
+        let (first_group, second_group) =
+            (first.group.clone().unwrap(), second.group.clone().unwrap());
+        assert_eq!(first_group.group_id, second_group.group_id);
+        assert_eq!((first_group.order, second_group.order), (0, 1));
+        assert_eq!((first_group.size, second_group.size), (2, 2));
+        assert_eq!(second.items[0].item_id, "b");
+        let member = second.request_id.clone();
+        let waiting = stored.awaiting_permission.as_ref().unwrap();
+        assert_eq!(waiting.tool_call_id, "a");
+        assert_eq!(waiting.pending_call_ids, ["b", "c"]);
+        assert_eq!(waiting.pre_requested_for("b"), Some(member.as_str()));
+        assert_eq!(
+            waiting.group_id.as_deref(),
+            Some(first_group.group_id.as_str())
+        );
+        // The gate: no request of the group resumes before all are decided.
+        decide(stored, &held, "a", true);
+        let mut early = stored.clone();
+        assert_eq!(
+            early.claim_permission_resume(
+                &held,
+                "turn-2",
+                None,
+                None,
+                1,
+                early.scope_snapshot.clone(),
+                "1970-01-01T00:00:01Z",
+            ),
+            Err(crate::session::ResumeClaimError::GroupPending)
+        );
+        decide(stored, &member, "b", true);
+        // Any member's resume releases the step.
+        assert!(stored.release_awaiting_permission(&member).unwrap());
+        member
+    };
+    let _ = member;
+    tools.snapshot.borrow_mut().grants[0].remaining_uses = 1;
+    resume(&deps, &resume_scope).await;
+    assert_eq!(tools.reads.get(), 2, "both approved calls ran once");
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    assert!(tool_result(stored, "a").contains("immutable observation"));
+    assert!(tool_result(stored, "b").contains("immutable observation"));
+    assert!(!tool_result(stored, "c").starts_with("not executed"));
+    assert!(stored.released_permission_call.is_none());
+    // The model is called once more, with every result of the step.
+    let requests = requests.borrow();
+    assert_eq!(requests.len(), 3);
+    for id in ["a", "b", "c"] {
+        assert!(
+            requests[2]
+                .messages
+                .iter()
+                .any(|message| message.tool_call_id.as_deref() == Some(id))
+        );
+    }
+}
+
+#[tokio::test]
+async fn approve_one_deny_other() {
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(None);
+    let resume_scope = scope.clone();
+    let requests = Rc::new(RefCell::new(vec![]));
+    let model = ScriptModel {
+        turns: RefCell::new([load_reads(), grouped_step(), answer("done")].into()),
+        requests: requests.clone(),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let held = pause_grouped_step(&session, &deps, scope.clone(), &mut NullTurnSink).await;
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        let member = stored.permission_requests[1].request_id.clone();
+        decide(stored, &held, "a", true);
+        decide(stored, &member, "b", false);
+        assert!(stored.release_awaiting_permission(&held).unwrap());
+    }
+    tools.snapshot.borrow_mut().grants[0].remaining_uses = 1;
+    let outcome = resume(&deps, &resume_scope).await;
+    assert_eq!(outcome, LoopOutcome::Answered("done".into()));
+    assert_eq!(tools.reads.get(), 1, "only the approved call ran");
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    assert!(tool_result(stored, "a").contains("immutable observation"));
+    assert_eq!(
+        tool_result(stored, "b"),
+        "not executed: the owner refused this call"
+    );
+    // A refusal skips only its call: the later call still ran.
+    assert!(!tool_result(stored, "c").starts_with("not executed"));
+    assert_eq!(requests.borrow().len(), 3, "the model is called once after");
+}
+
+#[tokio::test]
+async fn group_save_failure_publishes_call_k_alone() {
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(Some(1));
+    let model = ScriptModel {
+        turns: RefCell::new([load_reads(), grouped_step(), answer("done")].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let held = pause_grouped_step(&session, &deps, scope.clone(), &mut NullTurnSink).await;
+    assert!(session.group_saves.borrow().is_empty());
+    let mut stored = session.inner.borrow_mut();
+    let stored = stored.as_mut().unwrap();
+    // The host refused the later call's request: the held call's request is
+    // published alone and the later calls get their cards when reached.
+    let [request] = stored.permission_requests.as_slice() else {
+        panic!("one request: {:?}", stored.permission_requests)
+    };
+    assert_eq!(request.request_id, held);
+    assert!(request.group.is_none());
+    assert_eq!(stored.last_event_seq, 1);
+    let waiting = stored.awaiting_permission.as_ref().unwrap();
+    assert!(waiting.group_id.is_none() && waiting.pre_requested.is_empty());
+    assert_eq!(waiting.pending_call_ids, ["b", "c"]);
+}
+
+#[tokio::test]
+async fn a_continuation_repause_forms_a_new_card_for_a_deferred_call() {
+    // The group save is refused, so `b` has no card when the step resumes:
+    // the continuation pauses again at `b` with its own request.
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(Some(1));
+    let resume_scope = scope.clone();
+    let model = ScriptModel {
+        turns: RefCell::new([load_reads(), grouped_step(), answer("done")].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let held = pause_grouped_step(&session, &deps, scope.clone(), &mut NullTurnSink).await;
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        decide(stored, &held, "a", true);
+        assert!(stored.release_awaiting_permission(&held).unwrap());
+    }
+    tools.snapshot.borrow_mut().grants[0].remaining_uses = 1;
+    let LoopOutcome::PermissionRequested { request_id } = resume(&deps, &resume_scope).await else {
+        panic!("the continuation pauses at b")
+    };
+    assert_eq!(tools.reads.get(), 1);
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    assert!(tool_result(stored, "a").contains("immutable observation"));
+    let waiting = stored.awaiting_permission.as_ref().unwrap();
+    assert_eq!(waiting.tool_call_id, "b");
+    assert_eq!(waiting.request_id, request_id);
+    assert_eq!(waiting.pending_call_ids, ["c"]);
+    assert!(stored.released_permission_call.is_none());
+    assert!(stored.unclosed_tool_call_ids().is_empty());
+}
+
+#[tokio::test]
+async fn new_input_closes_pending_step_calls_with_accurate_text() {
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(None);
+    let model = ScriptModel {
+        turns: RefCell::new([load_reads(), grouped_step()].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    pause_grouped_step(&session, &deps, scope.clone(), &mut NullTurnSink).await;
+    let mut stored = session.inner.borrow_mut();
+    let stored = stored.as_mut().unwrap();
+    let revision = stored.input_revision + 1;
+    stored.input_revision = revision;
+    stored.begin_focus_epoch(revision, Vec::new()).unwrap();
+    assert_eq!(
+        tool_result(stored, "a"),
+        "not executed: a new owner message replaced this request before approval; call it again if still needed"
+    );
+    for id in ["b", "c"] {
+        assert_eq!(
+            tool_result(stored, id),
+            crate::session::AWAITING_STEP_CALL_CLOSED
+        );
+    }
+    assert!(
+        stored
+            .permission_requests
+            .iter()
+            .all(|request| request.state
+                == crate::dynamic_run::PermissionRequestState::NeedsRevalidation)
+    );
+    assert!(stored.unclosed_tool_call_ids().is_empty());
+}
+
+#[tokio::test]
+async fn a_replayed_release_does_not_run_a_call_twice() {
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(None);
+    let resume_scope = scope.clone();
+    let model = ScriptModel {
+        turns: RefCell::new([load_reads(), grouped_step(), answer("done")].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let held = pause_grouped_step(&session, &deps, scope.clone(), &mut NullTurnSink).await;
+    let released = {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        let member = stored.permission_requests[1].request_id.clone();
+        decide(stored, &held, "a", true);
+        decide(stored, &member, "b", true);
+        assert!(stored.release_awaiting_permission(&held).unwrap());
+        stored.released_permission_call.clone()
+    };
+    tools.snapshot.borrow_mut().grants[0].remaining_uses = 1;
+    resume(&deps, &resume_scope).await;
+    assert_eq!(tools.reads.get(), 2);
+    // The same release again: every call already has its result.
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        stored.released_permission_call = released;
+        stored.released_in_claim = true;
+    }
+    let model_after = ScriptModel {
+        turns: RefCell::new([answer("again")].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let mut deps = super::deps(&session, &model_after, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    resume(&deps, &resume_scope).await;
+    assert_eq!(tools.reads.get(), 2, "no call ran twice");
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    for id in ["a", "b", "c"] {
+        assert_eq!(
+            stored
+                .conversation
+                .iter()
+                .filter(|message| message.tool_call_id.as_deref() == Some(id))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn every_tool_effect_is_classified_for_continuation() {
+    use crate::registry::ToolEffect;
+    // Effects that bind state to the turn that runs them never continue.
+    for effect in [
+        ToolEffect::SchedulePlanning,
+        ToolEffect::ScheduleQuery,
+        ToolEffect::SkillAuthoring,
+        ToolEffect::DirectoryPlanning,
+        ToolEffect::GoalOpenPlanning,
+        ToolEffect::GoalControl,
+        ToolEffect::SubAgentPlanning,
+        ToolEffect::SubAgentControl,
+        ToolEffect::SubAgentQuery,
+        ToolEffect::SubAgentWait,
+        ToolEffect::SubAgentReport,
+        ToolEffect::ConversationHistory,
+        ToolEffect::ExternalWrite,
+    ] {
+        assert!(
+            !crate::agent_loop::step_calls::continuable(effect),
+            "{effect:?}"
+        );
+    }
+    for effect in [
+        ToolEffect::ReadOnly,
+        ToolEffect::ActionPreview,
+        ToolEffect::ExternalRead,
+        ToolEffect::Mutating,
+        ToolEffect::WaitTask,
+        ToolEffect::RunProjection,
+        ToolEffect::PermissionPlanning,
+        ToolEffect::CapabilityDiscovery,
+        ToolEffect::MemoryQuery,
+        ToolEffect::MemoryWrite,
+        ToolEffect::AgentHistory,
+        ToolEffect::SkillLoading,
+    ] {
+        assert!(
+            crate::agent_loop::step_calls::continuable(effect),
+            "{effect:?}"
+        );
+    }
+}
+
+#[test]
+fn the_model_guard_records_step_result_missing() {
+    let (mut stored, _, _) = crate::grant_disclosure::tests::fixture();
+    stored.conversation.push(ChatMessage::agent_tool_calls(
+        "assistant",
+        "",
+        vec![crate::chat::ToolCallRef {
+            id: "lost".into(),
+            name: "inspect_desktop_session".into(),
+            arguments_json: "{}".into(),
+        }],
+    ));
+    // The guard records the result and continues; it never panics, even in
+    // a debug build.
+    assert_eq!(
+        crate::agent_loop::close_untracked_unanswered_calls(&mut stored).unwrap(),
+        ["lost"]
+    );
+    assert_eq!(
+        tool_result(&stored, "lost"),
+        "not executed: no result was recorded for this call; call it again if still needed"
+    );
+    assert!(stored.unclosed_tool_call_ids().is_empty());
+}
+
+#[tokio::test]
+async fn an_equivalent_call_waits_on_an_unsettled_group_and_runs_once_it_settles() {
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(None);
+    let resume_scope = scope.clone();
+    let later = ModelTurn {
+        tool_calls: vec![ToolCall {
+            id: "b2".into(),
+            name: "inspect_desktop_session".into(),
+            arguments_json: "{}".into(),
+        }],
+        stop_reason: StopReason::ToolUse,
+        provider_meta: tool_meta(),
+        ..Default::default()
+    };
+    let model = ScriptModel {
+        turns: RefCell::new([load_reads(), grouped_step(), later, answer("done")].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let held = pause_grouped_step(&session, &deps, scope.clone(), &mut NullTurnSink).await;
+    let member = {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        let member = stored.permission_requests[1].request_id.clone();
+        // The member is approved; the held request is still undecided. Another
+        // claim then closes the step, leaving the group unsettled.
+        decide(stored, &member, "b", true);
+        stored
+            .close_awaiting_permission(crate::session::AWAITING_PERMISSION_INTERRUPTED)
+            .unwrap();
+        stored.turn_state = crate::session::TurnState::Idle;
+        member
+    };
+    // A later turn's call equals the approved member: it waits on the group.
+    let outcome = run_agent_turn(
+        &deps,
+        ClaimTurnParams {
+            turn_id: "turn-2".into(),
+            current_pdp_scope: scope,
+            ..claim()
+        },
+        ChatMessage::text("u2", ChatRole::User, "inspect the session again"),
+        &mut NullTurnSink,
+    )
+    .await;
+    assert!(
+        matches!(&outcome, Ok(LoopOutcome::PermissionRequested { request_id }) if *request_id == member),
+        "{outcome:?}"
+    );
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        let waiting = stored.awaiting_permission.as_ref().unwrap();
+        assert_eq!(waiting.tool_call_id, "b2");
+        assert_eq!(waiting.request_id, member);
+        assert!(waiting.group_id.is_some());
+        assert_eq!(stored.permission_requests.len(), 2, "no new card");
+        // Deciding the last member settles the group and releases the call.
+        decide(stored, &held, "a", false);
+        assert!(stored.release_awaiting_permission(&held).unwrap());
+    }
+    tools.snapshot.borrow_mut().grants[0].remaining_uses = 1;
+    resume(&deps, &resume_scope).await;
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    assert!(tool_result(stored, "b2").contains("immutable observation"));
+}
+
+/// A permission-decision resume bridge as a host appends it.
+fn permission_bridge(id: &str) -> ChatMessage {
+    use desk_agent_protocol::data_lineage::{
+        ContentRef, DATA_ENVELOPE_SCHEMA_VERSION, DataEnvelope, DataProvenance, RetentionBoundary,
+        Sensitivity,
+    };
+    let mut message = ChatMessage::text(
+        id,
+        ChatRole::User,
+        "AUTOMATIC SERVER CONTROL EVENT: the permission request was decided",
+    );
+    message.data_envelope = Some(DataEnvelope {
+        schema_version: DATA_ENVELOPE_SCHEMA_VERSION,
+        envelope_id: format!("bridge-{id}"),
+        content: ContentRef::ImmutableBlob {
+            blob_id: format!("blob-{id}"),
+            sha256: "0".repeat(64),
+            size_bytes: 1,
+            media_type: "application/json".into(),
+        },
+        provenance: DataProvenance {
+            source_provider_id: "agent-runtime-control".into(),
+            source_tool_name: crate::model_message_labels::sources::PERMISSION_DECISION_RESUME
+                .into(),
+            source_object_id: Some(id.into()),
+            source_envelope_ids: vec![],
+        },
+        sensitivity: Sensitivity::Public,
+        allowed_destinations: vec![],
+        retention: RetentionBoundary {
+            expires_at_unix_ms: None,
+            delete_with_run: true,
+        },
+    });
+    assert!(crate::permission_resume::is_permission_resume_message(
+        &message
+    ));
+    message
+}
+
+fn step_of(calls: &[(&str, &str, &str)]) -> ModelTurn {
+    ModelTurn {
+        tool_calls: calls
+            .iter()
+            .map(|(id, name, arguments)| ToolCall {
+                id: (*id).into(),
+                name: (*name).into(),
+                arguments_json: (*arguments).into(),
+            })
+            .collect(),
+        stop_reason: StopReason::ToolUse,
+        provider_meta: tool_meta(),
+        ..Default::default()
+    }
+}
+
+const LOAD_INSPECT: (&str, &str, &str) = (
+    "c",
+    crate::capability_disclosure::LOAD_CAPABILITY_DETAILS_TOOL_NAME,
+    r#"{"tool_names":["inspect_desktop_session"]}"#,
+);
+
+fn result_index(stored: &PersistedAgentSession, id: &str) -> usize {
+    stored
+        .conversation
+        .iter()
+        .position(|message| message.tool_call_id.as_deref() == Some(id))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn explicit_request_continues_remaining_calls_then_appends_the_bridge() {
+    let (session, providers, snapshot, inventory, mut registry, scope) = group_case(None);
+    registry.extend(crate::permission_tools::permission_planning_tool_registry());
+    let requests = Rc::new(RefCell::new(vec![]));
+    let model = ScriptModel {
+        turns: RefCell::new(
+            [
+                load_reads(),
+                step_of(&[
+                    (
+                        "req",
+                        crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
+                        r#"{"items":[{"tool_name":"inspect_desktop_session","suggested_ttl_seconds":300,"suggested_max_uses":1,"reason":"Inspect the session the owner asked about"}]}"#,
+                    ),
+                    LOAD_INSPECT,
+                ]),
+                answer("done"),
+            ]
+            .into(),
+        ),
+        requests: requests.clone(),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let outcome = run_agent_turn(
+        &deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope.clone(),
+            ..claim()
+        },
+        ChatMessage::text("u", ChatRole::User, "inspect the session"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    let LoopOutcome::PermissionRequested { request_id } = outcome else {
+        let stored = session.inner.borrow();
+        panic!(
+            "{outcome:?} {:?}",
+            stored
+                .as_ref()
+                .unwrap()
+                .conversation
+                .iter()
+                .map(|message| (message.tool_call_id.clone(), message.text.clone()))
+                .collect::<Vec<_>>()
+        )
+    };
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        // The request call has its receipt; the later call waits for the
+        // decision without a result.
+        assert!(tool_result(stored, "req").contains("pending_user_decision"));
+        assert!(
+            !stored
+                .conversation
+                .iter()
+                .any(|message| message.tool_call_id.as_deref() == Some("c"))
+        );
+        let waiting = stored.awaiting_permission.as_ref().unwrap();
+        assert_eq!(waiting.tool_call_id, "req");
+        assert_eq!(waiting.pending_call_ids, ["c"]);
+        assert!(waiting.owes_resume_bridge);
+        let item = stored.permission_requests[0].items[0].item_id.clone();
+        decide(stored, &request_id, &item, true);
+        assert!(stored.release_awaiting_permission(&request_id).unwrap());
+    }
+    let outcome = resume_agent_turn_after_permission(
+        &deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope,
+            trigger_origin: crate::session::TriggerOrigin::PermissionDecision,
+            ..claim()
+        },
+        permission_bridge("decided"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome, LoopOutcome::Answered("done".into()));
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    // The later call ran first; the bridge follows the whole call group.
+    let bridge = stored
+        .conversation
+        .iter()
+        .position(|message| message.message_id == "decided")
+        .unwrap();
+    assert!(result_index(stored, "c") < bridge);
+    assert!(!tool_result(stored, "c").starts_with("not executed"));
+    let requests = requests.borrow();
+    let last = requests.last().unwrap();
+    let positions =
+        |pick: &dyn Fn(&ChatMessage) -> bool| last.messages.iter().position(pick).unwrap();
+    assert!(
+        positions(&|message| message.tool_call_id.as_deref() == Some("c"))
+            < positions(&|message| message.message_id == "decided")
+    );
+}
+
+#[tokio::test]
+async fn scheduled_continuation_continues_through_a_second_pause() {
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(None);
+    let model = ScriptModel {
+        turns: RefCell::new([load_reads(), grouped_step(), answer("done")].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let continuation = |scope: &AgentScope| ClaimTurnParams {
+        current_pdp_scope: scope.clone(),
+        trigger_origin: crate::session::TriggerOrigin::ScheduledContinuation,
+        ..claim()
+    };
+    let outcome = run_agent_turn(
+        &deps,
+        continuation(&scope),
+        ChatMessage::text("u", ChatRole::User, "inspect the session and the screen"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    let LoopOutcome::PermissionRequested { request_id: first } = outcome else {
+        panic!("{outcome:?}")
+    };
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        // A scheduled continuation keeps one card at a time.
+        assert_eq!(stored.permission_requests.len(), 1);
+        assert!(stored.permission_requests[0].group.is_none());
+        assert_eq!(
+            stored
+                .awaiting_permission
+                .as_ref()
+                .unwrap()
+                .pending_call_ids,
+            ["b", "c"]
+        );
+        decide(stored, &first, "a", true);
+        assert!(stored.release_awaiting_permission(&first).unwrap());
+    }
+    let outcome = resume_agent_turn(&deps, continuation(&scope), &mut NullTurnSink)
+        .await
+        .unwrap();
+    let LoopOutcome::PermissionRequested { request_id: second } = outcome else {
+        panic!("{outcome:?}")
+    };
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        assert!(tool_result(stored, "a").contains("immutable observation"));
+        let waiting = stored.awaiting_permission.as_ref().unwrap();
+        assert_eq!(waiting.tool_call_id, "b");
+        assert_eq!(waiting.pending_call_ids, ["c"]);
+        decide(stored, &second, "b", true);
+        assert!(stored.release_awaiting_permission(&second).unwrap());
+    }
+    let outcome = resume_agent_turn(&deps, continuation(&scope), &mut NullTurnSink)
+        .await
+        .unwrap();
+    assert_eq!(outcome, LoopOutcome::Answered("done".into()));
+    assert_eq!(tools.reads.get(), 2);
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    assert!(tool_result(stored, "b").contains("immutable observation"));
+    assert!(!tool_result(stored, "c").starts_with("not executed"));
+}
+
+#[tokio::test]
+async fn an_expired_issuing_envelope_closes_the_step() {
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(None);
+    let resume_scope = scope.clone();
+    let model = ScriptModel {
+        turns: RefCell::new([load_reads(), grouped_step(), answer("done")].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let held = pause_grouped_step(&session, &deps, scope, &mut NullTurnSink).await;
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        let member = stored.permission_requests[1].request_id.clone();
+        decide(stored, &held, "a", true);
+        decide(stored, &member, "b", true);
+        let issuing = stored
+            .conversation
+            .iter()
+            .rposition(|message| message.tool_calls.iter().any(|call| call.id == "a"))
+            .unwrap();
+        let mut expired = permission_bridge("expired").data_envelope.unwrap();
+        expired.retention.expires_at_unix_ms = Some(1);
+        stored.conversation[issuing].data_envelope = Some(expired);
+        assert!(stored.release_awaiting_permission(&held).unwrap());
+    }
+    resume(&deps, &resume_scope).await;
+    assert_eq!(tools.reads.get(), 0, "nothing of the expired step ran");
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    for id in ["a", "b", "c"] {
+        assert_eq!(
+            tool_result(stored, id),
+            "not executed: the approval wait outlasted this step's data lifetime; call it again if still needed"
+        );
+    }
+    assert!(stored.released_permission_call.is_none());
+}
+
+#[tokio::test]
+async fn a_dependent_call_gets_its_card_during_the_continuation() {
+    // The screen read resolves ids against observations, so it is not
+    // requested up front; it gets its card when the continuation reaches it.
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(None);
+    let resume_scope = scope.clone();
+    let model = ScriptModel {
+        turns: RefCell::new(
+            [
+                load_reads(),
+                step_of(&[
+                    ("b", "inspect_desktop_session", "{}"),
+                    ("a", "read_current_screen", "{}"),
+                ]),
+                answer("done"),
+            ]
+            .into(),
+        ),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let outcome = run_agent_turn(
+        &deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope,
+            ..claim()
+        },
+        ChatMessage::text("u", ChatRole::User, "inspect the session and the screen"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    let LoopOutcome::PermissionRequested { request_id } = outcome else {
+        panic!("{outcome:?}")
+    };
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        let [request] = stored.permission_requests.as_slice() else {
+            panic!("only the first call has a card")
+        };
+        assert!(request.group.is_none());
+        decide(stored, &request_id, "b", true);
+        assert!(stored.release_awaiting_permission(&request_id).unwrap());
+    }
+    tools.snapshot.borrow_mut().grants[0].remaining_uses = 1;
+    let outcome = resume(&deps, &resume_scope).await;
+    let LoopOutcome::PermissionRequested { request_id: later } = outcome else {
+        panic!("{outcome:?}")
+    };
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    assert!(tool_result(stored, "b").contains("immutable observation"));
+    assert_ne!(later, request_id);
+    assert_eq!(
+        stored.awaiting_permission.as_ref().unwrap().tool_call_id,
+        "a"
+    );
+    assert_eq!(stored.permission_requests.len(), 2);
+}
+
+#[tokio::test]
+async fn a_call_whose_card_does_not_fit_gets_a_result_and_the_step_continues() {
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(None);
+    {
+        let mut stored = session.inner.borrow_mut();
+        let stored = stored.as_mut().unwrap();
+        // Every slot of the bounded request list holds a pending request.
+        for index in 0..crate::dynamic_run::MAX_PERMISSION_REQUESTS {
+            let filler = crate::permission_tools::build_permission_request(
+                &ToolCall {
+                    id: format!("filler-{index}"),
+                    name: crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME.into(),
+                    arguments_json: serde_json::json!({"items":[{
+                        "item_id": "info",
+                        "tool_name": "read_system_info",
+                        "suggested_ttl_seconds": 300,
+                        "suggested_max_uses": 1,
+                        "reason": "filler"
+                    }]})
+                    .to_string(),
+                },
+                &providers,
+                format!("filler-{index}"),
+                stored.input_revision,
+                "1970-01-01T00:00:00Z".into(),
+            )
+            .unwrap();
+            stored.add_permission_request(filler).unwrap();
+        }
+    }
+    let model = ScriptModel {
+        turns: RefCell::new(
+            [
+                load_reads(),
+                step_of(&[("a", "read_current_screen", "{}"), LOAD_INSPECT]),
+                answer("done"),
+            ]
+            .into(),
+        ),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let outcome = run_agent_turn(
+        &deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope,
+            ..claim()
+        },
+        ChatMessage::text("u", ChatRole::User, "read the screen"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome, LoopOutcome::Answered("done".into()));
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    assert_eq!(
+        tool_result(stored, "a"),
+        "not executed: too many approval requests are open in this conversation; decide or let them finish, then call it again if still needed"
+    );
+    assert!(!tool_result(stored, "c").starts_with("not executed"));
+    assert!(stored.awaiting_permission.is_none());
+}
+
+#[tokio::test]
+async fn a_dangling_call_is_closed_and_reported_before_the_model_request() {
+    let (session, providers, snapshot, inventory, registry, scope) = group_case(None);
+    session
+        .inner
+        .borrow_mut()
+        .as_mut()
+        .unwrap()
+        .conversation
+        .push(ChatMessage::agent_tool_calls_with_replay(
+            "earlier",
+            "",
+            vec![crate::chat::ToolCallRef {
+                id: "lost".into(),
+                name: "inspect_desktop_session".into(),
+                arguments_json: "{}".into(),
+            }],
+            tool_meta().replay.unwrap(),
+        ));
+    let requests = Rc::new(RefCell::new(vec![]));
+    let model = ScriptModel {
+        turns: RefCell::new([answer("done")].into()),
+        requests: requests.clone(),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(&session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let outcome = run_agent_turn(
+        &deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope,
+            ..claim()
+        },
+        ChatMessage::text("u", ChatRole::User, "continue"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome, LoopOutcome::Answered("done".into()));
+    assert_eq!(
+        *session.missing_reports.borrow(),
+        [vec!["lost".to_string()]]
+    );
+    // The provider never receives an unanswered call.
+    assert!(requests.borrow()[0].messages.iter().any(|message| {
+        message.tool_call_id.as_deref() == Some("lost")
+            && message
+                .text
+                .starts_with("not executed: no result was recorded")
+    }));
+}
+
+struct DeviceCommandPolicy(crate::command_confirmation::CommandPolicyContext);
+
+#[async_trait(?Send)]
+impl ToolSeam for DeviceCommandPolicy {
+    async fn run_read(&self, _: &ToolCall) -> Result<ToolRunOutput, AgentError> {
+        unreachable!("planning runs no tool")
+    }
+
+    async fn selected_command_policy(
+        &self,
+        _: &PersistedAgentSession,
+        target_ref: &str,
+    ) -> Result<crate::command_confirmation::CommandPolicyContext, AgentError> {
+        assert_eq!(target_ref, "a");
+        Ok(self.0.clone())
+    }
+}
+
+/// The device case on an AI Agent turn with request devices: the step pauses
+/// at a selected-device screen read, and the later `exec_command`, which has
+/// no approved confirmation, is requested in the same group, alone in its
+/// own request and for the same device.
+#[tokio::test]
+async fn a1_in_request_device_mode_pre_requests_screen_and_command() {
+    let mut session = PersistedAgentSession::new(
+        "run",
+        "owner",
+        "",
+        1,
+        AgentScope {
+            granted: vec![],
+            mode: ExecutionMode::ConfirmEachAction,
+            expires_at: None,
+            policy_name: None,
+        },
+        "2026-11-06T00:00:00Z",
+    );
+    session.surface = AgentSessionSurface::AiAgent;
+    session.input_revision = 1;
+    session
+        .bind_agent_request_targets(vec!["a".into()])
+        .unwrap();
+    let mut policy = crate::command_confirmation::test_policy();
+    policy.actor_id = session.actor_id.clone();
+    policy.target_device_id = "a".into();
+    policy.directory_grants =
+        crate::file_scope::TrustedDirectoryGrants::from_session(&session, "a", 1);
+    policy.target_session_id = "connection-a:session-1".into();
+    let providers = crate::ai_agent::ai_agent_provider_registry();
+    let screen = providers
+        .capability_for_tool("read_current_screen")
+        .unwrap();
+    let command_registry = providers.clone().with_command_policy(policy.clone());
+    let exec = command_registry
+        .capability_for_tool("exec_command")
+        .unwrap();
+    let device = crate::request_devices::RequestDevice {
+        native_readiness: None,
+        read_target: Some(crate::request_devices::SelectedDeviceTarget {
+            device_id: "a".into(),
+            target_ref: "a".into(),
+            connection_id: "connection-a".into(),
+            readiness_revision: 1,
+        }),
+        ready_provider_ids: vec![screen.wire.capability_id.clone()],
+        approved_read_tools: vec![],
+        target_ref: "a".into(),
+        name: None,
+        platform: Some("Windows"),
+        online: true,
+        ready_capabilities: vec![screen.required_capability, Capability::ShellExecConfirmed],
+    };
+    let devices = vec![device];
+    assert!(session.uses_request_device_tools());
+    let reads = crate::request_devices::read_tools(&devices, &session, &providers, true, None);
+    let (command_tool, approved) =
+        crate::request_devices::command_tool(&session, &devices, &providers).unwrap();
+    assert!(!approved, "no command is approved yet");
+    let screen_tool = reads
+        .iter()
+        .find(|(tool, _)| tool.name() == "read_current_screen")
+        .map(|(tool, _)| tool.clone())
+        .unwrap();
+    let owned_exposed = vec![screen_tool.clone(), command_tool.clone()];
+    let exposed = owned_exposed.iter().collect::<Vec<_>>();
+    let definitions = owned_exposed
+        .iter()
+        .map(|tool| {
+            let mut spec = tool.spec.clone();
+            crate::ui_model_ids::project_tool(&mut spec);
+            (spec.name.clone(), spec)
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let inventory = [screen, exec]
+        .iter()
+        .map(
+            |descriptor| crate::capability_availability::CapabilityAvailability {
+                provider_id: command_registry
+                    .provider_for_capability(&descriptor.wire.capability_id)
+                    .unwrap()
+                    .wire
+                    .provider_id
+                    .clone(),
+                capability_id: descriptor.wire.capability_id.clone(),
+                tool_name: descriptor.tool_spec.name.clone(),
+                compiled: true,
+                enabled: true,
+                connected: true,
+                ready: true,
+                reason: None,
+            },
+        )
+        .collect::<Vec<_>>();
+    let calls = vec![
+        ToolCall {
+            id: "screen".into(),
+            name: "read_current_screen".into(),
+            arguments_json: serde_json::json!({"target_ref": "a"}).to_string(),
+        },
+        ToolCall {
+            id: "command".into(),
+            name: "exec_command".into(),
+            arguments_json: serde_json::json!({
+                "target_ref": "a", "shell": "bash", "command": "echo fixture", "timeout_ms": 1000
+            })
+            .to_string(),
+        },
+    ];
+    // The pausing request: the screen read on device `a`.
+    let screen_request = crate::request_devices::plan_device_permission(
+        &DeviceCommandPolicy(policy.clone()),
+        Some(&providers),
+        Some(desk_agent_protocol::capability_provider::ProductSurface::OssPersonalOwner),
+        &session,
+        &devices,
+        &reads,
+        &crate::permission_tools::synthesize_request_call(
+            &calls[0],
+            &providers,
+            &session.conversation,
+            crate::permission_tools::DEFAULT_APPLICATION_SCOPE_USES,
+        )
+        .unwrap(),
+        "screen-request",
+        "2026-11-06T00:00:00Z",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let store = MemSession {
+        inner: RefCell::new(Some(session.clone())),
+        ..Default::default()
+    };
+    let model = ScriptModel {
+        turns: RefCell::new(Default::default()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = DeviceCommandPolicy(policy);
+    let clock = || "2026-11-06T00:00:00Z".to_string();
+    let mut deps = deps(&store, &model, &tools, &owned_exposed, &clock);
+    deps.provider_registry = Some(&providers);
+    deps.capability_inventory = Some(&inventory);
+    let batch = crate::model_observability::tool::ToolBatch::default();
+    let planning = crate::agent_loop::permission_group::Planning {
+        calls: &calls,
+        exposed: &exposed,
+        owned_exposed: &owned_exposed,
+        model_tool_definitions: &definitions,
+        disclosure_enabled: true,
+        tool_batch: &batch,
+    };
+    let members = crate::agent_loop::permission_group::plan(
+        &deps,
+        &session,
+        &screen_request,
+        false,
+        crate::agent_loop::permission_proposal::ProposalContext {
+            authority: None,
+            request_devices: &devices,
+            selected_reads: &reads,
+            step_inventory: Some(&inventory),
+            permission_candidates: &[],
+            remaining: &calls[1..],
+            parent_envelope: None,
+            issuing_message_id: "step",
+            planning: Some(&planning),
+        },
+        &planning,
+        "2026-11-06T00:00:00Z",
+    )
+    .await;
+    let [member] = members.as_slice() else {
+        panic!("the command is requested with the screen read")
+    };
+    assert_eq!(member.call.id, "command");
+    // `exec_command` stays alone in its request, bound to the same device.
+    assert!(member.request.exact_command().is_some());
+    assert_eq!(member.request.items.len(), 1);
+    assert_eq!(
+        crate::permission_grant::permission_device_id(&session, &member.request),
+        crate::permission_grant::permission_device_id(&session, &screen_request)
     );
 }

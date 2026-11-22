@@ -123,6 +123,64 @@ async fn transition(
     Ok(())
 }
 
+/// Move the pending resume rows of the other requests of `request_id`'s
+/// approval group to `superseded`. Returns false when one of their decisions
+/// no longer belongs to the session's current input.
+pub(crate) async fn supersede_group_rows_on(
+    txn: &DatabaseTransaction,
+    session: &PersistedAgentSession,
+    request_id: &str,
+    now: DateTime<Utc>,
+) -> Result<bool, AgentError> {
+    for member in group_members(session, request_id) {
+        if let Some(decision) =
+            permission_receipt::decided_on(txn, session, &member.request_id).await?
+            && decision.request_input_revision != session.input_revision
+        {
+            return Ok(false);
+        }
+        let row = resume::Entity::find()
+            .filter(
+                resume::Column::PermissionId
+                    .eq(turn_id(&session.conversation_id, &member.request_id)),
+            )
+            .one(txn)
+            .await
+            .map_err(storage)?;
+        if let Some(row) = row.filter(|row| row.state == "pending") {
+            transition(txn, &row, "superseded", false, now).await?;
+        }
+    }
+    Ok(true)
+}
+
+/// The other requests of the approval group `request_id` belongs to.
+pub(crate) fn group_members<'a>(
+    session: &'a PersistedAgentSession,
+    request_id: &str,
+) -> Vec<&'a PermissionRequest> {
+    let Some(group_id) = session
+        .permission_requests
+        .iter()
+        .find(|request| request.request_id == request_id)
+        .and_then(|request| request.group.as_ref())
+        .map(|group| group.group_id.as_str())
+    else {
+        return Vec::new();
+    };
+    session
+        .permission_requests
+        .iter()
+        .filter(|request| {
+            request.request_id != request_id
+                && request
+                    .group
+                    .as_ref()
+                    .is_some_and(|group| group.group_id == group_id)
+        })
+        .collect()
+}
+
 fn current_decision<'a>(
     session: &'a PersistedAgentSession,
     decision: &PermissionDecidedEvent,
@@ -143,10 +201,35 @@ pub(crate) async fn validate_permission_device_on(
     session: &PersistedAgentSession,
     request: &PermissionRequest,
 ) -> Result<(), AgentError> {
-    if !permission_roster_current(txn, session, request).await? {
+    if !permission_device_current_on(txn, session, request).await? {
         return Err(invalid());
     }
-    validate_permission_target_on(txn, session, request).await
+    Ok(())
+}
+
+/// Whether the request's target device is still on the roster and admitted.
+/// `Err` is a storage failure only.
+pub(crate) async fn permission_device_current_on(
+    txn: &DatabaseTransaction,
+    session: &PersistedAgentSession,
+    request: &PermissionRequest,
+) -> Result<bool, AgentError> {
+    if !permission_roster_current(txn, session, request).await? {
+        return Ok(false);
+    }
+    if session.device_id.is_empty()
+        && let Some(device_id) = request.selected_device_id()
+        && (!session.admits_agent_device(device_id)
+            || crate::agent_run_event_store::eligible_request_device_ids(
+                txn,
+                &[device_id.to_owned()],
+            )
+            .await?
+            .is_empty())
+    {
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 pub(crate) async fn permission_work_current(
@@ -433,6 +516,11 @@ impl SignalAgentSessionStore {
         if resume.state != "pending" {
             return Err(ClaimError::Busy);
         }
+        // A grouped request resumes only once its whole group is decided.
+        // Until then the row stays pending and nothing else is checked.
+        if !session.permission_request_group_settled(request_id) {
+            return Err(ClaimError::Busy);
+        }
         if (session.device_id.is_empty() && session.main_stopped)
             || session.input_revision != decision.request_input_revision
         {
@@ -559,6 +647,21 @@ impl SignalAgentSessionStore {
         {
             return Err(ClaimError::Busy);
         }
+        // The other requests of the group resume through this claim: their
+        // decisions must belong to the current input, and their rows stop
+        // waiting so they no longer hold the input slot.
+        if !supersede_group_rows_on(&txn, &session, request_id, now)
+            .await
+            .map_err(ClaimError::Backend)?
+        {
+            transition(&txn, &resume, "superseded", false, now)
+                .await
+                .map_err(ClaimError::Backend)?;
+            txn.commit()
+                .await
+                .map_err(|e| ClaimError::Backend(storage(e)))?;
+            return Err(ClaimError::Busy);
+        }
         // Release the call this approval paused in the same claim transaction:
         // only this resume dispatches it, and a failed claim rolls it back.
         session
@@ -575,7 +678,8 @@ impl SignalAgentSessionStore {
                 desk_diagnose_core::session::ResumeClaimError::Release => {
                     ClaimError::Backend(invalid())
                 }
-                desk_diagnose_core::session::ResumeClaimError::Busy => ClaimError::Busy,
+                desk_diagnose_core::session::ResumeClaimError::Busy
+                | desk_diagnose_core::session::ResumeClaimError::GroupPending => ClaimError::Busy,
             })?;
         crate::agent_subagent_store::record_child_resume_on(&txn, &session, now.timestamp_millis())
             .await

@@ -11,6 +11,7 @@ mod management;
 mod title;
 pub(crate) use management::retire_unsupported_sessions;
 mod file_scope;
+mod group_grants;
 pub(crate) mod history_save;
 mod live_context;
 mod object_context;
@@ -710,6 +711,32 @@ impl SignalAgentSessionStore {
                     &event,
                     &mut grants,
                 )?;
+            }
+            // A grouped request issues its grants only with the decision that
+            // settles its group; until then the grants above only validated
+            // this decision.
+            let members =
+                match desk_diagnose_core::permission_grant::group_issuance(&session, request_id) {
+                    desk_diagnose_core::permission_grant::GroupIssuance::Lone => None,
+                    desk_diagnose_core::permission_grant::GroupIssuance::Deferred => {
+                        grants.clear();
+                        None
+                    }
+                    desk_diagnose_core::permission_grant::GroupIssuance::Settles(members) => {
+                        Some(members.into_iter().cloned().collect::<Vec<_>>())
+                    }
+                };
+            if let Some(members) = members {
+                grants.extend(
+                    group_grants::settlement_grants_on(
+                        &txn,
+                        &session,
+                        request_id,
+                        &members,
+                        &grant_context,
+                    )
+                    .await?,
+                );
             }
 
             let old_version = row.version;
@@ -1740,6 +1767,253 @@ async fn recover_dangling_calls(
         None => session.recover_session(RecoveryVerdict::NotExecuted, now),
     }
     Ok(())
+}
+
+impl SignalAgentSessionStore {
+    /// Save one permission request, or every request of one approval group,
+    /// with its events in one transaction. In a group save a request that
+    /// fails its own authority or validation check fails the whole save with
+    /// `PERMISSION_GROUP_MEMBER_REJECTED`; every other failure is internal.
+    async fn save_permission_requests(
+        &self,
+        session: &mut PersistedAgentSession,
+        updates: &[PermissionRequestedEvent],
+        group: bool,
+    ) -> Result<(), AgentError> {
+        let last = updates
+            .last()
+            .ok_or_else(|| internal("permission save has no request"))?;
+        if last.event.event_seq != session.last_event_seq
+            || updates
+                .windows(2)
+                .any(|pair| pair[0].event.event_seq.checked_add(1) != Some(pair[1].event.event_seq))
+        {
+            return Err(internal("permission event does not match session state"));
+        }
+        let rejected = |update: &PermissionRequestedEvent, error: AgentError| {
+            if group {
+                desk_diagnose_core::dynamic_run::group_member_rejected(&update.request.request_id)
+            } else {
+                error
+            }
+        };
+        for update in updates {
+            update
+                .validate()
+                .map_err(|error| internal(format!("invalid permission event: {error}")))?;
+            if update.event.run_id != session.conversation_id
+                || update.event.input_revision != session.input_revision
+                || update.request.state
+                    != desk_diagnose_core::dynamic_run::PermissionRequestState::Pending
+                || !session
+                    .permission_requests
+                    .iter()
+                    .any(|request| request == &update.request)
+            {
+                return Err(internal("permission event does not match session state"));
+            }
+            if !desk_diagnose_core::agent_policy::permits_permission_request(
+                session,
+                &update.request,
+            ) {
+                return Err(rejected(
+                    update,
+                    internal("permission request is outside the conversation authority"),
+                ));
+            }
+        }
+
+        let txn = crate::db::begin_write(&self.db, crate::entity::agent_session::Entity)
+            .await
+            .map_err(|error| internal(format!("begin permission transaction: {error}")))?;
+        for update in updates {
+            match self
+                .validate_permission_member_on(&txn, session, &update.request)
+                .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    txn.rollback().await.ok();
+                    return Err(rejected(update, error));
+                }
+                // A storage failure is never a member rejection: it fails the
+                // turn as a single request's save does.
+                Err(error) => {
+                    txn.rollback().await.ok();
+                    return Err(error);
+                }
+            }
+        }
+        // The requested inputs and scopes are the requesting output's
+        // arguments; an output that was not retained leaves them unproven.
+        let input_source = match desk_diagnose_core::model_content::stored::latest_model_output(
+            &session.conversation,
+        ) {
+            Some(output) => {
+                crate::schedule_store::ScheduleStore::model_output_source_on(&txn, session, output)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|(_, model_source)| {
+                        desk_diagnose_core::model_content::StoredTextSource::model_output(
+                            &session.actor_id,
+                            model_source,
+                            Vec::new(),
+                        )
+                    })
+            }
+            None => None,
+        };
+        let mut proposals = Vec::with_capacity(updates.len());
+        for update in updates {
+            if let Some(request) = session
+                .permission_requests
+                .iter_mut()
+                .find(|request| request.request_id == update.request.request_id)
+            {
+                request.input_source = input_source.clone().map(Box::new);
+            }
+            let mut proposal = update.clone();
+            // The stored event matches the session's copy of the request.
+            proposal.request.input_source = input_source.clone().map(Box::new);
+            proposal.approval_mode_revision = if session.has_direct_approval_origin()
+                && update.request.exact_command().is_some()
+            {
+                crate::agent_approval_store::preference_for_session_on(&txn, session)
+                    .await
+                    .map_err(|_| internal("unattended command mode is unavailable"))?
+                    .and_then(|preference| {
+                        preference.unattended_proposal_revision(session, &update.request)
+                    })
+            } else {
+                None
+            };
+            proposals.push(proposal);
+        }
+        let now = Utc::now();
+        let old_version = session.version;
+        let new_version = old_version + 1;
+        desk_diagnose_core::image_input::retain_latest_session_image(&mut session.conversation)
+            .map_err(|error| internal(format!("invalid session image: {error}")))?;
+        let mut stored = session.clone();
+        desk_diagnose_core::image_input::strip_session_images(&mut stored.conversation);
+        stored.version = new_version;
+        let state_json = stored
+            .encode_json_for_storage()
+            .map_err(|error| internal(format!("encode agent session state: {error}")))?;
+        let lease_deadline = session
+            .turn_state
+            .is_active()
+            .then_some(now + Duration::seconds(LEASE_TTL_SECS));
+        let result = agent_session::Entity::update_many()
+            .col_expr(agent_session::Column::StateJson, Expr::value(state_json))
+            .col_expr(agent_session::Column::Version, Expr::value(new_version))
+            .col_expr(
+                agent_session::Column::LeaseDeadline,
+                Expr::value(lease_deadline),
+            )
+            .col_expr(agent_session::Column::UpdatedAt, Expr::value(now))
+            .filter(agent_session::Column::ConversationId.eq(&session.conversation_id))
+            .filter(agent_session::Column::Version.eq(old_version))
+            .filter(agent_session::Column::LeaseToken.eq(session.lease_token as i64))
+            .exec(&txn)
+            .await
+            .map_err(|error| internal(format!("save permission session: {error}")))?;
+        if result.rows_affected != 1 {
+            txn.rollback().await.ok();
+            return Err(internal("agent session lease or version was lost"));
+        }
+
+        for proposal in &proposals {
+            agent_run_event::ActiveModel {
+                event_id: Set(proposal.event.event_id.clone()),
+                run_id: Set(proposal.event.run_id.clone()),
+                event_seq: Set(i64::try_from(proposal.event.event_seq)
+                    .map_err(|_| internal("permission event sequence exceeds SQLite range"))?),
+                input_revision: Set(i64::try_from(proposal.event.input_revision)
+                    .map_err(|_| internal("permission input revision exceeds SQLite range"))?),
+                kind: Set(proposal.event.kind.as_str().into()),
+                correlation_id: Set(proposal.event.correlation_id.clone()),
+                input_seq: Set(None),
+                actor_id: Set(Some(session.actor_id.clone())),
+                source_envelope_ids_json: Set(serde_json::to_string(
+                    &proposal.event.source_envelope_ids,
+                )
+                .map_err(|error| {
+                    internal(format!("encode permission source envelopes: {error}"))
+                })?),
+                result_envelope_ids_json: Set(serde_json::to_string(
+                    &proposal.event.result_envelope_ids,
+                )
+                .map_err(|error| {
+                    internal(format!("encode permission result envelopes: {error}"))
+                })?),
+                payload_json: Set(serde_json::to_string(proposal)
+                    .map_err(|error| internal(format!("encode permission event: {error}")))?),
+                payload_schema_version: Set(i32::from(AGENT_RUN_EVENT_SCHEMA_VERSION)),
+                created_at: Set(now_from(&proposal.event.created_at)),
+                ..Default::default()
+            }
+            .insert(&txn)
+            .await
+            .map_err(|error| internal(format!("append permission event: {error}")))?;
+        }
+        txn.commit()
+            .await
+            .map_err(|error| internal(format!("commit permission transaction: {error}")))?;
+        session.version = new_version;
+        Ok(())
+    }
+
+    /// The per-request checks of a permission save: the target device, the
+    /// subscription work, a child's delegated source and the task authority.
+    /// The inner error is the request's rejection; the outer one a storage
+    /// failure.
+    async fn validate_permission_member_on(
+        &self,
+        txn: &crate::config::connection::DatabaseTransaction,
+        session: &PersistedAgentSession,
+        request: &desk_diagnose_core::dynamic_run::PermissionRequest,
+    ) -> Result<Result<(), AgentError>, AgentError> {
+        if !permission_resume::permission_device_current_on(txn, session, request).await? {
+            return Ok(Err(internal("permission target device is unavailable")));
+        }
+        if !permission_resume::permission_work_current(txn, session, request).await? {
+            return Ok(Err(internal("subscription work is unavailable")));
+        }
+        if !session.agent_role.is_main() {
+            let target = permission_device_id(session, request);
+            let now_ms = Utc::now().timestamp_millis();
+            let current = if target.is_empty() {
+                // A central web request has no device to fence.
+                crate::agent_subagent_store::check_child_central_on(txn, session, now_ms).await
+            } else {
+                let fence = match desk_diagnose_core::action_turn_fence::AgentTurnFence::for_device(
+                    session, target,
+                ) {
+                    Ok(Some(fence)) => fence,
+                    Ok(None) => return Ok(Err(internal("missing delegated planning fence"))),
+                    Err(error) => return Ok(Err(error)),
+                };
+                crate::agent_subagent_store::check_child_action_on(txn, session, &fence, now_ms)
+                    .await
+            };
+            if !current.map_err(|_| internal("delegated planning source is unavailable"))? {
+                return Ok(Err(internal(
+                    "delegated planning source is paused or no longer current",
+                )));
+            }
+        }
+        match crate::schedule_store::validate_task_permission_on(txn, session, request).await {
+            Ok(()) => Ok(Ok(())),
+            Err(crate::schedule_store::ScheduleStoreError::Backend(_)) => {
+                Err(internal("task permission authority is unavailable"))
+            }
+            Err(_) => Ok(Err(internal(
+                "permission request exceeds current task authority",
+            ))),
+        }
+    }
 }
 
 #[async_trait(?Send)]
@@ -2818,164 +3092,22 @@ impl SessionSeam for SignalAgentSessionStore {
         session: &mut PersistedAgentSession,
         update: &PermissionRequestedEvent,
     ) -> Result<(), AgentError> {
-        update
-            .validate()
-            .map_err(|error| internal(format!("invalid permission event: {error}")))?;
-        if !desk_diagnose_core::agent_policy::permits_permission_request(session, &update.request) {
-            return Err(internal(
-                "permission request is outside the conversation authority",
-            ));
-        }
-        if update.event.run_id != session.conversation_id
-            || update.event.event_seq != session.last_event_seq
-            || update.event.input_revision != session.input_revision
-            || !session
-                .permission_requests
-                .iter()
-                .any(|request| request == &update.request)
-        {
-            return Err(internal("permission event does not match session state"));
-        }
+        self.save_permission_requests(session, std::slice::from_ref(update), false)
+            .await
+    }
 
-        let txn = crate::db::begin_write(&self.db, crate::entity::agent_session::Entity)
-            .await
-            .map_err(|error| internal(format!("begin permission transaction: {error}")))?;
-        permission_resume::validate_permission_device_on(&txn, session, &update.request).await?;
-        if !permission_resume::permission_work_current(&txn, session, &update.request).await? {
-            return Err(internal("subscription work is unavailable"));
-        }
+    fn report_step_result_missing(&self, conversation_id: &str, call_ids: &[String]) {
+        log::error!(
+            "[ai-agent] closed tool calls left without a result before the model request: conversation={conversation_id} calls={call_ids:?}"
+        );
+    }
 
-        if !session.agent_role.is_main() {
-            let target = permission_device_id(session, &update.request);
-            let now_ms = Utc::now().timestamp_millis();
-            let current = if target.is_empty() {
-                // A central web request has no device to fence.
-                crate::agent_subagent_store::check_child_central_on(&txn, session, now_ms).await
-            } else {
-                let fence = desk_diagnose_core::action_turn_fence::AgentTurnFence::for_device(
-                    session, target,
-                )?
-                .ok_or_else(|| internal("missing delegated planning fence"))?;
-                crate::agent_subagent_store::check_child_action_on(&txn, session, &fence, now_ms)
-                    .await
-            };
-            if !current.map_err(|_| internal("delegated planning source is unavailable"))? {
-                return Err(internal(
-                    "delegated planning source is paused or no longer current",
-                ));
-            }
-        }
-        crate::schedule_store::validate_task_permission_on(&txn, session, &update.request)
-            .await
-            .map_err(|_| internal("permission request exceeds current task authority"))?;
-        // The requested inputs and scopes are the requesting output's
-        // arguments; an output that was not retained leaves them unproven.
-        let input_source = match desk_diagnose_core::model_content::stored::latest_model_output(
-            &session.conversation,
-        ) {
-            Some(output) => {
-                crate::schedule_store::ScheduleStore::model_output_source_on(&txn, session, output)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|(_, model_source)| {
-                        desk_diagnose_core::model_content::StoredTextSource::model_output(
-                            &session.actor_id,
-                            model_source,
-                            Vec::new(),
-                        )
-                    })
-            }
-            None => None,
-        };
-        if let Some(request) = session
-            .permission_requests
-            .iter_mut()
-            .find(|request| request.request_id == update.request.request_id)
-        {
-            request.input_source = input_source.clone().map(Box::new);
-        }
-        let mut proposal = update.clone();
-        // The stored event matches the session's copy of the request.
-        proposal.request.input_source = input_source.map(Box::new);
-        proposal.approval_mode_revision =
-            if session.has_direct_approval_origin() && update.request.exact_command().is_some() {
-                crate::agent_approval_store::preference_for_session_on(&txn, session)
-                    .await
-                    .map_err(|_| internal("unattended command mode is unavailable"))?
-                    .and_then(|preference| {
-                        preference.unattended_proposal_revision(session, &update.request)
-                    })
-            } else {
-                None
-            };
-        let now = Utc::now();
-        let old_version = session.version;
-        let new_version = old_version + 1;
-        desk_diagnose_core::image_input::retain_latest_session_image(&mut session.conversation)
-            .map_err(|error| internal(format!("invalid session image: {error}")))?;
-        let mut stored = session.clone();
-        desk_diagnose_core::image_input::strip_session_images(&mut stored.conversation);
-        stored.version = new_version;
-        let state_json = stored
-            .encode_json_for_storage()
-            .map_err(|error| internal(format!("encode agent session state: {error}")))?;
-        let lease_deadline = session
-            .turn_state
-            .is_active()
-            .then_some(now + Duration::seconds(LEASE_TTL_SECS));
-        let result = agent_session::Entity::update_many()
-            .col_expr(agent_session::Column::StateJson, Expr::value(state_json))
-            .col_expr(agent_session::Column::Version, Expr::value(new_version))
-            .col_expr(
-                agent_session::Column::LeaseDeadline,
-                Expr::value(lease_deadline),
-            )
-            .col_expr(agent_session::Column::UpdatedAt, Expr::value(now))
-            .filter(agent_session::Column::ConversationId.eq(&session.conversation_id))
-            .filter(agent_session::Column::Version.eq(old_version))
-            .filter(agent_session::Column::LeaseToken.eq(session.lease_token as i64))
-            .exec(&txn)
-            .await
-            .map_err(|error| internal(format!("save permission session: {error}")))?;
-        if result.rows_affected != 1 {
-            txn.rollback().await.ok();
-            return Err(internal("agent session lease or version was lost"));
-        }
-
-        agent_run_event::ActiveModel {
-            event_id: Set(update.event.event_id.clone()),
-            run_id: Set(update.event.run_id.clone()),
-            event_seq: Set(i64::try_from(update.event.event_seq)
-                .map_err(|_| internal("permission event sequence exceeds SQLite range"))?),
-            input_revision: Set(i64::try_from(update.event.input_revision)
-                .map_err(|_| internal("permission input revision exceeds SQLite range"))?),
-            kind: Set(update.event.kind.as_str().into()),
-            correlation_id: Set(update.event.correlation_id.clone()),
-            input_seq: Set(None),
-            actor_id: Set(Some(session.actor_id.clone())),
-            source_envelope_ids_json: Set(serde_json::to_string(&update.event.source_envelope_ids)
-                .map_err(|error| {
-                    internal(format!("encode permission source envelopes: {error}"))
-                })?),
-            result_envelope_ids_json: Set(serde_json::to_string(&update.event.result_envelope_ids)
-                .map_err(|error| {
-                    internal(format!("encode permission result envelopes: {error}"))
-                })?),
-            payload_json: Set(serde_json::to_string(&proposal)
-                .map_err(|error| internal(format!("encode permission event: {error}")))?),
-            payload_schema_version: Set(i32::from(AGENT_RUN_EVENT_SCHEMA_VERSION)),
-            created_at: Set(now_from(&update.event.created_at)),
-            ..Default::default()
-        }
-        .insert(&txn)
-        .await
-        .map_err(|error| internal(format!("append permission event: {error}")))?;
-        txn.commit()
-            .await
-            .map_err(|error| internal(format!("commit permission transaction: {error}")))?;
-        session.version = new_version;
-        Ok(())
+    async fn save_permission_request_group(
+        &self,
+        session: &mut PersistedAgentSession,
+        events: &[PermissionRequestedEvent],
+    ) -> Result<(), AgentError> {
+        self.save_permission_requests(session, events, true).await
     }
 
     async fn latest_input_revision(
@@ -4176,6 +4308,7 @@ mod tests {
                 reason: "matrix permission".into(),
             }],
             created_at: "2026-09-03T00:00:00Z".into(),
+            group: None,
         }];
         session.pending_auto_triggers = vec![PendingAutoTrigger {
             work_id: 42,
@@ -4499,6 +4632,7 @@ mod tests {
                 reason: "Inspect the requested target".into(),
             }],
             created_at: "2026-08-26T00:00:00Z".into(),
+            group: None,
         };
         session.add_permission_request(request.clone()).unwrap();
         session.last_event_seq = 2;
@@ -4594,6 +4728,7 @@ mod tests {
                 reason: "Inspect the requested target".into(),
             }],
             created_at: "2026-08-26T00:00:00Z".into(),
+            group: None,
         };
         session.add_permission_request(request.clone()).unwrap();
         session.last_event_seq = 2;
@@ -4764,6 +4899,7 @@ mod tests {
                 reason: "Focus the selected UI element".into(),
             }],
             created_at: "2026-08-26T00:00:00Z".into(),
+            group: None,
         };
         let mut decisions = vec![PermissionDecisionItem {
             item_id: "ui-action".into(),
@@ -5739,7 +5875,11 @@ mod tests {
             String::new(),
             vec![call("dispatched"), call("never-ran"), call("waiting")],
         ));
-        session.pause_for_permission("waiting", "request-1");
+        session.pause_for_permission(desk_diagnose_core::session::AwaitingPermission {
+            tool_call_id: "waiting".into(),
+            request_id: "request-1".into(),
+            ..Default::default()
+        });
         let now = Utc::now();
         crate::entity::agent_exec_task::ActiveModel {
             exec_request_id: Set("exec-1".into()),

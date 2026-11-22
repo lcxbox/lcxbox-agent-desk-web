@@ -43,6 +43,7 @@ pub(super) async fn pause<F: FnMut() -> String>(
     {
         return Err(invalid());
     }
+    let issuing_message_id = parent.message_id.clone();
     let parent = parent.data_envelope.clone();
     let canonical = crate::permission_tools::canonical_tool_permission_input_json(
         &call.name,
@@ -61,15 +62,16 @@ pub(super) async fn pause<F: FnMut() -> String>(
     {
         return Err(invalid());
     }
-    append_unstarted_tool_results(
+    // The step's later calls stay pending: an approval continues the step.
+    let _ = mint;
+    session.pause_for_permission(permission_proposal::step_marker(
         session,
+        &call.id,
+        &request.request_id,
+        &issuing_message_id,
         remaining,
-        parent.as_ref(),
-        mint,
-        "not executed: waiting for user permission decision",
-        ServerResultSource::PermissionPauseToolCall,
-    )?;
-    session.pause_for_permission(&call.id, &request.request_id);
+        false,
+    ));
     let event_seq = session.last_event_seq.checked_add(1).ok_or_else(invalid)?;
     let event = crate::dynamic_run::PermissionRequestedEvent {
         approval_mode_revision: None,

@@ -190,7 +190,11 @@ fn native_subagent_wait_and_ready_resume_retain_the_original_slot() {
             desk_diagnose_core::replay::ReplayDisposition::legacy_unknown(),
         ),
     );
-    session.pause_for_permission("call", "request");
+    session.pause_for_permission(desk_diagnose_core::session::AwaitingPermission {
+        tool_call_id: "call".into(),
+        request_id: "request".into(),
+        ..Default::default()
+    });
     assert!(queue::holds_input_slot(&session));
     session.released_permission_call = session.awaiting_permission.take();
     assert!(queue::holds_input_slot(&session));

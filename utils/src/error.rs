@@ -538,6 +538,10 @@ desk_error_codes! {
     /// Nothing was started; retrying shortly reaches another instance or the
     /// restarted one.
     SERVICE_RESTARTING = 114,
+    /// One request of an approval group failed its per-request authority or
+    /// validation check when the group was saved. Nothing of the group was
+    /// saved; the agent publishes the step's first request alone instead.
+    PERMISSION_GROUP_MEMBER_REJECTED = 115,
 
     ACTION_NEED_RETRY = 1001,
 

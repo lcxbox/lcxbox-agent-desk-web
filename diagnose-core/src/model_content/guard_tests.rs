@@ -37,12 +37,12 @@ const ALLOWED: &[(&str, &str, usize)] = &[
         1,
     ),
     (
-        "diagnose-core/src/agent_loop/phases.rs",
+        "diagnose-core/src/agent_loop/read_call.rs",
         "Unverified::new(",
         1,
     ),
     (
-        "diagnose-core/src/agent_loop/read_call.rs",
+        "diagnose-core/src/agent_loop/step_calls.rs",
         "Unverified::new(",
         1,
     ),

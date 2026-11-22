@@ -87,7 +87,11 @@ async fn scheduled_approval_claim_consumes_original_receipt_and_preserves_occurr
                 arguments_json: "{}".into(),
             }],
         ));
-    session.pause_for_permission("first", "permission-1");
+    session.pause_for_permission(desk_diagnose_core::session::AwaitingPermission {
+        tool_call_id: "first".into(),
+        request_id: "permission-1".into(),
+        ..Default::default()
+    });
     session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
     session.handled_input_seq = session.latest_input_seq;
     store.save(&mut session).await.unwrap();

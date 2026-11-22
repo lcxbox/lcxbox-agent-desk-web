@@ -1525,3 +1525,83 @@ fn selected_text_read_binds_the_source_like_the_runtime_grant_check() {
         approved
     );
 }
+
+#[test]
+fn approved_command_of_an_unsettled_group_does_not_authorize() {
+    use crate::command_confirmation::CommandConfirmation;
+    let mut session = session();
+    let mut policy = crate::command_confirmation::test_policy();
+    policy.actor_id = session.actor_id.clone();
+    policy.target_device_id = "a".into();
+    policy.directory_grants =
+        crate::file_scope::TrustedDirectoryGrants::from_session(&session, "a", 1);
+    policy.target_session_id = "connection-a:session-1".into();
+    let registry = crate::ai_agent::ai_agent_provider_registry().with_command_policy(policy);
+    let mut approved = build_permission_request(
+        &tool(
+            REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
+            json!({"items":[{
+                "item_id":"command", "tool_name":"exec_command", "reason":"Check the owner task",
+                "exact_input":{"shell":"bash","command":"echo fixture","timeout_ms":1000}
+            }]}),
+        ),
+        &registry,
+        "command-approval".into(),
+        session.input_revision,
+        NOW.into(),
+    )
+    .unwrap();
+    approved.state = PermissionRequestState::Approved;
+    let canonical = approved.items[0].canonical_input_json.clone().unwrap();
+    session.permission_requests.push(approved.clone());
+    assert!(CommandConfirmation::approved_request_for_call(&session, "a", &canonical).is_ok());
+    // The same approval inside a group whose other request is still pending
+    // authorizes nothing yet.
+    let group = |order| {
+        Some(crate::dynamic_run::PermissionRequestGroup {
+            group_id: "group".into(),
+            order,
+            size: 2,
+        })
+    };
+    session.permission_requests[0].group = group(0);
+    session
+        .permission_requests
+        .push(crate::dynamic_run::PermissionRequest {
+            request_id: "member".into(),
+            state: PermissionRequestState::Pending,
+            group: group(1),
+            ..approved
+        });
+    assert!(CommandConfirmation::approved_request_for_call(&session, "a", &canonical).is_err());
+    // A group that ended without deciding every request issues nothing:
+    // here the owner stopped, which withdrew the other request.
+    session.permission_requests[1].state = PermissionRequestState::Withdrawn;
+    assert!(CommandConfirmation::approved_request_for_call(&session, "a", &canonical).is_err());
+    assert_eq!(
+        crate::permission_grant::group_issuance(&session, "member"),
+        crate::permission_grant::GroupIssuance::Deferred
+    );
+    // The approved request without a grant is asked for again.
+    session
+        .permission_decisions
+        .push(crate::dynamic_run::PermissionDecisionProjection {
+            request_id: "command-approval".into(),
+            input_revision: session.input_revision,
+            actor: crate::dynamic_run::PermissionDecisionActor::Owner,
+            items: vec![crate::dynamic_run::PermissionItemDisposition {
+                item_id: "command".into(),
+                approved: true,
+                actor: crate::dynamic_run::PermissionDecisionActor::Owner,
+            }],
+        });
+    assert!(crate::permission_grant::permission_request_can_renew(
+        &session,
+        &session.permission_requests[0],
+        &[],
+        0
+    ));
+    // Once the whole group is decided, the approval takes effect.
+    session.permission_requests[1].state = PermissionRequestState::Denied;
+    assert!(CommandConfirmation::approved_request_for_call(&session, "a", &canonical).is_ok());
+}
