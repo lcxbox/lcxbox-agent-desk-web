@@ -49,33 +49,15 @@ function PermissionGroupView({ group, automaticApproval, decisions, children }: 
     };
     const buttonsDisabled = !decisions || decisions.disabled || running;
     return <div data-testid="ai-agent-permission-group" data-group-id={group.groupId} className="space-y-3 rounded-md border p-3">
-        <div className="space-y-1">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium">
-                    {t('pages.aiAgent.permissionGroup.title', { count: group.size })}
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">
-                        {t('pages.aiAgent.permissionGroup.progress', { decided: permissionGroupDecidedCount(group), total: group.size })}
-                    </span>
-                </p>
-                {open && decisions && (approveAll.send.length > 0 || denyAll.length > 0) && <div className="flex flex-wrap gap-2">
-                    <Button type="button" size="sm" className="gap-1.5 px-2.5" disabled={buttonsDisabled || approveAll.send.length === 0}
-                        onClick={() => void run(true)}>
-                        <Check className="h-4 w-4" />
-                        {t('pages.aiAgent.permissionGroup.approveAll')}
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" className="gap-1.5 px-2.5" disabled={buttonsDisabled || denyAll.length === 0}
-                        onClick={() => void run(false)}>
-                        <X className="h-4 w-4" />
-                        {t('pages.aiAgent.permissionGroup.denyAll')}
-                    </Button>
-                </div>}
-            </div>
-            {open && <p className="text-xs text-muted-foreground">{t('pages.aiAgent.permissionGroup.validity')}</p>}
+        <div data-testid="ai-agent-permission-group-header" className="space-y-1">
+            <p className="text-sm font-medium">
+                {t('pages.aiAgent.permissionGroup.title', { count: group.size })}
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {t('pages.aiAgent.permissionGroup.progress', { decided: permissionGroupDecidedCount(group), total: group.size })}
+                </span>
+            </p>
             {open && approveAll.individual.length > 0 && <p className="text-xs text-muted-foreground">
                 {t('pages.aiAgent.permissionGroup.individual', { count: approveAll.individual.length })}
-            </p>}
-            {failedMember && <p role="alert" className="text-xs text-destructive">
-                {t('pages.aiAgent.permissionGroup.stopped', { step: step(failedMember) })}
             </p>}
         </div>
         {group.members.map(member => <div key={member.requestId} className="space-y-1">
@@ -92,6 +74,27 @@ function PermissionGroupView({ group, automaticApproval, decisions, children }: 
                     {children(member)}
                 </>}
         </div>)}
+        {/* Sticks to the bottom of the scrolling conversation while the group's
+            cards are on screen, where a thumb reaches it on a phone. */}
+        {open && <div data-testid="ai-agent-permission-group-actions"
+            className="sticky bottom-0 z-10 -mx-3 -mb-3 space-y-2 rounded-b-md border-t bg-background px-3 pb-3 pt-2">
+            <p className="text-xs text-muted-foreground">{t('pages.aiAgent.permissionGroup.validity')}</p>
+            {failedMember && <p role="alert" className="text-xs text-destructive">
+                {t('pages.aiAgent.permissionGroup.stopped', { step: step(failedMember) })}
+            </p>}
+            {decisions && (approveAll.send.length > 0 || denyAll.length > 0) && <div className="flex gap-2">
+                <Button type="button" className="flex-1 gap-1.5" disabled={buttonsDisabled || approveAll.send.length === 0}
+                    onClick={() => void run(true)}>
+                    <Check className="h-4 w-4" />
+                    {t('pages.aiAgent.permissionGroup.approveAll')}
+                </Button>
+                <Button type="button" variant="outline" className="flex-1 gap-1.5" disabled={buttonsDisabled || denyAll.length === 0}
+                    onClick={() => void run(false)}>
+                    <X className="h-4 w-4" />
+                    {t('pages.aiAgent.permissionGroup.denyAll')}
+                </Button>
+            </div>}
+        </div>}
     </div>;
 }
 

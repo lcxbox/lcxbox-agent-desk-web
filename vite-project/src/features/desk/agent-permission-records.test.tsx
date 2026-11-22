@@ -119,6 +119,26 @@ describe('permission card groups', () => {
         expect(screen.getByRole('button', { name: 'pages.aiAgent.permissionGroup.approveAll' })).toBeEnabled();
     });
 
+    it('pins the group buttons to the bottom while scrolling through the cards', () => {
+        render(<GroupRecords requests={[member('a', 'pending', 0), member('b', 'pending', 1)]} decisions={decisions(vi.fn())} />);
+        const group = screen.getByTestId('ai-agent-permission-group');
+        const actions = screen.getByTestId('ai-agent-permission-group-actions');
+        expect(actions).toHaveClass('sticky', 'bottom-0', 'z-10', 'bg-background');
+        expect(group.lastElementChild).toBe(actions);
+        expect(actions).toContainElement(screen.getByRole('button', { name: 'pages.aiAgent.permissionGroup.approveAll' }));
+        expect(actions).toContainElement(screen.getByRole('button', { name: 'pages.aiAgent.permissionGroup.denyAll' }));
+        expect(actions).toHaveTextContent('pages.aiAgent.permissionGroup.validity');
+        expect(actions).not.toHaveTextContent('pages.aiAgent.permissionGroup.step');
+        const header = screen.getByTestId('ai-agent-permission-group-header');
+        expect(header).not.toHaveClass('sticky');
+        expect(header).toHaveTextContent('pages.aiAgent.permissionGroup.title');
+    });
+
+    it('drops the action bar once the group is decided', () => {
+        render(<GroupRecords requests={[member('a', 'approved', 0), member('b', 'denied', 1)]} decisions={decisions(vi.fn())} />);
+        expect(screen.queryByTestId('ai-agent-permission-group-actions')).toBeNull();
+    });
+
     it('moves a group to history only once every card is decided', () => {
         const { rerender } = render(<GroupRecords requests={[member('a', 'approved', 0), member('b', 'pending', 1)]} />);
         expect(screen.getByText('a')).toBeTruthy();

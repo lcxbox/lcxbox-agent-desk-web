@@ -662,6 +662,8 @@ export default {
   'pages.aiAgent.contextMeter.hint': "系统提示词、工具定义和其他预留按最近一次请求计算，已从对话预算中扣除。圆环显示对话预算的使用比例；回复和工具结果也会占用空间。后续请求可能变化，这里的字节估算与模型实际计算可能不同，剩余空间不代表还能输入的精确字数。",
   'pages.aiAgent.contextMeter.unknownHint': "尚无有效的上下文预算数据。首次模型编排后显示；不会按会话文本猜测百分比。",
   'pages.aiAgent.permissionDetails': '查看审批详情',
+  'pages.aiAgent.permissionFingerprintNote': '本次批准只对上面显示的内容有效，内容有任何改动都需要重新申请。',
+  'pages.aiAgent.grantFingerprintNote': '此授权只对批准时显示的内容有效，内容有任何改动都需要重新申请。',
   'pages.aiAgent.history.restoreError': '无法恢复会话',
   'pages.aiAgent.history.running': "运行中",
   'pages.aiAgent.history.delete': "删除",

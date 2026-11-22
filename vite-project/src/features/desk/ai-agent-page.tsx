@@ -8,7 +8,8 @@ import { AgentGoalPanel, goalPlanningAction } from './agent-goal-panel';
 import { AgentConversationMessages } from './agent-conversation-messages';
 import { AgentConversationHistory } from './agent-conversation-history';
 import { AgentQueuedMessages } from './agent-queued-messages';
-import { permissionToolLabel, permissionResourceLabel, permissionOperationLabel, isReusableWebHost } from './agent-permission-labels';
+import { permissionToolLabel, permissionResourceLabel, permissionOperationLabel, isReusableWebHost, distinctOperationScopes } from './agent-permission-labels';
+import { BindingFingerprintNote, splitBindingFingerprints } from './agent-permission-fingerprints';
 import { AgentAttachments } from './agent-attachments';
 import { requireRecoveryZip } from '@/lib/file-recovery-error';
 import { AgentComposerInput } from './agent-composer-input';
@@ -576,6 +577,7 @@ export function AiAgentWorkspace({
                                         : grant.remainingUses === 0
                                             ? 'exhausted'
                                             : 'active';
+                                const grantScopes = splitBindingFingerprints(grant.resourceScope);
                                 return (
                                     <div key={grant.grantId} className="space-y-2 rounded-md bg-muted/50 p-3">
                                         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -598,11 +600,12 @@ export function AiAgentWorkspace({
                                             <p>{t('pages.aiAgent.grantExpiresAt', {
                                                 time: new Date(grant.expiresAtUnixMs).toLocaleString(),
                                             })}</p>
-                                            {[...grant.resourceScope, ...grant.operationScope].length > 0 && (
+                                            {[...grantScopes.shown, ...distinctOperationScopes(t, grant)].length > 0 && (
                                                 <p className="break-all">
-                                                    {[...grant.resourceScope.map((scope) => permissionResourceLabel(t, scope)), ...grant.operationScope.map((scope) => permissionOperationLabel(t, scope, grant.toolName))].join(' · ')}
+                                                    {[...grantScopes.shown.map((scope) => permissionResourceLabel(t, scope)), ...distinctOperationScopes(t, grant).map((scope) => permissionOperationLabel(t, scope, grant.toolName))].join(' · ')}
                                                 </p>
                                             )}
+                                            <BindingFingerprintNote fingerprints={grantScopes.fingerprints} grant />
                                             {grant.revokedReason && <p className="break-all">{grant.revokedReason}</p>}
                                         </div>
                                         {featureProfile.grant_revoke && state === 'active' && (

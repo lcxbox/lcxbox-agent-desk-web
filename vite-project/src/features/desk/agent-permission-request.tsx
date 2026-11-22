@@ -1,4 +1,4 @@
-import { permissionToolLabel, permissionEffectLabel, permissionResourceLabel, permissionOperationLabel, permissionReasonLabel, isReusableWebHost } from './agent-permission-labels';
+import { permissionToolLabel, permissionEffectLabel, permissionResourceLabel, permissionOperationLabel, permissionReasonLabel, isReusableWebHost, distinctOperationScopes } from './agent-permission-labels';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Check, X } from 'lucide-react';
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import type { PermissionDecisionBody, PermissionRequestDto } from '@/services/types';
 import { OutputConfirmationCard, validOutputReview, isOutputInput, outputApprovalBlocked } from './ai-agent-output-confirmation';
 import { AgentPermissionDisclosure } from './agent-permission-disclosure';
+import { BindingFingerprintNote, splitBindingFingerprints } from './agent-permission-fingerprints';
 import { CommandConfirmationCard, validCommandReview } from './ai-agent-command';
 import { LaunchConfirmationCard, validLaunchReview } from './ai-agent-launch';
 import { TextFileConfirmationCard, validTextFileReview, fileApprovalBlocked } from './ai-agent-file-confirmation';
@@ -126,6 +127,13 @@ export function AgentPermissionRequest({ request, canDecide, disabled = false, b
                         ?? item.resourceScope;
                     const operationScope = edit.operationScope
                         ?? item.operationScope;
+                    const scopes = splitBindingFingerprints(item.resourceScope, item.applicationScope?.application_name);
+                    // The tool, its effect and its only operation often name the same
+                    // thing (exec_command: "Run command" three times); show it once.
+                    // Hidden operations keep no checkbox and are always submitted.
+                    const toolLabel = permissionToolLabel(t, item.toolName);
+                    const effectLabel = permissionEffectLabel(t, item.expectedEffect, item.toolName);
+                    const shownOperations = distinctOperationScopes(t, item);
                     const exportDestinationIndexes = edit.exportDestinationIndexes
                         ?? item.exportDestinations.map((_, index) => index);
                     return (
@@ -146,26 +154,7 @@ export function AgentPermissionRequest({ request, canDecide, disabled = false, b
                             )}
                             <div>
                                 <p className="text-sm font-medium">{reason}</p>
-                                {decidedItem && <div className="mt-2 space-y-1 text-xs">
-                                    <p className={decidedItem.approved ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}>
-                                        {t(`pages.aiAgent.permissionItemOutcome.${decidedItem.outcome}`)} · {t(`pages.aiAgent.permissionDecisionSource.${decidedItem.source}`)}
-                                    </p>
-                                    {decidedItem.reason && <p className="whitespace-pre-wrap break-words text-muted-foreground">
-                                        {t('pages.aiAgent.permissionDecisionReason')}: {decidedItem.source === 'system' ? t(`pages.aiAgent.permissionSystemReason.${decidedItem.reasonCode}`, { defaultValue: decidedItem.reason }) : decidedItem.reason}
-                                    </p>}
-                                </div>}
-                                <p className="mt-1 break-all text-xs text-muted-foreground">
-                                    {permissionToolLabel(t, item.toolName)} · {permissionEffectLabel(t, item.expectedEffect, item.toolName)}
-                                    {item.selectedReadDeviceRef && <> · {t('pages.aiAgent.permissionReadTarget', { target: item.selectedReadDeviceRef })}</>}
-                                </p>
-                                {item.applicationScope && (
-                                    <div data-testid="application-ui-scope" className="mt-3 space-y-1 rounded-md border p-3 text-xs">
-                                        <p className="font-medium">{t('pages.aiAgent.applicationUiScopeTitle', { name: item.applicationScope.application_name })}</p>
-                                        <p>{t('pages.aiAgent.applicationUiScopeDescription')}</p>
-                                        <p>{t('pages.aiAgent.applicationUiScopeLifetime')}</p>
-                                        <p>{item.applicationScope.actions.map((action) => t(`pages.aiAgent.uiAction_${action}`)).join(' · ')}</p>
-                                    </div>
-                                )}
+                                {/* What is being approved comes first; scope and limits follow. */}
                                 {validOutputReview(item.waylandOutputConfirmation) && <OutputConfirmationCard value={item.waylandOutputConfirmation} />}
                                 {validCommandReview(commandConfirmation) && <CommandConfirmationCard value={commandConfirmation} />}
                                 {validLaunchReview(item.launchConfirmation) && <LaunchConfirmationCard value={item.launchConfirmation} />}
@@ -209,27 +198,49 @@ export function AgentPermissionRequest({ request, canDecide, disabled = false, b
                                         )}
                                     </div>
                                 )}
+                                {decidedItem && <div className="mt-2 space-y-1 text-xs">
+                                    <p className={decidedItem.approved ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}>
+                                        {t(`pages.aiAgent.permissionItemOutcome.${decidedItem.outcome}`)} · {t(`pages.aiAgent.permissionDecisionSource.${decidedItem.source}`)}
+                                    </p>
+                                    {decidedItem.reason && <p className="whitespace-pre-wrap break-words text-muted-foreground">
+                                        {t('pages.aiAgent.permissionDecisionReason')}: {decidedItem.source === 'system' ? t(`pages.aiAgent.permissionSystemReason.${decidedItem.reasonCode}`, { defaultValue: decidedItem.reason }) : decidedItem.reason}
+                                    </p>}
+                                </div>}
+                                <p className="mt-1 break-all text-xs text-muted-foreground">
+                                    {toolLabel}{effectLabel !== toolLabel && <> · {effectLabel}</>}
+                                    {item.selectedReadDeviceRef && <> · {t('pages.aiAgent.permissionReadTarget', { target: item.selectedReadDeviceRef })}</>}
+                                </p>
+                                {item.applicationScope && (
+                                    <div data-testid="application-ui-scope" className="mt-3 space-y-1 rounded-md border p-3 text-xs">
+                                        <p className="font-medium">{t('pages.aiAgent.applicationUiScopeTitle', { name: item.applicationScope.application_name })}</p>
+                                        <p>{t('pages.aiAgent.applicationUiScopeDescription')}</p>
+                                        <p>{t('pages.aiAgent.applicationUiScopeLifetime')}</p>
+                                        <p>{item.applicationScope.actions.map((action) => t(`pages.aiAgent.uiAction_${action}`)).join(' · ')}</p>
+                                    </div>
+                                )}
                                 {approvalBlocked && (
                                     <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">
                                         {t(outputBlocked ? 'pages.aiAgent.outputConfirmMissing' : needsApplicationScope(item.toolName) && !hasNativeUiAuthority(item) ? 'pages.aiAgent.applicationUiScopeMissing' : fileApprovalBlocked(item) ? (item.toolName === COMMAND_RESTORE_TOOL ? 'pages.aiAgent.commandRestore.missing' : 'pages.aiAgent.fileConfirmMissing')
                                             : launchBlocked ? 'pages.aiAgent.launchSummaryMissing' : commandBlocked ? 'pages.aiAgent.commandSummaryMissing' : 'pages.aiAgent.externalSendSummaryMissing')}
                                     </p>
                                 )}
-                                {!item.applicationScope && (item.resourceScope.length > 0 || item.operationScope.length > 0) && (
+                                {!item.applicationScope && (scopes.shown.length > 0 || shownOperations.length > 0) && (
                                     <p className="mt-1 break-all text-xs text-muted-foreground">
-                                        {[...item.resourceScope.map((scope) => permissionResourceLabel(t, scope)), ...item.operationScope.map((scope) => permissionOperationLabel(t, scope, item.toolName))].join(' · ')}
+                                        {[...scopes.shown.map((scope) => permissionResourceLabel(t, scope)), ...shownOperations.map((scope) => permissionOperationLabel(t, scope, item.toolName))].join(' · ')}
                                     </p>
                                 )}
+                                <BindingFingerprintNote fingerprints={scopes.fingerprints} />
                                 {canDecide
                                     && request.state === 'pending'
                                     && approved && (
                                     <div className="mt-3 space-y-3 border-t pt-3">
-                                        {item.resourceScope.length > 0 && (
+                                        {/* Fingerprints have no checkbox: they stay selected and are always submitted. */}
+                                        {scopes.shown.length > 0 && (
                                             <div className="space-y-1">
                                                 <p className="text-xs font-medium">
                                                     {t('pages.aiAgent.permissionResourceScope')}
                                                 </p>
-                                                {item.resourceScope.map((scope) => (
+                                                {scopes.shown.map((scope) => (
                                                     <label key={scope} className="flex items-center gap-2 text-xs">
                                                         <Checkbox
                                                             checked={resourceScope.includes(scope)}
@@ -247,12 +258,12 @@ export function AgentPermissionRequest({ request, canDecide, disabled = false, b
                                             </div>
                                         )}
                                         {item.applicationScope && <p className="text-xs text-muted-foreground">{t('pages.aiAgent.batchGrantUses')}</p>}
-                                        {item.operationScope.length > 0 && (
+                                        {shownOperations.length > 0 && (
                                             <div className="space-y-1">
                                                 <p className="text-xs font-medium">
                                                     {t('pages.aiAgent.permissionOperationScope')}
                                                 </p>
-                                                {item.operationScope.map((scope) => (
+                                                {shownOperations.map((scope) => (
                                                     <label key={scope} className="flex items-center gap-2 text-xs">
                                                         <Checkbox
                                                             checked={operationScope.includes(scope)}

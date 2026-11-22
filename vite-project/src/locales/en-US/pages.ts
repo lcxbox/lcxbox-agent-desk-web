@@ -663,6 +663,8 @@ export default {
   'pages.aiAgent.contextMeter.hint': "System instructions, tool definitions and other reserved space use the latest request and are already deducted from the conversation budget. The ring shows how much of that conversation budget is used; replies and tool results also take space. Later requests may differ. These byte estimates may differ from the model’s actual calculation, so remaining space is not an exact character allowance.",
   'pages.aiAgent.contextMeter.unknownHint': "No valid context budget is available yet. Usage appears after model request preparation; it is not guessed from the transcript.",
   'pages.aiAgent.permissionDetails': 'View permission details',
+  'pages.aiAgent.permissionFingerprintNote': 'This approval covers exactly what is shown above; any change needs a new approval.',
+  'pages.aiAgent.grantFingerprintNote': 'This grant covers exactly the content shown when it was approved; any change needs a new approval.',
   'pages.aiAgent.history.restoreError': 'Could not restore conversation',
   'pages.aiAgent.history.running': "Running",
   'pages.aiAgent.history.delete': "Delete",

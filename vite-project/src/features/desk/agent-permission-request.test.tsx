@@ -236,6 +236,64 @@ describe('shared permission review', () => {
             expect(screen.getByText('pages.aiAgent.interactiveCommand.unsupportedHere')).toBeInTheDocument();
         });
     });
+    describe('binding fingerprints', () => {
+        const input = `command_input:sha256:${'a'.repeat(64)}`;
+        const plan = `command_plan:sha256:${'b'.repeat(64)}`;
+        const command = () => request([item({
+            itemId: 'command', toolName: 'exec_command', providerId: 'system.command',
+            expectedEffect: 'execute_command', resourceScope: ['target:current_device', input, plan],
+            operationScope: ['exec_command'], suggestedMaxUses: 1,
+            commandConfirmation: {
+                command: 'Get-Process', shell: 'powershell', cwd: null, targetDeviceId: 'd',
+                targetSessionId: 'host:1', timeoutMs: 1000, maxStdoutBytes: 1, maxStderrBytes: 1,
+                executionBasis: 'template', oneShot: true,
+                sandbox: { mode: 'unrestricted', attention: 'neutral', writableRoots: [], implicitWritable: [], identity: null },
+            },
+        })]);
+        it('keeps fingerprints out of the visible scope and explains the binding in one sentence', () => {
+            render(<AgentPermissionRequest request={command()} canDecide onDecide={vi.fn()} />);
+            expect(screen.getByText('pages.aiAgent.permissionFingerprintNote')).toBeVisible();
+            for (const fingerprint of [input, plan]) {
+                expect(screen.queryByRole('checkbox', { name: fingerprint })).toBeNull();
+                // Only the collapsed technical details carry the raw value.
+                const shown = screen.getAllByText(new RegExp(fingerprint));
+                expect(shown).toHaveLength(1);
+                expect(shown[0]).not.toBeVisible();
+            }
+            expect(screen.getByText('pages.aiAgent.workspace.technicalDetails')).toBeVisible();
+            expect(screen.getByRole('checkbox', { name: 'target:current_device' })).toBeChecked();
+            // The single operation only names the tool: shown once, as the tool.
+            expect(screen.getByText('target:current_device', { selector: 'p' })).toBeInTheDocument();
+            expect(screen.queryByText(/exec_command · exec_command/)).toBeNull();
+            expect(screen.queryByText('pages.aiAgent.permissionOperationScope')).toBeNull();
+        });
+        it('submits the hidden fingerprints with the approval, even after narrowing the visible scope', () => {
+            const onDecide = vi.fn().mockResolvedValue(true);
+            const { unmount } = render(<AgentPermissionRequest request={command()} canDecide onDecide={onDecide} />);
+            fireEvent.click(submit());
+            expect(onDecide.mock.calls[0][1][0]).toMatchObject({ decision: 'approve', resource_scope: ['target:current_device', input, plan], operation_scope: ['exec_command'] });
+            unmount();
+            onDecide.mockClear();
+            render(<AgentPermissionRequest request={command()} canDecide onDecide={onDecide} />);
+            fireEvent.click(screen.getByRole('checkbox', { name: 'target:current_device' }));
+            fireEvent.click(submit());
+            expect(onDecide.mock.calls[0][1][0].resource_scope).toEqual([input, plan]);
+        });
+        it('shows the command before the scope', () => {
+            render(<AgentPermissionRequest request={command()} canDecide onDecide={vi.fn()} />);
+            const box = screen.getByTestId('command-confirmation');
+            for (const later of [
+                screen.getByText('target:current_device', { selector: 'p' }),
+                screen.getByText('pages.aiAgent.permissionResourceScope'),
+                screen.getByText('pages.aiAgent.permissionFingerprintNote'),
+            ]) expect(box.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        });
+        it('shows no note when nothing was hidden', () => {
+            render(<AgentPermissionRequest request={request()} canDecide onDecide={vi.fn()} />);
+            expect(screen.queryByText('pages.aiAgent.permissionFingerprintNote')).toBeNull();
+            expect(screen.queryByText('pages.aiAgent.workspace.technicalDetails')).toBeNull();
+        });
+    });
     it('shows a command restore review and denies the restore when the review is missing', async () => {
         const restore = { itemId: 'restore', providerId: 'file.text', toolName: 'restore_command_changes', expectedEffect: 'write_artifact' as const,
             resourceScope: [], operationScope: [] };

@@ -46,6 +46,17 @@ export function permissionOperationLabel(t: TFunction, value: string, toolName?:
     return operation === value ? permissionToolLabel(t, value) : operation;
 }
 
+/**
+ * Operation scopes worth showing next to the tool: an operation that only
+ * names the tool itself (exec_command's single `exec_command`) repeats the
+ * tool label. Display-only; submitted scopes are unchanged.
+ */
+export function distinctOperationScopes(t: TFunction, value: { toolName: string; operationScope: string[] }): string[] {
+    const tool = permissionToolLabel(t, value.toolName);
+    return value.operationScope.filter((scope) => scope !== value.toolName
+        && permissionOperationLabel(t, scope, value.toolName) !== tool);
+}
+
 export function permissionResourceLabel(t: TFunction, value: string, applicationName?: string | null): string {
     if (applicationName && value.startsWith('ui_application:')) return applicationName;
     const exact = label(t, 'permissionResource', value);

@@ -59,7 +59,10 @@ describe('permission internationalization', () => {
         expect(screen.queryByText("Requested by the agent's tool call.")).toBeNull();
         expect(screen.getByText(/恢复命令修改 · 恢复文件/)).toBeInTheDocument();
         expect(screen.queryByText(/创建输出文件/)).toBeNull();
-        expect(screen.getByText('所选对象：sha256:abc · 恢复命令改动的文件')).toBeInTheDocument();
+        // The selected-file fingerprint binds the reviewed files; it is not shown as scope.
+        expect(screen.getByText('恢复命令改动的文件')).toBeInTheDocument();
+        expect(screen.getByText('本次批准只对上面显示的内容有效，内容有任何改动都需要重新申请。')).toBeInTheDocument();
+        expect(screen.getByText('selected:sha256:abc')).not.toBeVisible();
         expect(screen.queryByText(/创建新文件/)).toBeNull();
 
         for (const [tool, effect, operation] of [
