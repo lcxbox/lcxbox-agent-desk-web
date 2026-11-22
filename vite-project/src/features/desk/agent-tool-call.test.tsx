@@ -29,33 +29,14 @@ describe('tool call transcript', () => {
         expect(screen.getByRole('img', { name: 'pages.aiAgent.toolCall.skippedForPermission' })).toBeTruthy();
     });
 
-    it('labels the pending permission tool result as its submission-time receipt', () => {
-        render(<AgentToolCall running={false} tool={{ ...tool,
-            name: 'request_permissions', status: 'ok',
-            output: JSON.stringify({ status: 'pending_user_decision', request_id: 'request-1', authority: 'none', item_count: 1 }),
-        }} />);
-        fireEvent.click(screen.getByText(/request_permissions/));
-        expect(screen.getByText('pages.aiAgent.permissionSubmissionReceipt')).toBeTruthy();
-    });
-
-    it('labels a direct call that waits for approval as its submission receipt', () => {
-        render(<AgentToolCall running={false} tool={{ ...tool,
-            name: 'browser_open_page', status: 'ok',
-            output: JSON.stringify({ status: 'pending_user_decision', request_id: 'request-1', authority: 'none', item_count: 1, executed: false }),
-        }} />);
-        fireEvent.click(screen.getByText(/browser_open_page/));
-        expect(screen.getByText('pages.aiAgent.permissionSubmissionReceipt')).toBeTruthy();
-    });
-
     it.each(['ai_approval', 'owner'] as const)('shows the saved %s decision after the input', source => {
-        const review = { ...tool, name: 'request_permissions', status: 'ok' as const,
-            output: '{"status":"pending_user_decision","request_id":"request-1"}' };
+        const review = { ...tool, name: 'exec_command', status: 'running' as const, output: null };
         const { rerender } = render(<AgentToolCall running={false} tool={{
             ...review, permissionReview: { state: 'pending' },
         }} />);
         expect(screen.getByRole('img', { name: 'pages.aiAgent.permissionState.pending' })).toBeTruthy();
         expect(screen.queryByRole('img', { name: 'pages.aiAgent.toolCall.success' })).toBeNull();
-        fireEvent.click(screen.getByText(/request_permissions/));
+        fireEvent.click(screen.getByText(/exec_command/));
         const input = screen.getByLabelText('pages.aiAgent.toolCall.input');
         rerender(<AgentToolCall running={false} tool={{ ...review, permissionReview: { state: 'approved', source } }} />);
         const decision = screen.getByText(`pages.aiAgent.permissionDecisionSource.${source}`);

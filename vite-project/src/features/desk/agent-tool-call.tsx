@@ -15,16 +15,6 @@ export function isHistoricalPermissionSkip(output: string | null | undefined): b
         || false;
 }
 
-function isPermissionSubmissionReceipt(tool: AiAgentToolActivity): boolean {
-    // A direct tool call that waits for approval reports the same receipt.
-    if (!tool.output) return false;
-    try {
-        const result = JSON.parse(tool.output);
-        return result?.status === 'pending_user_decision'
-            && typeof result.request_id === 'string';
-    } catch { return false; }
-}
-
 function batchResult(tool: AiAgentToolActivity) {
     if (!['execute_ui_actions', 'send_background_input'].includes(tool.name) || !tool.output) return null;
     try {
@@ -106,12 +96,11 @@ export function AgentToolCall({ tool, running, displayName, initialOpen = false 
     const prefix = 'pages.aiAgent.toolCall.';
     const batch = batchResult(tool);
     const permissionSkip = isHistoricalPermissionSkip(tool.output);
-    const permissionSubmission = isPermissionSubmissionReceipt(tool);
     const outcomeUnknown = hasUnknownOutcome(tool.output, tool.callId);
     const status = tool.status === 'running' && !running ? 'missing' : tool.status;
     const displayStatus = tool.permissionReview?.state === 'approved' ? 'ok'
         : tool.permissionReview?.state === 'denied' ? 'failed'
-        : permissionSubmission || (status === 'ok' && isConfirmedNotSent(tool.name, tool.output)) ? 'returned' : status;
+        : status === 'ok' && isConfirmedNotSent(tool.name, tool.output) ? 'returned' : status;
     const StatusIcon = permissionSkip || outcomeUnknown ? CircleHelp : displayStatus === 'ok' ? CheckCircle2 : displayStatus === 'failed' ? XCircle : displayStatus === 'running' ? Loader2 : displayStatus === 'returned' ? CircleDot : CircleHelp;
     const statusLabel = tool.permissionReview
         ? t(`pages.aiAgent.permissionState.${tool.permissionReview.state}`)
@@ -133,7 +122,6 @@ export function AgentToolCall({ tool, running, displayName, initialOpen = false 
             {tool.permissionReason && <p className="whitespace-pre-wrap break-words">{t('pages.aiAgent.permissionReasonLabel', { reason: tool.permissionReason })}</p>}
             <AgentCodeBlock label={t(`${prefix}input`)} text={tool.name === 'unknown' ? t(`${prefix}missingInput`) : tool.argumentsJson} />
             {tool.permissionReview?.source && <p className="text-muted-foreground">{t(`pages.aiAgent.permissionDecisionSource.${tool.permissionReview.source}`)}</p>}
-            {permissionSubmission && <p className="text-muted-foreground">{t('pages.aiAgent.permissionSubmissionReceipt')}</p>}
             {tool.output === null
                 ? <p className="text-muted-foreground">{statusLabel}</p>
                 : <AgentCodeBlock label={t(`${prefix}output`)} text={tool.output === '' ? t(`${prefix}empty`) : tool.output} />}

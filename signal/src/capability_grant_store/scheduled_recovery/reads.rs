@@ -60,10 +60,7 @@ pub(super) async fn close_untracked_on(
         let internal = session.agent_role.binding().is_some()
             && matches!(
                 call.name.as_str(),
-                "request_permissions"
-                    | "list_capabilities"
-                    | "describe_tools"
-                    | "list_scheduled_tasks"
+                "list_capabilities" | "describe_tools" | "list_scheduled_tasks"
             );
         let readable = capability.is_some_and(|capability| {
             matches!(

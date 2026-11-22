@@ -345,7 +345,6 @@ export function projectPersistedSnapshot(snapshot: Pick<PersistedSnapshot, 'mess
     const resolveDecision = decisionResolver(snapshot);
     let tools: AiAgentToolActivity[] = [];
     let draft: ComputerActionDraftPreview | null = null;
-    const permissions = new Map(snapshot.permissionRequests?.map(request => [request.requestId, request]));
     // A direct call waiting for approval has no result yet; its request item
     // carries the call id, so the row shows the pending decision instead of
     // a running tool.
@@ -390,17 +389,10 @@ export function projectPersistedSnapshot(snapshot: Pick<PersistedSnapshot, 'mess
             let nativeFailed = false;
             let nativeVerified = false;
             let nativeFileResult = false;
-            let permissionReview: AiAgentToolActivity['permissionReview'];
-            let approvalReceipt = false;
             let decision: AgentDecisionReceipt | undefined;
             try {
                 const native = JSON.parse(message.text);
                 permissionReason = snapshot.actionPermissionReasons?.[String(native.work_id)];
-                approvalReceipt = native.status === 'pending_user_decision' && typeof native.request_id === 'string';
-                if (approvalReceipt) {
-                    const request = permissions.get(native.request_id);
-                    if (request) permissionReview = { state: request.state, source: request.decision?.source };
-                }
                 // A decision receipt is not the tool result: the agent
                 // receives the decision when the server resumes the turn.
                 const submitted = native && typeof native === 'object' ? decisionRequestOf(native) : null;
@@ -416,7 +408,6 @@ export function projectPersistedSnapshot(snapshot: Pick<PersistedSnapshot, 'mess
             tools = upsertTool(tools, {
                 callId: message.toolCallId,
                 permissionReason,
-                ...(permissionReview && { permissionReview }),
                 ...(decision && { decision }),
                 name: existing?.name ?? 'unknown',
                 status: backgroundRunning ? 'running'
@@ -427,8 +418,7 @@ export function projectPersistedSnapshot(snapshot: Pick<PersistedSnapshot, 'mess
                 argumentsJson: existing?.argumentsJson ?? '{}',
                 output: message.text,
             });
-            // An approval receipt is not command output; the permission card shows it.
-            if (!backgroundRunning && !approvalReceipt && message.text && (existing?.name === 'exec_command' || nativeFileResult || message.backgroundTaskId || (nativeFailed && permissionReason))) {
+            if (!backgroundRunning && message.text && (existing?.name === 'exec_command' || nativeFileResult || message.backgroundTaskId || (nativeFailed && permissionReason))) {
                 messages.push({ id: message.id, role: 'tool_result', toolCallId: message.toolCallId, turnId: message.turnId, text: message.text, permissionReason });
             }
         }

@@ -2299,7 +2299,6 @@ export default {
   'pages.aiAgent.goalReasons.attachment_missing': 'An attachment required by the goal is unavailable.',
   'pages.aiAgent.goalReasons.attachment_capacity': 'The attachment quota is full, so the goal was paused.',
   'pages.aiAgent.goalReasons.needs_next_step': 'Your direction is needed for the next step.',
-  'pages.aiAgent.permissionSubmissionReceipt': 'This is the receipt from when the request was submitted. Check the permission card for its current decision.',
   'pages.aiAgent.chatPhase.context_trimmed': 'Adjusting context size',
   'pages.aiAgent.chatPhase.context_refreshed': 'Refreshing temporary information',
   'pages.aiAgent.chatPhase.context_restricted': 'Updating eligible context',

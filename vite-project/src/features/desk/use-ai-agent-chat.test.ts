@@ -2376,14 +2376,12 @@ describe('useAiAgentChat', () => {
         let subscriber: SignalingSubscriber | undefined;
         const sendMessage = vi.fn();
         const receipt = { requestId: 'parent', clientMessageId: 'input', state: 'activated', inputRevision: 1, acceptedAtMs: 1 };
-        const permission = { requestId: 'approval', inputRevision: 1, state: 'pending', items: [] };
+        const permission = { requestId: 'approval', inputRevision: 1, state: 'pending', items: [{ itemId: 'review' }] };
         const user = { id: 'input', role: 'user', text: 'Check disk space' };
         // The model calls the command directly; the call waits for approval.
         const proposal = { id: 'proposal', role: 'assistant', text: '', reasoning: 'Run the command.', toolCalls: [
             { id: 'review', name: 'exec_command', argumentsJson: '{"command":"df -h"}' },
         ] };
-        const receiptMessage = { id: 'receipt', role: 'tool', toolCallId: 'review', toolOk: true,
-            text: '{"status":"pending_user_decision","request_id":"approval"}' };
         const exec = { id: 'exec', role: 'assistant', text: '', reasoning: 'Run the approved command.', toolCalls: [
             { id: 'disk', name: 'exec_command', argumentsJson: '{"command":"df -h"}' },
         ] };
@@ -2418,7 +2416,7 @@ describe('useAiAgentChat', () => {
             expectSameTimeline(['input']);
 
             snapshot = { ...snapshot, seq: 2, active: false, handledInputSeq: 1,
-                messages: [user, proposal, receiptMessage], permissionRequests: [permission] };
+                messages: [user, proposal], permissionRequests: [permission] };
             await poll();
             expectSameTimeline(['input', 'proposal', 'tool-call-review']);
             expect(original.result.current.status).toBe('permission_required');
@@ -2428,7 +2426,6 @@ describe('useAiAgentChat', () => {
                 messages: [...snapshot.messages, exec], permissionRequests: [approved] };
             await poll();
             expectSameTimeline(['input', 'proposal', 'tool-call-review', 'exec', 'tool-call-disk']);
-            expect(original.result.current.tools[0].permissionReview).toEqual({ state: 'approved', source: 'ai_approval' });
             expect(original.result.current.tools[1].output).toBeNull();
             act(() => {
                 deliver('parent', 3, { kind: 'turn_started' });
@@ -2792,7 +2789,6 @@ it('distinguishes returned historical results from explicit tool errors', async 
     localStorage.setItem('ai-agent-conversation:tool-status-device', 'tool-status-conversation');
     const calls = [
         { id: 'read', name: 'inspect_desktop_ui', text: '{"ReadContext":{"DesktopUiInspect":{}}}' },
-        { id: 'permission', name: 'request_permissions', text: '{"status":"pending_user_decision","request_id":"request"}' },
         { id: 'confirmed', name: 'inspect_desktop_ui', text: '{"ReadContext":{}}', toolOk: true },
         { id: 'rejected', name: 'inspect_desktop_ui', text: '{"message":"request rejected"}', toolOk: false },
         { id: 'error', name: 'inspect_desktop_ui', text: '{"status":"error","message":"device unavailable"}' },
@@ -2813,7 +2809,7 @@ it('distinguishes returned historical results from explicit tool errors', async 
     try {
         await waitFor(() => expect(result.current.tools).toHaveLength(calls.length));
         expect(Object.fromEntries(result.current.tools.map(tool => [tool.callId, tool.status]))).toEqual({
-            read: 'returned', permission: 'returned', confirmed: 'ok', rejected: 'failed',
+            read: 'returned', confirmed: 'ok', rejected: 'failed',
             error: 'failed', 'wait-error': 'failed',
         });
     } finally {

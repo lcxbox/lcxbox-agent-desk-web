@@ -2296,7 +2296,6 @@ export default {
   'pages.aiAgent.goalReasons.attachment_missing': '目标需要的附件已不可用。',
   'pages.aiAgent.goalReasons.attachment_capacity': '附件容量不足，目标已暂停。',
   'pages.aiAgent.goalReasons.needs_next_step': '需要您确认下一步。',
-  'pages.aiAgent.permissionSubmissionReceipt': '这是权限申请提交时的历史回执；当前审批结果请查看权限卡片。',
   'pages.aiAgent.chatPhase.context_trimmed': '正在调整上下文容量',
   'pages.aiAgent.chatPhase.context_refreshed': '正在刷新临时信息',
   'pages.aiAgent.chatPhase.context_restricted': '正在调整可用上下文',
