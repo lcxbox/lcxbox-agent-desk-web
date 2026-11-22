@@ -101,7 +101,7 @@ async fn validate_dispatch_on_inner(
     .await?
     .ok_or_else(|| invalid())?;
     let session = PersistedAgentSession::decode_json(&row.state_json).map_err(|_| invalid())?;
-    if session.surface != AgentSessionSurface::AiAssistant
+    if session.surface != AgentSessionSurface::AiAgent
         || session.version != row.version
         || session.delegation_group_id.as_ref() != Some(&reservation.group_id)
         || session.input_revision != reservation.input_revision

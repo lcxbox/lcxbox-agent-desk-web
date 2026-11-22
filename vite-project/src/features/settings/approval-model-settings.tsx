@@ -210,7 +210,7 @@ export function ApprovalModelSettings() {
             <CardHeader>
                 <CardTitle>{t('pages.aiModel.settings.gateway')}</CardTitle>
                 <CardDescription>{config.available ? t('pages.approvalModel.available')
-                    : t(`pages.aiAssistant.approvalModelReason.${config.unavailable_reason ?? 'unknown'}`)}</CardDescription>
+                    : t(`pages.aiAgent.approvalModelReason.${config.unavailable_reason ?? 'unknown'}`)}</CardDescription>
             </CardHeader>
             <CardContent>
                 <form onSubmit={event => void save(event)} className="space-y-6">

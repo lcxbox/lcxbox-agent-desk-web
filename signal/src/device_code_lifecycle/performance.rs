@@ -3,7 +3,7 @@ use super::{DeviceCodeLifecycle, fixtures::publish};
 use crate::{config::connection::DatabaseConnection, entity::device_code};
 use actix_web::web;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_signal_facade::model::connection::SharedConnectionMap;
 use desk_utils::error::DeskErrorCode;
 use futures_util::{StreamExt, stream};

@@ -12,7 +12,7 @@ use desk_agent_protocol::data_lineage::{
 use sha2::{Digest, Sha256};
 
 const MAX_WORKSET_BYTES: usize = 1024 * 1024;
-const PROVIDER: &str = "ai-assistant-external-issue";
+const PROVIDER: &str = "ai-agent-external-issue";
 const TOOL: &str = "issue_workset_snapshot";
 const PREFIX: &str = "external-issue-workset-";
 const COMMENT_TOOL: &str = "issue_comment_snapshot";

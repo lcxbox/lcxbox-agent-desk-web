@@ -1,4 +1,4 @@
-//! Plain conversation titles shared by assistant and documentation support.
+//! Plain conversation titles shared by agent and documentation support.
 
 use crate::{
     chat::{ChatMessage, ChatRole, ModelTurn, StopReason},

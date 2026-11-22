@@ -632,7 +632,7 @@ impl BinaryFrameObserver for SignalExecPtyCarriers {
     }
 }
 
-/// A carrier for an AI Assistant permission card: the named request must still
+/// A carrier for an AI Agent permission card: the named request must still
 /// await the owner's decision and hold exactly one interactive command whose
 /// derived execution id and target are the ones being prepared.
 async fn pending_permission_matches(
@@ -670,7 +670,7 @@ async fn pending_permission_matches(
         return false;
     };
     confirmation.target_connection_id() == request.target_connection_id
-        && session.admits_assistant_device(&confirmation.target_device_id)
+        && session.admits_agent_device(&confirmation.target_device_id)
         && desk_diagnose_core::command_confirmation::interactive_exec_request_id(
             &permission.run_id,
             &permission.request_id,

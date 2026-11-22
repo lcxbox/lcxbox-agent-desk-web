@@ -654,7 +654,7 @@ impl PersistedAgentSession {
         device_id: &str,
         conversation_id: &str,
     ) -> Result<FileScopeSubject, FileScopeError> {
-        if self.surface != AgentSessionSurface::AiAssistant
+        if self.surface != AgentSessionSurface::AiAgent
             || self.actor_id != actor_id
             || self.conversation_id != conversation_id
         {
@@ -672,7 +672,7 @@ impl PersistedAgentSession {
         if self.device_id != storage_device
             && !(self.device_id.is_empty()
                 && self.agent_role.binding().is_some()
-                && self.admits_assistant_device(device_id))
+                && self.admits_agent_device(device_id))
         {
             return Err(FileScopeError::WrongSubject);
         }
@@ -683,7 +683,7 @@ impl PersistedAgentSession {
     /// Children have no user conversation intent. Their original session is an
     /// owner control selector, never a new user input or a grant from the parent.
     pub fn file_scope_selector(&self) -> Option<&str> {
-        if self.surface != AgentSessionSurface::AiAssistant {
+        if self.surface != AgentSessionSurface::AiAgent {
             return None;
         }
         if let Some(binding) = self.agent_role.binding() {

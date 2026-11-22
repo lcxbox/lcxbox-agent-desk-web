@@ -102,7 +102,7 @@ beforeEach(() => {
         [url('turn-client')]: { traversal_mode: 'turn' },
         [url('ai-policy')]: { execution_mode: 'confirm_each_action', max_concurrent_executions: 4, max_command_runtime_seconds: 600, exec_pty_enabled: true, interactive_elevation_enabled: false, exec_pty_supported: true, interactive_elevation_supported: false },
         [url('collection-policy')]: { allow_logs: false, allow_screen: true },
-        [url('ai-assistant')]: { enabled: true, revision: '1' },
+        [url('ai-agent')]: { enabled: true, revision: '1' },
         [url('turn')]: { realm: 'initial.example', enable_turn: true, interfaces: [{ transport: 'udp', listen: '0.0.0.0:3478', external: '127.0.0.1:3478' }], relay_min_port: 50000, relay_max_port: 50050, static_auth_secret: 'initial-secret' },
     }
     writes = []

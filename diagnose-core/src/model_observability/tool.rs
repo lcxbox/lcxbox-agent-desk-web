@@ -520,7 +520,7 @@ mod tests {
                 model_name: "model".into(),
                 configuration_revision: "1".into(),
                 contract_revision: "1".into(),
-                surface: Surface::Assistant,
+                surface: Surface::Agent,
                 purpose: Purpose::Agent,
                 origin: Origin::User,
                 configuration_scope: ConfigurationScope::Local,
@@ -690,7 +690,7 @@ mod tests {
         assert_eq!(tool.permission, PermissionOutcome::NotReached);
         assert_eq!(tool.stages[&Stage::Dispatch], StageOutcome::NotReached);
         assert_eq!(tool.stages[&Stage::Completion], StageOutcome::Attempted);
-        batch.bind_message("server-assistant-message");
+        batch.bind_message("server-agent-message");
         batch.correction_feedback(Some(
             crate::model_observability::correction::CorrectionFence {
                 input_revision: 1,
@@ -729,7 +729,7 @@ mod tests {
             scope.clone(),
             "2026-09-09T00:00:00Z",
         );
-        session.surface = crate::session::AgentSessionSurface::AiAssistant;
+        session.surface = crate::session::AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session
             .begin_turn(
@@ -836,7 +836,7 @@ mod tests {
         let (recorder, batch) = observed(&call);
         assert!(crate::subagent::tools::parse_observed(&session, &call, &batch.input(0)).is_err());
         assert_eq!(last_tool(&recorder).conclusion, InputConclusion::Rejected);
-        session.surface = crate::session::AgentSessionSurface::TerminalAiAssistant;
+        session.surface = crate::session::AgentSessionSurface::TerminalAiAgent;
         let (recorder, batch) = observed(&call);
         assert!(crate::subagent::tools::parse_observed(&session, &call, &batch.input(0)).is_err());
         assert_eq!(

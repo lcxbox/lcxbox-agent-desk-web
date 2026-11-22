@@ -43,7 +43,7 @@ pub(crate) async fn runtime_facts_on(
     let mut tracked_generations = Vec::new();
     for row in rows {
         if row.target_device_id != session.device_id
-            && !session.admits_assistant_device(&row.target_device_id)
+            && !session.admits_agent_device(&row.target_device_id)
         {
             return Err(invalid());
         }

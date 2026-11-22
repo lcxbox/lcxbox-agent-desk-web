@@ -239,7 +239,7 @@ pub async fn query_server_info(
         background_start,
         macos_permissions,
         wayland_portal,
-        ai_assistant: Some(crate::model::info::AiAssistantClientCapabilities::oss()),
+        ai_agent: Some(crate::model::info::AiAgentClientCapabilities::oss()),
     };
 
     Ok(HttpResponse::Ok().json(RestResponse::succeed_with_data(info)))

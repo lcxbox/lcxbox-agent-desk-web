@@ -1,9 +1,9 @@
 pub mod access_code_protection;
-pub mod ai_assistant_session;
+pub mod agent_data;
+pub mod agent_skills;
+pub mod ai_agent_session;
 pub mod ai_usage;
 pub mod approval_model_provider;
-pub mod assistant_data;
-pub mod assistant_skills;
 pub mod automation_policy;
 pub mod connection;
 pub mod context_management;

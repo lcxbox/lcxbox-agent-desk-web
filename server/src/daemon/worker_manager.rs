@@ -618,7 +618,7 @@ fn linux_session_candidate(
         remote_desktop_ready: false,
         terminal_ready: false,
         file_ready: false,
-        assistant_ready: false,
+        agent_ready: false,
     }
 }
 
@@ -1014,7 +1014,7 @@ impl WorkerManager {
             .map(Some)
     }
 
-    /// Resolve an Assistant operation against an already-frozen interactive
+    /// Resolve an Agent operation against an already-frozen interactive
     /// connection when one is supplied; otherwise apply the normal 0/1/N target
     /// rule. The host owns both maps, so a central brain never interprets opaque
     /// session ids or silently moves a task to a different login session.
@@ -1581,7 +1581,7 @@ impl WorkerManager {
         // Remote-desktop connections of a session that left the console are
         // evicted once the target catalog no longer offers that session (below),
         // so the browser's reconnect lands on the session now on the console.
-        // Terminal, file and assistant connections are only ended: none of them
+        // Terminal, file and agent connections are only ended: none of them
         // may silently continue in another user's session.
         let mut session_changed = Vec::new();
         for key in &plan.stop_sessions {
@@ -1645,7 +1645,7 @@ impl WorkerManager {
                 remote_desktop_ready: capabilities_ready && interactive_route_ready,
                 terminal_ready: user_ready,
                 file_ready: user_ready,
-                assistant_ready: user_ready,
+                agent_ready: user_ready,
             });
         }
         self.session_targets.replace_all(candidates);
@@ -3619,7 +3619,7 @@ impl WorkerManager {
         let session = self
             .session_targets
             .select(
-                crate::daemon::session_target::SessionCapability::Assistant,
+                crate::daemon::session_target::SessionCapability::Agent,
                 None,
             )
             .map_err(|_| "recovery user selection unavailable")?;
@@ -3642,7 +3642,7 @@ impl WorkerManager {
     }
 
     /// Send central work, which names no desktop session. With resident session
-    /// workers, the only Assistant-ready session is chosen, as for a central
+    /// workers, the only Agent-ready session is chosen, as for a central
     /// command; several sessions are refused rather than guessed between. A stop
     /// request goes only to the worker still running its action. Without
     /// resident workers the single worker takes it, unless that worker runs with
@@ -3656,7 +3656,7 @@ impl WorkerManager {
             let generation = cancel.cancel.execution_generation.clone();
             return self.send_to_action_worker(&generation, msg).await;
         }
-        match self.resolve_session_target_for_connection(SessionCapability::Assistant, None) {
+        match self.resolve_session_target_for_connection(SessionCapability::Agent, None) {
             Ok(Some(session)) => self.send_to_session_worker(&session, msg).await,
             Ok(None) => {
                 let inner = self.inner.lock().await;
@@ -3673,7 +3673,7 @@ impl WorkerManager {
                 "the device has several desktop sessions; central reads and file operations are not supported yet"
                     .to_string(),
             ),
-            Err(error) => Err(format!("assistant session target unavailable: {error}")),
+            Err(error) => Err(format!("agent session target unavailable: {error}")),
         }
     }
 

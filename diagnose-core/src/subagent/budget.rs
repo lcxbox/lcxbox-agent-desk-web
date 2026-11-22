@@ -78,7 +78,7 @@ impl DelegationLimits {
             || self.max_context_bytes > crate::MAX_MODEL_CONTEXT_BYTES as u64
             || self.max_result_bytes == 0
             || self.max_result_bytes
-                > desk_agent_protocol::ai_assistant::subagent::MAX_SUBAGENT_REPORT_BYTES as u64
+                > desk_agent_protocol::ai_agent::subagent::MAX_SUBAGENT_REPORT_BYTES as u64
             || self.deadline_ms <= 0
         {
             return Err("invalid delegation limits");
@@ -154,7 +154,7 @@ impl BudgetDimension {
             Self::Slices => "The task's planning-segment budget is exhausted.",
             Self::LedgerCapacity => "The task's budget ledger has reached its capacity.",
             Self::ParentSynthesis => {
-                "The child allocation is exhausted; remaining capacity is reserved for the main assistant's synthesis."
+                "The child allocation is exhausted; remaining capacity is reserved for the main agent's synthesis."
             }
             Self::Scheduled => "The scheduled execution's call budget is exhausted.",
         }

@@ -52,17 +52,17 @@ use desk_agent_protocol::computer_use::{
 use desk_agent_protocol::exec::{ExecIdentity, ExecSandboxSupport};
 use desk_agent_protocol::{AgentError, AgentErrorKind, Capability, ScreenCaptureParams};
 #[cfg(target_os = "linux")]
-use desk_diagnose_core::ai_assistant::LINUX_ATSPI_ADAPTER_ID;
+use desk_diagnose_core::ai_agent::LINUX_ATSPI_ADAPTER_ID;
 #[cfg(target_os = "macos")]
-use desk_diagnose_core::ai_assistant::MACOS_ACCESSIBILITY_ADAPTER_ID;
+use desk_diagnose_core::ai_agent::MACOS_ACCESSIBILITY_ADAPTER_ID;
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-use desk_diagnose_core::ai_assistant::WINDOWS_UIA_ADAPTER_ID;
-use desk_diagnose_core::ai_assistant::{
+use desk_diagnose_core::ai_agent::WINDOWS_UIA_ADAPTER_ID;
+use desk_diagnose_core::ai_agent::{
     CURRENT_SCREEN_ADAPTER_ID, DESKTOP_SESSION_ADAPTER_ID, FILE_ARTIFACT_ADAPTER_ID,
     FILE_WORKSPACE_ADAPTER_ID, IWORK_ADAPTER_VERSION, OFFICE_EXCEL_ADAPTER_ID,
     OUTLOOK_NEW_MAILTO_ADAPTER_VERSION, SPREADSHEET_FILE_ADAPTER_ID, SYSTEM_COMMAND_ADAPTER_ID,
     SYSTEM_DIAGNOSTICS_ADAPTER_ID, TERMINAL_OUTPUT_ADAPTER_ID, WINDOWS_RAW_INPUT_ADAPTER_ID,
-    ai_assistant_edge_adapter_registry,
+    ai_agent_edge_adapter_registry,
 };
 
 use crate::model::settings::ComputerUseSettings;
@@ -1277,7 +1277,7 @@ impl ComputerUseBroker {
         allow_screen: bool,
         display_selected: bool,
     ) -> ComputerUseReadiness {
-        let edge_registry = ai_assistant_edge_adapter_registry();
+        let edge_registry = ai_agent_edge_adapter_registry();
         let session_adapter_version = edge_registry
             .adapter(DESKTOP_SESSION_ADAPTER_ID)
             .expect("compiled desktop session adapter is registered")
@@ -1398,7 +1398,7 @@ impl ComputerUseBroker {
         #[cfg(not(any(windows, target_os = "linux")))]
         let text_file_storage_ready = cfg!(target_os = "macos");
         // The file workspace is not Computer Use: like commands and file
-        // reads it follows the assistant switch, a directory approval and
+        // reads it follows the agent switch, a directory approval and
         // per-operation approval, never the local Computer Use ceiling.
         let artifact_reason =
             (!file_provider_supported).then_some(ComputerUseReadinessReason::UnsupportedPlatform);
@@ -1818,9 +1818,8 @@ impl ComputerUseBroker {
                     capability: Capability::ApplicationList,
                     adapter: ComputerUseAdapterRef {
                         kind: ComputerUseAdapterKind::NativeApplication,
-                        version:
-                            desk_diagnose_core::ai_assistant::APPLICATION_CATALOG_ADAPTER_VERSION
-                                .into(),
+                        version: desk_diagnose_core::ai_agent::APPLICATION_CATALOG_ADAPTER_VERSION
+                            .into(),
                     },
                     supported: cfg!(any(windows, target_os = "macos", target_os = "linux")),
                     ready: ceiling.observation_enabled() && application_catalog_host_available(),
@@ -1909,8 +1908,7 @@ impl ComputerUseBroker {
                     capability: Capability::DesktopOutputInputConfirmed,
                     adapter: ComputerUseAdapterRef {
                         kind: ComputerUseAdapterKind::LinuxWaylandOutput,
-                        version: desk_diagnose_core::ai_assistant::linux::OUTPUT_ADAPTER_VERSION
-                            .into(),
+                        version: desk_diagnose_core::ai_agent::linux::OUTPUT_ADAPTER_VERSION.into(),
                     },
                     supported: cfg!(target_os = "linux"),
                     ready: wayland_output_ready,
@@ -2086,9 +2084,8 @@ impl ComputerUseBroker {
                     capability: Capability::DocumentPreview,
                     adapter: ComputerUseAdapterRef {
                         kind: ComputerUseAdapterKind::DocumentConversion,
-                        version:
-                            desk_diagnose_core::ai_assistant::DOCUMENT_CONVERSION_ADAPTER_VERSION
-                                .into(),
+                        version: desk_diagnose_core::ai_agent::DOCUMENT_CONVERSION_ADAPTER_VERSION
+                            .into(),
                     },
                     supported: file_provider_supported,
                     ready: file_provider_supported,
@@ -2099,9 +2096,8 @@ impl ComputerUseBroker {
                     capability: Capability::DocumentConvertConfirmed,
                     adapter: ComputerUseAdapterRef {
                         kind: ComputerUseAdapterKind::DocumentConversion,
-                        version:
-                            desk_diagnose_core::ai_assistant::DOCUMENT_CONVERSION_ADAPTER_VERSION
-                                .into(),
+                        version: desk_diagnose_core::ai_agent::DOCUMENT_CONVERSION_ADAPTER_VERSION
+                            .into(),
                     },
                     supported: file_provider_supported,
                     ready: file_provider_supported,
@@ -2163,7 +2159,7 @@ impl ComputerUseBroker {
                     capability: Capability::FilePatchConfirmed,
                     adapter: ComputerUseAdapterRef {
                         kind: ComputerUseAdapterKind::FileSystem,
-                        version: desk_diagnose_core::ai_assistant::TEXT_FILE_ADAPTER_VERSION.into(),
+                        version: desk_diagnose_core::ai_agent::TEXT_FILE_ADAPTER_VERSION.into(),
                     },
                     supported: text_file_supported,
                     ready: text_file_supported && text_file_storage_ready,
@@ -2179,7 +2175,7 @@ impl ComputerUseBroker {
                     capability: Capability::FileDeleteConfirmed,
                     adapter: ComputerUseAdapterRef {
                         kind: ComputerUseAdapterKind::FileSystem,
-                        version: desk_diagnose_core::ai_assistant::TEXT_FILE_ADAPTER_VERSION.into(),
+                        version: desk_diagnose_core::ai_agent::TEXT_FILE_ADAPTER_VERSION.into(),
                     },
                     supported: text_file_supported,
                     ready: text_file_supported && text_file_storage_ready,
@@ -5993,7 +5989,7 @@ mod tests {
                     );
                     assert_eq!(
                         entry.adapter.version,
-                        desk_diagnose_core::ai_assistant::TEXT_FILE_ADAPTER_VERSION
+                        desk_diagnose_core::ai_agent::TEXT_FILE_ADAPTER_VERSION
                     );
                 }
                 assert!(

@@ -102,14 +102,14 @@ impl OutlookCallPreflight {
             channel: CommunicationChannel::Email,
             kind: CommunicationSurfaceKind::OutlookNewDesktop,
             scope: CommunicationSurfaceScope::DesktopApplication {
-                application_id: crate::ai_assistant::OUTLOOK_NEW_APPLICATION_ID.into(),
+                application_id: crate::ai_agent::OUTLOOK_NEW_APPLICATION_ID.into(),
             },
             device_id: target_device_id.into(),
             os_session_id: interactive_session_incarnation.into(),
-            adapter_id: crate::ai_assistant::OUTLOOK_NEW_MAILTO_ADAPTER_ID.into(),
-            adapter_version: crate::ai_assistant::OUTLOOK_NEW_MAILTO_ADAPTER_VERSION.into(),
+            adapter_id: crate::ai_agent::OUTLOOK_NEW_MAILTO_ADAPTER_ID.into(),
+            adapter_version: crate::ai_agent::OUTLOOK_NEW_MAILTO_ADAPTER_VERSION.into(),
             profile_id: interactive_session_incarnation.into(),
-            account_id: crate::ai_assistant::OUTLOOK_NEW_UNVERIFIED_ACCOUNT_ID.into(),
+            account_id: crate::ai_agent::OUTLOOK_NEW_UNVERIFIED_ACCOUNT_ID.into(),
             revision: readiness_revision,
         };
         let request = OutlookNewComposeHandoffRequest {
@@ -150,7 +150,7 @@ impl OutlookCallPreflight {
             resource_scope: fresh_object_resource_scope(std::slice::from_ref(application)),
             operation_scope,
             export_destinations: vec![DestinationIdentity::EmailAccount {
-                account_id: crate::ai_assistant::OUTLOOK_NEW_UNVERIFIED_ACCOUNT_ID.into(),
+                account_id: crate::ai_agent::OUTLOOK_NEW_UNVERIFIED_ACCOUNT_ID.into(),
             }],
             risk_tier: classify_provider_call(capability, call)?,
             valid_until_unix_ms: expiry,
@@ -181,7 +181,7 @@ impl OutlookCallPreflight {
         &'a self,
         subject: &'a ProviderCallSubject<'_>,
     ) -> Result<CapabilityGrantCall<'a>, AgentError> {
-        crate::assistant_policy::require_current_policy(subject.policy_revision)?;
+        crate::agent_policy::require_current_policy(subject.policy_revision)?;
         if subject.readiness_revision == 0
             || subject.now_unix_ms == 0
             || subject.now_unix_ms >= self.valid_until_unix_ms

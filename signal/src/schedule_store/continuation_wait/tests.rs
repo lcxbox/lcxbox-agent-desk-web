@@ -1,8 +1,8 @@
 use super::*;
 use crate::entity::{agent_action_item, agent_exec_task, agent_schedule_run as run, agent_session};
-use desk_agent_protocol::{AgentScope, ExecutionMode};
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
+use desk_agent_protocol::{AgentScope, ExecutionMode};
 use desk_diagnose_core::session::PersistedAgentSession;
 use desk_diagnose_core::session::TurnState;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Schema};
@@ -87,7 +87,7 @@ async fn cancellation_withdraws_wait_and_releases_slot_once() {
     let txn = crate::db::begin_write(&store.db, entity::Entity)
         .await
         .unwrap();
-    desk_assistant_data_store::schedule::lock_approval_on(
+    desk_agent_data_store::schedule::lock_approval_on(
         &super::super::SignalScheduleHost,
         &txn,
         &session,
@@ -118,7 +118,7 @@ async fn cancellation_withdraws_wait_and_releases_slot_once() {
         .await
         .unwrap();
     assert!(
-        desk_assistant_data_store::schedule::lock_approval_on(
+        desk_agent_data_store::schedule::lock_approval_on(
             &super::super::SignalScheduleHost,
             &txn,
             &session,
@@ -139,7 +139,7 @@ async fn durable_cancel_intent_blocks_late_approval_before_cleanup() {
         .await
         .unwrap();
     assert!(
-        desk_assistant_data_store::schedule::lock_approval_on(
+        desk_agent_data_store::schedule::lock_approval_on(
             &super::super::SignalScheduleHost,
             &txn,
             &session,
@@ -150,14 +150,14 @@ async fn durable_cancel_intent_blocks_late_approval_before_cleanup() {
     );
     txn.rollback().await.unwrap();
     assert_eq!(
-        desk_assistant_data_store::schedule::scan_wait_expiry_once(&store, 0)
+        desk_agent_data_store::schedule::scan_wait_expiry_once(&store, 0)
             .await
             .unwrap()
             .expired,
         1
     );
     assert_eq!(
-        desk_assistant_data_store::schedule::scan_wait_expiry_once(&store, 0)
+        desk_agent_data_store::schedule::scan_wait_expiry_once(&store, 0)
             .await
             .unwrap()
             .expired,
@@ -220,7 +220,7 @@ async fn cancellation_between_session_pause_and_occurrence_checkpoint_is_settled
     assert!(waiting.cancel_requested_at.is_some());
     assert_eq!(waiting.status, "awaiting_permission");
     assert_eq!(
-        desk_assistant_data_store::schedule::scan_wait_expiry_once(&store, 0)
+        desk_agent_data_store::schedule::scan_wait_expiry_once(&store, 0)
             .await
             .unwrap()
             .expired,

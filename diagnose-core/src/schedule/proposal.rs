@@ -15,7 +15,7 @@ pub const REQUEST_SCHEDULE: &str = "request_scheduled_task";
 
 /// Trusted clock context only. Locale and device location are never timezones.
 pub fn clock_prompt(session: &PersistedAgentSession, now_unix_ms: u64) -> String {
-    if !session.owner_direct_planning() || session.surface != AgentSessionSurface::AiAssistant {
+    if !session.owner_direct_planning() || session.surface != AgentSessionSurface::AiAgent {
         return String::new();
     }
     let Some(now) = i64::try_from(now_unix_ms)
@@ -108,7 +108,7 @@ pub fn creation(
         || call.id.is_empty()
         || call.id.len() > 256
         || !session.owner_direct_planning()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || !session.turn_state.is_active()
         || session.input_revision == 0
         || session.actor_id.is_empty()
@@ -119,7 +119,7 @@ pub fn creation(
         } else if call.id.is_empty() || call.id.len() > 256 {
             observation.reject(Stage::Protocol, InputIssue::InvalidProtocol);
         } else if !session.owner_direct_planning()
-            || session.surface != AgentSessionSurface::AiAssistant
+            || session.surface != AgentSessionSurface::AiAgent
             || !session.turn_state.is_active()
             || session.input_revision == 0
             || session.actor_id.is_empty()
@@ -139,12 +139,12 @@ pub fn creation(
         .as_deref()
         .map(|reference| {
             session
-                .assistant_request_device(reference)
+                .agent_request_device(reference)
                 .map(|target| target.device_id.as_str())
                 .ok_or("scheduled device is outside the original request")
         })
         .transpose()?;
-    let execution_target = session.resolve_assistant_action_device(explicit, None)?;
+    let execution_target = session.resolve_agent_action_device(explicit, None)?;
     if input.title.trim().is_empty()
         || input.title.chars().count() > 240
         || input.title.chars().any(char::is_control)
@@ -287,9 +287,9 @@ mod tests {
     #[test]
     fn recurring_rules_require_fresh_tasks_in_schema_and_domain_errors() {
         let mut session =
-            crate::ai_assistant::test_support::personal_session("owner", "chat", "device");
+            crate::ai_agent::test_support::personal_session("owner", "chat", "device");
         session.input_revision = 1;
-        session.bind_assistant_input_targets(&[]).unwrap();
+        session.bind_agent_input_targets(&[]).unwrap();
         session.turn_state = crate::session::TurnState::Running;
         for timing in [
             json!({"rule":{"kind":"daily","utc_time":"00:30:00"}}),
@@ -351,9 +351,9 @@ mod tests {
     #[test]
     fn after_confirmation_is_only_for_conversation_timers() {
         let mut session =
-            crate::ai_assistant::test_support::personal_session("owner", "chat", "device");
+            crate::ai_agent::test_support::personal_session("owner", "chat", "device");
         session.input_revision = 1;
-        session.bind_assistant_input_targets(&[]).unwrap();
+        session.bind_agent_input_targets(&[]).unwrap();
         session.turn_state = crate::session::TurnState::Running;
         let input = json!({"kind":"fresh_task","title":"Check","prompt":"Check the tests",
             "rule":{"kind":"after_confirmation","delay_seconds":3600}});
@@ -414,18 +414,18 @@ mod tests {
     }
     #[test]
     fn selectable_schedule_proposals_choose_one_original_target() {
-        let mut session = crate::ai_assistant::test_support::personal_session("owner", "chat", "");
-        session.assistant_data = None;
+        let mut session = crate::ai_agent::test_support::personal_session("owner", "chat", "");
+        session.agent_data = None;
         session.input_revision = 1;
         session.turn_state = crate::session::TurnState::Running;
         session
-            .bind_assistant_input_targets(&[
-                crate::dynamic_run::AssistantInputTarget {
+            .bind_agent_input_targets(&[
+                crate::dynamic_run::AgentInputTarget {
                     reference: "ref-a".into(),
                     device_id: "a".into(),
                     member_generation: Some(1),
                 },
-                crate::dynamic_run::AssistantInputTarget {
+                crate::dynamic_run::AgentInputTarget {
                     reference: "ref-b".into(),
                     device_id: "b".into(),
                     member_generation: Some(2),
@@ -463,7 +463,7 @@ mod tests {
     }
 
     fn delegated(source: crate::subagent::DelegationSource) -> PersistedAgentSession {
-        let target = crate::dynamic_run::AssistantInputTarget {
+        let target = crate::dynamic_run::AgentInputTarget {
             reference: "ref-b".into(),
             device_id: "b".into(),
             member_generation: None,
@@ -495,10 +495,10 @@ mod tests {
             "2026-10-20T00:00:00Z",
         )
         .unwrap();
-        child.surface = AgentSessionSurface::AiAssistant;
+        child.surface = AgentSessionSurface::AiAgent;
         child.trigger_origin = crate::session::TriggerOrigin::DelegatedTask;
         child.turn_state = crate::session::TurnState::Running;
-        child.bind_assistant_input_targets(&[target]).unwrap();
+        child.bind_agent_input_targets(&[target]).unwrap();
         child
     }
 
@@ -552,12 +552,12 @@ mod tests {
 
         // The proposal keeps the owner data frozen at delegation, not the
         // child's request-bounded scope.
-        let mut main = crate::ai_assistant::test_support::personal_session("owner", "chat", "");
+        let mut main = crate::ai_agent::test_support::personal_session("owner", "chat", "");
         main.input_revision = 1;
         main.trigger_origin = crate::session::TriggerOrigin::User;
-        main.bind_assistant_input_targets(&[]).unwrap();
-        let seed = crate::ai_assistant::delegated_retrieval::DelegatedAssistantSeed::capture(&main)
-            .unwrap();
+        main.bind_agent_input_targets(&[]).unwrap();
+        let seed =
+            crate::ai_agent::delegated_retrieval::DelegatedAgentSeed::capture(&main).unwrap();
         let owner = crate::model_message_labels::model_bound_user_message(
             "owner-input".into(),
             "Check B later".into(),
@@ -583,11 +583,11 @@ mod tests {
             owner_requirement: owner,
             scheduled_source: None,
             original_read_context: None,
-            assistant_seed: Some(seed.clone()),
+            agent_seed: Some(seed.clone()),
         };
-        let target = child.admitted_assistant_request_targets().unwrap()[0].clone();
+        let target = child.admitted_agent_request_targets().unwrap()[0].clone();
         let consent =
-            crate::ai_assistant::scheduled_retrieval::TaskRetrievalConsent::capture_delegated(
+            crate::ai_agent::scheduled_retrieval::TaskRetrievalConsent::capture_delegated(
                 "schedule-1",
                 1,
                 &child,
@@ -599,12 +599,12 @@ mod tests {
             .unwrap();
         assert_eq!(consent.history_scope, seed.history_scope);
         assert_eq!(consent.memory_scope, seed.memory_scope);
-        assert_eq!(consent.assistant_seed.as_deref(), Some(&seed.owner));
+        assert_eq!(consent.agent_seed.as_deref(), Some(&seed.owner));
         // The data came from the main conversation's delegating input.
         assert_eq!(consent.source_conversation_id.as_deref(), Some("chat"));
         assert_eq!(consent.source_input_revision, Some(1));
         assert!(
-            crate::ai_assistant::scheduled_retrieval::TaskRetrievalConsent::capture_delegated(
+            crate::ai_agent::scheduled_retrieval::TaskRetrievalConsent::capture_delegated(
                 "schedule-1",
                 1,
                 &issue,

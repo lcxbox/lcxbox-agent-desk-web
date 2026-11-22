@@ -7,7 +7,7 @@ impl ScheduleStore {
         run_id: &str,
     ) -> Result<bool, ScheduleStoreError> {
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
-        let decision = desk_assistant_data_store::schedule::expire_fresh_approval_wait_on(
+        let decision = desk_agent_data_store::schedule::expire_fresh_approval_wait_on(
             &super::SignalScheduleHost,
             &txn,
             run_id,

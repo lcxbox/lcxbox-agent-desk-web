@@ -2,7 +2,7 @@
 //! continues its own command result. Hosts keep their transaction, locks and
 //! stored-row lookups; the order is: [`ready`], the host's child-source checks,
 //! the model destination and [`has_pending_exec`], then
-//! [`crate::assistant_policy::validate_child_work_claim`].
+//! [`crate::agent_policy::validate_child_work_claim`].
 use crate::{
     seam::ClaimTurnParams,
     session::{PersistedAgentSession, WorkKind},
@@ -57,9 +57,7 @@ mod tests {
                 group_id: "group".into(),
                 task_id: stable(Kind::Task, &"task"),
                 source: crate::subagent::DelegationSource::UserInput { input_revision: 1 },
-                targets: vec![crate::dynamic_run::AssistantInputTarget::fixed(
-                    "mac".into(),
-                )],
+                targets: vec![crate::dynamic_run::AgentInputTarget::fixed("mac".into())],
                 objective: "Run the command".into(),
                 acceptance_criteria: vec!["Report".into()],
                 input_revision: 1,
@@ -120,7 +118,7 @@ mod tests {
         // even when its request admits other devices.
         let mut main = session.clone();
         main.agent_role = crate::subagent::AgentRole::Main;
-        assert!(main.admits_assistant_device("mac"));
+        assert!(main.admits_agent_device("mac"));
         assert!(!main.owns_action_device("mac"));
         assert!(main.owns_action_device(""));
     }

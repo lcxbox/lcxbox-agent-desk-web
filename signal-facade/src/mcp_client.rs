@@ -1,4 +1,4 @@
-//! Streamable HTTP client for administrator-configured assistant connections.
+//! Streamable HTTP client for administrator-configured agent connections.
 
 mod http;
 pub mod issue_connection;

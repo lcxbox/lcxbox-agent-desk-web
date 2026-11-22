@@ -492,7 +492,7 @@ mod tests {
             scope.clone(),
             "2026-10-13T00:00:00Z",
         );
-        session.surface = crate::session::AgentSessionSurface::AiAssistant;
+        session.surface = crate::session::AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session
             .begin_turn("turn", None, None, 1, scope, "2026-10-13T00:00:00Z")
@@ -517,8 +517,8 @@ mod tests {
         crate::subagent::projection::runtime_message(&format!("observation-{revision}"), &serde_json::json!({"tasks":[{"task":{"task_id":task_id,"input_revision":revision,"control_revision":2,"state_revision":9,"state":"running"}}]}), &[owner.data_envelope.unwrap()]).unwrap()
     }
     fn commit(session: &mut PersistedAgentSession, input: &[ChatMessage], call: &ToolCall) {
-        let mut caller = ChatMessage::assistant_tool_calls("reply", "", vec![call.to_ref()])
-            .with_turn_id("turn");
+        let mut caller =
+            ChatMessage::agent_tool_calls("reply", "", vec![call.to_ref()]).with_turn_id("turn");
         caller.model_controls = Some(Box::new(FrozenModelControls::capture(session, input)));
         session.conversation.push(caller);
     }
@@ -527,7 +527,7 @@ mod tests {
         let native = crate::native_ids::stable(crate::native_ids::Kind::Task, &"aliased-control");
         let mut session = session();
         let observed = vec![
-            ChatMessage::assistant_tool_calls(
+            ChatMessage::agent_tool_calls(
                 "proposal",
                 "",
                 vec![crate::chat::ToolCallRef {

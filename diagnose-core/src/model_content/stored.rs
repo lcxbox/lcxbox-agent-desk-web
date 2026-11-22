@@ -10,14 +10,14 @@
 //! name, uses its own root whose policy is fixed by its contract.
 
 use super::{__private, ContentPiece, Sources};
-use crate::ai_assistant::{
-    seam::AssistantReadRoot,
+use crate::ai_agent::{
+    seam::AgentReadRoot,
     source::{owner_text_policy, validate_policy},
     source_registry::NativeDerivedInputPolicy,
 };
 use desk_agent_protocol::{
     AgentError,
-    ai_assistant::source::SourceUsePolicy,
+    ai_agent::source::SourceUsePolicy,
     data_lineage::{
         ContentRef, DATA_ENVELOPE_SCHEMA_VERSION, DataEnvelope, DataProvenance,
         DestinationIdentity, RetentionBoundary, Sensitivity,
@@ -26,8 +26,8 @@ use desk_agent_protocol::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const STORED_TEXT_PROVIDER: &str = "assistant-stored-text";
-pub const DEVICE_REPORTED_PROVIDER: &str = "assistant-device-reported";
+pub const STORED_TEXT_PROVIDER: &str = "agent-stored-text";
+pub const DEVICE_REPORTED_PROVIDER: &str = "agent-device-reported";
 const STORED_TEXT_PREFIX: &str = "stored-text-";
 const DEVICE_REPORTED_PREFIX: &str = "device-reported-";
 const ROOT_PROJECTION: &str = "stored-root";
@@ -44,7 +44,7 @@ pub enum StoredOrigin {
     ModelOutput {
         model_source: Box<NativeDerivedInputPolicy>,
         #[serde(default)]
-        retained_roots: Vec<AssistantReadRoot>,
+        retained_roots: Vec<AgentReadRoot>,
     },
 }
 
@@ -71,7 +71,7 @@ impl StoredTextSource {
     pub fn model_output(
         actor_id: &str,
         model_source: NativeDerivedInputPolicy,
-        retained_roots: Vec<AssistantReadRoot>,
+        retained_roots: Vec<AgentReadRoot>,
     ) -> Option<Self> {
         let policy = model_source.text_policy.clone()?;
         let value = Self {
@@ -125,7 +125,7 @@ impl StoredTextSource {
         .then_some(policy)
     }
 
-    pub fn retained_roots(&self) -> &[AssistantReadRoot] {
+    pub fn retained_roots(&self) -> &[AgentReadRoot] {
         match &self.origin {
             StoredOrigin::Owner => &[],
             StoredOrigin::ModelOutput { retained_roots, .. } => retained_roots,

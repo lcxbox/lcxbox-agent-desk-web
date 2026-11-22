@@ -1,10 +1,10 @@
-//! Mounted under the same administrator scope as the other assistant policies.
+//! Mounted under the same administrator scope as the other agent policies.
 use crate::{
     error::DeskSignalError,
     web_research_policy::{self, WriteError},
 };
 use actix_web::{HttpResponse, get, put, web};
-use desk_agent_protocol::ai_assistant::web_research_policy::{
+use desk_agent_protocol::ai_agent::web_research_policy::{
     UpdateWebResearchPolicy, WebResearchPolicy,
 };
 use desk_utils::{error::DeskErrorCode, rest::RestResponse};

@@ -743,7 +743,7 @@ mod tests {
                         model_name: "model".into(),
                         configuration_revision: "2".into(),
                         contract_revision: "1".into(),
-                        surface: Surface::Assistant,
+                        surface: Surface::Agent,
                         purpose: Purpose::Probe,
                         origin: Origin::User,
                         configuration_scope: ConfigurationScope::Local,

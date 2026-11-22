@@ -1,4 +1,4 @@
-//! Durable metadata for user-selected Assistant context.
+//! Durable metadata for user-selected Agent context.
 //!
 //! Attachments never contain document, terminal, file, UI or screen bytes. They
 //! bind an opaque, expiring object reference to a [`DataEnvelope`] and bounded
@@ -127,7 +127,7 @@ impl ContextAttachment {
         ] {
             validate_id(field, value)?;
         }
-        if self.surface != AgentSessionSurface::AiAssistant {
+        if self.surface != AgentSessionSurface::AiAgent {
             return Err(ContextAttachmentError::InvalidSurface);
         }
         if self.display_summary.len() > MAX_ATTACHMENT_DISPLAY_SUMMARY_BYTES {
@@ -352,7 +352,7 @@ pub(crate) mod tests {
             client_request_id: request.into(),
             actor_id: "owner".into(),
             device_id: "device".into(),
-            surface: AgentSessionSurface::AiAssistant,
+            surface: AgentSessionSurface::AiAgent,
             kind: ContextAttachmentKind::Range,
             object_ref: AttachmentObjectRef {
                 opaque_token: format!("token-{id}"),

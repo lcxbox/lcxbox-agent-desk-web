@@ -1,7 +1,7 @@
 use super::*;
-use desk_agent_protocol::computer_use::{ObjectKind, ObjectRef};
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
+use desk_agent_protocol::computer_use::{ObjectKind, ObjectRef};
 use desk_diagnose_core::file_scope::{DirectoryConsentSource, DirectoryProposal, FileScopeSubject};
 use sea_orm::{ConnectionTrait, Schema};
 
@@ -23,7 +23,7 @@ async fn setup() -> SignalAgentSessionStore {
 
 fn scoped(db: DatabaseConnection) -> SignalAgentSessionStore {
     SignalAgentSessionStore::new(db)
-        .with_client_metadata(Some("client".into()), AgentSessionSurface::AiAssistant)
+        .with_client_metadata(Some("client".into()), AgentSessionSurface::AiAgent)
 }
 
 fn update() -> FileScopeUpdate {
@@ -69,9 +69,9 @@ async fn state(store: &SignalAgentSessionStore) -> PersistedAgentSession {
 
 #[tokio::test]
 async fn selectable_directory_scope_survives_snapshot_and_device_removal() {
-    use desk_assistant_data_store::device_roster::{personal_selection_key, replace};
+    use desk_agent_data_store::device_roster::{personal_selection_key, replace};
     use desk_diagnose_core::conversation_key::{
-        AssistantConversationScope, derive_assistant_conversation_key,
+        AgentConversationScope, derive_agent_conversation_key,
     };
     let db = crate::config::test_support::Database::connect("sqlite::memory:")
         .await
@@ -80,7 +80,7 @@ async fn selectable_directory_scope_survives_snapshot_and_device_removal() {
     let store = scoped(db.clone());
     let mut a = update();
     a.subject.conversation_id =
-        derive_assistant_conversation_key("7", AssistantConversationScope::Personal, "client");
+        derive_agent_conversation_key("7", AgentConversationScope::Personal, "client");
     let run = &a.subject.conversation_id;
     let roster_key = personal_selection_key(run);
     let mut b = a.clone();
@@ -127,7 +127,7 @@ async fn selectable_directory_scope_survives_snapshot_and_device_removal() {
     store.update_file_scope(&revocation, now()).await.unwrap();
     let reopened = scoped(db);
     let snapshot = reopened
-        .read_assistant_snapshot_for_subject(run, "7", "")
+        .read_agent_snapshot_for_subject(run, "7", "")
         .await
         .unwrap()
         .unwrap();
@@ -505,7 +505,7 @@ async fn an_owner_directory_decision_records_one_resume_of_the_paused_turn() {
         // HTTP/signaling retries replay the receipt; there is no second resume.
         store.update_file_scope(&decision, now).await.unwrap();
         assert_eq!(state(&store).await, settled);
-        let resumes = desk_assistant_data_store::entity::agent_decision_resume::Entity::find()
+        let resumes = desk_agent_data_store::entity::agent_decision_resume::Entity::find()
             .all(&store.db)
             .await
             .unwrap();
@@ -517,7 +517,7 @@ async fn an_owner_directory_decision_records_one_resume_of_the_paused_turn() {
 
 fn directory_call(held: &mut PersistedAgentSession, call: &str) -> String {
     held.current_turn_id = Some("directory-test-turn".into());
-    let mut message = desk_diagnose_core::chat::ChatMessage::assistant_tool_calls(
+    let mut message = desk_diagnose_core::chat::ChatMessage::agent_tool_calls(
         format!("directory-source-{call}"),
         "",
         vec![desk_diagnose_core::chat::ToolCallRef {

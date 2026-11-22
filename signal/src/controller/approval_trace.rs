@@ -32,7 +32,7 @@ fn inaccessible() -> DeskSignalError {
 }
 
 #[utoipa::path(tag=TAG,summary="List own AI approval reviews (administrator)",params(ApprovalReviewsQuery),responses((status=200,body=RestResponse<ApprovalReviewsDto>)))]
-#[get("/my/ai-assistant-session/approval-reviews")]
+#[get("/my/ai-agent-session/approval-reviews")]
 pub async fn list_approval_reviews(
     session: Session,
     query: web::Query<ApprovalReviewsQuery>,
@@ -48,7 +48,7 @@ pub async fn list_approval_reviews(
         .json(RestResponse::succeed_with_data(data)))
 }
 #[utoipa::path(tag=TAG,summary="Get own AI approval review (administrator)",params(ApprovalReviewQuery),responses((status=200,body=RestResponse<ApprovalReviewDto>)))]
-#[get("/my/ai-assistant-session/approval-review")]
+#[get("/my/ai-agent-session/approval-review")]
 pub async fn get_approval_review(
     session: Session,
     query: web::Query<ApprovalReviewQuery>,
@@ -64,7 +64,7 @@ pub async fn get_approval_review(
         .json(RestResponse::succeed_with_data(data)))
 }
 #[utoipa::path(tag=TAG,summary="Read own approval content parts (administrator)",params(ApprovalPartsQuery),responses((status=200,body=RestResponse<ApprovalTracePartsDto>)))]
-#[get("/my/ai-assistant-session/approval-review/parts")]
+#[get("/my/ai-agent-session/approval-review/parts")]
 pub async fn get_approval_review_parts(
     session: Session,
     query: web::Query<ApprovalPartsQuery>,

@@ -1,4 +1,4 @@
-//! Shared OSS Signal runtime helpers for AI Assistant work.
+//! Shared OSS Signal runtime helpers for AI Agent work.
 //!
 //! This module intentionally contains no Diagnose product loop or signaling
 //! contract. It owns only model metering and the bounded, tool-free follow-up
@@ -135,7 +135,7 @@ impl ModelSeam for MeteredSignalModel {
         metrics: desk_diagnose_core::seam::ModelRequestProjectionMetrics,
     ) {
         log::debug!(
-            "[ai-assistant] completion projection static_bytes={} runtime_bytes={} definition_revision={} messages={} message_json_bytes={} tools={} tool_json_bytes={} conversation_messages={} session_snapshot_bytes={}",
+            "[ai-agent] completion projection static_bytes={} runtime_bytes={} definition_revision={} messages={} message_json_bytes={} tools={} tool_json_bytes={} conversation_messages={} session_snapshot_bytes={}",
             metrics.static_instruction_bytes,
             metrics.runtime_context_bytes,
             metrics.definition_revision,
@@ -185,7 +185,7 @@ fn export_denied() -> AgentError {
 
 struct CompletionModel {
     command_completion: bool,
-    inner: crate::assistant_model::MeteredModel,
+    inner: crate::agent_model::MeteredModel,
     run_id: String,
     actor_id: String,
     device_id: String,
@@ -337,7 +337,7 @@ impl ModelSeam for CompletionModel {
             .ok_or_else(export_denied)?
             .authorize_request(request)
             .map_err(|error| {
-                log::warn!("[ai-assistant] command completion model egress denied: {error}");
+                log::warn!("[ai-agent] command completion model egress denied: {error}");
                 error.agent_error()
             })?
             .request;
@@ -404,7 +404,7 @@ async fn continuation_target(connections: &SharedConnectionMap, device_id: &str)
 }
 
 /// Run one bounded model turn after a durable execution completion: a continuation
-/// for the main assistant's command, otherwise a tool-free interpretation.
+/// for the main agent's command, otherwise a tool-free interpretation.
 pub fn resume_completion_turn(
     db: DatabaseConnection,
     session: PersistedAgentSession,
@@ -422,20 +422,20 @@ async fn resume_completion_turn_inner(
     work_kind: desk_diagnose_core::session::WorkKind,
     event_id: String,
 ) -> Result<LoopOutcome, AgentError> {
-    if session.surface == AgentSessionSurface::AiAssistant
-        && !crate::ai_assistant_gate::global_ai_assistant_gate().is_enabled()
+    if session.surface == AgentSessionSurface::AiAgent
+        && !crate::ai_agent_gate::global_ai_agent_gate().is_enabled()
     {
         return Err(AgentError {
             kind: AgentErrorKind::UnsupportedCapability,
-            message: "AI Assistant is disabled on this device".into(),
+            message: "AI Agent is disabled on this device".into(),
             retryable: false,
             safe_for_model: true,
             error_code: Some(DeskErrorCode::FEATURE_UNAVAILABLE.code()),
         });
     }
-    // A finished command continues the main assistant's requirement through its
+    // A finished command continues the main agent's requirement through its
     // ordinary turn. Delegated children and native action results stay tool-free.
-    if session.surface == AgentSessionSurface::AiAssistant
+    if session.surface == AgentSessionSurface::AiAgent
         && session.agent_role.is_main()
         && work_kind == WorkKind::AgentExec
     {
@@ -465,7 +465,7 @@ async fn resume_completion_turn_inner(
                 || origin.tool_call_id != pending.tool_call_id
                 || origin.turn_fence.input_revision != session.input_revision
                 || origin.turn_fence.control_revision != session.control_revision
-                || !session.admits_assistant_device(&work.target_device_id)
+                || !session.admits_agent_device(&work.target_device_id)
                 || crate::agent_run_event_store::eligible_request_device_ids(
                     &db,
                     std::slice::from_ref(&work.target_device_id),
@@ -482,7 +482,7 @@ async fn resume_completion_turn_inner(
             };
             (target, None)
         };
-        return crate::ai_assistant_orchestrator::resume_after_work_completion(
+        return crate::ai_agent_orchestrator::resume_after_work_completion(
             connections.clone(),
             db,
             target,
@@ -526,7 +526,7 @@ async fn resume_completion_turn_inner(
     })?;
     let seam = SignalModelSeam::from_config(&config)?.with_context_db(db.clone());
     let turn_id = uuid::Uuid::new_v4().to_string();
-    let model: Box<dyn ModelSeam> = if session.surface == AgentSessionSurface::AiAssistant {
+    let model: Box<dyn ModelSeam> = if session.surface == AgentSessionSurface::AiAgent {
         // Legacy completions lacking an original export selection stay visible
         // to the owner, but cannot mint new permission from an execution grant.
         let pending = session
@@ -550,7 +550,7 @@ async fn resume_completion_turn_inner(
             .map_err(|_| export_denied())?;
         Box::new(CompletionModel {
             command_completion: pending.kind == WorkKind::AgentExec,
-            inner: crate::assistant_model::MeteredModel {
+            inner: crate::agent_model::MeteredModel {
                 fresh_task: None,
                 inner: seam,
                 db: db.clone(),

@@ -336,7 +336,7 @@ pub(crate) fn restore(
     }
     let mut applied = Vec::with_capacity(matched.len());
     for (index, file) in matched.iter().enumerate() {
-        let stage = format!(".assistant-restore-{}-{index}", &record.id[..16]);
+        let stage = format!(".agent-restore-{}-{index}", &record.id[..16]);
         let outcome = platform::apply(
             &root_handle,
             &file.entry.path,

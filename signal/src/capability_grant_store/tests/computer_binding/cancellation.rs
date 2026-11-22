@@ -148,7 +148,7 @@ async fn stop_intent_is_subject_bound_atomic_idempotent_and_survives_reopen() {
             .unwrap()
     );
     let snapshot = SignalAgentSessionStore::new(f.store.db.clone())
-        .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+        .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
         .await
         .unwrap()
         .unwrap();

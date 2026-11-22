@@ -2,7 +2,7 @@
 use crate::agent_session_store::SignalAgentSessionStore;
 use crate::config::connection::DatabaseConnection;
 use actix_web::web;
-use desk_agent_protocol::{AgentError, ai_assistant::AiAssistantAsk};
+use desk_agent_protocol::{AgentError, ai_agent::AiAgentAsk};
 use desk_signal_facade::model::{
     auth_context::AuthKind, connection::SharedConnectionMap, signal::RemoteDeskTypeEnum,
 };
@@ -25,19 +25,19 @@ pub struct ResumeScanReport {
 pub struct SignalPermissionResumeExecutor {
     db: DatabaseConnection,
     connections: web::Data<SharedConnectionMap>,
-    ai_assistant_gate: std::sync::Arc<crate::ai_assistant_gate::AiAssistantGate>,
+    ai_agent_gate: std::sync::Arc<crate::ai_agent_gate::AiAgentGate>,
 }
 
 impl SignalPermissionResumeExecutor {
     pub fn new(
         db: DatabaseConnection,
         connections: web::Data<SharedConnectionMap>,
-        ai_assistant_gate: std::sync::Arc<crate::ai_assistant_gate::AiAssistantGate>,
+        ai_agent_gate: std::sync::Arc<crate::ai_agent_gate::AiAgentGate>,
     ) -> Self {
         Self {
             db,
             connections,
-            ai_assistant_gate,
+            ai_agent_gate,
         }
     }
 
@@ -86,7 +86,7 @@ impl SignalPermissionResumeExecutor {
         &self,
         candidate: crate::entity::agent_permission_resume::Model,
     ) -> Result<bool, AgentError> {
-        if !self.ai_assistant_gate.is_enabled() {
+        if !self.ai_agent_gate.is_enabled() {
             return Ok(false);
         }
         // OSS has one owner identity. No public or code-session principal can
@@ -121,7 +121,7 @@ impl SignalPermissionResumeExecutor {
                 ) => return Ok(true),
                 Err(error) => {
                     log::warn!(
-                        "[ai-assistant-goal] durable permission decision routing deferred: {error}"
+                        "[ai-agent-goal] durable permission decision routing deferred: {error}"
                     );
                     return Ok(false);
                 }
@@ -174,7 +174,7 @@ impl SignalPermissionResumeExecutor {
         let locale = child_creation
             .as_ref()
             .and_then(|creation| creation.response_locale.clone());
-        crate::ai_assistant_orchestrator::resume_after_permission_decision(
+        crate::ai_agent_orchestrator::resume_after_permission_decision(
             self.connections.clone(),
             self.db.clone(),
             candidate.permission_id.clone(),
@@ -183,7 +183,7 @@ impl SignalPermissionResumeExecutor {
             session.device_id,
             session.conversation_id,
             candidate.request_id.clone(),
-            AiAssistantAsk {
+            AiAgentAsk {
                 temporary_conversation: None,
                 question,
                 locale,

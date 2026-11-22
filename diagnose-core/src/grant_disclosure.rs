@@ -138,7 +138,7 @@ pub(crate) mod tests {
         ProviderRegistry,
         GrantDisclosureSnapshot,
     ) {
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         let capability = registry
             .capability_for_tool(crate::tool_names::INSPECT_DESKTOP_SESSION)
             .unwrap();
@@ -150,7 +150,7 @@ pub(crate) mod tests {
         };
         let mut session =
             PersistedAgentSession::new("conv", "actor", "device", 1, scope, "2026-09-03T00:00:00Z");
-        session.surface = crate::session::AgentSessionSurface::AiAssistant;
+        session.surface = crate::session::AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         let grant = CapabilityGrant {
             schema_version: CAPABILITY_GRANT_SCHEMA_VERSION,

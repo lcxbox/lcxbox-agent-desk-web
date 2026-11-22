@@ -1,6 +1,6 @@
 use super::*;
 use crate::entity::agent_exec_task as command;
-use desk_agent_protocol::ai_assistant::subagent::{AiAssistantStopControl, SubAgentStopChoice};
+use desk_agent_protocol::ai_agent::subagent::{AiAgentStopControl, SubAgentStopChoice};
 
 pub(crate) async fn seed_native(
     db: &DatabaseConnection,
@@ -205,7 +205,7 @@ async fn main_stop_scope_applies_to_original_native_work_without_synthesizing_re
         let main_reply = super::issue_replies::seed(&db, "root", "root").await;
         let child_reply = super::issue_replies::seed(&db, &run.child_conversation_id, "root").await;
         let other_reply = super::issue_replies::seed(&db, "other-chat", "other-chat").await;
-        let control = AiAssistantStopControl {
+        let control = AiAgentStopControl {
             client_request_id: "native-scope-stop".into(),
             expected_input_revision: parent.input_revision,
             expected_control_revision: parent.control_revision,
@@ -228,17 +228,11 @@ async fn main_stop_scope_applies_to_original_native_work_without_synthesizing_re
         }
         assert_eq!(native(&db, other_command.id).await, other_command);
         let stopped = super::issue_replies::read(&db, &main_reply).await;
-        assert_eq!(
-            stopped.state,
-            desk_assistant_data_store::issue_reply::NOT_SENT
-        );
+        assert_eq!(stopped.state, desk_agent_data_store::issue_reply::NOT_SENT);
         assert_eq!(stopped.artifact_json, main_reply.artifact_json);
         let child = super::issue_replies::read(&db, &child_reply).await;
         if choice == SubAgentStopChoice::IncludeSubAgents {
-            assert_eq!(
-                child.state,
-                desk_assistant_data_store::issue_reply::NOT_SENT
-            );
+            assert_eq!(child.state, desk_agent_data_store::issue_reply::NOT_SENT);
             assert_eq!(child.artifact_json, child_reply.artifact_json);
         } else {
             assert_eq!(child, child_reply);

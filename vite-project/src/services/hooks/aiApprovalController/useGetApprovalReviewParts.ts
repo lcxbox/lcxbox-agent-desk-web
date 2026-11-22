@@ -9,7 +9,7 @@ import type { QueryKey, QueryClient, QueryObserverOptions, UseQueryResult } from
 import { getApprovalReviewParts } from "../../clients.ts";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
-export const getApprovalReviewPartsQueryKey = (params: GetApprovalReviewPartsQueryParams) => [{ url: '/api/my/ai-assistant-session/approval-review/parts' }, ...(params ? [params] : [])] as const
+export const getApprovalReviewPartsQueryKey = (params: GetApprovalReviewPartsQueryParams) => [{ url: '/api/my/ai-agent-session/approval-review/parts' }, ...(params ? [params] : [])] as const
 
 export type GetApprovalReviewPartsQueryKey = ReturnType<typeof getApprovalReviewPartsQueryKey>
 
@@ -28,7 +28,7 @@ export function getApprovalReviewPartsQueryOptions(params: GetApprovalReviewPart
 
 /**
  * @summary Read own approval content parts (administrator)
- * {@link /api/my/ai-assistant-session/approval-review/parts}
+ * {@link /api/my/ai-agent-session/approval-review/parts}
  */
 export function useGetApprovalReviewParts<TData = GetApprovalReviewPartsQueryResponse, TQueryData = GetApprovalReviewPartsQueryResponse, TQueryKey extends QueryKey = GetApprovalReviewPartsQueryKey>(params: GetApprovalReviewPartsQueryParams, options: 
 {

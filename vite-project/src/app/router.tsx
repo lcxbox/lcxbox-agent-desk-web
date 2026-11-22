@@ -59,44 +59,44 @@ export const router = createBrowserRouter([
                 lazy: async () => ({ Component: (await import('@/features/schedules/oss-page')).default }),
             },
             {
-                path: 'ai-assistant',
-                lazy: async () => ({ Component: (await import('@/features/desk/ai-assistant-overview')).AiAssistantOverview }),
+                path: 'ai-agent',
+                lazy: async () => ({ Component: (await import('@/features/desk/ai-agent-overview')).AiAgentOverview }),
             },
             {
-                path: 'ai-assistant/conversations',
-                lazy: async () => ({ Component: (await import('@/features/desk/ai-assistant-conversations')).default }),
+                path: 'ai-agent/conversations',
+                lazy: async () => ({ Component: (await import('@/features/desk/ai-agent-conversations')).default }),
             },
             {
-                path: 'ai-assistant/workbench',
-                lazy: async () => ({ Component: (await import('@/features/desk/assistant-workbench')).default }),
+                path: 'ai-agent/workbench',
+                lazy: async () => ({ Component: (await import('@/features/desk/agent-workbench')).default }),
             },
             {
-                path: 'ai-assistant/attention',
-                lazy: async () => ({ Component: (await import('@/features/desk/ai-assistant-attention-page')).default }),
+                path: 'ai-agent/attention',
+                lazy: async () => ({ Component: (await import('@/features/desk/ai-agent-attention-page')).default }),
             },
             {
-                path: 'ai-assistant/conversation',
-                lazy: async () => ({ Component: (await import('@/features/desk/ai-assistant-page')).PersonalAiAssistantPage }),
+                path: 'ai-agent/conversation',
+                lazy: async () => ({ Component: (await import('@/features/desk/ai-agent-page')).PersonalAiAgentPage }),
             },
             {
-                        path: 'ai-assistant/processing',
-                        lazy: async () => ({ Component: (await import('@/features/desk/assistant-processing')).default }),
+                        path: 'ai-agent/processing',
+                        lazy: async () => ({ Component: (await import('@/features/desk/agent-processing')).default }),
                     },
                     {
-                        path: 'ai-assistant/history',
-                        lazy: async () => ({ Component: (await import('@/features/desk/assistant-history-search')).default }),
+                        path: 'ai-agent/history',
+                        lazy: async () => ({ Component: (await import('@/features/desk/agent-history-search')).default }),
                     },
                     {
-                path: 'ai-assistant/memories',
-                lazy: async () => ({ Component: (await import('@/features/desk/ai-assistant-memories')).default }),
+                path: 'ai-agent/memories',
+                lazy: async () => ({ Component: (await import('@/features/desk/ai-agent-memories')).default }),
             },
             {
-                path: 'ai-assistant/personalization',
-                lazy: async () => ({ Component: (await import('@/features/desk/ai-assistant-personalization')).default }),
+                path: 'ai-agent/personalization',
+                lazy: async () => ({ Component: (await import('@/features/desk/ai-agent-personalization')).default }),
             },
             {
-                path: 'ai-assistant/skills',
-                lazy: async () => ({ Component: (await import('@/features/desk/ai-assistant-skills')).default }),
+                path: 'ai-agent/skills',
+                lazy: async () => ({ Component: (await import('@/features/desk/ai-agent-skills')).default }),
             },
             {
                 path: 'desk/list',
@@ -111,7 +111,7 @@ export const router = createBrowserRouter([
                     { path: 'files', lazy: async () => ({ Component: (await import('@/features/file-manager/file-list')).default }) },
                     { path: 'terminal', lazy: async () => ({ Component: (await import('@/features/terminal/terminal-session-launcher')).default }) },
                     { path: 'browser-setup', lazy: async () => ({ Component: (await import('@/features/desk/browser-setup-page')).default }) },
-                    { path: 'assistant', lazy: async () => ({ Component: (await import('@/features/desk/ai-assistant-page')).default }) },
+                    { path: 'agent', lazy: async () => ({ Component: (await import('@/features/desk/ai-agent-page')).default }) },
                 ],
             },
             {
@@ -213,8 +213,8 @@ export const router = createBrowserRouter([
                         lazy: async () => ({ Component: (await import('@/features/settings/issue-connections-settings')).IssueConnectionsSettings }),
                     },
                     {
-                        path: 'assistant-skills',
-                        lazy: async () => ({ Component: (await import('@/features/settings/assistant-skills-settings')).PlatformAssistantSkills }),
+                        path: 'agent-skills',
+                        lazy: async () => ({ Component: (await import('@/features/settings/agent-skills-settings')).PlatformAgentSkills }),
                     },
                     {
                         path: 'schedule-budget',

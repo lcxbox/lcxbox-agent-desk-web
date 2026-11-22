@@ -176,7 +176,7 @@ async fn validate_observation_on(
         .one(txn)
         .await?
         .ok_or_else(|| invalid())?;
-    desk_assistant_data_store::worker_report::validate_terminal_observation_on(txn, &event, report)
+    desk_agent_data_store::worker_report::validate_terminal_observation_on(txn, &event, report)
         .await?;
     Ok(event)
 }
@@ -289,7 +289,7 @@ pub(crate) async fn save_main_delegation_session(
         crate::goal_work::rebase_background_events_on(&txn, &current, held).await
     })
     .await?
-        || (current.assistant_data.is_some() && held.assistant_data.is_none())
+        || (current.agent_data.is_some() && held.agent_data.is_none())
         || current.lease_token != held.lease_token
         || current.input_revision != held.input_revision
         || current.control_revision != held.control_revision
@@ -299,8 +299,8 @@ pub(crate) async fn save_main_delegation_session(
         return Err(invalid());
     }
     let now = chrono::Utc::now();
-    let version = if held.surface == desk_diagnose_core::session::AgentSessionSurface::AiAssistant
-        && held.assistant_data.is_some()
+    let version = if held.surface == desk_diagnose_core::session::AgentSessionSurface::AiAgent
+        && held.agent_data.is_some()
     {
         desk_diagnose_core::future::send_phase(|| save_main_history_on(&txn, &current, held, now))
             .await?
@@ -325,11 +325,11 @@ async fn save_main_history_on(
     held: &PersistedAgentSession,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<i64, DbErr> {
-    use super::super::{agent_session_store::history_save, assistant_data_store};
-    use desk_agent_protocol::ai_assistant::history::HistoryAdmission;
+    use super::super::{agent_data_store, agent_session_store::history_save};
+    use desk_agent_protocol::ai_agent::history::HistoryAdmission;
 
     let mut prepared = desk_diagnose_core::future::send_phase(|| {
-        assistant_data_store::prepare_visible_history_on(txn, held)
+        agent_data_store::prepare_visible_history_on(txn, held)
     })
     .await
     .map_err(history_error)?;
@@ -349,7 +349,7 @@ async fn save_main_history_on(
     let requests = prepared.requests(&captures).map_err(history_error)?;
     let deadlines = prepared.deadlines().map_err(history_error)?;
     let pending = desk_diagnose_core::future::send_phase(|| {
-        assistant_data_store::history::staged::prepare_requests_on(txn, &requests, &prepared.policy)
+        agent_data_store::history::staged::prepare_requests_on(txn, &requests, &prepared.policy)
     })
     .await
     .map_err(history_error)?;
@@ -394,7 +394,7 @@ async fn save_main_history_on(
         .await
         .is_err()
     {
-        log::warn!("assistant answer retained without an optional citation projection");
+        log::warn!("agent answer retained without an optional citation projection");
     }
     let outcomes = desk_diagnose_core::future::send_phase(|| pending.finalize_on())
         .await
@@ -415,9 +415,9 @@ async fn save_main_history_on(
     Ok(version)
 }
 
-fn history_error(error: super::super::assistant_data_store::AssistantStoreError) -> DbErr {
+fn history_error(error: super::super::agent_data_store::AgentStoreError) -> DbErr {
     match error {
-        super::super::assistant_data_store::AssistantStoreError::Backend(error) => error,
+        super::super::agent_data_store::AgentStoreError::Backend(error) => error,
         _ => invalid(),
     }
 }

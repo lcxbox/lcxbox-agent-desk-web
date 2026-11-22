@@ -43,7 +43,7 @@ pub(super) fn decode_session(
         || session.actor_id != subject.actor_id
         || session.device_id != subject.device_id
         || session.client_conversation_id.as_deref() != subject.client_conversation_id
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || row.version < 0
         || session.handled_input_seq > session.latest_input_seq
     {
@@ -203,7 +203,7 @@ pub(super) fn validate_selection(
     if !selection.live_targets.is_empty() {
         let now_unix_ms =
             u64::try_from(now.timestamp_millis()).map_err(|_| internal("invalid input time"))?;
-        let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+        let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
         desk_diagnose_core::input_read_context::live_read::validate_durable_selection(
             selection,
             session,
@@ -448,7 +448,7 @@ async fn original_with_time_on(
         } else {
             Vec::new()
         },
-        surface: AgentSessionSurface::AiAssistant,
+        surface: AgentSessionSurface::AiAgent,
         policy_revision: session.policy_revision,
         current_scope: session.scope_snapshot.clone(),
         read_context: selection.clone(),
@@ -473,7 +473,7 @@ impl SignalAgentRunEventStore {
     ) -> Result<(), AgentError> {
         if !subject.device_id.is_empty() && subject.device_id != target_device_id {
             return Err(internal(
-                "object read device differs from the fixed assistant target",
+                "object read device differs from the fixed agent target",
             ));
         }
         let txn = self
@@ -490,8 +490,8 @@ impl SignalAgentRunEventStore {
         let session = decode_session(&row, subject)?;
         if subject.device_id.is_empty()
             && !target_device_id.is_empty()
-            && (!session.admits_assistant_device(target_device_id)
-                || !desk_assistant_data_store::device_roster::permits_current_target(
+            && (!session.admits_agent_device(target_device_id)
+                || !desk_agent_data_store::device_roster::permits_current_target(
                     &txn,
                     &session,
                     target_device_id,
@@ -602,7 +602,7 @@ impl SignalAgentRunEventStore {
                 now,
                 Some(target_device_id),
             )?;
-            let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+            let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
             desk_diagnose_core::input_read_context::live_read::validate_durable_selection_on(
                 original,
                 &session,

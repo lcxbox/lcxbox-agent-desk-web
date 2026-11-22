@@ -24,7 +24,7 @@ const PATTERNS: &[&str] = &[
 /// - each site that marks text unverified.
 const ALLOWED: &[(&str, &str, usize)] = &[
     (
-        "assistant-data-store/src/schedule/resume_claim.rs",
+        "agent-data-store/src/schedule/resume_claim.rs",
         "Unverified::new(",
         1,
     ),
@@ -32,7 +32,7 @@ const ALLOWED: &[(&str, &str, usize)] = &[
     ("diagnose-core/src/agent_loop.rs", ".data_envelope = ", 3),
     ("diagnose-core/src/agent_loop.rs", "Unverified::new(", 3),
     (
-        "diagnose-core/src/agent_loop/assistant_data.rs",
+        "diagnose-core/src/agent_loop/agent_data.rs",
         ".data_envelope = ",
         1,
     ),
@@ -77,11 +77,11 @@ const ALLOWED: &[(&str, &str, usize)] = &[
     ("diagnose-core/src/runtime_context.rs", ".text.push_str(", 1),
     ("diagnose-core/src/seam.rs", "Unverified::new(", 1),
     (
-        "diagnose-core/src/terminal_ai_assistant.rs",
+        "diagnose-core/src/terminal_ai_agent.rs",
         ".text.push_str(",
         1,
     ),
-    ("signal/src/assistant_model.rs", ".data_envelope = ", 1),
+    ("signal/src/agent_model.rs", ".data_envelope = ", 1),
     (
         "signal/src/capability_grant_store/computer_delivery.rs",
         "Unverified::new(",
@@ -170,11 +170,7 @@ fn production_writes_message_fields_only_through_typed_content_and_mutators() {
         .parent()
         .unwrap();
     let mut found = Vec::new();
-    for dir in [
-        "diagnose-core/src",
-        "signal/src",
-        "assistant-data-store/src",
-    ] {
+    for dir in ["diagnose-core/src", "signal/src", "agent-data-store/src"] {
         scan(&root.join(dir), root, &mut found);
     }
     found.sort();

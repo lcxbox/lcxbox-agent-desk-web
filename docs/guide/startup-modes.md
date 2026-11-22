@@ -16,7 +16,7 @@ cargo run -- --help
 | `desk-server` | Desk server only (controlled device). |
 | `service-daemon` | System service daemon (SYSTEM / root) that manages per-session workers. |
 | `session-worker` | Worker process launched by the daemon inside the user's desktop session. |
-| `mcp-stdio` | Read-only MCP server over stdio for local AI assistants. |
+| `mcp-stdio` | Read-only MCP server over stdio for local AI agents. |
 
 ## Default Mode
 

@@ -243,7 +243,7 @@ impl FrozenIssueReply {
     }
 
     pub fn wire_body(&self) -> String {
-        format!("{}\n\n<!-- assistant-reply:{} -->", self.body, self.marker)
+        format!("{}\n\n<!-- agent-reply:{} -->", self.body, self.marker)
     }
 
     pub fn receipt_key(&self) -> IssueReplyReceiptKey {

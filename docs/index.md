@@ -19,12 +19,12 @@ hero:
 features:
   - icon: 🤖
     title: AI-Native by Design
-    details: A built-in AI assistant reads device state and may propose commands. Owner-only commands run only after an explicit per-command confirmation; the server remains the sole authority on permissions and risk.
+    details: A built-in AI agent reads device state and may propose commands. Owner-only commands run only after an explicit per-command confirmation; the server remains the sole authority on permissions and risk.
     link: /features/ai-diagnostics
     linkText: AI Diagnostics
   - icon: 🔌
     title: Read-Only MCP Server
-    details: Expose the device's read capabilities to local AI assistants over the Model Context Protocol — a static whitelist with no execute, write, or control tools.
+    details: Expose the device's read capabilities to local AI agents over the Model Context Protocol — a static whitelist with no execute, write, or control tools.
     link: /features/mcp-server
     linkText: MCP Server
   - icon: ⚡

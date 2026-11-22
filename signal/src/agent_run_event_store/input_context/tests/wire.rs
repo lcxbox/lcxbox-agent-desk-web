@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::remote_tool_edge::{
-    SignalAiAssistantTools, SignalRemoteToolObserver, SignalRemoteToolPendingStore,
+    SignalAiAgentTools, SignalRemoteToolObserver, SignalRemoteToolPendingStore,
 };
 use desk_agent_protocol::{
     AgentOutcome, ContextKind, ReadContextInput,
@@ -12,7 +12,7 @@ use desk_agent_protocol::{
     remote_tool::{RemoteToolOutput, RemoteToolRequest, RemoteToolResponse},
 };
 use desk_diagnose_core::{
-    ai_assistant::ai_assistant_provider_registry, chunk::chunk_bytes, seam::ToolSeam,
+    ai_agent::ai_agent_provider_registry, chunk::chunk_bytes, seam::ToolSeam,
 };
 use desk_signal_facade::model::peer::{
     HostExecCapabilities, PeerInfo, ServerRegistration, SignalingPeer,
@@ -104,34 +104,43 @@ async fn real_object_read_transport_keeps_original_refs_bounds_and_lineage_and_r
                                         operation_system: Default::default(),
                                         display_name: None,
                                     },
-                                    server: (Some("device".into())).map(|client_id| ServerRegistration {
-                                        client_id,
-                                        exec_capabilities: HostExecCapabilities {
-                                            available_exec_shells: Vec::new(),
-                                            exec_pty: false,
-                                            exec_pty_elevation: false,
-                                            max_ai_command_runtime_ms: None,
-                                        },
-                                        ai_assistant_settings: desk_agent_protocol::ai_assistant::AiAssistantSettings {
-                                            revision: 0,
-                                            enabled: false,
-                                        },
+                                    server: (Some("device".into())).map(|client_id| {
+                                        ServerRegistration {
+                                            client_id,
+                                            exec_capabilities: HostExecCapabilities {
+                                                available_exec_shells: Vec::new(),
+                                                exec_pty: false,
+                                                exec_pty_elevation: false,
+                                                max_ai_command_runtime_ms: None,
+                                            },
+                                            ai_agent_settings:
+                                                desk_agent_protocol::ai_agent::AiAgentSettings {
+                                                    revision: 0,
+                                                    enabled: false,
+                                                },
+                                        }
                                     }),
                                 })
                                 .into_connection_model(host.clone(), None);
-                                ConnectionState {lifecycle: Default::default(),
-client_id,
-model: (ConnectionModel {
+                                ConnectionState {
+                                    lifecycle: Default::default(),
+                                    client_id,
+                                    model: (ConnectionModel {
                                         device_id: None,
                                         owner_node_id: None,
                                         ..model
-                                    }).into(),
-session: Arc::new(tokio::sync::RwLock::new(socket)),
-terminal_connection_ids: Default::default(),
-request_callback_map: Default::default(),
-device_code: None,
-auth_context: AuthContext::token_auth(7, 1, RemoteDeskTypeEnum::Server),
-}
+                                    })
+                                    .into(),
+                                    session: Arc::new(tokio::sync::RwLock::new(socket)),
+                                    terminal_connection_ids: Default::default(),
+                                    request_callback_map: Default::default(),
+                                    device_code: None,
+                                    auth_context: AuthContext::token_auth(
+                                        7,
+                                        1,
+                                        RemoteDeskTypeEnum::Server,
+                                    ),
+                                }
                             };
                             map.write().await.insert(host, peer.clone());
                             notify.notify_one();
@@ -204,9 +213,9 @@ auth_context: AuthContext::token_auth(7, 1, RemoteDeskTypeEnum::Server),
             )
             .unwrap();
         let reference: ObjectRef = serde_json::from_str(&object.object_ref.opaque_token).unwrap();
-        let tools = SignalAiAssistantTools::new(
+        let tools = SignalAiAgentTools::new(
             store.db.clone(),
-            ai_assistant_provider_registry(),
+            ai_agent_provider_registry(),
             map.clone(),
             pending,
             host,
@@ -251,7 +260,7 @@ auth_context: AuthContext::token_auth(7, 1, RemoteDeskTypeEnum::Server),
             CapabilityGrantLimits, CapabilityGrantUsePolicy, CapabilityRiskTier,
         };
         use sha2::{Digest, Sha256};
-        let registry = ai_assistant_provider_registry();
+        let registry = ai_agent_provider_registry();
         let capability = registry.capability_for_tool(&call.name).unwrap();
         let provider = registry
             .provider_for_capability(&capability.wire.capability_id)

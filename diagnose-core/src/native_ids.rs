@@ -22,17 +22,17 @@ pub enum Kind {
     Goal,
     StatusStep,
     Lineage,
-    AssistantSearchDocument,
+    AgentSearchDocument,
     Memory,
     MemoryJob,
     RetrievalEpisode,
-    AssistantDataControl,
-    AssistantReadAuthorization,
-    AssistantReadProjection,
-    AssistantDeviceBinding,
-    AssistantRetrievalQuery,
-    AssistantPageCursor,
-    AssistantMainRequest,
+    AgentDataControl,
+    AgentReadAuthorization,
+    AgentReadProjection,
+    AgentDeviceBinding,
+    AgentRetrievalQuery,
+    AgentPageCursor,
+    AgentMainRequest,
     WorkbenchWorkConversation,
     IssueReply,
     IssueSubscription,
@@ -65,17 +65,17 @@ impl Kind {
             Self::Goal => "g",
             Self::StatusStep => "step",
             Self::Lineage => "id",
-            Self::AssistantSearchDocument => "sdoc",
+            Self::AgentSearchDocument => "sdoc",
             Self::Memory => "mem",
             Self::MemoryJob => "mjob",
             Self::RetrievalEpisode => "lookup",
-            Self::AssistantDataControl => "dc",
-            Self::AssistantReadAuthorization => "read",
-            Self::AssistantReadProjection => "proj",
-            Self::AssistantDeviceBinding => "dev",
-            Self::AssistantRetrievalQuery => "query",
-            Self::AssistantPageCursor => "page",
-            Self::AssistantMainRequest => "request",
+            Self::AgentDataControl => "dc",
+            Self::AgentReadAuthorization => "read",
+            Self::AgentReadProjection => "proj",
+            Self::AgentDeviceBinding => "dev",
+            Self::AgentRetrievalQuery => "query",
+            Self::AgentPageCursor => "page",
+            Self::AgentMainRequest => "request",
             Self::WorkbenchWorkConversation => "work",
             Self::IssueReply => "reply",
             Self::IssueSubscription => "subscription",
@@ -113,11 +113,11 @@ pub fn fixture_source_id(seed: &impl Serialize) -> String {
     let input = serde_json::to_vec(&("fixture-source", seed)).expect("fixture seed serialization");
     let digest = Sha256::digest(input);
     let key = u64::from_be_bytes(digest[..8].try_into().expect("eight bytes")) % 1_000_000_000;
-    desk_agent_protocol::ai_assistant::source_ref::SourceRef::history(key as i64 + 1).to_string()
+    desk_agent_protocol::ai_agent::source_ref::SourceRef::history(key as i64 + 1).to_string()
 }
 
 /// Deterministic origin row key for tests and fixtures. Production origin ids
-/// are `agent_assistant_origin` primary keys.
+/// are `agent_origin` primary keys.
 #[doc(hidden)]
 pub fn fixture_origin_id(seed: &impl Serialize) -> i64 {
     let input = serde_json::to_vec(&("fixture-origin", seed)).expect("fixture seed serialization");
@@ -130,9 +130,9 @@ pub fn fixture_origin_id(seed: &impl Serialize) -> i64 {
 #[doc(hidden)]
 pub fn fixture_memory_source_id(seed: &impl Serialize) -> String {
     let history = fixture_source_id(seed);
-    let parsed = desk_agent_protocol::ai_assistant::source_ref::SourceRef::parse(&history)
+    let parsed = desk_agent_protocol::ai_agent::source_ref::SourceRef::parse(&history)
         .expect("fixture history source id");
-    desk_agent_protocol::ai_assistant::source_ref::SourceRef::memory(parsed.id).to_string()
+    desk_agent_protocol::ai_agent::source_ref::SourceRef::memory(parsed.id).to_string()
 }
 
 pub fn is(kind: Kind, id: &str) -> bool {

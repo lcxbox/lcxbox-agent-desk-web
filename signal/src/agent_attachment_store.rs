@@ -203,7 +203,7 @@ async fn subject(
         .await?
         .ok_or_else(invalid)?;
     let session = PersistedAgentSession::decode_json(&row.state_json).map_err(|_| invalid())?;
-    if session.surface != desk_diagnose_core::session::AgentSessionSurface::AiAssistant
+    if session.surface != desk_diagnose_core::session::AgentSessionSurface::AiAgent
         || session.conversation_id != run
         || session.actor_id != actor
         || session.device_id != row.device_id
@@ -393,7 +393,7 @@ async fn content_root(db: &impl ConnectionTrait) -> Result<std::path::PathBuf, D
     Ok(std::path::Path::new(&path)
         .parent()
         .ok_or_else(invalid)?
-        .join("assistant-attachments"))
+        .join("agent-attachments"))
 }
 
 fn content_path(root: &std::path::Path, key: &str) -> Result<std::path::PathBuf, DbErr> {

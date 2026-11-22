@@ -44,10 +44,10 @@ fn session() -> PersistedAgentSession {
         },
         NOW,
     );
-    session.surface = crate::session::AgentSessionSurface::AiAssistant;
+    session.surface = crate::session::AgentSessionSurface::AiAgent;
     session.input_revision = 1;
     session
-        .bind_assistant_request_targets(vec!["a".into(), "b".into()])
+        .bind_agent_request_targets(vec!["a".into(), "b".into()])
         .unwrap();
     session
 }
@@ -96,20 +96,17 @@ fn proposal(name: &str, reference: &str, input: Value) -> ToolCall {
 #[tokio::test]
 async fn selected_file_reads_project_and_plan_only_on_the_directory_device() {
     use crate::{
-        conversation_key::{AssistantConversationScope, derive_assistant_conversation_key},
+        conversation_key::{AgentConversationScope, derive_agent_conversation_key},
         file_scope::*,
     };
     use desk_agent_protocol::computer_use::{ObjectKind, ObjectRef};
-    let registry = crate::ai_assistant::ai_assistant_provider_registry_ref();
+    let registry = crate::ai_agent::ai_agent_provider_registry_ref();
     let mut session = session();
-    session.conversation_id = derive_assistant_conversation_key(
-        "owner",
-        AssistantConversationScope::Personal,
-        "file-input",
-    );
+    session.conversation_id =
+        derive_agent_conversation_key("owner", AgentConversationScope::Personal, "file-input");
     session.adopt_client_metadata(
         Some("file-input"),
-        crate::session::AgentSessionSurface::AiAssistant,
+        crate::session::AgentSessionSurface::AiAgent,
     );
     let subject = session
         .file_scope_subject("owner", "a", &session.conversation_id)
@@ -223,7 +220,7 @@ async fn selected_file_reads_project_and_plan_only_on_the_directory_device() {
 
 #[tokio::test]
 async fn every_request_device_read_projects_parses_and_keeps_its_exact_target() {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry_ref();
+    let registry = crate::ai_agent::ai_agent_provider_registry_ref();
     for descriptor in registry
         .providers()
         .flat_map(|p| &p.capabilities)
@@ -394,12 +391,12 @@ async fn every_request_device_read_projects_parses_and_keeps_its_exact_target() 
                 .unwrap_or_else(|e| panic!("{name}: {e:?}"))
         );
         let mut later = session.clone();
-        let targets = later.assistant_request_targets().unwrap().to_vec();
+        let targets = later.agent_request_targets().unwrap().to_vec();
         later.input_revision += 1;
         later
             .begin_focus_epoch(later.input_revision, Vec::new())
             .unwrap();
-        later.bind_assistant_input_targets(&targets).unwrap();
+        later.bind_agent_input_targets(&targets).unwrap();
         assert!(
             require_current_read_target(&later, &native, target).unwrap_or_else(|error| {
                 panic!("{name}: original approval lost on follow-up: {error:?}")
@@ -473,7 +470,7 @@ async fn desktop_object_approval_and_dispatch_keep_the_observed_device_and_incar
     use crate::model_message_labels::{ReadResultLabel, read_result_envelope};
     use crate::seam::ToolOutputFormat;
 
-    let registry = crate::ai_assistant::ai_assistant_provider_registry_ref();
+    let registry = crate::ai_agent::ai_agent_provider_registry_ref();
     let screen = registry.capability_for_tool("read_current_screen").unwrap();
     let ui = registry.capability_for_tool("inspect_desktop_ui").unwrap();
     let mut session = session();
@@ -520,9 +517,9 @@ async fn desktop_object_approval_and_dispatch_keep_the_observed_device_and_incar
             )
             .unwrap(),
         );
-        let mut assistant = ChatMessage::text(format!("inspect-{device}"), ChatRole::Assistant, "");
-        assistant.tool_calls.push(call.to_ref());
-        session.conversation.extend([assistant, observation]);
+        let mut agent = ChatMessage::text(format!("inspect-{device}"), ChatRole::Assistant, "");
+        agent.tool_calls.push(call.to_ref());
+        session.conversation.extend([agent, observation]);
     }
     session
         .ui_references
@@ -701,7 +698,7 @@ async fn explicit_display_must_have_been_observed_on_the_selected_device() {
     use crate::model_message_labels::{ReadResultLabel, read_result_envelope};
     use crate::seam::ToolOutputFormat;
 
-    let registry = crate::ai_assistant::ai_assistant_provider_registry_ref();
+    let registry = crate::ai_agent::ai_agent_provider_registry_ref();
     let desktop = registry
         .capability_for_tool("inspect_desktop_session")
         .unwrap();
@@ -773,7 +770,7 @@ async fn explicit_display_must_have_been_observed_on_the_selected_device() {
 
 #[test]
 fn sole_target_uses_its_frozen_public_reference_after_reopen() {
-    use crate::dynamic_run::AssistantInputTarget;
+    use crate::dynamic_run::AgentInputTarget;
 
     let mut session = session();
     let read = tool("read_system_info", json!({}));
@@ -782,17 +779,17 @@ fn sole_target_uses_its_frozen_public_reference_after_reopen() {
     session
         .begin_focus_epoch(session.input_revision, Vec::new())
         .unwrap();
-    let only = AssistantInputTarget {
+    let only = AgentInputTarget {
         reference: "public-mac".into(),
         device_id: "42".into(),
         member_generation: Some(2),
     };
     session
-        .bind_assistant_input_targets(std::slice::from_ref(&only))
+        .bind_agent_input_targets(std::slice::from_ref(&only))
         .unwrap();
     assert!(
         session
-            .bind_assistant_input_targets(&[AssistantInputTarget {
+            .bind_agent_input_targets(&[AgentInputTarget {
                 reference: "renamed".into(),
                 ..only.clone()
             }])
@@ -800,8 +797,8 @@ fn sole_target_uses_its_frozen_public_reference_after_reopen() {
     );
     let restored =
         PersistedAgentSession::decode_json(&session.encode_json_for_storage().unwrap()).unwrap();
-    assert_eq!(restored.assistant_request_device("public-mac"), Some(&only));
-    assert!(restored.assistant_request_device("42").is_none());
+    assert_eq!(restored.agent_request_device("public-mac"), Some(&only));
+    assert!(restored.agent_request_device("42").is_none());
     let inferred = infer_single_target(&read, &restored).unwrap().unwrap();
     assert_eq!(selected_read(&inferred).unwrap().0, "public-mac");
     let explicit = tool("read_system_info", json!({"target_ref":"unknown"}));
@@ -830,7 +827,7 @@ fn sole_target_uses_its_frozen_public_reference_after_reopen() {
 #[test]
 fn every_native_action_uses_the_registered_schema_and_original_device_projection() {
     let session = session();
-    let registry = crate::ai_assistant::ai_assistant_provider_registry_ref();
+    let registry = crate::ai_agent::ai_agent_provider_registry_ref();
     let descriptors = registry
         .providers()
         .flat_map(|provider| &provider.capabilities)
@@ -871,7 +868,7 @@ fn every_native_action_uses_the_registered_schema_and_original_device_projection
 #[tokio::test]
 async fn a_command_mixed_with_device_items_is_asked_to_be_requested_alone() {
     let session = session();
-    let registry = crate::ai_assistant::ai_assistant_provider_registry_ref();
+    let registry = crate::ai_agent::ai_agent_provider_registry_ref();
     let descriptor = registry.capability_for_tool("browser_open_page").unwrap();
     let mut devices = [device("a", vec![descriptor.wire.capability_id.clone()])];
     devices[0].ready_capabilities = vec![Capability::BrowserPageObserve];
@@ -909,7 +906,7 @@ async fn a_command_mixed_with_device_items_is_asked_to_be_requested_alone() {
 #[tokio::test]
 async fn browser_open_permission_is_exact_and_bound_to_the_original_device() {
     let mut session = session();
-    let registry = crate::ai_assistant::ai_assistant_provider_registry_ref();
+    let registry = crate::ai_agent::ai_agent_provider_registry_ref();
     let name = "browser_open_page";
     let descriptor = registry.capability_for_tool(name).unwrap();
     assert!(selected_action_descriptor(descriptor));
@@ -1005,7 +1002,7 @@ async fn selected_ui_scope_bundles_observation_and_keeps_each_grant_on_the_same_
     use crate::permission_grant::{PermissionGrantIssuanceContext, build_permission_grants};
     use crate::seam::ToolOutputFormat;
     use desk_agent_protocol::capability_provider::ProductSurface;
-    let registry = crate::ai_assistant::ai_assistant_provider_registry_ref();
+    let registry = crate::ai_agent::ai_agent_provider_registry_ref();
     let mut session = session();
     let app = json!({"token":"observed-app","snapshot_id":"apps","object_kind":"application","expires_at":"2026-11-06T00:10:00Z"});
     let text = json!({"ReadContext":{"DesktopSessionInspect":{
@@ -1037,7 +1034,7 @@ async fn selected_ui_scope_bundles_observation_and_keeps_each_grant_on_the_same_
         .unwrap(),
     );
     session.conversation.extend([
-        ChatMessage::assistant_tool_calls("observation", "", vec![call.to_ref()]),
+        ChatMessage::agent_tool_calls("observation", "", vec![call.to_ref()]),
         message,
     ]);
     let names = [
@@ -1193,18 +1190,18 @@ async fn selected_ui_scope_bundles_observation_and_keeps_each_grant_on_the_same_
 
 #[test]
 fn fixed_and_selectable_single_device_share_the_projected_tool_contract() {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry_ref();
+    let registry = crate::ai_agent::ai_agent_provider_registry_ref();
     let mut selectable = session();
     selectable.input_revision += 1;
     selectable
         .begin_focus_epoch(selectable.input_revision, Vec::new())
         .unwrap();
     selectable
-        .bind_assistant_request_targets(vec!["a".into()])
+        .bind_agent_request_targets(vec!["a".into()])
         .unwrap();
     let mut fixed = selectable.clone();
     fixed.device_id = "a".into();
-    assert!(fixed.has_admitted_assistant_input());
+    assert!(fixed.has_admitted_agent_input());
     assert!(!fixed.has_admitted_personal_input());
     let capabilities = registry
         .providers()
@@ -1229,13 +1226,13 @@ fn fixed_and_selectable_single_device_share_the_projected_tool_contract() {
     assert_eq!(fixed_call, selected_call);
     assert_eq!(selected_read(&fixed_call).unwrap().0, "a");
     fixed
-        .resolve_assistant_action_device(Some("b"), None)
+        .resolve_agent_action_device(Some("b"), None)
         .unwrap_err();
     let restored =
         PersistedAgentSession::decode_json(&fixed.encode_json_for_storage().unwrap()).unwrap();
     assert_eq!(
-        restored.assistant_request_targets(),
-        fixed.assistant_request_targets()
+        restored.agent_request_targets(),
+        fixed.agent_request_targets()
     );
 }
 
@@ -1251,8 +1248,7 @@ fn approved_command_visibility_uses_live_device_authority_across_continuations()
     policy.directory_grants =
         crate::file_scope::TrustedDirectoryGrants::from_session(&session, "a", 1);
     policy.target_session_id = "connection-a:session-1".into();
-    let registry =
-        crate::ai_assistant::ai_assistant_provider_registry().with_command_policy(policy);
+    let registry = crate::ai_agent::ai_agent_provider_registry().with_command_policy(policy);
     let descriptor = registry.capability_for_tool("exec_command").unwrap();
     let request = build_permission_request(
         &tool(
@@ -1363,7 +1359,7 @@ fn a_copied_device_selector_on_a_native_ui_action_must_match_the_observed_applic
     use crate::chat::{ChatMessage, ChatRole};
     use crate::model_message_labels::{ReadResultLabel, read_result_envelope};
     use crate::seam::ToolOutputFormat;
-    let registry = crate::ai_assistant::ai_assistant_provider_registry_ref();
+    let registry = crate::ai_agent::ai_agent_provider_registry_ref();
     let mut session = session();
     let app = json!({"token":"observed-app","snapshot_id":"apps","object_kind":"application","expires_at":"2026-11-06T00:10:00Z"});
     let text = json!({"ReadContext":{"DesktopSessionInspect":{
@@ -1394,7 +1390,7 @@ fn a_copied_device_selector_on_a_native_ui_action_must_match_the_observed_applic
         .unwrap(),
     );
     session.conversation.extend([
-        ChatMessage::assistant_tool_calls("observation", "", vec![observe.to_ref()]),
+        ChatMessage::agent_tool_calls("observation", "", vec![observe.to_ref()]),
         message,
     ]);
     let action = |target: Option<&str>| {

@@ -458,7 +458,7 @@ mod tests {
         crate::permission_tools::build_permission_request(
             &crate::chat::ToolCall { id:"private-provider-call".into(),name:"request_permissions".into(),
                 arguments_json:r#"{"items":[{"item_id":"capture","tool_name":"read_current_screen","exact_input":{"display":"private-display"},"suggested_ttl_seconds":300,"suggested_max_uses":1,"reason":"private-owner-reason"}]}"#.into() },
-            &crate::ai_assistant::ai_assistant_provider_registry(),id.into(),1,"2026-10-08T00:00:00Z".into(),
+            &crate::ai_agent::ai_agent_provider_registry(),id.into(),1,"2026-10-08T00:00:00Z".into(),
         ).unwrap()
     }
 
@@ -477,7 +477,7 @@ mod tests {
             },
             "2026-10-08T00:00:00Z",
         );
-        session.surface = crate::session::AgentSessionSurface::AiAssistant;
+        session.surface = crate::session::AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session.begin_focus_epoch(1, []).unwrap();
         session.permission_requests =
@@ -575,7 +575,7 @@ mod tests {
                 "server-request".into(),
                 "server-run".into(),
                 "private-owner".into(),
-                crate::dynamic_run::AssistantInputTarget::fixed("private-device".into()),
+                crate::dynamic_run::AgentInputTarget::fixed("private-device".into()),
                 "private-device".into(),
                 "private-source-message".into(),
                 1,
@@ -732,7 +732,7 @@ mod tests {
                 );
                 session.adopt_client_metadata(
                     Some("client-run"),
-                    crate::session::AgentSessionSurface::AiAssistant,
+                    crate::session::AgentSessionSurface::AiAgent,
                 );
                 session.input_revision = 1;
                 session.begin_focus_epoch(1, []).unwrap();

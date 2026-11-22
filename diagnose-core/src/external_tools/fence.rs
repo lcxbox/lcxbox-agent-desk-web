@@ -10,7 +10,7 @@ pub fn validate_held_input(
     call_id: Option<&str>,
     now_ms: i64,
 ) -> Result<(), AgentError> {
-    if current.surface != AgentSessionSurface::AiAssistant
+    if current.surface != AgentSessionSurface::AiAgent
         || held.conversation_id != current.conversation_id
         || held.actor_id != current.actor_id
         || held.device_id != current.device_id
@@ -67,7 +67,7 @@ mod tests {
         };
         let mut held =
             PersistedAgentSession::new("root", "owner", "", 1, scope, "2026-11-04T00:00:00Z");
-        held.surface = AgentSessionSurface::AiAssistant;
+        held.surface = AgentSessionSurface::AiAgent;
         held.input_revision = 1;
         held.version = 1;
         held.lease_token = 1;
@@ -83,7 +83,7 @@ mod tests {
         );
         assert!(validate_held_input(&held, &held, &destination, None, 1).is_ok());
         assert!(validate_held_input(&held, &held, &destination, Some("read-1"), 1).is_err());
-        held.conversation.push(ChatMessage::assistant_tool_calls(
+        held.conversation.push(ChatMessage::agent_tool_calls(
             "model",
             "",
             vec![ToolCallRef {

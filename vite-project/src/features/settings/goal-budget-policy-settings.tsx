@@ -52,7 +52,7 @@ function validPolicy(value: GoalBudgetPolicy): boolean {
                 && value.limits[key]! <= scale * maximum));
 }
 
-export async function fetchGoalBudgetPolicy(path = '/api/my/ai-assistant-session/goal/budget-policy'): Promise<GoalBudgetPolicy> {
+export async function fetchGoalBudgetPolicy(path = '/api/my/ai-agent-session/goal/budget-policy'): Promise<GoalBudgetPolicy> {
     const response = await fetch(path, { credentials: 'include', cache: 'no-store' });
     const body = await response.json();
     if (!response.ok || !body?.success || !body.data || !validPolicy(body.data)) {
@@ -116,14 +116,14 @@ export default function GoalBudgetPolicySettings() {
         } finally { setBusy(false); }
     };
     return <Card>
-        <CardHeader><CardTitle>{t('pages.aiAssistant.goalBudgetPolicyTitle')}</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t('pages.aiAgent.goalBudgetPolicyTitle')}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">{t('pages.aiAssistant.goalBudgetPolicyDescription')}</p>
+            <p className="text-sm text-muted-foreground">{t('pages.aiAgent.goalBudgetPolicyDescription')}</p>
             {fields.map(({ key, label, scale, maximum }) => <div key={key} className="flex flex-wrap items-center gap-3">
                 <label className="flex min-w-56 items-center gap-2">
                     {key === 'activeTimeMs' || key === 'deadlineMs'
                         ? <Switch checked={draft?.[key] !== null && !!draft} disabled={!draft || busy}
-                            aria-label={t(`pages.aiAssistant.${label}`)}
+                            aria-label={t(`pages.aiAgent.${label}`)}
                             onCheckedChange={(checked) => setDraft(previous => previous && ({
                                 ...previous, [key]: checked ? Number(input?.[key] ?? 1) * scale : null,
                             }))} />
@@ -131,29 +131,29 @@ export default function GoalBudgetPolicySettings() {
                             onCheckedChange={(checked) => setDraft(previous => previous && ({
                                 ...previous, [key]: checked === true ? Number(input?.[key] ?? 1) * scale : null,
                             }))} />}
-                    <span>{t(`pages.aiAssistant.${label}`)}</span>
+                    <span>{t(`pages.aiAgent.${label}`)}</span>
                 </label>
                 <Input className="w-32" type="number" min={1} max={maximum} step={1}
                     value={input?.[key] ?? ''} disabled={!draft || draft[key] === null || busy}
                     onChange={(event) => setInput(previous => previous && ({ ...previous, [key]: event.target.value }))} />
-                {draft?.[key] === null && <span className="text-sm text-muted-foreground">{t('pages.aiAssistant.goalBudgetDisabled')}</span>}
+                {draft?.[key] === null && <span className="text-sm text-muted-foreground">{t('pages.aiAgent.goalBudgetDisabled')}</span>}
             </div>)}
             <div className="space-y-1 border-t pt-4">
                 <div className="flex flex-wrap items-center gap-3">
-                    <span className="min-w-56">{t('pages.aiAssistant.goalBudgetDeviceUnavailableHours')}</span>
+                    <span className="min-w-56">{t('pages.aiAgent.goalBudgetDeviceUnavailableHours')}</span>
                     <Input className="w-32" type="number" min={DEVICE_UNAVAILABLE_MIN_HOURS}
                         max={DEVICE_UNAVAILABLE_MAX_HOURS} step={1} value={deviceHours}
-                        disabled={!draft || busy} aria-label={t('pages.aiAssistant.goalBudgetDeviceUnavailableHours')}
+                        disabled={!draft || busy} aria-label={t('pages.aiAgent.goalBudgetDeviceUnavailableHours')}
                         onChange={(event) => setDeviceHours(event.target.value)} />
                 </div>
-                <p className="text-sm text-muted-foreground">{t('pages.aiAssistant.goalBudgetDeviceUnavailableDescription')}</p>
+                <p className="text-sm text-muted-foreground">{t('pages.aiAgent.goalBudgetDeviceUnavailableDescription')}</p>
             </div>
             {error && <p role="alert" className="text-destructive">{error}</p>}
-            {draft && !valid && <p role="alert" className="text-destructive">{t('pages.aiAssistant.goalBudgetInvalid')}</p>}
-            {saved && <p role="status">{t('pages.aiAssistant.goalBudgetSaved')}</p>}
+            {draft && !valid && <p role="alert" className="text-destructive">{t('pages.aiAgent.goalBudgetInvalid')}</p>}
+            {saved && <p role="status">{t('pages.aiAgent.goalBudgetSaved')}</p>}
             <div className="flex gap-2">
-                <Button onClick={() => void save()} disabled={!current || busy || !valid || !dirty}>{t('pages.aiAssistant.goalBudgetSave')}</Button>
-                <Button variant="outline" onClick={() => void reload()} disabled={busy}>{t('pages.aiAssistant.goalBudgetReload')}</Button>
+                <Button onClick={() => void save()} disabled={!current || busy || !valid || !dirty}>{t('pages.aiAgent.goalBudgetSave')}</Button>
+                <Button variant="outline" onClick={() => void reload()} disabled={busy}>{t('pages.aiAgent.goalBudgetReload')}</Button>
             </div>
         </CardContent>
     </Card>;

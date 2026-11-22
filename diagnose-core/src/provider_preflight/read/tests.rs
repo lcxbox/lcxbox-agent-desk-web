@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    ai_assistant::ai_assistant_provider_registry,
+    ai_agent::ai_agent_provider_registry,
     input_read_context::{ReadContextSelection, live_read::LiveReadTarget},
 };
 
@@ -15,7 +15,7 @@ fn destination() -> DestinationIdentity {
 
 #[test]
 fn output_digest_accepts_equivalent_json_and_defaults_but_binds_business_content() {
-    let session = crate::ai_assistant::test_support::personal_session("7", "run", "11");
+    let session = crate::ai_agent::test_support::personal_session("7", "run", "11");
     let output = crate::seam::ToolRunOutput {
         format: crate::seam::ToolOutputFormat::Text,
         content: "original result".into(),
@@ -99,7 +99,7 @@ fn output_digest_accepts_equivalent_json_and_defaults_but_binds_business_content
 
 #[test]
 fn live_read_authority_uses_original_targets_on_both_surfaces() {
-    let registry = ai_assistant_provider_registry();
+    let registry = ai_agent_provider_registry();
     let now = 1_788_134_401_000;
     let destination = destination();
     for name in [
@@ -192,7 +192,7 @@ fn live_read_authority_uses_original_targets_on_both_surfaces() {
 
 #[test]
 fn selected_device_read_is_bounded_and_mutations_or_unselected_calls_are_refused() {
-    let registry = ai_assistant_provider_registry();
+    let registry = ai_agent_provider_registry();
     let destination = destination();
     let mut original = ReadContextSelection {
         external_issues: Vec::new(),
@@ -279,7 +279,7 @@ fn selected_device_read_is_bounded_and_mutations_or_unselected_calls_are_refused
 
 #[test]
 fn web_fetch_preflight_reuses_host_scope_on_both_surfaces_and_freezes_each_input() {
-    let registry = ai_assistant_provider_registry();
+    let registry = ai_agent_provider_registry();
     let destination = destination();
     let original = ReadContextSelection {
         external_issues: Vec::new(),
@@ -374,7 +374,7 @@ fn web_fetch_preflight_reuses_host_scope_on_both_surfaces_and_freezes_each_input
 
 #[test]
 fn central_web_authority_is_exact_and_fixes_the_search_destination() {
-    let registry = ai_assistant_provider_registry().with_web_search_binding(Some(
+    let registry = ai_agent_provider_registry().with_web_search_binding(Some(
         crate::web_research::SearchBinding {
             connector_id: "brave_web_v1".into(),
             revision: 3,
@@ -455,10 +455,10 @@ fn terminal_authority_uses_only_original_attachment_refs() {
     use crate::object_context::{
         ObjectContextBuild, ObjectContextMutation, build_object_context_mutation,
     };
-    use desk_agent_protocol::ai_assistant::{
-        AiAssistantObjectContextOperation as Op, AiAssistantObjectContextUpdate,
+    use desk_agent_protocol::ai_agent::{
+        AiAgentObjectContextOperation as Op, AiAgentObjectContextUpdate,
     };
-    let registry = ai_assistant_provider_registry();
+    let registry = ai_agent_provider_registry();
     let destination = destination();
     for name in ["read_terminal_output"] {
         let reference = ObjectRef {
@@ -472,9 +472,9 @@ fn terminal_authority_uses_only_original_attachment_refs() {
             display_summary: "fixture".into(),
         };
         let ObjectContextMutation::Attach(attachment) = build_object_context_mutation(
-            &AiAssistantObjectContextUpdate {
+            &AiAgentObjectContextUpdate {
                 conversation_target:
-                    desk_agent_protocol::ai_assistant::AiAssistantConversationTarget::FixedDevice,
+                    desk_agent_protocol::ai_agent::AiAgentConversationTarget::FixedDevice,
                 conversation_id: "client".into(),
                 client_request_id: "selection".into(),
                 operation,
@@ -575,7 +575,7 @@ fn terminal_authority_uses_only_original_attachment_refs() {
 
 #[test]
 fn unselected_desktop_preflight_requires_explicit_r1_authority_on_both_surfaces() {
-    let registry = ai_assistant_provider_registry();
+    let registry = ai_agent_provider_registry();
     let destination = destination();
     let original = ReadContextSelection {
         external_issues: Vec::new(),

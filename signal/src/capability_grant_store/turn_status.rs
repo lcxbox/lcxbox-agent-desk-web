@@ -1,8 +1,8 @@
 //! OSS reads the durable session, using the authenticated host's audience.
 use super::*;
-use desk_agent_protocol::computer_turn::{ComputerActionTurnQuery, ComputerActionTurnState};
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
+use desk_agent_protocol::computer_turn::{ComputerActionTurnQuery, ComputerActionTurnState};
 use sea_orm::QuerySelect;
 use sea_orm::sea_query::ExprTrait;
 
@@ -36,7 +36,7 @@ impl SignalCapabilityGrantStore {
             && !session.agent_role.is_main()
         {
             let fence =
-                desk_diagnose_core::action_turn_fence::AssistantTurnFence::from_session(session)
+                desk_diagnose_core::action_turn_fence::AgentTurnFence::from_session(session)
                     .map_err(|_| DbErr::Custom("invalid delegated turn state".into()))?
                     .ok_or_else(|| DbErr::Custom("missing delegated turn state".into()))?;
             if !crate::agent_subagent_store::check_child_action_on(
@@ -88,7 +88,7 @@ mod tests {
     use chrono::Utc;
     use desk_agent_protocol::{AgentScope, ExecutionMode};
     use desk_diagnose_core::{
-        action_turn_fence::AssistantTurnFence,
+        action_turn_fence::AgentTurnFence,
         session::{AgentSessionSurface, PersistedAgentSession, TurnState},
     };
     use sea_orm::{ActiveModelTrait, ConnectionTrait, Schema, Set};
@@ -118,7 +118,7 @@ mod tests {
             },
             "now",
         );
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session.latest_input_seq = 1;
         session.begin_focus_epoch(1, []).unwrap();
@@ -127,7 +127,7 @@ mod tests {
             .unwrap();
         let query = ComputerActionTurnQuery {
             actor_id: "7".into(),
-            scope: AssistantTurnFence::from_session(&session)
+            scope: AgentTurnFence::from_session(&session)
                 .unwrap()
                 .unwrap()
                 .computer_action_scope()

@@ -53,7 +53,7 @@ pub(crate) async fn tombstone_on<C: ConnectionTrait + crate::config::ConfigConne
     if row.actor_id != actor || row.device_id != device {
         return Err(invalid());
     }
-    desk_assistant_data_store::issue_reply::lifecycle::retire_conversation_on(
+    desk_agent_data_store::issue_reply::lifecycle::retire_conversation_on(
         db,
         actor,
         conversation,
@@ -61,7 +61,7 @@ pub(crate) async fn tombstone_on<C: ConnectionTrait + crate::config::ConfigConne
     )
     .await
     .map_err(|error| match error {
-        desk_assistant_data_store::AssistantStoreError::Backend(error) => error,
+        desk_agent_data_store::AgentStoreError::Backend(error) => error,
         _ => invalid(),
     })?;
     Ok(())
@@ -78,8 +78,8 @@ pub(crate) async fn close_root_on(
         return Err(invalid());
     }
     // Diagnostic and terminal sessions have no delegation authority or native
-    // assistant execution identity; retain their existing lifecycle.
-    if parent.surface != AgentSessionSurface::AiAssistant {
+    // agent execution identity; retain their existing lifecycle.
+    if parent.surface != AgentSessionSurface::AiAgent {
         desk_diagnose_core::future::boxed(|| async {
             tombstone_on(
                 db,
@@ -170,7 +170,7 @@ pub(crate) async fn close_root_for_subject_on(
                 let mut run = decode_run(&child)?;
                 // A workbench Worker's session outlives one removed work while
                 // another work's request still refers to it.
-                if !desk_assistant_data_store::worker_request::shared_with_other_root_on(
+                if !desk_agent_data_store::worker_request::shared_with_other_root_on(
                     db,
                     &run.child_conversation_id,
                     conversation,
@@ -713,7 +713,7 @@ pub(crate) async fn redact_deleted_content(
             // only once no other work's request refers to it.
             let child = match child {
                 Some(_)
-                    if desk_assistant_data_store::worker_request::shared_with_other_root_on(
+                    if desk_agent_data_store::worker_request::shared_with_other_root_on(
                         &txn,
                         &run.child_conversation_id,
                         &run.binding.root_conversation_id,

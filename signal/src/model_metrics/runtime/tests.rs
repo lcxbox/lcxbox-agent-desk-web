@@ -209,7 +209,7 @@ fn sample_event(now: i64) -> ObservationEvent {
             configuration_revision: "1".into(),
             contract_revision: DEFINITION_VERSION.to_string(),
             purpose: Purpose::Agent,
-            surface: Surface::Assistant,
+            surface: Surface::Agent,
             origin: Origin::User,
             configuration_scope: ConfigurationScope::Local,
             protocol: Protocol::OpenAiChatCompletions,

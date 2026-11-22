@@ -168,7 +168,7 @@ impl ModelEgressPolicy {
             != Some(&call.origin.execution_conversation_id)
             || request.use_case != crate::model_profile::ModelUseCase::Agent
             || !request.tools.is_empty()
-            || request.assistant_data.is_some()
+            || request.agent_data.is_some()
             || request.compression_identity.is_some()
             || request.previous_cache_projection.is_some()
             || request.thinking_prefix.is_some()

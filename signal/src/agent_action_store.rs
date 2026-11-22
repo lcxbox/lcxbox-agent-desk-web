@@ -2,7 +2,7 @@
 
 use crate::config::connection::DatabaseConnection;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use std::time::Duration;
 
 use async_trait::async_trait;

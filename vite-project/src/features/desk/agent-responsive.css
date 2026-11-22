@@ -1,0 +1,195 @@
+.agent-composer, .agent-header { container-type: inline-size; }
+.agent-action { gap: 0.5rem; min-width: 44px; min-height: 44px; }
+.agent-status-action { flex-shrink: 0; }
+
+.agent-approval-tab-title { color: #9a3412; font-weight: 600; animation: agent-approval-title 2s ease-in-out infinite; }
+.dark .agent-approval-tab-title { color: #fbbf24; }
+@keyframes agent-approval-title { 0%, 100% { opacity: 1; } 50% { opacity: 0.85; } }
+@media (prefers-reduced-motion: reduce) {
+    .agent-approval-tab-title { animation: none; text-decoration: underline; }
+}
+
+@media (max-width: 767px) {
+    .agent-header button,
+    .agent-composer button {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    .agent-scrollbar button:not([role="checkbox"]) {
+        min-width: 32px;
+        min-height: 32px;
+    }
+
+    .agent-jump-action::after {
+        content: '';
+        position: absolute;
+        inset: -4px;
+    }
+
+    .agent-scrollbar .agent-detail-icon {
+        position: relative;
+        isolation: isolate;
+        border-color: transparent;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    .agent-scrollbar .agent-detail-icon:hover { background: transparent; }
+
+    .agent-scrollbar .agent-detail-icon::before {
+        content: '';
+        position: absolute;
+        z-index: -1;
+        top: 50%;
+        left: 50%;
+        width: 32px;
+        height: 32px;
+        transform: translate(-50%, -50%);
+        border-radius: var(--radius);
+    }
+
+    .agent-scrollbar .agent-detail-icon:hover::before { background: hsl(var(--accent)); }
+
+    .agent-scrollbar .agent-detail-icon-outline::before {
+        border: 1px solid hsl(var(--input));
+        background: hsl(var(--background));
+    }
+}
+
+/* Include nested tool output and code blocks in the transcript. */
+.agent-scrollbar,
+.agent-scrollbar * {
+    scrollbar-width: auto;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
+}
+
+/* WebView2/WebKit styling also covers engines without standard scrollbar CSS. */
+@supports selector(::-webkit-scrollbar) {
+    .agent-scrollbar,
+    .agent-scrollbar * {
+        scrollbar-width: auto;
+        scrollbar-color: auto;
+    }
+
+    .agent-scrollbar::-webkit-scrollbar,
+    .agent-scrollbar *::-webkit-scrollbar {
+        width: 16px;
+        height: 16px;
+    }
+
+    .agent-scrollbar::-webkit-scrollbar-thumb,
+    .agent-scrollbar *::-webkit-scrollbar-thumb {
+        border: 2px solid transparent;
+        border-radius: 999px;
+        background: hsl(var(--muted-foreground) / 0.45);
+        background-clip: padding-box;
+    }
+
+    .agent-scrollbar::-webkit-scrollbar-thumb:hover,
+    .agent-scrollbar *::-webkit-scrollbar-thumb:hover {
+        background-color: hsl(var(--muted-foreground) / 0.7);
+    }
+
+    .agent-scrollbar::-webkit-scrollbar-track,
+    .agent-scrollbar *::-webkit-scrollbar-track,
+    .agent-scrollbar::-webkit-scrollbar-corner,
+    .agent-scrollbar *::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+}
+
+@media (forced-colors: active) {
+    .agent-scrollbar,
+    .agent-scrollbar * {
+        scrollbar-color: auto;
+        scrollbar-width: auto;
+    }
+
+    .agent-scrollbar::-webkit-scrollbar-thumb,
+    .agent-scrollbar *::-webkit-scrollbar-thumb {
+        background-color: ButtonText;
+    }
+}
+
+@container (max-width: 760px) {
+    .agent-action-label { display: none; }
+    .agent-action { padding-inline: 0.625rem; }
+    .agent-status-action {
+        width: 44px;
+        min-width: 44px;
+        max-width: 44px;
+        height: 44px;
+        justify-content: center;
+        gap: 0;
+        padding: 0;
+    }
+
+    .agent-header-actions { gap: 8px; }
+
+    .agent-header-back,
+    .agent-header-actions .agent-action {
+        position: relative;
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
+        padding: 0;
+    }
+
+    .agent-header-back::after,
+    .agent-header-actions .agent-action::after {
+        content: '';
+        position: absolute;
+        inset: -4px;
+    }
+
+    .agent-composer :is(.agent-primary-action, .agent-add-action) {
+        position: relative;
+        isolation: isolate;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    .agent-composer :is(.agent-primary-action, .agent-add-action):hover {
+        background: transparent;
+    }
+
+    .agent-composer :is(.agent-primary-action, .agent-add-action)::before {
+        content: '';
+        position: absolute;
+        z-index: -1;
+        top: 50%;
+        left: 50%;
+        width: 36px;
+        height: 36px;
+        transform: translate(-50%, -50%);
+        border-radius: var(--radius);
+    }
+
+    .agent-composer .agent-primary-action {
+        padding-inline: 0;
+    }
+
+    .agent-composer .agent-primary-action::before {
+        background: hsl(var(--primary));
+    }
+
+    .agent-composer .agent-primary-action:hover::before {
+        background: hsl(var(--primary) / 0.9);
+    }
+
+    .agent-composer .agent-add-action:hover::before {
+        background: hsl(var(--accent));
+    }
+
+    .agent-composer .agent-context-meter svg {
+        width: 36px;
+        height: 36px;
+    }
+}
+
+.agent-conversation-tabs { container-type: inline-size; }
+@container (max-width: 480px) {
+    .agent-tab-scroll-button { display: none; }
+}

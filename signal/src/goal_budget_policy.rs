@@ -1,6 +1,6 @@
 //! File-owned OSS policy; updates retain the existing revision and validation rules.
 use crate::config::{ConfigConnection, connection::DatabaseConnection};
-use desk_agent_protocol::ai_assistant::goal_budget::{GoalBudgetPolicy, UpdateGoalBudgetPolicy};
+use desk_agent_protocol::ai_agent::goal_budget::{GoalBudgetPolicy, UpdateGoalBudgetPolicy};
 use sea_orm::DbErr;
 
 #[derive(Debug)]

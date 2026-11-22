@@ -53,7 +53,7 @@ fn plan() -> SealedComputerActionPlan {
 #[tokio::test]
 async fn disabled_switch_rejects_new_computer_action_before_dispatch() {
     let ctx = make_ctx().await;
-    ctx.settings.write().await.ai_assistant.enabled = false;
+    ctx.settings.write().await.ai_agent.enabled = false;
     let mut output = ctx.outbound_tx.subscribe();
     let plan = plan();
     let dispatch = SignalingModel::new(

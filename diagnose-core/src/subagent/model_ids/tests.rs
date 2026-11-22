@@ -11,7 +11,7 @@ fn native_tasks_are_presented_and_accepted_as_aliases() {
     let id = native_ids::stable(Kind::Task, &("root", "group", "owner", "device", "call"));
     let mut references = UiReferenceState::default();
     let messages = vec![
-        ChatMessage::assistant_tool_calls(
+        ChatMessage::agent_tool_calls(
             "proposal",
             "",
             vec![ToolCallRef {
@@ -152,7 +152,7 @@ fn runtime_state_reuses_aliases_and_recorded_calls_keep_them() {
     assert!(is_runtime(&runtime));
     let conversation = vec![
         owner,
-        ChatMessage::assistant_tool_calls(
+        ChatMessage::agent_tool_calls(
             "proposal",
             "",
             vec![ToolCallRef {
@@ -162,7 +162,7 @@ fn runtime_state_reuses_aliases_and_recorded_calls_keep_them() {
             }],
         ),
         ChatMessage::tool_result("result", "call", json!({"task_id":issued}).to_string()),
-        ChatMessage::assistant_tool_calls(
+        ChatMessage::agent_tool_calls(
             "status",
             "",
             vec![ToolCallRef {
@@ -208,7 +208,7 @@ fn reports_and_background_tasks_share_one_alias_across_fields() {
     let background = native_ids::stable(Kind::BackgroundAction, &("run", "turn", "call"));
     let mut references = UiReferenceState::default();
     let messages = vec![
-        ChatMessage::assistant_tool_calls(
+        ChatMessage::agent_tool_calls(
             "proposal",
             "",
             vec![
@@ -281,7 +281,7 @@ fn reports_and_background_tasks_share_one_alias_across_fields() {
 
     // An unfinished acknowledgement keeps its report aliases after the
     // reports leave the conversation.
-    let pending = ChatMessage::assistant_tool_calls(
+    let pending = ChatMessage::agent_tool_calls(
         "ack-proposal",
         "",
         vec![ToolCallRef {

@@ -346,7 +346,7 @@ fn only_the_manager_syncs_are_manager_only() {
     for t in [
         SignalingType::SupportCodeIssued,
         SignalingType::RevokeAccessGrant,
-        SignalingType::UpdateAiAssistantSettings,
+        SignalingType::UpdateAiAgentSettings,
         SignalingType::SyncCommandBlocklist,
         SignalingType::SyncCommandTemplates,
     ] {
@@ -1044,7 +1044,7 @@ fn block(request_id: &str, audience: &str) -> AuthorizationBlock {
             expires_at: None,
             policy_name: None,
         },
-        orchestrator_grants: vec!["ai.assistant".to_string()],
+        orchestrator_grants: vec!["ai.agent".to_string()],
         max_risk: RiskLevel::Low,
         exec_admission_policy: desk_agent_protocol::authz::ExecAdmissionPolicy::TemplateOnly,
         actor: AuthzActor { user_id: Some(1) },
@@ -1136,9 +1136,9 @@ fn computer_action_stop_requires_a_wrapper_and_exact_audience() {
     ));
 }
 
-// A ConfirmExec carrying the operator-promoted assistant command, wrapped by the
+// A ConfirmExec carrying the operator-promoted agent command, wrapped by the
 // central brain exactly as `control_authorizer::build_wrapper_outcome` emits
-// it. Gating it proves the Terminal AI Assistant exec path is reachable on the
+// it. Gating it proves the Terminal AI Agent exec path is reachable on the
 // same links as diagnose exec.
 fn wrapped_confirm_exec_model(request_id: &str, audience: &str) -> SignalingModel {
     use desk_agent_protocol::exec::ConfirmExecData;
@@ -1161,7 +1161,7 @@ fn wrapped_confirm_exec_model(request_id: &str, audience: &str) -> SignalingMode
                     sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
                 }),
             },
-            reason: Some("operator promoted a assistant suggestion".to_string()),
+            reason: Some("operator promoted a agent suggestion".to_string()),
             org_id: None,
         },
         authz: block(request_id, audience),
@@ -1178,7 +1178,7 @@ fn wrapped_confirm_exec_model(request_id: &str, audience: &str) -> SignalingMode
 
 #[test]
 fn wrapped_confirm_exec_is_unwrapped_to_router() {
-    // The end-to-end inbound path for an operator-promoted assistant exec on a
+    // The end-to-end inbound path for an operator-promoted agent exec on a
     // trusted-central link: the wrapper validates, is stripped, and the bare
     // ConfirmExec plus its authorization block flow on to the router (which
     // re-classifies the command before any preview).
@@ -1192,7 +1192,7 @@ fn wrapped_confirm_exec_is_unwrapped_to_router() {
                 .expect("inner ConfirmExecData");
             assert_eq!(
                 inner.reason.as_deref(),
-                Some("operator promoted a assistant suggestion")
+                Some("operator promoted a agent suggestion")
             );
             assert_eq!(authz.request_id, "ce-1");
             assert_eq!(authz.audience, "dev-1");

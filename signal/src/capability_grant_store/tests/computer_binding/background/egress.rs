@@ -131,7 +131,7 @@ async fn fixture(
         client_request_id: "select-context".into(),
         actor_id: "1".into(),
         device_id: "device-1".into(),
-        surface: AgentSessionSurface::AiAssistant,
+        surface: AgentSessionSurface::AiAgent,
         kind: ContextAttachmentKind::InteractiveSession,
         object_ref: AttachmentObjectRef {
             opaque_token: "context-token".into(),
@@ -153,7 +153,7 @@ async fn fixture(
     if !secret {
         // The tool proposal must have the same original receipt and accepted
         // output provenance as a real model call, rather than only a derived label.
-        use crate::assistant_data_store::model_gate;
+        use crate::agent_data_store::model_gate;
         use crate::model_egress_store::SignalModelEgressStore;
         use desk_diagnose_core::{
             prompt::ResponseFormatSpec,
@@ -166,9 +166,9 @@ async fn fixture(
         );
         request.context_conversation_id = Some(f.session.conversation_id.clone());
         let sessions = crate::agent_session_store::SignalAgentSessionStore::new(f.store.db.clone())
-            .with_client_metadata(None, AgentSessionSurface::AiAssistant);
-        request.assistant_data = sessions
-            .assistant_data_request_manifest(&f.session, &request, now)
+            .with_client_metadata(None, AgentSessionSurface::AiAgent);
+        request.agent_data = sessions
+            .agent_data_request_manifest(&f.session, &request, now)
             .await
             .unwrap()
             .map(Box::new);
@@ -239,8 +239,8 @@ async fn production_publisher_uses_original_export_and_strict_model_before_netwo
 }
 
 async fn exercise(stack_bytes: Option<usize>) {
-    crate::ai_assistant_gate::global_ai_assistant_gate().replace(
-        desk_agent_protocol::ai_assistant::AiAssistantSettings {
+    crate::ai_agent_gate::global_ai_agent_gate().replace(
+        desk_agent_protocol::ai_agent::AiAgentSettings {
             revision: 1,
             enabled: true,
         },

@@ -179,7 +179,7 @@ pub fn pending<'a>(
         .is_none_or(|pause| pause.turn_id != context.turn_id || pause.call_id != context.call_id)
         || session.input_revision != context.input_revision
         || session.control_revision != context.control_revision
-        || (session.device_id.is_empty() && !session.admits_assistant_device(&record.device_id))
+        || (session.device_id.is_empty() && !session.admits_agent_device(&record.device_id))
     {
         return Err(ApprovalReviewError::InvalidContext);
     }
@@ -382,7 +382,7 @@ mod tests {
             },
             "2026-10-13T12:00:00Z",
         );
-        session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAssistant);
+        session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAgent);
         session.input_revision = 1;
         session.control_revision = 1;
         session.latest_input_seq = 1;
@@ -402,7 +402,7 @@ mod tests {
             destination.clone(),
         )
         .unwrap();
-        let mut assistant = ChatMessage::assistant_tool_calls(
+        let mut agent = ChatMessage::agent_tool_calls(
             "assistant",
             "",
             vec![ToolCallRef {
@@ -411,9 +411,9 @@ mod tests {
                 arguments_json: json!({"path":"/work","purpose":"report"}).to_string(),
             }],
         );
-        assistant.turn_id = Some("turn".into());
-        let bytes = crate::model_egress::message_content_bytes(&assistant).unwrap();
-        assistant.data_envelope = Some(
+        agent.turn_id = Some("turn".into());
+        let bytes = crate::model_egress::message_content_bytes(&agent).unwrap();
+        agent.data_envelope = Some(
             crate::subagent::projection::envelope(
                 "assistant",
                 &String::from_utf8(bytes).unwrap(),
@@ -422,7 +422,7 @@ mod tests {
             )
             .unwrap(),
         );
-        session.conversation = vec![user, assistant];
+        session.conversation = vec![user, agent];
         let update = FileScopeUpdate {
             subject: session
                 .file_scope_subject("owner", "device", "run")
@@ -462,9 +462,7 @@ mod tests {
 
     #[test]
     fn selectable_directory_review_binds_the_device_inside_the_account_session() {
-        use crate::conversation_key::{
-            AssistantConversationScope, derive_assistant_conversation_key,
-        };
+        use crate::conversation_key::{AgentConversationScope, derive_agent_conversation_key};
         let (mut session, _, destination, now, _) = fixture();
         // The new request is made in a running turn, which then pauses on it.
         session.turn_state = TurnState::Running;
@@ -472,13 +470,10 @@ mod tests {
         let mut proposal = session.file_scope.records()[0].proposal.clone();
         session.device_id.clear();
         session.file_scope = Default::default();
-        session.conversation_id = derive_assistant_conversation_key(
-            "owner",
-            AssistantConversationScope::Personal,
-            "client",
-        );
+        session.conversation_id =
+            derive_agent_conversation_key("owner", AgentConversationScope::Personal, "client");
         session
-            .bind_assistant_request_targets(vec!["device-a".into()])
+            .bind_agent_request_targets(vec!["device-a".into()])
             .unwrap();
         let id = crate::native_ids::stable(
             crate::native_ids::Kind::DirectoryRequest,
@@ -589,7 +584,7 @@ mod tests {
             "approved-goal".into(),
             session.conversation_id.clone(),
             session.actor_id.clone(),
-            crate::dynamic_run::AssistantInputTarget::fixed(session.device_id.clone()),
+            crate::dynamic_run::AgentInputTarget::fixed(session.device_id.clone()),
             session.device_id.clone(),
             "Complete the report in the approved workspace".into(),
             "user".into(),

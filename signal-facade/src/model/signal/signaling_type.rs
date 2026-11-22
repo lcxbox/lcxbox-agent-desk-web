@@ -337,29 +337,29 @@ pub enum SignalingType {
     #[wincode(tag = 616)]
     RemoteToolOutputUpdated = 616,
 
-    /// In-Terminal AI Assistant request (control end → host / manager). Carries
-    /// `desk_agent_protocol::terminal_ai_assistant::TerminalAiAssistantAsk` as
+    /// In-Terminal AI Agent request (control end → host / manager). Carries
+    /// `desk_agent_protocol::terminal_ai_agent::TerminalAiAgentAsk` as
     /// signaling_data. Manager and the open-source signal server authorize and
-    /// run the assistant centrally, as they do for `AskAiAssistant`. The
+    /// run the agent centrally, as they do for `AskAiAgent`. The
     /// target device rides the outer `to_connection_id`, not the payload.
     #[wincode(tag = 617)]
-    AskTerminalAiAssistant = 617,
-    /// In-Terminal AI Assistant streamed event (host / manager → control end).
-    /// Carries `desk_agent_protocol::terminal_ai_assistant::TerminalAiAssistantEvent`.
+    AskTerminalAiAgent = 617,
+    /// In-Terminal AI Agent streamed event (host / manager → control end).
+    /// Carries `desk_agent_protocol::terminal_ai_agent::TerminalAiAgentEvent`.
     /// Notification-style (`response_state = None`) so multiple frames reach the
     /// control end instead of being consumed by the one-shot callback map.
     #[wincode(tag = 618)]
-    TerminalAiAssistantUpdated = 618,
-    /// In-Terminal AI Assistant cancellation (control end → host / manager). Sent
-    /// when the operator dismisses an in-flight assistant turn; the message
+    TerminalAiAgentUpdated = 618,
+    /// In-Terminal AI Agent cancellation (control end → host / manager). Sent
+    /// when the operator dismisses an in-flight agent turn; the message
     /// `request_id` correlates the requested turn. Consumed centrally, like
-    /// `CancelAiAssistant`; it is not relayed as a device action.
+    /// `CancelAiAgent`; it is not relayed as a device action.
     #[wincode(tag = 619)]
-    CancelTerminalAiAssistant = 619,
+    CancelTerminalAiAgent = 619,
 
     /// In-terminal AI command completion request (control end → host / manager).
     /// Carries `desk_agent_protocol::terminal_complete::TerminalCompleteAsk` as
-    /// signaling_data. Like `TerminalAiAssistantAsk`, it is a manager-owned AI control
+    /// signaling_data. Like `TerminalAiAgentAsk`, it is a manager-owned AI control
     /// frame: in the manager the control authorizer runs it centrally; in the
     /// signal server (no authorizer) it relays to the host that completes it. The
     /// target device rides the outer `to_connection_id`, not the payload.
@@ -437,63 +437,63 @@ pub enum SignalingType {
     #[wincode(tag = 632)]
     ComputerUseReadinessUpdated = 632,
 
-    /// Owner browser to central brain: start one AI Assistant turn with owner-authorized actions.
-    /// Carries `desk_agent_protocol::ai_assistant::AiAssistantAsk`.
+    /// Owner browser to central brain: start one AI Agent turn with owner-authorized actions.
+    /// Carries `desk_agent_protocol::ai_agent::AiAgentAsk`.
     #[wincode(tag = 633)]
-    AskAiAssistant = 633,
+    AskAiAgent = 633,
 
-    /// Central brain to owner browser: streamed AI Assistant agent-loop
+    /// Central brain to owner browser: streamed AI Agent agent-loop
     /// events. Notification-style (`response_state = None`).
     #[wincode(tag = 634)]
-    AiAssistantUpdated = 634,
+    AiAgentUpdated = 634,
 
-    /// Owner browser to central brain: best-effort cancellation of one assistant
+    /// Owner browser to central brain: best-effort cancellation of one agent
     /// turn, correlated by the outer `request_id`.
     #[wincode(tag = 635)]
-    CancelAiAssistant = 635,
+    CancelAiAgent = 635,
 
     /// Owner browser to central brain: request the secret-free current
     /// Capability Provider inventory for one live target connection.
     #[wincode(tag = 636)]
-    GetAiAssistantCapabilities = 636,
+    GetAiAgentCapabilities = 636,
 
     /// Central brain to owner browser: capability descriptors plus
     /// compiled/enabled/connected/ready status. Never relayed to the host.
     #[wincode(tag = 637)]
-    AiAssistantCapabilitiesUpdated = 637,
+    AiAgentCapabilitiesUpdated = 637,
 
     /// Owner browser to central brain: independently reconcile the durable
-    /// context selection for one AI Assistant conversation.
+    /// context selection for one AI Agent conversation.
     #[wincode(tag = 638)]
-    UpdateAiAssistantContext = 638,
+    UpdateAiAgentContext = 638,
 
     /// Central brain acknowledgement for a durable context reconciliation.
     #[wincode(tag = 639)]
-    AiAssistantContextUpdated = 639,
+    AiAgentContextUpdated = 639,
 
     /// Owner browser to central brain: attach, detach, or refresh one exact
     /// edge-issued object reference.
     #[wincode(tag = 640)]
-    UpdateAiAssistantObjectContext = 640,
+    UpdateAiAgentObjectContext = 640,
 
     /// Central brain acknowledgement for an object-level context mutation.
     #[wincode(tag = 641)]
-    AiAssistantObjectContextUpdated = 641,
+    AiAgentObjectContextUpdated = 641,
 
     /// Trusted central → host: compare-and-set the device-owned product switch.
     /// Delivery is not success: the central waits for a later connection-time
     /// revision/value projection before acknowledging the owner request.
     #[wincode(tag = 642)]
-    UpdateAiAssistantSettings = 642,
+    UpdateAiAgentSettings = 642,
 
-    /// Owner control end → host: resolve and freeze the AI Assistant's
+    /// Owner control end → host: resolve and freeze the AI Agent's
     /// opaque session target on the current signaling connection.
     #[wincode(tag = 643)]
-    SelectAiAssistantSession = 643,
+    SelectAiAgentSession = 643,
 
     /// Host → owner control end: selected target, or a stable 0/N/stale error.
     #[wincode(tag = 644)]
-    AiAssistantSessionSelected = 644,
+    AiAgentSessionSelected = 644,
 
     /// Cookie owner -> central scheduler; no live target connection is required.
     #[wincode(tag = 645)]

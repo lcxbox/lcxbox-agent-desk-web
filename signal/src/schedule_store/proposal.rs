@@ -27,7 +27,7 @@ impl ScheduleStore {
         if owner != crate::control_authorizer::SINGLE_ACCOUNT_USER_ID {
             return Err(ScheduleStoreError::NotFound);
         }
-        let (receipt, next) = desk_assistant_data_store::schedule::manage_on(
+        let (receipt, next) = desk_agent_data_store::schedule::manage_on(
             &super::SignalScheduleHost,
             &txn,
             owner,

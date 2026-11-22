@@ -6,7 +6,7 @@
   <Version>1.0.0.0</Version>
   <ProviderName>lcxbox</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Lcxbox Excel Assistant"/>
+  <DisplayName DefaultValue="Lcxbox Excel Agent"/>
   <Description DefaultValue="Pair the current Excel document for bounded, read-only semantic inspection."/>
   <IconUrl DefaultValue="https://localhost:32123/icon.png"/>
   <SupportUrl DefaultValue="https://github.com/lcxl/lcxl-remote-desk"/>

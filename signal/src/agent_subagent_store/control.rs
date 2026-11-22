@@ -1,6 +1,6 @@
 //! Durable control updates, independently observable inbox events and child admission.
 use super::*;
-use desk_agent_protocol::ai_assistant::subagent::AiAssistantSubAgentEvent;
+use desk_agent_protocol::ai_agent::subagent::AiAgentSubAgentEvent;
 use desk_diagnose_core::subagent::control::synchronize_session;
 use sea_orm::sea_query::OnConflict;
 
@@ -52,7 +52,7 @@ pub(crate) async fn synchronize_control_on<C: ConnectionTrait + crate::config::C
         );
     let input_changed = session.bound_input_revision() != Some(run.binding.input_revision);
     if input_changed {
-        desk_assistant_data_store::issue_reply::lifecycle::cancel_request_on(
+        desk_agent_data_store::issue_reply::lifecycle::cancel_request_on(
             db,
             &session.actor_id,
             &session.conversation_id,
@@ -62,7 +62,7 @@ pub(crate) async fn synchronize_control_on<C: ConnectionTrait + crate::config::C
         )
         .await
         .map_err(|error| match error {
-            desk_assistant_data_store::AssistantStoreError::Backend(error) => error,
+            desk_agent_data_store::AgentStoreError::Backend(error) => error,
             _ => invalid(),
         })?;
     }
@@ -141,7 +141,7 @@ pub(crate) async fn append_state_event_on<C: ConnectionTrait + crate::config::Co
             run.state_revision,
         ),
     );
-    let event = AiAssistantSubAgentEvent {
+    let event = AiAgentSubAgentEvent {
         event_id: event_id.clone(),
         task: run.summary(),
         parent_input_revision: group.parent_input_revision,
@@ -190,7 +190,7 @@ pub(crate) async fn append_state_event_on<C: ConnectionTrait + crate::config::Co
         .await?
         .ok_or_else(|| invalid())?;
     // Idempotency fixes the original event timestamp rather than replacing it.
-    let original: AiAssistantSubAgentEvent =
+    let original: AiAgentSubAgentEvent =
         serde_json::from_str(&persisted.event_json).map_err(|_| invalid())?;
     if original.task != event.task
         || original.parent_input_revision != event.parent_input_revision

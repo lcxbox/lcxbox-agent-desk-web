@@ -191,7 +191,7 @@ impl SignalCapabilityGrantStore {
                 || task.tool_call_id != pending.tool_call_id
                 || work.conversation_id != session.conversation_id
                 || work.actor_id != session.actor_id
-                || !session.admits_assistant_device(&work.target_device_id)
+                || !session.admits_agent_device(&work.target_device_id)
                 || origin.turn_fence.conversation_id != session.conversation_id
                 || origin.turn_fence.actor_id != session.actor_id
                 || origin.turn_fence.device_id != work.target_device_id

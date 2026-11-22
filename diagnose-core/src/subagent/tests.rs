@@ -76,9 +76,7 @@ fn scope() -> AgentScope {
 
 fn binding() -> DelegatedTaskBinding {
     DelegatedTaskBinding {
-        targets: vec![crate::dynamic_run::AssistantInputTarget::fixed(
-            "device".into(),
-        )],
+        targets: vec![crate::dynamic_run::AgentInputTarget::fixed("device".into())],
         root_conversation_id: "root".into(),
         group_id: "group".into(),
         task_id: "child-task".into(),
@@ -96,7 +94,7 @@ fn binding() -> DelegatedTaskBinding {
 
 #[test]
 fn personal_worker_follows_the_owner_devices_across_turns_and_adjustment() {
-    use crate::dynamic_run::AssistantInputTarget;
+    use crate::dynamic_run::AgentInputTarget;
     use desk_agent_protocol::data_lineage::DestinationIdentity;
 
     let devices = [
@@ -104,7 +102,7 @@ fn personal_worker_follows_the_owner_devices_across_turns_and_adjustment() {
         ("mac-b", "device-2", 2),
         ("linux", "device-3", 3),
     ]
-    .map(|(reference, device_id, generation)| AssistantInputTarget {
+    .map(|(reference, device_id, generation)| AgentInputTarget {
         reference: reference.into(),
         device_id: device_id.into(),
         member_generation: Some(generation),
@@ -114,9 +112,9 @@ fn personal_worker_follows_the_owner_devices_across_turns_and_adjustment() {
     run.binding.source = DelegationSource::UserInput { input_revision: 1 };
     let now = "2026-09-30T00:00:00Z";
     let mut parent = PersistedAgentSession::new("root", "owner", "", 1, scope(), now);
-    parent.surface = AgentSessionSurface::AiAssistant;
+    parent.surface = AgentSessionSurface::AiAgent;
     parent.input_revision = 1;
-    parent.bind_assistant_input_targets(&devices).unwrap();
+    parent.bind_agent_input_targets(&devices).unwrap();
     let owner = crate::model_message_labels::model_bound_user_message(
         "personal-input".into(),
         "Reproduce on macOS and compare Linux".into(),
@@ -152,9 +150,9 @@ fn personal_worker_follows_the_owner_devices_across_turns_and_adjustment() {
         now,
     )
     .unwrap();
-    assert!(worker.admits_assistant_device("device-1"));
+    assert!(worker.admits_agent_device("device-1"));
     // The owner removes one device and adds another; the next turn follows.
-    let added = AssistantInputTarget {
+    let added = AgentInputTarget {
         reference: "windows".into(),
         device_id: "device-4".into(),
         member_generation: Some(4),
@@ -163,8 +161,8 @@ fn personal_worker_follows_the_owner_devices_across_turns_and_adjustment() {
     assert!(worker.refresh_subagent_targets(&current).unwrap());
     assert!(!worker.refresh_subagent_targets(&current).unwrap());
     run.binding.targets.clone_from(&current);
-    assert!(!worker.admits_assistant_device("device-1"));
-    assert!(worker.admits_assistant_device("device-4"));
+    assert!(!worker.admits_agent_device("device-1"));
+    assert!(worker.admits_agent_device("device-4"));
     assert_eq!(worker.agent_role.binding().unwrap().targets, current);
     run.adjust(
         run.fence(),
@@ -176,17 +174,14 @@ fn personal_worker_follows_the_owner_devices_across_turns_and_adjustment() {
     control::synchronize_session(&mut worker, &run, now).unwrap();
     assert_eq!(
         worker
-            .assistant_request_targets()
+            .agent_request_targets()
             .unwrap()
             .iter()
             .map(|target| target.device_id.as_str())
             .collect::<Vec<_>>(),
         ["device-2", "device-3", "device-4"]
     );
-    assert_eq!(
-        worker.assistant_request_device_generation("device-2"),
-        Some(2)
-    );
+    assert_eq!(worker.agent_request_device_generation("device-2"), Some(2));
     let raw = worker.encode_json_for_storage().unwrap();
     assert_eq!(
         crate::session::stored_request_device_ids(&raw).unwrap(),
@@ -295,12 +290,9 @@ fn group() -> DelegationGroup {
 #[test]
 fn child_role_survives_storage_and_cannot_adopt_top_level_identity() {
     let mut session = child();
-    session.adopt_client_metadata(
-        Some("public-chat-id"),
-        AgentSessionSurface::TerminalAiAssistant,
-    );
+    session.adopt_client_metadata(Some("public-chat-id"), AgentSessionSurface::TerminalAiAgent);
     assert!(session.client_conversation_id.is_none());
-    assert_eq!(session.surface, AgentSessionSurface::AiAssistant);
+    assert_eq!(session.surface, AgentSessionSurface::AiAgent);
     let restored =
         PersistedAgentSession::decode_json(&session.encode_json_for_storage().unwrap()).unwrap();
     assert_eq!(restored.agent_role, session.agent_role);
@@ -899,9 +891,7 @@ fn adjusted_task_projection_retains_source_labels_locale_and_current_objective()
     owner.data_envelope.as_mut().unwrap().sensitivity = Sensitivity::Secret;
     let source = creation::CreationEnvelope {
         main_request_id: None,
-        targets: vec![crate::dynamic_run::AssistantInputTarget::fixed(
-            "device".into(),
-        )],
+        targets: vec![crate::dynamic_run::AgentInputTarget::fixed("device".into())],
         root_conversation_id: "root".into(),
         actor_id: "owner".into(),
         device_id: "device".into(),
@@ -912,7 +902,7 @@ fn adjusted_task_projection_retains_source_labels_locale_and_current_objective()
         scheduled_source: None,
         original_read_context: None,
         model_destination: destination.clone(),
-        assistant_seed: None,
+        agent_seed: None,
     };
     let inputs = vec![owner.data_envelope.unwrap()];
     let task = binding();
@@ -1021,9 +1011,7 @@ fn completion_context() -> creation::TaskCreationEnvelope {
     creation::TaskCreationEnvelope {
         source: creation::CreationEnvelope {
             main_request_id: None,
-            targets: vec![crate::dynamic_run::AssistantInputTarget::fixed(
-                "device".into(),
-            )],
+            targets: vec![crate::dynamic_run::AgentInputTarget::fixed("device".into())],
             root_conversation_id: "root".into(),
             actor_id: "owner".into(),
             device_id: "device".into(),
@@ -1034,7 +1022,7 @@ fn completion_context() -> creation::TaskCreationEnvelope {
             scheduled_source: None,
             original_read_context: None,
             model_destination: destination,
-            assistant_seed: None,
+            agent_seed: None,
         },
         instruction,
         input_envelopes: inputs,
@@ -1050,7 +1038,7 @@ fn goal_delegation_uses_the_goal_token_ceiling_and_honors_a_lower_configured_lim
         source.source.goal_id().unwrap().into(),
         source.root_conversation_id.clone(),
         source.actor_id.clone(),
-        crate::dynamic_run::AssistantInputTarget::fixed(source.device_id.clone()),
+        crate::dynamic_run::AgentInputTarget::fixed(source.device_id.clone()),
         source.device_id.clone(),
         source.owner_requirement.text.clone(),
         source.owner_requirement.message_id.clone(),
@@ -1388,7 +1376,7 @@ fn directory_approval_is_a_real_wait_and_source_resume_does_not_skip_it() {
 #[test]
 fn stopped_main_requires_valid_new_owner_focus_before_planning_again() {
     let mut session = PersistedAgentSession::new("root", "owner", "device", 1, scope(), "before");
-    session.surface = AgentSessionSurface::AiAssistant;
+    session.surface = AgentSessionSurface::AiAgent;
     session.input_revision = 1;
     session.begin_focus_epoch(1, Vec::new()).unwrap();
     control::stop_main_session(&mut session, "stopped").unwrap();
@@ -1422,7 +1410,7 @@ fn published_result_authority_survives_notice_consumption_and_dependency_waits()
         scope(),
         "2026-09-30T00:00:00Z",
     );
-    parent.surface = AgentSessionSurface::AiAssistant;
+    parent.surface = AgentSessionSurface::AiAgent;
     parent.input_revision = 1;
     parent
         .begin_turn(
@@ -1639,7 +1627,7 @@ fn unfinished_limit_does_not_cap_cumulative_group_creation() {
         .admit_child("slot-released", true, 1, 1, limits)
         .unwrap();
     assert_eq!(group.tasks_created, 257);
-    let lowered = desk_agent_protocol::ai_assistant::subagent_policy::SubAgentLimits {
+    let lowered = desk_agent_protocol::ai_agent::subagent_policy::SubAgentLimits {
         max_unfinished_per_root: 1,
         ..limits
     };
@@ -1768,7 +1756,7 @@ fn goal_source_outlives_group_creation_and_children_keep_fixed_deadlines() {
         source.source.goal_id().unwrap().into(),
         source.root_conversation_id.clone(),
         source.actor_id.clone(),
-        crate::dynamic_run::AssistantInputTarget::fixed(source.device_id.clone()),
+        crate::dynamic_run::AgentInputTarget::fixed(source.device_id.clone()),
         source.device_id.clone(),
         source.owner_requirement.text.clone(),
         source.owner_requirement.message_id.clone(),
@@ -1809,19 +1797,19 @@ fn goal_source_outlives_group_creation_and_children_keep_fixed_deadlines() {
 
 #[test]
 fn timer_delegation_uses_its_frozen_target_and_preserves_owner_group_and_lineage() {
-    let target = crate::dynamic_run::AssistantInputTarget::fixed("a".into());
-    let latest = crate::dynamic_run::AssistantInputTarget::fixed("b".into());
+    let target = crate::dynamic_run::AgentInputTarget::fixed("a".into());
+    let latest = crate::dynamic_run::AgentInputTarget::fixed("b".into());
     let mut parent =
         PersistedAgentSession::new("root", "owner", "", 1, scope(), "2026-11-07T00:00:00Z");
-    parent.surface = AgentSessionSurface::AiAssistant;
+    parent.surface = AgentSessionSurface::AiAgent;
     parent.input_revision = 2;
     parent
-        .bind_assistant_input_targets(std::slice::from_ref(&latest))
+        .bind_agent_input_targets(std::slice::from_ref(&latest))
         .unwrap();
     parent.trigger_origin = TriggerOrigin::ScheduledContinuation;
     parent.current_request_id = Some("schedule-run-native".into());
     parent.scheduled_request = Some(Box::new(
-        crate::ai_assistant::scheduled_retrieval::ScheduledRequestBinding {
+        crate::ai_agent::scheduled_retrieval::ScheduledRequestBinding {
             schedule_id: "schedule-native".into(),
             run_id: "schedule-run-native".into(),
             execution_target: target.clone(),
@@ -1843,9 +1831,9 @@ fn timer_delegation_uses_its_frozen_target_and_preserves_owner_group_and_lineage
     assert_ne!(timer.group_id().unwrap(), owner.group_id().unwrap());
     // A scheduled resume keeps its frozen execution target.
     assert_eq!(timer.request_targets(&parent).unwrap(), [target]);
-    crate::ai_assistant::scheduled_retrieval::restore_owner_retrieval(&mut parent).unwrap();
+    crate::ai_agent::scheduled_retrieval::restore_owner_retrieval(&mut parent).unwrap();
     assert_eq!(parent.delegation_group_id.as_deref(), Some("owner-group"));
-    assert_eq!(parent.assistant_request_targets().unwrap(), [latest]);
+    assert_eq!(parent.agent_request_targets().unwrap(), [latest]);
 }
 
 #[test]
@@ -1874,7 +1862,7 @@ fn a_worker_session_admits_its_next_request_like_a_new_owner_input() {
     // A failed turn can leave a call that never dispatched.
     session
         .conversation
-        .push(crate::chat::ChatMessage::assistant_tool_calls(
+        .push(crate::chat::ChatMessage::agent_tool_calls(
             "first-call",
             String::new(),
             vec![
@@ -1960,11 +1948,11 @@ fn a_worker_session_admits_its_next_request_like_a_new_owner_input() {
     assert!(control::admit_request(&mut busy, &first, &next, &creation, &parent, 7, now).is_err());
 
     // The previous request's owner data never carries over to the next one.
-    session.assistant_data =
-        crate::ai_assistant::test_support::personal_session("owner", "root", "").assistant_data;
-    assert!(creation.source.assistant_seed.is_none());
+    session.agent_data =
+        crate::ai_agent::test_support::personal_session("owner", "root", "").agent_data;
+    assert!(creation.source.agent_seed.is_none());
     control::admit_request(&mut session, &first, &next, &creation, &parent, 7, now).unwrap();
-    assert!(session.assistant_data.is_none());
+    assert!(session.agent_data.is_none());
     assert!(control::is_bound(&session, &next));
     assert!(!control::is_bound(&session, &first));
     next.validate_session(&session).unwrap();
@@ -2004,7 +1992,7 @@ fn a_worker_session_admits_its_next_request_like_a_new_owner_input() {
     assert_eq!(session.conversation[history].message_id, "next-task-source");
 
     // Action fences carry session revisions; the request sees its own numbering.
-    let fence = crate::action_turn_fence::AssistantTurnFence {
+    let fence = crate::action_turn_fence::AgentTurnFence {
         schema_version: 1,
         conversation_id: session.conversation_id.clone(),
         turn_id: "turn".into(),
@@ -2023,7 +2011,7 @@ fn a_worker_session_admits_its_next_request_like_a_new_owner_input() {
     assert_ne!(fence.input_revision, next.binding.input_revision);
     next.require_current(control::request_fence(&session, &fence).unwrap())
         .unwrap();
-    let stale = crate::action_turn_fence::AssistantTurnFence {
+    let stale = crate::action_turn_fence::AgentTurnFence {
         input_revision: input,
         ..fence.clone()
     };

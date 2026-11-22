@@ -24,7 +24,7 @@ impl Transaction {
         if !Path::new(&self.parent).is_absolute()
             || self.parent.len() > 4096
             || self.parent.chars().any(char::is_control)
-            || self.directory != format!(".assistant-transaction-{id}")
+            || self.directory != format!(".agent-transaction-{id}")
         {
             return Err(invalid("invalid registered transaction location"));
         }
@@ -99,7 +99,7 @@ impl TransactionPlan {
     pub(crate) fn into_transaction(self, id: &str) -> io::Result<Transaction> {
         let transaction = Transaction {
             parent: self.parent,
-            directory: format!(".assistant-transaction-{id}"),
+            directory: format!(".agent-transaction-{id}"),
             identity: self.identity,
         };
         transaction.validate(id)?;

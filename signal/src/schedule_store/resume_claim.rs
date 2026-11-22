@@ -1,7 +1,7 @@
 //! Atomic occurrence/session claim for an explicitly confirmed continuation.
 use super::{ScheduleStore, ScheduleStoreError};
-use desk_assistant_data_store::schedule::PermissionReceiptClaim;
-pub use desk_assistant_data_store::schedule::{
+use desk_agent_data_store::schedule::PermissionReceiptClaim;
+pub use desk_agent_data_store::schedule::{
     ClaimedContinuation, ContinuationClaim, ContinuationPermissionClaim,
 };
 
@@ -63,7 +63,7 @@ impl ScheduleStore {
         }
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
         let claimed = desk_diagnose_core::future::send_phase(|| {
-            desk_assistant_data_store::schedule::claim_continuation_on(
+            desk_agent_data_store::schedule::claim_continuation_on(
                 &super::SignalScheduleHost,
                 &txn,
                 input,

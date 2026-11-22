@@ -65,7 +65,7 @@ fn session() -> PersistedAgentSession {
         },
         "2026-10-15T00:00:00Z",
     );
-    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAgent);
     session.input_revision = 1;
     session.focus_epoch.input_revision = 1;
     session.conversation.push(
@@ -309,7 +309,7 @@ fn directory_and_created_content_freeze_before_human_or_ai_review() {
     let value: Value = serde_json::from_str(&frozen.arguments_json).unwrap();
     assert_eq!(value["directory_request_id"], "directory");
     assert_eq!(value["content_utf8"], "");
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     for surface in [
         ProductSurface::OssPersonalOwner,
         ProductSurface::ManagerPersonalOwner,
@@ -523,7 +523,7 @@ fn contextual_file_permissions_preserve_business_fields_and_exact_source_cardina
         .unwrap();
         assert_eq!(
             crate::permission_tools::permission_input_mode(
-                crate::ai_assistant::ai_assistant_provider_registry()
+                crate::ai_agent::ai_agent_provider_registry()
                     .capability_for_tool(tool)
                     .unwrap()
             ),
@@ -606,10 +606,10 @@ fn contextual_file_permissions_preserve_business_fields_and_exact_source_cardina
 
 #[test]
 fn model_schemas_and_prompt_do_not_expose_source_type_metadata() {
-    let prompt = crate::ai_assistant::build_ai_assistant_system_message(Some("zh-CN"));
+    let prompt = crate::ai_agent::build_ai_agent_system_message(Some("zh-CN"));
     assert!(!prompt.text.contains("kind=directory_entry"));
     assert!(!prompt.text.contains("kind=artifact_result"));
-    for mut tool in crate::ai_assistant::ai_assistant_provider_registry().registered_tools() {
+    for mut tool in crate::ai_agent::ai_agent_provider_registry().registered_tools() {
         crate::ui_model_ids::project_tool(&mut tool.spec);
         if crate::provider_preflight::text_file::selection::supports(&tool.spec.name) {
             let projected = tool.spec.clone();

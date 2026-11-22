@@ -31,7 +31,7 @@ fn sample(index:usize,base:i64,manager:bool) -> ObservationEvent {
         attribution:Attribution {
             provider_id:format!("capacity-provider-{}",call_index%4),model_id:format!("capacity-model-{}",call_index%32),
             model_name:format!("Capacity model {}",call_index%32),configuration_revision:format!("{}",call_index%8+1),
-            contract_revision:"1".into(),purpose:Purpose::Agent,surface:Surface::Assistant,
+            contract_revision:"1".into(),purpose:Purpose::Agent,surface:Surface::Agent,
             origin:if call_index.is_multiple_of(3) { Origin::ScheduledTask } else { Origin::User },
             configuration_scope:if manager { ConfigurationScope::Platform } else { ConfigurationScope::Local },
             protocol:Protocol::OpenAiChatCompletions,

@@ -32,7 +32,7 @@ async fn workbench_wake_on(
     now_ms: i64,
     expected: Option<&NotificationEvent>,
 ) -> Result<Option<(NotificationEvent, StoredReport)>, DbErr> {
-    use desk_assistant_data_store::worker_report;
+    use desk_agent_data_store::worker_report;
     for (event, report) in worker_report::wake_reports_on(
         txn,
         group,
@@ -49,7 +49,7 @@ async fn workbench_wake_on(
             && report.can_wake(&run, group.required_task_ids.contains(&event.task_id))
         {
             if expected.is_none()
-                && desk_assistant_data_store::main_request::coordination::hold_report_for_batch_on(
+                && desk_agent_data_store::main_request::coordination::hold_report_for_batch_on(
                     txn,
                     group.source.workbench_id().ok_or_else(invalid)?,
                     &parent.actor_id,
@@ -81,7 +81,7 @@ pub(crate) async fn batch_report_read_scope_on(
     workbench_id: &str,
     destination: &desk_agent_protocol::data_lineage::DestinationIdentity,
     now_ms: i64,
-) -> Result<Option<desk_assistant_data_store::main_request::coordination::ReportReadScope>, DbErr> {
+) -> Result<Option<desk_agent_data_store::main_request::coordination::ReportReadScope>, DbErr> {
     use desk_diagnose_core::subagent::report::ReportKind;
     let Some(work) = session_row::Entity::find()
         .filter(session_row::Column::ConversationId.eq(&row.root_conversation_id))
@@ -160,7 +160,7 @@ pub(crate) async fn batch_report_read_scope_on(
         readable(row, decode_run(&run)),
         readable(
             row,
-            desk_assistant_data_store::worker_report::decode_projectable(row, destination),
+            desk_agent_data_store::worker_report::decode_projectable(row, destination),
         ),
     ) else {
         return Ok(None);
@@ -171,7 +171,7 @@ pub(crate) async fn batch_report_read_scope_on(
         && (report.report.content.kind == ReportKind::Progress
             || report.can_wake(&run, group.required_task_ids.contains(&row.task_id))))
     .then(
-        || desk_assistant_data_store::main_request::coordination::ReportReadScope {
+        || desk_agent_data_store::main_request::coordination::ReportReadScope {
             work_version: work.version,
             state: run.state,
             wait_reason: run.wait_reason(),
@@ -197,11 +197,11 @@ fn readable<T, E>(row: &inbox::Model, decoded: Result<T, E>) -> Option<T> {
 pub(crate) async fn batch_report_context_on(
     db: &impl ConnectionTrait,
     row: &inbox::Model,
-    scope: &desk_assistant_data_store::main_request::coordination::ReportReadScope,
-    selector: desk_assistant_data_store::main_request::coordination::ContextSelector<'_>,
+    scope: &desk_agent_data_store::main_request::coordination::ReportReadScope,
+    selector: desk_agent_data_store::main_request::coordination::ContextSelector<'_>,
     destination: &desk_agent_protocol::data_lineage::DestinationIdentity,
     byte_limit: usize,
-) -> Result<Option<desk_assistant_data_store::main_request::coordination::ContextRead>, DbErr> {
+) -> Result<Option<desk_agent_data_store::main_request::coordination::ContextRead>, DbErr> {
     let conversation_id = selector.conversation(scope);
     let Some(record) = session_row::Entity::find()
         .filter(session_row::Column::ConversationId.eq(conversation_id))
@@ -223,11 +223,11 @@ pub(crate) async fn batch_report_context_on(
     {
         return Ok(None);
     }
-    let current = desk_assistant_data_store::device_roster::current_request_devices(db, &session)
+    let current = desk_agent_data_store::device_roster::current_request_devices(db, &session)
         .await
         .map_err(|_| invalid())?;
     if !session
-        .assistant_request_targets()
+        .agent_request_targets()
         .is_some_and(|targets| targets.iter().map(|target| &target.device_id).eq(&current))
     {
         return Ok(None);
@@ -236,7 +236,7 @@ pub(crate) async fn batch_report_context_on(
         return Ok(None);
     }
     Ok(
-        desk_assistant_data_store::main_request::coordination::project_work_context(
+        desk_agent_data_store::main_request::coordination::project_work_context(
             &session,
             selector,
             destination,
@@ -274,7 +274,7 @@ pub(crate) async fn workbench_wake_waits_for_batch_on(
     let [event] = notification.events.as_slice() else {
         return Err(invalid());
     };
-    desk_assistant_data_store::main_request::coordination::hold_report_for_batch_on(
+    desk_agent_data_store::main_request::coordination::hold_report_for_batch_on(
         db,
         workbench,
         &parent.actor_id,
@@ -378,7 +378,7 @@ pub(crate) async fn ready_notification_source_on(
             .one(txn)
             .await?
             .ok_or_else(|| invalid())?;
-        let original: desk_agent_protocol::ai_assistant::subagent::AiAssistantSubAgentEvent =
+        let original: desk_agent_protocol::ai_agent::subagent::AiAgentSubAgentEvent =
             serde_json::from_str(&event.event_json).map_err(|_| invalid())?;
         let run = decode_run(
             &super::main_tools::task_for_parent_on(txn, parent, &expected.task_id).await?,
@@ -400,7 +400,7 @@ pub(crate) async fn prepare_notification_on(
         return Ok(false);
     }
     if !parent.agent_role.is_main()
-        || parent.surface != AgentSessionSurface::AiAssistant
+        || parent.surface != AgentSessionSurface::AiAgent
         || parent.main_stopped
         || !parent.turn_state.can_claim()
         || parent.turn_state == TurnState::Cancelled
@@ -490,7 +490,7 @@ pub(crate) async fn prepare_notification_on(
             {
                 continue;
             }
-            let original: desk_agent_protocol::ai_assistant::subagent::AiAssistantSubAgentEvent =
+            let original: desk_agent_protocol::ai_agent::subagent::AiAgentSubAgentEvent =
                 serde_json::from_str(&candidate.event_json).map_err(|_| invalid())?;
             if original.task != run.summary() {
                 return Err(invalid());

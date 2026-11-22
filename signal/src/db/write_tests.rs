@@ -1,7 +1,7 @@
 //! Independent WAL connections exercise writer admission, rollback and read concurrency.
 use super::*;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 
 mod counter {
     use sea_orm::entity::prelude::*;

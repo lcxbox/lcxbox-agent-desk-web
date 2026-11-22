@@ -1,4 +1,4 @@
-import { scheduleDevices } from './assistant-paths';
+import { scheduleDevices } from './agent-paths';
 import { useListConnections } from '@/services/hooks/connectionController/useListConnections';
 import SchedulePage from './page';
 export default function OssSchedulesPage() {

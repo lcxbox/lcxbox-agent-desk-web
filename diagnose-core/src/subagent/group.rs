@@ -70,7 +70,7 @@ impl DelegationGroup {
         required: bool,
         root_unfinished: usize,
         now_ms: i64,
-        limits: desk_agent_protocol::ai_assistant::subagent_policy::SubAgentLimits,
+        limits: desk_agent_protocol::ai_agent::subagent_policy::SubAgentLimits,
     ) -> Result<(), &'static str> {
         self.validate()?;
         super::policy::validate_limits(limits)?;

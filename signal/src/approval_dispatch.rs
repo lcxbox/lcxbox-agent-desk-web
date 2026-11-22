@@ -5,12 +5,10 @@
 
 use crate::config::connection::DatabaseConnection;
 use actix_web::web;
-use desk_agent_protocol::ai_assistant::AiAssistantAsk;
+use desk_agent_protocol::ai_agent::AiAgentAsk;
 use desk_agent_protocol::capability_provider::ProductSurface;
 use desk_agent_protocol::computer_use::ObjectKind;
-use desk_diagnose_core::ai_assistant::{
-    ai_assistant_provider_registry, provider_readiness_reports,
-};
+use desk_diagnose_core::ai_agent::{ai_agent_provider_registry, provider_readiness_reports};
 use desk_diagnose_core::approval_review::PendingRequestKind;
 use desk_diagnose_core::approval_review::reviewer_billed_tokens;
 use desk_diagnose_core::capability_availability::{
@@ -45,7 +43,7 @@ async fn current_device_context(
     if subject.kind == PendingRequestKind::Goal || subject.kind.is_turn_proposal() {
         return Some(ReviewDeviceContext {
             connection_id: String::new(),
-            registry: ai_assistant_provider_registry(),
+            registry: ai_agent_provider_registry(),
             inventory: vec![],
             readiness_revision: 0,
             device_allows_unattended: false,
@@ -75,7 +73,7 @@ async fn current_device_context(
         .get_fresh(&connection_id, now)?;
     let reports = provider_readiness_reports(&readiness.readiness).ok()?;
     let search = crate::web_search_config::read(db).await.ok()?;
-    let registry = ai_assistant_provider_registry().with_web_search_binding(search.binding());
+    let registry = ai_agent_provider_registry().with_web_search_binding(search.binding());
     let now_unix_ms = u64::try_from(now.timestamp_millis()).ok()?;
     let session = crate::command_policy::stored_session(
         db,
@@ -107,7 +105,7 @@ async fn current_device_context(
         &registry,
         ProductSurface::OssPersonalOwner,
         now_unix_ms,
-        desk_diagnose_core::capability_availability::assistant_central_capability_readiness(
+        desk_diagnose_core::capability_availability::agent_central_capability_readiness(
             search.configured(),
             true,
         ),
@@ -147,12 +145,12 @@ async fn targetless_context(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Option<ReviewDeviceContext> {
     let search = crate::web_search_config::read(db).await.ok()?;
-    let registry = ai_assistant_provider_registry().with_web_search_binding(search.binding());
+    let registry = ai_agent_provider_registry().with_web_search_binding(search.binding());
     let inventory = project_capability_availability(
         &registry,
         ProductSurface::OssPersonalOwner,
         u64::try_from(now.timestamp_millis()).ok()?,
-        desk_diagnose_core::capability_availability::assistant_central_capability_readiness(
+        desk_diagnose_core::capability_availability::agent_central_capability_readiness(
             search.configured(),
             false,
         ),
@@ -480,7 +478,7 @@ async fn resume_permission_decision(
                 | desk_diagnose_core::goal::GoalPermissionWake::Held,
             ) => return true,
             Err(error) => {
-                log::warn!("[ai-assistant-goal] AI permission decision routing deferred: {error}");
+                log::warn!("[ai-agent-goal] AI permission decision routing deferred: {error}");
                 return true;
             }
         }
@@ -523,7 +521,7 @@ async fn resume_permission_decision(
         .as_ref()
         .and_then(|(creation, _)| creation.response_locale.clone());
     let resume_request_id = format!("permission-resume-{}", subject.request_id);
-    let ask = AiAssistantAsk {
+    let ask = AiAgentAsk {
         temporary_conversation: None,
         question,
         locale,
@@ -538,7 +536,7 @@ async fn resume_permission_decision(
         connection_id
     };
     actix_web::rt::spawn(async move {
-        crate::ai_assistant_orchestrator::resume_after_permission_decision(
+        crate::ai_agent_orchestrator::resume_after_permission_decision(
             connections,
             db,
             resume_request_id,

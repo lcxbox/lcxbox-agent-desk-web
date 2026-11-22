@@ -24,7 +24,7 @@ pub struct PtyCarrierPrepare {
     pub browser_connection_id: String,
     pub target_connection_id: String,
     pub exec_request_id: String,
-    /// The pending AI Assistant permission request this carrier is prepared
+    /// The pending AI Agent permission request this carrier is prepared
     /// for. The server checks that it still awaits the owner's decision, holds
     /// one interactive command, and derives exactly `exec_request_id`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

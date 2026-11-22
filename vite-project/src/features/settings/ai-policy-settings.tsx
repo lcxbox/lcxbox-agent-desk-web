@@ -9,8 +9,8 @@ import { useQueryAiPolicySettings } from "@/services/hooks/aiModelController/use
 import { useUpdateAiPolicySettings } from "@/services/hooks/aiModelController/useUpdateAiPolicySettings"
 import { useQueryCollectionPolicySettings } from "@/services/hooks/aiModelController/useQueryCollectionPolicySettings"
 import { useUpdateCollectionPolicySettings } from "@/services/hooks/aiModelController/useUpdateCollectionPolicySettings"
-import { useQueryAiAssistantSettings } from "@/services/hooks/aiModelController/useQueryAiAssistantSettings"
-import { useUpdateAiAssistantSettings } from "@/services/hooks/aiModelController/useUpdateAiAssistantSettings"
+import { useQueryAiAgentSettings } from "@/services/hooks/aiModelController/useQueryAiAgentSettings"
+import { useUpdateAiAgentSettings } from "@/services/hooks/aiModelController/useUpdateAiAgentSettings"
 import { useRevokeExecSandboxLabels } from "@/services/hooks/aiModelController/useRevokeExecSandboxLabels"
 import type { AiExecutionPolicyUpdate, CollectionPolicySettingsUpdate } from "@/services/types"
 
@@ -93,8 +93,8 @@ export function AiPolicySettings() {
     const { mutateAsync: updatePolicy, isPending: isPolicyUpdating } = useUpdateAiPolicySettings()
     const { data: collectionResponse, isLoading: isCollectionLoading, refetch: refetchCollection } = useQueryCollectionPolicySettings()
     const { mutateAsync: updateCollection, isPending: isCollectionUpdating } = useUpdateCollectionPolicySettings()
-    const assistantSettings = useQueryAiAssistantSettings()
-    const assistantSettingsMutation = useUpdateAiAssistantSettings()
+    const agentSettings = useQueryAiAgentSettings()
+    const agentSettingsMutation = useUpdateAiAgentSettings()
     const revokeLabels = useRevokeExecSandboxLabels()
 
     const policyForm = useForm<PolicyFormValues>({
@@ -214,32 +214,32 @@ export function AiPolicySettings() {
         }
     }
 
-    const onAssistantEnabledChange = async (enabled: boolean) => {
-        const current = assistantSettings.data?.data
+    const onAgentEnabledChange = async (enabled: boolean) => {
+        const current = agentSettings.data?.data
         if (!current) return
         try {
-            const response = await assistantSettingsMutation.mutateAsync({
+            const response = await agentSettingsMutation.mutateAsync({
                 data: { enabled, expected_revision: current.revision },
             })
             if (!response.success || !response.data) throw new Error(response.message ?? "update failed")
-            await assistantSettings.refetch()
+            await agentSettings.refetch()
             toast({
                 title: t("pages.system.settings.success"),
                 description: t(enabled
-                    ? "pages.aiPolicy.aiAssistant.enabled"
-                    : "pages.aiPolicy.aiAssistant.disabled"),
+                    ? "pages.aiPolicy.aiAgent.enabled"
+                    : "pages.aiPolicy.aiAgent.disabled"),
             })
         } catch {
-            await assistantSettings.refetch()
+            await agentSettings.refetch()
             toast({
                 variant: "destructive",
                 title: t("pages.system.settings.error"),
-                description: t("pages.aiPolicy.aiAssistant.updateFailed"),
+                description: t("pages.aiPolicy.aiAgent.updateFailed"),
             })
         }
     }
 
-    if (isPolicyLoading || isCollectionLoading || assistantSettings.isLoading) {
+    if (isPolicyLoading || isCollectionLoading || agentSettings.isLoading) {
         return (
             <div className="flex h-full items-center justify-center">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -263,22 +263,22 @@ export function AiPolicySettings() {
 
             <Card className="mb-6">
                 <CardHeader>
-                    <CardTitle>{t("pages.aiPolicy.aiAssistant.title")}</CardTitle>
-                    <CardDescription>{t("pages.aiPolicy.aiAssistant.description")}</CardDescription>
+                    <CardTitle>{t("pages.aiPolicy.aiAgent.title")}</CardTitle>
+                    <CardDescription>{t("pages.aiPolicy.aiAgent.description")}</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="flex items-center justify-between gap-6">
                         <div>
-                            <p className="font-medium">{t("pages.aiPolicy.aiAssistant.switch")}</p>
+                            <p className="font-medium">{t("pages.aiPolicy.aiAgent.switch")}</p>
                             <p className="text-sm text-muted-foreground">
-                                {t("pages.aiPolicy.aiAssistant.switchDescription")}
+                                {t("pages.aiPolicy.aiAgent.switchDescription")}
                             </p>
                         </div>
                         <Switch
-                            checked={assistantSettings.data?.data?.enabled === true}
-                            disabled={!assistantSettings.data?.data || assistantSettingsMutation.isPending}
-                            onCheckedChange={(checked) => void onAssistantEnabledChange(checked)}
-                            aria-label={t("pages.aiPolicy.aiAssistant.switch")}
+                            checked={agentSettings.data?.data?.enabled === true}
+                            disabled={!agentSettings.data?.data || agentSettingsMutation.isPending}
+                            onCheckedChange={(checked) => void onAgentEnabledChange(checked)}
+                            aria-label={t("pages.aiPolicy.aiAgent.switch")}
                         />
                     </div>
                 </CardContent>

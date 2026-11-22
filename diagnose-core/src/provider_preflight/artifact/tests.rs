@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    ai_assistant::ai_assistant_provider_registry,
-    assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
-};
+use crate::{agent_policy::PERSONAL_AGENT_POLICY_REVISION, ai_agent::ai_agent_provider_registry};
 use serde_json::json;
 
 const NOW: u64 = 1_800_000_000_000;
@@ -17,7 +14,7 @@ fn directory_selector_is_in_exact_input_but_never_becomes_a_native_path() {
     let encoded = serde_json::to_string(&action).unwrap();
     assert!(!encoded.contains("approved-directory"));
     let preflight = ArtifactCallPreflight::build(
-        &ai_assistant_provider_registry(),
+        &ai_agent_provider_registry(),
         ProductSurface::OssPersonalOwner,
         &with_selector,
         &[directory()],
@@ -135,7 +132,7 @@ fn both_orchestrators_derive_closed_create_new_artifacts() {
             Capability::CommunicationLocalDraftCreateConfirmed,
         ),
     ];
-    let registry = ai_assistant_provider_registry();
+    let registry = ai_agent_provider_registry();
     for (call, expected_capability) in cases {
         for surface in [
             ProductSurface::OssPersonalOwner,
@@ -152,7 +149,7 @@ fn both_orchestrators_derive_closed_create_new_artifacts() {
                     run_id: "run",
                     input_revision: 1,
                     target_device_id: "device",
-                    policy_revision: PERSONAL_ASSISTANT_POLICY_REVISION,
+                    policy_revision: PERSONAL_AGENT_POLICY_REVISION,
                     readiness_revision: 9,
                     now_unix_ms: NOW,
                 })
@@ -168,7 +165,7 @@ fn both_orchestrators_derive_closed_create_new_artifacts() {
 
 #[test]
 fn artifact_preflight_rejects_ambiguous_directory_and_unbounded_inputs() {
-    let registry = ai_assistant_provider_registry();
+    let registry = ai_agent_provider_registry();
     let valid = call(
         "create_text_file",
         json!({"file_name":"notes.txt","content_utf8":"hello"}),
@@ -253,7 +250,7 @@ fn formula_policy_digest_is_computed_by_the_shared_validator() {
 
 #[test]
 fn document_conversion_binds_both_resources_and_the_earliest_expiry_on_both_hosts() {
-    let registry = ai_assistant_provider_registry();
+    let registry = ai_agent_provider_registry();
     let mut source = directory();
     source.object_kind = ObjectKind::File;
     source.token = "source-file".into();

@@ -163,7 +163,7 @@ impl ProposalKind {
 
     /// Whether the session may propose this kind at all.
     pub fn allowed(self, session: &PersistedAgentSession) -> bool {
-        session.surface == AgentSessionSurface::AiAssistant && session.owner_direct_planning()
+        session.surface == AgentSessionSurface::AiAgent && session.owner_direct_planning()
     }
 
     /// The decision carried by a decision receipt of this kind: `Some(true)`

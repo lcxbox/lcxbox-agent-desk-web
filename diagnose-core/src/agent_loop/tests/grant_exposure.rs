@@ -553,11 +553,11 @@ async fn workbench_coordinator_uses_reads_and_rejects_forged_writes_and_permissi
             &self,
             session: &PersistedAgentSession,
         ) -> Result<Vec<crate::request_devices::RequestDevice>, AgentError> {
-            assert!(session.admits_assistant_device("device"));
+            assert!(session.admits_agent_device("device"));
             Ok(vec![crate::request_devices::RequestDevice {
                 native_readiness: None,
                 read_target: None,
-                ready_provider_ids: vec![crate::ai_assistant::SYSTEM_INFO_CAPABILITY_ID.into()],
+                ready_provider_ids: vec![crate::ai_agent::SYSTEM_INFO_CAPABILITY_ID.into()],
                 approved_read_tools: Vec::new(),
                 target_ref: "device".into(),
                 name: None,
@@ -573,7 +573,7 @@ async fn workbench_coordinator_uses_reads_and_rejects_forged_writes_and_permissi
             call: &ToolCall,
         ) -> Result<crate::seam::ReadOutcome, AgentError> {
             let (target, _) = crate::request_devices::selected_read(call)?;
-            assert!(session.admits_assistant_device(&target));
+            assert!(session.admits_agent_device(&target));
             self.0.borrow_mut().push(target);
             Ok(crate::seam::ReadOutcome::Completed {
                 output: ToolRunOutput {
@@ -590,7 +590,7 @@ async fn workbench_coordinator_uses_reads_and_rejects_forged_writes_and_permissi
         }
     }
 
-    let providers = crate::ai_assistant::ai_assistant_provider_registry();
+    let providers = crate::ai_agent::ai_agent_provider_registry();
     let write = providers.capability_for_tool("browser_open_page").unwrap();
     let write_provider = providers
         .provider_for_capability(&write.wire.capability_id)
@@ -602,7 +602,7 @@ async fn workbench_coordinator_uses_reads_and_rejects_forged_writes_and_permissi
         .current_pdp_scope
         .granted
         .push(write.required_capability);
-    let request_id = native_ids::stable(native_ids::Kind::AssistantMainRequest, &"message");
+    let request_id = native_ids::stable(native_ids::Kind::AgentMainRequest, &"message");
     let mut initial = PersistedAgentSession::new_workbench_coordinator(
         &claim.actor_id,
         "workbench",
@@ -617,7 +617,7 @@ async fn workbench_coordinator_uses_reads_and_rejects_forged_writes_and_permissi
     initial.latest_input_seq = 1;
     initial.focus_epoch.input_revision = 1;
     initial
-        .bind_assistant_request_targets(vec!["device".into()])
+        .bind_agent_request_targets(vec!["device".into()])
         .unwrap();
     let candidates = [write.registered_tool()];
     let inventory = [crate::capability_availability::CapabilityAvailability {
@@ -1167,7 +1167,7 @@ async fn a_host_input_mismatch_is_explained_once_before_a_new_proposal() {
 /// retainable.
 #[tokio::test]
 async fn a_capability_loading_error_registers_under_the_issuing_output() {
-    use crate::ai_assistant::source_registry::{
+    use crate::ai_agent::source_registry::{
         NativeInputPolicyRegistration, RegisteredSourceContract, SOURCE_CONTRACT_REVISION,
     };
     let (session, providers, _snapshot, inventory, target, scope) = call_time_case(true);

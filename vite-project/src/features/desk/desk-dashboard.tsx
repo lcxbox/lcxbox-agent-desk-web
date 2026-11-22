@@ -1,4 +1,4 @@
-import { AiAssistantIcon } from '@/components/ai-assistant-icon';
+import { AiAgentIcon } from '@/components/ai-agent-icon';
 import { useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import { Monitor, Terminal as TerminalIcon, Folder, ArrowLeft, Globe, Server, Lock } from "lucide-react"
@@ -8,13 +8,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { useDeviceTarget } from "./device-target-context"
 import { Badge } from "@/components/ui/badge"
 import { useRestrictedSession } from "@/features/desk/restricted-session"
-import { isAiAssistantEnabled } from "@/features/desk/ai-assistant-switch"
+import { isAiAgentEnabled } from "@/features/desk/ai-agent-switch"
 
-const OSS_AI_ASSISTANT_ENABLED = import.meta.env.BASE_URL !== '/console/';
+const OSS_AI_AGENT_ENABLED = import.meta.env.BASE_URL !== '/console/';
 
 export default function DeskDashboard({
-    showAssistant = OSS_AI_ASSISTANT_ENABLED,
-}: { showAssistant?: boolean }) {
+    showAgent = OSS_AI_AGENT_ENABLED,
+}: { showAgent?: boolean }) {
     const target = useDeviceTarget()
     const deskId = target.connectionId
     const navigate = useNavigate()
@@ -161,25 +161,25 @@ export default function DeskDashboard({
                     </Card>
                     )}
 
-                    {showAssistant && restricted.ownerPlaneVisible
-                        && isAiAssistantEnabled(connection.ai_assistant_settings) && (
-                    <Card className="hover:border-primary/50 transition-colors cursor-pointer flex flex-col" onClick={() => navigate(target.path('assistant'))}>
+                    {showAgent && restricted.ownerPlaneVisible
+                        && isAiAgentEnabled(connection.ai_agent_settings) && (
+                    <Card className="hover:border-primary/50 transition-colors cursor-pointer flex flex-col" onClick={() => navigate(target.path('agent'))}>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
-                                <AiAssistantIcon className="h-5 w-5 text-violet-500" />
-                                {t('pages.deskDashboard.aiAssistant')}
+                                <AiAgentIcon className="h-5 w-5 text-violet-500" />
+                                {t('pages.deskDashboard.aiAgent')}
                             </CardTitle>
-                            <CardDescription>{t('pages.deskDashboard.aiAssistantDesc')}</CardDescription>
+                            <CardDescription>{t('pages.deskDashboard.aiAgentDesc')}</CardDescription>
                         </CardHeader>
                         <CardContent className="flex-1">
                             <ul className="text-sm text-muted-foreground space-y-2">
-                                <li>• {t('pages.deskDashboard.aiAssistantFeature1')}</li>
-                                <li>• {t('pages.deskDashboard.aiAssistantFeature2')}</li>
-                                <li>• {t('pages.deskDashboard.aiAssistantFeature3')}</li>
+                                <li>• {t('pages.deskDashboard.aiAgentFeature1')}</li>
+                                <li>• {t('pages.deskDashboard.aiAgentFeature2')}</li>
+                                <li>• {t('pages.deskDashboard.aiAgentFeature3')}</li>
                             </ul>
                         </CardContent>
                         <CardFooter>
-                            <Button className="w-full" variant="secondary">{t('pages.deskDashboard.openAssistant')}</Button>
+                            <Button className="w-full" variant="secondary">{t('pages.deskDashboard.openAgent')}</Button>
                         </CardFooter>
                     </Card>
                     )}

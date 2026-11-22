@@ -310,7 +310,7 @@ pub(crate) fn resolve_with_references(
     if let Some((native, model)) = field(tool) {
         restore_field(object, native, model, history, now, expected)?;
         if let Some(reference) = object.get(native).filter(|value| !value.is_null()) {
-            let registry = crate::ai_assistant::ai_assistant_provider_registry();
+            let registry = crate::ai_agent::ai_agent_provider_registry();
             let schema = &registry
                 .capability_for_tool(tool)
                 .ok_or_else(|| invalid("tool is not registered"))?
@@ -405,7 +405,7 @@ pub(crate) fn resolve_directories(
         .and_then(Value::as_str)
         .map(|reference| {
             session
-                .assistant_request_device(reference)
+                .agent_request_device(reference)
                 .map(|target| target.device_id.as_str())
                 .ok_or_else(|| invalid("Select an admitted device for the output directory"))
         })
@@ -664,7 +664,7 @@ mod tests {
             json!({"token":"app","snapshot_id":"ui","object_kind":"application","expires_at":""});
         let target =
             json!({"token":"button","snapshot_id":"ui","object_kind":"ui_element","expires_at":""});
-        let adapter = json!({"kind":"macos_accessibility","version":crate::ai_assistant::MACOS_ACCESSIBILITY_ADAPTER_VERSION});
+        let adapter = json!({"kind":"macos_accessibility","version":crate::ai_agent::MACOS_ACCESSIBILITY_ADAPTER_VERSION});
         let node = |reference: Value, role: &str| json!({"object_ref":reference,"parent_index":null,"role":role,"name":"Calendar","value":null,"is_protected":false,"enabled":true,"supported_actions":["invoke"],"location":{"status":"unavailable"}});
         let output = json!({"ReadContext":{"DesktopUiInspect":{"snapshot_id":"ui","adapter":adapter,"nodes":[node(app,"application"),node(target,"button")],"truncated":false}}});
         session.conversation = crate::result_model_ids::tests::evidence(
@@ -688,7 +688,7 @@ mod tests {
                 .unwrap();
         let native: Value = serde_json::from_str(&resolved.arguments_json).unwrap();
         assert_eq!(native["adapter"], adapter);
-        crate::ai_assistant::validate_preview_call(&resolved).unwrap();
+        crate::ai_agent::validate_preview_call(&resolved).unwrap();
         assert_eq!(call.arguments_json, input.to_string());
         let mut supplied = input.clone();
         supplied["adapter"] = adapter;
@@ -741,10 +741,7 @@ mod tests {
             },
             "2026-01-01T00:00:00Z",
         );
-        session.adopt_client_metadata(
-            Some("client"),
-            crate::session::AgentSessionSurface::AiAssistant,
-        );
+        session.adopt_client_metadata(Some("client"), crate::session::AgentSessionSurface::AiAgent);
         session.conversation = crate::result_model_ids::tests::evidence(
             "inspect_live_document",
             "read",

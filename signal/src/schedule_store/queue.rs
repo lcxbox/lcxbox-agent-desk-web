@@ -2,10 +2,10 @@
 use super::{ScheduleStore, ScheduleStoreError};
 use crate::config::connection::DatabaseTransaction;
 use crate::entity::agent_schedule_run as run;
-use desk_agent_protocol::schedule::policy::ScheduleBudgetPolicy;
-use desk_assistant_data_store::schedule as shared;
+use desk_agent_data_store::schedule as shared;
 #[cfg(test)]
-use desk_assistant_data_store::schedule::database_now;
+use desk_agent_data_store::schedule::database_now;
+use desk_agent_protocol::schedule::policy::ScheduleBudgetPolicy;
 #[cfg(test)]
 use desk_diagnose_core::schedule::due::start_deadline;
 use sea_orm::DbErr;

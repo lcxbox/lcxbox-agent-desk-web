@@ -4,7 +4,7 @@ use super::*;
 
 /// Signaling types only the manager sends. Each one writes device-wide state with
 /// a single revision or generation space (command templates and blocklist, the AI
-/// Assistant settings, support codes, access-grant generations), so a second
+/// Agent settings, support codes, access-grant generations), so a second
 /// central must never be able to push them: a higher revision from it would make
 /// every later manager sync look stale, and a grant teardown would close sessions
 /// another central minted. They are accepted only on the manager link.
@@ -15,7 +15,7 @@ pub(super) fn is_manager_only(t: SignalingType) -> bool {
             | SignalingType::SyncCommandBlocklist
             | SignalingType::SupportCodeIssued
             | SignalingType::RevokeAccessGrant
-            | SignalingType::UpdateAiAssistantSettings
+            | SignalingType::UpdateAiAgentSettings
     )
 }
 

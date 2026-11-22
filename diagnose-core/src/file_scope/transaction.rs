@@ -15,11 +15,11 @@ pub const FILE_SCOPE_EVENT_KIND: &str = "file_scope_updated";
 
 /// The conversation can be account-scoped while the consent is device-scoped.
 pub fn storage_device_id<'a>(subject: &'a FileScopeSubject, client_id: &str) -> &'a str {
-    use crate::conversation_key::{AssistantConversationScope, derive_assistant_conversation_key};
+    use crate::conversation_key::{AgentConversationScope, derive_agent_conversation_key};
     if subject.conversation_id
-        == derive_assistant_conversation_key(
+        == derive_agent_conversation_key(
             &subject.actor_id,
-            AssistantConversationScope::Personal,
+            AgentConversationScope::Personal,
             client_id,
         )
     {
@@ -40,15 +40,15 @@ pub fn receipt_event_id(subject: &FileScopeSubject, client_request_id: &str) -> 
 }
 
 pub fn owner_selection(
-    update: &desk_agent_protocol::ai_assistant::AiAssistantObjectContextUpdate,
+    update: &desk_agent_protocol::ai_agent::AiAgentObjectContextUpdate,
     subject: FileScopeSubject,
     resolved: desk_agent_protocol::computer_use::FileDirectoryResolveOutput,
 ) -> Result<FileScopeUpdate, FileScopeError> {
-    use desk_agent_protocol::ai_assistant::AiAssistantObjectContextOperation;
+    use desk_agent_protocol::ai_agent::AiAgentObjectContextOperation;
     update
         .validate()
         .map_err(|_| FileScopeError::InvalidProposal)?;
-    let AiAssistantObjectContextOperation::SelectDirectory {
+    let AiAgentObjectContextOperation::SelectDirectory {
         path,
         purpose,
         expected_revision,
@@ -82,11 +82,11 @@ pub fn owner_selection(
 /// Match the original human intent before returning a resolution retry receipt.
 pub fn match_owner_selection(
     receipt: &FileScopeReceipt,
-    update: &desk_agent_protocol::ai_assistant::AiAssistantObjectContextUpdate,
+    update: &desk_agent_protocol::ai_agent::AiAgentObjectContextUpdate,
     subject: &FileScopeSubject,
 ) -> Result<(), FileScopeError> {
-    use desk_agent_protocol::ai_assistant::AiAssistantObjectContextOperation;
-    let AiAssistantObjectContextOperation::SelectDirectory {
+    use desk_agent_protocol::ai_agent::AiAgentObjectContextOperation;
+    let AiAgentObjectContextOperation::SelectDirectory {
         path,
         purpose,
         expected_revision,
@@ -115,10 +115,10 @@ pub fn match_owner_selection(
 
 /// Bind an owner transport decision to the server-derived storage subject.
 pub fn from_owner_decision(
-    update: &desk_agent_protocol::ai_assistant::AiAssistantObjectContextUpdate,
+    update: &desk_agent_protocol::ai_agent::AiAgentObjectContextUpdate,
     subject: FileScopeSubject,
 ) -> Option<FileScopeUpdate> {
-    use desk_agent_protocol::ai_assistant::AiAssistantObjectContextOperation::*;
+    use desk_agent_protocol::ai_agent::AiAgentObjectContextOperation::*;
     let (expected_revision, mutation) = match &update.operation {
         DecideDirectory {
             directory_request_id,
@@ -277,7 +277,7 @@ pub fn prepare(
     update.validate_session(session)?;
     if session.device_id.is_empty()
         && matches!(&update.mutation, FileScopeMutation::Propose { proposal } if proposal.source == DirectoryConsentSource::ModelProposal)
-        && !session.admits_assistant_device(&update.subject.device_id)
+        && !session.admits_agent_device(&update.subject.device_id)
     {
         return Err(FileScopeError::WrongSubject);
     }

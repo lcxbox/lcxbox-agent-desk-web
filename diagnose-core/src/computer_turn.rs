@@ -17,7 +17,7 @@ pub fn classify(
     let Some(session) = session else {
         return Revoked;
     };
-    if session.surface != AgentSessionSurface::AiAssistant
+    if session.surface != AgentSessionSurface::AiAgent
         || session.actor_id != query.actor_id
         || session.device_id != device_id
         || session.conversation_id != query.scope.conversation_id
@@ -37,7 +37,7 @@ pub fn classify(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{action_turn_fence::AssistantTurnFence, session::TurnState};
+    use crate::{action_turn_fence::AgentTurnFence, session::TurnState};
     use desk_agent_protocol::{AgentScope, ExecutionMode};
 
     fn fixture() -> (PersistedAgentSession, ComputerActionTurnQuery) {
@@ -54,13 +54,13 @@ mod tests {
             },
             "now",
         );
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session.latest_input_seq = 1;
         session
             .begin_turn("turn", None, None, 1, session.scope_snapshot.clone(), "now")
             .unwrap();
-        let scope = AssistantTurnFence::from_session(&session)
+        let scope = AgentTurnFence::from_session(&session)
             .unwrap()
             .unwrap()
             .computer_action_scope()
@@ -108,7 +108,7 @@ mod tests {
                 0 => session.actor_id = "other".into(),
                 1 => session.device_id = "other".into(),
                 2 => session.conversation_id = "other".into(),
-                _ => session.surface = AgentSessionSurface::TerminalAiAssistant,
+                _ => session.surface = AgentSessionSurface::TerminalAiAgent,
             }
             assert_eq!(
                 classify(&query, "device", Some(&session)),

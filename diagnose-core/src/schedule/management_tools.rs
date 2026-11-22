@@ -53,7 +53,7 @@ pub fn parse(
                 | TriggerOrigin::ProposalDecision
         );
     let outside_scope = (!session.owner_direct_planning() && !delegated_inspection)
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || !session.turn_state.is_active()
         || session.input_revision == 0
         || session.actor_id.is_empty();
@@ -137,7 +137,7 @@ pub fn parse(
 
 /// Fresh automations have no continuation source. Their immutable, server-labelled
 /// creation receipts bind them to their originating chat without linking execution
-/// contexts. User text, assistant prose and a caller-supplied task id are not proof.
+/// contexts. User text, agent prose and a caller-supplied task id are not proof.
 pub fn proposed_ids(session: &PersistedAgentSession) -> Vec<String> {
     session
         .conversation
@@ -181,7 +181,7 @@ mod tests {
             scope.clone(),
             "2026-09-09T00:00:00Z",
         );
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session
             .begin_turn(

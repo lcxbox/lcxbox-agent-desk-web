@@ -111,8 +111,7 @@ impl ContinuationDispatchHost for ContinuationHost<'_> {
                 run_id: &candidate.run_id,
                 node_id: NODE,
                 lease_seconds: LEASE_SECONDS,
-                policy_revision:
-                    desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+                policy_revision: desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
                 scope,
             })
             .await

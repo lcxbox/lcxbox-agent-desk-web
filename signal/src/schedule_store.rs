@@ -1,9 +1,9 @@
 //! Owner-scoped durable task storage; transport authorization happens upstream.
 use crate::config::connection::DatabaseConnection;
 use crate::entity::agent_schedule as entity;
-use desk_agent_protocol::schedule::ScheduleCreation;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
+use desk_agent_protocol::schedule::ScheduleCreation;
 #[cfg(test)]
 use desk_diagnose_core::schedule::lifecycle::FailureState;
 #[cfg(test)]
@@ -13,10 +13,10 @@ mod history;
 mod model_management;
 mod proposal;
 mod proposal_review;
-pub(crate) use desk_assistant_data_store::proposal_review::review_proposal_on;
+pub(crate) use desk_agent_data_store::proposal_review::review_proposal_on;
 pub(crate) use proposal_review::decide_by_ai_on;
 mod search;
-pub use desk_assistant_data_store::schedule::RunHistoryPage;
+pub use desk_agent_data_store::schedule::RunHistoryPage;
 mod fresh_admission;
 mod fresh_children;
 #[cfg(test)]
@@ -26,7 +26,7 @@ mod fresh_model;
 mod fresh_recovery;
 mod fresh_result;
 mod fresh_session;
-pub(crate) use desk_assistant_data_store::schedule::TaskReceiptContext;
+pub(crate) use desk_agent_data_store::schedule::TaskReceiptContext;
 mod approval_admission;
 mod approval_claim;
 mod approval_expiry;
@@ -41,8 +41,8 @@ pub(crate) use session_host::SignalScheduleHost;
 mod materializer;
 pub use materializer::ScheduleScanReport;
 pub(crate) mod budget;
-pub(crate) use desk_assistant_data_store::schedule::CurrentDelegationSourceAuthority;
-pub use desk_assistant_data_store::schedule::{
+pub(crate) use desk_agent_data_store::schedule::CurrentDelegationSourceAuthority;
+pub use desk_agent_data_store::schedule::{
     CurrentTaskAuthority, TaskBudgetKind, TaskBudgetRequest,
 };
 mod cancel;
@@ -60,8 +60,8 @@ mod resume_activation;
 mod resume_claim;
 mod resume_lease;
 pub use continuation_heartbeat::ScheduleHeartbeat;
-pub use desk_assistant_data_store::schedule::ScheduleStoreError;
-use desk_assistant_data_store::schedule::{digest, json, key};
+pub use desk_agent_data_store::schedule::ScheduleStoreError;
+use desk_agent_data_store::schedule::{digest, json, key};
 pub use resume_claim::{ClaimedContinuation, ContinuationClaim, ContinuationPermissionClaim};
 pub use resume_lease::{ContinuationLease, FreshTaskLease};
 mod resume_result;
@@ -91,7 +91,7 @@ pub struct ScheduleStore {
 }
 impl ScheduleStore {
     pub(crate) async fn database_time(&self) -> Result<i64, ScheduleStoreError> {
-        desk_assistant_data_store::schedule::database_now(&self.db).await
+        desk_agent_data_store::schedule::database_now(&self.db).await
     }
 
     pub fn new(db: DatabaseConnection) -> Self {
@@ -107,7 +107,7 @@ impl ScheduleStore {
         now_ms: i64,
     ) -> Result<entity::Model, ScheduleStoreError> {
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
-        desk_assistant_data_store::schedule::pause_on(
+        desk_agent_data_store::schedule::pause_on(
             &txn,
             owner,
             schedule_id,
@@ -141,7 +141,7 @@ impl ScheduleStore {
         now_ms: i64,
         original: Option<&desk_diagnose_core::session::PersistedAgentSession>,
     ) -> Result<entity::Model, ScheduleStoreError> {
-        desk_assistant_data_store::schedule::create_task_on(
+        desk_agent_data_store::schedule::create_task_on(
             &SignalScheduleHost,
             txn,
             owner,
@@ -157,7 +157,7 @@ impl ScheduleStore {
         owner: i32,
         schedule_id: &str,
     ) -> Result<entity::Model, ScheduleStoreError> {
-        desk_assistant_data_store::schedule::read(&self.db, owner, schedule_id).await
+        desk_agent_data_store::schedule::read(&self.db, owner, schedule_id).await
     }
 
     pub async fn list(
@@ -166,7 +166,7 @@ impl ScheduleStore {
         after_id: i64,
         limit: u64,
     ) -> Result<Vec<entity::Model>, ScheduleStoreError> {
-        desk_assistant_data_store::schedule::list(&self.db, owner, after_id, limit).await
+        desk_agent_data_store::schedule::list(&self.db, owner, after_id, limit).await
     }
 }
 
@@ -264,7 +264,7 @@ pub(crate) mod tests {
         let schema = Schema::new(db.get_database_backend());
         db.execute(
             schema
-                .entity_table(crate::entity::agent_assistant_runtime::Entity)
+                .entity_table(crate::entity::agent_runtime::Entity)
                 .if_not_exists(),
         )
         .await
@@ -317,7 +317,7 @@ pub(crate) mod tests {
                 let txn = crate::db::begin_write(&store.db, entity::Entity)
                     .await
                     .unwrap();
-                let now = desk_assistant_data_store::schedule::authority_now(&txn)
+                let now = desk_agent_data_store::schedule::authority_now(&txn)
                     .await
                     .unwrap();
                 let pending = ScheduleStore::create_task_on(&txn, owner, &draft, now, Some(source))
@@ -339,7 +339,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         let schema = Schema::new(db.get_database_backend());
-        db.execute(&schema.entity_table(crate::entity::agent_assistant_runtime::Entity))
+        db.execute(&schema.entity_table(crate::entity::agent_runtime::Entity))
             .await
             .unwrap();
         db.execute(&schema.entity_table(crate::entity::agent_schedule_run::Entity))
@@ -367,10 +367,10 @@ pub(crate) mod tests {
         use crate::entity::agent_session;
         use desk_agent_protocol::{
             AgentScope, ExecutionMode,
-            ai_assistant::user_instructions::{AssistantDataSettings, UserInstructions},
+            ai_agent::user_instructions::{AgentDataSettings, UserInstructions},
         };
         use desk_diagnose_core::{
-            ai_assistant::{data_control::AssistantDataSession, history::AssistantRetrievalBudget},
+            ai_agent::{data_control::AgentDataSession, history::AgentRetrievalBudget},
             session::{AgentSessionSurface, PersistedAgentSession},
         };
         use sea_orm::ActiveModelTrait;
@@ -397,16 +397,16 @@ pub(crate) mod tests {
             },
             "2026-10-23T00:00:00Z",
         );
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.input_revision = 1;
-        session.bind_assistant_input_targets(&[]).unwrap();
+        session.bind_agent_input_targets(&[]).unwrap();
         session.begin_focus_epoch(1, Vec::<String>::new()).unwrap();
-        let settings = AssistantDataSettings {
+        let settings = AgentDataSettings {
             automatic_memory_enabled: enabled,
             model_history_search_enabled: enabled,
             ..Default::default()
         };
-        session.assistant_data = Some(Box::new(AssistantDataSession {
+        session.agent_data = Some(Box::new(AgentDataSession {
             limits: Box::default(),
             temporary: false,
             source_device_ref: "original-device-public-id".into(),
@@ -414,7 +414,7 @@ pub(crate) mod tests {
             current_actor_input_seq: 1,
             current_input_recorded_at_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
             current_input_timezone: "UTC".into(),
-            instructions: desk_diagnose_core::ai_assistant::settings::freeze_instructions(
+            instructions: desk_diagnose_core::ai_agent::settings::freeze_instructions(
                 &UserInstructions::default(),
                 1,
                 100,
@@ -423,35 +423,33 @@ pub(crate) mod tests {
             memory_state_generation: 1,
             control_generation: 1,
             current_memories: vec![],
-            retrieval_budget: AssistantRetrievalBudget::new("original-episode".into()).unwrap(),
+            retrieval_budget: AgentRetrievalBudget::new("original-episode".into()).unwrap(),
             retrieval_task_id: None,
-            history_access_scope:
-                desk_diagnose_core::ai_assistant::data_access::owner_history_scope(
-                    "1",
-                    "source",
-                    "original-device-public-id",
-                    1,
-                    100,
-                    "original-episode",
-                    1,
-                    &settings,
-                    "UTC",
-                    false,
-                )
-                .unwrap(),
-            memory_access_scope:
-                desk_diagnose_core::ai_assistant::memory_access::owner_memory_scope(
-                    "1",
-                    "source",
-                    "original-device-public-id",
-                    1,
-                    100,
-                    "original-episode",
-                    1,
-                    &settings,
-                    false,
-                )
-                .unwrap(),
+            history_access_scope: desk_diagnose_core::ai_agent::data_access::owner_history_scope(
+                "1",
+                "source",
+                "original-device-public-id",
+                1,
+                100,
+                "original-episode",
+                1,
+                &settings,
+                "UTC",
+                false,
+            )
+            .unwrap(),
+            memory_access_scope: desk_diagnose_core::ai_agent::memory_access::owner_memory_scope(
+                "1",
+                "source",
+                "original-device-public-id",
+                1,
+                100,
+                "original-episode",
+                1,
+                &settings,
+                false,
+            )
+            .unwrap(),
             history_dependencies: vec![],
             read_uses: vec![],
         }));
@@ -487,7 +485,7 @@ pub(crate) mod tests {
         enabled: bool,
     ) {
         use crate::entity::agent_session;
-        use desk_diagnose_core::ai_assistant::scheduled_retrieval::TaskRetrievalConsent;
+        use desk_diagnose_core::ai_agent::scheduled_retrieval::TaskRetrievalConsent;
         let original = agent_session::Entity::find()
             .one(&store.db)
             .await
@@ -551,7 +549,7 @@ pub(crate) mod tests {
         assert!(
             consent.captured_at_unix_ms
                 >= session
-                    .assistant_data
+                    .agent_data
                     .as_ref()
                     .unwrap()
                     .current_input_recorded_at_unix_ms
@@ -560,7 +558,7 @@ pub(crate) mod tests {
         // A retry after the source changed cannot replace the first consent.
         let mut later = session.clone();
         later.input_revision += 1;
-        later.assistant_data = None;
+        later.agent_data = None;
         agent_session::Entity::update_many()
             .set(agent_session::ActiveModel {
                 state_json: Set(later.encode_json_for_storage().unwrap()),
@@ -590,7 +588,7 @@ pub(crate) mod tests {
         let mut revised = consent;
         revised.task_revision += 1;
         assert_eq!(
-            desk_assistant_data_store::schedule::retrieval_consent(&edited).unwrap(),
+            desk_agent_data_store::schedule::retrieval_consent(&edited).unwrap(),
             Some(revised)
         );
     }
@@ -661,7 +659,7 @@ pub(crate) mod tests {
                 "version" => altered.version += 1,
                 _ => {
                     altered.surface =
-                        desk_diagnose_core::session::AgentSessionSurface::TerminalAiAssistant
+                        desk_diagnose_core::session::AgentSessionSurface::TerminalAiAgent
                 }
             }
             let txn = store.db.begin().await.unwrap();
@@ -729,6 +727,6 @@ pub(crate) mod tests {
 mod late_receipts;
 
 mod outcome_review;
-pub(crate) use desk_assistant_data_store::schedule::outcome_reviewed_at;
+pub(crate) use desk_agent_data_store::schedule::outcome_reviewed_at;
 
 mod cancel_actions;

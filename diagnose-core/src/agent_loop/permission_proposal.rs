@@ -589,7 +589,7 @@ fn bind_request_device(
     let input: serde_json::Value = serde_json::from_str(&call.arguments_json)
         .map_err(|_| crate::subagent::invalid("invalid tool arguments"))?;
     let mut observed = session
-        .assistant_request_targets()
+        .agent_request_targets()
         .unwrap_or_default()
         .iter()
         .filter(|target| {

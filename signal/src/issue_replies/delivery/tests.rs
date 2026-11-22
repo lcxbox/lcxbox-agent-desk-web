@@ -34,7 +34,7 @@ async fn other_work(db: &DatabaseConnection) -> agent_session::Model {
         },
         &chrono::Utc::now().to_rfc3339(),
     );
-    b.surface = AgentSessionSurface::AiAssistant;
+    b.surface = AgentSessionSurface::AiAgent;
     b.input_revision = 2;
     b.current_turn_id = Some("turn-b".into());
     b.turn_state = TurnState::Running;
@@ -97,19 +97,14 @@ async fn durable_replies_send_once_and_do_not_resume_other_work() {
             access.clone(),
         );
         if case == 0 || case >= 13 {
-            desk_assistant_data_store::issue_authority::put(
-                &db,
-                admitted.subscription.clone(),
-                0,
-                0,
-            )
-            .await
-            .unwrap();
-            desk_assistant_data_store::issue_authority::admit(&db, &admitted)
+            desk_agent_data_store::issue_authority::put(&db, admitted.subscription.clone(), 0, 0)
+                .await
+                .unwrap();
+            desk_agent_data_store::issue_authority::admit(&db, &admitted)
                 .await
                 .unwrap();
             if case == 15 {
-                desk_assistant_data_store::issue_authority::stop_request(
+                desk_agent_data_store::issue_authority::stop_request(
                     &db,
                     "1",
                     &admitted.request_id,
@@ -243,7 +238,7 @@ async fn durable_replies_send_once_and_do_not_resume_other_work() {
                         } else {
                             changed.allowed_sender_ids.push(8);
                         }
-                        desk_assistant_data_store::issue_authority::put(
+                        desk_agent_data_store::issue_authority::put(
                             &db,
                             changed,
                             1,

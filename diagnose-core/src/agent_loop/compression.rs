@@ -111,7 +111,7 @@ pub(super) async fn apply_checkpoint(
         previous_cache_projection: None,
         delegation_call: None,
         preparation: None,
-        assistant_data: None,
+        agent_data: None,
         compression_identity: None,
         issue_reply: None,
         caller_output_hard_cap: Some(i64::from(plan.policy.summary_max_output_tokens)),
@@ -124,7 +124,7 @@ pub(super) async fn apply_checkpoint(
         request.preparation = Some(Box::new(prepared));
     }
     let identity = compression_identity;
-    crate::future::boxed(|| assistant_data::prepare_request(deps, session, &mut request)).await?;
+    crate::future::boxed(|| agent_data::prepare_request(deps, session, &mut request)).await?;
     let budget = call_budget::reserve_model(
         deps,
         session,

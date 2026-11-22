@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    ai_assistant::windows_word,
+    ai_agent::windows_word,
     chat::{ChatMessage, ChatRole, ToolCallRef},
     file_scope::{DirectoryConsentSource, DirectoryProposal},
 };
@@ -27,7 +27,7 @@ fn word_approval_requires_authenticated_read_selected_source_and_current_directo
     let call = ToolCall { id: "copy".into(), name: windows_word::PATCH_TOOL.into(), arguments_json: serde_json::json!({
         "target": document, "output": {"destination_parent": directory, "native_file_name":"copy.docx"}, "text":"approved body"
     }).to_string() };
-    let registry = ai_assistant_provider_registry();
+    let registry = ai_agent_provider_registry();
     assert!(
         IworkCallPreflight::build(
             &registry,
@@ -52,7 +52,7 @@ fn word_approval_requires_authenticated_read_selected_source_and_current_directo
         },
         "2026-08-31T00:00:01Z",
     );
-    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAgent);
     let subject = session
         .file_scope_subject("owner", "device", "conversation")
         .unwrap();

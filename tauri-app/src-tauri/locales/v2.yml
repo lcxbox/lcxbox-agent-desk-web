@@ -4,8 +4,8 @@ app_title:
   zh-CN: LCXBOX Agent Desk
 ai_attention:
   title:
-    en: AI Assistant
-    zh-CN: AI 助手
+    en: AI Agent
+    zh-CN: AI 智能体
   goal_open:
     en: AI requested a goal approval
     zh-CN: AI 申请开启目标，需要审批

@@ -120,7 +120,7 @@ mod tests {
             },
             "2026-10-07T00:00:00Z",
         );
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session.focus_epoch.reset(1, []).unwrap();
         session.current_turn_id = Some("turn".into());
@@ -128,7 +128,7 @@ mod tests {
             "goal".into(),
             "run".into(),
             "owner".into(),
-            crate::dynamic_run::AssistantInputTarget::fixed("device".into()),
+            crate::dynamic_run::AgentInputTarget::fixed("device".into()),
             "device".into(),
             "Calculate 6+8".into(),
             "input".into(),
@@ -182,7 +182,7 @@ mod tests {
             ("approval", "request_permission", "turn"),
             ("old", "inspect", "old-input-turn"),
         ] {
-            session.conversation.push(ChatMessage::assistant_tool_calls(
+            session.conversation.push(ChatMessage::agent_tool_calls(
                 format!("call-{id}"),
                 "",
                 vec![crate::chat::ToolCallRef {

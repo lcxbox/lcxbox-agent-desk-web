@@ -20,7 +20,7 @@ async fn store_session(db: &DatabaseConnection) -> PersistedAgentSession {
         "review-conversation",
         SINGLE_ACCOUNT_USER_ID.to_string(),
         DEVICE,
-        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         desk_agent_protocol::AgentScope {
             granted: vec![],
             mode: desk_agent_protocol::ExecutionMode::ConfirmEachAction,
@@ -54,7 +54,7 @@ async fn a_review_refuses_a_command_approved_under_another_readiness() {
         .await
         .unwrap();
     crate::db::initialize_schema(&db).await.unwrap();
-    crate::ai_assistant_gate::enable_test_host();
+    crate::ai_agent_gate::enable_test_host();
     let session = store_session(&db).await;
     let connection_id = format!("review-host-{}", uuid::Uuid::new_v4());
     let connections = SharedConnectionMap::new_oss();

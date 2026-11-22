@@ -2,7 +2,7 @@ use super::*;
 use crate::agent_session_store::{SignalAgentSessionStore, UpdateObjectContext};
 use desk_agent_protocol::{
     Capability, ExecutionMode,
-    ai_assistant::{AiAssistantObjectContextOperation, AiAssistantObjectContextUpdate},
+    ai_agent::{AiAgentObjectContextOperation, AiAgentObjectContextUpdate},
     computer_use::{ObjectKind, ObjectRef},
 };
 use desk_diagnose_core::{
@@ -46,7 +46,7 @@ async fn setup(url: &str) -> SignalAgentRunEventStore {
 
 fn sessions(store: &SignalAgentRunEventStore) -> SignalAgentSessionStore {
     SignalAgentSessionStore::new(store.db.clone())
-        .with_client_metadata(Some("client-run".into()), AgentSessionSurface::AiAssistant)
+        .with_client_metadata(Some("client-run".into()), AgentSessionSurface::AiAgent)
 }
 
 async fn session_row(store: &SignalAgentRunEventStore) -> agent_session::Model {
@@ -72,7 +72,7 @@ async fn select_live_document(store: &SignalAgentRunEventStore) {
     };
 
     let now = Utc::now();
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let capability = registry
         .capability_for_tool("inspect_live_document")
         .unwrap();
@@ -110,7 +110,7 @@ async fn select_live_document(store: &SignalAgentRunEventStore) {
             capability: Capability::DocumentLiveInspect,
             adapter: ComputerUseAdapterRef {
                 kind: ComputerUseAdapterKind::IworkPages,
-                version: desk_diagnose_core::ai_assistant::IWORK_ADAPTER_VERSION.into(),
+                version: desk_diagnose_core::ai_agent::IWORK_ADAPTER_VERSION.into(),
             },
             supported: true,
             ready: true,
@@ -164,12 +164,12 @@ async fn attach(store: &SignalAgentRunEventStore, id: &str, kind: ObjectKind) ->
         expires_at: (Utc::now() + chrono::Duration::minutes(10)).to_rfc3339(),
     };
     let operation = if kind == ObjectKind::TerminalOutput {
-        AiAssistantObjectContextOperation::AttachTerminalOutput {
+        AiAgentObjectContextOperation::AttachTerminalOutput {
             object_ref: reference,
             display_summary: "selected output".into(),
         }
     } else {
-        AiAssistantObjectContextOperation::AttachTerminalOutput {
+        AiAgentObjectContextOperation::AttachTerminalOutput {
             object_ref: reference,
             display_summary: "arbitrary metadata, not a file type".into(),
         }
@@ -179,9 +179,9 @@ async fn attach(store: &SignalAgentRunEventStore, id: &str, kind: ObjectKind) ->
             run_id: "run".into(),
             actor_id: "1".into(),
             device_id: "device".into(),
-            update: AiAssistantObjectContextUpdate {
+            update: AiAgentObjectContextUpdate {
                 conversation_target:
-                    desk_agent_protocol::ai_assistant::AiAssistantConversationTarget::FixedDevice,
+                    desk_agent_protocol::ai_agent::AiAgentConversationTarget::FixedDevice,
                 conversation_id: "client-run".into(),
                 client_request_id: id.into(),
                 operation,
@@ -205,12 +205,12 @@ async fn detach(store: &SignalAgentRunEventStore, object: &ContextAttachment) {
             run_id: "run".into(),
             actor_id: "1".into(),
             device_id: "device".into(),
-            update: AiAssistantObjectContextUpdate {
+            update: AiAgentObjectContextUpdate {
                 conversation_target:
-                    desk_agent_protocol::ai_assistant::AiAssistantConversationTarget::FixedDevice,
+                    desk_agent_protocol::ai_agent::AiAgentConversationTarget::FixedDevice,
                 conversation_id: "client-run".into(),
                 client_request_id: format!("detach-{}", object.attachment_id),
-                operation: AiAssistantObjectContextOperation::Detach {
+                operation: AiAgentObjectContextOperation::Detach {
                     attachment_id: object.attachment_id.clone(),
                 },
             },
@@ -232,8 +232,8 @@ fn input(id: &str, mut objects: Vec<ContextAttachment>) -> AppendUserFollowupPar
         actor_id: "1".into(),
         device_id: "device".into(),
         client_conversation_id: Some("client-run".into()),
-        surface: AgentSessionSurface::AiAssistant,
-        policy_revision: desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        surface: AgentSessionSurface::AiAgent,
+        policy_revision: desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         current_scope: AgentScope {
             granted: vec![Capability::FileContentRead],
             mode: ExecutionMode::ReadOnly,
@@ -706,13 +706,13 @@ async fn recovered_control_fixture() -> (
     SignalAgentRunEventStore,
     AppendUserFollowupParams,
     UserFollowupAck,
-    desk_agent_protocol::ai_assistant::memory::AssistantDataControlReceipt,
+    desk_agent_protocol::ai_agent::memory::AgentDataControlReceipt,
 ) {
-    use desk_agent_protocol::ai_assistant::memory::{
-        AssistantDataControlReceipt, DataControlOutcome, DataControlReason,
+    use desk_agent_protocol::ai_agent::memory::{
+        AgentDataControlReceipt, DataControlOutcome, DataControlReason,
     };
     use desk_diagnose_core::{
-        ai_assistant::{data_control, data_tools},
+        ai_agent::{data_control, data_tools},
         native_ids::{self, Kind},
     };
     let store = setup("sqlite::memory:").await;
@@ -741,18 +741,14 @@ async fn recovered_control_fixture() -> (
         .turn_id = Some("original-turn".into());
     let call = ToolCall { id: "forget-call".into(), name: data_tools::MANAGE_MEMORIES.into(), arguments_json: serde_json::json!({"operation":"forget","memory_id": native_ids::stable(Kind::Memory, &"target"), "expected_revision":1}).to_string() };
     session.conversation.push(
-        ChatMessage::assistant_tool_calls(
-            "forget-producer",
-            "old model wording",
-            vec![call.to_ref()],
-        )
-        .with_turn_id("original-turn"),
+        ChatMessage::agent_tool_calls("forget-producer", "old model wording", vec![call.to_ref()])
+            .with_turn_id("original-turn"),
     );
     let hash =
         data_control::tool_group_sha256(&session.conversation[session.conversation.len() - 1..])
             .unwrap();
-    let data = session.assistant_data.as_ref().unwrap();
-    let receipt = AssistantDataControlReceipt {
+    let data = session.agent_data.as_ref().unwrap();
+    let receipt = AgentDataControlReceipt {
         operation_id: "recovered-control".into(),
         outcome: DataControlOutcome::Applied,
         reason: DataControlReason::MemoryForget,
@@ -770,7 +766,7 @@ async fn recovered_control_fixture() -> (
     )
     .unwrap();
     // The synthetic committed control image includes its runtime generations.
-    use crate::entity::agent_assistant_runtime as runtime;
+    use crate::entity::agent_runtime as runtime;
     runtime::Entity::update_many()
         .set(runtime::ActiveModel {
             control_generation: Set(receipt.control_generation as i64),
@@ -953,12 +949,12 @@ async fn a_child_reads_only_the_objects_its_main_conversation_selected_and_still
         "sa_child",
         "1",
         "device",
-        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         params.current_scope.clone(),
         DelegatedTaskBinding {
-            targets: vec![
-                desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("device".into()),
-            ],
+            targets: vec![desk_diagnose_core::dynamic_run::AgentInputTarget::fixed(
+                "device".into(),
+            )],
             root_conversation_id: "run".into(),
             group_id: "group".into(),
             task_id: "task".into(),
@@ -973,7 +969,7 @@ async fn a_child_reads_only_the_objects_its_main_conversation_selected_and_still
         Utc::now().to_rfc3339(),
     )
     .unwrap();
-    child.surface = AgentSessionSurface::AiAssistant;
+    child.surface = AgentSessionSurface::AiAgent;
     agent_session::ActiveModel {
         conversation_id: Set(child.conversation_id.clone()),
         actor_id: Set("1".into()),
@@ -996,9 +992,9 @@ async fn a_child_reads_only_the_objects_its_main_conversation_selected_and_still
             root_conversation_id: "run".into(),
             actor_id: "1".into(),
             device_id: "device".into(),
-            targets: vec![
-                desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("device".into()),
-            ],
+            targets: vec![desk_diagnose_core::dynamic_run::AgentInputTarget::fixed(
+                "device".into(),
+            )],
             main_request_id: None,
             source: DelegationSource::UserInput { input_revision: 1 },
             parent_input_revision: 1,
@@ -1007,7 +1003,7 @@ async fn a_child_reads_only_the_objects_its_main_conversation_selected_and_still
             scheduled_source: None,
             original_read_context: Some(selection.clone()),
             model_destination: destination(),
-            assistant_seed: None,
+            agent_seed: None,
         },
         instruction: desk_diagnose_core::chat::ChatMessage::text(
             "task-instruction",

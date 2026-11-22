@@ -359,7 +359,7 @@ async fn remote_desktop_readiness_waits_for_interactive_activation_ack() {
         remote_desktop_ready: false,
         terminal_ready: false,
         file_ready: false,
-        assistant_ready: false,
+        agent_ready: false,
     });
     let (command_tx, mut command_rx) = mpsc::unbounded_channel();
     let incarnation = manager
@@ -446,7 +446,7 @@ async fn linux_sessions_publish_independent_active_routes_and_require_selection(
             remote_desktop_ready: false,
             terminal_ready: false,
             file_ready: false,
-            assistant_ready: false,
+            agent_ready: false,
         });
     }
     let (first_tx, mut first_rx) = mpsc::unbounded_channel();
@@ -698,7 +698,7 @@ async fn bounded_resident_pool_churn_reclaims_workers_targets_and_bindings() {
                 remote_desktop_ready: true,
                 terminal_ready: true,
                 file_ready: true,
-                assistant_ready: true,
+                agent_ready: true,
             });
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         manager
@@ -718,7 +718,7 @@ async fn bounded_resident_pool_churn_reclaims_workers_targets_and_bindings() {
     assert_eq!(
         manager
             .session_targets()
-            .list_for(crate::daemon::session_target::SessionCapability::Assistant)
+            .list_for(crate::daemon::session_target::SessionCapability::Agent)
             .1
             .len(),
         MAX_RESIDENT_SESSION_WORKERS
@@ -734,7 +734,7 @@ async fn bounded_resident_pool_churn_reclaims_workers_targets_and_bindings() {
     assert!(
         manager
             .session_targets()
-            .list_for(crate::daemon::session_target::SessionCapability::Assistant)
+            .list_for(crate::daemon::session_target::SessionCapability::Agent)
             .1
             .is_empty()
     );

@@ -11,7 +11,7 @@ afterEach(cleanup);
 describe('model metric filters and coverage', () => {
     it('shows every selected dimension without relying on the model and tool candidate lists', () => {
         const change = vi.fn();
-        const value = { provider_id: 'deleted-provider', model_id: 'deleted-model', tool: 'request_permissions', surface: 'assistant', purpose: 'agent', origin: 'subagent', error: 'input.invalid_json', contract_revision: '1.3', include_probe: true, granularity: 'five_minutes', limit: 50 } as const;
+        const value = { provider_id: 'deleted-provider', model_id: 'deleted-model', tool: 'request_permissions', surface: 'agent', purpose: 'agent', origin: 'subagent', error: 'input.invalid_json', contract_revision: '1.3', include_probe: true, granularity: 'five_minutes', limit: 50 } as const;
         render(<MetricsActiveFilters value={value} change={change}/>);
         expect(screen.getByRole('group', { name: 'Active filters' }).querySelectorAll('button')).toHaveLength(10);
         expect(screen.getByText('Provider ID: deleted-provider')).toBeTruthy();

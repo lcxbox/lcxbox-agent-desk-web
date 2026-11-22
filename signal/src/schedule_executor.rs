@@ -5,8 +5,8 @@ mod fresh;
 mod subagents;
 use crate::owned_task;
 use crate::{
-    ai_assistant_gate::AiAssistantGate,
-    ai_assistant_orchestrator::{
+    ai_agent_gate::AiAgentGate,
+    ai_agent_orchestrator::{
         claim_scheduled_permission, resume_queued_goal, resume_scheduled_turn,
     },
     entity::{agent_schedule_run as run, agent_session},
@@ -58,7 +58,7 @@ pub struct ContinuationScanReport {
 pub struct SignalScheduleExecutor {
     db: DatabaseConnection,
     connections: web::Data<SharedConnectionMap>,
-    gate: Arc<AiAssistantGate>,
+    gate: Arc<AiAgentGate>,
     approval_cursor: Arc<AtomicI64>,
     /// Instance-local position in the runnable goal FIFO. Only rotates which
     /// candidates are read next; claims are still decided under the write lock.
@@ -71,7 +71,7 @@ impl SignalScheduleExecutor {
     pub fn new(
         db: DatabaseConnection,
         connections: web::Data<SharedConnectionMap>,
-        gate: Arc<AiAssistantGate>,
+        gate: Arc<AiAgentGate>,
     ) -> Self {
         Self {
             db,
@@ -227,7 +227,7 @@ impl SignalScheduleExecutor {
                     && target.client_id.as_deref() == Some(goal.execution_target.device_id.as_str())
                     && target
                         .model
-                        .ai_assistant_settings
+                        .ai_agent_settings
                         .as_ref()
                         .is_some_and(|settings| settings.enabled)
             });

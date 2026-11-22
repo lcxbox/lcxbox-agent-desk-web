@@ -9,7 +9,7 @@ import type { QueryKey, QueryClient, UseSuspenseQueryOptions, UseSuspenseQueryRe
 import { getApprovalReviewParts } from "../../clients.ts";
 import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 
-export const getApprovalReviewPartsSuspenseQueryKey = (params: GetApprovalReviewPartsQueryParams) => [{ url: '/api/my/ai-assistant-session/approval-review/parts' }, ...(params ? [params] : [])] as const
+export const getApprovalReviewPartsSuspenseQueryKey = (params: GetApprovalReviewPartsQueryParams) => [{ url: '/api/my/ai-agent-session/approval-review/parts' }, ...(params ? [params] : [])] as const
 
 export type GetApprovalReviewPartsSuspenseQueryKey = ReturnType<typeof getApprovalReviewPartsSuspenseQueryKey>
 
@@ -28,7 +28,7 @@ export function getApprovalReviewPartsSuspenseQueryOptions(params: GetApprovalRe
 
 /**
  * @summary Read own approval content parts (administrator)
- * {@link /api/my/ai-assistant-session/approval-review/parts}
+ * {@link /api/my/ai-agent-session/approval-review/parts}
  */
 export function useGetApprovalReviewPartsSuspense<TData = GetApprovalReviewPartsQueryResponse, TQueryKey extends QueryKey = GetApprovalReviewPartsSuspenseQueryKey>(params: GetApprovalReviewPartsQueryParams, options: 
 {

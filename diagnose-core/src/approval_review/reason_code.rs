@@ -1,8 +1,8 @@
 //! The closed set of reason codes an AI approval reviewer may return.
 //!
 //! Each code carries fixed, server-written guidance for the executing
-//! assistant. When a reviewer's free-text reason cannot be shown to the
-//! assistant, the code and its guidance stand in for it.
+//! agent. When a reviewer's free-text reason cannot be shown to the
+//! agent, the code and its guidance stand in for it.
 
 macro_rules! approval_reason_codes {
     ($($variant:ident => $name:literal, $guidance:literal,)+) => {
@@ -20,7 +20,7 @@ macro_rules! approval_reason_codes {
                 }
             }
 
-            /// What the executing assistant should do next.
+            /// What the executing agent should do next.
             pub const fn guidance(self) -> &'static str {
                 match self {
                     $(Self::$variant => $guidance,)+

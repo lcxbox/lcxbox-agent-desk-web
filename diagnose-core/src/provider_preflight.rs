@@ -204,7 +204,7 @@ impl BrowserCallPreflight {
         &'a self,
         subject: &'a ProviderCallSubject<'_>,
     ) -> Result<CapabilityGrantCall<'a>, AgentError> {
-        crate::assistant_policy::require_current_policy(subject.policy_revision)?;
+        crate::agent_policy::require_current_policy(subject.policy_revision)?;
         if subject.readiness_revision == 0
             || subject.now_unix_ms == 0
             || subject.now_unix_ms >= self.valid_until_unix_ms

@@ -95,7 +95,7 @@ pub async fn run_local_api(
     // reports the device offline.
     let connection_map = web::Data::new(SharedConnectionMap::new_oss());
     // The same background work as Default; without the main request executor
-    // every queued AI Assistant request stays queued.
+    // every queued AI Agent request stays queued.
     crate::spawn_signal_background_tasks(&connection_map);
     let tauri_is_admin_data = web::Data::new(Arc::clone(&tauri_bridge.tauri_is_admin));
 

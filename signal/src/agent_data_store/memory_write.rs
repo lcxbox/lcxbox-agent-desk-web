@@ -1,0 +1,516 @@
+//! Admit one native tool invocation, then synchronously commit the model's memory draft.
+
+use super::{AgentStoreError, signed};
+use crate::config::connection::{DatabaseConnection, DatabaseTransaction};
+use crate::entity::agent_history as history;
+use crate::entity::agent_origin as origin;
+use desk_agent_data_store::memory_write::{self as shared, MemoryWrite, MemoryWriteSource};
+use desk_agent_protocol::ai_agent::{memory::*, source::*};
+use desk_diagnose_core::ai_agent::seam::{AgentDataCall, AgentDataRead};
+use desk_diagnose_core::{
+    ai_agent::memory_access::{request_memory_target, usable_memory_scope},
+    session::PersistedAgentSession,
+};
+use sea_orm::{
+    ColumnTrait, EntityTrait, QueryFilter, Set, TransactionTrait, sea_query::OnConflict,
+};
+
+pub(crate) async fn write(
+    db: &DatabaseConnection,
+    context: AgentDataCall<'_>,
+    request: &MemoryWriteRequest,
+) -> Result<AgentDataRead<MemoryWriteResult>, AgentStoreError> {
+    let txn = db.begin().await?;
+    let result = desk_diagnose_core::future::send_phase(|| write_on(&txn, context, request)).await;
+    match result {
+        Ok(result) => {
+            txn.commit().await?;
+            Ok(AgentDataRead {
+                result,
+                projection: None,
+            })
+        }
+        Err(error) => {
+            txn.rollback().await?;
+            Err(error)
+        }
+    }
+}
+
+async fn write_on(
+    db: &DatabaseTransaction,
+    context: AgentDataCall<'_>,
+    request: &MemoryWriteRequest,
+) -> Result<MemoryWriteResult, AgentStoreError> {
+    let now = super::conversation_search::now_ms()?;
+    let context = AgentDataCall {
+        now_unix_ms: now,
+        ..context
+    };
+    let fence = desk_diagnose_core::future::send_phase(|| {
+        super::retrieval_native::prepare_memory_write_on(db, context, now)
+    })
+    .await?;
+    let archive = fence
+        .producer_archive()
+        .ok_or(AgentStoreError::Inaccessible)?;
+    let call = &archive.proof.source_set.physical_call_id;
+    let digest = desk_diagnose_core::ai_agent::read_projection::request_sha256(
+        &context.tool_call.name,
+        &context.tool_call.arguments_json,
+    )
+    .map_err(AgentStoreError::Invalid)?;
+    let data = context
+        .session
+        .agent_data
+        .as_ref()
+        .ok_or(AgentStoreError::Inaccessible)?;
+    if let Some(value) = shared::replay_on(
+        db,
+        &context.session.actor_id,
+        call,
+        &context.tool_call.id,
+        &digest,
+    )
+    .await?
+    {
+        fence.finish_on(now).await?;
+        if fence.access.control_generation != data.control_generation
+            || !fence.access.settings.automatic_memory_enabled
+        {
+            return Ok(skipped("source_changed"));
+        }
+        return Ok(value);
+    }
+    if let Some(reason) = fence.write_skip_reason() {
+        return Ok(skipped(reason));
+    }
+    let recovered = if archive.proof.retained_policy.is_none() {
+        super::visible_history::native::resolve_policy_on(db, &archive.proof, now).await?
+    } else {
+        None
+    };
+    let context_policy = archive
+        .proof
+        .retained_policy
+        .as_ref()
+        .or_else(|| recovered.as_ref().map(|retained| &retained.policy))
+        .filter(|policy| {
+            desk_diagnose_core::ai_agent::memory_evidence::retained_text_policy(policy)
+        });
+    if context_policy.is_some_and(|policy| {
+        policy
+            .content_hard_expires_at_unix_ms
+            .is_some_and(|until| until <= now)
+    }) {
+        return Ok(skipped("content_expired"));
+    }
+
+    let labels = archive.proof.sources.input_snapshot.policy_sources();
+    if let MemoryWriteRequest::Update {
+        memory_id,
+        expected_revision,
+        ..
+    } = request
+    {
+        let mut observed = false;
+        for (_, read) in
+            super::native_export::load_call_set_with_projections_on(db, &archive.proof.source_set)
+                .await?
+        {
+            observed |= read
+                .proof
+                .usage
+                .memories
+                .iter()
+                .any(|m| m.memory_id == *memory_id && m.revision == *expected_revision);
+        }
+        for label in &labels {
+            if label.provenance.source_provider_id == "agent-conversation-snapshot" {
+                let read = super::projection::load_conversation_snapshot_on(
+                    db,
+                    &context.session.actor_id,
+                    &context.session.conversation_id,
+                    &data.source_device_ref,
+                    label,
+                )
+                .await?;
+                observed |= read
+                    .proof
+                    .usage
+                    .memories
+                    .iter()
+                    .any(|m| m.memory_id == *memory_id && m.revision == *expected_revision);
+            }
+        }
+        if !observed {
+            return Ok(skipped("target_not_observed"));
+        }
+    }
+    let state = super::runtime_on(db, &context.session.actor_id).await?;
+    let draft = request.draft().ok_or(AgentStoreError::Inaccessible)?;
+    let Some((target_device, audience)) =
+        desk_diagnose_core::future::boxed(|| resolve_device_on(db, context.session, &draft, now))
+            .await?
+    else {
+        return Ok(skipped("source_out_of_scope"));
+    };
+    // A child writes for the owner input its main conversation delegated.
+    let owner_root = context
+        .session
+        .agent_role
+        .binding()
+        .map_or(context.session.conversation_id.as_str(), |binding| {
+            binding.root_conversation_id.as_str()
+        });
+    let personal_root = context
+        .session
+        .has_admitted_personal_input()
+        .then_some(owner_root);
+    let mut refs = draft.source_refs.clone();
+    // Earlier owner inputs are named `input:<n>` relative to the model call;
+    // resolve them before binding the current input so duplicates collapse.
+    for reference in &mut refs {
+        if !reference
+            .id
+            .starts_with(desk_diagnose_core::ai_agent::data_tools::OWNER_INPUT_REF_PREFIX)
+        {
+            continue;
+        }
+        // A child has no owner input of its own; it can cite only the one
+        // its main conversation delegated.
+        let message = if context.session.agent_role.binding().is_some() {
+            context.session.delegated_owner_requirement.as_deref()
+        } else {
+            desk_diagnose_core::ai_agent::data_tools::owner_input_message(
+                context.session,
+                &context.producer_message.message_id,
+                &reference.id,
+            )
+        }
+        .ok_or(AgentStoreError::SourceUnavailable)?;
+        reference.id = history::Entity::find()
+            .filter(history::Column::ActorId.eq(&context.session.actor_id))
+            .filter(history::Column::ConversationId.eq(owner_root))
+            .filter(history::Column::NativeId.eq(&message.message_id))
+            .filter(history::Column::Kind.eq("input"))
+            .filter(history::Column::FragmentIndex.eq(0))
+            .one(db)
+            .await?
+            .map(|row| row.source_id())
+            .ok_or(AgentStoreError::SourceUnavailable)?;
+    }
+    if data.current_actor_input_seq > 0 {
+        let input = origin::Entity::find()
+            .filter(origin::Column::ActorId.eq(&context.session.actor_id))
+            .filter(origin::Column::RootConversationId.eq(owner_root))
+            .filter(origin::Column::AcceptedInputSeq.eq(signed(data.current_actor_input_seq)?))
+            .filter(origin::Column::Kind.eq("input"))
+            .one(db)
+            .await?;
+        let id = match input {
+            Some(input) => input_source_id_on(db, &context.session.actor_id, input.id).await?,
+            None => None,
+        };
+        if let Some(id) = id
+            && !refs.iter().any(|r| r.id == id)
+        {
+            refs.push(AgentSourceRef {
+                kind: AgentSourceKind::Input,
+                id,
+                revision: None,
+                role: SourceRefRole::Evidence,
+            });
+        }
+    }
+    if refs.len() > data.limits.memory.source_refs as usize {
+        return Err(AgentStoreError::Capacity);
+    }
+    let mut sources = Vec::new();
+
+    let mut originals: Vec<shared::sources::MemorySourceRows> = Vec::new();
+    let mut retained = Vec::new();
+    for reference in refs {
+        if originals
+            .iter()
+            .any(|row| row.history.source_id() == reference.id)
+        {
+            continue;
+        }
+        let loaded = shared::sources::load_on(
+            db,
+            context,
+            &reference,
+            &labels,
+            fence.observed_version(&reference.id),
+            &state,
+        )
+        .await;
+        let source = match loaded {
+            Ok(Some(source)) => source,
+            Ok(None) => {
+                let Some(row) = crate::entity::agent_memory_source::Entity::find()
+                    .filter(
+                        crate::entity::agent_memory_source::Column::ActorId
+                            .eq(&context.session.actor_id),
+                    )
+                    .filter(
+                        crate::entity::agent_memory_source::Column::Id
+                            .eq(desk_agent_data_store::source_rows::memory(&reference.id)),
+                    )
+                    .one(db)
+                    .await?
+                else {
+                    return Ok(skipped("source_unavailable"));
+                };
+                if fence
+                    .observed_version(&reference.id)
+                    .is_none_or(|seen| seen.revision != row.memory_revision as u64)
+                {
+                    return Ok(skipped("source_not_observed"));
+                }
+                let Some(metadata) =
+                    super::evidence::load_on(db, &context.session.actor_id, &row, false, None, now)
+                        .await?
+                else {
+                    return Ok(skipped("source_unavailable"));
+                };
+                let device = if metadata.primary.device_ref.is_empty() {
+                    None
+                } else {
+                    let Some(device) = super::memory::source_device_on(
+                        db,
+                        &context.session.actor_id,
+                        &metadata.primary.device_ref,
+                    )
+                    .await?
+                    else {
+                        return Ok(skipped("source_unavailable"));
+                    };
+                    Some(device)
+                };
+                if !desk_diagnose_core::future::boxed(|| {
+                    shared::retained_source_matches_device_on(
+                        db,
+                        &row,
+                        &metadata.primary,
+                        &target_device,
+                        personal_root,
+                    )
+                })
+                .await?
+                {
+                    return Ok(skipped("source_out_of_scope"));
+                }
+                sources.push(MemoryWriteSource {
+                    origin: metadata.primary,
+                    policy: metadata.primary_policy,
+                    body: row.body.clone(),
+                    known: metadata.known,
+                    device,
+                    role: SourceRefRole::Background,
+                });
+                retained.push(row);
+                continue;
+            }
+            Err(AgentStoreError::SourceUnavailable) => {
+                return Ok(skipped("source_unavailable"));
+            }
+            Err(error) => return Err(error),
+        };
+        if !super::source_lifecycle::origin_readable_on(
+            db,
+            &context.session.actor_id,
+            &source.origin,
+        )
+        .await?
+        {
+            return Ok(skipped("source_unavailable"));
+        }
+        let device = if source.origin.device_ref.is_empty() {
+            None
+        } else {
+            let Some(device) = super::memory::source_device_on(
+                db,
+                &context.session.actor_id,
+                &source.origin.device_ref,
+            )
+            .await?
+            else {
+                return Ok(skipped("source_unavailable"));
+            };
+            Some(device)
+        };
+        if !shared::source_matches_device(&source.origin, &target_device, personal_root) {
+            return Ok(skipped("source_out_of_scope"));
+        }
+        sources.push(source.snapshot(device, data.current_actor_input_seq));
+        originals.push(source);
+    }
+    // A draft evidenced only by the owner's own input does not inherit restrictions
+    // from unrelated tool results in the same model context.
+    let owner_policy = (context_policy.is_none() && retained.is_empty())
+        .then(|| {
+            shared::owner_input_policy(
+                originals
+                    .iter()
+                    .map(|source| (source.origin.kind.as_str(), &source.policy)),
+            )
+        })
+        .transpose()
+        .map_err(AgentStoreError::Invalid)?
+        .flatten();
+    let Some(production) = context_policy.or(owner_policy.as_ref()) else {
+        return Ok(skipped("content_retention_denied"));
+    };
+    for source in &originals {
+        source.validate_on(db).await?;
+    }
+    for source in &retained {
+        if crate::entity::agent_memory_source::Entity::find_by_id(source.id)
+            .one(db)
+            .await?
+            .as_ref()
+            != Some(source)
+        {
+            return Err(AgentStoreError::Inaccessible);
+        }
+    }
+    fence
+        .finish_on(super::conversation_search::now_ms()?)
+        .await?;
+    let result = shared::apply_on(
+        db,
+        MemoryWrite {
+            actor: &context.session.actor_id,
+            device: &target_device,
+            instance: data.source_instance_id.as_deref(),
+            producer_call: call,
+            tool_call: &context.tool_call.id,
+            request_sha256: &digest,
+            request,
+            accepted_input_seq: data.current_actor_input_seq,
+            runtime: &state,
+            sources,
+            production_policy: production,
+            policy: &fence.policy,
+            now,
+        },
+    )
+    .await?;
+    if result.outcome == MemoryWriteOutcome::Applied
+        && let Some(audience) = audience
+    {
+        let instance = data
+            .source_instance_id
+            .as_deref()
+            .ok_or(AgentStoreError::Inaccessible)?;
+        desk_diagnose_core::future::boxed(|| {
+            ensure_device_binding_on(db, &target_device, instance, &audience, now)
+        })
+        .await?;
+    }
+    Ok(result)
+}
+
+async fn resolve_device_on(
+    db: &DatabaseTransaction,
+    session: &PersistedAgentSession,
+    draft: &MemoryDraft,
+    now: u64,
+) -> Result<Option<(String, Option<String>)>, AgentStoreError> {
+    if draft.scope == MemoryWriteScope::Personal {
+        return Ok(Some((String::new(), None)));
+    }
+    let Some(scope) = usable_memory_scope(session, now) else {
+        return Ok(None);
+    };
+    if !session.device_id.is_empty() {
+        return Ok(draft
+            .target_ref
+            .as_deref()
+            .is_none_or(|reference| reference == session.device_id)
+            .then(|| (scope.current_device_ref.clone(), None)));
+    }
+    let targets = session.agent_request_targets().unwrap_or_default();
+    let devices = targets
+        .iter()
+        .map(|target| target.device_id.clone())
+        .collect::<Vec<_>>();
+    let Some(audience) = request_memory_target(&devices, draft.target_ref.as_deref()) else {
+        return Ok(None);
+    };
+    let instance = session
+        .agent_data
+        .as_ref()
+        .and_then(|data| data.source_instance_id.as_deref())
+        .ok_or(AgentStoreError::Inaccessible)?;
+    let reference = super::source_device_ref(instance, audience);
+    let eligible = super::current_memory::fact_devices_on(db, session, scope).await?;
+    Ok(eligible
+        .contains(&reference)
+        .then(|| (reference, Some(audience.to_owned()))))
+}
+
+async fn ensure_device_binding_on(
+    db: &DatabaseTransaction,
+    reference: &str,
+    instance: &str,
+    audience: &str,
+    now: u64,
+) -> Result<(), AgentStoreError> {
+    use crate::entity::agent_device_binding as binding;
+    binding::Entity::insert(binding::ActiveModel {
+        binding_id: Set(reference.into()),
+        instance_id: Set(instance.into()),
+        audience: Set(audience.into()),
+        first_seen_at_ms: Set(signed(now)?),
+        last_seen_at_ms: Set(signed(now)?),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([binding::Column::InstanceId, binding::Column::Audience])
+            .do_nothing()
+            .to_owned(),
+    )
+    .exec_without_returning(db)
+    .await?;
+    let bound = binding::Entity::find()
+        .filter(binding::Column::BindingId.eq(reference))
+        .filter(binding::Column::InstanceId.eq(instance))
+        .filter(binding::Column::Audience.eq(audience))
+        .one(db)
+        .await?;
+    if bound.is_none() {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    Ok(())
+}
+
+fn skipped(reason: &str) -> MemoryWriteResult {
+    let outcome = match reason {
+        "stale_target" => MemoryWriteOutcome::Conflict,
+        "content_retention_denied"
+        | "content_expired"
+        | "target_not_observed"
+        | "source_not_observed"
+        | "source_out_of_scope" => MemoryWriteOutcome::Rejected,
+        _ => MemoryWriteOutcome::Skipped,
+    };
+    shared::result(outcome, reason, None)
+}
+
+/// The source id of an owner input: its first history fragment.
+async fn input_source_id_on(
+    db: &DatabaseTransaction,
+    actor: &str,
+    origin_id: i64,
+) -> Result<Option<String>, AgentStoreError> {
+    Ok(history::Entity::find()
+        .filter(history::Column::ActorId.eq(actor))
+        .filter(history::Column::OriginId.eq(origin_id))
+        .filter(history::Column::FragmentIndex.eq(0))
+        .one(db)
+        .await?
+        .map(|row| row.source_id()))
+}

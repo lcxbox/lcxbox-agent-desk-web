@@ -7,7 +7,7 @@ impl ScheduleStore {
         run_id: &str,
     ) -> Result<bool, ScheduleStoreError> {
         let txn = crate::db::begin_write(&self.db, entity::Entity).await?;
-        let Some((work, now)) = desk_assistant_data_store::schedule::cancel_continuation_wait_on(
+        let Some((work, now)) = desk_agent_data_store::schedule::cancel_continuation_wait_on(
             &super::SignalScheduleHost,
             &txn,
             run_id,
@@ -17,10 +17,10 @@ impl ScheduleStore {
             return Ok(false);
         };
         let result_ref = work.result_ref.clone();
-        desk_assistant_data_store::schedule::settle_on(
+        desk_agent_data_store::schedule::settle_on(
             &super::SignalScheduleHost,
             &txn,
-            desk_assistant_data_store::schedule::Settlement {
+            desk_agent_data_store::schedule::Settlement {
                 work,
                 now,
                 outcome: desk_agent_protocol::schedule::ScheduledRunStatus::Cancelled,

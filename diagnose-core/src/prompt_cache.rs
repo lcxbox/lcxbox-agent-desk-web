@@ -150,7 +150,7 @@ pub struct WireObservation {
 fn mac(key: &[u8], bytes: &[u8]) -> String {
     use hmac::{Hmac, Mac};
     let mut value = Hmac::<sha2::Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
-    value.update(b"assistant-cache-layout-v1\0");
+    value.update(b"agent-cache-layout-v1\0");
     value.update(bytes);
     format!("{:x}", value.finalize().into_bytes())
 }

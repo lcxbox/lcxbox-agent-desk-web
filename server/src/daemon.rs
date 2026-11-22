@@ -178,10 +178,10 @@ pub async fn run_service_daemon_inner(
     let paths = settings.paths().clone();
     let shared_settings = Arc::new(SharedSettings::from(settings.clone()));
     let shared_settings_data = web::Data::from(shared_settings.clone());
-    // The embedded signal admits AI Assistant work only through this gate,
+    // The embedded signal admits AI Agent work only through this gate,
     // which starts disabled. Publish the durable host setting before the local
     // API can accept a browser, as Default and DeskServer do.
-    desk_signal::ai_assistant_gate::global_ai_assistant_gate().replace(settings.ai_assistant);
+    desk_signal::ai_agent_gate::global_ai_agent_gate().replace(settings.ai_agent);
     // The host's authoritative security policy and single durable commit path
     // for it and the locale. Built before anything can change the settings.
     let settings_coordinator = Arc::new(

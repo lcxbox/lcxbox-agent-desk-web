@@ -686,8 +686,7 @@ pub fn apply_load_call(
 mod tests {
     use super::*;
     use crate::{
-        ai_assistant::ai_assistant_provider_registry,
-        capability_availability::CentralCapabilityReadiness,
+        ai_agent::ai_agent_provider_registry, capability_availability::CentralCapabilityReadiness,
     };
     use desk_agent_protocol::capability_provider::ProductSurface;
 
@@ -696,7 +695,7 @@ mod tests {
         Vec<CapabilityAvailability>,
         Vec<RegisteredTool>,
     ) {
-        let registry = ai_assistant_provider_registry();
+        let registry = ai_agent_provider_registry();
         let central = registry
             .providers()
             .flat_map(|provider| provider.capabilities.iter())
@@ -724,7 +723,7 @@ mod tests {
         Vec<CapabilityAvailability>,
         Vec<RegisteredTool>,
     ) {
-        let registry = ai_assistant_provider_registry();
+        let registry = ai_agent_provider_registry();
         let inventory = registry
             .providers()
             .flat_map(|provider| {

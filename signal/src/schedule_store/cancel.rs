@@ -61,7 +61,7 @@ impl ScheduleStore {
     ) -> Result<(Option<Box<entity::Model>>, Box<run::Model>), ScheduleStoreError> {
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
         let result =
-            desk_assistant_data_store::schedule::record_run_cancellation_on(&txn, owner, run_id)
+            desk_agent_data_store::schedule::record_run_cancellation_on(&txn, owner, run_id)
                 .await?;
         txn.commit().await?;
         Ok(result)

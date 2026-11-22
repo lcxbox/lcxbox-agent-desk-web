@@ -10,7 +10,7 @@ use crate::{
         agent_permission_resume,
     },
 };
-use desk_assistant_data_store::main_request;
+use desk_agent_data_store::main_request;
 use sea_orm::{Condition, QueryTrait, sea_query::Expr};
 
 async fn load_workbench_on(
@@ -128,7 +128,7 @@ pub(crate) async fn queued_waiting(
     txn: &DatabaseTransaction,
     session: &PersistedAgentSession,
     queue_id: &str,
-    row: &desk_assistant_data_store::entity::agent_main_request::Model,
+    row: &desk_agent_data_store::entity::agent_main_request::Model,
     now_ms: i64,
 ) -> Result<Option<bool>, AgentError> {
     if row.state != main_request::QUEUED {
@@ -165,7 +165,7 @@ pub(crate) async fn slot_held(
         .filter(agent_permission_resume::Column::State.eq("pending"))
         .one(txn)
         .await
-        .map_err(|_| internal("assistant approval continuation unavailable"))?;
+        .map_err(|_| internal("agent approval continuation unavailable"))?;
     if resume.is_some() {
         return Ok(true);
     }
@@ -192,10 +192,10 @@ pub(crate) async fn slot_held(
         .into_tuple()
         .all(txn)
         .await
-        .map_err(|_| internal("assistant command continuation unavailable"))?;
+        .map_err(|_| internal("agent command continuation unavailable"))?;
     for raw in commands {
         let command: CapabilityDispatchPayload = serde_json::from_str(&raw)
-            .map_err(|_| internal("invalid assistant command continuation"))?;
+            .map_err(|_| internal("invalid agent command continuation"))?;
         if command
             .command_origin
             .as_ref()
@@ -248,11 +248,11 @@ pub(crate) async fn slot_held(
         )
         .all(txn)
         .await
-        .map_err(|_| internal("assistant action continuation unavailable"))?;
+        .map_err(|_| internal("agent action continuation unavailable"))?;
     for action in actions {
         if action.kind == BACKGROUND_ACTION_KIND {
             let record = agent_background_task_store::decode_record(&action)
-                .map_err(|_| internal("invalid assistant background action"))?;
+                .map_err(|_| internal("invalid agent background action"))?;
             if record.task.input_revision == session.input_revision {
                 return Ok(true);
             }

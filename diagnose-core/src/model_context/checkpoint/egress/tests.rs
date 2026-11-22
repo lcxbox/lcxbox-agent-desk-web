@@ -473,7 +473,7 @@ fn required_inputs_cannot_be_pruned_rebound_or_mutated_before_compression() {
 #[test]
 fn checkpoint_keeps_completed_receipts_without_new_read_selection() {
     let mut conversation = history();
-    let mut assistant = ChatMessage::assistant_tool_calls(
+    let mut agent = ChatMessage::agent_tool_calls(
         "call-message",
         "",
         vec![ToolCallRef {
@@ -482,7 +482,7 @@ fn checkpoint_keeps_completed_receipts_without_new_read_selection() {
             arguments_json: "{}".into(),
         }],
     );
-    // Label the exact assistant/tool bytes through the same model gate helpers.
+    // Label the exact agent/tool bytes through the same model gate helpers.
     let mut tool = ChatMessage::tool_result("read-message", "read-1", "process observation");
     let mut envelope =
         model_bound_user_message("read-label".into(), tool.text.clone(), policy().destination)
@@ -509,9 +509,9 @@ fn checkpoint_keeps_completed_receipts_without_new_read_selection() {
             )
             .unwrap(),
     );
-    assistant.data_envelope = output.provider_meta.data_envelope;
-    assistant.turn_id = Some("turn-old".into());
-    conversation.insert(1, assistant);
+    agent.data_envelope = output.provider_meta.data_envelope;
+    agent.turn_id = Some("turn-old".into());
+    conversation.insert(1, agent);
     conversation.insert(2, tool);
     let (state, _) = checkpoint(&conversation);
     let mut deselected = policy();

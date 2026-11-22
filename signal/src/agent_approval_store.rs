@@ -14,7 +14,7 @@ pub(crate) use preference::{current_no_review_parent_on, preference_for_session_
 pub use preference::{load_preference, save_preference};
 
 use chrono::{DateTime, Utc};
-use desk_agent_protocol::ai_assistant::approval_mode::AssistantApprovalMode;
+use desk_agent_protocol::ai_agent::approval_mode::AgentApprovalMode;
 use desk_diagnose_core::approval_delegation::{
     APPROVAL_DELEGATION_AUDIT_SCHEMA_VERSION, ApprovalDelegation, ApprovalDelegationAuditEvent,
     ApprovalDelegationAuthority, ApprovalDelegationStatus,
@@ -173,12 +173,12 @@ pub async fn pending_permission_reviews(
             else {
                 // Invalid current-format data must not block unrelated conversations.
                 log::debug!(
-                    "Skipping invalid current-format assistant snapshot in batch scan: {}",
+                    "Skipping invalid current-format agent snapshot in batch scan: {}",
                     session_row.id
                 );
                 continue;
             };
-            if session.surface != AgentSessionSurface::AiAssistant
+            if session.surface != AgentSessionSurface::AiAgent
                 || !session.allows_delegated_review()
                 || session.approval_delegation_conversation_id() != row.conversation_id
             {
@@ -316,7 +316,7 @@ pub async fn pending_permission_reviews(
                         &session, request,
                     );
                     if target.is_empty()
-                        && !desk_diagnose_core::assistant_policy::is_targetless_permission(
+                        && !desk_diagnose_core::agent_policy::is_targetless_permission(
                             &session, request,
                         )
                     {
@@ -1535,7 +1535,7 @@ pub(crate) async fn current_grant_parent_on(
     let CapabilityGrantIssuer::AiApproval(parent) = &grant.issued_by else {
         return Err(invalid());
     };
-    if session.surface != AgentSessionSurface::AiAssistant
+    if session.surface != AgentSessionSurface::AiAgent
         || session.conversation_id != grant.run_id
         || session.actor_id != grant.actor_id
         || (session.device_id != grant.target_device_id
@@ -1811,8 +1811,7 @@ pub(crate) async fn check_permission_target_on(
     use crate::agent_session_store::permission_resume;
     let targetless =
         desk_diagnose_core::permission_grant::permission_device_id(session, request).is_empty();
-    if (targetless
-        && !desk_diagnose_core::assistant_policy::is_targetless_permission(session, request))
+    if (targetless && !desk_diagnose_core::agent_policy::is_targetless_permission(session, request))
         || !permission_resume::permission_work_current(txn, session, request)
             .await
             .map_err(|_| invalid())?
@@ -2116,7 +2115,7 @@ async fn session_on(
     if session.conversation_id != conversation_id
         || session.actor_id != owner_id
         || session.device_id != device_id
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || row.version < 0
     {
         return Err(invalid());
@@ -2235,8 +2234,7 @@ pub async fn open_for_subject(
     {
         return Err(invalid());
     }
-    desk_diagnose_core::assistant_policy::require_approval_policy(&session)
-        .map_err(|_| invalid())?;
+    desk_diagnose_core::agent_policy::require_approval_policy(&session).map_err(|_| invalid())?;
     let config = crate::approval_model_provider::load(&txn).await?;
     config.destination_identity().map_err(|_| invalid())?;
     let active = delegation_row::Entity::find()
@@ -2270,7 +2268,7 @@ pub async fn open_for_subject(
         now,
     )
     .await?;
-    preference::override_mode_on(&txn, &session_row, AssistantApprovalMode::AiReview).await?;
+    preference::override_mode_on(&txn, &session_row, AgentApprovalMode::AiReview).await?;
     txn.commit().await?;
     Ok(delegation)
 }
@@ -2335,7 +2333,7 @@ pub async fn close_for_subject(
         now,
     )
     .await?;
-    preference::override_mode_on(&txn, &session_row, AssistantApprovalMode::Manual).await?;
+    preference::override_mode_on(&txn, &session_row, AgentApprovalMode::Manual).await?;
     txn.commit().await?;
     Ok(delegation)
 }
@@ -2456,7 +2454,7 @@ async fn save_directory_decision_on(
     )
     .map_err(|_| invalid())?
     {
-        desk_assistant_data_store::decision_resume::insert_on(
+        desk_agent_data_store::decision_resume::insert_on(
             txn,
             &next,
             &session_row.device_id,
@@ -2718,7 +2716,7 @@ async fn goal_review_input_on<C: ConnectionTrait + crate::config::ConfigConnecti
 ) -> Result<
     (
         desk_diagnose_core::goal::GoalOpenRequest,
-        desk_agent_protocol::ai_assistant::goal_budget::GoalBudgetPolicy,
+        desk_agent_protocol::ai_agent::goal_budget::GoalBudgetPolicy,
     ),
     DbErr,
 > {

@@ -1,12 +1,12 @@
 use super::super::entity;
 use super::*;
 use crate::entity::{agent_schedule_run as run, agent_session as session_row};
+#[cfg(test)]
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_agent_protocol::{
     AgentScope, ExecutionMode,
     schedule::{ScheduleRule, ScheduledTaskKind},
 };
-#[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
 use desk_diagnose_core::session::{AgentSessionSurface, PersistedAgentSession, TriggerOrigin};
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Schema, TransactionTrait};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
@@ -36,10 +36,10 @@ async fn base_fixture() -> (
         },
         "2026-09-06T00:00:00Z",
     );
-    session.surface = AgentSessionSurface::AiAssistant;
+    session.surface = AgentSessionSurface::AiAgent;
     session.begin_focus_epoch(1, Vec::<String>::new()).unwrap();
     session.input_revision = 1;
-    session.bind_assistant_input_targets(&[]).unwrap();
+    session.bind_agent_input_targets(&[]).unwrap();
     let row = session_row::ActiveModel {
         conversation_id: Set("source".into()),
         actor_id: Set("1".into()),
@@ -164,7 +164,7 @@ async fn exercise_retrieval_claim(
     original: session_row::Model,
     prior: PersistedAgentSession,
 ) {
-    use desk_diagnose_core::ai_assistant::history::RetrievalCallKind;
+    use desk_diagnose_core::ai_agent::history::RetrievalCallKind;
     let task = store.read(1, &queued.schedule_id).await.unwrap();
     store.db.execute_unprepared("CREATE TRIGGER reject_retrieval_claim BEFORE UPDATE OF status ON agent_schedule_run WHEN NEW.status = 'running' BEGIN SELECT RAISE(ABORT, 'injected'); END").await.unwrap();
     assert!(matches!(
@@ -197,8 +197,8 @@ async fn exercise_retrieval_claim(
         .claim_conversation_resume(claim(&queued))
         .await
         .unwrap();
-    let data = held.session.assistant_data.as_mut().unwrap();
-    let prior_data = prior.assistant_data.as_ref().unwrap();
+    let data = held.session.agent_data.as_mut().unwrap();
+    let prior_data = prior.agent_data.as_ref().unwrap();
     assert_eq!(
         data.retrieval_task_id.as_deref(),
         Some(queued.run_id.as_str())
@@ -234,7 +234,7 @@ async fn exercise_retrieval_claim(
     let spent = data.retrieval_budget.clone();
     let txn = store.db.begin().await.unwrap();
     assert!(
-        ScheduleStore::assistant_retrieval_deadline_on(&txn, &held.session)
+        ScheduleStore::agent_retrieval_deadline_on(&txn, &held.session)
             .await
             .is_err(),
         "an in-memory budget change cannot replace the original persisted ledger"
@@ -252,7 +252,7 @@ async fn exercise_retrieval_claim(
     let txn = store.db.begin().await.unwrap();
     for _ in 0..2 {
         let until = desk_diagnose_core::future::send_phase(|| {
-            ScheduleStore::assistant_retrieval_deadline_on(&txn, &held.session)
+            ScheduleStore::agent_retrieval_deadline_on(&txn, &held.session)
         })
         .await
         .unwrap();
@@ -273,7 +273,7 @@ async fn exercise_retrieval_claim(
     assert_eq!(
         PersistedAgentSession::decode_json(&persisted.state_json)
             .unwrap()
-            .assistant_data
+            .agent_data
             .as_ref()
             .unwrap()
             .retrieval_budget,
@@ -282,7 +282,7 @@ async fn exercise_retrieval_claim(
     store.cancel_run(1, &queued.run_id).await.unwrap();
     let txn = store.db.begin().await.unwrap();
     assert!(
-        ScheduleStore::assistant_retrieval_deadline_on(&txn, &held.session)
+        ScheduleStore::agent_retrieval_deadline_on(&txn, &held.session)
             .await
             .is_err()
     );
@@ -354,7 +354,7 @@ async fn active_goal_prevents_a_scheduled_continuation_from_claiming_its_convers
         "goal-1".into(),
         "source".into(),
         "1".into(),
-        desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("device-1".into()),
+        desk_diagnose_core::dynamic_run::AgentInputTarget::fixed("device-1".into()),
         "device-1".into(),
         "Finish the report".into(),
         "owner-input".into(),

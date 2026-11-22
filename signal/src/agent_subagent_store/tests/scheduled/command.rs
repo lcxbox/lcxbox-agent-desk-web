@@ -7,12 +7,12 @@ use crate::entity::{
     agent_action_item, agent_capability_dispatch_outbox, agent_capability_grant, agent_exec_task,
     agent_grant_reservation,
 };
+#[cfg(test)]
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_agent_protocol::{
     capability_grant::CapabilityRiskTier, capability_provider::ProductSurface,
     edge_exec::EdgeExecDisposition,
 };
-#[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
 use desk_diagnose_core::{
     action_result::ActionResultOrigin,
     capability_grant::CapabilityGrantCall,
@@ -81,8 +81,8 @@ async fn fixture() -> (
         &parent.device_id,
         chrono::Utc::now().timestamp_millis() as u64,
     );
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
-        .with_command_policy(policy);
+    let registry =
+        desk_diagnose_core::ai_agent::ai_agent_provider_registry().with_command_policy(policy);
     let capability = registry.capability_for_tool(&call.name).unwrap();
     let provider = registry
         .provider_for_capability(&capability.wire.capability_id)
@@ -464,14 +464,14 @@ async fn exercise_late_command(
 
 #[tokio::test]
 async fn closed_main_with_open_original_command_recovers_child_wait_after_lease_loss() {
-    use desk_agent_protocol::ai_assistant::subagent::{AiAssistantStopControl, SubAgentStopChoice};
+    use desk_agent_protocol::ai_agent::subagent::{AiAgentStopControl, SubAgentStopChoice};
     let (db, schedule, store, parent, task_id, generation) = fixture().await;
     store
         .stop_for_owner(
             &parent.conversation_id,
             &parent.actor_id,
             &parent.device_id,
-            &AiAssistantStopControl {
+            &AiAgentStopControl {
                 client_request_id: "stop-original-planner".into(),
                 expected_input_revision: parent.input_revision,
                 expected_control_revision: parent.control_revision,

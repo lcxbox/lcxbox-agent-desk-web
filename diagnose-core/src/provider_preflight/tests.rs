@@ -23,7 +23,7 @@ fn subject() -> ProviderCallSubject<'static> {
         run_id: "run",
         input_revision: 1,
         target_device_id: "device",
-        policy_revision: crate::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        policy_revision: crate::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         readiness_revision: 7,
         now_unix_ms: now(),
     }
@@ -84,7 +84,7 @@ fn element(page: &BrowserPageRef) -> BrowserElementRef {
 
 fn evaluate(call: &ToolCall, surface: &ObjectRef) -> Result<BrowserCallPreflight, AgentError> {
     BrowserCallPreflight::build(
-        &crate::ai_assistant::ai_assistant_provider_registry(),
+        &crate::ai_agent::ai_agent_provider_registry(),
         ProductSurface::ManagerPersonalOwner,
         call,
         "server-call",
@@ -95,7 +95,7 @@ fn evaluate(call: &ToolCall, surface: &ObjectRef) -> Result<BrowserCallPreflight
 
 #[test]
 fn browser_preflight_derives_identical_authority_for_both_runtimes() {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let call = open();
     let selected = surface();
     let subject = subject();
@@ -230,7 +230,7 @@ fn generic_form_and_activation_are_always_input_fallback() {
 
 #[test]
 fn process_command_lines_raise_the_shared_risk_floor() {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let descriptor = registry.capability_for_tool("read_process_list").unwrap();
     for (input, expected) in [
         (r#"{"allow_unfiltered":true}"#, CapabilityRiskTier::R0),
@@ -345,7 +345,7 @@ fn communication_handoffs_pin_destinations_and_cannot_become_send_actions() {
             ProductSurface::ManagerPersonalOwner,
         ] {
             let preflight = BrowserCallPreflight::build(
-                &crate::ai_assistant::ai_assistant_provider_registry(),
+                &crate::ai_agent::ai_agent_provider_registry(),
                 product,
                 &call,
                 "server-call",
@@ -463,7 +463,7 @@ fn outlook_handoff_pins_application_destination_and_manual_compose_request() {
         }})
         .to_string(),
     };
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     for product in [
         ProductSurface::OssPersonalOwner,
         ProductSurface::ManagerPersonalOwner,
@@ -489,7 +489,7 @@ fn outlook_handoff_pins_application_destination_and_manual_compose_request() {
         assert_eq!(
             authority.export_destinations,
             [DestinationIdentity::EmailAccount {
-                account_id: crate::ai_assistant::OUTLOOK_NEW_UNVERIFIED_ACCOUNT_ID.into(),
+                account_id: crate::ai_agent::OUTLOOK_NEW_UNVERIFIED_ACCOUNT_ID.into(),
             }]
         );
         assert_eq!(preflight.target(), &application);

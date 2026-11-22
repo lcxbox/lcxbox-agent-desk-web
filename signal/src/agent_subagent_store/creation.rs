@@ -52,14 +52,14 @@ impl SubAgentStore {
         held: &PersistedAgentSession,
         call: &ToolCall,
         request: &SpawnRequest,
-    ) -> Result<AiAssistantSubAgentSummary, DbErr> {
+    ) -> Result<AiAgentSubAgentSummary, DbErr> {
         if tools::parse(held, call).map_err(|_| invalid())? != Operation::Spawn(request.clone()) {
             return Err(invalid());
         }
         let txn = crate::db::begin_write(&self.db, session_row::Entity).await?;
 
         let history = desk_diagnose_core::future::boxed(|| {
-            crate::assistant_data_store::native_scope_on(
+            crate::agent_data_store::native_scope_on(
                 &txn,
                 &held.actor_id,
                 &held.device_id,
@@ -82,7 +82,7 @@ pub(crate) async fn spawn_on(
     held: &PersistedAgentSession,
     call: &ToolCall,
     request: &SpawnRequest,
-) -> Result<AiAssistantSubAgentSummary, DbErr> {
+) -> Result<AiAgentSubAgentSummary, DbErr> {
     if tools::parse(held, call).map_err(|_| invalid())? != Operation::Spawn(request.clone()) {
         return Err(invalid());
     }
@@ -104,10 +104,10 @@ enum SpawnOrigin<'a> {
 pub(crate) async fn first_dispatch_on(
     txn: &DatabaseTransaction,
     work: &mut PersistedAgentSession,
-    queued: &desk_assistant_data_store::entity::agent_main_request::Model,
+    queued: &desk_agent_data_store::entity::agent_main_request::Model,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Option<String>, DbErr> {
-    use desk_assistant_data_store::main_request::dispatch::FirstDispatch;
+    use desk_agent_data_store::main_request::dispatch::FirstDispatch;
     let Some(request) = FirstDispatch::request_from(queued, work).map_err(|_| invalid())? else {
         return Ok(None);
     };
@@ -136,7 +136,7 @@ async fn worker_exists_on(
     parent: &PersistedAgentSession,
     worker_id: &str,
 ) -> Result<bool, DbErr> {
-    Ok(desk_assistant_data_store::worker_request::in_scope(
+    Ok(desk_agent_data_store::worker_request::in_scope(
         &parent.actor_id,
         &parent.device_id,
         &parent.conversation_id,
@@ -164,7 +164,7 @@ async fn create_request_on(
     origin: SpawnOrigin<'_>,
     request: &SpawnRequest,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<AiAssistantSubAgentSummary, DbErr> {
+) -> Result<AiAgentSubAgentSummary, DbErr> {
     let (kind, intent) = match origin {
         SpawnOrigin::NativeTool(call) => (CreationOrigin::NATIVE_TOOL, call.id.as_str()),
         SpawnOrigin::FirstDispatch(request_id) => (CreationOrigin::FIRST_DISPATCH, request_id),
@@ -245,13 +245,13 @@ async fn create_request_on(
         crate::issue_connections::check_work_on(
             txn,
             held,
-            held.assistant_request_targets()
+            held.agent_request_targets()
                 .is_some_and(|targets| !targets.is_empty()),
             now.timestamp_millis(),
         )
         .await
         .map_err(|_| invalid())?;
-        desk_assistant_data_store::issue_events::routing::preferred_worker_on(
+        desk_agent_data_store::issue_events::routing::preferred_worker_on(
             txn,
             &held.actor_id,
             source,
@@ -266,9 +266,9 @@ async fn create_request_on(
         .unwrap_or_else(|| requested_worker_id(request, &creation_origin));
     // An existing Worker continues in its session; a new one gets its own.
     let reused_session = desk_diagnose_core::future::boxed(|| {
-        desk_assistant_data_store::worker_request::worker_session_on(
+        desk_agent_data_store::worker_request::worker_session_on(
             txn,
-            desk_assistant_data_store::worker_request::in_scope(
+            desk_agent_data_store::worker_request::in_scope(
                 &held.actor_id,
                 &held.device_id,
                 &held.conversation_id,
@@ -289,7 +289,7 @@ async fn create_request_on(
     }
     desk_diagnose_core::future::send_phase(|| async {
         let unfinished = desk_diagnose_core::future::boxed(|| {
-            desk_assistant_data_store::worker_request::unfinished_in_scope(
+            desk_agent_data_store::worker_request::unfinished_in_scope(
                 &held.actor_id,
                 &held.device_id,
                 &held.conversation_id,
@@ -304,7 +304,7 @@ async fn create_request_on(
         let mut admission_limits = policy.limits;
         if group.source.workbench_id().is_some() {
             admission_limits.max_unfinished_per_root =
-                desk_assistant_data_store::main_request::PENDING_PER_CONVERSATION as u32;
+                desk_agent_data_store::main_request::PENDING_PER_CONVERSATION as u32;
         }
         if unfinished >= u64::from(admission_limits.max_unfinished_per_root) {
             return Err(DbErr::Custom(
@@ -341,7 +341,7 @@ async fn create_request_on(
         let targets = creation.request_targets(held).map_err(|_| invalid())?;
         if !targets.is_empty() {
             let live = desk_diagnose_core::future::boxed(|| {
-                desk_assistant_data_store::device_roster::current_request_devices(txn, held)
+                desk_agent_data_store::device_roster::current_request_devices(txn, held)
             })
             .await
             .map_err(|_| invalid())?;
@@ -378,7 +378,7 @@ async fn create_request_on(
             .map_err(|_| invalid())?,
         };
         let base_scope = desk_agent_protocol::AgentScope {
-            granted: desk_diagnose_core::ai_assistant::selected_context_capabilities(&[])
+            granted: desk_diagnose_core::ai_agent::selected_context_capabilities(&[])
                 .map_err(|_| invalid())?,
             mode: desk_agent_protocol::ExecutionMode::ReadOnly,
             expires_at: None,
@@ -399,8 +399,8 @@ async fn create_request_on(
             child
                 .bind_delegated_owner_requirement(&context.source)
                 .map_err(|_| invalid())?;
-            desk_diagnose_core::ai_assistant::delegated_retrieval::DelegatedAssistantSeed::bind(
-                context.source.assistant_seed.as_deref(),
+            desk_diagnose_core::ai_agent::delegated_retrieval::DelegatedAgentSeed::bind(
+                context.source.agent_seed.as_deref(),
                 &mut child,
             )
             .map_err(|_| invalid())?;
@@ -511,7 +511,7 @@ async fn create_request_on(
         })
         .await?;
         if let Some(source) = issue_source {
-            desk_assistant_data_store::issue_events::routing::record_first_worker_on(
+            desk_agent_data_store::issue_events::routing::record_first_worker_on(
                 txn,
                 &held.actor_id,
                 source,

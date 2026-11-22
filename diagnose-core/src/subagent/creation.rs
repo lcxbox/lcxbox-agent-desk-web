@@ -52,7 +52,7 @@ pub struct CreationEnvelope {
     pub root_conversation_id: String,
     pub actor_id: String,
     pub device_id: String,
-    pub targets: Vec<crate::dynamic_run::AssistantInputTarget>,
+    pub targets: Vec<crate::dynamic_run::AgentInputTarget>,
     pub main_request_id: Option<String>,
     pub source: DelegationSource,
     pub parent_input_revision: u64,
@@ -62,15 +62,14 @@ pub struct CreationEnvelope {
     pub scheduled_source: Option<ScheduledCreationSource>,
     pub original_read_context: Option<ReadContextSelection>,
     pub model_destination: DestinationIdentity,
-    /// The main conversation's assistant data for this source, if it may use any.
+    /// The main conversation's agent data for this source, if it may use any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub assistant_seed:
-        Option<Box<crate::ai_assistant::delegated_retrieval::DelegatedAssistantSeed>>,
+    pub agent_seed: Option<Box<crate::ai_agent::delegated_retrieval::DelegatedAgentSeed>>,
 }
 
 #[derive(Default)]
 pub struct AcceptedOwnerSource<'a> {
-    pub targets: &'a [crate::dynamic_run::AssistantInputTarget],
+    pub targets: &'a [crate::dynamic_run::AgentInputTarget],
     pub main_request_id: Option<&'a str>,
 }
 
@@ -234,7 +233,7 @@ impl TaskCreationEnvelope {
     }
 }
 
-/// The lineage of the assistant message that issued `call`. Newest first: a
+/// The lineage of the agent message that issued `call`. Newest first: a
 /// provider may reuse a call ID in a later turn.
 fn caller_envelope<'a>(
     parent: &'a PersistedAgentSession,
@@ -260,7 +259,7 @@ fn caller_envelope<'a>(
         .and_then(|message| message.data_envelope.as_ref())
 }
 
-/// The requesting assistant message is already labeled from the actual model
+/// The requesting agent message is already labeled from the actual model
 /// input. Its label keeps omitted, compacted and sensitive input restrictions.
 pub fn task_context(
     source: CreationEnvelope,
@@ -305,7 +304,7 @@ fn task_context_from_source(
     inputs.extend(caller.cloned());
     let payload = serde_json::json!({"delegated_task": request.task,
         "acceptance_criteria": request.acceptance_criteria,
-        "original_owner_input_time": parent.assistant_data.as_ref().filter(|data| data.current_actor_input_seq > 0)
+        "original_owner_input_time": parent.agent_data.as_ref().filter(|data| data.current_actor_input_seq > 0)
             .map(|data| serde_json::json!({"recorded_at_unix_ms": data.current_input_recorded_at_unix_ms,
                 "timezone": data.current_input_timezone,
                 "rule": "Interpret relative dates in the original owner requirement using this accepted-input anchor."})),
@@ -337,7 +336,7 @@ impl CreationEnvelope {
             .first()
             .ok_or_else(|| super::invalid("scheduled delegation input missing"))?;
         if !session.agent_role.is_main()
-            || session.surface != AgentSessionSurface::AiAssistant
+            || session.surface != AgentSessionSurface::AiAgent
             || session.trigger_origin != crate::session::TriggerOrigin::ScheduledTask
             || session.turn_state != crate::session::TurnState::Running
             || session.version != 1
@@ -376,7 +375,7 @@ impl CreationEnvelope {
             root_conversation_id: session.conversation_id.clone(),
             actor_id: session.actor_id.clone(),
             device_id: session.device_id.clone(),
-            targets: vec![crate::dynamic_run::AssistantInputTarget::fixed(
+            targets: vec![crate::dynamic_run::AgentInputTarget::fixed(
                 session.device_id.clone(),
             )],
             main_request_id: None,
@@ -390,8 +389,7 @@ impl CreationEnvelope {
             scheduled_source: Some(source),
             original_read_context: None,
             model_destination,
-            assistant_seed:
-                crate::ai_assistant::delegated_retrieval::DelegatedAssistantSeed::capture(session),
+            agent_seed: crate::ai_agent::delegated_retrieval::DelegatedAgentSeed::capture(session),
         };
         envelope.validate()?;
         Ok(envelope)
@@ -423,18 +421,18 @@ impl CreationEnvelope {
         admitted: AcceptedOwnerSource<'_>,
     ) -> Result<Self, AgentError> {
         if !session.agent_role.is_main()
-            || session.surface != AgentSessionSurface::AiAssistant
+            || session.surface != AgentSessionSurface::AiAgent
             || source.workbench_id() != session.agent_role.workbench_id()
             || (source.workbench_id().is_some()
                 && session.agent_role.workbench_request_id() != admitted.main_request_id)
             || (session.device_id.is_empty()
-                && !crate::dynamic_run::AssistantInputTarget::matches_request(
+                && !crate::dynamic_run::AgentInputTarget::matches_request(
                     admitted.targets,
                     session,
                 ))
         {
             return Err(super::invalid(
-                "only a main assistant can open a delegation group",
+                "only a main agent can open a delegation group",
             ));
         }
         let destinations = &owner_requirement
@@ -455,7 +453,7 @@ impl CreationEnvelope {
             targets: if session.device_id.is_empty() {
                 admitted.targets.to_vec()
             } else {
-                vec![crate::dynamic_run::AssistantInputTarget::fixed(
+                vec![crate::dynamic_run::AgentInputTarget::fixed(
                     session.device_id.clone(),
                 )]
             },
@@ -467,8 +465,7 @@ impl CreationEnvelope {
             owner_requirement,
             original_read_context,
             scheduled_source: None,
-            assistant_seed:
-                crate::ai_assistant::delegated_retrieval::DelegatedAssistantSeed::capture(session),
+            agent_seed: crate::ai_agent::delegated_retrieval::DelegatedAgentSeed::capture(session),
         };
         envelope.validate()?;
         Ok(envelope)
@@ -476,7 +473,7 @@ impl CreationEnvelope {
 
     pub fn validate(&self) -> Result<(), AgentError> {
         self.source.validate().map_err(super::invalid)?;
-        crate::dynamic_run::AssistantInputTarget::validate_all(&self.targets)
+        crate::dynamic_run::AgentInputTarget::validate_all(&self.targets)
             .map_err(super::invalid)?;
         self.model_destination
             .validate()
@@ -493,12 +490,12 @@ impl CreationEnvelope {
             || self.actor_id.is_empty()
             || (!self.device_id.is_empty()
                 && self.targets.as_slice()
-                    != [crate::dynamic_run::AssistantInputTarget::fixed(
+                    != [crate::dynamic_run::AgentInputTarget::fixed(
                         self.device_id.clone(),
                     )])
             || self.main_request_id.as_ref().is_some_and(|id| {
                 self.source.request_input_revision().is_none()
-                    || !crate::native_ids::is(crate::native_ids::Kind::AssistantMainRequest, id)
+                    || !crate::native_ids::is(crate::native_ids::Kind::AgentMainRequest, id)
             })
             || self.source.workbench_id().is_some_and(|workbench| {
                 !self.device_id.is_empty()
@@ -599,7 +596,7 @@ impl CreationEnvelope {
                 }
             }
             (_, None) => {
-                if label.provenance.source_provider_id != "ai-assistant-user"
+                if label.provenance.source_provider_id != "ai-agent-user"
                     || label.provenance.source_tool_name
                         != crate::model_message_labels::sources::USER_MESSAGE
                 {
@@ -660,12 +657,12 @@ impl CreationEnvelope {
     pub fn request_targets(
         &self,
         owner: &crate::session::PersistedAgentSession,
-    ) -> Result<Vec<crate::dynamic_run::AssistantInputTarget>, AgentError> {
+    ) -> Result<Vec<crate::dynamic_run::AgentInputTarget>, AgentError> {
         if !self.device_id.is_empty() || !self.source.follows_owner_devices() {
             return Ok(self.targets.clone());
         }
         owner
-            .assistant_request_targets()
+            .agent_request_targets()
             .map(<[_]>::to_vec)
             .ok_or_else(|| super::invalid("the owner request has no device scope"))
     }
@@ -702,7 +699,7 @@ impl CreationEnvelope {
                 tokens: None,
             },
             max_context_bytes: crate::MAX_MODEL_CONTEXT_BYTES as u64,
-            max_result_bytes: desk_agent_protocol::ai_assistant::subagent::MAX_SUBAGENT_REPORT_BYTES
+            max_result_bytes: desk_agent_protocol::ai_agent::subagent::MAX_SUBAGENT_REPORT_BYTES
                 as u64,
             deadline_ms: deadline_after_admission(now_ms, max_task_duration_minutes)
                 .map_err(super::invalid)?,
@@ -853,8 +850,8 @@ mod caller_tests {
                 destination.clone(),
             )
             .unwrap();
-            let mut message = ChatMessage::assistant_tool_calls(
-                format!("{turn}-assistant"),
+            let mut message = ChatMessage::agent_tool_calls(
+                format!("{turn}-agent"),
                 String::new(),
                 vec![call.to_ref()],
             );

@@ -1,6 +1,6 @@
 [package]
 name = "desk-file-recovery"
-description = "Device-private assistant file backups and durable cleanup"
+description = "Device-private agent file backups and durable cleanup"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

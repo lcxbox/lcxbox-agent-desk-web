@@ -1,7 +1,7 @@
 //! REST source reads do not depend on the MCP server being available.
 
 use super::*;
-use desk_agent_protocol::ai_assistant::issue_subscription::{
+use desk_agent_protocol::ai_agent::issue_subscription::{
     IssueSubscriptionAccount, IssueSubscriptionAccounts,
 };
 use desk_diagnose_core::issue_authority::IssueRepositoryScope;

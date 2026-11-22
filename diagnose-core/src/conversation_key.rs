@@ -13,17 +13,17 @@ pub const MAX_CONVERSATION_ID_LEN: usize = 128;
 /// The host resolves this before admission. Device access is checked separately
 /// for each request and action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AssistantConversationScope {
+pub enum AgentConversationScope {
     Personal,
     Organization(i32),
 }
 
-impl AssistantConversationScope {
+impl AgentConversationScope {
     pub fn object_context_key(
         self,
         actor_id: &str,
         device_id: &str,
-        update: &desk_agent_protocol::ai_assistant::AiAssistantObjectContextUpdate,
+        update: &desk_agent_protocol::ai_agent::AiAgentObjectContextUpdate,
     ) -> Result<String, &'static str> {
         self.context_key(
             actor_id,
@@ -38,13 +38,13 @@ impl AssistantConversationScope {
         actor_id: &str,
         device_id: &str,
         conversation_id: &str,
-        target: desk_agent_protocol::ai_assistant::AiAssistantConversationTarget,
+        target: desk_agent_protocol::ai_agent::AiAgentConversationTarget,
     ) -> Result<String, &'static str> {
         if !is_valid_client_conversation_id(conversation_id) {
-            return Err("invalid AI Assistant conversation id");
+            return Err("invalid AI Agent conversation id");
         }
         if target.is_selectable() {
-            Ok(derive_assistant_conversation_key(
+            Ok(derive_agent_conversation_key(
                 actor_id,
                 self,
                 conversation_id,
@@ -60,19 +60,19 @@ impl AssistantConversationScope {
     }
 }
 
-/// Derive an assistant conversation key from the authenticated actor, access
+/// Derive an agent conversation key from the authenticated actor, access
 /// context and validated client continuation intent. Device selection is per request.
-pub fn derive_assistant_conversation_key(
+pub fn derive_agent_conversation_key(
     actor_id: &str,
-    scope: AssistantConversationScope,
+    scope: AgentConversationScope,
     conversation_id: &str,
 ) -> String {
     let mut hasher = Sha256::new();
-    absorb_field(&mut hasher, b"assistant-conversation");
+    absorb_field(&mut hasher, b"agent-conversation");
     absorb_field(&mut hasher, actor_id.as_bytes());
     match scope {
-        AssistantConversationScope::Personal => absorb_field(&mut hasher, b"personal"),
-        AssistantConversationScope::Organization(org_id) => {
+        AgentConversationScope::Personal => absorb_field(&mut hasher, b"personal"),
+        AgentConversationScope::Organization(org_id) => {
             absorb_field(&mut hasher, b"organization");
             absorb_field(&mut hasher, &org_id.to_le_bytes());
         }
@@ -199,27 +199,27 @@ mod tests {
     }
 
     #[test]
-    fn assistant_keys_isolate_actors_and_access_contexts_from_device_conversations() {
-        use AssistantConversationScope::{Organization, Personal};
+    fn agent_keys_isolate_actors_and_access_contexts_from_device_conversations() {
+        use AgentConversationScope::{Organization, Personal};
 
-        let personal = derive_assistant_conversation_key("7", Personal, "thread");
-        let organization = derive_assistant_conversation_key("7", Organization(1), "thread");
+        let personal = derive_agent_conversation_key("7", Personal, "thread");
+        let organization = derive_agent_conversation_key("7", Organization(1), "thread");
         assert_eq!(
             personal,
-            derive_assistant_conversation_key("7", Personal, "thread")
+            derive_agent_conversation_key("7", Personal, "thread")
         );
         assert_ne!(
             personal,
-            derive_assistant_conversation_key("7", Personal, "other")
+            derive_agent_conversation_key("7", Personal, "other")
         );
         assert_ne!(
             personal,
-            derive_assistant_conversation_key("8", Personal, "thread")
+            derive_agent_conversation_key("8", Personal, "thread")
         );
         assert_ne!(personal, organization);
         assert_ne!(
             organization,
-            derive_assistant_conversation_key("7", Organization(2), "thread")
+            derive_agent_conversation_key("7", Organization(2), "thread")
         );
         assert_ne!(personal, key("7", "device", Some("thread")));
     }

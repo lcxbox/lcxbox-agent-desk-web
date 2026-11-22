@@ -41,8 +41,8 @@ macro_rules! catalog {
 
 catalog!(
     ("send_subagent_request", "SubAgentSpawnReceipt", Inline),
-    ("list_subagents", "AiAssistantSubAgentPage", Inline),
-    ("get_subagent_status", "AiAssistantSubAgentSummary", Inline),
+    ("list_subagents", "AiAgentSubAgentPage", Inline),
+    ("get_subagent_status", "AiAgentSubAgentSummary", Inline),
     ("read_subagent_reports", "WorkerReportPage", Inline),
     (
         "acknowledge_subagent_reports",
@@ -55,11 +55,7 @@ catalog!(
         "WorkerDeviceWaitReceipt",
         Inline
     ),
-    (
-        "reply_subagent_request",
-        "AiAssistantSubAgentSummary",
-        Inline
-    ),
+    ("reply_subagent_request", "AiAgentSubAgentSummary", Inline),
     (
         "ask_owner_for_subagent",
         "WorkerQuestionHandoffReceipt",
@@ -91,7 +87,7 @@ catalog!(
     ("search_memories", "MemorySearchResult", Inline),
     ("read_memory_history", "MemoryHistoryResult", Inline),
     ("manage_memories", "MemoryWriteResult", Inline),
-    ("read_memory_source", "AssistantSourceResolution", Inline),
+    ("read_memory_source", "AgentSourceResolution", Inline),
     ("search_conversations", "ConversationSearchResult", Inline),
     ("read_conversation", "ConversationReadResult", Inline),
     (
@@ -424,7 +420,7 @@ pub fn for_tool(name: &str) -> Option<&'static OutputContract> {
 
 pub fn markdown() -> String {
     let mut document = String::from(
-        "# AI Assistant output contracts\n\nGenerated from `diagnose-core/src/output_contracts.rs`. Catalog version describes this mapping, not a payload schema field. All errors may instead be returned as safe text; an externalized attachment must be read before interpreting its business payload.\n\nThe `read_subagent_reports` tool returns a `WorkerReportPage` with reports in sequence order, acceptance criteria when reports are present, a next cursor, and an indication of further pages. Report text and available evidence and receipt references stay with the individual report.\n\n`fetch_public_web_page` returns a `FetchOutput`: the requested and final URL, title and publication time when found, fetch time, media type, the size and SHA-256 of the downloaded bytes, a `truncated` flag for a download or output limit, and an untrusted Markdown `excerpt` converted from the page or document. A PDF read also has `document` with its source and converted page counts.\n\nModel results retain business text, outcomes, times, coverage and usable references. Internal source locators, verification hashes, idempotency keys and control generations stay in the original stored result. History uses conversation aliases such as `cv1`; source IDs remain readable, and memory update/forget keeps the memory revision. Live document references and JSON attachment pages use the same view as inline results. A successful tool return does not by itself prove that an action completed or was verified.\n\n| Tool | Business output type | Catalog version | Possible delivery |\n|---|---|---:|---|\n",
+        "# AI Agent output contracts\n\nGenerated from `diagnose-core/src/output_contracts.rs`. Catalog version describes this mapping, not a payload schema field. All errors may instead be returned as safe text; an externalized attachment must be read before interpreting its business payload.\n\nThe `read_subagent_reports` tool returns a `WorkerReportPage` with reports in sequence order, acceptance criteria when reports are present, a next cursor, and an indication of further pages. Report text and available evidence and receipt references stay with the individual report.\n\n`fetch_public_web_page` returns a `FetchOutput`: the requested and final URL, title and publication time when found, fetch time, media type, the size and SHA-256 of the downloaded bytes, a `truncated` flag for a download or output limit, and an untrusted Markdown `excerpt` converted from the page or document. A PDF read also has `document` with its source and converted page counts.\n\nModel results retain business text, outcomes, times, coverage and usable references. Internal source locators, verification hashes, idempotency keys and control generations stay in the original stored result. History uses conversation aliases such as `cv1`; source IDs remain readable, and memory update/forget keeps the memory revision. Live document references and JSON attachment pages use the same view as inline results. A successful tool return does not by itself prove that an action completed or was verified.\n\n| Tool | Business output type | Catalog version | Possible delivery |\n|---|---|---:|---|\n",
     );
     for contract in ALL {
         document.push_str(&format!(
@@ -441,7 +437,7 @@ pub fn markdown() -> String {
 #[cfg(test)]
 pub fn markdown_zh() -> String {
     let mut document = String::from(
-        "# AI 助手出参契约目录\n\n由 `diagnose-core/src/output_contracts.rs` 生成。目录版本是映射版本，并不表示每个业务对象都有 `schema_version` 字段。错误可能以安全文本返回；结果外置时须先读取附件，再判断业务内容。\n\n`read_subagent_reports` 返回 `WorkerReportPage`。报告按序号排列，有报告时附验收标准，并给出下一页游标及是否还有后续页。正文和可用的证据、回执引用随每条报告返回。\n\n`fetch_public_web_page` 返回 `FetchOutput`：请求与最终 URL、找到时的标题与发布时间、读取时间、媒体类型、下载字节数及其 SHA-256、表示下载或输出达到上限的 `truncated`，以及由网页或文档转换得到、不可信的 Markdown `excerpt`。读取 PDF 时另有 `document`，给出原文页数与已转换页数。\n\n模型结果保留业务正文、结果、时间、覆盖范围和可用引用。内部来源定位、校验摘要、幂等键和控制代次保存在原始结果中。历史会话使用 `cv1` 等别名；来源 ID 可继续读取，更新和遗忘记忆仍保留记忆版本。实时文档引用、JSON 附件分页与内联结果使用相同视图。工具正常返回本身不代表动作已完成或验证成功。\n\n| 工具 | 业务出参类型 | 目录版本 | 可能的投递形态 |\n|---|---|---:|---|\n",
+        "# AI 智能体出参契约目录\n\n由 `diagnose-core/src/output_contracts.rs` 生成。目录版本是映射版本，并不表示每个业务对象都有 `schema_version` 字段。错误可能以安全文本返回；结果外置时须先读取附件，再判断业务内容。\n\n`read_subagent_reports` 返回 `WorkerReportPage`。报告按序号排列，有报告时附验收标准，并给出下一页游标及是否还有后续页。正文和可用的证据、回执引用随每条报告返回。\n\n`fetch_public_web_page` 返回 `FetchOutput`：请求与最终 URL、找到时的标题与发布时间、读取时间、媒体类型、下载字节数及其 SHA-256、表示下载或输出达到上限的 `truncated`，以及由网页或文档转换得到、不可信的 Markdown `excerpt`。读取 PDF 时另有 `document`，给出原文页数与已转换页数。\n\n模型结果保留业务正文、结果、时间、覆盖范围和可用引用。内部来源定位、校验摘要、幂等键和控制代次保存在原始结果中。历史会话使用 `cv1` 等别名；来源 ID 可继续读取，更新和遗忘记忆仍保留记忆版本。实时文档引用、JSON 附件分页与内联结果使用相同视图。工具正常返回本身不代表动作已完成或验证成功。\n\n| 工具 | 业务出参类型 | 目录版本 | 可能的投递形态 |\n|---|---|---:|---|\n",
     );
     for contract in ALL {
         document.push_str(&format!(
@@ -468,7 +464,7 @@ mod tests {
             assert!(!contract.business_type.is_empty());
             assert!(contract.contract_version > 0);
         }
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         for tool in registry.registered_tools() {
             assert!(
                 for_tool(&tool.spec.name).is_some(),
@@ -507,11 +503,11 @@ mod tests {
 
     #[test]
     fn generated_reference_is_current() {
-        if std::env::var_os("UPDATE_AI_ASSISTANT_OUTPUT_CONTRACTS").is_some() {
+        if std::env::var_os("UPDATE_AI_AGENT_OUTPUT_CONTRACTS").is_some() {
             std::fs::write(
                 concat!(
                     env!("CARGO_MANIFEST_DIR"),
-                    "/../docs/ai-assistant-output-contracts.md"
+                    "/../docs/ai-agent-output-contracts.md"
                 ),
                 markdown(),
             )
@@ -519,7 +515,7 @@ mod tests {
             std::fs::write(
                 concat!(
                     env!("CARGO_MANIFEST_DIR"),
-                    "/../docs/zh/ai-assistant-output-contracts.md"
+                    "/../docs/zh/ai-agent-output-contracts.md"
                 ),
                 markdown_zh(),
             )
@@ -527,14 +523,14 @@ mod tests {
         }
         let expected = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../docs/ai-assistant-output-contracts.md"
+            "/../docs/ai-agent-output-contracts.md"
         ))
         .unwrap()
         .replace("\r\n", "\n");
         assert_eq!(expected, markdown());
         let expected_zh = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../docs/zh/ai-assistant-output-contracts.md"
+            "/../docs/zh/ai-agent-output-contracts.md"
         ))
         .unwrap()
         .replace("\r\n", "\n");

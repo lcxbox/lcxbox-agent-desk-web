@@ -37,7 +37,7 @@ pub fn anthropic_blocks(blocks: &Value) -> Option<String> {
 
 pub fn review_text(answer: &str, reasoning: Option<&str>) -> String {
     match reasoning.and_then(bounded) {
-        Some(reasoning) => format!("Model reasoning:\n{reasoning}\n\nAssistant answer:\n{answer}"),
+        Some(reasoning) => format!("Model reasoning:\n{reasoning}\n\nAgent answer:\n{answer}"),
         None => answer.to_string(),
     }
 }

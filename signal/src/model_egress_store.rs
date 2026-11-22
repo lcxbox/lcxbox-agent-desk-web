@@ -10,7 +10,7 @@ use sea_orm::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::assistant_data_store::model_gate;
+use crate::agent_data_store::model_gate;
 use crate::entity::model_egress_receipt;
 use desk_diagnose_core::schedule::model_admission::ModelAdmissionError;
 
@@ -224,7 +224,7 @@ impl SignalModelEgressStore {
             envelope_ids_json: Set(envelope_ids_json),
             input_lineage_json: Set(input_lineage_json),
             input_snapshot_json: Set(input_snapshot_json),
-            assistant_source_set_json: Set(None),
+            agent_source_set_json: Set(None),
 
             total_bytes: Set(total_bytes),
             state: Set(STATE_DISPATCH_INTENT.into()),
@@ -297,7 +297,7 @@ impl SignalModelEgressStore {
             .one(&txn)
             .await?
             .filter(|row| row.state == STATE_DISPATCH_INTENT)
-            .and_then(|row| row.assistant_source_set_json);
+            .and_then(|row| row.agent_source_set_json);
         let source_fence = desk_diagnose_core::future::boxed(|| {
             model_gate::output::prepare_on(&txn, source_hint.as_deref())
         })
@@ -334,7 +334,7 @@ impl SignalModelEgressStore {
                 || row.model_output_digest_sha256.as_deref() != output.content_sha256()
                 || row.model_output_label_sha256.as_deref() != Some(output_label_sha256.as_str())
             {
-                return Err(ModelAdmissionError::AssistantDataChanged);
+                return Err(ModelAdmissionError::AgentDataChanged);
             }
             return txn.commit().await.map_err(Into::into);
         }
@@ -361,15 +361,15 @@ impl SignalModelEgressStore {
         .map_err(model_gate::admission_error)?;
         if deadline.is_some_and(|until| until <= chrono::Utc::now().timestamp_millis() as u64) {
             log::warn!(
-                "[assistant-output] deadline elapsed: phase=archive, receipt_id={receipt_id}, elapsed_ms={}",
+                "[agent-output] deadline elapsed: phase=archive, receipt_id={receipt_id}, elapsed_ms={}",
                 acceptance_started.elapsed().as_millis()
             );
-            return Err(ModelAdmissionError::AssistantDataChanged);
+            return Err(ModelAdmissionError::AgentDataChanged);
         }
         txn.mark_phase("archive_prepared");
-        let expected_sources = match &row.assistant_source_set_json {
-            Some(raw) => model_egress_receipt::Column::AssistantSourceSetJson.eq(raw.clone()),
-            None => model_egress_receipt::Column::AssistantSourceSetJson.is_null(),
+        let expected_sources = match &row.agent_source_set_json {
+            Some(raw) => model_egress_receipt::Column::AgentSourceSetJson.eq(raw.clone()),
+            None => model_egress_receipt::Column::AgentSourceSetJson.is_null(),
         };
         let expected_context = match &row.context_conversation_id {
             Some(id) => model_egress_receipt::Column::ContextConversationId.eq(id.clone()),
@@ -377,7 +377,7 @@ impl SignalModelEgressStore {
         };
         // The archive written below becomes the only copy of these growing lists.
         let accepted_lists = |value: &str| {
-            Expr::value(if row.assistant_source_set_json.is_some() {
+            Expr::value(if row.agent_source_set_json.is_some() {
                 String::new()
             } else {
                 value.to_owned()
@@ -438,10 +438,10 @@ impl SignalModelEgressStore {
         txn.mark_phase("receipt_updated");
         if deadline.is_some_and(|until| until <= chrono::Utc::now().timestamp_millis() as u64) {
             log::warn!(
-                "[assistant-output] deadline elapsed: phase=native_write, receipt_id={receipt_id}, elapsed_ms={}",
+                "[agent-output] deadline elapsed: phase=native_write, receipt_id={receipt_id}, elapsed_ms={}",
                 acceptance_started.elapsed().as_millis()
             );
-            return Err(ModelAdmissionError::AssistantDataChanged);
+            return Err(ModelAdmissionError::AgentDataChanged);
         }
         if let Some(pending) = pending_archive {
             desk_diagnose_core::future::boxed(|| pending.finalize_on())
@@ -451,10 +451,10 @@ impl SignalModelEgressStore {
 
         if deadline.is_some_and(|until| until <= chrono::Utc::now().timestamp_millis() as u64) {
             log::warn!(
-                "[assistant-output] deadline elapsed: phase=archive_commit, receipt_id={receipt_id}, elapsed_ms={}",
+                "[agent-output] deadline elapsed: phase=archive_commit, receipt_id={receipt_id}, elapsed_ms={}",
                 acceptance_started.elapsed().as_millis()
             );
-            return Err(ModelAdmissionError::AssistantDataChanged);
+            return Err(ModelAdmissionError::AgentDataChanged);
         }
         txn.mark_phase("archive_written");
         log::info!(
@@ -479,7 +479,7 @@ impl SignalModelEgressStore {
         db: &C,
         conversation: &str,
         output: &desk_agent_protocol::data_lineage::DataEnvelope,
-        known: Option<&crate::assistant_data_store::StoredOutput>,
+        known: Option<&crate::agent_data_store::StoredOutput>,
     ) -> Result<desk_diagnose_core::model_egress::NativeModelOutputSources, DbErr> {
         Self::read_context_output_with_archive_on(db, conversation, output, known)
             .await
@@ -490,11 +490,11 @@ impl SignalModelEgressStore {
         db: &C,
         conversation: &str,
         output: &desk_agent_protocol::data_lineage::DataEnvelope,
-        known: Option<&crate::assistant_data_store::StoredOutput>,
+        known: Option<&crate::agent_data_store::StoredOutput>,
     ) -> Result<
         (
             desk_diagnose_core::model_egress::NativeModelOutputSources,
-            Option<crate::assistant_data_store::StoredOutput>,
+            Option<crate::agent_data_store::StoredOutput>,
         ),
         DbErr,
     > {
@@ -514,8 +514,8 @@ impl SignalModelEgressStore {
             return Err(invalid());
         }
         if let Some(row) = rows.first() {
-            let archive = if row.assistant_source_set_json.is_some() {
-                let stored = crate::assistant_data_store::find_output_reusing_on(
+            let archive = if row.agent_source_set_json.is_some() {
+                let stored = crate::agent_data_store::find_output_reusing_on(
                     db,
                     conversation,
                     output,
@@ -530,8 +530,8 @@ impl SignalModelEgressStore {
                     output,
                     Some(&stored.proof.sources),
                 )?;
-                if stored.proof.sources != sources || row.assistant_source_set_json.as_deref()
-                    .map(desk_diagnose_core::ai_assistant::native_export::AssistantNativeSourceSet::decode).transpose().map_err(|_| invalid())?.as_ref()
+                if stored.proof.sources != sources || row.agent_source_set_json.as_deref()
+                    .map(desk_diagnose_core::ai_agent::native_export::AgentNativeSourceSet::decode).transpose().map_err(|_| invalid())?.as_ref()
                     != Some(&stored.proof.source_set) { return Err(invalid()); }
                 return Ok((sources, Some(stored)));
             } else {
@@ -543,7 +543,7 @@ impl SignalModelEgressStore {
             ));
         }
         let stored =
-            crate::assistant_data_store::find_output_reusing_on(db, conversation, output, known)
+            crate::agent_data_store::find_output_reusing_on(db, conversation, output, known)
                 .await
                 .map_err(|_| invalid())?
                 .ok_or_else(invalid)?;
@@ -554,9 +554,18 @@ impl SignalModelEgressStore {
         {
             let sources =
                 context_sources_from_row(&row, conversation, output, Some(&stored.proof.sources))?;
-            if sources != stored.proof.sources || row.assistant_source_set_json.as_deref()
-                .map(desk_diagnose_core::ai_assistant::native_export::AssistantNativeSourceSet::decode).transpose().map_err(|_| invalid())?.as_ref()
-                != Some(&stored.proof.source_set) { return Err(invalid()); }
+            if sources != stored.proof.sources
+                || row
+                    .agent_source_set_json
+                    .as_deref()
+                    .map(desk_diagnose_core::ai_agent::native_export::AgentNativeSourceSet::decode)
+                    .transpose()
+                    .map_err(|_| invalid())?
+                    .as_ref()
+                    != Some(&stored.proof.source_set)
+            {
+                return Err(invalid());
+            }
         }
         Ok((stored.proof.sources.clone(), Some(stored)))
     }
@@ -565,7 +574,7 @@ impl SignalModelEgressStore {
     /// receipt grants no I/O; contradictory live data fails.
     pub(crate) async fn verify_retained_output_on<C: sea_orm::ConnectionTrait>(
         db: &C,
-        set: &desk_diagnose_core::ai_assistant::native_export::AssistantNativeSourceSet,
+        set: &desk_diagnose_core::ai_agent::native_export::AgentNativeSourceSet,
         sources: &desk_diagnose_core::model_egress::NativeModelOutputSources,
         output: &desk_agent_protocol::data_lineage::DataEnvelope,
     ) -> Result<(), DbErr> {
@@ -575,9 +584,23 @@ impl SignalModelEgressStore {
             model_egress_receipt::Entity::find_by_id(&sources.evidence.physical_call_id)
                 .one(db)
                 .await?
-            && (context_sources_from_row(&row, &sources.evidence.context_conversation_id, output, Some(sources))? != *sources
-                || row.assistant_source_set_json.as_deref().map(desk_diagnose_core::ai_assistant::native_export::AssistantNativeSourceSet::decode)
-                    .transpose().map_err(|_| invalid())?.as_ref() != Some(set)) { return Err(invalid()); }
+            && (context_sources_from_row(
+                &row,
+                &sources.evidence.context_conversation_id,
+                output,
+                Some(sources),
+            )? != *sources
+                || row
+                    .agent_source_set_json
+                    .as_deref()
+                    .map(desk_diagnose_core::ai_agent::native_export::AgentNativeSourceSet::decode)
+                    .transpose()
+                    .map_err(|_| invalid())?
+                    .as_ref()
+                    != Some(set))
+        {
+            return Err(invalid());
+        }
         Ok(())
     }
 
@@ -586,7 +609,7 @@ impl SignalModelEgressStore {
     /// live columns fail. Complete proofs are verified where they are read.
     pub(crate) async fn verify_output_head_on<C: sea_orm::ConnectionTrait>(
         db: &C,
-        head: &desk_assistant_data_store::output_store::ArchiveHead,
+        head: &desk_agent_data_store::output_store::ArchiveHead,
         _output: &desk_agent_protocol::data_lineage::DataEnvelope,
     ) -> Result<(), DbErr> {
         use sea_orm::QuerySelect;
@@ -764,14 +787,14 @@ fn context_sources_from_row(
     })
 }
 
-/// An accepted assistant call's lists live only in its archive.
+/// An accepted agent call's lists live only in its archive.
 async fn completed_inputs_on<C: sea_orm::ConnectionTrait>(
     db: &C,
     row: &model_egress_receipt::Model,
     output: &desk_agent_protocol::data_lineage::DataEnvelope,
 ) -> Result<Vec<desk_diagnose_core::model_egress::ModelInputLineage>, DbErr> {
     let invalid = || DbErr::Custom("invalid completed model output evidence".into());
-    if row.assistant_source_set_json.is_none() {
+    if row.agent_source_set_json.is_none() {
         return Ok(completed_output_parts(row, output, None)?.1);
     }
     let conversation = row.context_conversation_id.as_deref().ok_or_else(invalid)?;
@@ -830,7 +853,7 @@ pub(crate) fn receipt_inputs(
     receipt_inputs_reusing(row, None)
 }
 
-/// Accepted assistant calls keep these lists only in their authenticated archive.
+/// Accepted agent calls keep these lists only in their authenticated archive.
 fn receipt_inputs_reusing(
     row: &model_egress_receipt::Model,
     archived: Option<&desk_diagnose_core::model_egress::NativeModelOutputSources>,

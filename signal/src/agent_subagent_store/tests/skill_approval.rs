@@ -3,7 +3,7 @@
 use super::schedule_approval::{pause_turn, reviewed_kind, saved, turn_fixture};
 use super::*;
 use crate::agent_approval_store as approval;
-use desk_assistant_data_store::{entity::agent_skill_proposal as proposal, skill_store};
+use desk_agent_data_store::{entity::agent_skill_proposal as proposal, skill_store};
 use desk_diagnose_core::{
     approval_review::{ApprovalVerdict, PendingRequestKind},
     chat::{ChatMessage, ToolCall},
@@ -12,12 +12,12 @@ use desk_diagnose_core::{
 use sea_orm::{ActiveModelTrait, Set};
 
 fn proof() -> String {
-    let policy = desk_diagnose_core::ai_assistant::source::owner_text_policy(1, false);
+    let policy = desk_diagnose_core::ai_agent::source::owner_text_policy(1, false);
     serde_json::to_string(
         &desk_diagnose_core::skills::authoring::AuthoredSkillSource::new(
             "1",
             policy.clone(),
-            desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy {
+            desk_diagnose_core::ai_agent::source_registry::NativeDerivedInputPolicy {
                 actor_id: "1".into(),
                 conversation_id: "chat".into(),
                 physical_call_id: "physical".into(),
@@ -27,7 +27,7 @@ fn proof() -> String {
                 actor_input_seq: 1,
                 input_revision: 1,
                 source_contract_revision:
-                    desk_diagnose_core::ai_assistant::source_registry::SOURCE_CONTRACT_REVISION,
+                    desk_diagnose_core::ai_agent::source_registry::SOURCE_CONTRACT_REVISION,
                 policy_revision: 1,
                 text_policy: Some(policy),
             },
@@ -50,7 +50,7 @@ async fn skill_fixture() -> (DatabaseConnection, PersistedAgentSession, String, 
     proposal_fixture(&call, "create").await
 }
 
-/// A paused proposal to disable or delete the assistant-written
+/// A paused proposal to disable or delete the agent-written
 /// `morning-check` skill at version 1.
 async fn removal_fixture(action: &str) -> (DatabaseConnection, PersistedAgentSession, String, u64) {
     let call = ToolCall {
@@ -61,8 +61,8 @@ async fn removal_fixture(action: &str) -> (DatabaseConnection, PersistedAgentSes
         .to_string(),
     };
     let (db, session, id, now) = proposal_fixture(&call, action).await;
-    let package = desk_assistant_data_store::skill_package::parse_input(
-        &desk_agent_protocol::ai_assistant::skill::SkillPackageInput {
+    let package = desk_agent_data_store::skill_package::parse_input(
+        &desk_agent_protocol::ai_agent::skill::SkillPackageInput {
             zip_base64: None,
             skill_md: Some(
                 "---\nname: morning-check\ndescription: Morning checks\n---\nPrepare a read-only status report."
@@ -76,10 +76,10 @@ async fn removal_fixture(action: &str) -> (DatabaseConnection, PersistedAgentSes
     .package;
     let summary = skill_store::create_on(
         &db,
-        &crate::assistant_skills::personal_scope(),
+        &crate::agent_skills::personal_scope(),
         &package,
         &skill_store::VersionSource {
-            origin: desk_agent_protocol::ai_assistant::skill::SkillOrigin::AiAuthored,
+            origin: desk_agent_protocol::ai_agent::skill::SkillOrigin::AiAuthored,
             proposal_id: Some("earlier".into()),
             source_policy_json: Some(proof()),
             scan_summary_json: None,
@@ -133,8 +133,8 @@ async fn proposal_fixture(
     .await
     .unwrap();
     // The saved proposal holds one pending slot of the owner's scope.
-    desk_assistant_data_store::entity::agent_skill_scope::ActiveModel {
-        scope_key: Set(crate::assistant_skills::personal_scope()),
+    desk_agent_data_store::entity::agent_skill_scope::ActiveModel {
+        scope_key: Set(crate::agent_skills::personal_scope()),
         skill_count: Set(0),
         enabled_count: Set(0),
         pending_proposal_count: Set(1),
@@ -182,14 +182,11 @@ async fn ai_approval_saves_the_waiting_skill_and_answers_its_turn() {
     )
     .await;
     assert_eq!(status, "approved");
-    let skill = skill_store::find_by_name_on(
-        &db,
-        &crate::assistant_skills::personal_scope(),
-        "morning-check",
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let skill =
+        skill_store::find_by_name_on(&db, &crate::agent_skills::personal_scope(), "morning-check")
+            .await
+            .unwrap()
+            .unwrap();
     let version = skill_store::version_on(&db, &skill.skill_id, 1)
         .await
         .unwrap()
@@ -224,7 +221,7 @@ async fn ai_approval_saves_the_waiting_skill_and_answers_its_turn() {
         "{label:?}"
     );
     // The decision resumes the paused turn exactly once.
-    let resume = desk_assistant_data_store::entity::agent_decision_resume::Entity::find()
+    let resume = desk_agent_data_store::entity::agent_decision_resume::Entity::find()
         .one(&db)
         .await
         .unwrap()
@@ -247,7 +244,7 @@ async fn ai_approval_saves_the_waiting_skill_and_answers_its_turn() {
             .any(|item| item.kind == PendingRequestKind::Skill)
     );
     assert!(
-        crate::assistant_skills::pending_proposals(&db)
+        crate::agent_skills::pending_proposals(&db)
             .await
             .unwrap()
             .is_empty()
@@ -271,14 +268,10 @@ async fn ai_denial_rejects_the_exact_skill_proposal() {
     assert_eq!(row.status, "rejected");
     assert_eq!(row.decision_source.as_deref(), Some("ai_review"));
     assert!(
-        skill_store::find_by_name_on(
-            &db,
-            &crate::assistant_skills::personal_scope(),
-            "morning-check"
-        )
-        .await
-        .unwrap()
-        .is_none()
+        skill_store::find_by_name_on(&db, &crate::agent_skills::personal_scope(), "morning-check")
+            .await
+            .unwrap()
+            .is_none()
     );
     let receipt: serde_json::Value = serde_json::from_str(
         &saved(&db, &session.conversation_id)
@@ -295,13 +288,11 @@ async fn ai_denial_rejects_the_exact_skill_proposal() {
 #[actix_web::test]
 async fn the_owner_decides_a_pending_skill_proposal_and_the_reviewer_has_nothing_left() {
     let (db, session, id, now) = skill_fixture().await;
-    let pending = crate::assistant_skills::pending_proposals(&db)
-        .await
-        .unwrap();
+    let pending = crate::agent_skills::pending_proposals(&db).await.unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].proposal_id, id);
     assert!(pending[0].skill_md.contains("read-only status report"));
-    let cards = crate::assistant_skills::conversation_proposals(&db, "1", &session.conversation_id)
+    let cards = crate::agent_skills::conversation_proposals(&db, "1", &session.conversation_id)
         .await
         .unwrap();
     assert_eq!(
@@ -309,18 +300,18 @@ async fn the_owner_decides_a_pending_skill_proposal_and_the_reviewer_has_nothing
         1,
         "the conversation shows the proposal awaiting a decision"
     );
-    let stale = desk_agent_protocol::ai_assistant::skill::SkillProposalDecision {
+    let stale = desk_agent_protocol::ai_agent::skill::SkillProposalDecision {
         proposal_id: id.clone(),
         approve: true,
         expected_revision: 7,
     };
     assert!(matches!(
-        crate::assistant_skills::decide_proposal(&db, &stale).await,
-        Err(crate::assistant_skills::ProposalDecisionError::Conflict)
+        crate::agent_skills::decide_proposal(&db, &stale).await,
+        Err(crate::agent_skills::ProposalDecisionError::Conflict)
     ));
-    let view = crate::assistant_skills::decide_proposal(
+    let view = crate::agent_skills::decide_proposal(
         &db,
-        &desk_agent_protocol::ai_assistant::skill::SkillProposalDecision {
+        &desk_agent_protocol::ai_agent::skill::SkillProposalDecision {
             proposal_id: id.clone(),
             approve: true,
             expected_revision: 1,
@@ -330,11 +321,11 @@ async fn the_owner_decides_a_pending_skill_proposal_and_the_reviewer_has_nothing
     .unwrap();
     assert_eq!(
         view.status,
-        desk_agent_protocol::ai_assistant::skill::SkillProposalStatus::Approved
+        desk_agent_protocol::ai_agent::skill::SkillProposalStatus::Approved
     );
     assert_eq!(
         view.decision_source,
-        Some(desk_agent_protocol::ai_assistant::skill::SkillDecisionSource::Owner)
+        Some(desk_agent_protocol::ai_agent::skill::SkillDecisionSource::Owner)
     );
     let current = saved(&db, &session.conversation_id).await;
     let receipt: serde_json::Value =
@@ -348,7 +339,7 @@ async fn the_owner_decides_a_pending_skill_proposal_and_the_reviewer_has_nothing
             &session.device_id,
             &id,
             PendingRequestKind::Skill,
-            &desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+            &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
             desk_agent_protocol::capability_provider::ProductSurface::OssPersonalOwner,
             0,
             now,
@@ -357,7 +348,7 @@ async fn the_owner_decides_a_pending_skill_proposal_and_the_reviewer_has_nothing
         .is_err()
     );
     // The decided proposal leaves the conversation; its tool call shows the outcome.
-    let cards = crate::assistant_skills::conversation_proposals(&db, "1", &session.conversation_id)
+    let cards = crate::agent_skills::conversation_proposals(&db, "1", &session.conversation_id)
         .await
         .unwrap();
     assert!(cards.is_empty());
@@ -366,7 +357,7 @@ async fn the_owner_decides_a_pending_skill_proposal_and_the_reviewer_has_nothing
 #[actix_web::test]
 async fn stopping_the_paused_conversation_withdraws_its_skill_proposal() {
     let (db, session, id, _) = skill_fixture().await;
-    let control = desk_agent_protocol::ai_assistant::subagent::AiAssistantStopControl {
+    let control = desk_agent_protocol::ai_agent::subagent::AiAgentStopControl {
         client_request_id: "stop-paused".into(),
         expected_input_revision: session.input_revision,
         expected_control_revision: session.control_revision,
@@ -390,7 +381,7 @@ async fn stopping_the_paused_conversation_withdraws_its_skill_proposal() {
         (id.as_str(), "withdrawn")
     );
     // The withdrawn proposal frees its pending slot.
-    let scope = desk_assistant_data_store::entity::agent_skill_scope::Entity::find()
+    let scope = desk_agent_data_store::entity::agent_skill_scope::Entity::find()
         .one(&db)
         .await
         .unwrap()
@@ -399,7 +390,7 @@ async fn stopping_the_paused_conversation_withdraws_its_skill_proposal() {
 }
 
 #[actix_web::test]
-async fn ai_approval_disables_the_assistant_written_skill() {
+async fn ai_approval_disables_the_agent_written_skill() {
     let (db, session, id, now) = removal_fixture("disable").await;
     let status = reviewed_kind(
         &db,
@@ -411,14 +402,11 @@ async fn ai_approval_disables_the_assistant_written_skill() {
     )
     .await;
     assert_eq!(status, "approved");
-    let skill = skill_store::find_by_name_on(
-        &db,
-        &crate::assistant_skills::personal_scope(),
-        "morning-check",
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let skill =
+        skill_store::find_by_name_on(&db, &crate::agent_skills::personal_scope(), "morning-check")
+            .await
+            .unwrap()
+            .unwrap();
     assert!(!skill.enabled);
     let review = crate::entity::agent_approval_review::Entity::find()
         .one(&db)
@@ -463,11 +451,11 @@ async fn ai_approval_disables_the_assistant_written_skill() {
 }
 
 #[actix_web::test]
-async fn the_owner_approves_deleting_the_assistant_written_skill() {
+async fn the_owner_approves_deleting_the_agent_written_skill() {
     let (db, session, id, _) = removal_fixture("delete").await;
-    let view = crate::assistant_skills::decide_proposal(
+    let view = crate::agent_skills::decide_proposal(
         &db,
-        &desk_agent_protocol::ai_assistant::skill::SkillProposalDecision {
+        &desk_agent_protocol::ai_agent::skill::SkillProposalDecision {
             proposal_id: id,
             approve: true,
             expected_revision: 1,
@@ -477,21 +465,17 @@ async fn the_owner_approves_deleting_the_assistant_written_skill() {
     .unwrap();
     assert_eq!(
         view.kind,
-        desk_agent_protocol::ai_assistant::skill::SkillProposalKind::Delete
+        desk_agent_protocol::ai_agent::skill::SkillProposalKind::Delete
     );
     assert_eq!(
         view.status,
-        desk_agent_protocol::ai_assistant::skill::SkillProposalStatus::Approved
+        desk_agent_protocol::ai_agent::skill::SkillProposalStatus::Approved
     );
     assert!(
-        skill_store::find_by_name_on(
-            &db,
-            &crate::assistant_skills::personal_scope(),
-            "morning-check",
-        )
-        .await
-        .unwrap()
-        .is_none()
+        skill_store::find_by_name_on(&db, &crate::agent_skills::personal_scope(), "morning-check",)
+            .await
+            .unwrap()
+            .is_none()
     );
     let current = saved(&db, &session.conversation_id).await;
     let receipt: serde_json::Value =

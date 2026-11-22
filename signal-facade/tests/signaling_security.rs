@@ -277,7 +277,7 @@ async fn host_public_handle_is_selected_before_connection_publication() {
     let map = web::Data::new(SharedConnectionMap::new());
     for public_handle in [None, Some("manager-public-device".to_string())] {
         let (_, session) = websocket().await;
-        let query: PeerQuery = serde_urlencoded::from_str("remote_desk_type=server&client_id=private-audience&available_exec_shells=sh&exec_pty=false&exec_pty_elevation=false&max_ai_command_runtime_ms=60000&ai_assistant_revision=3&ai_assistant_enabled=true").unwrap();
+        let query: PeerQuery = serde_urlencoded::from_str("remote_desk_type=server&client_id=private-audience&available_exec_shells=sh&exec_pty=false&exec_pty_elevation=false&max_ai_command_runtime_ms=60000&ai_agent_revision=3&ai_agent_enabled=true").unwrap();
         let peer = query
             .into_peer(
                 Some(VersionInfo {

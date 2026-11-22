@@ -246,7 +246,7 @@ async fn call_claimed_permission_review_inner(
     if admitted_at >= claim.lease_deadline_unix_ms || admitted_at >= candidate.expires_at_unix_ms {
         return Err(reviewer_unavailable());
     }
-    let gate = crate::ai_assistant_gate::global_ai_assistant_gate();
+    let gate = crate::ai_agent_gate::global_ai_agent_gate();
     let settings = gate.snapshot();
     if !settings.enabled {
         return Err(reviewer_unavailable());

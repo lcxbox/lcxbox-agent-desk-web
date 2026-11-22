@@ -1,4 +1,4 @@
-//! Provider-neutral contracts for the dynamic AI Assistant run ledger.
+//! Provider-neutral contracts for the dynamic AI Agent run ledger.
 //!
 //! These types describe durable facts and the model-maintained task projection;
 //! they are deliberately not an execution graph. Authorization and dispatch
@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 /// Provenance namespace for server-owned run bookkeeping. Results carrying
 /// this provider id are deterministic derivatives of already-authorized model
 /// context; they are not independently selectable device-data sources.
-pub const RUN_CONTROL_PROVIDER_ID: &str = "assistant.run_control";
+pub const RUN_CONTROL_PROVIDER_ID: &str = "agent.run_control";
 use serde::{Deserialize, Serialize};
 
 pub const AGENT_RUN_EVENT_SCHEMA_VERSION: u16 = 2;
@@ -513,18 +513,18 @@ pub struct UserFollowupEvent {
     pub message_id: String,
     pub message_envelope: DataEnvelope,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub targets: Vec<AssistantInputTarget>,
+    pub targets: Vec<AgentInputTarget>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AssistantInputTarget {
+pub struct AgentInputTarget {
     pub reference: String,
     pub device_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub member_generation: Option<u64>,
 }
 
-impl AssistantInputTarget {
+impl AgentInputTarget {
     pub fn fixed(device_id: String) -> Self {
         Self {
             reference: device_id.clone(),
@@ -534,7 +534,7 @@ impl AssistantInputTarget {
     }
 
     pub(crate) fn validate_all(targets: &[Self]) -> Result<(), &'static str> {
-        use desk_agent_protocol::ai_assistant::validate_target_refs;
+        use desk_agent_protocol::ai_agent::validate_target_refs;
         validate_target_refs(targets.iter().map(|target| target.reference.as_str()))?;
         validate_target_refs(targets.iter().map(|target| target.device_id.as_str()))?;
         let versioned = targets
@@ -544,7 +544,7 @@ impl AssistantInputTarget {
             Some(generation) => !versioned || generation == 0 || generation > i64::MAX as u64,
             None => versioned,
         }) {
-            return Err("invalid assistant target membership revision");
+            return Err("invalid agent target membership revision");
         }
         Ok(())
     }
@@ -553,7 +553,7 @@ impl AssistantInputTarget {
         targets: &[Self],
         session: &crate::session::PersistedAgentSession,
     ) -> bool {
-        session.admitted_assistant_request_targets() == Some(targets)
+        session.admitted_agent_request_targets() == Some(targets)
     }
 }
 
@@ -593,7 +593,7 @@ impl UserFollowupEvent {
                 .eq(requested)
         } else {
             requested.is_empty()
-                && self.targets == [AssistantInputTarget::fixed(session.device_id.clone())]
+                && self.targets == [AgentInputTarget::fixed(session.device_id.clone())]
         };
         selectors_match
             && (self.event.input_revision != session.input_revision
@@ -604,16 +604,16 @@ impl UserFollowupEvent {
         &self,
         session: &crate::session::PersistedAgentSession,
     ) -> bool {
-        session.has_admitted_assistant_input()
+        session.has_admitted_agent_input()
             && self.event.run_id == session.conversation_id
             && self.actor_id == session.actor_id
             && self.event.input_revision == session.input_revision
-            && AssistantInputTarget::matches_request(&self.targets, session)
+            && AgentInputTarget::matches_request(&self.targets, session)
     }
 
     pub fn validate(&self) -> Result<(), DynamicRunContractError> {
         self.event.validate()?;
-        if !crate::ai_assistant::source::valid_statement_timezone(&self.client_timezone) {
+        if !crate::ai_agent::source::valid_statement_timezone(&self.client_timezone) {
             return Err(DynamicRunContractError::InvalidEnvelope(
                 "invalid input timezone".into(),
             ));
@@ -626,7 +626,7 @@ impl UserFollowupEvent {
         }
         validate_id("actor_id", &self.actor_id)?;
         validate_id("message_id", &self.message_id)?;
-        AssistantInputTarget::validate_all(&self.targets)
+        AgentInputTarget::validate_all(&self.targets)
             .map_err(|message| DynamicRunContractError::InvalidEnvelope(message.into()))?;
         self.message_envelope
             .validate()
@@ -759,10 +759,10 @@ impl GrantRequestItem {
         if let Some(target) = &self.selected_device_target {
             validate_id("selected_device", &target.device_id)?;
             validate_id("selected_device_connection", &target.connection_id)?;
-            if desk_agent_protocol::ai_assistant::validate_target_refs([target.target_ref.as_str()])
+            if desk_agent_protocol::ai_agent::validate_target_refs([target.target_ref.as_str()])
                 .is_err()
                 || target.readiness_revision == 0
-                || !crate::ai_assistant::ai_assistant_provider_registry_ref()
+                || !crate::ai_agent::ai_agent_provider_registry_ref()
                     .capability_for_tool(&self.tool_name)
                     .is_some_and(|descriptor| {
                         descriptor.wire.effect == self.expected_effect

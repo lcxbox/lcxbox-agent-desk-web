@@ -41,15 +41,15 @@ class Reports(unittest.TestCase):
         for package, store in [
                 ('desk-signal', 'desk_signal::agent_session_store::SignalAgentSessionStore'),
                 ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service::agent_session_store::AgentSessionStore')]:
-            constructor = '_<' + store + ' as desk_diagnose_core::seam::SessionSeam>::assistant_data_request_manifest'
+            constructor = '_<' + store + ' as desk_diagnose_core::seam::SessionSeam>::agent_data_request_manifest'
             poll = constructor + '::_{{closure}}'
-            parts = store.split('::') + ['assistant_data_request_manifest', 'h0123456789abcdef']
+            parts = store.split('::') + ['agent_data_request_manifest', 'h0123456789abcdef']
             encoded = '_ZN' + ''.join(str(len(part)) + part for part in parts) + 'E'
             data = report.collect([record(report.HARD_FRAME_LIMIT + 1, encoded)])
             self.assertTrue(report.check_ceiling(data, report.HARD_FRAME_LIMIT, []))
             for profile in ['debug', 'release']:
                 patterns = [pattern for pattern in gate.required_patterns(package, profile)
-                            if 'assistant_data_request_manifest' in pattern]
+                            if 'agent_data_request_manifest' in pattern]
                 self.assertEqual(len(patterns), 1)
                 self.assertEqual(report.check_ceiling({'frames': {poll: 2048}}, report.HARD_FRAME_LIMIT, patterns), [])
                 for wrong in [constructor, 'core::ptr::drop_in_place<' + poll + '>']:
@@ -72,7 +72,7 @@ class Reports(unittest.TestCase):
 
     def test_parameter_validation_execution_frames_are_protected(self):
         for parts in [
-            ['desk_agent_protocol','ai_assistant','memory','validate_draft_limits','h0123456789abcdef'],
+            ['desk_agent_protocol','ai_agent','memory','validate_draft_limits','h0123456789abcdef'],
             ['desk_diagnose_core','model_input','check_at','h0123456789abcdef'],
         ]:
             with self.subTest(parts=parts):
@@ -182,7 +182,7 @@ class Reports(unittest.TestCase):
             self.assertTrue(any(re.search(p, symbol) for p in gate.REQUIRED['desk-diagnose-core']))
 
     def test_shared_message_pages_require_execution_frames_and_keep_the_hard_limit(self):
-        prefix = 'desk_signal_facade::controller::ai_assistant_session::'
+        prefix = 'desk_signal_facade::controller::ai_agent_session::'
         symbols = [prefix + name for name in (
             'project_snapshot_message_page', 'project_snapshot_message_window',
             'SnapshotMessagePageProjection::with_citations',
@@ -236,7 +236,7 @@ class Reports(unittest.TestCase):
                 self.assertTrue(report.check_ceiling({'frames': {wrong: 32}}, report.HARD_FRAME_LIMIT, patterns))
 
     def test_message_page_remarks_survive_the_protected_symbol_filter(self):
-        parts = ['desk_signal_facade', 'controller', 'ai_assistant_session', 'project_snapshot_message_page']
+        parts = ['desk_signal_facade', 'controller', 'ai_agent_session', 'project_snapshot_message_page']
         symbol = '_ZN' + ''.join(f'{len(part)}{part}' for part in parts) + '17h0123456789abcdefE'
         data = report.collect([record(4096, symbol)])
         self.assertEqual(data['frames'], {'::'.join(parts): 4096})
@@ -244,7 +244,7 @@ class Reports(unittest.TestCase):
     def test_direct_memory_writes_require_real_polls_and_keep_physical_identity(self):
         for package, host in [('desk-signal', 'desk_signal'),
                               ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service')]:
-            constructor = host + '::assistant_data_store::memory_write::write_on'
+            constructor = host + '::agent_data_store::memory_write::write_on'
             poll = constructor + '::_{{closure}}'
             patterns = [pattern for pattern in gate.REQUIRED[package] if 'memory_write::write_on' in pattern]
             self.assertEqual(len(patterns), 1)
@@ -266,8 +266,8 @@ class Reports(unittest.TestCase):
         for package, host in [('desk-signal','desk_signal'), ('lcxbox-agent-desk-manager','lcxbox_agent_desk_manager::service')]:
             for child, owner in [('memory_write::sources::load_on','memory_write::write_on'),
                                  ('memory_write::receipts::collect_on','output_archive::gc::collect_actor_transaction')]:
-                original = '^desk_assistant_data_store::' + child + r'::_\{\{closure\}\}$'
-                constructor = host + '::assistant_data_store::' + owner
+                original = '^desk_agent_data_store::' + child + r'::_\{\{closure\}\}$'
+                constructor = host + '::agent_data_store::' + owner
                 poll = constructor + '::_{{closure}}'
                 release = [pattern for pattern in gate.required_patterns(package,'release') if child in pattern]
                 self.assertEqual(len(release),1)
@@ -279,8 +279,8 @@ class Reports(unittest.TestCase):
                 self.assertTrue(report.check_ceiling({'frames':{poll:4096}},report.HARD_FRAME_LIMIT,[original]))
 
     def test_entity_relocation_retains_original_report_identity(self):
-        old = 'core::ptr::drop_in_place<desk_database::entity::agent_assistant_model_output::Model>'
-        actual = old.replace('desk_database::entity::', 'desk_assistant_data_store::entity::')
+        old = 'core::ptr::drop_in_place<desk_database::entity::agent_model_output::Model>'
+        actual = old.replace('desk_database::entity::', 'desk_agent_data_store::entity::')
         data = report.retain_entity_identity({'frames': {actual: 64}}, 'lcxbox-agent-desk-manager')
         self.assertEqual(data['frames'], {old: 64})
         self.assertEqual(data['entity_symbol_relocations'], {old: actual})
@@ -289,14 +289,14 @@ class Reports(unittest.TestCase):
             report.retain_entity_identity({'frames': {old: 32, actual: 32}}, 'lcxbox-agent-desk-manager')
 
     def test_signal_native_quota_extension_is_not_aliased_to_the_shared_counter_view(self):
-        native = 'core::ptr::drop_in_place<desk_signal::entity::agent_assistant_quota::Model>'
-        common = native.replace('desk_signal::entity::', 'desk_assistant_data_store::entity::')
+        native = 'core::ptr::drop_in_place<desk_signal::entity::agent_quota::Model>'
+        common = native.replace('desk_signal::entity::', 'desk_agent_data_store::entity::')
         data = report.retain_entity_identity({'frames': {native: 64, common: 32}}, 'desk-signal')
         self.assertEqual(data['frames'], {common: 32, native: 64})
 
 
     def test_shared_storage_requires_emitted_snapshot_decoders_and_keeps_hard_ceiling(self):
-        required = gate.REQUIRED['desk-assistant-data-store']
+        required = gate.REQUIRED['desk-agent-data-store']
         frames = {pattern.removeprefix('^').removesuffix('$'): 4096 for pattern in required}
         self.assertEqual(report.check_ceiling({'frames': frames}, report.HARD_FRAME_LIMIT, required), [])
         for symbol in frames:
@@ -304,7 +304,7 @@ class Reports(unittest.TestCase):
             missing = {key: value for key, value in frames.items() if key != symbol}
             self.assertTrue(report.check_ceiling({'frames': missing}, report.HARD_FRAME_LIMIT, required))
         overflow = dict(frames)
-        overflow['desk_assistant_data_store::memory_index::prepare_on::_{{closure}}'] = report.HARD_FRAME_LIMIT + 1
+        overflow['desk_agent_data_store::memory_index::prepare_on::_{{closure}}'] = report.HARD_FRAME_LIMIT + 1
         self.assertTrue(report.check_ceiling({'frames': overflow}, report.HARD_FRAME_LIMIT, required))
 
     def test_published_prompt_requires_original_contract_and_actual_host_polls(self):
@@ -328,8 +328,8 @@ class Reports(unittest.TestCase):
 
     def test_snapshots_require_frozen_policy_and_adoption_polls(self):
         for name in ['read_projection::ReadProjectionProof::snapshot_envelope',
-                     'seam::AssistantModelDataManifest::validate_for']:
-            symbol = 'desk_diagnose_core::ai_assistant::' + name
+                     'seam::AgentModelDataManifest::validate_for']:
+            symbol = 'desk_diagnose_core::ai_agent::' + name
             patterns = [p for p in gate.REQUIRED['desk-diagnose-core'] if p == '^' + symbol + '$']
             self.assertEqual(len(patterns), 1)
             self.assertTrue(report.protected(symbol))
@@ -343,7 +343,7 @@ class Reports(unittest.TestCase):
         for package in ['desk-signal', 'lcxbox-agent-desk-manager']:
             prefix = 'desk_signal' if package == 'desk-signal' else 'lcxbox_agent_desk_manager::service'
             for name in ['owner_source::history_source_on', 'model_sources::validate_history_on']:
-                constructor = prefix + '::assistant_data_store::' + name
+                constructor = prefix + '::agent_data_store::' + name
                 patterns = [pattern for pattern in gate.REQUIRED[package] if name in pattern]
                 self.assertEqual(len(patterns), 1)
                 poll = constructor + '::_{{closure}}'
@@ -367,7 +367,7 @@ class Reports(unittest.TestCase):
             self.assertTrue(report.check_ceiling({'frames': {constructor + '::_{{closure}}': 128}}, report.HARD_FRAME_LIMIT, patterns))
             self.assertTrue(report.check_ceiling({'frames': {'core::ptr::drop_in_place<' + poll + '>': 64}}, report.HARD_FRAME_LIMIT, patterns))
             self.assertEqual(report.check_ceiling({'frames': {poll: 65536}}, report.HARD_FRAME_LIMIT, patterns), [])
-            shared = 'desk_assistant_data_store::schedule::fresh_recovery::'
+            shared = 'desk_agent_data_store::schedule::fresh_recovery::'
             for name in ['recover_action_free_fresh_task_on', 'reconcile_expired_fresh_task',
                          'settle_expired_fresh_task', 'children::recover', 'permission::recover']:
                 phases = [pattern for pattern in gate.REQUIRED[package] if '^' + shared + name + '.*' in pattern]
@@ -378,7 +378,7 @@ class Reports(unittest.TestCase):
                 self.assertEqual(report.check_ceiling({'frames': {phase + '::_{{closure}}': 65536}}, report.HARD_FRAME_LIMIT, phases), [])
 
     def test_fresh_children_settlement_requires_each_shared_phase_poll(self):
-        shared = 'desk_assistant_data_store::schedule::fresh_children_settlement::'
+        shared = 'desk_agent_data_store::schedule::fresh_children_settlement::'
         for package in ['desk-signal', 'lcxbox-agent-desk-manager']:
             for name in ['settle_fresh_children_wait_on', 'load_fresh_children_wait',
                          'prepare_fresh_children_close', 'close_fresh_children_source',
@@ -430,7 +430,7 @@ class Reports(unittest.TestCase):
         for package in ['desk-signal', 'lcxbox-agent-desk-manager']:
             patterns = [pattern for pattern in gate.REQUIRED[package]
                         if 'closure' in pattern and any(name in pattern for name in [
-                            'assistant_data_store::', 'schedule_store::', 'agent_goal_store::claim_slice',
+                            'agent_data_store::', 'schedule_store::', 'agent_goal_store::claim_slice',
                             'agent_run_event_store::', 'agent_subagent_store::observation::'])]
             self.assertEqual(len(patterns), 76 if package == 'desk-signal' else 79)
             for pattern in patterns:
@@ -446,35 +446,35 @@ class Reports(unittest.TestCase):
 
     def test_memory_stores_and_shared_contracts_enforce_the_same_ceiling(self):
         for parts in [
-            ['desk_diagnose_core', 'ai_assistant', 'data_control', 'ProjectionRecovery', 'accept_owner_input'],
-            ['desk_signal', 'assistant_data_store', 'memory_write', 'write_on'],
+            ['desk_diagnose_core', 'ai_agent', 'data_control', 'ProjectionRecovery', 'accept_owner_input'],
+            ['desk_signal', 'agent_data_store', 'memory_write', 'write_on'],
             ['desk_signal', 'agent_run_event_store', 'SignalAgentRunEventStore', 'handled_outcome'],
             ['lcxbox_agent_desk_manager', 'service', 'agent_run_event_store', 'ManagerRunEventStore', 'read_user_input_state'],
-            ['lcxbox_agent_desk_manager', 'service', 'assistant_data_store', 'memory_write', 'write_on'],
+            ['lcxbox_agent_desk_manager', 'service', 'agent_data_store', 'memory_write', 'write_on'],
             ['lcxbox_agent_desk_manager', 'service', 'agent_goal_store', 'settle_slice_afterimage'],
             ['desk_signal', 'agent_goal_store', 'settle_slice'],
             ['desk_signal', 'agent_goal_store', 'persist_slice_on'],
             ['desk_signal', 'agent_goal_store', 'validate_slice_session_on'],
             ['desk_signal', 'agent_goal_store', 'claim_slice'],
-            ['desk_assistant_data_store', 'schedule', 'create', 'capture_retrieval_consent_on'],
-            ['desk_assistant_data_store', 'schedule', 'create', 'capture_definition_consent_on'],
+            ['desk_agent_data_store', 'schedule', 'create', 'capture_retrieval_consent_on'],
+            ['desk_agent_data_store', 'schedule', 'create', 'capture_definition_consent_on'],
             ['desk_signal', 'schedule_store', 'fresh_session', 'ScheduleStore', 'insert_fresh_session_inner'],
             ['desk_signal', 'schedule_store', 'context_wait', 'ScheduleStore', 'settle_context_wait_inner'],
             ['lcxbox_agent_desk_manager', 'service', 'schedule_store', 'context_wait', 'ScheduleStore', 'lock_context_pause_on'],
-            ['lcxbox_agent_desk_manager', 'service', 'schedule_store', 'fresh_session', 'ScheduleStore', 'initialize_fresh_assistant_on'],
-            ['desk_signal', 'schedule_store', 'resume_admission', 'ScheduleStore', 'assistant_retrieval_deadline_on'],
+            ['lcxbox_agent_desk_manager', 'service', 'schedule_store', 'fresh_session', 'ScheduleStore', 'initialize_fresh_agent_on'],
+            ['desk_signal', 'schedule_store', 'resume_admission', 'ScheduleStore', 'agent_retrieval_deadline_on'],
             ['lcxbox_agent_desk_manager', 'service', 'schedule_store', 'resume_claim', 'ScheduleStore', 'claim_continuation_on'],
-            ['desk_assistant_data_store', 'schedule', 'create', 'create_task_on'],
+            ['desk_agent_data_store', 'schedule', 'create', 'create_task_on'],
             ['lcxbox_agent_desk_manager', 'service', 'agent_goal_store', 'scheduler_transition'],
             ['desk_signal', 'schedule_executor', 'SignalScheduleExecutor', 'process_goal'],
             ['lcxbox_agent_desk_manager', 'service', 'schedule_executor', 'goal', 'ScheduleExecutor', 'scan_goals_once'],
-            ['desk_diagnose_core', 'ai_assistant', 'memory_evidence', 'MemoryEvidenceRetentionProof', 'from_snapshot'],
+            ['desk_diagnose_core', 'ai_agent', 'memory_evidence', 'MemoryEvidenceRetentionProof', 'from_snapshot'],
             ['desk_diagnose_core', 'model_context', 'checkpoint', 'ContextProtectionSet', 'validate_references'],
-            ['desk_diagnose_core', 'goal', 'GoalRun', 'finish_assistant_context_wait_slice'],
+            ['desk_diagnose_core', 'goal', 'GoalRun', 'finish_agent_context_wait_slice'],
             ['desk_diagnose_core', 'schedule', 'context_wait', 'finish'],
             ['desk_diagnose_core', 'schedule', 'context_wait', 'claim'],
-            ['desk_diagnose_core', 'ai_assistant', 'data_control', 'memory_forget', 'commit_memory_forget_group'],
-            ['desk_diagnose_core', 'ai_assistant', 'data_control', 'memory_forget', 'read_memory_forget_group'],
+            ['desk_diagnose_core', 'ai_agent', 'data_control', 'memory_forget', 'commit_memory_forget_group'],
+            ['desk_diagnose_core', 'ai_agent', 'data_control', 'memory_forget', 'read_memory_forget_group'],
         ]:
             with self.subTest(parts=parts):
                 symbol = '_ZN' + ''.join(f'{len(part)}{part}' for part in parts) + '17h0123456789abcdefE'

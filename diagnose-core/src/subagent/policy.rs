@@ -1,5 +1,5 @@
 //! Admission limits count unfinished children across a main conversation.
-use desk_agent_protocol::ai_assistant::subagent_policy::{SubAgentLimits, SubAgentPolicy};
+use desk_agent_protocol::ai_agent::subagent_policy::{SubAgentLimits, SubAgentPolicy};
 
 pub const DEFAULT_UNFINISHED_PER_ROOT: u32 = 2;
 pub const MAX_UNFINISHED_PER_ROOT: u32 = 32;

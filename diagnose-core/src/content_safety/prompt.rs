@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn prompt_freezes_politics_technical_exception_and_strict_schema() {
         let prompt = build_input_prompt(&SafetyInput {
-            surface: ContentSafetySurface::AssistantAnswer,
+            surface: ContentSafetySurface::AgentAnswer,
             text: "Why does this government site fail TLS?".into(),
             trusted_context: None,
         });
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn model_turn_prompt_contains_only_intent_output_and_normalized_actions() {
         let prompt = build_model_turn_prompt(&SafetyModelTurn {
-            surface: ContentSafetySurface::TerminalAiAssistant,
+            surface: ContentSafetySurface::TerminalAiAgent,
             text: "check the service".into(),
             tool_calls: vec![super::super::seam::SafetyToolCall {
                 name: "exec_command".into(),
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn image_prompt_never_serializes_the_data_url() {
         let request = SafetyImage {
-            surface: ContentSafetySurface::AssistantAnswer,
+            surface: ContentSafetySurface::AgentAnswer,
             image_data_url: "data:image/png;base64,SECRET_BYTES".into(),
             mime_type: "image/png".into(),
             original_allowed_intent: "inspect the error dialog".into(),

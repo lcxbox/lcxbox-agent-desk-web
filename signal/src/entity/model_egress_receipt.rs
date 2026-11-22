@@ -18,9 +18,9 @@ pub struct Model {
     pub input_lineage_json: String,
     #[sea_orm(column_type = "Text")]
     pub input_snapshot_json: String,
-    /// Complete assistant-source use identities, committed with dispatch intent.
+    /// Complete agent-source use identities, committed with dispatch intent.
     #[sea_orm(column_type = "Text", nullable)]
-    pub assistant_source_set_json: Option<String>,
+    pub agent_source_set_json: Option<String>,
     /// Digest of the actual native model input projection.
     pub total_bytes: i64,
     /// `dispatch_intent` is intentionally durable before provider I/O. A crash

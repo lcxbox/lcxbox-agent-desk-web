@@ -15,7 +15,7 @@ impl ScheduleStore {
         txn: &crate::config::connection::DatabaseTransaction,
         input: FreshTaskClaim<'_>,
     ) -> Result<PersistedAgentSession, ScheduleStoreError> {
-        desk_assistant_data_store::schedule::claim_fresh_children_on(
+        desk_agent_data_store::schedule::claim_fresh_children_on(
             &super::SignalScheduleHost,
             txn,
             input,
@@ -87,7 +87,7 @@ mod tests {
         assert_eq!(current.attempt, 1);
         assert_eq!(current.status, "running");
         let txn = db.begin().await.unwrap();
-        let authority = desk_assistant_data_store::schedule::lock_run_authority(
+        let authority = desk_agent_data_store::schedule::lock_run_authority(
             &txn,
             1,
             &after.device_id,

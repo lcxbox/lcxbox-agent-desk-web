@@ -72,8 +72,8 @@ pub(super) async fn runnable_parent_with_source(
             arguments_json: serde_json::to_string(&spawn_request()).unwrap(),
         })
         .collect();
-    let mut caller = ChatMessage::assistant_tool_calls(
-        "assistant-calls",
+    let mut caller = ChatMessage::agent_tool_calls(
+        "agent-calls",
         "Investigate independently",
         calls
             .iter()
@@ -87,7 +87,7 @@ pub(super) async fn runnable_parent_with_source(
     caller.turn_id = Some("parent-turn".into());
     caller.data_envelope = Some(
         desk_diagnose_core::subagent::projection::envelope(
-            "assistant-calls",
+            "agent-calls",
             &caller.text,
             "model-output",
             &[owner.data_envelope.clone().unwrap()],
@@ -357,7 +357,7 @@ async fn a_reused_worker_continues_in_its_session_with_the_full_history() {
     let held = &next_claim.session;
     let binding = held.agent_role.binding().unwrap();
     assert_ne!(held.input_revision, binding.input_revision);
-    let fence = desk_diagnose_core::action_turn_fence::AssistantTurnFence {
+    let fence = desk_diagnose_core::action_turn_fence::AgentTurnFence {
         schema_version: 1,
         conversation_id: held.conversation_id.clone(),
         turn_id: held.current_turn_id.clone().unwrap(),
@@ -402,9 +402,7 @@ async fn a_reused_worker_continues_in_its_session_with_the_full_history() {
 
 #[tokio::test]
 async fn a_worker_claims_requests_in_order_and_keeps_execution_bindings_separate() {
-    use desk_agent_protocol::ai_assistant::subagent::{
-        AiAssistantSubAgentControl, SubAgentControlAction,
-    };
+    use desk_agent_protocol::ai_agent::subagent::{AiAgentSubAgentControl, SubAgentControlAction};
 
     let db = database().await;
     let (mut parent, mut calls) = runnable_parent(&db).await;
@@ -445,7 +443,7 @@ async fn a_worker_claims_requests_in_order_and_keeps_execution_bindings_separate
             .unwrap(),
         second
     );
-    use desk_assistant_data_store::worker_request::{in_scope, worker_page_on, worker_status_on};
+    use desk_agent_data_store::worker_request::{in_scope, worker_page_on, worker_status_on};
     let scope = || {
         in_scope(
             &parent.actor_id,
@@ -518,7 +516,7 @@ async fn a_worker_claims_requests_in_order_and_keeps_execution_bindings_separate
     super::super::task_control::apply_task_control_on(
         &txn,
         &parent,
-        &AiAssistantSubAgentControl {
+        &AiAgentSubAgentControl {
             client_request_id: "cancel-first".into(),
             task_id: first.task_id.clone(),
             expected_input_revision: first.input_revision,
@@ -589,9 +587,7 @@ async fn a_worker_claims_requests_in_order_and_keeps_execution_bindings_separate
 
 #[tokio::test]
 async fn cancelling_a_queued_worker_request_leaves_the_shared_session_alone() {
-    use desk_agent_protocol::ai_assistant::subagent::{
-        AiAssistantSubAgentControl, SubAgentControlAction,
-    };
+    use desk_agent_protocol::ai_agent::subagent::{AiAgentSubAgentControl, SubAgentControlAction};
 
     let db = database().await;
     let (mut parent, mut calls) = runnable_parent(&db).await;
@@ -634,7 +630,7 @@ async fn cancelling_a_queued_worker_request_leaves_the_shared_session_alone() {
     super::super::task_control::apply_task_control_on(
         &txn,
         &parent,
-        &AiAssistantSubAgentControl {
+        &AiAgentSubAgentControl {
             client_request_id: "cancel-queued".into(),
             task_id: second.task_id.clone(),
             expected_input_revision: second.input_revision,

@@ -19,7 +19,7 @@ pub struct SessionCandidate {
     pub remote_desktop_ready: bool,
     pub terminal_ready: bool,
     pub file_ready: bool,
-    pub assistant_ready: bool,
+    pub agent_ready: bool,
 }
 
 impl SessionCandidate {
@@ -28,7 +28,7 @@ impl SessionCandidate {
             SessionCapability::RemoteDesktop => self.remote_desktop_ready,
             SessionCapability::Terminal => self.terminal_ready,
             SessionCapability::FileManager => self.file_ready,
-            SessionCapability::Assistant => self.assistant_ready,
+            SessionCapability::Agent => self.agent_ready,
         }
     }
 }
@@ -39,7 +39,7 @@ pub enum SessionCapability {
     RemoteDesktop,
     Terminal,
     FileManager,
-    Assistant,
+    Agent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,7 +131,7 @@ impl SessionTargetCatalog {
         remote_desktop_ready: bool,
         terminal_ready: bool,
         file_ready: bool,
-        assistant_ready: bool,
+        agent_ready: bool,
     ) -> bool {
         let mut inner = self.inner.write().unwrap();
         let Some(entry) = inner.by_session.get_mut(session) else {
@@ -140,13 +140,13 @@ impl SessionTargetCatalog {
         entry.candidate.remote_desktop_ready = remote_desktop_ready;
         entry.candidate.terminal_ready = terminal_ready;
         entry.candidate.file_ready = file_ready;
-        entry.candidate.assistant_ready = assistant_ready;
+        entry.candidate.agent_ready = agent_ready;
         inner.revision = inner.revision.saturating_add(1);
         true
     }
 
     /// Update only interactive desktop readiness. Desktop switches briefly
-    /// fence new remote-desktop admissions while terminal, file, and assistant
+    /// fence new remote-desktop admissions while terminal, file, and agent
     /// operations remain bound to the same session-user worker.
     pub fn set_remote_desktop_readiness(
         &self,
@@ -215,7 +215,7 @@ impl SessionTargetCatalog {
                 remote_desktop_ready: entry.candidate.remote_desktop_ready,
                 terminal_ready: entry.candidate.terminal_ready,
                 file_ready: entry.candidate.file_ready,
-                assistant_ready: entry.candidate.assistant_ready,
+                agent_ready: entry.candidate.agent_ready,
             })
             .collect();
         targets.sort_by(|left, right| {
@@ -249,7 +249,7 @@ impl SessionTargetCatalog {
                 remote_desktop_ready: entry.candidate.remote_desktop_ready,
                 terminal_ready: entry.candidate.terminal_ready,
                 file_ready: entry.candidate.file_ready,
-                assistant_ready: entry.candidate.assistant_ready,
+                agent_ready: entry.candidate.agent_ready,
             },
         ))
     }
@@ -327,7 +327,7 @@ mod tests {
             remote_desktop_ready: true,
             terminal_ready: true,
             file_ready: true,
-            assistant_ready: true,
+            agent_ready: true,
         }
     }
 
@@ -390,7 +390,7 @@ mod tests {
         pending.remote_desktop_ready = false;
         pending.terminal_ready = false;
         pending.file_ready = false;
-        pending.assistant_ready = false;
+        pending.agent_ready = false;
         let target_id = catalog.upsert(pending);
 
         assert!(
@@ -428,7 +428,7 @@ mod tests {
         pending.remote_desktop_ready = false;
         pending.terminal_ready = false;
         pending.file_ready = false;
-        pending.assistant_ready = false;
+        pending.agent_ready = false;
         let target_id = catalog.upsert(pending.clone());
 
         assert!(catalog.set_readiness(&pending.session, true, true, true, true));
@@ -478,23 +478,23 @@ mod tests {
     fn frozen_connection_session_is_revalidated_without_reselection() {
         let catalog = SessionTargetCatalog::default();
         let mut first = candidate("session-a", 1);
-        first.assistant_ready = true;
+        first.agent_ready = true;
         let first_session = first.session.clone();
         catalog.upsert(first);
         catalog.upsert(candidate("session-b", 1));
 
         assert_eq!(
-            catalog.validate_bound_session(SessionCapability::Assistant, &first_session),
+            catalog.validate_bound_session(SessionCapability::Agent, &first_session),
             Ok(first_session.clone())
         );
         catalog.set_readiness(&first_session, true, true, true, false);
         assert_eq!(
-            catalog.validate_bound_session(SessionCapability::Assistant, &first_session),
+            catalog.validate_bound_session(SessionCapability::Agent, &first_session),
             Err(SessionTargetSelectionError::Unavailable)
         );
         catalog.remove(&first_session);
         assert_eq!(
-            catalog.validate_bound_session(SessionCapability::Assistant, &first_session),
+            catalog.validate_bound_session(SessionCapability::Agent, &first_session),
             Err(SessionTargetSelectionError::Stale)
         );
     }
@@ -503,18 +503,18 @@ mod tests {
     fn descriptor_for_session_returns_only_capability_ready_targets() {
         let catalog = SessionTargetCatalog::default();
         let mut candidate = candidate("session-a", 1);
-        candidate.assistant_ready = true;
+        candidate.agent_ready = true;
         candidate.terminal_ready = false;
         let session = candidate.session.clone();
         let target_id = catalog.upsert(candidate);
 
         let (revision, descriptor) = catalog
-            .descriptor_for_session(SessionCapability::Assistant, &session)
-            .expect("assistant-ready descriptor");
+            .descriptor_for_session(SessionCapability::Agent, &session)
+            .expect("agent-ready descriptor");
         assert!(revision > 0);
         assert_eq!(descriptor.target_id, target_id);
         assert_eq!(descriptor.display_name, "session-a");
-        assert!(descriptor.assistant_ready);
+        assert!(descriptor.agent_ready);
         assert!(
             catalog
                 .descriptor_for_session(SessionCapability::Terminal, &session)

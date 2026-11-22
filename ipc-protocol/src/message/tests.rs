@@ -1235,7 +1235,7 @@ fn terminal_output_produced_round_trips_wincode_with_large_chunk() {
         connection_id: "conn-term".to_string(),
         data: TerminalOutputData {
             content: body.clone(),
-            assistant_object_ref: Some(desk_agent_protocol::computer_use::ObjectRef {
+            agent_object_ref: Some(desk_agent_protocol::computer_use::ObjectRef {
                 token: "opaque-terminal-token".into(),
                 snapshot_id: "worker-1:4".into(),
                 object_kind: desk_agent_protocol::computer_use::ObjectKind::TerminalOutput,
@@ -1249,7 +1249,7 @@ fn terminal_output_produced_round_trips_wincode_with_large_chunk() {
             assert_eq!(p.data.content.len(), body.len());
             assert_eq!(p.data.content, body);
             assert_eq!(
-                p.data.assistant_object_ref.unwrap().object_kind,
+                p.data.agent_object_ref.unwrap().object_kind,
                 desk_agent_protocol::computer_use::ObjectKind::TerminalOutput
             );
         }
@@ -1893,7 +1893,7 @@ fn worker_to_service_all_variants_round_trip() {
             connection_id: "c".to_string(),
             data: TerminalOutputData {
                 content: "hi".to_string(),
-                assistant_object_ref: None,
+                agent_object_ref: None,
             },
         }),
         WorkerToService::TerminalCommandsListed(TerminalCommandsListedPayload {

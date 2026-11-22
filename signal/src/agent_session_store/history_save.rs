@@ -2,8 +2,8 @@
 //! No native/source SELECT or mutation follows the final history quota phase.
 
 use super::*;
-use crate::assistant_data_store::{self, AssistantStoreError};
-use desk_agent_protocol::ai_assistant::history::HistoryAdmission;
+use crate::agent_data_store::{self, AgentStoreError};
+use desk_agent_protocol::ai_agent::history::HistoryAdmission;
 use sea_orm::ConnectionTrait;
 
 pub(super) async fn with_history(
@@ -18,7 +18,7 @@ pub(super) async fn with_history(
         .await
         .map_err(history_error)?;
     let mut prepared = desk_diagnose_core::future::boxed(|| {
-        assistant_data_store::prepare_visible_history_on(&txn, session)
+        agent_data_store::prepare_visible_history_on(&txn, session)
     })
     .await
     .map_err(history_error)?;
@@ -29,11 +29,7 @@ pub(super) async fn with_history(
     let requests = prepared.requests(&captures).map_err(history_error)?;
     let deadlines = prepared.deadlines().map_err(history_error)?;
     let pending = desk_diagnose_core::future::boxed(|| {
-        assistant_data_store::history::staged::prepare_requests_on(
-            &txn,
-            &requests,
-            &prepared.policy,
-        )
+        agent_data_store::history::staged::prepare_requests_on(&txn, &requests, &prepared.policy)
     })
     .await
     .map_err(history_error)?;
@@ -60,13 +56,13 @@ pub(super) async fn with_history(
         .await
         .is_err()
     {
-        log::warn!("assistant answer retained without an optional citation projection");
+        log::warn!("agent answer retained without an optional citation projection");
     }
     let outcomes = desk_diagnose_core::future::boxed(|| pending.finalize_on())
         .await
         .map_err(history_error)?;
     let completed = u64::try_from(chrono::Utc::now().timestamp_millis())
-        .map_err(|_| history_error(AssistantStoreError::Inaccessible))?;
+        .map_err(|_| history_error(AgentStoreError::Inaccessible))?;
     if outcomes.len() != deadlines.len()
         || held_until.is_some_and(|until| until <= completed)
         || outcomes.iter().zip(deadlines).any(|(outcome, deadline)| {
@@ -76,7 +72,7 @@ pub(super) async fn with_history(
             ) && deadline.is_some_and(|until| until <= completed)
         })
     {
-        return Err(history_error(AssistantStoreError::Inaccessible));
+        return Err(history_error(AgentStoreError::Inaccessible));
     }
     txn.commit().await.map_err(history_error)?;
     Ok(result)
@@ -93,11 +89,11 @@ pub(crate) async fn persist_on<C: ConnectionTrait>(
     lease_deadline: Option<chrono::DateTime<chrono::Utc>>,
     original: Option<&agent_session::Model>,
 ) -> Result<sea_orm::UpdateResult, sea_orm::DbErr> {
-    // A native caller without an assistant-data scope retains the original
+    // A native caller without an agent-data scope retains the original
     // save path. It cannot drop a scope already present in the durable row.
     let absent_scope = if original.is_none()
-        && session.surface == AgentSessionSurface::AiAssistant
-        && session.assistant_data.is_none()
+        && session.surface == AgentSessionSurface::AiAgent
+        && session.agent_data.is_none()
     {
         let Some(row) = agent_session::Entity::find()
             .filter(agent_session::Column::ConversationId.eq(&session.conversation_id))
@@ -108,16 +104,16 @@ pub(crate) async fn persist_on<C: ConnectionTrait>(
         };
         let persisted = Box::new(
             PersistedAgentSession::decode_json(&row.state_json)
-                .map_err(|_| sea_orm::DbErr::Custom("invalid native assistant scope".into()))?,
+                .map_err(|_| sea_orm::DbErr::Custom("invalid native agent scope".into()))?,
         );
-        if persisted.assistant_data.is_some()
+        if persisted.agent_data.is_some()
             || persisted.actor_id != session.actor_id
             || persisted.device_id != session.device_id
             || persisted.surface != session.surface
             || persisted.agent_role != session.agent_role
         {
             return Err(sea_orm::DbErr::Custom(
-                "native save cannot remove or replace an assistant data scope".into(),
+                "native save cannot remove or replace an agent data scope".into(),
             ));
         }
         Some(Box::new(row))
@@ -150,10 +146,10 @@ pub(crate) async fn persist_on<C: ConnectionTrait>(
     query.exec(db).await
 }
 
-fn history_error(error: impl Into<AssistantStoreError>) -> AgentError {
+fn history_error(error: impl Into<AgentStoreError>) -> AgentError {
     let error = error.into();
     match error {
-        AssistantStoreError::Backend(error) => internal(format!("save agent session: {error}")),
-        _ => internal("agent session or original assistant source changed while saving"),
+        AgentStoreError::Backend(error) => internal(format!("save agent session: {error}")),
+        _ => internal("agent session or original agent source changed while saving"),
     }
 }

@@ -1,4 +1,4 @@
-//! Fail-closed projection of AI Assistant messages into one exact model sink.
+//! Fail-closed projection of AI Agent messages into one exact model sink.
 //!
 //! Provider dialects are deliberately downstream of this module. A caller must
 //! first authorize every dynamic message payload, then hand the returned request
@@ -484,7 +484,7 @@ impl ModelEgressPolicy {
                 media_type: "text/plain;charset=utf-8".into(),
             },
             provenance: DataProvenance {
-                source_provider_id: "ai-assistant-runtime".into(),
+                source_provider_id: "ai-agent-runtime".into(),
                 source_tool_name: crate::model_message_labels::sources::SYSTEM_PROMPT.into(),
                 source_object_id: Some(message_id.to_string()),
                 source_envelope_ids: Vec::new(),
@@ -518,7 +518,7 @@ pub(crate) fn envelope_expires_by(envelope: &DataEnvelope, cutoff_unix_ms: u64) 
 }
 
 #[derive(Serialize)]
-struct AssistantPayload<'a, T> {
+struct AgentPayload<'a, T> {
     text: &'a str,
     tool_calls: &'a [T],
 }
@@ -530,7 +530,7 @@ pub fn message_content_bytes(message: &ChatMessage) -> Result<Vec<u8>, ModelEgre
     if message.tool_calls.is_empty() {
         message_payload_bytes(&message.text, message.image_data_url.as_deref())
     } else {
-        serde_json::to_vec(&AssistantPayload::<ToolCallRef> {
+        serde_json::to_vec(&AgentPayload::<ToolCallRef> {
             text: &message.text,
             tool_calls: &message.tool_calls,
         })
@@ -579,7 +579,7 @@ pub fn model_turn_content_bytes(turn: &ModelTurn) -> Result<Vec<u8>, ModelEgress
     if turn.tool_calls.is_empty() {
         Ok(turn.text.as_bytes().to_vec())
     } else {
-        serde_json::to_vec(&AssistantPayload::<ToolCall> {
+        serde_json::to_vec(&AgentPayload::<ToolCall> {
             text: &turn.text,
             tool_calls: &turn.tool_calls,
         })
@@ -685,7 +685,7 @@ impl std::fmt::Display for ModelEgressError {
                 "message {message_id} from {source_tool_name} is not selected for model export"
             ),
             Self::ImageNotSupported => {
-                formatter.write_str("image egress is not enabled for AI Assistant Stage 1")
+                formatter.write_str("image egress is not enabled for AI Agent Stage 1")
             }
             Self::EmptySystemPrompt => formatter.write_str("system prompt is empty"),
             Self::EmptyInputs => formatter.write_str("model output has no source envelopes"),
@@ -2201,7 +2201,7 @@ mod tests {
 
     #[test]
     fn completed_wait_status_uses_exact_call_authority_without_authorizing_other_results() {
-        let mut call = ChatMessage::assistant_tool_calls(
+        let mut call = ChatMessage::agent_tool_calls(
             "wait-proposal",
             "",
             vec![ToolCallRef {

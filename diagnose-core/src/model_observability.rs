@@ -61,7 +61,7 @@ pub use error_selector::ErrorSelector;
 pub use relation::{ObservationAlias, ObservationRelation};
 
 closed_enum!(Surface {
-    Assistant,
+    Agent,
     Diagnose,
     Terminal,
     Fleet,
@@ -1032,7 +1032,7 @@ mod tests {
                 model_name: "configured-model".into(),
                 configuration_revision: "1".into(),
                 contract_revision: "1".into(),
-                surface: Surface::Assistant,
+                surface: Surface::Agent,
                 purpose: Purpose::Agent,
                 origin: Origin::User,
                 configuration_scope: ConfigurationScope::Local,

@@ -278,7 +278,7 @@ pub async fn export_device_file_recovery(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use desk_assistant_data_store::entity_table::EntityTableExt;
+    use desk_agent_data_store::entity_table::EntityTableExt;
     use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
     #[tokio::test]

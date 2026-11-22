@@ -662,7 +662,7 @@ fn word_document_xml(
     word_paragraph(&mut body, title, Some("Title"), false);
     word_paragraph(
         &mut body,
-        "AI Assistant / Structured Data Brief",
+        "AI Agent / Structured Data Brief",
         Some("Subtitle"),
         false,
     );
@@ -841,13 +841,13 @@ fn word_document_relationships_xml() -> String {
 
 fn word_core_properties_xml(title: &str) -> String {
     format!(
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>{}</dc:title><dc:creator>lcxbox AI Assistant</dc:creator></cp:coreProperties>"#,
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>{}</dc:title><dc:creator>lcxbox AI Agent</dc:creator></cp:coreProperties>"#,
         escape_xml(title)
     )
 }
 
 fn word_app_properties_xml() -> String {
-    r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>lcxbox AI Assistant</Application><AppVersion>1.0</AppVersion></Properties>"#.into()
+    r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>lcxbox AI Agent</Application><AppVersion>1.0</AppVersion></Properties>"#.into()
 }
 
 fn word_settings_xml() -> String {

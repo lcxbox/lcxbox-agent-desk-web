@@ -3,7 +3,7 @@
 //! the final history quota phase; no execution or delivery is replayed here.
 
 use super::*;
-use crate::assistant_data_store::native_result::{self, NativeSendResult};
+use crate::agent_data_store::native_result::{self, NativeSendResult};
 
 pub(super) async fn capture_on(
     txn: &DatabaseTransaction,
@@ -56,13 +56,9 @@ pub(super) async fn capture_on(
             .map_or(fence.conversation_id.as_str(), |value| {
                 value.root_conversation_id.as_str()
             });
-        if let Some(scope) = crate::assistant_data_store::native_scope_on(
-            txn,
-            &fence.actor_id,
-            &fence.device_id,
-            root,
-        )
-        .await?
+        if let Some(scope) =
+            crate::agent_data_store::native_scope_on(txn, &fence.actor_id, &fence.device_id, root)
+                .await?
         {
             scope.capture_on(txn).await?;
         }

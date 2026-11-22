@@ -527,13 +527,13 @@ cargo run -- --help
 - [ ] 添加了必要的测试
 - [ ] 更新了相关文档
 
-### Linux AI 助手开发
+### Linux AI 智能体开发
 
 Linux 桌面适配面向已登录的 GNOME Wayland 普通用户会话，使用 system bus 上的 logind、用户 session bus、xdg-desktop-portal 及 GNOME backend、PipeWire 和既有 AT-SPI accessibility bus。无桌面构建不能证明这些运行能力可用。不要用 root 启动桌面 worker、加入 input 组或自动开启用户无障碍设置。
 
 文件修改使用 openat2、renameat2，不做较弱 syscall 回退；运行时另检查文件系统支持和文件属主。AT-SPI 适配直接使用 zbus，不新增原生 AT-SPI 开发库依赖。即使 AI 桌面范围排除 X11，完整产品的采集构建仍需上方通用依赖。
 
-浏览器扩展使用 WebCrypto 原语，Node 测试不需安装额外依赖（Node 22.16.0，`cd browser-extension && npm test`）。`Browser Assistant Contract` CI 运行 Chrome API mock 测试，不进行真实配对或页面操作。父工作空间 `pocs/poc-linux-wayland-assistant` 提供显式启用的 GNOME 探针，其 README 记录 Python/GStreamer 运行依赖和外部 timeout。真实 Portal 测试与普通 CI 分开，禁止无筛选运行所有 ignored 测试。
+浏览器扩展使用 WebCrypto 原语，Node 测试不需安装额外依赖（Node 22.16.0，`cd browser-extension && npm test`）。`Browser Agent Contract` CI 运行 Chrome API mock 测试，不进行真实配对或页面操作。父工作空间 `pocs/poc-linux-wayland-assistant` 提供显式启用的 GNOME 探针，其 README 记录 Python/GStreamer 运行依赖和外部 timeout。真实 Portal 测试与普通 CI 分开，禁止无筛选运行所有 ignored 测试。
 
 Linux AI 桌面写能力仍需 GNOME 输入抢占和新鲜目标证据才能开放。构建或客户端生成成功不代表桌面验收通过。
 

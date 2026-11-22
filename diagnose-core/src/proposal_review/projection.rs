@@ -276,7 +276,7 @@ mod tests {
         let first = messages[4].data_envelope.clone().unwrap();
         let proposing = messages[1].data_envelope.clone().unwrap();
         let mut call = messages[1].clone();
-        call.message_id = "assistant-2".into();
+        call.message_id = "agent-2".into();
         call.tool_calls[0].id = "call-2".into();
         let mut pending = messages[2].clone();
         pending.message_id = "pending-2".into();

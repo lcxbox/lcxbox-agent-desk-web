@@ -1,7 +1,7 @@
 use super::*;
 use crate::entity::{agent_exec_task, agent_run_event, turn_usage};
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_diagnose_core::session::TurnState;
 
 async fn add_cleanup_tables(db: &DatabaseConnection) {

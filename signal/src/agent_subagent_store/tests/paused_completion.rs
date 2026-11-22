@@ -3,10 +3,10 @@ use super::*;
 use crate::agent_exec_store::SignalAgentExecStore;
 use crate::agent_session_store::{EventAppend, SignalAgentSessionStore};
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_diagnose_core::{
     action_result::ActionResultOrigin,
-    action_turn_fence::AssistantTurnFence,
+    action_turn_fence::AgentTurnFence,
     goal::GoalOwnerAction,
     seam::ClaimTurnParams,
     session::{ActionIdentity, ExecutionState, TriggerOrigin, TurnState, WorkKind},
@@ -36,9 +36,8 @@ async fn original_receipt_backfills_paused_child_and_claim_waits_for_goal_resume
         panic!("original child")
     };
     let mut child = claimed.session;
-    child.policy_revision =
-        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
-    let fence = AssistantTurnFence::from_session(&child).unwrap().unwrap();
+    child.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
+    let fence = AgentTurnFence::from_session(&child).unwrap().unwrap();
     // Synthetic dispatch provenance is confined to this storage contract fixture.
     let origin = ActionResultOrigin {
         schema_version: 1,

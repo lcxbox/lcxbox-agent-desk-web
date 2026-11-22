@@ -9,7 +9,7 @@
 //!
 //! The model is given a conversation ([`ChatMessage`]s) plus the tools it may
 //! call ([`ToolSpec`]) and how it is steered toward them ([`ToolChoice`]); it
-//! produces a normalized [`ModelTurn`] (assistant text + any [`ToolCall`]s +
+//! produces a normalized [`ModelTurn`] (agent text + any [`ToolCall`]s +
 //! [`StopReason`] + [`TokenUsage`]). [`classify_model_turn`] validates the
 //! `stop_reason × tool_calls` combination before the loop acts on it.
 
@@ -39,10 +39,10 @@ pub fn background_task_running_result(background_task_id: &str) -> String {
 
 /// Role of a chat message.
 ///
-/// `Assistant` carries the model's own output (text and/or [`ToolCallRef`]s);
+/// `Agent` carries the model's own output (text and/or [`ToolCallRef`]s);
 /// `Tool` carries the result of a tool call back to the model, linked by
 /// [`ChatMessage::tool_call_id`]. The two roles beyond the original
-/// system/user-only prompt (`Assistant` / `Tool`) are what makes multi-turn
+/// system/user-only prompt (`Agent` / `Tool`) are what makes multi-turn
 /// tool-calling replayable.
 ///
 /// `SystemEvent` is a system-generated notification injected *mid-conversation* —
@@ -182,7 +182,7 @@ pub fn frame_context_summary(text: &str) -> String {
     format!("{CONTEXT_SUMMARY_OPEN}\n{text}\n{CONTEXT_SUMMARY_CLOSE}")
 }
 
-/// A tool call as carried on an assistant message when the conversation is
+/// A tool call as carried on an agent message when the conversation is
 /// replayed to the model. `id` pairs with the [`ChatRole::Tool`] result message's
 /// [`ChatMessage::tool_call_id`]; `arguments_json` is the model's JSON after the
 /// host's one-time input normalization (kept as a string so later
@@ -202,7 +202,7 @@ pub struct ToolCallRef {
 /// well-formed (no second tool result for the same call).
 ///
 /// `image_data_url`, when set, is attached as a vision image alongside the text.
-/// `tool_calls` is non-empty only on an assistant message that requested tools.
+/// `tool_calls` is non-empty only on an agent message that requested tools.
 /// `tool_call_id` links a [`ChatRole::Tool`] result or a later
 /// [`ChatRole::UntrustedOutput`] completion to the originating call.
 /// `background_task_id` is the server-issued execution request id carried by a
@@ -235,7 +235,7 @@ pub struct ChatMessage {
     pub tool_ok: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_task_id: Option<String>,
-    /// Provider replay for assistant replies, with or without tool calls.
+    /// Provider replay for agent replies, with or without tool calls.
     /// Opaque payloads never enter public conversation DTOs or safety input.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replay_disposition: Option<ReplayDisposition>,
@@ -332,13 +332,13 @@ impl ChatMessage {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    /// An assistant message that requested one or more tools.
-    pub fn assistant_tool_calls(
+    /// An agent message that requested one or more tools.
+    pub fn agent_tool_calls(
         message_id: impl Into<String>,
         text: impl Into<String>,
         tool_calls: Vec<ToolCallRef>,
     ) -> Self {
-        Self::assistant_tool_calls_with_replay(
+        Self::agent_tool_calls_with_replay(
             message_id,
             text,
             tool_calls,
@@ -346,8 +346,8 @@ impl ChatMessage {
         )
     }
 
-    /// An assistant tool-call message with its parser-frozen replay decision.
-    pub fn assistant_tool_calls_with_replay(
+    /// An agent tool-call message with its parser-frozen replay decision.
+    pub fn agent_tool_calls_with_replay(
         message_id: impl Into<String>,
         text: impl Into<String>,
         tool_calls: Vec<ToolCallRef>,
@@ -487,7 +487,7 @@ impl ChatMessage {
         }
     }
 
-    /// A tool-result message answering the assistant's call `tool_call_id`.
+    /// A tool-result message answering the agent's call `tool_call_id`.
     pub fn tool_result(
         message_id: impl Into<String>,
         tool_call_id: impl Into<String>,
@@ -599,7 +599,7 @@ pub struct ToolCall {
 }
 
 impl ToolCall {
-    /// The assistant-message reference form of this call (for conversation replay).
+    /// The agent-message reference form of this call (for conversation replay).
     pub fn to_ref(&self) -> ToolCallRef {
         ToolCallRef {
             id: self.id.clone(),
@@ -723,7 +723,7 @@ mod cache_usage_tests {
     }
 }
 
-/// The result of one model turn, normalized across providers: the assistant's
+/// The result of one model turn, normalized across providers: the agent's
 /// text, any tool calls it requested, why it stopped, and token usage. This is
 /// what both adapters/dialects produce and the loop consumes.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -922,12 +922,12 @@ mod tests {
         }
     }
 
-    /// A full conversation (system/user/assistant-with-tool-calls/tool-result)
+    /// A full conversation (system/user/agent-with-tool-calls/tool-result)
     /// round-trips, and the optional fields are omitted when empty so a replayed
     /// message is byte-stable.
     #[test]
     fn chat_message_round_trips_and_omits_empty_fields() {
-        let assistant = ChatMessage::assistant_tool_calls(
+        let agent = ChatMessage::agent_tool_calls(
             "m2",
             "let me check",
             vec![ToolCallRef {
@@ -951,7 +951,7 @@ mod tests {
         assert_eq!(tool_json["tool_call_id"], "call_1");
         assert!(tool_json.get("tool_calls").is_none());
 
-        for m in [&assistant, &tool, &user] {
+        for m in [&agent, &tool, &user] {
             let back: ChatMessage =
                 serde_json::from_str(&serde_json::to_string(m).unwrap()).unwrap();
             assert_eq!(&back, m);

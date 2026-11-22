@@ -44,7 +44,7 @@ pub enum StartupMode {
     ServiceDaemon,
     /// Session worker process - launched by ServiceDaemon in target desktop
     SessionWorker,
-    /// Read-only MCP server over stdio (local AI assistant integration). stdin /
+    /// Read-only MCP server over stdio (local AI agent integration). stdin /
     /// stdout carry the MCP JSON-RPC framing, so this mode must never log to
     /// stdout (see `is_headless_startup_mode`).
     McpStdio,

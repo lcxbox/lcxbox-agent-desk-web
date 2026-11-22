@@ -3,7 +3,7 @@ use super::*;
 use crate::agent_approval_store as approval;
 use crate::config::ConfigConnection;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_diagnose_core::{
     approval_review::{ApprovalReviewDecision, ApprovalVerdict, PendingRequestKind},
     chat::{ChatMessage, ToolCall, ToolCallRef},
@@ -74,7 +74,7 @@ pub(super) async fn pause_turn(
     saved(db, &session.conversation_id).await
 }
 
-/// A running owner turn whose last assistant message makes `call`.
+/// A running owner turn whose last agent message makes `call`.
 pub(super) async fn turn_fixture(
     owner_switch: bool,
     call: &ToolCall,
@@ -128,8 +128,8 @@ pub(super) async fn turn_fixture(
     }
     session.file_scope = Default::default();
     session.permission_requests.clear();
-    let mut assistant = ChatMessage::assistant_tool_calls(
-        "schedule-assistant",
+    let mut agent = ChatMessage::agent_tool_calls(
+        "schedule-agent",
         "",
         vec![ToolCallRef {
             id: call.id.clone(),
@@ -137,18 +137,18 @@ pub(super) async fn turn_fixture(
             arguments_json: call.arguments_json.clone(),
         }],
     );
-    assistant.turn_id = session.current_turn_id.clone();
-    let bytes = desk_diagnose_core::model_egress::message_content_bytes(&assistant).unwrap();
-    assistant.data_envelope = Some(
+    agent.turn_id = session.current_turn_id.clone();
+    let bytes = desk_diagnose_core::model_egress::message_content_bytes(&agent).unwrap();
+    agent.data_envelope = Some(
         desk_diagnose_core::subagent::projection::envelope(
-            "schedule-assistant",
+            "schedule-agent",
             &String::from_utf8(bytes).unwrap(),
             "test",
             &[user.data_envelope.clone().unwrap()],
         )
         .unwrap(),
     );
-    session.conversation = vec![user.clone(), assistant];
+    session.conversation = vec![user.clone(), agent];
     session.turn_state = TurnState::Running;
     let txn = db.begin().await.unwrap();
     crate::agent_subagent_store::initialize_input_group_on(
@@ -225,7 +225,7 @@ pub(super) async fn reviewed_kind(
             .iter()
             .any(|item| item.kind == kind && item.request_id == schedule_id)
     );
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let surface = desk_agent_protocol::capability_provider::ProductSurface::OssPersonalOwner;
     let candidate = approval::prepare_permission_review_batch(
         db,
@@ -398,7 +398,7 @@ async fn an_owner_decision_first_leaves_nothing_for_the_reviewer() {
             &session.device_id,
             &schedule_id,
             PendingRequestKind::Schedule,
-            &desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+            &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
             desk_agent_protocol::capability_provider::ProductSurface::OssPersonalOwner,
             0,
             now,

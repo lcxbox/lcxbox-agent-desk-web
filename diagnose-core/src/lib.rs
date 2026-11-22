@@ -1,4 +1,4 @@
-//! Model-agnostic AI Assistant logic shared by the thin edge and central brain.
+//! Model-agnostic AI Agent logic shared by the thin edge and central brain.
 //!
 //! Splitting this out of `server` lets the manager run the same capability
 //! selection, prompt assembly, response parsing, and evidence chunking the edge
@@ -24,11 +24,14 @@
 pub mod action_result;
 pub mod action_turn_fence;
 pub mod action_version;
+pub mod agent_approval_mode;
+mod agent_data_model;
 pub mod agent_loop;
 #[cfg(test)]
 mod agent_loop_acceptance;
+pub mod agent_policy;
 pub mod agentic_prompt;
-pub mod ai_assistant;
+pub mod ai_agent;
 pub mod application_batch;
 pub mod application_launch;
 pub mod application_ui;
@@ -37,9 +40,6 @@ pub mod approval_delegation;
 pub mod approval_egress;
 pub mod approval_review;
 pub mod approval_usage;
-pub mod assistant_approval_mode;
-mod assistant_data_model;
-pub mod assistant_policy;
 pub mod background_input;
 #[cfg(test)]
 pub mod browser_control;
@@ -135,7 +135,7 @@ pub mod spreadsheet_formula;
 pub mod stream;
 pub mod subagent;
 pub mod task_status_tools;
-pub mod terminal_ai_assistant;
+pub mod terminal_ai_agent;
 pub mod terminal_complete;
 pub mod terminal_completion_policy;
 #[cfg(any(test, feature = "test-support"))]

@@ -424,7 +424,7 @@ mod tests {
         let policy = policy();
         let old = ChatMessage::text("old", ChatRole::User, "omitted".repeat(1000));
         let user = ChatMessage::text("u", ChatRole::User, "requirement");
-        let mut call = ChatMessage::assistant_tool_calls(
+        let mut call = ChatMessage::agent_tool_calls(
             "call",
             "",
             vec![ToolCallRef {

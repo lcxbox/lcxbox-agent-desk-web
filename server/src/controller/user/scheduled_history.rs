@@ -8,7 +8,7 @@ use desk_diagnose_core::{
     session::{AgentSessionSurface, PersistedAgentSession},
 };
 use desk_signal::{
-    controller::ai_assistant_session::get_ai_assistant_session,
+    controller::ai_agent_session::get_ai_agent_session,
     entity::{agent_schedule_run as run, agent_session},
 };
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
@@ -87,7 +87,7 @@ async fn scheduled_result_rest_owner_guard_and_original_subject() {
         },
         &now.to_rfc3339(),
     );
-    session.surface = AgentSessionSurface::AiAssistant;
+    session.surface = AgentSessionSurface::AiAgent;
     session.conversation.push(ChatMessage::text(
         "question",
         ChatRole::User,
@@ -162,12 +162,12 @@ async fn scheduled_result_rest_owner_guard_and_original_subject() {
             .service(
                 web::scope("/api")
                     .wrap(from_fn(enforce_device_scope))
-                    .service(get_ai_assistant_session),
+                    .service(get_ai_agent_session),
             ),
     )
     .await;
     let url = format!(
-        "/api/my/ai-assistant-session?scheduled_task={}&scheduled_run={run_id}&message_limit=1",
+        "/api/my/ai-agent-session?scheduled_task={}&scheduled_run={run_id}&message_limit=1",
         task.schedule_id
     );
     let anonymous =
@@ -222,8 +222,7 @@ async fn scheduled_result_rest_owner_guard_and_original_subject() {
     for uri in [
         format!("{url}&session=original-session"),
         format!("{url}&connection=host"),
-        "/api/my/ai-assistant-session?scheduled_task=other&scheduled_run=schedule-run-rest-test"
-            .into(),
+        "/api/my/ai-agent-session?scheduled_task=other&scheduled_run=schedule-run-rest-test".into(),
     ] {
         let response = test::call_service(
             &app,

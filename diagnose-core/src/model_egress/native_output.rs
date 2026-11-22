@@ -4,7 +4,7 @@
 use super::{ModelInputLineage, NativeModelInputSnapshot, validate_model_output_lineage};
 use crate::sink_authorizer::SinkProjectionAudit;
 use desk_agent_protocol::{
-    ai_assistant::source::validate_source_id,
+    ai_agent::source::validate_source_id,
     data_lineage::{DataEnvelope, DestinationIdentity, MAX_SOURCE_LINEAGE_BYTES},
 };
 use serde::{Deserialize, Serialize};

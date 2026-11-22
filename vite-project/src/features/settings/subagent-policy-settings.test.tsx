@@ -15,14 +15,14 @@ describe('subagent policy settings', () => {
             .mockResolvedValueOnce(response(policy(5, 8, 45)));
         vi.stubGlobal('fetch', fetchMock);
         render(<SubAgentPolicySettings />);
-        const unfinished = await screen.findByLabelText('pages.aiAssistant.subagentPolicyUnfinished');
+        const unfinished = await screen.findByLabelText('pages.aiAgent.subagentPolicyUnfinished');
         await waitFor(() => expect(unfinished).toHaveValue(2));
-        const duration = screen.getByLabelText('pages.aiAssistant.subagentPolicyTaskDuration');
+        const duration = screen.getByLabelText('pages.aiAgent.subagentPolicyTaskDuration');
         expect(duration).toHaveValue(120);
         fireEvent.change(unfinished, { target: { value: '8' } });
         fireEvent.change(duration, { target: { value: '45' } });
-        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAssistant.goalBudgetSave' }));
-        await screen.findByText('pages.aiAssistant.subagentPolicySaved');
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.goalBudgetSave' }));
+        await screen.findByText('pages.aiAgent.subagentPolicySaved');
         expect(fetchMock.mock.calls[1][0]).toBe('/api/admin/system/subagent-policy');
         expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ expectedRevision: 4,
             limits: { maxUnfinishedPerRoot: 8, maxTaskDurationMinutes: 45 } });
@@ -32,15 +32,15 @@ describe('subagent policy settings', () => {
         const fetchMock = vi.fn().mockResolvedValue(response(policy(0)));
         vi.stubGlobal('fetch', fetchMock);
         render(<SubAgentPolicySettings />);
-        const unfinished = await screen.findByLabelText('pages.aiAssistant.subagentPolicyUnfinished');
+        const unfinished = await screen.findByLabelText('pages.aiAgent.subagentPolicyUnfinished');
         await waitFor(() => expect(unfinished).toHaveValue(2));
-        const save = screen.getByRole('button', { name: 'pages.aiAssistant.goalBudgetSave' });
+        const save = screen.getByRole('button', { name: 'pages.aiAgent.goalBudgetSave' });
         for (const value of ['0', '1.5', '33', '']) {
             fireEvent.change(unfinished, { target: { value } });
             expect(save).toBeDisabled();
         }
         fireEvent.change(unfinished, { target: { value: '32' } });
-        const duration = screen.getByLabelText('pages.aiAssistant.subagentPolicyTaskDuration');
+        const duration = screen.getByLabelText('pages.aiAgent.subagentPolicyTaskDuration');
         for (const value of ['0', '1.5', '4294967296', '']) {
             fireEvent.change(duration, { target: { value } });
             expect(save).toBeDisabled();
@@ -56,15 +56,15 @@ describe('subagent policy settings', () => {
             .mockResolvedValueOnce(response(policy(1, 6)));
         vi.stubGlobal('fetch', fetchMock);
         render(<SubAgentPolicySettings />);
-        const unfinished = await screen.findByLabelText('pages.aiAssistant.subagentPolicyUnfinished');
+        const unfinished = await screen.findByLabelText('pages.aiAgent.subagentPolicyUnfinished');
         await waitFor(() => expect(unfinished).toHaveValue(2));
         fireEvent.change(unfinished, { target: { value: '8' } });
-        const save = screen.getByRole('button', { name: 'pages.aiAssistant.goalBudgetSave' });
+        const save = screen.getByRole('button', { name: 'pages.aiAgent.goalBudgetSave' });
         fireEvent.click(save);
         expect(await screen.findByRole('alert')).toHaveTextContent('reload before retrying');
         expect(save).toBeDisabled();
         expect(unfinished).toHaveValue(8);
-        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAssistant.goalBudgetReload' }));
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.goalBudgetReload' }));
         await waitFor(() => expect(unfinished).toHaveValue(6));
     });
 });

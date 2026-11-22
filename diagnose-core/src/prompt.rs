@@ -41,7 +41,7 @@ pub enum ResponseFormatSpec {
 
 /// The system prompt: output contract + injection defence + suggest-only stance.
 pub const SYSTEM_PROMPT: &str = "\
-You are a remote-device troubleshooting assistant. You are given a user question \
+You are a remote-device troubleshooting agent. You are given a user question \
 and read-only evidence collected from one device. Diagnose the problem.
 
 Rules:

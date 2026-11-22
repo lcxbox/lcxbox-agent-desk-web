@@ -17,19 +17,19 @@ function renderGuide(returnTo?: string) {
 
 describe('browser setup guide navigation', () => {
     it('returns to the original conversation and targets the same device for remote control', () => {
-        renderGuide('/desk/device/device-a/assistant?conversation=run-1');
+        renderGuide('/desk/device/device-a/agent?conversation=run-1');
         expect(screen.getAllByRole('link', { name: /browserSetup.back/ })[0])
-            .toHaveAttribute('href', '/desk/device/device-a/assistant?conversation=run-1');
+            .toHaveAttribute('href', '/desk/device/device-a/agent?conversation=run-1');
         expect(screen.getByRole('link', { name: /browserTakeoverAction/ }))
             .toHaveAttribute('href', '/desk/device/device-a/control');
         expect(screen.getAllByRole('listitem')).toHaveLength(4);
     });
 
-    it.each(['https://example.com', '/desk/other-device/assistant', undefined])(
-        'falls back to this AI assistant for an invalid or missing origin: %s', (origin) => {
+    it.each(['https://example.com', '/desk/other-device/agent', undefined])(
+        'falls back to this AI agent for an invalid or missing origin: %s', (origin) => {
             renderGuide(origin);
             expect(screen.getAllByRole('link', { name: /browserSetup.back/ })[0])
-                .toHaveAttribute('href', '/desk/device/device-a/assistant');
+                .toHaveAttribute('href', '/desk/device/device-a/agent');
         },
     );
 });

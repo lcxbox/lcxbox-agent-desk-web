@@ -16,7 +16,7 @@ cargo run -- --help
 | `desk-server` | 仅被控端（Desk Server）。 |
 | `service-daemon` | 系统服务守护进程（SYSTEM / root），管理各会话的 worker。 |
 | `session-worker` | 由守护进程在用户桌面会话中启动的内部工作进程。 |
-| `mcp-stdio` | 面向本地 AI 助手的只读 MCP 服务（stdio）。 |
+| `mcp-stdio` | 面向本地 AI 智能体的只读 MCP 服务（stdio）。 |
 
 ## 默认模式
 

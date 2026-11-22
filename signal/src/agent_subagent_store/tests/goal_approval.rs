@@ -4,7 +4,7 @@ use crate::agent_approval_store as approval;
 use crate::config::ConfigConnection;
 use crate::entity::agent_approval_review as review_row;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_diagnose_core::{
     approval_review::{
         ApprovalReviewCandidate, ApprovalReviewDecision, ApprovalVerdict, PendingRequestKind,
@@ -66,8 +66,8 @@ async fn fixture() -> (
     session.file_scope = Default::default();
     session.conversation.clear();
     session.permission_requests.clear();
-    let mut assistant = ChatMessage::assistant_tool_calls(
-        "goal-assistant",
+    let mut agent = ChatMessage::agent_tool_calls(
+        "goal-agent",
         "",
         vec![ToolCallRef {
             id: "goal-call".into(),
@@ -75,18 +75,18 @@ async fn fixture() -> (
             arguments_json: r#"{"goal_text":"Finish the report"}"#.into(),
         }],
     );
-    assistant.turn_id = session.current_turn_id.clone();
-    let bytes = desk_diagnose_core::model_egress::message_content_bytes(&assistant).unwrap();
-    assistant.data_envelope = Some(
+    agent.turn_id = session.current_turn_id.clone();
+    let bytes = desk_diagnose_core::model_egress::message_content_bytes(&agent).unwrap();
+    agent.data_envelope = Some(
         desk_diagnose_core::subagent::projection::envelope(
-            "goal-assistant",
+            "goal-agent",
             &String::from_utf8(bytes).unwrap(),
             "test",
             &[user.data_envelope.clone().unwrap()],
         )
         .unwrap(),
     );
-    session.conversation = vec![user.clone(), assistant];
+    session.conversation = vec![user.clone(), agent];
     session.turn_state = TurnState::Running;
     let txn = db.begin().await.unwrap();
     crate::agent_subagent_store::initialize_input_group_on(
@@ -124,7 +124,7 @@ async fn fixture() -> (
         "goal-request".into(),
         session.conversation_id.clone(),
         session.actor_id.clone(),
-        desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed(session.device_id.clone()),
+        desk_diagnose_core::dynamic_run::AgentInputTarget::fixed(session.device_id.clone()),
         session.device_id.clone(),
         "goal-user".into(),
         session.input_revision,
@@ -158,7 +158,7 @@ async fn claim(
             .any(|item| item.kind == PendingRequestKind::Goal
                 && item.request_id == request.request_id)
     );
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let surface = desk_agent_protocol::capability_provider::ProductSurface::OssPersonalOwner;
     let candidate = approval::prepare_permission_review_batch(
         db,
@@ -518,7 +518,7 @@ async fn goal_approval_funding_failure_is_terminal_instead_of_a_storage_retry() 
             .exec(&db)
             .await
             .unwrap();
-        let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+        let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
         let surface = desk_agent_protocol::capability_provider::ProductSurface::OssPersonalOwner;
         let candidate = approval::prepare_permission_review_batch(
             &db,

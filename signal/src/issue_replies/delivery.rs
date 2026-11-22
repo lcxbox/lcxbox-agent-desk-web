@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::config::connection::DatabaseTransaction;
-use desk_assistant_data_store::issue_reply::{
+use desk_agent_data_store::issue_reply::{
     Claim,
     delivery::{self, CLAIM_LEASE_MS, RETRY_DELAY_MS},
 };
@@ -18,7 +18,7 @@ pub async fn deliver_next(
     token: &str,
 ) -> Result<bool, AgentError> {
     deliver_next_with_authority(db, node, token, async |txn, artifact| {
-        desk_assistant_data_store::issue_authority::publication_revision(
+        desk_agent_data_store::issue_authority::publication_revision(
             txn,
             &artifact.origin,
             &artifact.access,

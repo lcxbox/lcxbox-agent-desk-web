@@ -137,7 +137,7 @@ fn mutation_receipt(
         };
         if envelope.validate().is_err()
             || envelope.provenance.source_tool_name != call.name
-            || envelope.provenance.source_provider_id != crate::ai_assistant::TEXT_FILE_PROVIDER_ID
+            || envelope.provenance.source_provider_id != crate::ai_agent::TEXT_FILE_PROVIDER_ID
             || envelope.content.size_bytes() != result.text.len() as u64
             || device_id.is_some_and(|device| {
                 envelope.provenance.source_object_id.as_deref()
@@ -323,7 +323,7 @@ pub(super) fn build(
     call: &ToolCall,
     now_unix_ms: u64,
 ) -> Result<TextMutationPreflight, AgentError> {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let capability = registry
         .capability_for_tool(RESTORE_TEXT_TOOL)
         .ok_or_else(unavailable)?;
@@ -494,7 +494,7 @@ mod tests {
         text: String,
     ) {
         let owner = owner();
-        session.conversation.push(ChatMessage::assistant_tool_calls(
+        session.conversation.push(ChatMessage::agent_tool_calls(
             format!("{call_id}-proposal"),
             "",
             vec![ToolCallRef {
@@ -607,7 +607,7 @@ mod tests {
             session,
             call_id,
             tool,
-            crate::ai_assistant::TEXT_FILE_PROVIDER_ID,
+            crate::ai_agent::TEXT_FILE_PROVIDER_ID,
             serde_json::to_string(&completed).unwrap(),
         );
     }
@@ -631,7 +631,7 @@ mod tests {
             next_start_byte: None,
             matches: vec![],
         };
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         let capability = registry
             .capability_for_tool(crate::tool_names::READ_TEXT_FILE)
             .unwrap();
@@ -1009,7 +1009,7 @@ mod tests {
         // The AI reviewer receives the projection, not the exact input.
         let item = crate::dynamic_run::GrantRequestItem {
             item_id: "mutation".into(),
-            provider_id: crate::ai_assistant::TEXT_FILE_PROVIDER_ID.into(),
+            provider_id: crate::ai_agent::TEXT_FILE_PROVIDER_ID.into(),
             tool_name: UPDATE_TEXT_TOOL.into(),
             expected_effect:
                 desk_agent_protocol::capability_provider::CapabilityEffect::WriteArtifact,

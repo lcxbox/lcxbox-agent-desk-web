@@ -1,7 +1,7 @@
 use super::*;
 use actix_web::{FromRequest, HttpResponse, body::MessageBody, test::TestRequest};
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_server_user::model::CurrentUser;
 use desk_signal_facade::model::peer::{
     HostExecCapabilities, PeerInfo, ServerRegistration, SignalingPeer,
@@ -69,7 +69,7 @@ async fn make_handler(
                 exec_pty_elevation: false,
                 max_ai_command_runtime_ms: None,
             },
-            ai_assistant_settings: desk_agent_protocol::ai_assistant::AiAssistantSettings {
+            ai_agent_settings: desk_agent_protocol::ai_agent::AiAgentSettings {
                 revision: 0,
                 enabled: false,
             },

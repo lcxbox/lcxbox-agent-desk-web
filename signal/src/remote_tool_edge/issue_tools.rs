@@ -5,7 +5,7 @@ use desk_diagnose_core::{
     external_tools, input_read_context::ReadContextSelection, session::PersistedAgentSession,
 };
 
-impl SignalAiAssistantTools {
+impl SignalAiAgentTools {
     async fn checked_issue_input(
         &self,
         session: &PersistedAgentSession,
@@ -21,7 +21,7 @@ impl SignalAiAssistantTools {
         let original = crate::agent_run_event_store::SignalAgentRunEventStore::new(self.db.clone())
             .checked_external_read_input(session, &original.destination, call_id)
             .await?;
-        if !desk_assistant_data_store::issue_authority::input_sources_current(
+        if !desk_agent_data_store::issue_authority::input_sources_current(
             &self.db,
             session,
             &original,
@@ -89,7 +89,7 @@ impl SignalAiAssistantTools {
         {
             return Err(issue_unavailable());
         }
-        let snapshot = desk_assistant_data_store::issue_authority::resolve_input(
+        let snapshot = desk_agent_data_store::issue_authority::resolve_input(
             &self.db,
             session,
             &original,
@@ -113,7 +113,7 @@ impl SignalAiAssistantTools {
                     true,
                 )
             })?;
-            desk_assistant_data_store::issue_events::supplements::include_on(
+            desk_agent_data_store::issue_events::supplements::include_on(
                 &self.db,
                 &mut snapshot,
                 &policy,
@@ -193,7 +193,7 @@ impl SignalAiAssistantTools {
             if config
                 .connection_for_issue(&session.actor_id, issue)
                 .is_some()
-                && desk_assistant_data_store::issue_authority::resolve_input(
+                && desk_agent_data_store::issue_authority::resolve_input(
                     db, session, &original, issue, now,
                 )
                 .await
@@ -211,7 +211,7 @@ impl SignalAiAssistantTools {
         session: &PersistedAgentSession,
         call: &ToolCall,
     ) -> Result<desk_diagnose_core::issue_reply::ReplyGeneration, AgentError> {
-        use desk_assistant_data_store::issue_reply::preparation::{self, Preparation};
+        use desk_agent_data_store::issue_reply::preparation::{self, Preparation};
         let db = &self.db;
         let destination = &self
             .original_input
@@ -286,7 +286,7 @@ impl SignalAiAssistantTools {
     ) -> Result<desk_diagnose_core::issue_reply::ReplyToolReceipt, AgentError> {
         let row = crate::issue_replies::freeze(
             &self.db,
-            desk_assistant_data_store::issue_reply::ReplyPreparation {
+            desk_agent_data_store::issue_reply::ReplyPreparation {
                 held: session,
                 origin: publication.origin,
                 access: publication.access,
@@ -300,7 +300,7 @@ impl SignalAiAssistantTools {
             },
         )
         .await?;
-        Ok(desk_assistant_data_store::issue_reply::preparation::tool_receipt(&row))
+        Ok(desk_agent_data_store::issue_reply::preparation::tool_receipt(&row))
     }
 }
 

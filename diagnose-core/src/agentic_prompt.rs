@@ -34,7 +34,7 @@ pub const AGENTIC_SYSTEM_MESSAGE_ID: &str = "agentic-system";
 /// suggest-then-confirm stance. No output schema is imposed — the model answers in
 /// natural language or calls a tool.
 pub const AGENTIC_SYSTEM_PROMPT: &str = "\
-You are a remote-device troubleshooting assistant operating one device on the \
+You are a remote-device troubleshooting agent operating one device on the \
 user's behalf. You hold a multi-turn conversation and may call tools to gather \
 evidence and, with explicit approval, to act.
 

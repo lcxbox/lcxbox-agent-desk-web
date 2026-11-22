@@ -56,7 +56,7 @@ pub(super) async fn run<F: FnMut() -> String>(
     Ok(outcome)
 }
 
-/// The latest assistant message issuing `tool_call_id`: its index, the call and
+/// The latest agent message issuing `tool_call_id`: its index, the call and
 /// the message's envelope. Providers may reuse call ids across turns, so only
 /// results recorded after this message answer it.
 fn issued(
@@ -355,7 +355,7 @@ mod tests {
             },
             "2026-11-17T00:00:00Z",
         );
-        session.conversation.push(ChatMessage::assistant_tool_calls(
+        session.conversation.push(ChatMessage::agent_tool_calls(
             "assistant",
             "",
             vec![ToolCallRef {

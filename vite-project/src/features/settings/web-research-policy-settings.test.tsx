@@ -13,11 +13,11 @@ describe('web research policy settings', () => {
             .mockResolvedValueOnce(response(policy(4, 512 * 1024)));
         vi.stubGlobal('fetch', fetchMock);
         render(<WebResearchPolicySettings />);
-        const limit = await screen.findByLabelText('pages.aiAssistant.webResearchPolicyMaxFetch');
+        const limit = await screen.findByLabelText('pages.aiAgent.webResearchPolicyMaxFetch');
         await waitFor(() => expect(limit).toHaveValue(128));
         fireEvent.change(limit, { target: { value: '512' } });
-        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAssistant.goalBudgetSave' }));
-        await screen.findByText('pages.aiAssistant.webResearchPolicySaved');
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.goalBudgetSave' }));
+        await screen.findByText('pages.aiAgent.webResearchPolicySaved');
         expect(fetchMock.mock.calls[1][0]).toBe('/api/admin/system/web-research-policy');
         expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ expectedRevision: 3, maxFetchBytes: 512 * 1024 });
         expect(limit).toHaveValue(512);
@@ -27,9 +27,9 @@ describe('web research policy settings', () => {
         const fetchMock = vi.fn().mockResolvedValue(response(policy(0)));
         vi.stubGlobal('fetch', fetchMock);
         render(<WebResearchPolicySettings />);
-        const limit = await screen.findByLabelText('pages.aiAssistant.webResearchPolicyMaxFetch');
+        const limit = await screen.findByLabelText('pages.aiAgent.webResearchPolicyMaxFetch');
         await waitFor(() => expect(limit).toHaveValue(128));
-        const save = screen.getByRole('button', { name: 'pages.aiAssistant.goalBudgetSave' });
+        const save = screen.getByRole('button', { name: 'pages.aiAgent.goalBudgetSave' });
         for (const value of ['15', '1.5', '1025', '']) {
             fireEvent.change(limit, { target: { value } });
             expect(save).toBeDisabled();

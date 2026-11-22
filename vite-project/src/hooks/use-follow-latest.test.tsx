@@ -75,7 +75,7 @@ describe("useFollowLatest", () => {
 })
 
 
-describe("assistant conversation following", () => {
+describe("agent conversation following", () => {
     it("preserves a reader's position during streaming, resumes on jump, and resets on conversation switch", () => {
         const { rerender } = render(<FollowLatestHarness tick={0} />)
         const area = screen.getByTestId("scroll-area")

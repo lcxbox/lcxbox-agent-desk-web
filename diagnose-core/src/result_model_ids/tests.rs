@@ -30,7 +30,7 @@ pub(crate) fn evidence(tool: &str, id: &str, arguments: Value, result: Value) ->
         false,
     )
     .unwrap();
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let descriptor = registry.capability_for_tool(tool).unwrap();
     receipt
         .data_envelope
@@ -45,7 +45,7 @@ pub(crate) fn evidence(tool: &str, id: &str, arguments: Value, result: Value) ->
         .clone();
     vec![
         owner,
-        ChatMessage::assistant_tool_calls(
+        ChatMessage::agent_tool_calls(
             "source",
             "",
             vec![ToolCallRef {
@@ -517,7 +517,7 @@ fn web_source_positions_are_stable_for_duplicates_and_filtered_entries() {
 fn cost_preparation_and_wire_use_the_same_native_result_argument_projection() {
     let mut history = read_history();
     let args = json!({"file_result_call_id":"read","expected_sha256":format!("{:x}",Sha256::digest(b"old"))});
-    history.push(ChatMessage::assistant_tool_calls(
+    history.push(ChatMessage::agent_tool_calls(
         "delete",
         "",
         vec![ToolCallRef {
@@ -571,7 +571,7 @@ fn unavailable_result_projection_never_falls_back_to_opaque_identity_or_proof() 
 #[test]
 fn derived_locators_are_frozen_for_repeated_projection() {
     let mut history = read_history();
-    history.push(ChatMessage::assistant_tool_calls(
+    history.push(ChatMessage::agent_tool_calls(
         "read-next",
         "",
         vec![ToolCallRef {
@@ -734,7 +734,7 @@ fn mutation_results_are_offered_and_resolved_as_restore_sources() {
             "{invalid}"
         );
     }
-    let mut tool = crate::ai_assistant::ai_assistant_provider_registry()
+    let mut tool = crate::ai_agent::ai_agent_provider_registry()
         .registered_tools()
         .into_iter()
         .find(|tool| tool.name() == "restore_text_file")

@@ -11,7 +11,7 @@ use crate::{
     goal::{GoalOpenRequest, GoalOpenRequestState, GoalRun},
     session::{AgentSessionSurface, PersistedAgentSession, TriggerOrigin},
 };
-use desk_agent_protocol::ai_assistant::goal_budget::GoalBudgetPolicy;
+use desk_agent_protocol::ai_agent::goal_budget::GoalBudgetPolicy;
 use desk_agent_protocol::{
     capability_grant::CapabilityRiskTier, data_lineage::DestinationIdentity,
 };
@@ -98,7 +98,7 @@ pub fn pending(
         _ => false,
     };
     if !session.agent_role.is_main()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || session.trigger_origin != TriggerOrigin::User
         || !session.turn_state.can_claim()
         || session.main_stopped
@@ -107,7 +107,7 @@ pub fn pending(
         || request.owner_id != session.actor_id
         || request.device_id != session.device_id
         || (session.device_id.is_empty()
-            && session.single_assistant_request_target().ok() != Some(&request.execution_target))
+            && session.single_agent_request_target().ok() != Some(&request.execution_target))
         || request.input_revision != session.input_revision
         || session
             .authorization_requirement()

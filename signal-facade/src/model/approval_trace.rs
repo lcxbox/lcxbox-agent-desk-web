@@ -78,7 +78,7 @@ pub struct ApprovalReviewDto {
     pub session: String,
     pub root_session: Option<String>,
     pub session_label: Option<String>,
-    pub task: Option<desk_agent_protocol::ai_assistant::subagent::AiAssistantSubAgentSummary>,
+    pub task: Option<desk_agent_protocol::ai_agent::subagent::AiAgentSubAgentSummary>,
     pub decision: Option<serde_json::Value>,
     pub grant_states: Vec<String>,
     pub execution_state: Option<String>,

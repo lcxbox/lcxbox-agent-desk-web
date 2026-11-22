@@ -1,5 +1,5 @@
 use super::*;
-use crate::ai_assistant::source_registry::{
+use crate::ai_agent::source_registry::{
     RegisteredSourceContract, SOURCE_CONTRACT_REVISION, registered_leaf,
 };
 
@@ -527,7 +527,7 @@ fn ai_authored_versions_carry_their_note_and_the_authored_label_shape() {
     let mut loaded = content("notes", 2);
     loaded.skill_id = "abc123".into();
     loaded.authored = Some(AuthoredNote {
-        decision_source: desk_agent_protocol::ai_assistant::skill::SkillDecisionSource::AiReview,
+        decision_source: desk_agent_protocol::ai_agent::skill::SkillDecisionSource::AiReview,
         decided_at_unix_ms: 1_792_000_000_000,
     });
     let catalog = SkillCatalog {
@@ -589,7 +589,7 @@ fn ai_authored_versions_carry_their_note_and_the_authored_label_shape() {
 /// its version so hosts restore that version's proof.
 #[test]
 fn the_catalogue_cites_each_stored_skill_root() {
-    use crate::ai_assistant::source_registry::{
+    use crate::ai_agent::source_registry::{
         NativeInputPolicyRegistration, RegisteredSourceContract, SOURCE_CONTRACT_REVISION,
         stored_root_contract,
     };

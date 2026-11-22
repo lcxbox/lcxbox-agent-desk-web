@@ -76,7 +76,7 @@ function ResolvedDeviceTarget({ accountKey, orgId, deviceId, children }: { accou
     // Authentication can overlap discovery. No host operation is sent until the
     // accepted target's admission check; the first transport takes ownership.
     useEffect(() => {
-        if (accountKey == null || !['control', 'files', 'assistant'].includes(page ?? '')) return;
+        if (accountKey == null || !['control', 'files', 'agent'].includes(page ?? '')) return;
         const url = new URL('/api/desk/signaling', window.location.href);
         url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         appendBrowserPeerReport(url);

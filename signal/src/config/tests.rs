@@ -42,16 +42,16 @@ fn issue_connection_arrays_round_trip_credentials_and_detect_manual_withdrawal()
 }
 
 #[tokio::test]
-async fn assistant_settings_and_limits_survive_runtime_database_recreation_in_the_original_config_file()
- {
+async fn agent_settings_and_limits_survive_runtime_database_recreation_in_the_original_config_file()
+{
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("runtime.sqlite");
     let url = format!("sqlite://{}?mode=rwc", path.display());
     let db = test_support::Database::connect(url.clone()).await.unwrap();
-    let original = crate::assistant_data_config::settings(&db).await;
-    let saved = crate::assistant_data_config::update_settings(
+    let original = crate::agent_data_config::settings(&db).await;
+    let saved = crate::agent_data_config::update_settings(
         &db,
-        &desk_agent_protocol::ai_assistant::user_instructions::AssistantDataSettingsUpdate {
+        &desk_agent_protocol::ai_agent::user_instructions::AgentDataSettingsUpdate {
             expected_revision: original.revision,
             automatic_memory_enabled: original.automatic_memory_enabled,
             model_history_search_enabled: original.model_history_search_enabled,
@@ -61,7 +61,7 @@ async fn assistant_settings_and_limits_survive_runtime_database_recreation_in_th
     )
     .await
     .unwrap();
-    let original_policy = crate::assistant_data_config::policy(&db).await;
+    let original_policy = crate::agent_data_config::policy(&db).await;
     let mut policy = original_policy.clone();
     policy.limits.retrieval.query_chars = 512;
     policy.limits.retrieval.episode.query_ttl_ms = 60_000;
@@ -80,25 +80,24 @@ async fn assistant_settings_and_limits_survive_runtime_database_recreation_in_th
     policy.limits.retrieval.read_messages = 60;
     policy.limits.retrieval.episode.response_bytes = 128 * 1024;
     policy.limits.retrieval.episode.unused_projection_ttl_ms = 3_600_000;
-    policy.limits.processing =
-        desk_agent_protocol::ai_assistant::limits::AssistantProcessingLimits {
-            status_coverage: 80,
-            native_status_rows: 40,
-            native_status_items: 60,
-            native_status_model_items: 8,
-            native_status_source_refs: 10,
+    policy.limits.processing = desk_agent_protocol::ai_agent::limits::AgentProcessingLimits {
+        status_coverage: 80,
+        native_status_rows: 40,
+        native_status_items: 60,
+        native_status_model_items: 8,
+        native_status_source_refs: 10,
 
-            output_gc_interval_ms: 71,
-            output_gc_actor_batch_size: 35,
-            output_gc_batch_size: 129,
-            native_retention_page_size: 3,
-            history_capture_batch_size: 129,
-            history_scan_page_size: 7,
-            current_memory_page_size: 2,
-        };
-    let saved_policy = crate::assistant_data_config::update_policy(
+        output_gc_interval_ms: 71,
+        output_gc_actor_batch_size: 35,
+        output_gc_batch_size: 129,
+        native_retention_page_size: 3,
+        history_capture_batch_size: 129,
+        history_scan_page_size: 7,
+        current_memory_page_size: 2,
+    };
+    let saved_policy = crate::agent_data_config::update_policy(
         &db,
-        &desk_agent_protocol::ai_assistant::user_instructions::AssistantDataPolicyUpdate {
+        &desk_agent_protocol::ai_agent::user_instructions::AgentDataPolicyUpdate {
             expected_revision: original_policy.revision,
             policy,
         },
@@ -108,19 +107,16 @@ async fn assistant_settings_and_limits_survive_runtime_database_recreation_in_th
     .policy;
     let file = path.with_extension("config.toml");
     let persisted: GlobalConfig = toml::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-    assert_eq!(persisted.assistant_data_settings, saved);
-    assert_eq!(persisted.assistant_data_policy, saved_policy);
+    assert_eq!(persisted.agent_data_settings, saved);
+    assert_eq!(persisted.agent_data_policy, saved_policy);
     db.close().await.unwrap();
     std::fs::remove_file(&path).unwrap();
     let rebuilt = test_support::Database::connect(url).await.unwrap();
     assert_eq!(
-        crate::assistant_data_config::policy(&rebuilt).await,
+        crate::agent_data_config::policy(&rebuilt).await,
         saved_policy
     );
-    assert_eq!(
-        crate::assistant_data_config::settings(&rebuilt).await,
-        saved
-    );
+    assert_eq!(crate::agent_data_config::settings(&rebuilt).await, saved);
 }
 
 #[test]
@@ -283,9 +279,9 @@ async fn policy_compare_and_swap_preserves_other_sections() {
         .await
         .unwrap();
     let initial = crate::subagent_policy::read(&db).await.unwrap();
-    let request = desk_agent_protocol::ai_assistant::subagent_policy::UpdateSubAgentPolicy {
+    let request = desk_agent_protocol::ai_agent::subagent_policy::UpdateSubAgentPolicy {
         expected_revision: initial.revision,
-        limits: desk_agent_protocol::ai_assistant::subagent_policy::SubAgentLimits {
+        limits: desk_agent_protocol::ai_agent::subagent_policy::SubAgentLimits {
             max_unfinished_per_root: 8,
             max_task_duration_minutes: 45,
         },
@@ -312,7 +308,7 @@ async fn policy_compare_and_swap_preserves_other_sections() {
 
 #[tokio::test]
 async fn automation_limit_is_file_owned_bounded_and_revisioned() {
-    use desk_agent_protocol::ai_assistant::automation_policy::UpdateAutomationPolicy;
+    use desk_agent_protocol::ai_agent::automation_policy::UpdateAutomationPolicy;
     let db = test_support::Database::connect("sqlite::memory:")
         .await
         .unwrap();
@@ -348,7 +344,7 @@ async fn automation_limit_is_file_owned_bounded_and_revisioned() {
 
 #[tokio::test]
 async fn web_page_read_limit_is_file_owned_bounded_and_revisioned() {
-    use desk_agent_protocol::ai_assistant::web_research_policy::UpdateWebResearchPolicy;
+    use desk_agent_protocol::ai_agent::web_research_policy::UpdateWebResearchPolicy;
     let db = test_support::Database::connect("sqlite::memory:")
         .await
         .unwrap();
@@ -617,34 +613,29 @@ async fn failed_policy_save_keeps_the_live_policy_and_revision() {
         sea_orm::Database::connect("sqlite::memory:").await.unwrap(),
         context.clone(),
     );
-    let mut policy = initial.assistant_data_policy.clone();
+    let mut policy = initial.agent_data_policy.clone();
     policy.limits.retrieval.relevance_hits = 100;
-    let request = desk_agent_protocol::ai_assistant::user_instructions::AssistantDataPolicyUpdate {
+    let request = desk_agent_protocol::ai_agent::user_instructions::AgentDataPolicyUpdate {
         expected_revision: policy.revision,
         policy,
     };
     assert!(matches!(
-        crate::assistant_data_config::update_policy(&db, &request).await,
-        Err(crate::assistant_data_config::WriteError::Backend(_))
+        crate::agent_data_config::update_policy(&db, &request).await,
+        Err(crate::agent_data_config::WriteError::Backend(_))
     ));
     assert_eq!(
-        context.read().await.assistant_data_policy,
-        initial.assistant_data_policy
+        context.read().await.agent_data_policy,
+        initial.agent_data_policy
     );
 }
 
 #[test]
 fn file_policy_errors_name_the_field_and_small_read_budgets_remain_valid() {
     let mut config = GlobalConfig::default();
-    config
-        .assistant_data_policy
-        .limits
-        .retrieval
-        .episode
-        .read_bytes = 1;
+    config.agent_data_policy.limits.retrieval.episode.read_bytes = 1;
     assert!(config.validate().is_ok());
     config
-        .assistant_data_policy
+        .agent_data_policy
         .limits
         .retrieval
         .episode
@@ -657,12 +648,12 @@ fn file_policy_errors_name_the_field_and_small_read_budgets_remain_valid() {
             .contains("limits.retrieval.episode.response_bytes")
     );
     config
-        .assistant_data_policy
+        .agent_data_policy
         .limits
         .retrieval
         .episode
         .response_bytes = 32768;
-    config.assistant_data_policy.history_retention_days = 0;
+    config.agent_data_policy.history_retention_days = 0;
     assert!(
         config
             .validate()

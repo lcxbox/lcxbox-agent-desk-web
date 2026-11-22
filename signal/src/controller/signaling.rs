@@ -588,7 +588,7 @@ mod tests {
                         desk_agent_protocol::exec_policy::DEFAULT_TIMEOUT_MS,
                     ),
                 },
-                ai_assistant_settings: desk_agent_protocol::ai_assistant::AiAssistantSettings {
+                ai_agent_settings: desk_agent_protocol::ai_agent::AiAgentSettings {
                     revision: 0,
                     enabled: false,
                 },
@@ -669,7 +669,7 @@ mod tests {
 
     #[test]
     fn authenticated_browser_name_overrides_self_report() {
-        let query: desk_signal_facade::model::peer::PeerQuery = serde_urlencoded::from_str("remote_desk_type=server&operation_system=Windows&display_name=spoofed-owner&client_id=host&available_exec_shells=pwsh&exec_pty=false&exec_pty_elevation=false&max_ai_command_runtime_ms=60000&ai_assistant_revision=4&ai_assistant_enabled=true").unwrap();
+        let query: desk_signal_facade::model::peer::PeerQuery = serde_urlencoded::from_str("remote_desk_type=server&operation_system=Windows&display_name=spoofed-owner&client_id=host&available_exec_shells=pwsh&exec_pty=false&exec_pty_elevation=false&max_ai_command_runtime_ms=60000&ai_agent_revision=4&ai_agent_enabled=true").unwrap();
         let peer = query
             .into_peer(
                 Some(VersionInfo {
@@ -688,7 +688,7 @@ mod tests {
 
     #[test]
     fn code_session_browser_has_no_display_name() {
-        let query: desk_signal_facade::model::peer::PeerQuery = serde_urlencoded::from_str("remote_desk_type=server&operation_system=Windows&display_name=spoofed-owner&client_id=host&available_exec_shells=pwsh&exec_pty=false&exec_pty_elevation=false&max_ai_command_runtime_ms=60000&ai_assistant_revision=4&ai_assistant_enabled=true").unwrap();
+        let query: desk_signal_facade::model::peer::PeerQuery = serde_urlencoded::from_str("remote_desk_type=server&operation_system=Windows&display_name=spoofed-owner&client_id=host&available_exec_shells=pwsh&exec_pty=false&exec_pty_elevation=false&max_ai_command_runtime_ms=60000&ai_agent_revision=4&ai_agent_enabled=true").unwrap();
         let peer = query
             .into_peer(
                 Some(VersionInfo {
@@ -707,7 +707,7 @@ mod tests {
 
     #[test]
     fn authenticated_node_keeps_device_metadata_name() {
-        let query: desk_signal_facade::model::peer::PeerQuery = serde_urlencoded::from_str("remote_desk_type=server&operation_system=Windows&display_name=device-name&client_id=host&available_exec_shells=pwsh&exec_pty=false&exec_pty_elevation=false&max_ai_command_runtime_ms=60000&ai_assistant_revision=4&ai_assistant_enabled=true").unwrap();
+        let query: desk_signal_facade::model::peer::PeerQuery = serde_urlencoded::from_str("remote_desk_type=server&operation_system=Windows&display_name=device-name&client_id=host&available_exec_shells=pwsh&exec_pty=false&exec_pty_elevation=false&max_ai_command_runtime_ms=60000&ai_agent_revision=4&ai_agent_enabled=true").unwrap();
         let peer = query
             .into_peer(
                 Some(VersionInfo {

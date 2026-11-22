@@ -29,7 +29,7 @@ pub(super) async fn list_directories(
         };
         let mut entries = fs::read_dir(path).await?;
         while let Some(entry) = entries.next_entry().await? {
-            // Resolve directory links for browsing; assistant consent separately
+            // Resolve directory links for browsing; agent consent separately
             // validates the canonical identity and containment before granting access.
             if fs::metadata(entry.path()).await?.is_dir() {
                 directories.push(FileInfo::new(entry.path())?);

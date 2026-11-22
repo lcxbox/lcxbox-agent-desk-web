@@ -27,7 +27,7 @@ pub struct SearchTestResult {
     pub result_count: usize,
 }
 
-/// Explicit administrative probe, not an assistant tool or a stored update.
+/// Explicit administrative probe, not an agent tool or a stored update.
 pub async fn test_connection(config: &SearchConfig) -> Result<SearchTestResult, AgentError> {
     let started = std::time::Instant::now();
     let call = desk_diagnose_core::chat::ToolCall {
@@ -592,7 +592,7 @@ mod tests {
             );
             assert_eq!(value["configuration_revision"], 1);
             assert_eq!(value["result_count"], 1);
-            let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
+            let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry()
                 .with_web_search_binding(config.binding());
             desk_diagnose_core::provider_preflight::read::limits::validate_output(
                 &registry,

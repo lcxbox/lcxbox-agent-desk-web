@@ -112,7 +112,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         )));
     }
     let subagent_projection = match deps.session_seam.subagents(session) {
-        Some(seam) if session.surface == AgentSessionSurface::AiAssistant => {
+        Some(seam) if session.surface == AgentSessionSurface::AiAgent => {
             seam.planning_projection(session).await?
         }
         _ => None,
@@ -130,7 +130,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         ));
     }
     if session.turn_step_budget_exhausted(deps.max_steps_per_turn)
-        || (session.surface == AgentSessionSurface::AiAssistant
+        || (session.surface == AgentSessionSurface::AiAgent
             && session.focus_epoch.step_budget_exhausted())
     {
         if session.trigger_origin == TriggerOrigin::GoalContinuation
@@ -153,11 +153,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         })));
     }
 
-    if crate::ai_assistant::data_access::retained_context_eligible(session) {
-        assistant_data::fresh_access(deps, session, current_unix_ms(deps.clock)?).await?;
+    if crate::ai_agent::data_access::retained_context_eligible(session) {
+        agent_data::fresh_access(deps, session, current_unix_ms(deps.clock)?).await?;
     }
 
-    let disclosure_enabled = session.surface == AgentSessionSurface::AiAssistant
+    let disclosure_enabled = session.surface == AgentSessionSurface::AiAgent
         && deps.provider_registry.is_some()
         && deps.capability_inventory.is_some();
     if disclosure_enabled
@@ -232,7 +232,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     snapshot.readiness_revision,
                 )
             });
-    let planning_goal = if session.surface == AgentSessionSurface::AiAssistant
+    let planning_goal = if session.surface == AgentSessionSurface::AiAgent
         && session.agent_role.is_main()
         && session.trigger_origin == TriggerOrigin::User
     {
@@ -243,7 +243,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
     } else {
         None
     };
-    let latest_completed_goal = if session.surface == AgentSessionSurface::AiAssistant
+    let latest_completed_goal = if session.surface == AgentSessionSurface::AiAgent
         && session.agent_role.is_main()
         && session.trigger_origin == TriggerOrigin::User
         && planning_goal.is_none()
@@ -256,9 +256,9 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         None
     };
 
-    let data_access = if crate::ai_assistant::data_access::eligible_origin(session) {
+    let data_access = if crate::ai_agent::data_access::eligible_origin(session) {
         deps.session_seam
-            .assistant_data_access(session, current_unix_ms(deps.clock)?)
+            .agent_data_access(session, current_unix_ms(deps.clock)?)
             .await?
     } else {
         None
@@ -267,14 +267,14 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         .registry
         .iter()
         .filter(|tool| {
-            !crate::ai_assistant::data_tools::is_data_tool(tool.name())
-                && !crate::ai_assistant::data_tools::is_data_effect(tool.effect)
+            !crate::ai_agent::data_tools::is_data_tool(tool.name())
+                && !crate::ai_agent::data_tools::is_data_effect(tool.effect)
         })
         .cloned()
         .collect::<Vec<_>>();
     if let Some(access) = &data_access {
         access.validate().map_err(crate::subagent::invalid)?;
-        callable_registry.extend(crate::ai_assistant::data_tools::for_session(
+        callable_registry.extend(crate::ai_agent::data_tools::for_session(
             session,
             &access.settings,
             deps.session_seam.memory().is_some(),
@@ -292,7 +292,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         callable_registry.push(tool);
     }
     let skill_catalog: Box<crate::skills::SkillCatalog> = if session.surface
-        == AgentSessionSurface::AiAssistant
+        == AgentSessionSurface::AiAgent
         && deps.model.command_completion_event_id().is_none()
     {
         session.skills.reset_for_input(session.input_revision);
@@ -377,7 +377,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 tool.effect,
                 ToolEffect::GoalOpenPlanning
                     | ToolEffect::ConversationHistory
-                    | ToolEffect::AssistantHistory
+                    | ToolEffect::AgentHistory
                     | ToolEffect::MemoryQuery
                     | ToolEffect::MemoryWrite
                     | ToolEffect::RunProjection
@@ -434,7 +434,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             &request_devices,
             session,
             deps.provider_registry
-                .unwrap_or_else(|| crate::ai_assistant::ai_assistant_provider_registry_ref()),
+                .unwrap_or_else(|| crate::ai_agent::ai_agent_provider_registry_ref()),
             deps.model.supports_image_input(),
             deps.tools.original_read_context(),
         )
@@ -552,7 +552,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 .unwrap_or(&session.model_conversation()),
         ));
     let mut pinned_context = deps.model.context_policy(request_requirements).await?;
-    pinned_context.preserve_history = session.surface == AgentSessionSurface::AiAssistant;
+    pinned_context.preserve_history = session.surface == AgentSessionSurface::AiAgent;
     let mut definition_registry = callable_registry.clone();
     for (tool, callable) in &selected_reads {
         definition_registry.retain(|candidate| candidate.name() != tool.name());
@@ -668,7 +668,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 tool.effect,
                 ToolEffect::GoalOpenPlanning
                     | ToolEffect::ConversationHistory
-                    | ToolEffect::AssistantHistory
+                    | ToolEffect::AgentHistory
                     | ToolEffect::MemoryQuery
                     | ToolEffect::MemoryWrite
                     | ToolEffect::RunProjection
@@ -753,7 +753,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             .map(|tool| tool.name())
             .collect::<Vec<_>>();
         if deps.provider_registry.is_some() {
-            crate::ai_assistant::scope_disclosed_instructions(
+            crate::ai_agent::scope_disclosed_instructions(
                 &mut stable_system,
                 &disclosed_provider_tools,
             );
@@ -768,7 +768,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             );
             stable_system.rewrite_instructions(text);
         }
-        let split_runtime = session.surface == AgentSessionSurface::AiAssistant;
+        let split_runtime = session.surface == AgentSessionSurface::AiAgent;
         let mut system_prompt = if split_runtime {
             Box::new(crate::runtime_context::take(&mut stable_system))
         } else {
@@ -785,11 +785,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 )),
             );
         }
-        if session.surface == crate::session::AgentSessionSurface::AiAssistant {
+        if session.surface == crate::session::AgentSessionSurface::AiAgent {
             crate::runtime_context::append(
                 &mut system_prompt,
                 &crate::model_content::ModelContent::server_text(
-                    crate::ai_assistant::current_time_prompt(current_unix_ms(deps.clock)?),
+                    crate::ai_agent::current_time_prompt(current_unix_ms(deps.clock)?),
                 ),
             );
             crate::runtime_context::append(
@@ -851,14 +851,14 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         if disclosure_enabled {
             let providers = deps.provider_registry.ok_or_else(|| AgentError {
                 kind: AgentErrorKind::Internal,
-                message: "AI Assistant capability disclosure has no Provider registry".into(),
+                message: "AI Agent capability disclosure has no Provider registry".into(),
                 retryable: false,
                 safe_for_model: false,
                 error_code: None,
             })?;
             let inventory = step_inventory.as_deref().ok_or_else(|| AgentError {
                 kind: AgentErrorKind::Internal,
-                message: "AI Assistant capability disclosure has no live inventory".into(),
+                message: "AI Agent capability disclosure has no live inventory".into(),
                 retryable: false,
                 safe_for_model: false,
                 error_code: None,
@@ -965,7 +965,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             _ => None,
         };
         let mut messages = vec![*system_prompt];
-        if session.surface == AgentSessionSurface::AiAssistant
+        if session.surface == AgentSessionSurface::AiAgent
             && deps.model.command_completion_event_id().is_none()
             && let Some(policy) = deps.model.model_egress_policy()?
         {
@@ -975,8 +975,8 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 &skill_catalog,
             )?);
         }
-        if session.surface == AgentSessionSurface::AiAssistant
-            && let Some(data) = &session.assistant_data
+        if session.surface == AgentSessionSurface::AiAgent
+            && let Some(data) = &session.agent_data
             && !data.instructions.content.is_empty()
         {
             let destination = deps
@@ -990,7 +990,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     error_code: None,
                 })?
                 .destination;
-            if let Some(projection) = crate::ai_assistant::settings::instructions_projection(
+            if let Some(projection) = crate::ai_agent::settings::instructions_projection(
                 &data.instructions,
                 &session.conversation_id,
                 destination,
@@ -1004,7 +1004,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         if let Some(projection) = home_projection {
             messages.push(projection);
         }
-        if session.surface == AgentSessionSurface::AiAssistant
+        if session.surface == AgentSessionSurface::AiAgent
             && deps.model.command_completion_event_id().is_none()
         {
             // Put the server-owned input watermark at the recency edge of the
@@ -1039,7 +1039,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     session.input_revision, session.latest_input_seq
                 )
             };
-            if let Some(data) = &session.assistant_data
+            if let Some(data) = &session.agent_data
                 && data.current_actor_input_seq > 0
             {
                 let anchor = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
@@ -1064,11 +1064,10 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     })?;
                 marker_text.push_str(&format!(" Original user input recorded_at_unix_ms={} statement_timezone={} local_anchor={}. Interpret relative dates in that input from this accepted-input anchor; later processing time does not change it. Recording time alone does not prove when an external action occurred.",
                     data.current_input_recorded_at_unix_ms, data.current_input_timezone, anchor.with_timezone(&timezone).to_rfc3339()));
-            } else if let Some(data) = &session.assistant_data {
+            } else if let Some(data) = &session.agent_data {
                 // Only a timezone the server recognizes is repeated, so the
                 // marker stays server text.
-                let timezone =
-                    crate::ai_assistant::recognized_timezone(&data.current_input_timezone);
+                let timezone = crate::ai_agent::recognized_timezone(&data.current_input_timezone);
                 marker_text.push_str(&format!(" The original task has no accepted owner-input timestamp. Its frozen statement_timezone is {timezone}. Do not invent an original owner input date; native supplement anchors and external action times remain distinct."));
             }
             let latest_user =
@@ -1146,14 +1145,14 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             // Some reasoning-capable OpenAI-compatible providers can end a
             // response after emitting only opaque reasoning, especially after
             // a denied tool call. Retry once with a server-owned recency marker
-            // instead of persisting an empty assistant message. The marker does
+            // instead of persisting an empty agent message. The marker does
             // not grant authority or request a tool; it only asks the model to
             // produce a protocol-visible answer or call on the next response.
             let marker_id = format!(
                 "runtime-empty-end-turn-retry-{turn_id}-{}",
                 state.empty_end_turn_retries
             );
-            let marker_text = "RUNTIME RECOVERY NOTICE (server authoritative): the previous provider response contained reasoning but no assistant text or tool call. Continue the same requirement now with either a visible answer or a valid exposed tool call. This notice grants no permission; a call without authorization asks for approval when made.";
+            let marker_text = "RUNTIME RECOVERY NOTICE (server authoritative): the previous provider response contained reasoning but no agent text or tool call. Continue the same requirement now with either a visible answer or a valid exposed tool call. This notice grants no permission; a call without authorization asks for approval when made.";
             let parent = child_runtime_label.as_ref().or_else(|| {
                 crate::permission_resume::latest_user_requirement(&session.conversation)
                     .and_then(|message| message.data_envelope.as_ref())
@@ -1175,7 +1174,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 "runtime-truncated-turn-retry-{turn_id}-{}",
                 state.truncated_turn_retries
             );
-            let marker_text = "RUNTIME RECOVERY NOTICE (server authoritative): the previous provider response reached its output-token limit and was discarded before any assistant text or tool call was committed. Continue the same requirement now. Do not repeat prior reasoning. Produce only the minimum valid exposed tool call(s) needed for the next step, or a concise visible answer if no tool is needed. Re-read current authorized grants and preserve approved exact inputs. This notice grants no permission.";
+            let marker_text = "RUNTIME RECOVERY NOTICE (server authoritative): the previous provider response reached its output-token limit and was discarded before any agent text or tool call was committed. Continue the same requirement now. Do not repeat prior reasoning. Produce only the minimum valid exposed tool call(s) needed for the next step, or a concise visible answer if no tool is needed. Re-read current authorized grants and preserve approved exact inputs. This notice grants no permission.";
             let parent = child_runtime_label.as_ref().or_else(|| {
                 crate::permission_resume::latest_user_requirement(&session.conversation)
                     .and_then(|message| message.data_envelope.as_ref())
@@ -1369,7 +1368,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 let (leading, rest): (Vec<_>, Vec<_>) =
                     runtime_messages.into_iter().partition(|message| {
                         crate::skills::is_projection(message)
-                            || crate::ai_assistant::settings::is_personalization_projection(message)
+                            || crate::ai_agent::settings::is_personalization_projection(message)
                     });
                 messages.extend(leading);
                 messages.extend(rest);
@@ -1490,7 +1489,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             }
             // The ids the model is about to see. A pending auto-trigger whose completion
             // message is in this request is cleared once the model reacts to it (the
-            // assistant answer / tool-call save below), so it never fires an automation
+            // agent answer / tool-call save below), so it never fires an automation
             // turn for a result the model already handled.
             let mut request = Box::new(ModelRequest {
                 observation: deps.model.observation_context(
@@ -1522,12 +1521,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 previous_cache_projection: session.cache_projection.clone(),
                 delegation_call: None,
                 preparation: None,
-                assistant_data: None,
+                agent_data: None,
                 compression_identity: None,
                 issue_reply: None,
                 caller_output_hard_cap: None,
             });
-            if session.surface == crate::session::AgentSessionSurface::TerminalAiAssistant
+            if session.surface == crate::session::AgentSessionSurface::TerminalAiAgent
                 && let Some(context) = &mut request.observation
             {
                 context.attribution.surface = crate::model_observability::Surface::Terminal;
@@ -1565,7 +1564,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     request = assemble_context_request(&request, &context_view, session)?;
                 }
                 let current_memory_bytes = crate::future::boxed(|| {
-                    assistant_data::current::prepare(deps, session, &mut request, turn_id)
+                    agent_data::current::prepare(deps, session, &mut request, turn_id)
                 })
                 .await?;
                 let mut usage_policy = history_policy.clone();
@@ -1774,7 +1773,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                         })?;
                     let identity = format!("model:{turn_id}:{}", state.physical_model_attempt);
                     crate::future::boxed(|| {
-                        assistant_data::prepare_request(deps, session, &mut request)
+                        agent_data::prepare_request(deps, session, &mut request)
                     })
                     .await?;
                     let budget = match call_budget::reserve_model(
@@ -1817,7 +1816,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                             crate::model_observability::DEFINITION_VERSION,
                             session.capability_disclosure.definition_revision
                         );
-                        if session.surface == AgentSessionSurface::TerminalAiAssistant {
+                        if session.surface == AgentSessionSurface::TerminalAiAgent {
                             context.attribution.surface =
                                 crate::model_observability::Surface::Terminal;
                         }
@@ -2105,7 +2104,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     call.name
                                 == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME
                                 });
-                            if session.surface == crate::session::AgentSessionSurface::AiAssistant
+                            if session.surface == crate::session::AgentSessionSurface::AiAgent
                                 && follows_tool_result
                                 && malformed_permission_plan
                                 && state.post_tool_permission_protocol_retries < 1
@@ -2118,7 +2117,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                 );
                                 return Ok(PhaseResult::Complete(None));
                             }
-                            if session.surface == crate::session::AgentSessionSurface::AiAssistant
+                            if session.surface == crate::session::AgentSessionSurface::AiAgent
                                 && matches!(
                                     error,
                                     crate::chat::ModelTurnError::InvalidToolArguments { .. }
@@ -2215,7 +2214,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                     }
 
                     let terminal_answer = session.surface
-                        == crate::session::AgentSessionSurface::TerminalAiAssistant
+                        == crate::session::AgentSessionSurface::TerminalAiAgent
                         && disposition == TurnDisposition::Answer;
                     if !terminal_answer && let Some(context) = &observation {
                         context.output(
@@ -2353,13 +2352,13 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                 unreachable!("context-window stop returned before safety review")
                             }
                             TurnDisposition::InvokeTools => {
-                                // Record the assistant's tool-call message so the conversation
+                                // Record the agent's tool-call message so the conversation
                                 // stays well-formed when replayed to the model.
                                 let refs = turn.tool_calls.iter().map(|c| c.to_ref()).collect();
                                 let replay = turn.provider_meta.replay.clone().expect(
                                     "classify_model_turn requires tool-call replay disposition",
                                 );
-                                let mut message = ChatMessage::assistant_tool_calls_with_replay(
+                                let mut message = ChatMessage::agent_tool_calls_with_replay(
                                     (state.mint)(),
                                     turn.text.clone(),
                                     refs,
@@ -2403,7 +2402,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
 
                                 session.clear_reacted_auto_triggers(&request_message_ids);
 
-                                // Persist every assistant tool-call and its replay disposition
+                                // Persist every agent tool-call and its replay disposition
                                 // before any tool lifecycle event or external action.
                                 deps.session_seam.save(session).await?;
                                 tool_batch.bind_message(&response_message_id);
@@ -2441,10 +2440,10 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                 }
 
                                 let forget_targets = if session.surface
-                                    == AgentSessionSurface::AiAssistant
-                                    && session.uses_owner_assistant_data()
+                                    == AgentSessionSurface::AiAgent
+                                    && session.uses_owner_agent_data()
                                 {
-                                    match crate::ai_assistant::data_tools::prepare_memory_batch(
+                                    match crate::ai_agent::data_tools::prepare_memory_batch(
                                         &turn.tool_calls,
                                         &session.ui_references,
                                     ) {
@@ -2480,20 +2479,17 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                 if let Some(targets) = forget_targets {
                                     let count = state
                                         .same_tool
-                                        .entry(
-                                            crate::ai_assistant::data_tools::MANAGE_MEMORIES.into(),
-                                        )
+                                        .entry(crate::ai_agent::data_tools::MANAGE_MEMORIES.into())
                                         .or_insert(0);
                                     let prior_invocations = *count;
                                     *count = count.saturating_add(
                                         u32::try_from(turn.tool_calls.len()).unwrap_or(u32::MAX),
                                     );
                                     let originally_exposed = exposed.iter().any(|tool| {
-                                        tool.name()
-                                            == crate::ai_assistant::data_tools::MANAGE_MEMORIES
+                                        tool.name() == crate::ai_agent::data_tools::MANAGE_MEMORIES
                                     });
                                     return crate::future::phase(|| {
-                                        assistant_data::dispatch_forget(
+                                        agent_data::dispatch_forget(
                                             deps,
                                             session,
                                             &turn.tool_calls,
@@ -2603,7 +2599,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     *count += 1;
                                     if *count > deps.max_same_tool_per_turn {
                                         // Keep the persisted conversation valid for a follow-up:
-                                        // every tool call in the assistant message must have a
+                                        // every tool call in the agent message must have a
                                         // corresponding result, including calls skipped by this
                                         // circuit breaker.
                                         for skipped in &turn.tool_calls[call_index..] {
@@ -2637,7 +2633,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             (state.mint)(),
                                             &call.id,
                                             &crate::model_content::ModelContent::constant(
-                                                "Screenshot and targeting cannot run in the same assistant batch. Read the screenshot result, then submit the action in the next model step; no additional screenshot is required.",
+                                                "Screenshot and targeting cannot run in the same agent batch. Read the screenshot result, then submit the action in the next model step; no additional screenshot is required.",
                                             ),
                                             ServerResultSource::FreshVisualVerificationRequired,
                                         )?;
@@ -2735,7 +2731,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                         crate::model_observability::Stage::Exposure,
                                         crate::model_observability::StageOutcome::Passed,
                                     );
-                                    if session.surface == AgentSessionSurface::AiAssistant {
+                                    if session.surface == AgentSessionSurface::AiAgent {
                                         let validation = model_tool_definitions.get(&call.name).map(|spec| {
                                 serde_json::from_str::<serde_json::Value>(&call.arguments_json)
                                     .map_err(|error| crate::model_input::FormatError {
@@ -3096,7 +3092,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                         }
                                         ToolEffect::MemoryQuery
                                         | ToolEffect::MemoryWrite
-                                        | ToolEffect::AssistantHistory => {
+                                        | ToolEffect::AgentHistory => {
                                             crate::future::phase(|| async {
                                                 sink.on_tool_started(
                                                     &call.name,
@@ -3105,7 +3101,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 );
                                                 let result_id = (state.mint)();
                                                 let result = crate::future::boxed(|| {
-                                                    assistant_data::dispatch(
+                                                    agent_data::dispatch(
                                                         deps,
                                                         session,
                                                         call,
@@ -3123,7 +3119,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                     ),
                                                     // Argument checks, or store errors whose
                                                     // model-safe forms are fixed text
-                                                    // (`AssistantStoreError::into_agent_error`).
+                                                    // (`AgentStoreError::into_agent_error`).
                                                     Err(error) if error.safe_for_model => {
                                                         let message = crate::model_content::ToolError::validation(&error)
                                                             .result_message(
@@ -3715,7 +3711,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                                 );
                                                 let prepared = (|| -> Result<_, AgentError> {
                                                     if session.surface
-                                                        != AgentSessionSurface::AiAssistant
+                                                        != AgentSessionSurface::AiAgent
                                                         || session.trigger_origin
                                                             != TriggerOrigin::User
                                                     {
@@ -3800,7 +3796,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                         request_id,
                                         session.conversation_id.clone(),
                                         session.actor_id.clone(),
-                                        session.single_assistant_request_target().map_err(crate::goal_tools::invalid)?.clone(),
+                                        session.single_agent_request_target().map_err(crate::goal_tools::invalid)?.clone(),
                                         session.device_id.clone(),
                                         user.message_id.clone(),
                                         session.input_revision,

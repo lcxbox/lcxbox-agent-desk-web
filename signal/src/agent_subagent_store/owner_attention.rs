@@ -1,8 +1,8 @@
 //! Global metadata-only attention routes child work through its trusted root.
 use super::*;
 use crate::entity::agent_subagent_inbox as inbox;
-use desk_signal_facade::controller::ai_assistant_session::{
-    AiAssistantAttentionItemDto, AiAssistantAttentionReason, AiAssistantAttentionWorkRef,
+use desk_signal_facade::controller::ai_agent_session::{
+    AiAgentAttentionItemDto, AiAgentAttentionReason, AiAgentAttentionWorkRef,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -12,7 +12,7 @@ pub(crate) async fn augment_owner_attention_on<
     db: &C,
     actor: &str,
     devices: Option<&HashSet<String>>,
-    items: &mut Vec<AiAssistantAttentionItemDto>,
+    items: &mut Vec<AiAgentAttentionItemDto>,
 ) -> Result<(), DbErr> {
     let mut query = session_row::Entity::find()
         .filter(session_row::Column::ActorId.eq(actor))
@@ -31,12 +31,12 @@ pub(crate) async fn augment_owner_attention_on<
         let Ok(session) = PersistedAgentSession::decode_json(&row.state_json) else {
             // Invalid current-format data must not block unrelated conversations.
             log::debug!(
-                "Skipping invalid current-format assistant snapshot in batch scan: {}",
+                "Skipping invalid current-format agent snapshot in batch scan: {}",
                 row.id
             );
             continue;
         };
-        if session.surface == AgentSessionSurface::AiAssistant
+        if session.surface == AgentSessionSurface::AiAgent
             && session.actor_id == actor
             && session.device_id == row.device_id
             && session.conversation_id == row.conversation_id
@@ -65,9 +65,9 @@ pub(crate) async fn augment_owner_attention_on<
             item.session_id = parent.conversation_id.clone();
             item.client_conversation_id = parent.client_conversation_id.clone();
             item.workbench =
-                AiAssistantAttentionWorkRef::from_session(parent, Some(binding.task_id.clone()));
+                AiAgentAttentionWorkRef::from_session(parent, Some(binding.task_id.clone()));
         } else if let Some(parent) = roots.get(&item.session_id) {
-            item.workbench = AiAssistantAttentionWorkRef::from_session(parent, None);
+            item.workbench = AiAgentAttentionWorkRef::from_session(parent, None);
         }
         routed.push(item);
     }
@@ -119,22 +119,21 @@ pub(crate) async fn augment_owner_attention_on<
         }
         if let Some(handoff) = event.owner_handoff_at_ms {
             let Some(workbench) =
-                AiAssistantAttentionWorkRef::from_session(parent, Some(event.task_id.clone()))
+                AiAgentAttentionWorkRef::from_session(parent, Some(event.task_id.clone()))
             else {
                 continue;
             };
-            if !desk_assistant_data_store::worker_report::owner_handoff_is_open(&event, &run, now)?
-            {
+            if !desk_agent_data_store::worker_report::owner_handoff_is_open(&event, &run, now)? {
                 continue;
             }
-            items.push(AiAssistantAttentionItemDto {
+            items.push(AiAgentAttentionItemDto {
                 attention_id: format!("worker-question:{}", event.event_id),
                 session_id: parent.conversation_id.clone(),
                 client_conversation_id: None,
                 device_id: parent.device_id.clone(),
                 goal_id: None,
                 request_id: Some(event.event_id),
-                reason: AiAssistantAttentionReason::WorkerQuestion,
+                reason: AiAgentAttentionReason::WorkerQuestion,
                 state_version: u64::try_from(event.state_revision).map_err(|_| invalid())?,
                 updated_at_unix_ms: u64::try_from(handoff).map_err(|_| invalid())?,
                 deadline_unix_ms: u64::try_from(run.binding.deadline_ms).ok(),
@@ -145,14 +144,14 @@ pub(crate) async fn augment_owner_attention_on<
         if !run.state.is_terminal() || parent.agent_role.workbench_id().is_some() {
             continue;
         }
-        items.push(AiAssistantAttentionItemDto {
+        items.push(AiAgentAttentionItemDto {
             attention_id: format!("subagent:{}", event.event_id),
             session_id: parent.conversation_id.clone(),
             client_conversation_id: parent.client_conversation_id.clone(),
             device_id: parent.device_id.clone(),
             goal_id: run.binding.source.goal_id().map(str::to_owned),
             request_id: Some(event.task_id),
-            reason: AiAssistantAttentionReason::SubAgentResult,
+            reason: AiAgentAttentionReason::SubAgentResult,
             state_version: u64::try_from(event.state_revision).map_err(|_| invalid())?,
             updated_at_unix_ms: u64::try_from(event.created_at).map_err(|_| invalid())?,
             deadline_unix_ms: None,

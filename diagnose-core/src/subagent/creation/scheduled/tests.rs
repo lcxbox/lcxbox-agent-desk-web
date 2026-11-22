@@ -78,7 +78,7 @@ fn fixture_with_tokens(
             actor_id: "1",
             prompt: PROMPT,
             locale: Some("zh-CN"),
-            policy_revision: crate::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+            policy_revision: crate::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
             scope: AgentScope {
                 granted: Vec::new(),
                 mode: ExecutionMode::SuggestOnly,
@@ -272,7 +272,7 @@ fn published_label_binds_definition_occurrence_and_model() {
         .as_mut()
         .unwrap()
         .provenance
-        .source_provider_id = "assistant-runtime-control".into();
+        .source_provider_id = "agent-runtime-control".into();
     assert!(validate_published_input(&bridge, RUN, &contract, &destination()).is_err());
 }
 

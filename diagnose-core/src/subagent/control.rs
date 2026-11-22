@@ -11,9 +11,9 @@ pub fn stop_main_session(
     now: &str,
 ) -> Result<(), &'static str> {
     if !session.agent_role.is_main()
-        || session.surface != crate::session::AgentSessionSurface::AiAssistant
+        || session.surface != crate::session::AgentSessionSurface::AiAgent
     {
-        return Err("main stop requires an owner assistant session");
+        return Err("main stop requires an owner agent session");
     }
     let mut next = session.clone();
     next.control_revision = next
@@ -102,7 +102,7 @@ fn close_unclosed_calls(
 /// request's numbering. A Worker session counts revisions across requests.
 pub fn request_fence(
     session: &PersistedAgentSession,
-    fence: &crate::action_turn_fence::AssistantTurnFence,
+    fence: &crate::action_turn_fence::AgentTurnFence,
 ) -> Option<super::state::PlanningFence> {
     Some(super::state::PlanningFence {
         input_revision: fence
@@ -182,7 +182,7 @@ pub fn synchronize_session(
             .checked_add(1)
             .ok_or("child input sequence exhausted")?;
         updated.input_revision = input_revision;
-        updated.bind_assistant_input_targets(&run.binding.targets)?;
+        updated.bind_agent_input_targets(&run.binding.targets)?;
     }
     updated.control_revision = control_revision;
     updated.subagent_report_corrections_used = run.report_corrections_used;
@@ -306,9 +306,9 @@ pub fn admit_request(
     updated.chain_id = next.binding.task_id.clone();
     updated.automation_turns_used = 0;
     updated.subagent_report_corrections_used = next.report_corrections_used;
-    updated.bind_assistant_input_targets(&next.binding.targets)?;
-    crate::ai_assistant::delegated_retrieval::DelegatedAssistantSeed::bind(
-        creation.source.assistant_seed.as_deref(),
+    updated.bind_agent_input_targets(&next.binding.targets)?;
+    crate::ai_agent::delegated_retrieval::DelegatedAgentSeed::bind(
+        creation.source.agent_seed.as_deref(),
         &mut updated,
     )?;
     updated.begin_focus_epoch(input_revision, Vec::new())?;

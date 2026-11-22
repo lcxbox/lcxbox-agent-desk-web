@@ -1,11 +1,11 @@
 use super::*;
 use crate::entity::agent_session as session_row;
+#[cfg(test)]
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_agent_protocol::{
     AgentScope, ExecutionMode,
     schedule::{ScheduleRule, ScheduledTaskKind},
 };
-#[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
 use desk_diagnose_core::session::{AgentSessionSurface, PersistedAgentSession};
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Schema};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
@@ -45,10 +45,10 @@ async fn fixture() -> (
         },
         "2026-09-06T00:00:00Z",
     );
-    session.surface = AgentSessionSurface::AiAssistant;
+    session.surface = AgentSessionSurface::AiAgent;
     session.begin_focus_epoch(1, Vec::<String>::new()).unwrap();
     session.input_revision = 1;
-    session.bind_assistant_input_targets(&[]).unwrap();
+    session.bind_agent_input_targets(&[]).unwrap();
     let row = session_row::ActiveModel {
         conversation_id: Set("source".into()),
         actor_id: Set("1".into()),
@@ -100,7 +100,7 @@ async fn fresh_proposal(store: &ScheduleStore, session: &PersistedAgentSession) 
     let txn = crate::db::begin_write(&store.db, entity::Entity)
         .await
         .unwrap();
-    let now = desk_assistant_data_store::schedule::authority_now(&txn)
+    let now = desk_agent_data_store::schedule::authority_now(&txn)
         .await
         .unwrap();
     let task = ScheduleStore::create_task_on(&txn, 1, &draft, now, Some(session))
@@ -204,7 +204,7 @@ async fn elapsed_time_rolls_back_the_confirmation_cas() {
 #[tokio::test]
 async fn activation_does_not_bypass_the_source_surface() {
     let (store, task, row, mut session) = fixture().await;
-    session.surface = AgentSessionSurface::TerminalAiAssistant;
+    session.surface = AgentSessionSurface::TerminalAiAgent;
     let mut changed: session_row::ActiveModel = row.into();
     changed.state_json = Set(session.encode_json_for_storage().unwrap());
     changed.update(&store.db).await.unwrap();
@@ -360,13 +360,11 @@ async fn exercise_live_review(selectable: bool) {
                 .unwrap();
             session.device_id.clear();
             session
-                .bind_assistant_input_targets(&[
-                    desk_diagnose_core::dynamic_run::AssistantInputTarget {
-                        reference: "device-1".into(),
-                        device_id: "device-1".into(),
-                        member_generation: None,
-                    },
-                ])
+                .bind_agent_input_targets(&[desk_diagnose_core::dynamic_run::AgentInputTarget {
+                    reference: "device-1".into(),
+                    device_id: "device-1".into(),
+                    member_generation: None,
+                }])
                 .unwrap();
         }
         let call = begin_proposal_turn(
@@ -450,7 +448,7 @@ async fn exercise_live_review(selectable: bool) {
         }
         // The pause remains until the decision-resume claim takes it.
         assert_eq!(session.decision_pause, before.decision_pause);
-        let resume = desk_assistant_data_store::entity::agent_decision_resume::Entity::find()
+        let resume = desk_agent_data_store::entity::agent_decision_resume::Entity::find()
             .one(&store.db)
             .await
             .unwrap()
@@ -523,7 +521,7 @@ async fn stored_session(store: &ScheduleStore, conversation: &str) -> PersistedA
     PersistedAgentSession::decode_json(&row.state_json).unwrap()
 }
 
-/// Put the session in a running turn whose assistant message calls
+/// Put the session in a running turn whose agent message calls
 /// `request_scheduled_task` with `arguments`.
 async fn begin_proposal_turn(
     store: &ScheduleStore,

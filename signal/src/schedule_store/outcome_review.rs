@@ -73,7 +73,7 @@ impl ScheduleStore {
             return Err(ScheduleStoreError::Invalid);
         }
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
-        desk_assistant_data_store::schedule::review_run_outcome_on(
+        desk_agent_data_store::schedule::review_run_outcome_on(
             &super::SignalScheduleHost,
             &txn,
             owner,

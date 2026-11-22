@@ -4,7 +4,7 @@ use crate::entity::{
     agent_delegation_group as group_row, agent_schedule_run as run, agent_session,
     agent_subagent_run as child_row,
 };
-use desk_agent_protocol::ai_assistant::subagent::{AiAssistantStopControl, SubAgentStopChoice};
+use desk_agent_protocol::ai_agent::subagent::{AiAgentStopControl, SubAgentStopChoice};
 use desk_diagnose_core::session::PersistedAgentSession;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
@@ -89,7 +89,7 @@ async fn stopped_parent_with_a_lost_run_holder_preserves_finite_children_until_t
             &parent.conversation_id,
             &parent.actor_id,
             &parent.device_id,
-            &AiAssistantStopControl {
+            &AiAgentStopControl {
                 client_request_id: "stop-lost-holder".into(),
                 expected_input_revision: parent.input_revision,
                 expected_control_revision: parent.control_revision,

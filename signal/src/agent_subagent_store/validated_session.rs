@@ -88,7 +88,7 @@ impl<'t> TxnValidatedSession<'t> {
             .ok_or_else(|| invalid())?;
         let session = self.reuse(&row)?;
         if !session.agent_role.is_main()
-            || session.surface != AgentSessionSurface::AiAssistant
+            || session.surface != AgentSessionSurface::AiAgent
             || session.conversation_id != row.conversation_id
             || session.actor_id != row.actor_id
             || session.device_id != row.device_id

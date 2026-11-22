@@ -1,0 +1,1 @@
+{"type":"object","required":["session"],"properties":{"connection":{"type":["string","null"]},"session":{"type":"string"}},"x-readme-ref-name":"DeleteAiAgentSessionBody"}

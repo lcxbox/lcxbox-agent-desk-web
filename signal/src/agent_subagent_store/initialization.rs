@@ -65,7 +65,7 @@ async fn initialize_goal_group_inner(
 ) -> Result<(), DbErr> {
     let (db, session, goal, now_ms) = *inputs;
     if !session.agent_role.is_main()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || goal.conversation_id != session.conversation_id
         || goal.owner_id != session.actor_id
         || goal.device_id != session.device_id
@@ -200,11 +200,10 @@ async fn persist_source_group_inner(
     }
     let policy = crate::subagent_policy::read(db).await?;
     let mut group = build_group(policy.limits.max_task_duration_minutes)?;
-    if let Some(admission) = desk_assistant_data_store::issue_authority::authorized_session_on(
-        db, session, false, now_ms,
-    )
-    .await
-    .map_err(|_| invalid())?
+    if let Some(admission) =
+        desk_agent_data_store::issue_authority::authorized_session_on(db, session, false, now_ms)
+            .await
+            .map_err(|_| invalid())?
         && let Some(deadline) = admission.expires_at_ms
     {
         group.limits.deadline_ms = group.limits.deadline_ms.min(deadline);

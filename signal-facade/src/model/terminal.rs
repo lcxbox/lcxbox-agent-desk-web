@@ -94,7 +94,7 @@ pub struct TerminalInputData {
 pub struct TerminalOutputData {
     pub content: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub assistant_object_ref: Option<ObjectRef>,
+    pub agent_object_ref: Option<ObjectRef>,
 }
 
 #[derive(

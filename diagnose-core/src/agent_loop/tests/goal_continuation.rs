@@ -7,7 +7,7 @@ fn fixture(background: bool) -> (MemSession, PersistedAgentSession) {
         .unwrap()
         .timestamp_millis() as u64;
     let mut session = PersistedAgentSession::new("conv", "actor", "device", 1, scope(), now);
-    session.surface = AgentSessionSurface::AiAssistant;
+    session.surface = AgentSessionSurface::AiAgent;
     session.input_revision = 1;
     session.latest_input_seq = 1;
     session.begin_focus_epoch(1, Vec::<String>::new()).unwrap();
@@ -29,7 +29,7 @@ fn fixture(background: bool) -> (MemSession, PersistedAgentSession) {
         "goal".into(),
         "conv".into(),
         "actor".into(),
-        crate::dynamic_run::AssistantInputTarget::fixed("device".into()),
+        crate::dynamic_run::AgentInputTarget::fixed("device".into()),
         "device".into(),
         "Finish the verified report".into(),
         "user".into(),

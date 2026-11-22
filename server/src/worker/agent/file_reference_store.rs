@@ -1,6 +1,6 @@
 //! Worker-lifetime, edge-issued references for explicit file selections.
 //!
-//! The file manager lists native paths for the human UI, but the Assistant is
+//! The file manager lists native paths for the human UI, but the Agent is
 //! only allowed to carry an opaque `ObjectRef`. Directory references have no
 //! fixed expiry; file references remain time-bounded. Resolution reopens the exact
 //! path without following a final reparse point and compares filesystem identity
@@ -28,7 +28,7 @@ use desk_agent_protocol::{AgentError, AgentErrorKind};
 use sha2::{Digest, Sha256};
 
 const DURABLE_ARTIFACT_REF_TTL_SECS: i64 = 24 * 60 * 60;
-const DURABLE_ARTIFACT_REGISTRY_FILE: &str = "assistant-artifact-registry.json";
+const DURABLE_ARTIFACT_REGISTRY_FILE: &str = "agent-artifact-registry.json";
 const DURABLE_ARTIFACT_REGISTRY_VERSION: u32 = 2;
 const MAX_FILE_REFS: usize = 8_192;
 const MAX_SELECTED_ROOTS: usize = 32;
@@ -197,7 +197,7 @@ pub fn configure_durable_artifact_store(data_root: Option<&Path>) {
 }
 
 /// Mint one short-lived reference from the exact filesystem object currently
-/// opened at `path`. Failure only removes the Assistant affordance from that
+/// opened at `path`. Failure only removes the Agent affordance from that
 /// row; it must not break ordinary file-manager browsing.
 pub fn issue(path: &Path) -> Result<ObjectRef, AgentError> {
     issue_with_lifetime(path, super::PERMISSION_FLOW_TTL_SECONDS, false)

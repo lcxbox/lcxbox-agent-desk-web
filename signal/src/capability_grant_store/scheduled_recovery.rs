@@ -3,7 +3,7 @@ use super::*;
 use crate::config::connection::DatabaseTransaction;
 use desk_diagnose_core::{
     action_result::ActionResultOrigin,
-    action_turn_fence::AssistantTurnFence,
+    action_turn_fence::AgentTurnFence,
     chat::{ChatMessage, ChatRole, ToolCall},
     dynamic_run::BackgroundTaskState,
     session::{ActionIdentity, ExecutionState, TriggerOrigin, TurnState, WorkKind},
@@ -177,7 +177,7 @@ async fn reconcile_inner_on(
         }
         let binding = super::computer_background::bound(outbox, work, payload)?;
         if !delegated
-            && AssistantTurnFence::from_session(session)
+            && AgentTurnFence::from_session(session)
                 .map_err(|_| invalid())?
                 .as_ref()
                 != Some(&binding.origin.turn_fence)
@@ -213,7 +213,7 @@ async fn reconcile_inner_on(
             }
         } else {
             let origin = ActionResultOrigin::capture(
-                &desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+                &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
                 session,
                 &call,
             )

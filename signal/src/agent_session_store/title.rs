@@ -9,7 +9,7 @@ impl SignalAgentSessionStore {
         Box<dyn std::future::Future<Output = Result<Option<usize>, AgentError>> + Send + 'a>,
     > {
         desk_diagnose_core::future::send_phase(|| async move {
-            if self.surface != AgentSessionSurface::AiAssistant {
+            if self.surface != AgentSessionSurface::AiAgent {
                 return Ok(None);
             }
             let row = agent_session::Entity::find()
@@ -29,7 +29,7 @@ impl SignalAgentSessionStore {
             Ok(Some(
                 crate::config::ConfigConnection::config_read(&self.db)
                     .await
-                    .assistant_data_policy
+                    .agent_data_policy
                     .conversation_title_max_chars as usize,
             ))
         })

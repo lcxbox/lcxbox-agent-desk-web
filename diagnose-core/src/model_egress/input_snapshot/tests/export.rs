@@ -16,7 +16,7 @@ fn authorized(with_background: bool) -> (ModelEgressPolicy, AuthorizedModelReque
         document_preview: None,
     };
     let mut original = read_result_envelope(
-        crate::ai_assistant::ai_assistant_provider_registry_ref(),
+        crate::ai_agent::ai_agent_provider_registry_ref(),
         &ToolCall {
             id: "read".into(),
             name: tool.into(),
@@ -134,13 +134,12 @@ fn native_export_metadata_rejects_identity_content_constraint_and_recipient_repl
 fn policy_registration_uses_the_exact_original_provider_label_and_preserves_its_hard_deadline() {
     let (_, authorized, original) = authorized(false);
     let snapshot = authorized.input_snapshot().unwrap();
-    let registration =
-        crate::ai_assistant::source_registry::NativeInputPolicyRegistration::capture(
-            &snapshot,
-            crate::ai_assistant::source_registry::SOURCE_CONTRACT_REVISION,
-            1,
-        )
-        .unwrap();
+    let registration = crate::ai_agent::source_registry::NativeInputPolicyRegistration::capture(
+        &snapshot,
+        crate::ai_agent::source_registry::SOURCE_CONTRACT_REVISION,
+        1,
+    )
+    .unwrap();
     let policy = registration
         .complete_leaf_text_policy(&snapshot)
         .unwrap()
@@ -153,7 +152,7 @@ fn policy_registration_uses_the_exact_original_provider_label_and_preserves_its_
     );
     assert_eq!(
         registration.leaves[0].as_ref().unwrap().contract,
-        crate::ai_assistant::source_registry::RegisteredSourceContract::PublicResearchResult
+        crate::ai_agent::source_registry::RegisteredSourceContract::PublicResearchResult
     );
 }
 
@@ -179,13 +178,12 @@ fn controls_keep_the_original_policy_across_an_actual_native_export_alias() {
         &original_snapshot.exports,
     )
     .unwrap();
-    let registration =
-        crate::ai_assistant::source_registry::NativeInputPolicyRegistration::capture(
-            &snapshot,
-            crate::ai_assistant::source_registry::SOURCE_CONTRACT_REVISION,
-            1,
-        )
-        .unwrap();
+    let registration = crate::ai_agent::source_registry::NativeInputPolicyRegistration::capture(
+        &snapshot,
+        crate::ai_agent::source_registry::SOURCE_CONTRACT_REVISION,
+        1,
+    )
+    .unwrap();
     let policy = registration
         .complete_leaf_text_policy(&snapshot)
         .unwrap()
@@ -198,13 +196,13 @@ fn controls_keep_the_original_policy_across_an_actual_native_export_alias() {
     registration.validate_registered_leaves(&snapshot).unwrap();
     assert_eq!(
         registration.leaves[1].as_ref().unwrap().contract,
-        crate::ai_assistant::source_registry::RegisteredSourceContract::NativeControl
+        crate::ai_agent::source_registry::RegisteredSourceContract::NativeControl
     );
 }
 
 #[test]
 fn a_reference_projection_registers_only_when_its_cited_result_is_exported_in_the_request() {
-    use crate::ai_assistant::source_registry::{
+    use crate::ai_agent::source_registry::{
         NativeInputPolicyRegistration, RegisteredSourceContract, SOURCE_CONTRACT_REVISION,
     };
     let (_, authorized, original) = authorized(false);

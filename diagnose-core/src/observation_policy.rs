@@ -1,4 +1,4 @@
-//! Shared admission policy for the AI Assistant observation transport.
+//! Shared admission policy for the AI Agent observation transport.
 //! This is not a grant and does not authorize direct device access.
 use desk_agent_protocol::{AgentError, AgentErrorKind, Capability};
 
@@ -36,7 +36,7 @@ pub fn require_device_observation(capability: Capability) -> Result<(), AgentErr
         | Capability::WordDocumentCreateConfirmed
         | Capability::WebResearchFetch
         | Capability::WebResearchSearch
-        | Capability::AssistantActionPreview
+        | Capability::AgentActionPreview
         | Capability::ShellExecReadonly
         | Capability::ShellExecConfirmed
         | Capability::DesktopUiActionConfirmed
@@ -62,7 +62,7 @@ pub fn require_device_observation(capability: Capability) -> Result<(), AgentErr
         | Capability::ApplicationLaunchConfirmed
         | Capability::DocumentConvertConfirmed => Err(AgentError {
             kind: AgentErrorKind::UnsupportedCapability,
-            message: "AI Assistant may only invoke selected read-only observations".into(),
+            message: "AI Agent may only invoke selected read-only observations".into(),
             retryable: false,
             safe_for_model: true,
             error_code: None,

@@ -276,10 +276,10 @@ impl ObservationEvent {
 }
 
 fn unknown_attribution() -> Attribution {
-    Attribution::unresolved(Purpose::Agent, Surface::Assistant, Origin::Unknown)
+    Attribution::unresolved(Purpose::Agent, Surface::Agent, Origin::Unknown)
 }
 
-/// Select only a unique original assistant call from already-validated history.
+/// Select only a unique original agent call from already-validated history.
 pub fn original_tool_alias(
     session: &crate::session::PersistedAgentSession,
     call_id: &str,

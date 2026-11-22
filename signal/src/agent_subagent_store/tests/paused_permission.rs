@@ -1,8 +1,8 @@
 //! Owner approval is durable while its original goal source is paused.
 use super::*;
-use desk_agent_protocol::capability_provider::{CapabilityEffect, ProductSurface};
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
+use desk_agent_protocol::capability_provider::{CapabilityEffect, ProductSurface};
 use desk_diagnose_core::{
     capability_availability::CapabilityAvailability,
     dynamic_run::*,
@@ -144,9 +144,8 @@ async fn approval_during_goal_pause_is_retained_without_resume_or_budget_reset()
     };
     let mut child = claimed.session;
     // The low-level store fixture uses an arbitrary policy revision; the real
-    // permission boundary requires the current compiled Assistant policy.
-    child.policy_revision =
-        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
+    // permission boundary requires the current compiled Agent policy.
+    child.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
     save_child_session(&db, &mut child).await.unwrap();
     let event = request(&mut child);
     publish(&db, &mut child, &event).await;
@@ -251,7 +250,7 @@ pub(super) async fn approve(db: &DatabaseConnection, id: &str) {
     assert!(decide_at(db, id).await);
 }
 async fn decide_at(db: &DatabaseConnection, id: &str) -> bool {
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let inventory = inventory();
     let now = chrono::Utc::now();
     let ctx = PermissionGrantIssuanceContext {
@@ -379,8 +378,7 @@ async fn new_parent_input_preserves_running_child_and_original_permission_select
         panic!("goal claim");
     };
     let mut child = claimed.session;
-    child.policy_revision =
-        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
+    child.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
     save_child_session(&db, &mut child).await.unwrap();
     let event = request(&mut child);
     publish(&db, &mut child, &event).await;

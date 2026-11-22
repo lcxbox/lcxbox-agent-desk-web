@@ -262,7 +262,7 @@ pub async fn handle_manager_terminal_start(
                         break;
                     }
                     let content = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let assistant_object_ref =
+                    let agent_object_ref =
                         crate::worker::agent::terminal_reference_store::append_and_issue(
                             &terminal_connection_id,
                             &content,
@@ -270,7 +270,7 @@ pub async fn handle_manager_terminal_start(
                         .ok();
                     let data = TerminalOutputData {
                         content,
-                        assistant_object_ref,
+                        agent_object_ref,
                     };
                     let model = SignalingModel::new_request(
                         SignalingType::TerminalOutputProduced,
@@ -298,7 +298,7 @@ pub async fn handle_manager_terminal_start(
         // Send close message
         let data = TerminalOutputData {
             content: "\r\n\x1b[33m[Process exited]\x1b[0m\r\n".to_string(),
-            assistant_object_ref: None,
+            agent_object_ref: None,
         };
 
         let model = SignalingModel::new_request(

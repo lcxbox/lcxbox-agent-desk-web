@@ -2,9 +2,7 @@
 use super::*;
 use crate::config::connection::DatabaseTransaction;
 use crate::entity::agent_delegation_reservation as receipt_row;
-use desk_agent_protocol::ai_assistant::subagent::{
-    AiAssistantSubAgentControl, SubAgentControlAction,
-};
+use desk_agent_protocol::ai_agent::subagent::{AiAgentSubAgentControl, SubAgentControlAction};
 use desk_diagnose_core::model_observability::{
     InputIssue, PermissionOutcome, Stage, StageOutcome, tool::ToolObservation,
 };
@@ -15,7 +13,7 @@ use sha2::{Digest, Sha256};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SubAgentControlOutcome {
-    pub task: AiAssistantSubAgentSummary,
+    pub task: AiAgentSubAgentSummary,
     pub cancel_request_id: Option<String>,
 }
 
@@ -32,7 +30,7 @@ impl SubAgentStore {
         root: &str,
         actor: &str,
         device: &str,
-        request: &AiAssistantSubAgentControl,
+        request: &AiAgentSubAgentControl,
     ) -> Result<SubAgentControlOutcome, DbErr> {
         validate_control(request)?;
         let txn = desk_diagnose_core::future::boxed(|| async {
@@ -41,7 +39,7 @@ impl SubAgentStore {
         .await?;
 
         let history = desk_diagnose_core::future::boxed(|| {
-            crate::assistant_data_store::native_scope_on(&txn, actor, device, root)
+            crate::agent_data_store::native_scope_on(&txn, actor, device, root)
         })
         .await?;
         let parent = desk_diagnose_core::future::boxed(|| async {
@@ -64,7 +62,7 @@ impl SubAgentStore {
     }
 }
 
-fn validate_control(request: &AiAssistantSubAgentControl) -> Result<(), DbErr> {
+fn validate_control(request: &AiAgentSubAgentControl) -> Result<(), DbErr> {
     if !desk_diagnose_core::subagent::valid_id(&request.client_request_id)
         || !desk_diagnose_core::subagent::valid_id(&request.task_id)
         || request.expected_input_revision == 0
@@ -85,7 +83,7 @@ fn validate_control(request: &AiAssistantSubAgentControl) -> Result<(), DbErr> {
                 message,
                 client_timezone,
             } => {
-                !desk_diagnose_core::ai_assistant::source::valid_statement_timezone(client_timezone)
+                !desk_diagnose_core::ai_agent::source::valid_statement_timezone(client_timezone)
                     || message.trim().is_empty()
                     || message.chars().count()
                         > desk_diagnose_core::subagent::MAX_DELEGATED_TASK_CHARS
@@ -102,7 +100,7 @@ fn validate_control(request: &AiAssistantSubAgentControl) -> Result<(), DbErr> {
 pub(crate) async fn prepare_owner_control_on(
     txn: &DatabaseTransaction,
     parent: &PersistedAgentSession,
-    request: &AiAssistantSubAgentControl,
+    request: &AiAgentSubAgentControl,
     now_ms: i64,
 ) -> Result<PreparedControl, DbErr> {
     apply_task_control_with_source_on(
@@ -120,7 +118,7 @@ pub(crate) async fn prepare_owner_control_on(
 pub(crate) async fn apply_task_control_on(
     txn: &DatabaseTransaction,
     parent: &PersistedAgentSession,
-    request: &AiAssistantSubAgentControl,
+    request: &AiAgentSubAgentControl,
     now_ms: i64,
 ) -> Result<SubAgentControlOutcome, DbErr> {
     Ok(prepare_owner_control_on(txn, parent, request, now_ms)
@@ -187,7 +185,7 @@ pub(crate) async fn apply_task_control_from_turn_on(
         .and_then(|message| message.data_envelope.clone())
         .ok_or_else(|| invalid())?;
     let id = format!("model-control-{:x}", Sha256::digest(call.id.as_bytes()));
-    let request = AiAssistantSubAgentControl {
+    let request = AiAgentSubAgentControl {
         client_request_id: id,
         task_id,
         expected_input_revision: input,
@@ -208,12 +206,12 @@ pub(crate) async fn apply_task_control_from_turn_on(
 async fn apply_task_control_with_source_on(
     txn: &DatabaseTransaction,
     parent: &PersistedAgentSession,
-    request: &AiAssistantSubAgentControl,
+    request: &AiAgentSubAgentControl,
     adjustment_source: Option<desk_agent_protocol::data_lineage::DataEnvelope>,
     now_ms: i64,
     input_observation: &ToolObservation,
 ) -> Result<PreparedControl, DbErr> {
-    if !parent.agent_role.is_main() || parent.surface != AgentSessionSurface::AiAssistant {
+    if !parent.agent_role.is_main() || parent.surface != AgentSessionSurface::AiAgent {
         input_observation.permission(PermissionOutcome::PolicyRejected);
         return Err(invalid());
     }
@@ -415,7 +413,7 @@ async fn apply_task_control_with_source_on(
                             Some((now_ms as u64, client_timezone.as_str()))
                         } else {
                             parent
-                                .assistant_data
+                                .agent_data
                                 .as_ref()
                                 .filter(|data| data.current_actor_input_seq > 0)
                                 .map(|data| {
@@ -511,7 +509,7 @@ pub(super) async fn reply_to_question_on(
     caller: Option<&desk_agent_protocol::data_lineage::DataEnvelope>,
     after_seq: Option<u64>,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<AiAssistantSubAgentSummary, DbErr> {
+) -> Result<AiAgentSubAgentSummary, DbErr> {
     use desk_diagnose_core::subagent::{creation::TaskCreationEnvelope, report::QUESTION_NOT_OPEN};
 
     let mut run = decode_run(row)?;
@@ -564,13 +562,9 @@ pub(super) async fn reply_to_question_on(
     {
         return Err(invalid());
     }
-    let question = desk_assistant_data_store::worker_report::read_open_question_on(
-        txn,
-        &run,
-        question_id,
-        now_ms,
-    )
-    .await?;
+    let question =
+        desk_agent_data_store::worker_report::read_open_question_on(txn, &run, question_id, now_ms)
+            .await?;
     if after_seq.is_some_and(|cursor| question.report.seq <= cursor) {
         return Err(DbErr::Custom(QUESTION_NOT_OPEN.into()));
     }
@@ -620,7 +614,7 @@ mod client_timezone_tests {
 
     #[test]
     fn owner_adjustments_require_a_valid_client_timezone() {
-        let mut request = AiAssistantSubAgentControl {
+        let mut request = AiAgentSubAgentControl {
             client_request_id: "input".into(),
             task_id: "task".into(),
             expected_input_revision: 1,

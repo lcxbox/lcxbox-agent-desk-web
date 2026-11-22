@@ -1,13 +1,13 @@
 //! Bounded task presentation read in the owner's coherent snapshot transaction.
 use super::*;
 use crate::entity::agent_subagent_inbox as inbox;
-use desk_agent_protocol::ai_assistant::subagent::AiAssistantDelegationSnapshot;
+use desk_agent_protocol::ai_agent::subagent::AiAgentDelegationSnapshot;
 use sea_orm::QueryTrait;
 
 pub(crate) async fn presentation_on<C: ConnectionTrait + crate::config::ConfigConnection>(
     db: &C,
     session: &PersistedAgentSession,
-) -> Result<AiAssistantDelegationSnapshot, DbErr> {
+) -> Result<AiAgentDelegationSnapshot, DbErr> {
     if let Some(binding) = session.agent_role.binding() {
         let row = run_row::Entity::find()
             .filter(run_row::Column::TaskId.eq(&binding.task_id))
@@ -20,7 +20,7 @@ pub(crate) async fn presentation_on<C: ConnectionTrait + crate::config::ConfigCo
             .ok_or_else(|| invalid())?;
         let run = decode_run(&row)?;
         run.validate_session(session).map_err(|_| invalid())?;
-        return Ok(AiAssistantDelegationSnapshot {
+        return Ok(AiAgentDelegationSnapshot {
             parent_session_id: Some(binding.root_conversation_id.clone()),
             task: Some(run.summary()),
             tasks: None,
@@ -101,13 +101,13 @@ pub(crate) async fn presentation_on<C: ConnectionTrait + crate::config::ConfigCo
     } else {
         None
     };
-    Ok(AiAssistantDelegationSnapshot {
+    Ok(AiAgentDelegationSnapshot {
         parent_session_id: None,
         task: None,
         active_tasks,
         attention_tasks,
         attention_count,
-        tasks: Some(AiAssistantSubAgentPage {
+        tasks: Some(AiAgentSubAgentPage {
             items,
             total,
             unfinished,

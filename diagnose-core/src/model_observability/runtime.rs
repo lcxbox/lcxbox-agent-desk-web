@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AiAssistantTurnOrigin {
+pub enum AiAgentTurnOrigin {
     User,
     IssueSubscription,
     PermissionResume,
@@ -17,7 +17,7 @@ pub enum AiAssistantTurnOrigin {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AiAssistantTurnOutcome {
+pub enum AiAgentTurnOutcome {
     Answered,
     Waiting,
     PermissionRequired,
@@ -35,7 +35,7 @@ pub enum AiAssistantTurnOutcome {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AiAssistantProviderFamily {
+pub enum AiAgentProviderFamily {
     Browser,
     DesktopUi,
     RawInput,
@@ -48,7 +48,7 @@ pub enum AiAssistantProviderFamily {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AiAssistantProviderCompletion {
+pub enum AiAgentProviderCompletion {
     Verified,
     Accepted,
     Failed,
@@ -59,7 +59,7 @@ pub enum AiAssistantProviderCompletion {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AiAssistantProviderCancel {
+pub enum AiAgentProviderCancel {
     Requested,
     NotSent,
     AlreadyTerminal,
@@ -67,7 +67,7 @@ pub enum AiAssistantProviderCancel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AiAssistantPermissionDecision {
+pub enum AiAgentPermissionDecision {
     Approved,
     Narrowed,
     Denied,
@@ -503,11 +503,11 @@ pub enum CompressionFailure {
 #[serde(deny_unknown_fields)]
 pub struct RuntimeLabels {
     pub origin: Option<Origin>,
-    pub turn_outcome: Option<AiAssistantTurnOutcome>,
-    pub provider_family: Option<AiAssistantProviderFamily>,
-    pub provider_completion: Option<AiAssistantProviderCompletion>,
-    pub provider_cancel: Option<AiAssistantProviderCancel>,
-    pub permission_decision: Option<AiAssistantPermissionDecision>,
+    pub turn_outcome: Option<AiAgentTurnOutcome>,
+    pub provider_family: Option<AiAgentProviderFamily>,
+    pub provider_completion: Option<AiAgentProviderCompletion>,
+    pub provider_cancel: Option<AiAgentProviderCancel>,
+    pub permission_decision: Option<AiAgentPermissionDecision>,
     pub safety_surface: Option<ContentSafetySurface>,
     pub safety_stage: Option<ContentSafetyStage>,
     pub safety_decision: Option<ContentSafetyDecision>,

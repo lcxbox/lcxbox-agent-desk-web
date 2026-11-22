@@ -8,7 +8,7 @@ impl ScheduleStore {
         input: FreshTaskClaim<'_>,
         request_id: &str,
     ) -> Result<PersistedAgentSession, ScheduleStoreError> {
-        desk_assistant_data_store::schedule::claim_fresh_approval_on(
+        desk_agent_data_store::schedule::claim_fresh_approval_on(
             &super::SignalScheduleHost,
             txn,
             input,

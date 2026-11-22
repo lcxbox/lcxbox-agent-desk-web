@@ -27,14 +27,14 @@ pub(crate) fn history(tool: &str, value: Value) -> Vec<ChatMessage> {
     )
     .unwrap();
     if let Some(capability) =
-        crate::ai_assistant::ai_assistant_provider_registry().capability_for_tool(tool)
+        crate::ai_agent::ai_agent_provider_registry().capability_for_tool(tool)
     {
         result
             .data_envelope
             .as_mut()
             .unwrap()
             .provenance
-            .source_provider_id = crate::ai_assistant::ai_assistant_provider_registry()
+            .source_provider_id = crate::ai_agent::ai_agent_provider_registry()
             .provider_for_capability(&capability.wire.capability_id)
             .unwrap()
             .wire
@@ -43,7 +43,7 @@ pub(crate) fn history(tool: &str, value: Value) -> Vec<ChatMessage> {
     }
     vec![
         owner,
-        ChatMessage::assistant_tool_calls(
+        ChatMessage::agent_tool_calls(
             "producer",
             "",
             vec![ToolCallRef {
@@ -167,10 +167,10 @@ fn typed_send_receipts_preserve_all_three_outcomes_inline_and_nested() {
 
 #[test]
 fn source_and_memory_versions_have_distinct_model_purposes() {
-    use desk_agent_protocol::ai_assistant::source::{
-        AssistantSourceLocator, AssistantSourceResolution, SourceAvailability,
+    use desk_agent_protocol::ai_agent::source::{
+        AgentSourceLocator, AgentSourceResolution, SourceAvailability,
     };
-    let locator = AssistantSourceLocator {
+    let locator = AgentSourceLocator {
         conversation_id: "a".repeat(64),
         root_conversation_id: "a".repeat(64),
         message_id: Some("long-message".into()),
@@ -181,7 +181,7 @@ fn source_and_memory_versions_have_distinct_model_purposes() {
         byte_start: 0,
         byte_end: 42,
     };
-    let source = AssistantSourceResolution {
+    let source = AgentSourceResolution {
         source_id: "src_compact".into(),
         revision: 9,
         availability: SourceAvailability::Partial,
@@ -206,7 +206,7 @@ fn source_and_memory_versions_have_distinct_model_purposes() {
     assert_eq!(view["availability"], "partial");
     assert_eq!(view["content"], source.content.unwrap());
     let original_request = json!({"queries":["test"], "conversation_ids":["cv1"]});
-    let search: desk_agent_protocol::ai_assistant::history::ConversationSearchRequest =
+    let search: desk_agent_protocol::ai_agent::history::ConversationSearchRequest =
         serde_json::from_value(original_request.clone()).unwrap();
     let restored: crate::ui_references::UiReferenceState =
         serde_json::from_str(&serde_json::to_string(&refs).unwrap()).unwrap();
@@ -557,14 +557,14 @@ fn browser_completion_header_is_hidden_after_nested_browser_projection() {
 
 #[test]
 fn typed_history_inventory_and_memory_search_keep_uncertainty_coverage_and_fact_versions() {
-    use desk_agent_protocol::ai_assistant::{history::*, memory::*, source::*};
-    let device = AssistantSourceDevice {
+    use desk_agent_protocol::ai_agent::{history::*, memory::*, source::*};
+    let device = AgentSourceDevice {
         device_ref: "dev_compact".into(),
         recorded_name: None,
         current_name: Some("Laptop".into()),
         historical: true,
     };
-    let coverage = AssistantHistoryCoverage {
+    let coverage = AgentHistoryCoverage {
         retained_from_unix_ms: Some(1),
         retained_until_unix_ms: Some(100),
         indexed_through_unix_ms: Some(50),
@@ -587,8 +587,8 @@ fn typed_history_inventory_and_memory_search_keep_uncertainty_coverage_and_fact_
     let summary = NativeStatusSummary {
         source_id: "src_inventory".into(),
         source_revision: 3,
-        additional_sources: vec![AssistantSourceRef {
-            kind: AssistantSourceKind::NativeStatus,
+        additional_sources: vec![AgentSourceRef {
+            kind: AgentSourceKind::NativeStatus,
             id: "src_extra".into(),
             revision: Some(4),
             role: SourceRefRole::Evidence,
@@ -605,8 +605,8 @@ fn typed_history_inventory_and_memory_search_keep_uncertainty_coverage_and_fact_
         hits: vec![ConversationSearchHit {
             source_id: "src_hit".into(),
             revision: 3,
-            kind: AssistantSourceKind::NativeStatus,
-            locator: AssistantSourceLocator {
+            kind: AgentSourceKind::NativeStatus,
+            locator: AgentSourceLocator {
                 conversation_id: "conversation".into(),
                 root_conversation_id: "root".into(),
                 message_id: None,
@@ -627,7 +627,7 @@ fn typed_history_inventory_and_memory_search_keep_uncertainty_coverage_and_fact_
             native_time_basis: None,
             native_status_summary: Some(summary),
         }],
-        scope: AssistantDeviceScope::AllMyDevices,
+        scope: AgentDeviceScope::AllMyDevices,
         effective_queries: vec![vec!["report".into()]],
         retrieval_mode: "bm25_rrf".into(),
         has_more: true,
@@ -754,7 +754,7 @@ fn memory_history_model_view_keeps_native_ids_versions_and_recording_times() {
 
 #[test]
 fn model_tool_copies_omit_canonicalization_keywords_but_keep_byte_limits() {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let mut request = ModelRequest::text_only(vec![], ResponseFormatSpec::None);
     request.tools = crate::permission_tools::permission_planning_tool_registry()
         .into_iter()
@@ -804,7 +804,7 @@ fn model_tool_copies_omit_canonicalization_keywords_but_keep_byte_limits() {
 
 #[test]
 fn the_gateway_sees_original_arguments_and_paired_notices_on_the_wire_only() {
-    let mut assistant = ChatMessage::assistant_tool_calls(
+    let mut agent = ChatMessage::agent_tool_calls(
         "assistant",
         String::new(),
         vec![
@@ -820,14 +820,14 @@ fn the_gateway_sees_original_arguments_and_paired_notices_on_the_wire_only() {
             },
         ],
     );
-    assistant.normalized_inputs.insert(
+    agent.normalized_inputs.insert(
         "json".into(),
         crate::model_input::lenient::NormalizedInput {
             original: r#"{"verbose":true}"#.into(),
             notice: "Ignored unsupported input fields: verbose.".into(),
         },
     );
-    assistant.normalized_inputs.insert(
+    agent.normalized_inputs.insert(
         "text".into(),
         crate::model_input::lenient::NormalizedInput {
             original: r#"{"limit":null}"#.into(),
@@ -839,7 +839,7 @@ fn the_gateway_sees_original_arguments_and_paired_notices_on_the_wire_only() {
     let untouched = ChatMessage::tool_result("r3", "other", r#"{"ok":true}"#);
     let request = ModelRequest::text_only(
         vec![
-            assistant,
+            agent,
             json_result.clone(),
             text_result.clone(),
             untouched.clone(),

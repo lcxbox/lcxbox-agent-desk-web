@@ -1,6 +1,6 @@
 import { useOptionalDeviceTarget } from '@/features/desk/device-target-context';
 import { appendBrowserPeerReport } from '@/features/desk/browser-peer-report';
-import { AiAssistantIcon } from '@/components/ai-assistant-icon';
+import { AiAgentIcon } from '@/components/ai-agent-icon';
 
 import { useEffect, useRef, useState, useCallback } from "react"
 import { Terminal } from "@xterm/xterm"
@@ -13,8 +13,8 @@ import { readSessionGrant } from "@/features/desk/session-grant"
 import { Button } from "@/components/ui/button"
 import { v4 } from "uuid"
 import { useDeskSignaling } from "../desk/use-desk-signaling"
-import { useTerminalAiAssistant, type TerminalAiAssistantMode, type TerminalContext } from "./use-terminal-ai-assistant"
-import { TerminalAiAssistantPanel } from "./terminal-ai-assistant-panel"
+import { useTerminalAiAgent, type TerminalAiAgentMode, type TerminalContext } from "./use-terminal-ai-agent"
+import { TerminalAiAgentPanel } from "./terminal-ai-agent-panel"
 import { AiGeneratedMark, type AiProvenance } from "@/components/ai-generated-mark"
 import { ModelSelector } from "../desk/model-selector"
 import { useConfirmExec } from "../exec/use-confirm-exec"
@@ -34,19 +34,19 @@ import { useGetCurrentUser } from '@/services/hooks/userController/useGetCurrent
 import type { OperationSystemEnum } from "@/services/types"
 import { terminalOs, terminalShell } from "./terminal-environment"
 import {
-    type AssistantTerminalObjectRef,
-    useAiAssistantTerminalContext,
-} from './use-ai-assistant-terminal-context'
+    type AgentTerminalObjectRef,
+    useAiAgentTerminalContext,
+} from './use-ai-agent-terminal-context'
 import {
     SessionTargetDialog,
     parseSessionTargetList,
     type SessionTargetDescriptor,
 } from '@/features/desk/session-target-selection'
 
-// Max bytes of recent terminal scrollback kept as a non-authoritative assistant
+// Max bytes of recent terminal scrollback kept as a non-authoritative agent
 // prompt hint (the server re-redacts and re-caps it). Bounded so the ring buffer
 // never grows without limit on a chatty session.
-const AI_ASSISTANT_RECENT_OUTPUT_LIMIT = 8_192
+const AI_AGENT_RECENT_OUTPUT_LIMIT = 8_192
 
 // Legacy Signaling Constants
 const SIGNALING_TYPE_CODE_REPLY = 10011
@@ -75,21 +75,21 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
     const [sessionTargets, setSessionTargets] = useState<SessionTargetDescriptor[]>([])
     const { markStarted: markTerminalStarted, markClosed: markTerminalClosed } = useTerminalSessionGuard()
 
-    // Assistant: a control-plane signaling connection (separate from the terminal
+    // Agent: a control-plane signaling connection (separate from the terminal
     // I/O WS above) plus a bounded ring buffer of recent output and the last
-    // submitted command line, all fed to the assistant as non-authoritative hints.
+    // submitted command line, all fed to the agent as non-authoritative hints.
     const { subscribe, sendMessage } = useDeskSignaling()
     const account = useGetCurrentUser().data?.data;
     const personalScope = orgId == null && account && account.target_connection_id == null
         ? `personal:${account.user_id ?? 'owner'}` : undefined;
-    const assistantContext = useAiAssistantTerminalContext({
+    const agentContext = useAiAgentTerminalContext({
         deskId: connectionId,
         personalScope,
         subscribe,
         sendMessage,
     })
-    const assistant = useTerminalAiAssistant({ connectionId, subscribe, sendMessage })
-    // Confirmed execution of an operator-promoted assistant suggestion: ConfirmExec
+    const agent = useTerminalAiAgent({ connectionId, subscribe, sendMessage })
+    // Confirmed execution of an operator-promoted agent suggestion: ConfirmExec
     // -> ExecPreview -> ResolveExec -> ExecResult, keyed by suggestion index. The
     // host re-classifies the command and gates it on the device execution ceiling;
     // the browser only relays and renders.
@@ -110,10 +110,10 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
         modelId: completionModelId,
         orgId,
     })
-    const [showAssistant, setShowAssistant] = useState(false)
+    const [showAgent, setShowAgent] = useState(false)
     const recentOutputRef = useRef<string>("")
-    const [assistantObjectRef, setAssistantObjectRef] =
-        useState<AssistantTerminalObjectRef | null>(null)
+    const [agentObjectRef, setAgentObjectRef] =
+        useState<AgentTerminalObjectRef | null>(null)
     const lastCommandRef = useRef<string>("")
     const inputLineRef = useRef<string>("")
 
@@ -148,9 +148,9 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
     // The shell comes from the selected command, while the OS comes from the
     // remote host's connection handshake. Shell names are cross-platform (macOS
     // ships bash, and pwsh runs on Unix), so they cannot identify the OS.
-    const buildContext = useCallback((mode: TerminalAiAssistantMode): TerminalContext => {
+    const buildContext = useCallback((mode: TerminalAiAgentMode): TerminalContext => {
         const shell = terminalShell(command)
-        const recent = recentOutputRef.current.slice(-AI_ASSISTANT_RECENT_OUTPUT_LIMIT)
+        const recent = recentOutputRef.current.slice(-AI_AGENT_RECENT_OUTPUT_LIMIT)
         return {
             os: terminalOs(operationSystem),
             shell,
@@ -162,9 +162,9 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
         }
     }, [command, operationSystem])
 
-    const askAssistant = useCallback((mode: TerminalAiAssistantMode, question: string, modelId: number | null) => {
-        assistant.ask({ mode, question: question || undefined, context: buildContext(mode), modelId, orgId })
-    }, [assistant, buildContext, orgId])
+    const askAgent = useCallback((mode: TerminalAiAgentMode, question: string, modelId: number | null) => {
+        agent.ask({ mode, question: question || undefined, context: buildContext(mode), modelId, orgId })
+    }, [agent, buildContext, orgId])
 
     // The (non-authoritative) environment hint for a completion ask.
     const completeContext = useCallback((): TerminalCompletionContext => {
@@ -172,7 +172,7 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
         return {
             os: terminalOs(operationSystem),
             shell,
-            recent_output: recentOutputRef.current.slice(-AI_ASSISTANT_RECENT_OUTPUT_LIMIT),
+            recent_output: recentOutputRef.current.slice(-AI_AGENT_RECENT_OUTPUT_LIMIT),
         }
     }, [command, operationSystem])
 
@@ -400,19 +400,19 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
                                 } else if (msg.signaling_type === SIGNALING_TYPE_CODE_REPLY) {
                                     const content = msg.signaling_data.content
                                     term.write(content)
-                                    // Tap a bounded ring buffer of recent output for the assistant hint.
+                                    // Tap a bounded ring buffer of recent output for the agent hint.
                                     if (typeof content === 'string') {
                                         recentOutputRef.current = (recentOutputRef.current + content)
-                                            .slice(-AI_ASSISTANT_RECENT_OUTPUT_LIMIT)
+                                            .slice(-AI_AGENT_RECENT_OUTPUT_LIMIT)
                                     }
-                                    const assistantRef = msg.signaling_data.assistant_object_ref
+                                    const agentRef = msg.signaling_data.agent_object_ref
                                     if (
-                                        assistantRef?.object_kind === 'terminal_output'
-                                        && typeof assistantRef.token === 'string'
-                                        && typeof assistantRef.snapshot_id === 'string'
-                                        && typeof assistantRef.expires_at === 'string'
+                                        agentRef?.object_kind === 'terminal_output'
+                                        && typeof agentRef.token === 'string'
+                                        && typeof agentRef.snapshot_id === 'string'
+                                        && typeof agentRef.expires_at === 'string'
                                     ) {
-                                        setAssistantObjectRef(assistantRef)
+                                        setAgentObjectRef(agentRef)
                                     }
                                 } else if (startOutcome?.kind === 'failed') {
                                     // The device refused the start, e.g. its security
@@ -497,7 +497,7 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
                         signaling_data: { content: data },
                     };
                     socketRef.current.send(JSON.stringify(signal));
-                    // Track the last submitted command line (a non-authoritative assistant
+                    // Track the last submitted command line (a non-authoritative agent
                     // hint). A CR/LF settles the current line; backspace pops; printable
                     // characters accumulate. Control sequences are otherwise ignored.
                     let settled = false
@@ -616,27 +616,27 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
                         variant="secondary"
                         size="sm"
                         className="opacity-50 hover:opacity-100 transition-opacity"
-                        disabled={!assistantObjectRef || assistantContext.pending}
-                        title={assistantContext.error
-                            ? t('pages.deskTerminal.assistant.addFailed')
-                            : t('pages.deskTerminal.assistant.addHint')}
-                        onClick={() => assistantObjectRef && assistantContext.attach(assistantObjectRef)}
+                        disabled={!agentObjectRef || agentContext.pending}
+                        title={agentContext.error
+                            ? t('pages.deskTerminal.agent.addFailed')
+                            : t('pages.deskTerminal.agent.addHint')}
+                        onClick={() => agentObjectRef && agentContext.attach(agentObjectRef)}
                     >
-                        {assistantContext.pending
+                        {agentContext.pending
                             ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            : <AiAssistantIcon className="h-4 w-4 mr-2" />}
-                        {assistantContext.added
-                            ? t('pages.deskTerminal.assistant.added')
-                            : t('pages.deskTerminal.assistant.add')}
+                            : <AiAgentIcon className="h-4 w-4 mr-2" />}
+                        {agentContext.added
+                            ? t('pages.deskTerminal.agent.added')
+                            : t('pages.deskTerminal.agent.add')}
                     </Button>
-                    {assistantContext.personalAvailable && <Button
+                    {agentContext.personalAvailable && <Button
                         variant="secondary"
                         size="sm"
-                        disabled={!assistantObjectRef || assistantContext.pending}
-                        title={assistantContext.error ?? t('pages.deskTerminal.assistant.addPersonalHint')}
-                        onClick={() => assistantObjectRef && assistantContext.attach(assistantObjectRef, 'selectable_devices')}
+                        disabled={!agentObjectRef || agentContext.pending}
+                        title={agentContext.error ?? t('pages.deskTerminal.agent.addPersonalHint')}
+                        onClick={() => agentObjectRef && agentContext.attach(agentObjectRef, 'selectable_devices')}
                     >
-                        {t('pages.deskTerminal.assistant.addPersonal')}
+                        {t('pages.deskTerminal.agent.addPersonal')}
                     </Button>}
                     <Button
                         variant="secondary"
@@ -653,17 +653,17 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
                         }}
                         title={t('pages.deskTerminal.completion.toggleHint')}
                     >
-                        <AiAssistantIcon className="h-4 w-4 mr-2" />
+                        <AiAgentIcon className="h-4 w-4 mr-2" />
                         {t('pages.deskTerminal.completion.title')}
                     </Button>
                     <Button
                         variant="secondary"
                         size="sm"
                         className="opacity-50 hover:opacity-100 transition-opacity"
-                        onClick={() => setShowAssistant((v) => !v)}
+                        onClick={() => setShowAgent((v) => !v)}
                     >
-                        <AiAssistantIcon className="h-4 w-4 mr-2" />
-                        {t('pages.deskTerminal.assistant.title')}
+                        <AiAgentIcon className="h-4 w-4 mr-2" />
+                        {t('pages.deskTerminal.agent.title')}
                     </Button>
                     <Button
                         variant="secondary"
@@ -707,7 +707,7 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
                 )}
                 {completionEnabled && ghost && (
                     <div className="absolute bottom-2 left-4 right-4 z-10 flex items-center gap-2 rounded bg-black/60 px-3 py-1.5 text-xs text-gray-300 pointer-events-none">
-                        <AiAssistantIcon className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+                        <AiAgentIcon className="h-3.5 w-3.5 shrink-0 text-sky-400" />
                         <span className="font-mono text-gray-500 truncate">
                             {currentPrefixRef.current}
                             <span className="text-sky-300">{ghost.suffix}</span>
@@ -727,12 +727,12 @@ export function TerminalView({ connectionId, deviceId, command, operationSystem,
                     </div>
                 )}
             </div>
-            {showAssistant && (
-                <TerminalAiAssistantPanel
-                    state={assistant.state}
-                    onAsk={askAssistant}
-                    onReset={assistant.reset}
-                    onClose={() => setShowAssistant(false)}
+            {showAgent && (
+                <TerminalAiAgentPanel
+                    state={agent.state}
+                    onAsk={askAgent}
+                    onReset={agent.reset}
+                    onClose={() => setShowAgent(false)}
                     onFill={fillCommand}
                     exec={exec}
                     orgId={orgId}

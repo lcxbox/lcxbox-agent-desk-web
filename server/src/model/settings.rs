@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::durable_file::{FileMode, durable_atomic_write};
 use crate::error::DeskError;
 
-mod ai_assistant;
+mod ai_agent;
 mod ai_policy;
 mod collection_policy;
 mod computer_use;
@@ -24,7 +24,7 @@ mod turn_client;
 mod user;
 mod virtual_display;
 
-pub use ai_assistant::*;
+pub use ai_agent::*;
 pub use ai_policy::*;
 pub use collection_policy::*;
 pub use computer_use::*;
@@ -128,11 +128,11 @@ pub struct Settings {
     #[serde(default)]
     pub computer_use: ComputerUseSettings,
 
-    /// Device-owned product-level gate for the complete AI Assistant.
+    /// Device-owned product-level gate for the complete AI Agent.
     /// This is intentionally separate from the narrower Computer Use safety
     /// ceilings above and defaults enabled for a new device configuration.
-    #[serde(default = "default_ai_assistant_settings")]
-    pub ai_assistant: AiAssistantSettings,
+    #[serde(default = "default_ai_agent_settings")]
+    pub ai_agent: AiAgentSettings,
 
     /// File-owned central settings, also carried by the existing worker Init.
     #[serde(flatten)]
@@ -161,7 +161,7 @@ impl Default for Settings {
             ai_policy: Default::default(),
             collection_policy: Default::default(),
             computer_use: Default::default(),
-            ai_assistant: default_ai_assistant_settings(),
+            ai_agent: default_ai_agent_settings(),
             global_config: Default::default(),
             args: Default::default(),
             store: None,

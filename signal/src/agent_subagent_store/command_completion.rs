@@ -81,7 +81,7 @@ impl SubAgentStore {
             {
                 return Ok(None);
             }
-            desk_diagnose_core::assistant_policy::validate_child_work_claim(&session, params)
+            desk_diagnose_core::agent_policy::validate_child_work_claim(&session, params)
                 .map_err(|_| invalid())?;
             session
                 .begin_turn(

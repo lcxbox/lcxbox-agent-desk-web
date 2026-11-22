@@ -14,7 +14,7 @@ Clicking a statistics card or **View calls** on a model or tool group applies th
 - **Models**: compare calls across models.
 - **Tool inputs / references / correction**: inspect parameter checks and the changes a model makes after feedback.
 - **Calls**: inspect individual results, tool input counts and Token usage. You can focus on errors or slow calls.
-- **Runtime observations**: inspect assistant turns, context compression and related services.
+- **Runtime observations**: inspect agent turns, context compression and related services.
 - **Unassociated facts**: inspect records missing original call information. These cannot yet contribute to statistics and are filtered by reception time only.
 
 **Token usage** shows input, output and cache usage with its own time range. Call quality uses call start times, while Token usage uses reporting times, so the totals can differ.

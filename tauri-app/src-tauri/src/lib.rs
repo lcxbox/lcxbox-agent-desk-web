@@ -1132,7 +1132,7 @@ pub fn run_tauri_app(settings: &Settings) -> Result<(), DeskTauriError> {
                 if system_initialized {
                     ai_attention_notification::start(
                         handle_for_window.clone(),
-                        format!("http://{frontend_host_port}/ai-assistant/attention"),
+                        format!("http://{frontend_host_port}/ai-agent/attention"),
                     );
                 }
 

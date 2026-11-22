@@ -50,10 +50,7 @@ async fn deletion_tombstone_source_epochs_and_child_control_share_one_commit() {
         let removed = super::issue_replies::read(&db, artifact).await;
         assert!(removed.artifact_json.is_none());
         assert_eq!(removed.retired_at_ms, Some(200));
-        assert_eq!(
-            removed.state,
-            desk_assistant_data_store::issue_reply::NOT_SENT
-        );
+        assert_eq!(removed.state, desk_agent_data_store::issue_reply::NOT_SENT);
     }
     assert_eq!(
         super::issue_replies::read(&db, &other_reply).await,
@@ -269,7 +266,7 @@ async fn late_provider_usage_keeps_deleted_group_until_settlement_and_normal_ret
 }
 
 #[tokio::test]
-async fn terminal_assistant_retention_does_not_require_an_ai_assistant_execution_identity() {
+async fn terminal_agent_retention_does_not_require_an_ai_agent_execution_identity() {
     let db = database().await;
     let mut session = PersistedAgentSession::new(
         "terminal",
@@ -279,7 +276,7 @@ async fn terminal_assistant_retention_does_not_require_an_ai_assistant_execution
         scope(),
         "1970-01-01T00:00:00Z",
     );
-    session.surface = AgentSessionSurface::TerminalAiAssistant;
+    session.surface = AgentSessionSurface::TerminalAiAgent;
     let txn = db.begin().await.unwrap();
     close_root_on(&txn, &session, 100).await.unwrap();
     assert!(deleted_on(&txn, "terminal").await.unwrap());
@@ -320,7 +317,7 @@ async fn unreadable_removal() {
         let mut value: serde_json::Value = serde_json::from_str(&row.state_json).unwrap();
         value["conversation_schema_version"] =
             serde_json::json!(desk_diagnose_core::session::CONVERSATION_SCHEMA_VERSION - 1);
-        value["assistant_data"] = serde_json::json!({"closed_control_message_ids": []});
+        value["agent_data"] = serde_json::json!({"closed_control_message_ids": []});
         let raw = value.to_string();
         assert!(PersistedAgentSession::decode_json(&raw).is_err());
         session_row::Entity::update_many()
@@ -420,7 +417,7 @@ async fn unreadable_expiry() {
     let mut value: serde_json::Value = serde_json::from_str(&original.state_json).unwrap();
     value["conversation_schema_version"] =
         serde_json::json!(desk_diagnose_core::session::CONVERSATION_SCHEMA_VERSION - 1);
-    value["assistant_data"] = serde_json::json!({"model_history_exclusions": []});
+    value["agent_data"] = serde_json::json!({"model_history_exclusions": []});
     value["turn_state"] = serde_json::json!("running");
     let raw = value.to_string();
     session_row::Entity::update_many()

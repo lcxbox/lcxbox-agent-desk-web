@@ -4,7 +4,7 @@
 use desk_agent_protocol::{AgentError, AgentErrorKind};
 
 use crate::{
-    action_turn_fence::AssistantTurnFence,
+    action_turn_fence::AgentTurnFence,
     session::{PersistedAgentSession, TurnState},
 };
 
@@ -12,7 +12,7 @@ use crate::{
 /// this exact version in the transaction, not refresh to the latest row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionVersion {
-    pub turn_fence: AssistantTurnFence,
+    pub turn_fence: AgentTurnFence,
     pub tool_call_id: String,
     pub version: i64,
 }
@@ -30,7 +30,7 @@ impl ActionVersion {
         tool_call_id: &str,
         device_id: &str,
     ) -> Result<Option<Self>, AgentError> {
-        let Some(turn_fence) = AssistantTurnFence::for_device(session, device_id)? else {
+        let Some(turn_fence) = AgentTurnFence::for_device(session, device_id)? else {
             return Ok(None);
         };
         if session.turn_state != TurnState::AwaitingApproval
@@ -120,7 +120,7 @@ impl ActionVersionAdvance {
 fn invalid() -> AgentError {
     AgentError {
         kind: AgentErrorKind::SessionUnavailable,
-        message: "invalid Assistant action version handoff".into(),
+        message: "invalid Agent action version handoff".into(),
         retryable: false,
         safe_for_model: false,
         error_code: None,
@@ -150,13 +150,13 @@ mod tests {
             },
             "now",
         );
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.turn_state = TurnState::AwaitingApproval;
         session.current_turn_id = Some("turn".into());
         session.input_revision = 3;
         session.lease_token = 4;
         session.version = 10;
-        session.conversation.push(ChatMessage::assistant_tool_calls(
+        session.conversation.push(ChatMessage::agent_tool_calls(
             "proposal",
             "",
             vec![ToolCallRef {
@@ -204,7 +204,7 @@ mod tests {
         let mut held = session();
         held.device_id.clear();
         held.latest_input_seq = 3;
-        held.bind_assistant_request_targets(vec!["mac".into(), "linux".into()])
+        held.bind_agent_request_targets(vec!["mac".into(), "linux".into()])
             .unwrap();
         let mac = ActionVersion::capture_for_device(&held, "call", "mac")
             .unwrap()
@@ -219,7 +219,7 @@ mod tests {
         let mut next_input = held.clone();
         next_input.input_revision += 1;
         next_input
-            .bind_assistant_request_targets(vec!["linux".into()])
+            .bind_agent_request_targets(vec!["linux".into()])
             .unwrap();
         assert!(committed.apply(&mut next_input, Some(&mac)).is_err());
         committed.apply(&mut held, Some(&mac)).unwrap();
@@ -228,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn receipt_rejects_every_changed_identity_and_nonassistant_surface() {
+    fn receipt_rejects_every_changed_identity_and_nonagent_surface() {
         for field in [
             "run", "actor", "device", "turn", "input", "lease", "version", "state", "call",
             "surface",

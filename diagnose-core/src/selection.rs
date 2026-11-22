@@ -75,7 +75,7 @@ fn is_allowed(cap: Capability, request: &DiagnoseRequestData, policy: &Collectio
         | Capability::NetworkPorts
         | Capability::ServiceStatus
         | Capability::ContainerList => true,
-        // AiAssistant observations and every mutation capability are never
+        // AiAgent observations and every mutation capability are never
         // collected by the diagnose surface.
         Capability::DesktopSessionInspect
         | Capability::DesktopUiInspect
@@ -93,7 +93,7 @@ fn is_allowed(cap: Capability, request: &DiagnoseRequestData, policy: &Collectio
         | Capability::WebResearchFetch
         | Capability::WebResearchSearch
         | Capability::TerminalOutputRead
-        | Capability::AssistantActionPreview
+        | Capability::AgentActionPreview
         | Capability::ShellExecReadonly
         | Capability::ShellExecConfirmed
         | Capability::DesktopBackgroundInputConfirmed
@@ -183,7 +183,7 @@ pub fn capability_name(cap: Capability) -> Option<&'static str> {
         | Capability::WebResearchFetch
         | Capability::WebResearchSearch
         | Capability::TerminalOutputRead
-        | Capability::AssistantActionPreview
+        | Capability::AgentActionPreview
         | Capability::ShellExecReadonly
         | Capability::ShellExecConfirmed
         | Capability::DesktopBackgroundInputConfirmed
@@ -296,7 +296,7 @@ pub fn context_input_for(cap: Capability) -> Option<ReadContextInput> {
         | Capability::WebResearchFetch
         | Capability::WebResearchSearch
         | Capability::TerminalOutputRead
-        | Capability::AssistantActionPreview
+        | Capability::AgentActionPreview
         | Capability::ShellExecReadonly
         | Capability::ShellExecConfirmed
         | Capability::DesktopBackgroundInputConfirmed

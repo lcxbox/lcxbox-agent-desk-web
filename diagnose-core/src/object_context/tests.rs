@@ -10,7 +10,7 @@ fn destination() -> DestinationIdentity {
     }
 }
 
-fn update(kind: ObjectKind) -> AiAssistantObjectContextUpdate {
+fn update(kind: ObjectKind) -> AiAgentObjectContextUpdate {
     let object_ref = ObjectRef {
         token: "opaque-ref".into(),
         snapshot_id: "generation-1".into(),
@@ -18,22 +18,21 @@ fn update(kind: ObjectKind) -> AiAssistantObjectContextUpdate {
         expires_at: "2030-01-01T00:00:00Z".into(),
     };
     let operation = match kind {
-        ObjectKind::TerminalOutput => AiAssistantObjectContextOperation::AttachTerminalOutput {
+        ObjectKind::TerminalOutput => AiAgentObjectContextOperation::AttachTerminalOutput {
             object_ref,
             display_summary: "Selected output".into(),
         },
-        ObjectKind::Window => AiAssistantObjectContextOperation::AttachWindow {
+        ObjectKind::Window => AiAgentObjectContextOperation::AttachWindow {
             object_ref,
             display_summary: "Selected window".into(),
         },
-        _ => AiAssistantObjectContextOperation::AttachTerminalOutput {
+        _ => AiAgentObjectContextOperation::AttachTerminalOutput {
             object_ref,
             display_summary: "Selected file".into(),
         },
     };
-    AiAssistantObjectContextUpdate {
-        conversation_target:
-            desk_agent_protocol::ai_assistant::AiAssistantConversationTarget::FixedDevice,
+    AiAgentObjectContextUpdate {
+        conversation_target: desk_agent_protocol::ai_agent::AiAgentConversationTarget::FixedDevice,
         conversation_id: "client-conversation".into(),
         client_request_id: "client-request".into(),
         operation,
@@ -48,7 +47,7 @@ fn apply_fixed_mutation(
 }
 
 fn build(
-    update: &AiAssistantObjectContextUpdate,
+    update: &AiAgentObjectContextUpdate,
     id: &str,
     now: u64,
 ) -> Result<ObjectContextMutation, AgentError> {
@@ -88,10 +87,7 @@ fn session() -> PersistedAgentSession {
         },
         "2026-08-31T00:00:00Z",
     );
-    session.adopt_client_metadata(
-        Some("client-conversation"),
-        AgentSessionSurface::AiAssistant,
-    );
+    session.adopt_client_metadata(Some("client-conversation"), AgentSessionSurface::AiAgent);
     session
 }
 
@@ -152,7 +148,7 @@ fn invalid_selection_never_builds_authority() {
     assert!(build(&update(ObjectKind::TerminalOutput), "id", 0).is_err());
     assert!(build(&update(ObjectKind::TerminalOutput), "", 1).is_err());
     let mut request = update(ObjectKind::TerminalOutput);
-    let AiAssistantObjectContextOperation::AttachTerminalOutput {
+    let AiAgentObjectContextOperation::AttachTerminalOutput {
         display_summary, ..
     } = &mut request.operation
     else {
@@ -160,7 +156,7 @@ fn invalid_selection_never_builds_authority() {
     };
     *display_summary = "x".repeat(513);
     assert!(build(&request, "id", 1).is_err());
-    let AiAssistantObjectContextOperation::AttachTerminalOutput {
+    let AiAgentObjectContextOperation::AttachTerminalOutput {
         object_ref,
         display_summary,
     } = &mut request.operation
@@ -255,7 +251,7 @@ fn selecting_another_window_atomically_replaces_the_previous_focus() {
 
     let mut request = update(ObjectKind::Window);
     request.client_request_id = "select-second-window".into();
-    let AiAssistantObjectContextOperation::AttachWindow { object_ref, .. } = &mut request.operation
+    let AiAgentObjectContextOperation::AttachWindow { object_ref, .. } = &mut request.operation
     else {
         unreachable!()
     };

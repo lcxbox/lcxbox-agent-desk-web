@@ -1,7 +1,7 @@
 //! Ephemeral server state, separate from stable instructions and durable history.
 use crate::chat::{ChatMessage, ChatRole};
 
-pub const MESSAGE_ID: &str = "assistant-runtime-context";
+pub const MESSAGE_ID: &str = "agent-runtime-context";
 
 pub fn is_runtime(message: &ChatMessage) -> bool {
     message.role == ChatRole::SystemEvent && message.message_id == MESSAGE_ID
@@ -23,7 +23,7 @@ pub fn append(message: &mut ChatMessage, content: &crate::model_content::ModelCo
     message.content_sources.merge(content.sources());
 }
 
-/// Assistant state stays at the request tail; diagnostic-only prompts retain
+/// Agent state stays at the request tail; diagnostic-only prompts retain
 /// their dedicated system contract.
 pub fn append_instruction(system: &mut ChatMessage, content: &crate::model_content::ModelContent) {
     match system.runtime_context.as_deref_mut() {
@@ -70,12 +70,12 @@ pub fn locale_tag(locale: &str) -> Option<crate::model_content::ServerText> {
 mod tests {
     #[test]
     fn static_instructions_ignore_locale_and_runtime_facts() {
-        let mut first = crate::ai_assistant::build_ai_assistant_system_message(Some("zh-CN"));
+        let mut first = crate::ai_agent::build_ai_agent_system_message(Some("zh-CN"));
         super::append_instruction(
             &mut first,
             &crate::model_content::ModelContent::server_text("fact A"),
         );
-        let mut second = crate::ai_assistant::build_ai_assistant_system_message(Some("en-US"));
+        let mut second = crate::ai_agent::build_ai_agent_system_message(Some("en-US"));
         super::append_instruction(
             &mut second,
             &crate::model_content::ModelContent::server_text("fact B"),
@@ -89,7 +89,7 @@ mod tests {
     /// stored text joins as roots bound to the model destination.
     #[test]
     fn the_label_cites_appended_stored_text() {
-        use crate::ai_assistant::source_registry::{
+        use crate::ai_agent::source_registry::{
             NativeInputPolicyRegistration, RegisteredSourceContract, SOURCE_CONTRACT_REVISION,
         };
         use crate::model_content::{ModelContent, ServerText, StoredSpec, StoredTextSource};
@@ -128,7 +128,7 @@ mod tests {
                     "office-mac",
                 ))
                 .build();
-            let mut system = crate::ai_assistant::build_ai_assistant_system_message(Some("zh-CN"));
+            let mut system = crate::ai_agent::build_ai_agent_system_message(Some("zh-CN"));
             super::append_instruction(&mut system, &grants);
             super::append_instruction(&mut system, &devices);
             let mut runtime = super::take(&mut system);

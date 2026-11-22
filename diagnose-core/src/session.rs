@@ -203,7 +203,7 @@ impl std::fmt::Display for SessionDecodeError {
             }
             Self::MissingReplayDisposition(message_id) => write!(
                 f,
-                "assistant tool-call message {message_id} has no replay disposition"
+                "agent tool-call message {message_id} has no replay disposition"
             ),
             Self::PersistedContextSummary(message_id) => write!(
                 f,
@@ -439,8 +439,8 @@ pub enum TriggerOrigin {
 pub enum AgentSessionSurface {
     #[default]
     Unknown,
-    TerminalAiAssistant,
-    AiAssistant,
+    TerminalAiAgent,
+    AiAgent,
 }
 
 impl TriggerOrigin {
@@ -615,18 +615,18 @@ pub struct PersistedAgentSession {
     #[serde(default)]
     pub conversation_schema_version: u16,
     pub conversation: Vec<crate::chat::ChatMessage>,
-    /// Personal assistant data state, frozen only when its first input commits.
-    pub assistant_data: Option<Box<crate::ai_assistant::data_control::AssistantDataSession>>,
+    /// Personal agent data state, frozen only when its first input commits.
+    pub agent_data: Option<Box<crate::ai_agent::data_control::AgentDataSession>>,
     /// Session-local model aliases; deleted with this session.
     pub ui_references: crate::ui_references::UiReferenceState,
     pub thinking_prefix: crate::thinking_context::ThinkingPrefixState,
     pub latest_model_context: Option<crate::thinking_context::ProviderContextObservation>,
-    /// Bounded state owned by the current AI Assistant user-input epoch.
+    /// Bounded state owned by the current AI Agent user-input epoch.
     /// Permission, dispatch, work and receipt facts remain independent durable
     /// state and are not deleted when this state resets.
     #[serde(default)]
     pub focus_epoch: crate::focus_epoch::FocusEpochState,
-    /// Bounded, names-only working set for the current AI Assistant input
+    /// Bounded, names-only working set for the current AI Agent input
     /// revision. Descriptors and authority are deliberately not persisted here.
     #[serde(default)]
     pub capability_disclosure: crate::capability_disclosure::CapabilityDisclosureState,
@@ -661,21 +661,21 @@ pub struct PersistedAgentSession {
     #[serde(default)]
     pub visual_evidence: Vec<desk_agent_protocol::visual_evidence::VisualEvidenceFrame>,
     /// Present after the model receives a screenshot and cleared only by a
-    /// later assistant step's fresh semantic/screen observation.
+    /// later agent step's fresh semantic/screen observation.
     #[serde(default)]
     pub pending_visual_verification: Option<crate::visual_evidence::VisualVerificationFence>,
 
     // ---- Persistent security subject (validated each follow-up; never rebinds) ----
     pub actor_id: String,
     pub device_id: String,
-    /// Device references admitted with the current assistant input. These are
+    /// Device references admitted with the current agent input. These are
     /// a ceiling on device selection, independent of the turn's policy scope.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    assistant_request_targets: Option<Box<AssistantRequestTargets>>,
+    agent_request_targets: Option<Box<AgentRequestTargets>>,
     pub scheduled_request:
-        Option<Box<crate::ai_assistant::scheduled_retrieval::ScheduledRequestBinding>>,
+        Option<Box<crate::ai_agent::scheduled_retrieval::ScheduledRequestBinding>>,
     pub scheduled_owner_retrieval:
-        Option<Box<crate::ai_assistant::scheduled_retrieval::OwnerRetrievalState>>,
+        Option<Box<crate::ai_agent::scheduled_retrieval::OwnerRetrievalState>>,
     pub scheduled_owner_group_id: Option<String>,
     /// Authorization anchor. A change is detected at turn boundaries (recompute)
     /// and mid-turn (narrow-only intersection); see [`Self::begin_turn`].
@@ -840,12 +840,12 @@ pub enum SubjectMismatch {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct AssistantRequestTargets {
+struct AgentRequestTargets {
     input_revision: u64,
-    targets: Vec<crate::dynamic_run::AssistantInputTarget>,
+    targets: Vec<crate::dynamic_run::AgentInputTarget>,
 }
 
-impl AssistantRequestTargets {
+impl AgentRequestTargets {
     fn matches_fixed_target(&self, device_id: &str) -> bool {
         device_id.is_empty()
             || matches!(self.targets.as_slice(), [target]
@@ -854,7 +854,7 @@ impl AssistantRequestTargets {
     }
 
     fn valid_membership(&self) -> bool {
-        crate::dynamic_run::AssistantInputTarget::validate_all(&self.targets).is_ok()
+        crate::dynamic_run::AgentInputTarget::validate_all(&self.targets).is_ok()
     }
 }
 
@@ -864,12 +864,12 @@ pub fn stored_request_device_ids(state_json: &str) -> Result<Vec<String>, &'stat
     #[derive(serde::Deserialize)]
     struct Stored {
         #[serde(default)]
-        assistant_request_targets: Option<AssistantRequestTargets>,
+        agent_request_targets: Option<AgentRequestTargets>,
     }
     let stored: Stored =
         serde_json::from_str(state_json).map_err(|_| "invalid stored conversation")?;
     Ok(stored
-        .assistant_request_targets
+        .agent_request_targets
         .map(|targets| {
             targets
                 .targets
@@ -948,7 +948,7 @@ impl PersistedAgentSession {
             self.ui_references
                 .message_aliases(self.model_context_state.checkpoint_message_ids()),
         );
-        if let Some(data) = &self.assistant_data {
+        if let Some(data) = &self.agent_data {
             protected.extend(
                 self.ui_references.record_aliases(
                     "memory_id",
@@ -1015,13 +1015,13 @@ impl PersistedAgentSession {
         // Value adds large nested visitor frames to approval/execution polls.
         let mut session: Box<Self> = serde_json::from_str(input)?;
         if session.main_coordination.as_ref().is_some_and(|lease| {
-            session.surface != AgentSessionSurface::AiAssistant
+            session.surface != AgentSessionSurface::AiAgent
                 || !session.agent_role.is_main()
                 || session.main_stopped
                 || session.turn_state.is_active()
                 || lease.expires_at_ms <= 0
                 || !crate::native_ids::is(
-                    crate::native_ids::Kind::AssistantMainRequest,
+                    crate::native_ids::Kind::AgentMainRequest,
                     &lease.batch_id,
                 )
         }) {
@@ -1030,17 +1030,17 @@ impl PersistedAgentSession {
             ));
         }
         if session
-            .assistant_request_targets
+            .agent_request_targets
             .as_ref()
             .is_some_and(|targets| {
                 !targets.valid_membership() || !targets.matches_fixed_target(&session.device_id)
             })
         {
             return Err(SessionDecodeError::InvalidDynamicRun(
-                "invalid assistant device membership snapshot".into(),
+                "invalid agent device membership snapshot".into(),
             ));
         }
-        if session.surface == AgentSessionSurface::AiAssistant {
+        if session.surface == AgentSessionSurface::AiAgent {
             if version < u64::from(CONVERSATION_SCHEMA_VERSION) {
                 return Err(SessionDecodeError::UnsupportedVersion(version));
             }
@@ -1050,7 +1050,7 @@ impl PersistedAgentSession {
                 || !has_visual_verification
             {
                 return Err(SessionDecodeError::InvalidExecutionState(
-                    "current AI Assistant snapshot is missing required execution fields".into(),
+                    "current AI Agent snapshot is missing required execution fields".into(),
                 ));
             }
         }
@@ -1074,15 +1074,15 @@ impl PersistedAgentSession {
                     "scheduled retrieval lost its claim".into(),
                 ));
             }
-            let mut data = session.assistant_data.clone().ok_or_else(|| {
+            let mut data = session.agent_data.clone().ok_or_else(|| {
                 SessionDecodeError::InvalidDynamicRun("scheduled owner data is missing".into())
             })?;
             owner
                 .apply(&mut data)
                 .map_err(|error| SessionDecodeError::InvalidDynamicRun(error.into()))?;
         }
-        if let Some(data) = &session.assistant_data {
-            if session.surface != AgentSessionSurface::AiAssistant
+        if let Some(data) = &session.agent_data {
+            if session.surface != AgentSessionSurface::AiAgent
                 // A child uses its request's frozen owner data only.
                 || session.agent_role.binding().is_some_and(|binding| {
                     data.temporary
@@ -1100,7 +1100,7 @@ impl PersistedAgentSession {
                     && data.retrieval_task_id.as_deref() != Some(session.conversation_id.as_str()))
             {
                 return Err(SessionDecodeError::InvalidDynamicRun(
-                    "assistant data outside a personal main session".into(),
+                    "agent data outside a personal main session".into(),
                 ));
             }
             data.validate()
@@ -1110,7 +1110,7 @@ impl PersistedAgentSession {
                     || scope.root_conversation_id != session.conversation_id
             }) {
                 return Err(SessionDecodeError::InvalidDynamicRun(
-                    "assistant history scope subject changed".into(),
+                    "agent history scope subject changed".into(),
                 ));
             }
         }
@@ -1147,18 +1147,16 @@ impl PersistedAgentSession {
         }
         if session.agent_role.workbench_id().is_some_and(|id| {
             !crate::subagent::valid_id(id)
-                || session.surface != AgentSessionSurface::AiAssistant
+                || session.surface != AgentSessionSurface::AiAgent
                 || !session.device_id.is_empty()
                 || match session.agent_role.workbench_request_id() {
                     Some(request) => {
-                        !crate::native_ids::is(
-                            crate::native_ids::Kind::AssistantMainRequest,
-                            request,
-                        ) || crate::native_ids::workbench_work_conversation(
-                            &session.actor_id,
-                            id,
-                            request,
-                        ) != session.conversation_id
+                        !crate::native_ids::is(crate::native_ids::Kind::AgentMainRequest, request)
+                            || crate::native_ids::workbench_work_conversation(
+                                &session.actor_id,
+                                id,
+                                request,
+                            ) != session.conversation_id
                             || session.input_revision > 1
                     }
                     None => id != session.conversation_id || session.input_revision != 0,
@@ -1180,7 +1178,7 @@ impl PersistedAgentSession {
         if session.coordinating_work.as_ref().is_some_and(|request| {
             session.agent_role.workbench_id() != Some(session.conversation_id.as_str())
                 || session.agent_role.workbench_request_id().is_some()
-                || !crate::native_ids::is(crate::native_ids::Kind::AssistantMainRequest, request)
+                || !crate::native_ids::is(crate::native_ids::Kind::AgentMainRequest, request)
         }) {
             return Err(SessionDecodeError::InvalidDynamicRun(
                 "invalid workbench coordination slot".into(),
@@ -1195,10 +1193,10 @@ impl PersistedAgentSession {
             binding
                 .validate(&session.conversation_id)
                 .map_err(|error| SessionDecodeError::InvalidDynamicRun(error.into()))?;
-            if session.surface != AgentSessionSurface::AiAssistant
+            if session.surface != AgentSessionSurface::AiAgent
                 || session.bound_input_revision() != Some(binding.input_revision)
                 || session.bound_control_revision() != Some(binding.control_revision)
-                || !crate::dynamic_run::AssistantInputTarget::matches_request(
+                || !crate::dynamic_run::AgentInputTarget::matches_request(
                     &binding.targets,
                     &session,
                 )
@@ -1281,7 +1279,7 @@ impl PersistedAgentSession {
         }
         if session.subagent_result_only
             && (!session.agent_role.is_main()
-                || session.surface != AgentSessionSurface::AiAssistant
+                || session.surface != AgentSessionSurface::AiAgent
                 || !matches!(
                     session.trigger_origin,
                     TriggerOrigin::ScheduledTask | TriggerOrigin::SubAgentCompletion
@@ -1299,7 +1297,7 @@ impl PersistedAgentSession {
                 || session.ready_subagent_wait.is_some()
                 || session.main_stopped
                 || !session.agent_role.is_main()
-                || session.surface != AgentSessionSurface::AiAssistant
+                || session.surface != AgentSessionSurface::AiAgent
                 || session.delegation_group_id.as_ref() != Some(&notification.group_id)
                 || session.input_revision != notification.parent_input_revision
                 || session.control_revision != notification.parent_control_revision
@@ -1358,14 +1356,14 @@ impl PersistedAgentSession {
         if let Some(fence) = &session.pending_visual_verification
             && (fence.focus_input_revision != session.input_revision
                 || fence.source_tool_call_id.is_empty()
-                || fence.source_assistant_message_id.is_empty()
+                || fence.source_agent_message_id.is_empty()
                 || !session.visual_evidence.iter().any(|frame| {
                     frame.focus_input_revision == fence.focus_input_revision
                         && frame.tool_call_id == fence.source_tool_call_id
                 })
                 || !session.conversation.iter().any(|message| {
                     message.role == ChatRole::Assistant
-                        && message.message_id == fence.source_assistant_message_id
+                        && message.message_id == fence.source_agent_message_id
                         && message
                             .tool_calls
                             .iter()
@@ -1409,7 +1407,7 @@ impl PersistedAgentSession {
             .capability_disclosure
             .validate(session.input_revision)
             .map_err(|error| SessionDecodeError::InvalidDynamicRun(error.into()))?;
-        if session.surface == AgentSessionSurface::AiAssistant {
+        if session.surface == AgentSessionSurface::AiAgent {
             session
                 .focus_epoch
                 .validate(
@@ -1538,7 +1536,7 @@ impl PersistedAgentSession {
     ) -> Result<Self, &'static str> {
         if !crate::subagent::valid_id(workbench_id)
             || request_id.is_some_and(|id| {
-                !crate::native_ids::is(crate::native_ids::Kind::AssistantMainRequest, id)
+                !crate::native_ids::is(crate::native_ids::Kind::AgentMainRequest, id)
             })
         {
             return Err("invalid workbench identity");
@@ -1548,7 +1546,7 @@ impl PersistedAgentSession {
             |id| crate::native_ids::workbench_work_conversation(actor_id, workbench_id, id),
         );
         let mut session = Self::new(conversation_id, actor_id, "", policy_revision, scope, now);
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.agent_role = crate::subagent::AgentRole::Coordinator {
             workbench_id: workbench_id.into(),
             issue_source: None,
@@ -1631,7 +1629,7 @@ impl PersistedAgentSession {
             surface: AgentSessionSurface::Unknown,
             conversation_schema_version: CONVERSATION_SCHEMA_VERSION,
             conversation: Vec::new(),
-            assistant_data: None,
+            agent_data: None,
             focus_epoch: crate::focus_epoch::FocusEpochState::default(),
             capability_disclosure: crate::capability_disclosure::CapabilityDisclosureState::default(
             ),
@@ -1650,7 +1648,7 @@ impl PersistedAgentSession {
             pending_visual_verification: None,
             actor_id,
             device_id,
-            assistant_request_targets: None,
+            agent_request_targets: None,
             scheduled_request: None,
             scheduled_owner_retrieval: None,
             scheduled_owner_group_id: None,
@@ -1712,13 +1710,13 @@ impl PersistedAgentSession {
             now,
         );
         binding.validate(&session.conversation_id)?;
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         // A delegated requirement is the child's first independent input. It is
         // carried by its creation envelope rather than a copied user queue item.
         session.latest_input_seq = 1;
         session.input_revision = binding.input_revision;
         session.control_revision = binding.control_revision;
-        session.bind_assistant_input_targets(&binding.targets)?;
+        session.bind_agent_input_targets(&binding.targets)?;
         session.delegation_group_id = Some(binding.group_id.clone());
         session.agent_role = crate::subagent::AgentRole::SubAgent {
             binding: Box::new(binding),
@@ -1766,7 +1764,7 @@ impl PersistedAgentSession {
             return false;
         };
         if revision == 0
-            || self.surface != AgentSessionSurface::AiAssistant
+            || self.surface != AgentSessionSurface::AiAgent
             || !self.allows_new_mutation()
             || self.agent_role.issue_source().is_some()
             || matches!(
@@ -1853,16 +1851,16 @@ impl PersistedAgentSession {
             .unwrap_or(&self.conversation_id)
     }
 
-    /// Freeze targets at native assistant input admission, before committing
+    /// Freeze targets at native agent input admission, before committing
     /// the new input revision. Existing bindings for that revision are immutable.
-    pub fn bind_assistant_request_targets(
+    pub fn bind_agent_request_targets(
         &mut self,
         device_ids: Vec<String>,
     ) -> Result<(), &'static str> {
         self.bind_request_targets(
             device_ids
                 .into_iter()
-                .map(|device_id| crate::dynamic_run::AssistantInputTarget {
+                .map(|device_id| crate::dynamic_run::AgentInputTarget {
                     reference: device_id.clone(),
                     device_id,
                     member_generation: None,
@@ -1871,48 +1869,48 @@ impl PersistedAgentSession {
         )
     }
 
-    pub fn bind_assistant_input_targets(
+    pub fn bind_agent_input_targets(
         &mut self,
-        targets: &[crate::dynamic_run::AssistantInputTarget],
+        targets: &[crate::dynamic_run::AgentInputTarget],
     ) -> Result<(), &'static str> {
         if !self.device_id.is_empty() {
             if !targets.is_empty()
                 && targets
-                    != [crate::dynamic_run::AssistantInputTarget::fixed(
+                    != [crate::dynamic_run::AgentInputTarget::fixed(
                         self.device_id.clone(),
                     )]
             {
-                return Err("a fixed assistant request cannot select other targets");
+                return Err("a fixed agent request cannot select other targets");
             }
-            return self.bind_assistant_request_targets(vec![self.device_id.clone()]);
+            return self.bind_agent_request_targets(vec![self.device_id.clone()]);
         }
         self.bind_request_targets(targets.to_vec())
     }
 
     fn bind_request_targets(
         &mut self,
-        targets: Vec<crate::dynamic_run::AssistantInputTarget>,
+        targets: Vec<crate::dynamic_run::AgentInputTarget>,
     ) -> Result<(), &'static str> {
-        if self.surface != AgentSessionSurface::AiAssistant || self.input_revision == 0 {
-            return Err("device targets require an admitted assistant input");
+        if self.surface != AgentSessionSurface::AiAgent || self.input_revision == 0 {
+            return Err("device targets require an admitted agent input");
         }
-        let targets = AssistantRequestTargets {
+        let targets = AgentRequestTargets {
             input_revision: self.input_revision,
             targets,
         };
         if !targets.valid_membership() || !targets.matches_fixed_target(&self.device_id) {
-            return Err("invalid assistant device membership snapshot");
+            return Err("invalid agent device membership snapshot");
         }
-        if let Some(current) = &self.assistant_request_targets
+        if let Some(current) = &self.agent_request_targets
             && current.input_revision >= targets.input_revision
         {
             return if **current == targets {
                 Ok(())
             } else {
-                Err("assistant request device targets already frozen")
+                Err("agent request device targets already frozen")
             };
         }
-        self.assistant_request_targets = Some(Box::new(targets));
+        self.agent_request_targets = Some(Box::new(targets));
         Ok(())
     }
 
@@ -1921,7 +1919,7 @@ impl PersistedAgentSession {
     /// removes do not. Returns whether the child's devices changed.
     pub fn refresh_subagent_targets(
         &mut self,
-        owner_targets: &[crate::dynamic_run::AssistantInputTarget],
+        owner_targets: &[crate::dynamic_run::AgentInputTarget],
     ) -> Result<bool, &'static str> {
         if !self.device_id.is_empty()
             || !self
@@ -1931,34 +1929,34 @@ impl PersistedAgentSession {
         {
             return Ok(false);
         }
-        if self.admitted_assistant_request_targets() == Some(owner_targets) {
+        if self.admitted_agent_request_targets() == Some(owner_targets) {
             return Ok(false);
         }
-        let targets = AssistantRequestTargets {
+        let targets = AgentRequestTargets {
             input_revision: self.input_revision,
             targets: owner_targets.to_vec(),
         };
         if !targets.valid_membership() {
-            return Err("invalid assistant device membership snapshot");
+            return Err("invalid agent device membership snapshot");
         }
-        self.assistant_request_targets = Some(Box::new(targets));
+        self.agent_request_targets = Some(Box::new(targets));
         if let crate::subagent::AgentRole::SubAgent { binding } = &mut self.agent_role {
             binding.targets = owner_targets.to_vec();
         }
         Ok(true)
     }
 
-    /// Both assistant entries freeze their device ceiling at input admission.
-    pub fn has_admitted_assistant_input(&self) -> bool {
-        self.surface == AgentSessionSurface::AiAssistant
+    /// Both agent entries freeze their device ceiling at input admission.
+    pub fn has_admitted_agent_input(&self) -> bool {
+        self.surface == AgentSessionSurface::AiAgent
             && self.input_revision > 0
-            && self.assistant_request_targets().is_some()
+            && self.agent_request_targets().is_some()
     }
 
     /// Published automations retain their sealed task-contract executor.
     /// Owner inputs and their continuations share per-request device tools.
     pub fn uses_request_device_tools(&self) -> bool {
-        self.has_admitted_assistant_input()
+        self.has_admitted_agent_input()
             && self.trigger_origin != TriggerOrigin::ScheduledTask
             && !self.agent_role.binding().is_some_and(|binding| {
                 matches!(
@@ -2001,7 +1999,7 @@ impl PersistedAgentSession {
             return;
         };
         let devices = if self.device_id.is_empty() {
-            self.admitted_assistant_request_targets()
+            self.admitted_agent_request_targets()
                 .map(|targets| {
                     targets
                         .iter()
@@ -2023,60 +2021,58 @@ impl PersistedAgentSession {
     }
 
     /// The main conversation, or a child carrying its request's frozen owner data.
-    pub fn uses_owner_assistant_data(&self) -> bool {
-        self.agent_role.is_main() || self.assistant_data.is_some()
+    pub fn uses_owner_agent_data(&self) -> bool {
+        self.agent_role.is_main() || self.agent_data.is_some()
     }
 
     pub fn has_admitted_personal_input(&self) -> bool {
-        self.surface == AgentSessionSurface::AiAssistant
+        self.surface == AgentSessionSurface::AiAgent
             && self.device_id.is_empty()
             && self.input_revision > 0
-            && self.assistant_request_targets().is_some()
+            && self.agent_request_targets().is_some()
     }
 
     pub fn has_admitted_targetless_input(&self) -> bool {
         self.has_admitted_personal_input()
-            && self
-                .assistant_request_targets()
-                .is_some_and(<[_]>::is_empty)
+            && self.agent_request_targets().is_some_and(<[_]>::is_empty)
     }
 
-    pub fn assistant_request_targets(&self) -> Option<&[crate::dynamic_run::AssistantInputTarget]> {
+    pub fn agent_request_targets(&self) -> Option<&[crate::dynamic_run::AgentInputTarget]> {
         if let Some(binding) = &self.scheduled_request {
             return Some(std::slice::from_ref(&binding.execution_target));
         }
-        self.admitted_assistant_request_targets()
+        self.admitted_agent_request_targets()
     }
 
-    pub fn admitted_assistant_request_targets(
+    pub fn admitted_agent_request_targets(
         &self,
-    ) -> Option<&[crate::dynamic_run::AssistantInputTarget]> {
-        self.assistant_request_targets
+    ) -> Option<&[crate::dynamic_run::AgentInputTarget]> {
+        self.agent_request_targets
             .as_ref()
             .filter(|targets| targets.input_revision == self.input_revision)
             .map(|targets| targets.targets.as_slice())
     }
 
-    pub fn single_assistant_request_target(
+    pub fn single_agent_request_target(
         &self,
-    ) -> Result<&crate::dynamic_run::AssistantInputTarget, &'static str> {
-        match self.assistant_request_targets() {
+    ) -> Result<&crate::dynamic_run::AgentInputTarget, &'static str> {
+        match self.agent_request_targets() {
             Some([target]) => Ok(target),
             _ => Err("Select exactly one device for this task"),
         }
     }
 
-    pub fn assistant_request_device(
+    pub fn agent_request_device(
         &self,
         reference: &str,
-    ) -> Option<&crate::dynamic_run::AssistantInputTarget> {
-        self.assistant_request_targets()?
+    ) -> Option<&crate::dynamic_run::AgentInputTarget> {
+        self.agent_request_targets()?
             .iter()
             .find(|target| target.reference == reference)
     }
 
-    pub fn assistant_request_device_generation(&self, device_id: &str) -> Option<u64> {
-        self.assistant_request_targets()?
+    pub fn agent_request_device_generation(&self, device_id: &str) -> Option<u64> {
+        self.agent_request_targets()?
             .iter()
             .find(|target| target.device_id == device_id)?
             .member_generation
@@ -2084,27 +2080,27 @@ impl PersistedAgentSession {
 
     /// Resolve one action from the held input. Selectors must already be mapped
     /// to device identities; resource provenance must come from the host.
-    pub fn resolve_assistant_action_device(
+    pub fn resolve_agent_action_device(
         &self,
         explicit: Option<&str>,
         resource_device: Option<&str>,
     ) -> Result<&str, &'static str> {
         if matches!((explicit, resource_device), (Some(a), Some(b)) if a != b) {
-            return Err("assistant device differs from the resource device");
+            return Err("agent device differs from the resource device");
         }
         let devices = self
-            .assistant_request_targets()
-            .ok_or("assistant request targets are no longer current")?;
+            .agent_request_targets()
+            .ok_or("agent request targets are no longer current")?;
         match explicit.or(resource_device) {
             Some(device) => devices
                 .iter()
                 .find(|target| target.device_id == device)
                 .map(|target| target.device_id.as_str())
-                .ok_or("assistant device is outside the original request"),
+                .ok_or("agent device is outside the original request"),
             None => match devices {
                 [device] => Ok(&device.device_id),
-                [] => Err("the assistant request has no device"),
-                _ => Err("select a device for this assistant action"),
+                [] => Err("the agent request has no device"),
+                _ => Err("select a device for this agent action"),
             },
         }
     }
@@ -2113,7 +2109,7 @@ impl PersistedAgentSession {
     /// admits; every other session acts only on its own device.
     pub fn owns_action_device(&self, device_id: &str) -> bool {
         if self.agent_role.binding().is_some() {
-            self.admits_assistant_device(device_id)
+            self.admits_agent_device(device_id)
         } else {
             self.device_id == device_id
         }
@@ -2142,10 +2138,10 @@ impl PersistedAgentSession {
 
     /// Check the admitted target ceiling. Native device-bound entry points
     /// without independent target selection still use their fixed binding.
-    pub fn admits_assistant_device(&self, device_id: &str) -> bool {
+    pub fn admits_agent_device(&self, device_id: &str) -> bool {
         !device_id.is_empty()
-            && if self.assistant_request_targets.is_some() {
-                self.resolve_assistant_action_device(Some(device_id), None)
+            && if self.agent_request_targets.is_some() {
+                self.resolve_agent_action_device(Some(device_id), None)
                     .is_ok()
             } else {
                 self.device_id == device_id
@@ -2217,13 +2213,13 @@ impl PersistedAgentSession {
             "not executed: a new owner message replaced this request before approval; call it again if still needed",
         )
         .map_err(|_| "paused permission call is missing")?;
-        if self.surface == AgentSessionSurface::AiAssistant {
+        if self.surface == AgentSessionSurface::AiAgent {
             // Durable input stores advance input_revision before resetting the
             // focus. Compare the previous focus epoch so old parent waits and
             // observations cannot survive with a stale input fence.
             let input_changed = self.focus_epoch.input_revision != next_input_revision;
             if input_changed {
-                crate::ai_assistant::scheduled_retrieval::restore_owner_retrieval(self)?;
+                crate::ai_agent::scheduled_retrieval::restore_owner_retrieval(self)?;
             }
             let selected_attachment_ids = selected_attachment_ids.into_iter().collect::<Vec<_>>();
             if selected_attachment_ids.iter().any(|id| {
@@ -2272,7 +2268,7 @@ impl PersistedAgentSession {
         lease_epoch: u64,
     ) -> Result<(), &'static str> {
         if !self.agent_role.is_main()
-            || self.surface != AgentSessionSurface::AiAssistant
+            || self.surface != AgentSessionSurface::AiAgent
             || self.input_revision == 0
             || self.focus_epoch.input_revision != self.input_revision
             || self.focus_epoch.selected_attachment_ids.iter().any(|id| {
@@ -2451,12 +2447,12 @@ impl PersistedAgentSession {
         &self,
         attachment: &ContextAttachment,
     ) -> Result<(), ContextAttachmentError> {
-        let device_id =
-            if self.surface == AgentSessionSurface::AiAssistant && self.device_id.is_empty() {
-                &attachment.device_id
-            } else {
-                &self.device_id
-            };
+        let device_id = if self.surface == AgentSessionSurface::AiAgent && self.device_id.is_empty()
+        {
+            &attachment.device_id
+        } else {
+            &self.device_id
+        };
         validate_attachment_subject(attachment, &self.actor_id, device_id, self.surface)
     }
 
@@ -2664,7 +2660,7 @@ impl PersistedAgentSession {
         self.lifetime_steps = self.lifetime_steps.saturating_add(1);
         add_usage(&mut self.current_turn_tokens, usage);
         add_usage(&mut self.lifetime_tokens, usage);
-        if self.surface == AgentSessionSurface::AiAssistant
+        if self.surface == AgentSessionSurface::AiAgent
             && self.focus_epoch.input_revision == self.input_revision
         {
             self.focus_epoch.record_step(usage);
@@ -2677,7 +2673,7 @@ impl PersistedAgentSession {
     pub fn record_auxiliary_usage(&mut self, usage: TokenUsage) {
         add_usage(&mut self.current_turn_tokens, usage);
         add_usage(&mut self.lifetime_tokens, usage);
-        if self.surface == AgentSessionSurface::AiAssistant
+        if self.surface == AgentSessionSurface::AiAgent
             && self.focus_epoch.input_revision == self.input_revision
         {
             self.focus_epoch.record_tokens(usage);
@@ -2754,7 +2750,7 @@ impl PersistedAgentSession {
     /// Whether the per-turn step budget is exhausted (circuit breaker). The bound
     /// is supplied by the caller (via `LoopDeps`) so different runtimes can tune
     /// it — diagnose uses [`crate::MAX_STEPS_PER_TURN`], the latency-sensitive
-    /// Terminal AI Assistant uses a tighter bound.
+    /// Terminal AI Agent uses a tighter bound.
     pub fn turn_step_budget_exhausted(&self, max_steps_per_turn: u32) -> bool {
         self.current_turn_steps >= max_steps_per_turn
     }
@@ -2796,7 +2792,7 @@ impl PersistedAgentSession {
             match origin {
                 TriggerOrigin::User => {
                     self.owner_direct_input_revision = (self.surface
-                        == AgentSessionSurface::AiAssistant
+                        == AgentSessionSurface::AiAgent
                         && self.agent_role.issue_source().is_none()
                         && self.input_revision > 0)
                         .then_some(self.input_revision);
@@ -2863,7 +2859,7 @@ impl PersistedAgentSession {
     /// `message_id`s of the request the model just answered. Returns how many were
     /// dropped.
     ///
-    /// Called only where the model actually reacts (the assistant answer /
+    /// Called only where the model actually reacts (the agent answer /
     /// tool-call save), never on the generic turn-settle path — otherwise a turn
     /// that circuit-broke before reacting (e.g. a one-step budget) would wrongly
     /// drop a completion the model never saw. Pure.
@@ -3277,7 +3273,7 @@ impl PersistedAgentSession {
         true
     }
 
-    /// The tool-call ids the conversation left unanswered — an assistant tool call
+    /// The tool-call ids the conversation left unanswered — an agent tool call
     /// with no matching tool result, left dangling when a turn was interrupted
     /// mid-execution. A recovering [`SessionSeam`] reads these to correlate the
     /// in-flight call with its durable work item before deciding the recovery
@@ -3301,7 +3297,7 @@ impl PersistedAgentSession {
         });
     }
 
-    /// Index just past the call group that issued `tool_call_id`: the assistant
+    /// Index just past the call group that issued `tool_call_id`: the agent
     /// message and the tool results that directly follow it. A late completion
     /// (untrusted output) of one of its calls is not part of the group: model
     /// context grouping accepts only tool results there.
@@ -3437,7 +3433,7 @@ impl PersistedAgentSession {
     /// Recover an orphaned **active** session (its lease expired and was taken over)
     /// into a well-formed, settled state, per an explicitly supplied [`verdict`].
     ///
-    /// A crash mid-turn can leave the conversation malformed: an assistant
+    /// A crash mid-turn can leave the conversation malformed: an agent
     /// tool-call message with no matching tool result (the loop never returned from
     /// `confirm_and_exec`). Recovery closes every such unclosed tool call with a
     /// placeholder result so the model history replays cleanly, settles the turn to
@@ -3619,7 +3615,7 @@ fn recovery_message_id(tool_call_id: &str) -> String {
     format!("recover-{tool_call_id}")
 }
 
-/// Find tool-call ids that have no matching tool-result message — an assistant
+/// Find tool-call ids that have no matching tool-result message — an agent
 /// tool call left unanswered when a turn was interrupted mid-execution. Preserves
 /// first-seen order and de-duplicates.
 /// Result of a paused call whose wait ended without its approval resume.
@@ -3657,7 +3653,7 @@ pub enum RecoveryVerdict {
     /// is unknown and a late result can reconcile it in place.
     OutcomeUnknown {
         /// The exact dangling call backed by the durable execution identity. A
-        /// provider may return several tool calls in one assistant message, so it
+        /// provider may return several tool calls in one agent message, so it
         /// is not necessarily the first still-unclosed call after a crash.
         tool_call_id: String,
         action: ActionIdentity,
@@ -3743,7 +3739,7 @@ mod tests {
             name: "inspect_desktop_session".into(),
             arguments_json: "{}".into(),
         };
-        state.conversation.push(ChatMessage::assistant_tool_calls(
+        state.conversation.push(ChatMessage::agent_tool_calls(
             "assistant",
             String::new(),
             vec![call("paused"), call("later")],
@@ -3795,7 +3791,7 @@ mod tests {
     #[test]
     fn a_reused_call_id_from_an_earlier_turn_does_not_hide_the_paused_call() {
         let mut earlier = session();
-        earlier.conversation.push(ChatMessage::assistant_tool_calls(
+        earlier.conversation.push(ChatMessage::agent_tool_calls(
             "earlier",
             String::new(),
             vec![crate::chat::ToolCallRef {
@@ -4067,7 +4063,7 @@ mod tests {
     #[test]
     fn new_user_input_resets_only_focus_state_and_revalidates_pending_permission() {
         let mut value = session();
-        value.surface = AgentSessionSurface::AiAssistant;
+        value.surface = AgentSessionSurface::AiAgent;
         value.input_revision = 1;
         value.latest_input_seq = 1;
         value.focus_epoch.input_revision = 1;
@@ -4126,7 +4122,7 @@ mod tests {
     #[test]
     fn goal_segment_preserves_pending_permissions_and_lifetime_usage() {
         let mut value = session();
-        value.surface = AgentSessionSurface::AiAssistant;
+        value.surface = AgentSessionSurface::AiAgent;
         value.input_revision = 1;
         value.focus_epoch.input_revision = 1;
         value.focus_epoch.record_step(TokenUsage {
@@ -4246,7 +4242,7 @@ mod tests {
             client_request_id: client_request_id.into(),
             actor_id: "actor-1".into(),
             device_id: "device-1".into(),
-            surface: AgentSessionSurface::AiAssistant,
+            surface: AgentSessionSurface::AiAgent,
             kind: ContextAttachmentKind::Range,
             object_ref: AttachmentObjectRef {
                 opaque_token: format!("token-{id}"),
@@ -4290,7 +4286,7 @@ mod tests {
     #[test]
     fn refresh_context_is_atomic_immutable_and_idempotent() {
         let mut value = session();
-        value.surface = AgentSessionSurface::AiAssistant;
+        value.surface = AgentSessionSurface::AiAgent;
         let old = context_attachment("old", "attach-old");
         let replacement = context_attachment("new", "refresh-new");
         assert!(value.attach_context(old).unwrap());
@@ -4439,7 +4435,7 @@ mod tests {
     #[test]
     fn direct_approval_origin_survives_same_input_resumes_but_not_other_sources() {
         let mut session = session();
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session.adopt_trigger(TriggerOrigin::User, "direct");
         assert!(session.has_direct_approval_origin());
@@ -4563,18 +4559,14 @@ mod tests {
         let mut session = session();
         assert_eq!(session.surface, AgentSessionSurface::Unknown);
         assert_eq!(
-            session.check_surface(AgentSessionSurface::AiAssistant),
+            session.check_surface(AgentSessionSurface::AiAgent),
             Err(SubjectMismatch::Surface)
         );
 
-        session.adopt_client_metadata(None, AgentSessionSurface::AiAssistant);
-        assert!(
-            session
-                .check_surface(AgentSessionSurface::AiAssistant)
-                .is_ok()
-        );
+        session.adopt_client_metadata(None, AgentSessionSurface::AiAgent);
+        assert!(session.check_surface(AgentSessionSurface::AiAgent).is_ok());
         assert_eq!(
-            session.check_surface(AgentSessionSurface::TerminalAiAssistant),
+            session.check_surface(AgentSessionSurface::TerminalAiAgent),
             Err(SubjectMismatch::Surface)
         );
     }
@@ -4673,7 +4665,7 @@ mod tests {
     fn apply_completion_appends_untrusted_output_for_a_closed_call() {
         use crate::chat::{ChatMessage, ChatRole, ToolCallRef};
         let mut s = session();
-        s.conversation.push(ChatMessage::assistant_tool_calls(
+        s.conversation.push(ChatMessage::agent_tool_calls(
             "a1",
             String::new(),
             vec![ToolCallRef {
@@ -4726,7 +4718,7 @@ mod tests {
     fn apply_completion_closes_an_open_call() {
         use crate::chat::{ChatMessage, ChatRole, ToolCallRef};
         let mut s = session();
-        s.conversation.push(ChatMessage::assistant_tool_calls(
+        s.conversation.push(ChatMessage::agent_tool_calls(
             "a1",
             String::new(),
             vec![ToolCallRef {
@@ -4799,9 +4791,9 @@ mod tests {
         assert_eq!(s.conversation.len(), base);
     }
 
-    /// The assistant message that made `call_id`, under `label`.
+    /// The agent message that made `call_id`, under `label`.
     fn issuing_call(call_id: &str, label: DataEnvelope) -> crate::chat::ChatMessage {
-        let mut message = crate::chat::ChatMessage::assistant_tool_calls(
+        let mut message = crate::chat::ChatMessage::agent_tool_calls(
             "assistant",
             "",
             vec![crate::chat::ToolCallRef {
@@ -5085,7 +5077,7 @@ mod tests {
     fn unclosed_tool_call_ids_lists_only_dangling_calls() {
         use crate::chat::{ChatMessage, ToolCallRef};
         let mut s = session();
-        s.conversation.push(ChatMessage::assistant_tool_calls(
+        s.conversation.push(ChatMessage::agent_tool_calls(
             "a1",
             String::new(),
             vec![
@@ -5118,9 +5110,9 @@ mod tests {
             ChatMessage::text("u1", ChatRole::User, "restart it")
                 .with_image("data:image/jpeg;base64,AQID"),
         );
-        // Assistant requested a mutating call that never got a tool result (crash
+        // Agent requested a mutating call that never got a tool result (crash
         // during the approval/exec wait → AwaitingApproval).
-        s.conversation.push(ChatMessage::assistant_tool_calls(
+        s.conversation.push(ChatMessage::agent_tool_calls(
             "a1",
             String::new(),
             vec![ToolCallRef {
@@ -5186,7 +5178,7 @@ mod tests {
         let mut s = session();
         s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
             .unwrap();
-        s.conversation.push(ChatMessage::assistant_tool_calls(
+        s.conversation.push(ChatMessage::agent_tool_calls(
             "a1",
             String::new(),
             vec![call("call-open"), call("call-waiting")],
@@ -5238,14 +5230,14 @@ mod tests {
             let mut s = session();
             s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
                 .unwrap();
-            s.conversation.push(ChatMessage::assistant_tool_calls(
+            s.conversation.push(ChatMessage::agent_tool_calls(
                 "a1",
                 String::new(),
                 vec![call("call-exec", "exec_command")],
             ));
             s.conversation
                 .push(ChatMessage::tool_result("r1", "call-exec", "background j1"));
-            s.conversation.push(ChatMessage::assistant_tool_calls(
+            s.conversation.push(ChatMessage::agent_tool_calls(
                 "a2",
                 String::new(),
                 vec![call("call-wait", "wait_for_task")],
@@ -5284,7 +5276,7 @@ mod tests {
         let mut s = session();
         s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
             .unwrap();
-        s.conversation.push(ChatMessage::assistant_tool_calls(
+        s.conversation.push(ChatMessage::agent_tool_calls(
             "a1",
             String::new(),
             vec![
@@ -5311,7 +5303,7 @@ mod tests {
         let mut s = session();
         s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
             .unwrap();
-        s.conversation.push(ChatMessage::assistant_tool_calls(
+        s.conversation.push(ChatMessage::agent_tool_calls(
             "a1",
             String::new(),
             vec![
@@ -5339,7 +5331,7 @@ mod tests {
         let mut s = session();
         s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
             .unwrap();
-        s.conversation.push(ChatMessage::assistant_tool_calls(
+        s.conversation.push(ChatMessage::agent_tool_calls(
             "a1",
             String::new(),
             vec![ToolCallRef {
@@ -5361,7 +5353,7 @@ mod tests {
         let mut s = session();
         s.begin_turn("t1", None, None, 7, s.scope_snapshot.clone(), "t")
             .unwrap();
-        s.conversation.push(ChatMessage::assistant_tool_calls(
+        s.conversation.push(ChatMessage::agent_tool_calls(
             "a1",
             String::new(),
             vec![
@@ -5472,12 +5464,11 @@ mod tests {
 
     #[test]
     fn internal_state_ignores_fields_from_another_build() {
-        let session =
-            crate::ai_assistant::test_support::personal_session("conv", "actor", "device");
+        let session = crate::ai_agent::test_support::personal_session("conv", "actor", "device");
         let mut stored = serde_json::to_value(&session).unwrap();
-        stored["assistant_data"]["field_from_another_build"] = serde_json::json!(true);
+        stored["agent_data"]["field_from_another_build"] = serde_json::json!(true);
         let decoded = PersistedAgentSession::decode_json(&stored.to_string()).unwrap();
-        assert_eq!(decoded.assistant_data, session.assistant_data);
+        assert_eq!(decoded.agent_data, session.agent_data);
         assert_eq!(decoded.conversation_id, session.conversation_id);
         // Execution-critical versioning stays strict.
         stored["conversation_schema_version"] = serde_json::json!(1);
@@ -5493,7 +5484,7 @@ mod tests {
         let mut legacy = session();
         legacy
             .conversation
-            .push(crate::chat::ChatMessage::assistant_tool_calls(
+            .push(crate::chat::ChatMessage::agent_tool_calls(
                 "a1",
                 "",
                 vec![ToolCallRef {
@@ -5541,7 +5532,7 @@ mod tests {
     }
 
     #[test]
-    fn current_ai_assistant_missing_fields_are_invalid_data_not_an_old_format() {
+    fn current_ai_agent_missing_fields_are_invalid_data_not_an_old_format() {
         for field in [
             "capability_disclosure",
             "focus_epoch",
@@ -5549,7 +5540,7 @@ mod tests {
             "pending_visual_verification",
         ] {
             let mut value = serde_json::to_value(session()).unwrap();
-            value["surface"] = serde_json::json!("ai_assistant");
+            value["surface"] = serde_json::json!("ai_agent");
             value.as_object_mut().unwrap().remove(field);
             assert!(
                 matches!(
@@ -5562,9 +5553,9 @@ mod tests {
     }
 
     #[test]
-    fn old_ai_assistant_schema_is_rejected_instead_of_inferred() {
+    fn old_ai_agent_schema_is_rejected_instead_of_inferred() {
         let mut value = serde_json::to_value(session()).unwrap();
-        value["surface"] = serde_json::json!("ai_assistant");
+        value["surface"] = serde_json::json!("ai_agent");
         value["conversation_schema_version"] = serde_json::json!(1);
         value
             .as_object_mut()
@@ -5591,7 +5582,7 @@ mod tests {
         );
         value
             .conversation
-            .push(crate::chat::ChatMessage::assistant_tool_calls_with_replay(
+            .push(crate::chat::ChatMessage::agent_tool_calls_with_replay(
                 "a1",
                 "visible",
                 vec![ToolCallRef {
@@ -5821,8 +5812,8 @@ mod tests {
             .push(ChatMessage::text("requirement", ChatRole::User, "task"));
         for index in 0..2 {
             let call = format!("call-{index}");
-            let mut assistant = ChatMessage::assistant_tool_calls(
-                format!("assistant-{index}"),
+            let mut agent = ChatMessage::agent_tool_calls(
+                format!("agent-{index}"),
                 "",
                 vec![ToolCallRef {
                     id: call.clone(),
@@ -5830,8 +5821,8 @@ mod tests {
                     arguments_json: "{}".into(),
                 }],
             );
-            assistant.turn_id = session.current_turn_id.clone();
-            session.conversation.push(assistant);
+            agent.turn_id = session.current_turn_id.clone();
+            session.conversation.push(agent);
             session.conversation.push(ChatMessage::tool_result(
                 format!("result-{index}"),
                 &call,
@@ -5842,8 +5833,8 @@ mod tests {
         assert!(!protection.protected_tool_call_ids.contains("call-0"));
         assert!(protection.protected_tool_call_ids.contains("call-1"));
         let replay = crate::thinking_context::protected_replay_ids(&session);
-        assert!(!replay.contains("assistant-0"));
-        assert!(replay.contains("assistant-1"));
+        assert!(!replay.contains("agent-0"));
+        assert!(replay.contains("agent-1"));
     }
 }
 

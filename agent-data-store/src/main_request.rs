@@ -1,0 +1,1505 @@
+//! Durable intake for a main agent request. The host owns the conversation lock.
+
+use desk_agent_protocol::{
+    ai_agent::{AiAgentAsk, MainRequestFailure, MainRequestReceipt, MainRequestState},
+    data_lineage::DestinationIdentity,
+};
+use desk_diagnose_core::{
+    action_turn_fence::AgentTurnFence,
+    chat::{ChatMessage, ChatRole},
+    dynamic_run::AgentInputTarget,
+    input_read_context::ReadContextSelection,
+    native_ids::{self, Kind},
+    session::PersistedAgentSession,
+};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait, Set,
+};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+use crate::{AgentStoreError, entity::agent_main_request as request, signed};
+
+mod activation;
+pub mod coordination;
+pub mod dispatch;
+#[cfg(test)]
+mod tests;
+
+pub use activation::{
+    ActivationFailureOutcome, ActivationProgress, MAX_ACTIVATION_ATTEMPTS, claim_activation,
+    record_activation_failure, tracks_activation,
+};
+
+pub const QUEUED: &str = "queued";
+const ACTIVATED: &str = "activated";
+const CANCELLED: &str = "cancelled";
+const SUPERSEDED: &str = "superseded";
+const FAILED: &str = "failed";
+pub const PENDING_PER_CONVERSATION: u64 = 32;
+
+/// Only ordinary conversational input enters the queue. Native Goal entry
+/// points retain their separate admission contract.
+pub fn accepts_owner_ask(ask: &AiAgentAsk) -> bool {
+    !ask.start_goal
+        && ask
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(desk_diagnose_core::conversation_key::is_valid_client_conversation_id)
+}
+
+pub enum OwnerQueueTurn {
+    Submit {
+        ask: AiAgentAsk,
+        reply_connection_id: String,
+    },
+    Activate {
+        request_id: String,
+        conversation_id: String,
+        execution_conversation_id: String,
+        destination: DestinationIdentity,
+        issue_source: Option<Box<desk_diagnose_core::issue_authority::IssueWorkSource>>,
+        /// Present only for the first activation of a queued row. Admitted
+        /// recovery that has not been claimed yet carries none.
+        progress: Option<std::sync::Arc<ActivationProgress>>,
+    },
+}
+
+impl OwnerQueueTurn {
+    pub fn activation_progress(&self) -> Option<&ActivationProgress> {
+        match self {
+            Self::Activate { progress, .. } => progress.as_deref(),
+            Self::Submit { .. } => None,
+        }
+    }
+
+    pub fn issue_source(&self) -> Option<&desk_diagnose_core::issue_authority::IssueWorkSource> {
+        match self {
+            Self::Activate { issue_source, .. } => issue_source.as_deref(),
+            Self::Submit { .. } => None,
+        }
+    }
+    /// The client continuation still resolves the queue's subject. Only the
+    /// executor can route an item to its separate native work conversation.
+    pub fn execution_conversation<'a>(
+        &'a self,
+        actor: &str,
+        original_conversation: &str,
+    ) -> Result<Option<&'a str>, AgentStoreError> {
+        let Self::Activate {
+            request_id,
+            conversation_id,
+            execution_conversation_id,
+            ..
+        } = self
+        else {
+            return Ok(None);
+        };
+        if original_conversation != conversation_id
+            || (execution_conversation_id != conversation_id
+                && *execution_conversation_id
+                    != native_ids::workbench_work_conversation(actor, conversation_id, request_id))
+        {
+            return Err(AgentStoreError::Inaccessible);
+        }
+        Ok(Some(execution_conversation_id))
+    }
+
+    pub fn admission(&self) -> OwnerAdmission<'_> {
+        match self {
+            Self::Submit {
+                ask,
+                reply_connection_id,
+            } => OwnerAdmission::Enqueue {
+                ask,
+                limit: PENDING_PER_CONVERSATION,
+                reply_connection_id: Some(reply_connection_id),
+            },
+            Self::Activate {
+                request_id,
+                issue_source,
+                progress,
+                ..
+            } => match progress.as_deref().and_then(ActivationProgress::claim) {
+                Some(claim) => OwnerAdmission::ClaimedActivate {
+                    request_id,
+                    issue_source: issue_source.as_deref(),
+                    claim,
+                },
+                None => OwnerAdmission::Activate {
+                    request_id,
+                    issue_source: issue_source.as_deref(),
+                },
+            },
+        }
+    }
+
+    /// The claim a first activation holds on its row, if this turn is one.
+    pub fn activation_claim(&self) -> Option<i64> {
+        self.activation_progress()
+            .and_then(ActivationProgress::claim)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum OwnerAdmission<'a> {
+    Native,
+    Enqueue {
+        ask: &'a AiAgentAsk,
+        limit: u64,
+        reply_connection_id: Option<&'a str>,
+    },
+    /// Activates a queued request that admission already accepted, or that a
+    /// caller activates without an attempt's row claim.
+    Activate {
+        request_id: &'a str,
+        issue_source: Option<&'a desk_diagnose_core::issue_authority::IssueWorkSource>,
+    },
+    /// The first activation of a queued request, fenced by the claim its
+    /// attempt holds on the row: admission commits nothing once a newer
+    /// attempt has taken the row over.
+    ClaimedActivate {
+        request_id: &'a str,
+        issue_source: Option<&'a desk_diagnose_core::issue_authority::IssueWorkSource>,
+        claim: i64,
+    },
+}
+
+impl<'a> OwnerAdmission<'a> {
+    /// The activated request and, for a first activation, its row claim.
+    pub fn activation(self) -> Option<(&'a str, Option<i64>)> {
+        match self {
+            Self::Activate { request_id, .. } => Some((request_id, None)),
+            Self::ClaimedActivate {
+                request_id, claim, ..
+            } => Some((request_id, Some(claim))),
+            Self::Native | Self::Enqueue { .. } => None,
+        }
+    }
+
+    pub fn issue_source(self) -> Option<&'a desk_diagnose_core::issue_authority::IssueWorkSource> {
+        match self {
+            Self::Activate { issue_source, .. } | Self::ClaimedActivate { issue_source, .. } => {
+                issue_source
+            }
+            Self::Native | Self::Enqueue { .. } => None,
+        }
+    }
+}
+
+pub enum OwnerAdmissionResult<R> {
+    Native(R),
+    /// `waiting` tells the client whether the new input waits behind other
+    /// work; it is `None` when admission returned an earlier row.
+    Queued {
+        row: Box<request::Model>,
+        waiting: Option<bool>,
+    },
+    Dispatched,
+    Waiting,
+    /// Admission's recheck rejected the request's subscription source.
+    SourceRejected,
+}
+
+/// Queue retries and activation reuse the accepted binding. Remote name lookup
+/// is reserved for first intake; a later repository may reuse the same name.
+pub async fn frozen_read_selection(
+    db: &impl ConnectionTrait,
+    queue: Option<&OwnerQueueTurn>,
+    actor: &str,
+    conversation: &str,
+    device: &str,
+    ask: &AiAgentAsk,
+) -> Result<Option<ReadContextSelection>, AgentStoreError> {
+    let row = match queue {
+        None => return Ok(None),
+        Some(OwnerQueueTurn::Submit { ask: original, .. }) => {
+            if original.selected_issues != ask.selected_issues {
+                return Err(AgentStoreError::Inaccessible);
+            }
+            replay(db, actor, conversation, original, device).await?
+        }
+        Some(OwnerQueueTurn::Activate {
+            request_id,
+            conversation_id,
+            ..
+        }) => Some(
+            load(db, actor, conversation_id, request_id)
+                .await?
+                .ok_or(AgentStoreError::Inaccessible)?,
+        ),
+    };
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    if row.pending_input_json.is_none() {
+        return Ok(Some(ReadContextSelection::default()));
+    }
+    let frozen = FrozenRequestInput::decode(&row)?;
+    if frozen.issue_source.as_deref() != queue.and_then(OwnerQueueTurn::issue_source) {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    if frozen.ask.selected_issues != ask.selected_issues {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    Ok(Some(frozen.reads))
+}
+
+impl<R> OwnerAdmissionResult<R> {
+    pub fn native(self) -> Result<R, AgentStoreError> {
+        match self {
+            Self::Native(receipt) => Ok(receipt),
+            _ => Err(AgentStoreError::Invalid(
+                "Expected native agent input receipt",
+            )),
+        }
+    }
+}
+
+/// A released model lease alone is insufficient to start another request.
+/// Hosts also check their durable approval and delivery records under the lock.
+pub fn holds_input_slot(session: &PersistedAgentSession) -> bool {
+    session.main_stopped
+        || !session.agent_role.is_main()
+        || session.turn_state.is_active()
+        || !session.execution_state.tasks().is_empty()
+        || session.subagent_wait.is_some()
+        || session.ready_subagent_wait.is_some()
+        || session.ready_subagent_notification.is_some()
+        // A call waiting for approval, or released to run, is still in flight:
+        // new owner input queues behind it, as it does behind a proposal or
+        // directory request the turn paused on.
+        || session.awaiting_permission.is_some()
+        || session.decision_pause.is_some()
+        // A release whose call already has a result was closed by recovery or a
+        // superseded settlement; the next turn clears it, and it holds nothing.
+        || session.released_permission_call.as_ref().is_some_and(|released| {
+            session
+                .unclosed_tool_call_ids()
+                .contains(&released.tool_call_id)
+        })
+        || session.permission_requests.iter().any(|permission| {
+            permission.input_revision == session.input_revision
+                && permission.state
+                    == desk_diagnose_core::dynamic_run::PermissionRequestState::Pending
+        })
+        || session
+            .pending_auto_triggers
+            .iter()
+            .any(|trigger| trigger.chain_id == session.chain_id)
+        || (session.latest_input_seq > session.handled_input_seq
+            && session
+                .conversation
+                .iter()
+                .rev()
+                .find(|message| {
+                    message.role == ChatRole::User
+                        && !desk_diagnose_core::permission_resume::is_resume_control_message(
+                            message,
+                        )
+                })
+                .is_some_and(|message| message.turn_id.is_none()))
+}
+
+pub fn same_input(fence: &AgentTurnFence, session: &PersistedAgentSession) -> bool {
+    fence.conversation_id == session.conversation_id
+        && fence.actor_id == session.actor_id
+        && fence.input_revision == session.input_revision
+        && fence.control_revision == session.control_revision
+}
+
+/// Resume queue eligibility without reopening the stopped turn or its work.
+pub fn resume_queue_control(
+    session: &mut PersistedAgentSession,
+    expected_control_revision: u64,
+    now: &str,
+) -> Result<bool, AgentStoreError> {
+    if !session.agent_role.is_main()
+        || session.surface != desk_diagnose_core::session::AgentSessionSurface::AiAgent
+    {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    let next = expected_control_revision
+        .checked_add(1)
+        .filter(|next| *next <= i64::MAX as u64)
+        .ok_or(AgentStoreError::Invalid("Agent control revision exhausted"))?;
+    if !session.main_stopped && session.control_revision == next {
+        return Ok(false);
+    }
+    if !session.main_stopped || session.control_revision != expected_control_revision {
+        return Err(AgentStoreError::Stale {
+            current_revision: session.control_revision,
+        });
+    }
+    session.control_revision = next;
+    session.main_stopped = false;
+    desk_diagnose_core::proposal_review::withdraw_pause(session);
+    for permission in &mut session.permission_requests {
+        if permission.state.can_user_decide() {
+            permission.state = desk_diagnose_core::dynamic_run::PermissionRequestState::Withdrawn;
+        }
+    }
+    session.updated_at = now.into();
+    Ok(true)
+}
+
+pub fn pending_conversation_ids() -> sea_orm::sea_query::SelectStatement {
+    request::Entity::find()
+        .select_only()
+        .column(request::Column::ConversationId)
+        .filter(recoverable_condition())
+        .into_query()
+}
+
+fn recoverable_condition() -> Condition {
+    Condition::any().add(request::Column::State.eq(QUEUED)).add(
+        Condition::all()
+            .add(request::Column::State.eq(ACTIVATED))
+            .add(request::Column::PendingInputJson.is_not_null()),
+    )
+}
+
+/// Page conversation heads, including an activated input whose native claim
+/// did not commit. Requests behind that input wait for the next pass.
+pub async fn recovery_heads(
+    db: &impl ConnectionTrait,
+    after_id: i64,
+    limit: u64,
+) -> Result<Vec<request::Model>, AgentStoreError> {
+    use request::Column;
+    use sea_orm::sea_query::Func;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let active = Condition::all()
+        .add(Column::State.eq(ACTIVATED))
+        .add(Column::PendingInputJson.is_not_null())
+        .add(retry_due(now_ms));
+    let heads = request::Entity::find()
+        .select_only()
+        .expr(Func::coalesce([
+            Expr::case(Column::State.eq(ACTIVATED), Expr::col(Column::Id))
+                .finally(Expr::value(None::<i64>))
+                .min(),
+            Expr::col(Column::Id).min(),
+        ]))
+        .filter(Condition::any().add(active).add(queued_and_due(now_ms)))
+        .group_by(Column::ConversationId)
+        .into_query();
+    Ok(request::Entity::find()
+        .filter(request::Column::Id.gt(after_id))
+        .filter(request::Column::Id.in_subquery(heads))
+        .order_by_asc(request::Column::Id)
+        .limit(limit)
+        .all(db)
+        .await?)
+}
+
+/// A newer input revision owns the native execution slot. Retire only the
+/// superseded activation's remaining recovery copy.
+pub async fn retire_superseded(
+    db: &impl ConnectionTrait,
+    row: &request::Model,
+    now_ms: i64,
+) -> Result<(), AgentStoreError> {
+    if let Some(revision) = row.input_revision {
+        clear_payload(request::Entity::update_many(), now_ms)
+            .col_expr(request::Column::State, Expr::value(SUPERSEDED))
+            .filter(request::Column::Id.eq(row.id))
+            .filter(request::Column::RequestId.eq(&row.request_id))
+            .filter(request::Column::InputRevision.eq(revision))
+            .filter(request::Column::State.eq(ACTIVATED))
+            .filter(request::Column::PendingInputJson.is_not_null())
+            .exec(db)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Close a queued request by its own rule. A first activation passes the
+/// claim its attempt holds, so a decision of an attempt that lost the row to
+/// a newer one closes nothing.
+pub async fn fail_unactivated(
+    db: &impl ConnectionTrait,
+    row: &request::Model,
+    claim: Option<i64>,
+    now_ms: i64,
+    reason: MainRequestFailure,
+) -> Result<(), AgentStoreError> {
+    claimed(fail_payload(pending_row_update(row), now_ms, reason), claim)
+        .filter(request::Column::UpdatedAtMs.eq(row.updated_at_ms))
+        .filter(request::Column::CoordinationAttempts.eq(row.coordination_attempts))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+fn claimed(
+    update: sea_orm::UpdateMany<request::Entity>,
+    claim: Option<i64>,
+) -> sea_orm::UpdateMany<request::Entity> {
+    match claim {
+        Some(claim) => update.filter(request::Column::ActivationClaim.eq(claim)),
+        None => update,
+    }
+}
+
+/// Close an activation that lost its authority before the first claim. The host
+/// commits the returned session mutation under the native row CAS.
+pub async fn fail_unclaimed(
+    txn: &impl ConnectionTrait,
+    row: &request::Model,
+    session: &mut PersistedAgentSession,
+    now: chrono::DateTime<chrono::Utc>,
+    reason: MainRequestFailure,
+) -> Result<bool, AgentStoreError> {
+    if session.queue_conversation_id() != row.conversation_id
+        || session
+            .agent_role
+            .workbench_request_id()
+            .is_some_and(|id| id != row.request_id)
+        || session.actor_id != row.actor_id
+        || row.input_revision != Some(signed(session.input_revision)?)
+        || session.main_stopped
+        || session.turn_state.is_active()
+        || session.latest_input_seq <= session.handled_input_seq
+        || !desk_diagnose_core::permission_resume::latest_user_requirement(&session.conversation)
+            .is_some_and(|message| {
+                message.message_id == row.client_message_id && message.turn_id.is_none()
+            })
+    {
+        return Ok(false);
+    }
+    let updated = fail_payload(
+        request::Entity::update_many(),
+        now.timestamp_millis(),
+        reason,
+    )
+    .filter(request::Column::Id.eq(row.id))
+    .filter(request::Column::RequestId.eq(&row.request_id))
+    .filter(request::Column::State.eq(ACTIVATED))
+    .filter(request::Column::InputRevision.eq(row.input_revision))
+    .filter(request::Column::PendingInputJson.is_not_null())
+    .exec(txn)
+    .await?;
+    if updated.rows_affected != 1 {
+        return Ok(false);
+    }
+    session.handled_input_seq = session.latest_input_seq;
+    session.finish_turn(
+        desk_diagnose_core::session::TurnState::Failed,
+        now.to_rfc3339(),
+    );
+    session.current_request_id = Some(row.request_id.clone());
+    session.terminal_error = Some(failure_error(reason));
+    Ok(true)
+}
+
+fn failure_code(reason: MainRequestFailure) -> &'static str {
+    match reason {
+        MainRequestFailure::SourceUnavailable => "source_unavailable",
+        MainRequestFailure::DestinationChanged => "destination_changed",
+        MainRequestFailure::CoordinationExhausted => "coordination_exhausted",
+        MainRequestFailure::ActivationFailed => "activation_failed",
+    }
+}
+
+pub fn failure_error(reason: MainRequestFailure) -> desk_agent_protocol::AgentError {
+    use desk_agent_protocol::AgentErrorKind;
+    let (kind, message) = match reason {
+        MainRequestFailure::SourceUnavailable => (
+            AgentErrorKind::PermissionDenied,
+            "Queued agent input expired or its original access was removed",
+        ),
+        MainRequestFailure::DestinationChanged => (
+            AgentErrorKind::ModelRejected,
+            "Queued agent input no longer matches its original model destination",
+        ),
+        MainRequestFailure::CoordinationExhausted => (
+            AgentErrorKind::ModelRejected,
+            "Queued agent input could not be routed after repeated attempts",
+        ),
+        MainRequestFailure::ActivationFailed => (
+            AgentErrorKind::SessionUnavailable,
+            "Queued agent input could not start after repeated attempts",
+        ),
+    };
+    desk_agent_protocol::AgentError {
+        kind,
+        message: message.into(),
+        retryable: false,
+        safe_for_model: false,
+        error_code: None,
+    }
+}
+
+pub async fn delete_for_conversation(
+    txn: &impl ConnectionTrait,
+    actor_id: &str,
+    conversation_id: &str,
+) -> Result<(), sea_orm::DbErr> {
+    request::Entity::delete_many()
+        .filter(request::Column::ActorId.eq(actor_id))
+        .filter(request::Column::ConversationId.eq(conversation_id))
+        .exec(txn)
+        .await?;
+    Ok(())
+}
+
+#[derive(Debug)]
+pub enum IssueAuthorization {
+    /// The owner's own request has no subscription source.
+    Owner,
+    Subscribed(Box<desk_diagnose_core::issue_authority::IssueAdmission>),
+    /// The source no longer authorizes this request.
+    Rejected,
+}
+
+impl IssueAuthorization {
+    pub fn subscribed(self) -> Option<desk_diagnose_core::issue_authority::IssueAdmission> {
+        match self {
+            Self::Subscribed(admission) => Some(*admission),
+            Self::Owner | Self::Rejected => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IssueQueueAuthority {
+    Ready,
+    Paused,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FrozenRequestInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_source: Option<Box<desk_diagnose_core::issue_authority::IssueWorkSource>>,
+    pub ask: AiAgentAsk,
+    pub device_id: String,
+    pub targets: Vec<AgentInputTarget>,
+    pub reads: ReadContextSelection,
+    pub destination: DestinationIdentity,
+}
+
+impl FrozenRequestInput {
+    pub fn authorization_expired(&self, now_ms: i64) -> bool {
+        self.reads
+            .expires_at
+            .as_deref()
+            .and_then(|date| chrono::DateTime::parse_from_rfc3339(date).ok())
+            .is_some_and(|date| date.timestamp_millis() <= now_ms)
+            || self.reads.object_attachments.iter().any(|attachment| {
+                !attachment.is_active_at(u64::try_from(now_ms).unwrap_or_default())
+            })
+    }
+
+    pub async fn roster_matches(
+        &self,
+        db: &impl ConnectionTrait,
+        actor: &str,
+        conversation: &str,
+    ) -> Result<bool, AgentStoreError> {
+        if self.targets.is_empty() {
+            return Ok(true);
+        }
+        let roster = crate::device_roster::load(db, actor, conversation).await?;
+        Ok(self.targets.iter().all(|target| match &roster {
+            Some(roster) => roster
+                .members
+                .get(&target.device_id)
+                .copied()
+                .is_some_and(|generation| Some(generation) == target.member_generation),
+            None => target.member_generation.is_none(),
+        }))
+    }
+
+    pub fn capture(
+        ask: &AiAgentAsk,
+        device_id: &str,
+        targets: &[AgentInputTarget],
+        reads: Option<&ReadContextSelection>,
+        message: &ChatMessage,
+    ) -> Result<Self, AgentStoreError> {
+        let invalid = || AgentStoreError::Invalid("Agent request differs from its native input");
+        let reads = reads.ok_or_else(invalid)?;
+        reads.validate().map_err(|_| invalid())?;
+        let [destination] = message
+            .data_envelope
+            .as_ref()
+            .map(|envelope| envelope.allowed_destinations.as_slice())
+            .ok_or_else(invalid)?
+        else {
+            return Err(invalid());
+        };
+        if ask.start_goal
+            || ask.previous_completed_goal_id.is_some()
+            || ask.question != message.text
+            || reads.external_issues.len() != ask.selected_issues.len()
+            || !ask.selected_issues.iter().all(|selected| {
+                reads
+                    .external_issues
+                    .iter()
+                    .any(|access| access.matches_selection(selected))
+            })
+            || ask.client_message_id != message.message_id
+            || !ask
+                .target_refs
+                .iter()
+                .map(String::as_str)
+                .eq(targets.iter().map(|target| target.reference.as_str()))
+        {
+            return Err(invalid());
+        }
+        Ok(Self {
+            issue_source: None,
+            ask: ask.clone(),
+            device_id: device_id.into(),
+            targets: targets.to_vec(),
+            reads: reads.clone(),
+            destination: destination.clone(),
+        })
+    }
+
+    pub fn decode(row: &request::Model) -> Result<Self, AgentStoreError> {
+        let invalid = || AgentStoreError::Invalid("Invalid pending agent request");
+        let input: Self =
+            serde_json::from_str(row.pending_input_json.as_deref().ok_or_else(invalid)?)
+                .map_err(|_| invalid())?;
+        if !matches!(
+            (row.state.as_str(), row.input_revision),
+            (QUEUED, None) | (ACTIVATED, Some(1..))
+        ) || input.ask.client_message_id != row.client_message_id
+            || input.submission_sha256()? != row.submission_sha256
+        {
+            return Err(invalid());
+        }
+        input.validate_issue_source(&row.conversation_id, &row.request_id)?;
+        Ok(input)
+    }
+
+    pub fn capture_issue(
+        ask: &AiAgentAsk,
+        targets: &[AgentInputTarget],
+        reads: &ReadContextSelection,
+        message: &ChatMessage,
+        source: desk_diagnose_core::issue_authority::IssueWorkSource,
+    ) -> Result<Self, AgentStoreError> {
+        let mut input = Self::capture(ask, "", targets, Some(reads), message)?;
+        let purpose = source
+            .purpose_message(&input.destination)
+            .map_err(|_| AgentStoreError::Inaccessible)?;
+        if message.message_id != purpose.message_id
+            || message.text != purpose.text
+            || message.data_envelope != purpose.data_envelope
+        {
+            return Err(AgentStoreError::Inaccessible);
+        }
+        input.issue_source = Some(Box::new(source));
+        Ok(input)
+    }
+
+    pub fn capture_activation(
+        &self,
+        device: &str,
+        targets: &[AgentInputTarget],
+        reads: Option<&ReadContextSelection>,
+        message: &ChatMessage,
+    ) -> Result<Self, AgentStoreError> {
+        match &self.issue_source {
+            Some(source) if device.is_empty() => Self::capture_issue(
+                &self.ask,
+                targets,
+                reads.ok_or(AgentStoreError::Inaccessible)?,
+                message,
+                *source.clone(),
+            ),
+            Some(_) => Err(AgentStoreError::Inaccessible),
+            None => Self::capture(&self.ask, device, targets, reads, message),
+        }
+    }
+
+    pub async fn issue_authority_current(
+        &self,
+        db: &impl ConnectionTrait,
+        actor: &str,
+        now: i64,
+    ) -> Result<bool, AgentStoreError> {
+        Ok(self.issue_queue_authority(db, actor, now).await? == IssueQueueAuthority::Ready)
+    }
+
+    /// A paused rule may later resume its exact original request. A revoked
+    /// sender, changed scope or elapsed deadline is not a temporary pause.
+    pub async fn issue_queue_authority(
+        &self,
+        db: &impl ConnectionTrait,
+        actor: &str,
+        now: i64,
+    ) -> Result<IssueQueueAuthority, AgentStoreError> {
+        use desk_diagnose_core::issue_authority::IssueWorkSource;
+        let Some(source) = &self.issue_source else {
+            return Ok(IssueQueueAuthority::Ready);
+        };
+        let Some((admission, mut policy)) =
+            crate::issue_authority::reference_scope_on(db, actor, &source.reference).await?
+        else {
+            return Ok(IssueQueueAuthority::Unavailable);
+        };
+        if self.reads.external_issues.as_slice() != std::slice::from_ref(&admission.issue)
+            || IssueWorkSource::from_admission(&admission).map_err(AgentStoreError::Invalid)?
+                != **source
+        {
+            return Ok(IssueQueueAuthority::Unavailable);
+        }
+        let enabled = policy.enabled;
+        policy.enabled = true;
+        if !admission.usable(&policy, now)
+            || (!self.targets.is_empty() && !admission.can_use_devices(&policy, now))
+        {
+            return Ok(IssueQueueAuthority::Unavailable);
+        }
+        Ok(if enabled {
+            IssueQueueAuthority::Ready
+        } else {
+            IssueQueueAuthority::Paused
+        })
+    }
+
+    /// Admission's recheck of a subscribed request. A source that is paused,
+    /// revoked or no longer allows the request's devices is rejected; the
+    /// executor's next source check defers or closes the request. Unreadable
+    /// authority data is an error.
+    pub async fn authorized_issue_on(
+        &self,
+        db: &impl ConnectionTrait,
+        actor: &str,
+        now: i64,
+    ) -> Result<IssueAuthorization, AgentStoreError> {
+        let Some(source) = &self.issue_source else {
+            return Ok(IssueAuthorization::Owner);
+        };
+        let [issue] = self.reads.external_issues.as_slice() else {
+            return Err(AgentStoreError::Inaccessible);
+        };
+        let Some((admission, current)) =
+            crate::issue_authority::resolve_work_source(db, actor, source, issue, now).await?
+        else {
+            return Ok(IssueAuthorization::Rejected);
+        };
+        if !self.targets.is_empty() && !admission.can_use_devices(&current, now) {
+            return Ok(IssueAuthorization::Rejected);
+        }
+        Ok(IssueAuthorization::Subscribed(Box::new(admission)))
+    }
+
+    fn validate_issue_source(
+        &self,
+        conversation: &str,
+        request: &str,
+    ) -> Result<(), AgentStoreError> {
+        let Some(source) = &self.issue_source else {
+            return Ok(());
+        };
+        source.validate().map_err(AgentStoreError::Invalid)?;
+        let purpose = source
+            .purpose_message(&self.destination)
+            .map_err(|_| AgentStoreError::Inaccessible)?;
+        if source.workbench_id != conversation
+            || source.request_id != request
+            || !self.device_id.is_empty()
+            || self.ask.question != purpose.text
+            || self.ask.client_message_id != purpose.message_id
+            || self.reads.external_issue_sources.as_slice() != [source.reference.clone()]
+            || self.reads.external_issues.len() != 1
+            || self.reads.external_issues[0].tool_ref() != source.reference.tool_ref
+            || (source.work_kind == desk_diagnose_core::issue_authority::IssueWorkKind::Analysis
+                && !self.targets.is_empty())
+        {
+            return Err(AgentStoreError::Inaccessible);
+        }
+        Ok(())
+    }
+
+    fn submission_sha256(&self) -> Result<String, AgentStoreError> {
+        if let Some(source) = &self.issue_source {
+            let bytes = serde_json::to_vec(&(&self.ask, &self.device_id, source))
+                .map_err(|_| AgentStoreError::Invalid("Could not encode subscribed request"))?;
+            return Ok(format!("{:x}", Sha256::digest(bytes)));
+        }
+        submission_sha256(&self.ask, &self.device_id)
+    }
+}
+
+fn submission_sha256(ask: &AiAgentAsk, device_id: &str) -> Result<String, AgentStoreError> {
+    let submitted = serde_json::to_vec(&(ask, device_id))
+        .map_err(|_| AgentStoreError::Invalid("Could not encode agent request"))?;
+    Ok(format!("{:x}", Sha256::digest(submitted)))
+}
+
+fn owner_request_id(actor_id: &str, conversation_id: &str, message_id: &str) -> String {
+    native_ids::stable(
+        Kind::AgentMainRequest,
+        &(actor_id, conversation_id, message_id),
+    )
+}
+
+pub async fn load(
+    db: &impl ConnectionTrait,
+    actor_id: &str,
+    conversation_id: &str,
+    request_id: &str,
+) -> Result<Option<request::Model>, AgentStoreError> {
+    Ok(request::Entity::find()
+        .filter(request::Column::ActorId.eq(actor_id))
+        .filter(request::Column::ConversationId.eq(conversation_id))
+        .filter(request::Column::RequestId.eq(request_id))
+        .one(db)
+        .await?)
+}
+
+/// A native work conversation can only be activated by its exact queued owner
+/// request. The host verifies the returned coordinator under its control lock.
+pub async fn workbench_for_activation(
+    db: &impl ConnectionTrait,
+    admission: OwnerAdmission<'_>,
+    actor_id: &str,
+    work_conversation_id: &str,
+) -> Result<Option<String>, AgentStoreError> {
+    if !native_ids::is(Kind::WorkbenchWorkConversation, work_conversation_id) {
+        return Ok(None);
+    }
+    let Some((request_id, _)) = admission.activation() else {
+        return Err(AgentStoreError::Inaccessible);
+    };
+    let workbench_id = request::Entity::find()
+        .select_only()
+        .column(request::Column::ConversationId)
+        .filter(request::Column::RequestId.eq(request_id))
+        .filter(request::Column::ActorId.eq(actor_id))
+        .into_tuple::<String>()
+        .one(db)
+        .await?
+        .ok_or(AgentStoreError::Inaccessible)?;
+    if native_ids::workbench_work_conversation(actor_id, &workbench_id, request_id)
+        != work_conversation_id
+    {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    Ok(Some(workbench_id))
+}
+
+pub fn decode_workbench_coordinator(
+    state_json: &str,
+    actor_id: &str,
+    workbench_id: &str,
+) -> Result<Box<PersistedAgentSession>, AgentStoreError> {
+    let session = PersistedAgentSession::decode_boxed_json(state_json)
+        .map_err(|_| AgentStoreError::Invalid("Invalid workbench coordinator"))?;
+    if session.actor_id != actor_id
+        || session.conversation_id != workbench_id
+        || !is_workbench_root(&session)
+    {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    Ok(session)
+}
+
+pub fn is_workbench_root(session: &PersistedAgentSession) -> bool {
+    session.agent_role.workbench_id() == Some(session.conversation_id.as_str())
+        && session.agent_role.workbench_request_id().is_none()
+}
+
+/// Native work identity is derived from its durable activation receipt.
+pub async fn activated_workbench_conversations_on(
+    db: &impl ConnectionTrait,
+    root: &PersistedAgentSession,
+) -> Result<std::collections::BTreeSet<String>, sea_orm::DbErr> {
+    let requests = request::Entity::find()
+        .filter(request::Column::ActorId.eq(&root.actor_id))
+        .filter(request::Column::ConversationId.eq(&root.conversation_id))
+        .filter(request::Column::InputRevision.is_not_null())
+        .select_only()
+        .column(request::Column::RequestId)
+        .into_tuple::<String>()
+        .all(db)
+        .await?;
+    Ok(requests
+        .into_iter()
+        .map(|request| {
+            native_ids::workbench_work_conversation(&root.actor_id, &root.conversation_id, &request)
+        })
+        .collect())
+}
+
+/// Activations that have not begun execution remain in the paused intake queue.
+pub async fn unclaimed_workbench_conversations(
+    db: &impl ConnectionTrait,
+    root: &PersistedAgentSession,
+) -> Result<std::collections::BTreeSet<String>, AgentStoreError> {
+    let requests = request::Entity::find()
+        .filter(request::Column::ActorId.eq(&root.actor_id))
+        .filter(request::Column::ConversationId.eq(&root.conversation_id))
+        .filter(request::Column::State.eq(ACTIVATED))
+        .filter(request::Column::PendingInputJson.is_not_null())
+        .select_only()
+        .column(request::Column::RequestId)
+        .into_tuple::<String>()
+        .all(db)
+        .await?;
+    Ok(requests
+        .into_iter()
+        .map(|request| {
+            native_ids::workbench_work_conversation(&root.actor_id, &root.conversation_id, &request)
+        })
+        .collect())
+}
+
+pub fn coordinating_work_conversation(session: &PersistedAgentSession) -> Option<String> {
+    let request = session.coordinating_work.as_deref()?;
+    Some(native_ids::workbench_work_conversation(
+        &session.actor_id,
+        &session.conversation_id,
+        request,
+    ))
+}
+
+pub fn workbench_execution(
+    root: &PersistedAgentSession,
+    row: &request::Model,
+) -> Result<Option<String>, AgentStoreError> {
+    let Some(workbench_id) = root.agent_role.workbench_id() else {
+        return Ok(None);
+    };
+    if workbench_id != row.conversation_id
+        || root.conversation_id != row.conversation_id
+        || root.actor_id != row.actor_id
+        || root.agent_role.workbench_request_id().is_some()
+    {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    Ok(Some(native_ids::workbench_work_conversation(
+        &row.actor_id,
+        workbench_id,
+        &row.request_id,
+    )))
+}
+
+/// Active queue entries and recent failures, or a specific receipt regardless
+/// of state. Rows that have not reached the conversation carry the owner's own
+/// question; the rest of the frozen input is never decoded.
+pub async fn receipts(
+    db: &impl ConnectionTrait,
+    actor_id: &str,
+    conversation_id: &str,
+    request_id: Option<&str>,
+) -> Result<Vec<MainRequestReceipt>, AgentStoreError> {
+    use request::Column;
+    let query = request::Entity::find()
+        .select_only()
+        .columns([
+            Column::RequestId,
+            Column::ClientMessageId,
+            Column::State,
+            Column::Failure,
+            Column::InputRevision,
+            Column::AcceptedAtMs,
+            Column::FailureErrorCode,
+            Column::PendingInputJson,
+        ])
+        .filter(Column::ActorId.eq(actor_id))
+        .filter(Column::ConversationId.eq(conversation_id));
+    let rows: Vec<ReceiptInputRow> = match request_id {
+        Some(id) => {
+            query
+                .filter(Column::RequestId.eq(id))
+                .limit(1)
+                .into_tuple()
+                .all(db)
+                .await?
+        }
+        None => {
+            let mut rows: Vec<ReceiptInputRow> = query
+                .clone()
+                .filter(recoverable_condition())
+                .order_by_asc(Column::Id)
+                .limit(PENDING_PER_CONVERSATION + 1)
+                .into_tuple()
+                .all(db)
+                .await?;
+            // Recent failures by when they failed, not when they were submitted.
+            rows.extend(
+                query
+                    .filter(Column::State.eq(FAILED))
+                    .order_by_desc(Column::UpdatedAtMs)
+                    .order_by_desc(Column::Id)
+                    .limit(8)
+                    .into_tuple::<ReceiptInputRow>()
+                    .all(db)
+                    .await?,
+            );
+            rows
+        }
+    };
+    rows.into_iter()
+        .map(
+            |(id, message, state, failure, revision, accepted, code, input)| {
+                let mut receipt =
+                    decode_receipt((id, message, state, failure, revision, accepted, code))?;
+                if matches!(
+                    receipt.state,
+                    MainRequestState::Queued | MainRequestState::Activated
+                ) && let Some(input) = input.as_deref()
+                {
+                    receipt.question = owner_question(input)?;
+                }
+                Ok(receipt)
+            },
+        )
+        .collect()
+}
+
+type ReceiptInputRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<i64>,
+    i64,
+    Option<i32>,
+    Option<String>,
+);
+
+/// Reads only the question of a frozen input. Subscription-sourced requests
+/// carry a generated requirement rather than owner text, so they stay blank.
+fn owner_question(input: &str) -> Result<Option<String>, AgentStoreError> {
+    #[derive(Deserialize)]
+    struct QueuedAsk {
+        question: String,
+    }
+    #[derive(Deserialize)]
+    struct QueuedInput {
+        #[serde(default)]
+        issue_source: Option<serde::de::IgnoredAny>,
+        ask: QueuedAsk,
+    }
+    let input: QueuedInput = serde_json::from_str(input)
+        .map_err(|_| AgentStoreError::Invalid("Invalid agent request input"))?;
+    Ok(input.issue_source.is_none().then_some(input.ask.question))
+}
+
+pub(crate) type ReceiptRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<i64>,
+    i64,
+    Option<i32>,
+);
+
+pub(crate) fn decode_receipt(
+    (request_id, client_message_id, state, failure, input_revision, accepted_at_ms, error_code): ReceiptRow,
+) -> Result<MainRequestReceipt, AgentStoreError> {
+    let state = match state.as_str() {
+        QUEUED => MainRequestState::Queued,
+        ACTIVATED => MainRequestState::Activated,
+        CANCELLED => MainRequestState::Cancelled,
+        SUPERSEDED => MainRequestState::Superseded,
+        FAILED => MainRequestState::Failed,
+        _ => {
+            return Err(AgentStoreError::Invalid("Invalid agent request state"));
+        }
+    };
+    let failure = match failure.as_deref() {
+        None => None,
+        Some("source_unavailable") => Some(MainRequestFailure::SourceUnavailable),
+        Some("destination_changed") => Some(MainRequestFailure::DestinationChanged),
+        Some("coordination_exhausted") => Some(MainRequestFailure::CoordinationExhausted),
+        Some("activation_failed") => Some(MainRequestFailure::ActivationFailed),
+        Some(_) => {
+            return Err(AgentStoreError::Invalid("Invalid agent request failure"));
+        }
+    };
+    Ok(MainRequestReceipt {
+        request_id,
+        client_message_id,
+        state,
+        failure,
+        input_revision,
+        accepted_at_ms,
+        error_code,
+        question: None,
+    })
+}
+
+/// Compare against the live queued state. A retry of a successful cancellation
+/// returns the same receipt; activation and cancellation cannot both commit.
+pub async fn cancel_owner_request(
+    txn: &impl ConnectionTrait,
+    actor_id: &str,
+    conversation_id: &str,
+    request_id: &str,
+    now_ms: i64,
+) -> Result<MainRequestReceipt, AgentStoreError> {
+    let cancelled = clear_payload(request::Entity::update_many(), now_ms)
+        .col_expr(request::Column::State, Expr::value(CANCELLED))
+        .filter(request::Column::ActorId.eq(actor_id))
+        .filter(request::Column::ConversationId.eq(conversation_id))
+        .filter(request::Column::RequestId.eq(request_id))
+        .filter(request::Column::State.eq(QUEUED))
+        .exec(txn)
+        .await?;
+    if cancelled.rows_affected == 1 {
+        crate::issue_authority::stop_request(txn, actor_id, request_id, now_ms).await?;
+    }
+    let Some(receipt) = receipts(txn, actor_id, conversation_id, Some(request_id))
+        .await?
+        .pop()
+    else {
+        return Err(AgentStoreError::Inaccessible);
+    };
+    if receipt.state != MainRequestState::Cancelled {
+        return Err(AgentStoreError::Stale {
+            current_revision: receipt.input_revision.unwrap_or_default() as u64,
+        });
+    }
+    Ok(receipt)
+}
+
+/// The caller freezes the input after authenticating it. A transport retry
+/// matches the submitted intent and never replaces the first capture.
+pub async fn enqueue(
+    txn: &impl ConnectionTrait,
+    actor_id: &str,
+    conversation_id: &str,
+    input: &FrozenRequestInput,
+    reply_connection_id: Option<&str>,
+    pending_limit: u64,
+    now_ms: i64,
+) -> Result<request::Model, AgentStoreError> {
+    let message_id = &input.ask.client_message_id;
+    let request_id = input.issue_source.as_ref().map_or_else(
+        || owner_request_id(actor_id, conversation_id, message_id),
+        |source| source.request_id.clone(),
+    );
+    input.validate_issue_source(conversation_id, &request_id)?;
+    let submission_sha256 = input.submission_sha256()?;
+    let existing = if input.issue_source.is_some() {
+        load(txn, actor_id, conversation_id, &request_id).await?
+    } else {
+        replay(txn, actor_id, conversation_id, &input.ask, &input.device_id).await?
+    };
+    if let Some(existing) = existing {
+        if existing.client_message_id != *message_id
+            || existing.submission_sha256 != submission_sha256
+        {
+            return Err(AgentStoreError::Invalid(
+                "Agent request differs from its original source",
+            ));
+        }
+        return Ok(existing);
+    }
+    if pending_for(actor_id, conversation_id).count(txn).await? >= pending_limit {
+        return Err(AgentStoreError::Capacity);
+    }
+    Ok(request::Entity::insert(request::ActiveModel {
+        request_id: Set(request_id),
+        actor_id: Set(actor_id.into()),
+        conversation_id: Set(conversation_id.into()),
+        client_message_id: Set(message_id.clone()),
+        submission_sha256: Set(submission_sha256),
+        state: Set(QUEUED.into()),
+        failure: Set(None),
+        coordinated: Set(false),
+        coordination_attempts: Set(0),
+        retry_at_ms: Set(None),
+        activation_attempts: Set(0),
+        activation_retry_at_ms: Set(None),
+        activation_claim: Set(0),
+        failure_error_code: Set(None),
+        pending_input_json: Set(Some(
+            serde_json::to_string(input)
+                .map_err(|_| AgentStoreError::Invalid("Could not encode agent request"))?,
+        )),
+        reply_connection_id: Set(reply_connection_id
+            .filter(|id| !id.is_empty() && id.len() <= 64)
+            .map(str::to_owned)),
+        input_revision: Set(None),
+        accepted_at_ms: Set(now_ms),
+        updated_at_ms: Set(now_ms),
+        ..Default::default()
+    })
+    .exec_with_returning(txn)
+    .await?)
+}
+
+pub async fn replay(
+    txn: &impl ConnectionTrait,
+    actor_id: &str,
+    conversation_id: &str,
+    ask: &AiAgentAsk,
+    device_id: &str,
+) -> Result<Option<request::Model>, AgentStoreError> {
+    let message_id = &ask.client_message_id;
+    let id = owner_request_id(actor_id, conversation_id, message_id);
+    let existing = load(txn, actor_id, conversation_id, &id).await?;
+    if let Some(row) = &existing
+        && (row.client_message_id != *message_id
+            || row.submission_sha256 != submission_sha256(ask, device_id)?)
+    {
+        return Err(AgentStoreError::Invalid(
+            "Agent request was already submitted with different input",
+        ));
+    }
+    Ok(existing)
+}
+
+fn pending_for(actor_id: &str, conversation_id: &str) -> sea_orm::Select<request::Entity> {
+    request::Entity::find()
+        .filter(request::Column::ActorId.eq(actor_id))
+        .filter(request::Column::ConversationId.eq(conversation_id))
+        .filter(request::Column::State.eq(QUEUED))
+}
+
+/// A queued row is due once both its coordination or paused-source deferral
+/// and its activation backoff have elapsed.
+fn queued_and_due(now_ms: i64) -> Condition {
+    Condition::all()
+        .add(request::Column::State.eq(QUEUED))
+        .add(retry_due(now_ms))
+        .add(activation_due(now_ms))
+}
+
+fn activation_due(now_ms: i64) -> Condition {
+    Condition::any()
+        .add(request::Column::ActivationRetryAtMs.is_null())
+        .add(request::Column::ActivationRetryAtMs.lte(now_ms))
+}
+
+fn retry_due(now_ms: i64) -> Condition {
+    Condition::any()
+        .add(request::Column::RetryAtMs.is_null())
+        .add(request::Column::RetryAtMs.lte(now_ms))
+}
+
+/// Leave a paused subscription's request recoverable without blocking other
+/// sources routed to the same coordinator. This does not spend a model attempt.
+pub async fn defer_paused_source(
+    db: &impl ConnectionTrait,
+    row: &request::Model,
+    claim: Option<i64>,
+    now_ms: i64,
+) -> Result<(), AgentStoreError> {
+    claimed(request::Entity::update_many(), claim)
+        .filter(request::Column::Id.eq(row.id))
+        .filter(request::Column::RequestId.eq(&row.request_id))
+        .filter(request::Column::State.eq(&row.state))
+        .filter(request::Column::PendingInputJson.is_not_null())
+        .filter(request::Column::UpdatedAtMs.eq(row.updated_at_ms))
+        .col_expr(
+            request::Column::RetryAtMs,
+            Expr::value(Some(now_ms.saturating_add(5_000))),
+        )
+        .col_expr(request::Column::UpdatedAtMs, Expr::value(now_ms))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+fn eligible_pending(
+    actor_id: &str,
+    conversation_id: &str,
+    now_ms: i64,
+) -> sea_orm::Select<request::Entity> {
+    request::Entity::find()
+        .filter(request::Column::ActorId.eq(actor_id))
+        .filter(request::Column::ConversationId.eq(conversation_id))
+        .filter(queued_and_due(now_ms))
+}
+
+pub async fn first_pending(
+    txn: &impl ConnectionTrait,
+    actor_id: &str,
+    conversation_id: &str,
+) -> Result<Option<request::Model>, AgentStoreError> {
+    Ok(eligible_pending(
+        actor_id,
+        conversation_id,
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .order_by_asc(request::Column::Id)
+    .one(txn)
+    .await?)
+}
+
+/// Call in the original input transaction after it assigns the native revision.
+pub async fn activate(
+    txn: &impl ConnectionTrait,
+    row: &request::Model,
+    input_revision: u64,
+    now_ms: i64,
+) -> Result<bool, AgentStoreError> {
+    activate_with_dispatch(txn, row, None, input_revision, now_ms, None).await
+}
+
+/// The caller commits this receipt, the native input and the Worker in one
+/// transaction. A first activation passes its row claim; a miss means a newer
+/// attempt took the row over, and the caller rolls back.
+pub async fn activate_with_dispatch(
+    txn: &impl ConnectionTrait,
+    row: &request::Model,
+    claim: Option<i64>,
+    input_revision: u64,
+    now_ms: i64,
+    worker_request: Option<&str>,
+) -> Result<bool, AgentStoreError> {
+    if input_revision == 0
+        || worker_request
+            .is_some_and(|id| row.first_dispatch_json.is_none() || !native_ids::is(Kind::Task, id))
+    {
+        return Err(AgentStoreError::Invalid("Invalid agent activation"));
+    }
+    let update = claimed(pending_row_update(row), claim)
+        .filter(
+            Condition::any()
+                .add(request::Column::Coordinated.eq(true))
+                .add(request::Column::FirstDispatchJson.is_not_null())
+                .add(request::Column::CoordinationAttempts.lt(coordination::MAX_ATTEMPTS)),
+        )
+        .filter(request::Column::FirstDispatchJson.eq(row.first_dispatch_json.clone()))
+        .col_expr(request::Column::State, Expr::value(ACTIVATED))
+        .col_expr(
+            request::Column::InputRevision,
+            Expr::value(signed(input_revision)?),
+        )
+        // Admission may have selected this head before a concurrent activation
+        // failure committed its backoff; the started request keeps none of it.
+        .col_expr(
+            request::Column::ActivationRetryAtMs,
+            Expr::value(None::<i64>),
+        )
+        .col_expr(request::Column::UpdatedAtMs, Expr::value(now_ms));
+    let update = if row.first_dispatch_json.is_some() {
+        let update = update.col_expr(request::Column::Coordinated, Expr::value(true));
+        if let Some(worker_request) = worker_request {
+            clear_payload(update, now_ms).col_expr(
+                request::Column::FirstWorkerRequestId,
+                Expr::value(worker_request),
+            )
+        } else {
+            update.col_expr(
+                request::Column::FirstDispatchJson,
+                Expr::value(None::<String>),
+            )
+        }
+    } else {
+        update
+    };
+    Ok(update.exec(txn).await?.rows_affected == 1)
+}
+
+/// Remove the recovery copy when the first native claim durably owns this input.
+/// Call in the same transaction as that claim's session CAS.
+pub async fn mark_claimed(
+    txn: &impl ConnectionTrait,
+    request_id: &str,
+    session: &PersistedAgentSession,
+    message_id: &str,
+    now_ms: i64,
+) -> Result<bool, AgentStoreError> {
+    if session
+        .agent_role
+        .workbench_request_id()
+        .is_some_and(|expected| expected != request_id)
+    {
+        return Ok(false);
+    }
+    Ok(
+        clear_recovery_payload(request::Entity::update_many(), now_ms)
+            .filter(request::Column::RequestId.eq(request_id))
+            .filter(request::Column::ConversationId.eq(session.queue_conversation_id()))
+            .filter(request::Column::ActorId.eq(&session.actor_id))
+            .filter(request::Column::ClientMessageId.eq(message_id))
+            .filter(request::Column::InputRevision.eq(signed(session.input_revision)?))
+            .filter(request::Column::State.eq(ACTIVATED))
+            .filter(request::Column::PendingInputJson.is_not_null())
+            .exec(txn)
+            .await?
+            .rows_affected
+            == 1,
+    )
+}
+
+fn pending_row_update(row: &request::Model) -> sea_orm::UpdateMany<request::Entity> {
+    request::Entity::update_many()
+        .filter(request::Column::Id.eq(row.id))
+        .filter(request::Column::RequestId.eq(&row.request_id))
+        .filter(request::Column::State.eq(QUEUED))
+}
+
+fn clear_payload(
+    update: sea_orm::UpdateMany<request::Entity>,
+    now_ms: i64,
+) -> sea_orm::UpdateMany<request::Entity> {
+    clear_recovery_payload(update, now_ms).col_expr(
+        request::Column::ReplyConnectionId,
+        Expr::value(None::<String>),
+    )
+}
+
+fn clear_recovery_payload(
+    update: sea_orm::UpdateMany<request::Entity>,
+    now_ms: i64,
+) -> sea_orm::UpdateMany<request::Entity> {
+    update
+        .col_expr(
+            request::Column::FirstDispatchJson,
+            Expr::value(None::<String>),
+        )
+        .col_expr(
+            request::Column::PendingInputJson,
+            Expr::value(None::<String>),
+        )
+        .col_expr(request::Column::UpdatedAtMs, Expr::value(now_ms))
+}
+
+/// The submitting connection is a delivery hint only. The host must still
+/// authenticate it against the owner before sending any turn frames.
+pub async fn reply_for_input(
+    db: &impl ConnectionTrait,
+    actor: &str,
+    conversation: &str,
+    revision: u64,
+) -> Result<Option<(String, String)>, AgentStoreError> {
+    use request::Column;
+    let row = request::Entity::find()
+        .select_only()
+        .columns([Column::RequestId, Column::ReplyConnectionId])
+        .filter(Column::ActorId.eq(actor))
+        .filter(Column::ConversationId.eq(conversation))
+        .filter(Column::InputRevision.eq(signed(revision)?))
+        .filter(Column::State.eq(ACTIVATED))
+        .filter(Column::PendingInputJson.is_null())
+        .filter(Column::ReplyConnectionId.is_not_null())
+        .into_tuple::<(String, String)>()
+        .one(db)
+        .await?;
+    Ok(row)
+}
+
+fn fail_payload(
+    update: sea_orm::UpdateMany<request::Entity>,
+    now_ms: i64,
+    reason: MainRequestFailure,
+) -> sea_orm::UpdateMany<request::Entity> {
+    clear_payload(update, now_ms)
+        .col_expr(request::Column::State, Expr::value(FAILED))
+        .col_expr(request::Column::Failure, Expr::value(failure_code(reason)))
+        .col_expr(request::Column::RetryAtMs, Expr::value(None::<i64>))
+        .col_expr(
+            request::Column::ActivationRetryAtMs,
+            Expr::value(None::<i64>),
+        )
+}

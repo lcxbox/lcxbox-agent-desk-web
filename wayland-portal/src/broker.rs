@@ -667,10 +667,10 @@ mod tests {
             .unwrap();
         wait_for_phase(&broker, PortalPhase::Ready).await;
         let (session, human) = broker.try_borrow_input().unwrap();
-        let (same_session, assistant) = broker.try_borrow_input().unwrap();
+        let (same_session, agent) = broker.try_borrow_input().unwrap();
         assert!(Arc::ptr_eq(&session, &same_session));
         human.notify_pointer_button(0x110, 1).unwrap();
-        let denied = assistant
+        let denied = agent
             .submit_guarded(
                 PortalInputEvent::PointerMotionAbsolute { x: 1.0, y: 1.0 },
                 std::time::Duration::from_secs(1),
@@ -681,7 +681,7 @@ mod tests {
             .unwrap_err();
         assert!(!denied.possibly_started);
         human.notify_pointer_button(0x110, 0).unwrap();
-        assistant
+        agent
             .submit_guarded(
                 PortalInputEvent::PointerMotionAbsolute { x: 1.0, y: 1.0 },
                 std::time::Duration::from_secs(1),

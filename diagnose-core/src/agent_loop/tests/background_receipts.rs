@@ -4,7 +4,7 @@ fn original_task_session() -> MemSession {
     let sess = seeded_executing();
     let mut inner = sess.inner.borrow_mut();
     let session = inner.as_mut().unwrap();
-    session.conversation.push(ChatMessage::assistant_tool_calls(
+    session.conversation.push(ChatMessage::agent_tool_calls(
         "original-proposal",
         "",
         vec![ToolCallRef {
@@ -618,7 +618,7 @@ fn background_status_inherits_proposal_boundary_without_requesting_a_native_rece
         arguments_json: "{}".into(),
     };
     let mut session = PersistedAgentSession::new("conv", "actor", "device", 1, exec_scope(), "t");
-    let mut proposal = ChatMessage::assistant_tool_calls(
+    let mut proposal = ChatMessage::agent_tool_calls(
         "proposal",
         "",
         vec![ToolCallRef {

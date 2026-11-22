@@ -42,7 +42,7 @@ pub(crate) fn is_built_in_tool(name: &str) -> bool {
 fn tools() -> &'static BTreeMap<String, ToolSpec> {
     static TOOLS: OnceLock<BTreeMap<String, ToolSpec>> = OnceLock::new();
     TOOLS.get_or_init(|| {
-        crate::ai_assistant::ai_assistant_provider_registry()
+        crate::ai_agent::ai_agent_provider_registry()
             .registered_tools()
             .into_iter()
             .map(|tool| tool.spec)
@@ -1085,7 +1085,7 @@ mod tests {
 
     #[test]
     fn launch_feedback_points_to_the_listed_target_instead_of_a_fixed_kind() {
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         let schema = registry
             .capability_for_tool("launch_application")
             .unwrap()
@@ -1104,7 +1104,7 @@ mod tests {
 
     #[test]
     fn every_malformed_permission_item_is_reported_together() {
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         let schema_for = |name: &str| {
             registry.capability_for_tool(name).map(|capability| {
                 let mut target = capability.tool_spec.clone();

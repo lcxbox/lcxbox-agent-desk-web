@@ -1,6 +1,6 @@
 use super::super::*;
 use crate::entity::agent_schedule_run as run;
-use desk_assistant_data_store::schedule::*;
+use desk_agent_data_store::schedule::*;
 use sea_orm::{ActiveModelTrait, NotSet, Set};
 
 #[tokio::test]

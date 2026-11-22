@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::config::connection::DatabaseConnection;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 
 use actix_web::{HttpResponse, delete, get, post, put, web};
 use desk_utils::{error::DeskErrorCode, rest::RestResponse};
@@ -581,7 +581,7 @@ mod tests {
                     display_name: None,
                 },
                 exec_capabilities: HostExecCapabilities::default(),
-                ai_assistant_settings: None,
+                ai_agent_settings: None,
                 device_id: Some("client".into()),
                 owner_node_id: None,
             }),

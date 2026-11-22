@@ -37,7 +37,7 @@ def main():
     if not libraries:
         raise RuntimeError('no dynamic runtime dependencies found')
     name = 'lcxbox-file-enospc-' + uuid.uuid4().hex[:12]
-    fixtures = Path(__file__).resolve().parents[2] / 'target/assistant-validation-tmp'
+    fixtures = Path(__file__).resolve().parents[2] / 'target/agent-validation-tmp'
     fixtures.mkdir(parents=True, exist_ok=True)
     fixture = Path(tempfile.mkdtemp(prefix='linux-enospc-', dir=fixtures))
     command = ['docker', 'run', '--rm', '--pull=never', '--name', name,

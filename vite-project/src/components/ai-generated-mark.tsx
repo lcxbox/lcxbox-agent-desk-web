@@ -1,4 +1,4 @@
-import { AiAssistantIcon } from '@/components/ai-assistant-icon'
+import { AiAgentIcon } from '@/components/ai-agent-icon'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
@@ -19,7 +19,7 @@ export type AiProvenance = {
  * enriches the tooltip with the model that produced the content.
  *
  * `className` overrides the default themed styling for contexts that need it
- * (e.g. a fixed dark assistant overlay).
+ * (e.g. a fixed dark agent overlay).
  */
 export function AiGeneratedMark({
     provenance,
@@ -43,7 +43,7 @@ export function AiGeneratedMark({
                 className,
             )}
         >
-            <AiAssistantIcon className="h-3 w-3" />
+            <AiAgentIcon className="h-3 w-3" />
             {t('component.aiGenerated.label')}
         </span>
     )

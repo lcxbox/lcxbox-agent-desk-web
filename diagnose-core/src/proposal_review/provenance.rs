@@ -4,7 +4,7 @@
 //! proposal, which derives from the proposing model output, and the evidence
 //! messages. When all of that is conversation content still labelled in the
 //! session, the receipt may carry the reason under every one of those labels.
-//! Otherwise the reason is unverifiable and the assistant never sees it.
+//! Otherwise the reason is unverifiable and the agent never sees it.
 
 use crate::{
     approval_review::{ApprovalEvidence, ApprovalReviewCandidate, ApprovalSource},
@@ -220,7 +220,7 @@ pub fn proposing_output(session: &PersistedAgentSession) -> Option<&DataEnvelope
 
 /// The label of the model output that made item `item_id` of permission
 /// request `request_id`. A held tool call's item is that call, made by the
-/// assistant message that carries it; any other item is located through the
+/// agent message that carries it; any other item is located through the
 /// proof recorded with the request's input. `None` when neither is still in
 /// the session.
 pub fn requesting_output<'a>(
@@ -264,7 +264,7 @@ pub(crate) fn collapse_status_label(
 ) -> Option<DataEnvelope> {
     let mut current = label.clone();
     for _ in 0..=session.conversation.len() {
-        if !crate::ai_assistant::source_registry::is_registered_status_control(&current) {
+        if !crate::ai_agent::source_registry::is_registered_status_control(&current) {
             return Some(current);
         }
         let parent = current.provenance.source_envelope_ids.first()?;
@@ -547,7 +547,7 @@ pub(crate) mod tests {
         );
         let mut owner = ChatMessage::text("owner", ChatRole::User, "owner");
         owner.data_envelope = Some(label("owner", "m"));
-        let mut call = ChatMessage::assistant_tool_calls(
+        let mut call = ChatMessage::agent_tool_calls(
             "assistant",
             "",
             vec![crate::chat::ToolCallRef {
@@ -930,7 +930,7 @@ pub(crate) mod tests {
         // result, which binds no destination at rest.
         let with_screen = |reader_model: Option<&str>| {
             let mut session = paused_session();
-            let mut reader = ChatMessage::assistant_tool_calls(
+            let mut reader = ChatMessage::agent_tool_calls(
                 "reader",
                 "",
                 vec![crate::chat::ToolCallRef {

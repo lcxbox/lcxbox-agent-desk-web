@@ -79,8 +79,8 @@ async fn original_stop_socket_retries_only_stop_after_ack_loss_and_rejects_recon
                                             exec_pty_elevation: false,
                                             max_ai_command_runtime_ms: None,
                                         },
-                                        ai_assistant_settings:
-                                            desk_agent_protocol::ai_assistant::AiAssistantSettings {
+                                        ai_agent_settings:
+                                            desk_agent_protocol::ai_agent::AiAgentSettings {
                                                 revision: 0,
                                                 enabled: false,
                                             },

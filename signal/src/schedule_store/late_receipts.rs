@@ -24,7 +24,7 @@ impl ScheduleStore {
             return self.reconcile_fresh_children_receipts(run_id).await;
         }
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
-        let decision = desk_assistant_data_store::schedule::reconcile_late_task_receipts_on(
+        let decision = desk_agent_data_store::schedule::reconcile_late_task_receipts_on(
             &super::SignalScheduleHost,
             &txn,
             run_id,

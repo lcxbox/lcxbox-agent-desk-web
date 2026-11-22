@@ -22,7 +22,7 @@ pub fn ui_action_from_call(call: &ToolCall) -> Result<(ObjectRef, UiSemanticActi
         #[serde(default, rename = "remaining_steps")]
         _remaining_steps: Option<Vec<serde_json::Value>>,
     }
-    if call.name != crate::ai_assistant::EXECUTE_CONFIRMED_UI_ACTION_TOOL
+    if call.name != crate::ai_agent::EXECUTE_CONFIRMED_UI_ACTION_TOOL
         || call.arguments_json.len() > 64 * 1024
     {
         return Err(unavailable());
@@ -184,7 +184,7 @@ impl UiCallPreflight {
         &'a self,
         subject: &'a ProviderCallSubject<'_>,
     ) -> Result<CapabilityGrantCall<'a>, AgentError> {
-        crate::assistant_policy::require_current_policy(subject.policy_revision)?;
+        crate::agent_policy::require_current_policy(subject.policy_revision)?;
         if subject.readiness_revision == 0
             || subject.now_unix_ms == 0
             || subject.now_unix_ms >= self.valid_until_unix_ms

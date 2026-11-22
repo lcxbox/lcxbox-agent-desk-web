@@ -178,7 +178,7 @@ impl CorrectionFact {
 }
 
 /// Select metadata only from the actual outgoing projection. A later owner
-/// input, assistant response or summary prevents reuse of an earlier feedback.
+/// input, agent response or summary prevents reuse of an earlier feedback.
 pub fn projected_feedback(messages: &[ChatMessage]) -> Option<ObservationAlias> {
     if messages.len() > 4_096 {
         return None;
@@ -342,7 +342,7 @@ mod tests {
                 model_name: "Model".into(),
                 configuration_revision: "1".into(),
                 contract_revision: "1".into(),
-                surface: Surface::Assistant,
+                surface: Surface::Agent,
                 purpose: Purpose::Agent,
                 origin: Origin::User,
                 configuration_scope: ConfigurationScope::Local,
@@ -371,9 +371,9 @@ mod tests {
     fn messages() -> Vec<ChatMessage> {
         vec![
             ChatMessage::text("owner-input", ChatRole::User, "private owner requirement"),
-            ChatMessage::assistant_tool_calls(
+            ChatMessage::agent_tool_calls(
                 "server-message",
-                "private assistant text",
+                "private agent text",
                 vec![ToolCallRef {
                     id: "private-provider-call".into(),
                     name: "server_tool".into(),
@@ -527,7 +527,7 @@ mod tests {
         for private in [
             "private-provider-call",
             "private owner requirement",
-            "private assistant text",
+            "private agent text",
             "private rejected input details",
             "value",
         ] {

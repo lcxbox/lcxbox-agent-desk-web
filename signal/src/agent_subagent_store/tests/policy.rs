@@ -1,6 +1,6 @@
 use super::*;
-use desk_agent_protocol::ai_assistant::{
-    subagent::{AiAssistantStopControl, SubAgentStopChoice},
+use desk_agent_protocol::ai_agent::{
+    subagent::{AiAgentStopControl, SubAgentStopChoice},
     subagent_policy::{SubAgentLimits, UpdateSubAgentPolicy},
 };
 use desk_diagnose_core::chat::{ToolCall, ToolCallRef};
@@ -29,7 +29,7 @@ async fn parent_with_calls(
     let caller = parent
         .conversation
         .iter_mut()
-        .find(|message| message.message_id == "assistant-calls")
+        .find(|message| message.message_id == "agent-calls")
         .unwrap();
     for index in 4..=count {
         let call = ToolCall {
@@ -165,7 +165,7 @@ async fn raised_limits_allow_more_tasks_and_lowering_preserves_replay_projection
             "root",
             "1",
             "1",
-            &AiAssistantStopControl {
+            &AiAgentStopControl {
                 client_request_id: "stop-over-lowered-limit".into(),
                 expected_input_revision: parent.input_revision,
                 expected_control_revision: parent.control_revision,
@@ -210,12 +210,12 @@ async fn terminal_tasks_release_slots_without_a_cumulative_limit() {
         apply_task_control_on(
             &txn,
             &parent_row,
-            &desk_agent_protocol::ai_assistant::subagent::AiAssistantSubAgentControl {
+            &desk_agent_protocol::ai_agent::subagent::AiAgentSubAgentControl {
                 client_request_id: format!("cancel-releases-slot-{index}"),
                 task_id: task.task_id,
                 expected_input_revision: 1,
                 expected_control_revision: 1,
-                action: desk_agent_protocol::ai_assistant::subagent::SubAgentControlAction::Cancel,
+                action: desk_agent_protocol::ai_agent::subagent::SubAgentControlAction::Cancel,
             },
             chrono::Utc::now().timestamp_millis(),
         )

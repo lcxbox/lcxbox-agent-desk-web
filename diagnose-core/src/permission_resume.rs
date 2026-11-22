@@ -43,7 +43,7 @@ pub fn is_resume_control_message(message: &ChatMessage) -> bool {
 fn is_resume_message(message: &ChatMessage, source_tool: &str) -> bool {
     message.role == ChatRole::User
         && message.data_envelope.as_ref().is_some_and(|envelope| {
-            envelope.provenance.source_provider_id == "assistant-runtime-control"
+            envelope.provenance.source_provider_id == "agent-runtime-control"
                 && envelope.provenance.source_tool_name == source_tool
                 && envelope.provenance.source_object_id.as_deref()
                     == Some(message.message_id.as_str())
@@ -134,7 +134,7 @@ fn model_bound_resume_message(
             media_type: "text/plain;charset=utf-8".into(),
         },
         provenance: DataProvenance {
-            source_provider_id: "assistant-runtime-control".into(),
+            source_provider_id: "agent-runtime-control".into(),
             source_tool_name: source_tool.into(),
             source_object_id: Some(message_id.clone()),
             source_envelope_ids: Vec::new(),
@@ -246,7 +246,7 @@ fn authorized_child_resume_message(
         source_tool,
         &authorized.input_envelopes,
     )?;
-    envelope.provenance.source_provider_id = "assistant-runtime-control".into();
+    envelope.provenance.source_provider_id = "agent-runtime-control".into();
     envelope.provenance.source_tool_name = source_tool.into();
     envelope.provenance.source_object_id = Some(bridge.message_id.clone());
     envelope

@@ -12,7 +12,7 @@
 
 use crate::config::connection::DatabaseConnection;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -179,14 +179,14 @@ pub(crate) async fn cleanup_agent_sessions(
     now: DateTimeUtc,
 ) -> Result<(u64, u64), DbErr> {
     let txn = crate::db::begin_write(db, crate::entity::agent_issue_reply::Entity).await?;
-    desk_assistant_data_store::issue_reply::lifecycle::expire_on(
+    desk_agent_data_store::issue_reply::lifecycle::expire_on(
         &txn,
         now.timestamp_millis(),
         AGENT_SESSION_BATCH_ROWS,
     )
     .await
     .map_err(|error| match error {
-        desk_assistant_data_store::AssistantStoreError::Backend(error) => error,
+        desk_agent_data_store::AgentStoreError::Backend(error) => error,
         _ => DbErr::Custom("Issue reply expiry failed".into()),
     })?;
     txn.commit().await?;
@@ -248,11 +248,13 @@ pub(crate) async fn cleanup_agent_sessions(
                 cutoff.timestamp_millis(),
             ))
             .filter(agent_session::Column::ConversationId.not_in_subquery(
-                desk_assistant_data_store::device_roster::configured_conversation_ids(),
+                desk_agent_data_store::device_roster::configured_conversation_ids(),
             ))
-            .filter(agent_session::Column::ConversationId.not_in_subquery(
-                desk_assistant_data_store::main_request::pending_conversation_ids(),
-            ))
+            .filter(
+                agent_session::Column::ConversationId.not_in_subquery(
+                    desk_agent_data_store::main_request::pending_conversation_ids(),
+                ),
+            )
             .filter(agent_session::Column::UpdatedAt.lt(cutoff))
             .filter(agent_session::Column::Id.gt(delete_after))
             .filter(
@@ -333,8 +335,7 @@ fn reclaimable_snapshot(row: &agent_session::Model) -> bool {
         desk_diagnose_core::session::management::SessionManagementMetadata::decode(&row.state_json)
             .is_ok_and(|metadata| {
                 metadata.matches_subject(&row.conversation_id, &row.actor_id, &row.device_id)
-                    && metadata.surface
-                        == desk_diagnose_core::session::AgentSessionSurface::AiAssistant
+                    && metadata.surface == desk_diagnose_core::session::AgentSessionSurface::AiAgent
             })
     }
 }
@@ -423,20 +424,21 @@ async fn delete_expired_session_candidates(
     let txn = crate::db::begin_write(db, crate::entity::agent_session::Entity).await?;
     let mut permission_ends = Vec::new();
     let result = async {
-        let rows = agent_session::Entity::find()
-            .filter(agent_session::Column::Id.is_in(ids.iter().copied()))
-            .filter(agent_session::Column::ConversationId.not_in_subquery(
-                desk_assistant_data_store::device_roster::configured_conversation_ids(),
-            ))
-            .filter(agent_session::Column::ConversationId.not_in_subquery(
-                desk_assistant_data_store::main_request::pending_conversation_ids(),
-            ))
-            .filter(crate::agent_subagent_store::reclaim_condition(
-                cutoff.timestamp_millis(),
-            ))
-            .filter(agent_session::Column::UpdatedAt.lt(cutoff))
-            .all(&txn)
-            .await?;
+        let rows =
+            agent_session::Entity::find()
+                .filter(agent_session::Column::Id.is_in(ids.iter().copied()))
+                .filter(agent_session::Column::ConversationId.not_in_subquery(
+                    desk_agent_data_store::device_roster::configured_conversation_ids(),
+                ))
+                .filter(agent_session::Column::ConversationId.not_in_subquery(
+                    desk_agent_data_store::main_request::pending_conversation_ids(),
+                ))
+                .filter(crate::agent_subagent_store::reclaim_condition(
+                    cutoff.timestamp_millis(),
+                ))
+                .filter(agent_session::Column::UpdatedAt.lt(cutoff))
+                .all(&txn)
+                .await?;
         let rows: Vec<_> = rows
             .into_iter()
             .filter(reclaimable_snapshot)
@@ -580,14 +582,14 @@ async fn delete_expired_session_candidates(
         let mut history = Vec::new();
         for row in &rows {
             if row.device_id.is_empty() {
-                desk_assistant_data_store::device_roster::delete(
+                desk_agent_data_store::device_roster::delete(
                     &txn,
                     &row.actor_id,
                     &row.conversation_id,
                 )
                 .await?;
             }
-            if let Some(scope) = crate::assistant_data_store::native_scope_on(
+            if let Some(scope) = crate::agent_data_store::native_scope_on(
                 &txn,
                 &row.actor_id,
                 &row.device_id,
@@ -674,7 +676,7 @@ async fn delete_expired_session_candidates(
             .exec(&txn)
             .await?;
         desk_diagnose_core::future::boxed(|| {
-            crate::assistant_data_store::ReclaimObservation::capture_many_on(&history, &txn)
+            crate::agent_data_store::ReclaimObservation::capture_many_on(&history, &txn)
         })
         .await?;
         Ok(deleted.rows_affected)
@@ -724,7 +726,7 @@ pub async fn cleanup_once(
 /// Run the retention cleanup forever on a fixed interval. Spawned once after the
 /// signal DB is initialized (Default / Signaling / ServiceDaemon modes).
 pub async fn run_retention_cleanup_loop(db: DatabaseConnection) {
-    let mut cadence = desk_assistant_data_store::output_gc::CleanupCadence::new(CLEANUP_INTERVAL);
+    let mut cadence = desk_agent_data_store::output_gc::CleanupCadence::new(CLEANUP_INTERVAL);
     loop {
         if cadence.take_retention(std::time::Instant::now()) {
             match cleanup_once(&db, Utc::now()).await {
@@ -738,29 +740,29 @@ pub async fn run_retention_cleanup_loop(db: DatabaseConnection) {
                 Err(e) => log::warn!("Signal usage retention cleanup failed: {e}"),
             }
         }
-        match crate::assistant_data_store::run_output_gc_once(&db).await {
+        match crate::agent_data_store::run_output_gc_once(&db).await {
             Ok(outcome) => {
                 if outcome.removed > 0 {
                     log::info!(
-                        "Assistant provenance cleanup deleted {} output proof(s), releasing {} metadata bytes",
+                        "Agent provenance cleanup deleted {} output proof(s), releasing {} metadata bytes",
                         outcome.removed,
                         outcome.refunded_metadata_bytes
                     );
                 }
                 if outcome.failed_actors > 0 || outcome.invalid > 0 {
                     log::warn!(
-                        "Assistant provenance cleanup deferred {} account(s) and retained {} invalid proof(s)",
+                        "Agent provenance cleanup deferred {} account(s) and retained {} invalid proof(s)",
                         outcome.failed_actors,
                         outcome.invalid
                     );
                 }
             }
-            Err(_) => log::warn!(
-                "Assistant provenance cleanup could not finish; the durable scan will retry"
-            ),
+            Err(_) => {
+                log::warn!("Agent provenance cleanup could not finish; the durable scan will retry")
+            }
         }
         let gc_interval = Duration::from_millis(
-            crate::assistant_data_config::policy(&db)
+            crate::agent_data_config::policy(&db)
                 .await
                 .limits
                 .processing
@@ -951,10 +953,10 @@ mod tests {
             updated_at.to_rfc3339(),
         );
         if matches!(conversation_id, "timer-source" | "timer-running") {
-            session.surface = desk_diagnose_core::session::AgentSessionSurface::AiAssistant;
+            session.surface = desk_diagnose_core::session::AgentSessionSurface::AiAgent;
             session.input_revision = 1;
             session.begin_focus_epoch(1, Vec::new()).unwrap();
-            session.bind_assistant_input_targets(&[]).unwrap();
+            session.bind_agent_input_targets(&[]).unwrap();
         }
         if active {
             session
@@ -1040,7 +1042,7 @@ mod tests {
         seed_session(&db, "old-settled", days_ago(40), false, None).await;
         seed_session(&db, "coordinator", days_ago(40), false, None).await;
         seed_session(&db, "old-with-queue", days_ago(40), false, None).await;
-        desk_assistant_data_store::device_roster::replace(&db, "1", "coordinator", 0, vec![])
+        desk_agent_data_store::device_roster::replace(&db, "1", "coordinator", 0, vec![])
             .await
             .unwrap();
         for (conversation, state) in [("old-with-queue", "queued"), ("old-settled", "cancelled")] {
@@ -1116,7 +1118,7 @@ mod tests {
             format!("goal-{conversation_id}"),
             conversation_id.into(),
             "1".into(),
-            desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("device-1".into()),
+            desk_diagnose_core::dynamic_run::AgentInputTarget::fixed("device-1".into()),
             "device-1".into(),
             "Finish the report".into(),
             "message-1".into(),
@@ -1385,10 +1387,10 @@ mod tests {
             .unwrap()
             .unwrap();
         let mut value: serde_json::Value = serde_json::from_str(&row.state_json).unwrap();
-        value["surface"] = serde_json::json!("ai_assistant");
+        value["surface"] = serde_json::json!("ai_agent");
         value["conversation_schema_version"] =
             serde_json::json!(desk_diagnose_core::session::CONVERSATION_SCHEMA_VERSION - 1);
-        value["assistant_data"] = serde_json::json!({"model_history_exclusions": []});
+        value["agent_data"] = serde_json::json!({"model_history_exclusions": []});
         agent_session::Entity::update_many()
             .col_expr(
                 agent_session::Column::ConversationSchemaVersion,

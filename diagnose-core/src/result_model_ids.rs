@@ -23,7 +23,7 @@ pub struct ResultLocator {
 }
 
 pub fn locators(history: &[ChatMessage]) -> Vec<ResultLocator> {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     history
         .iter()
         .filter_map(|message| {
@@ -131,7 +131,7 @@ fn handoff(value: &Value) -> Option<CommunicationDraftHandoff> {
 }
 
 pub(crate) fn verified_results(history: &[ChatMessage], now: u64) -> Vec<(ToolCallRef, Value)> {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     history
         .iter()
         .filter(|message| matches!(message.role, ChatRole::Tool | ChatRole::UntrustedOutput))

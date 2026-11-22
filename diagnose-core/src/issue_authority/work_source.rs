@@ -51,7 +51,7 @@ impl IssueWorkSource {
             || !valid_id(&self.reference.tool_ref)
             || !native_ids::is(Kind::IssueSubscription, &self.subscription_id)
             || !native_ids::is(Kind::IssueWork, &self.work_id)
-            || !native_ids::is(Kind::AssistantMainRequest, &self.request_id)
+            || !native_ids::is(Kind::AgentMainRequest, &self.request_id)
             || !valid_id(&self.workbench_id)
         {
             return Err("invalid subscribed work source");
@@ -184,7 +184,7 @@ mod tests {
                 issue_number: 4,
             },
         };
-        let request_id = native_ids::stable(Kind::AssistantMainRequest, &"issue-request");
+        let request_id = native_ids::stable(Kind::AgentMainRequest, &"issue-request");
         IssueAdmission {
             authorization_id: IssueAdmission::id(&subscription, "comment-90"),
             subscription,
@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn subscribed_worker_can_resume_exact_owner_approval_on_its_selected_device() {
         use crate::{
-            assistant_policy::{permits_permission_request, validate_permission_resume_claim},
+            agent_policy::{permits_permission_request, validate_permission_resume_claim},
             chat::ToolCall,
             dynamic_run::*,
             permission_tools::{REQUEST_CAPABILITY_GRANTS_TOOL_NAME, build_permission_request},
@@ -302,7 +302,7 @@ mod tests {
         const NOW: &str = "2026-11-05T00:00:00Z";
         let admitted = admitted();
         let source = IssueWorkSource::from_admission(&admitted).unwrap();
-        let target = AssistantInputTarget {
+        let target = AgentInputTarget {
             reference: "mac".into(),
             device_id: "selected-mac".into(),
             member_generation: Some(1),
@@ -337,8 +337,8 @@ mod tests {
         command_policy.target_device_id = target.device_id.clone();
         command_policy.directory_grants =
             crate::file_scope::TrustedDirectoryGrants::from_session(&child, &target.device_id, 1);
-        let registry = crate::ai_assistant::ai_assistant_provider_registry()
-            .with_command_policy(command_policy);
+        let registry =
+            crate::ai_agent::ai_agent_provider_registry().with_command_policy(command_policy);
         let call = ToolCall {
             id: "request-command".into(),
             name: REQUEST_CAPABILITY_GRANTS_TOOL_NAME.into(),
@@ -370,7 +370,7 @@ mod tests {
         .unwrap();
         parent.bind_issue_work_source(&admitted).unwrap();
         parent.input_revision = 1;
-        parent.bind_assistant_input_targets(&[target]).unwrap();
+        parent.bind_agent_input_targets(&[target]).unwrap();
         assert!(!permits_permission_request(&parent, &request));
 
         request.state = PermissionRequestState::Approved;
@@ -423,16 +423,16 @@ mod tests {
             profile_revision: 1,
         };
         let purpose = source.purpose_message(&destination).unwrap();
-        let policy = crate::ai_assistant::source_registry::registered_leaf(
+        let policy = crate::ai_agent::source_registry::registered_leaf(
             purpose.data_envelope.as_ref().unwrap(),
             1,
-            crate::ai_assistant::source_registry::SOURCE_CONTRACT_REVISION,
+            crate::ai_agent::source_registry::SOURCE_CONTRACT_REVISION,
         )
         .unwrap()
         .unwrap();
         assert_eq!(
             policy.contract,
-            crate::ai_assistant::source_registry::RegisteredSourceContract::PublicSystem
+            crate::ai_agent::source_registry::RegisteredSourceContract::PublicSystem
         );
         assert!(!policy.policy.independent_fact_allowed);
         let mut parent = PersistedAgentSession::new_workbench_coordinator(
@@ -447,7 +447,7 @@ mod tests {
         parent.bind_issue_work_source(&admitted).unwrap();
         parent.input_revision = 1;
         parent.latest_input_seq = 1;
-        parent.bind_assistant_input_targets(&[]).unwrap();
+        parent.bind_agent_input_targets(&[]).unwrap();
         let selection = crate::input_read_context::ReadContextSelection {
             external_issues: vec![admitted.issue.clone()],
             external_issue_sources: vec![source.reference.clone()],
@@ -488,10 +488,8 @@ mod tests {
             .clear();
         assert!(changed.validate().is_err());
         changed = creation;
-        changed.main_request_id = Some(native_ids::stable(
-            Kind::AssistantMainRequest,
-            &"other-request",
-        ));
+        changed.main_request_id =
+            Some(native_ids::stable(Kind::AgentMainRequest, &"other-request"));
         assert!(changed.validate().is_err());
     }
 
@@ -513,7 +511,7 @@ mod tests {
         changed.subscription.work_kind = IssueWorkKind::Analysis;
         assert!(parent.bind_issue_work_source(&changed).is_err());
         assert_eq!(parent, before);
-        let other = native_ids::stable(Kind::AssistantMainRequest, &"other-request");
+        let other = native_ids::stable(Kind::AgentMainRequest, &"other-request");
         let mut different = PersistedAgentSession::new_workbench_coordinator(
             "owner",
             "root",

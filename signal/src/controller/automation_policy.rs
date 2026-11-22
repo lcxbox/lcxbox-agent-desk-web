@@ -1,12 +1,10 @@
-//! Mounted under the same administrator scope as the other assistant policies.
+//! Mounted under the same administrator scope as the other agent policies.
 use crate::{
     automation_policy::{self, WriteError},
     error::DeskSignalError,
 };
 use actix_web::{HttpResponse, get, put, web};
-use desk_agent_protocol::ai_assistant::automation_policy::{
-    AutomationPolicy, UpdateAutomationPolicy,
-};
+use desk_agent_protocol::ai_agent::automation_policy::{AutomationPolicy, UpdateAutomationPolicy};
 use desk_utils::{error::DeskErrorCode, rest::RestResponse};
 
 fn db() -> Result<&'static crate::config::connection::DatabaseConnection, DeskSignalError> {

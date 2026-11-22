@@ -1,6 +1,6 @@
 //! Production controller replay with isolated storage and synthetic connection identity.
 use super::*;
-use crate::controller::ai_assistant_session::{PermissionDecisionBody, decide_permission_on};
+use crate::controller::ai_agent_session::{PermissionDecisionBody, decide_permission_on};
 use desk_signal_facade::model::peer::{
     HostExecCapabilities, PeerInfo, ServerRegistration, SignalingPeer,
 };
@@ -57,7 +57,7 @@ async fn controller_replays_before_readiness_and_rejects_changed_target_without_
                     exec_pty_elevation: false,
                     max_ai_command_runtime_ms: None,
                 },
-                ai_assistant_settings: desk_agent_protocol::ai_assistant::AiAssistantSettings {
+                ai_agent_settings: desk_agent_protocol::ai_agent::AiAgentSettings {
                     revision: 0,
                     enabled: false,
                 },

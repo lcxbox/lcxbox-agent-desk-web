@@ -33,11 +33,11 @@ it('reports a proposal as pending only while the owner must decide it', async ()
     const { rerender } = render(<ScheduleProposalCards {...base} tools={[tool]} onPendingCountChange={changed} />);
     await screen.findByTestId('review');
     expect(changed).toHaveBeenLastCalledWith(0);
-    expect(document.querySelector('[data-assistant-pending]')).toBeNull();
+    expect(document.querySelector('[data-agent-pending]')).toBeNull();
     rerender(<ScheduleProposalCards {...base} tools={[tool]} awaitingOwnerId={id} onPendingCountChange={changed} />);
     await waitFor(() => expect(changed).toHaveBeenLastCalledWith(1));
-    expect(document.querySelectorAll('[data-assistant-pending]')).toHaveLength(1);
-    expect(document.getElementById(`assistant-schedule-proposal-${id}`)).toHaveAttribute('data-assistant-pending');
+    expect(document.querySelectorAll('[data-agent-pending]')).toHaveLength(1);
+    expect(document.getElementById(`agent-schedule-proposal-${id}`)).toHaveAttribute('data-agent-pending');
 });
 
 it('stops counting the awaited proposal once it is decided', async () => {

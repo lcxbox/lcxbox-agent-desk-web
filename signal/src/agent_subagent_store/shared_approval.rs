@@ -33,7 +33,7 @@ pub(crate) async fn shared_approval_current_on<
     let parent =
         PersistedAgentSession::decode_boxed_json(&parent.state_json).map_err(|_| invalid())?;
     if !parent.agent_role.is_main()
-        || parent.surface != AgentSessionSurface::AiAssistant
+        || parent.surface != AgentSessionSurface::AiAgent
         || parent.conversation_id != binding.root_conversation_id
         || parent.actor_id != session.actor_id
         || parent.device_id != session.device_id

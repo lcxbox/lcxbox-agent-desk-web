@@ -1,4 +1,4 @@
-//! Neutral streaming event contract for AI Assistant agent turns.
+//! Neutral streaming event contract for AI Agent agent turns.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -60,10 +60,10 @@ pub enum AgentEventKind {
     Answer,
 }
 
-/// One streamed frame of a AI Assistant turn (server → control end).
+/// One streamed frame of a AI Agent turn (server → control end).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema)]
 pub struct AgentEvent {
-    /// Correlates back to the originating AI Assistant request.
+    /// Correlates back to the originating AI Agent request.
     pub request_id: String,
     /// Monotonic per-stream sequence number.
     pub seq: u32,
@@ -71,7 +71,7 @@ pub struct AgentEvent {
     /// `kind = Status`: the lifecycle phase name.
     #[serde(default)]
     pub status: Option<String>,
-    /// Stable id of the durable receipt for a queued assistant input.
+    /// Stable id of the durable receipt for a queued agent input.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_request_id: Option<String>,
     /// Conversation that owns the queued receipt, including before its first turn.

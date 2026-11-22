@@ -39,16 +39,16 @@ pub const fn stream_retraction_reason_for(
     }
 }
 
-/// Fixed assistant history placeholder. It records only the policy outcome and
+/// Fixed agent history placeholder. It records only the policy outcome and
 /// never contains rejected model text, categories, rationale, or provider data.
 pub const fn refusal_placeholder_for(decision: ContentSafetyDecision) -> Option<&'static str> {
     match decision {
         ContentSafetyDecision::Allow => None,
         ContentSafetyDecision::Block => {
-            Some("The assistant declined this turn under the content safety policy.")
+            Some("The agent declined this turn under the content safety policy.")
         }
         ContentSafetyDecision::SafeRedirect => {
-            Some("The assistant declined this turn and provided a safety-oriented redirect.")
+            Some("The agent declined this turn and provided a safety-oriented redirect.")
         }
     }
 }

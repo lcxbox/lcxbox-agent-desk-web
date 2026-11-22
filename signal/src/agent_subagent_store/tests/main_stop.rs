@@ -1,12 +1,12 @@
 use super::*;
-use desk_agent_protocol::ai_assistant::subagent::{AiAssistantStopControl, SubAgentStopChoice};
+use desk_agent_protocol::ai_agent::subagent::{AiAgentStopControl, SubAgentStopChoice};
 use desk_diagnose_core::session::TurnState;
 
 fn request(
     parent: &PersistedAgentSession,
     choice: Option<SubAgentStopChoice>,
-) -> AiAssistantStopControl {
-    AiAssistantStopControl {
+) -> AiAgentStopControl {
+    AiAgentStopControl {
         client_request_id: "root-stop-1".into(),
         expected_input_revision: parent.input_revision,
         expected_control_revision: parent.control_revision,
@@ -274,7 +274,7 @@ async fn retained_children_do_not_fill_the_main_conversation_history_page() {
             .unwrap();
     }
     let history = crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
-        .list_ai_assistant_sessions("1", "1", 1)
+        .list_ai_agent_sessions("1", "1", 1)
         .await
         .unwrap();
     assert_eq!(history.len(), 1);

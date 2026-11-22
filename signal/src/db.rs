@@ -296,20 +296,15 @@ async fn create_latest_schema<C: ConnectionTrait + crate::config::ConfigConnecti
     create_latest_approval_model_probe_observation(db).await?;
     create_entity(db, &schema, host_remote_access_state::Entity).await?;
     create_entity(db, &schema, agent_session::Entity).await?;
-    create_entity(db, &schema, crate::entity::agent_assistant_origin::Entity).await?;
-    create_entity(db, &schema, crate::entity::agent_assistant_history::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_origin::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_history::Entity).await?;
     create_entity(
         db,
         &schema,
-        crate::entity::agent_assistant_history_conversation::Entity,
+        crate::entity::agent_history_conversation::Entity,
     )
     .await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_history_coverage::Entity,
-    )
-    .await?;
+    create_entity(db, &schema, crate::entity::agent_history_coverage::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_memory::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_memory_source::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_memory_revision::Entity).await?;
@@ -318,33 +313,13 @@ async fn create_latest_schema<C: ConnectionTrait + crate::config::ConfigConnecti
     create_entity(db, &schema, crate::entity::agent_memory_commit::Entity).await?;
 
     create_entity(db, &schema, crate::entity::agent_memory_tombstone::Entity).await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_search_document::Entity,
-    )
-    .await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_search_term::Entity,
-    )
-    .await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_source_use::Entity,
-    )
-    .await?;
-    create_entity(db, &schema, crate::entity::agent_assistant_citation::Entity).await?;
-    create_entity(db, &schema, crate::entity::agent_assistant_quota::Entity).await?;
-    create_entity(db, &schema, crate::entity::agent_assistant_runtime::Entity).await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_device_roster::Entity,
-    )
-    .await?;
+    create_entity(db, &schema, crate::entity::agent_search_document::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_search_term::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_source_use::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_citation::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_quota::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_runtime::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_device_roster::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_main_request::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_issue_reply::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_issue_subscription::Entity).await?;
@@ -357,54 +332,14 @@ async fn create_latest_schema<C: ConnectionTrait + crate::config::ConfigConnecti
     create_entity(db, &schema, crate::entity::agent_skill_proposal::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_skill_scan::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_decision_resume::Entity).await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_retrieval_query::Entity,
-    )
-    .await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_read_projection::Entity,
-    )
-    .await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_data_authorization::Entity,
-    )
-    .await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_source_suppression::Entity,
-    )
-    .await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_model_output::Entity,
-    )
-    .await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_model_input_item::Entity,
-    )
-    .await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_control_receipt::Entity,
-    )
-    .await?;
-    create_entity(
-        db,
-        &schema,
-        crate::entity::agent_assistant_device_binding::Entity,
-    )
-    .await?;
+    create_entity(db, &schema, crate::entity::agent_retrieval_query::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_read_projection::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_data_authorization::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_source_suppression::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_model_output::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_model_input_item::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_control_receipt::Entity).await?;
+    create_entity(db, &schema, crate::entity::agent_device_binding::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_delegation_group::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_subagent_run::Entity).await?;
     create_entity(db, &schema, crate::entity::agent_subagent_inbox::Entity).await?;
@@ -447,8 +382,8 @@ async fn create_latest_schema<C: ConnectionTrait + crate::config::ConfigConnecti
     ).await?;
 
     create_entity(db, &schema, crate::entity::agent_permission_resume::Entity).await?;
-    // Cross-table assistant indexes require the native receipt table above.
-    create_assistant_data_indexes(db).await?;
+    // Cross-table agent indexes require the native receipt table above.
+    create_agent_data_indexes(db).await?;
 
     for index in [
         Index::create()
@@ -748,23 +683,23 @@ async fn validate_latest_schema<C: ConnectionTrait + crate::config::ConfigConnec
     check_entity!(approval_model_probe_observation);
     check_entity!(host_remote_access_state);
     check_entity!(agent_session);
-    check_entity!(agent_assistant_origin);
-    check_entity!(agent_assistant_history);
-    check_entity!(agent_assistant_history_conversation);
-    check_entity!(agent_assistant_history_coverage);
+    check_entity!(agent_origin);
+    check_entity!(agent_history);
+    check_entity!(agent_history_conversation);
+    check_entity!(agent_history_coverage);
     check_entity!(agent_memory);
     check_entity!(agent_memory_source);
     check_entity!(agent_memory_revision);
     check_entity!(agent_memory_use);
     check_entity!(agent_memory_commit);
     check_entity!(agent_memory_tombstone);
-    check_entity!(agent_assistant_search_document);
-    check_entity!(agent_assistant_search_term);
-    check_entity!(agent_assistant_source_use);
-    check_entity!(agent_assistant_citation);
-    check_entity!(agent_assistant_quota);
-    check_entity!(agent_assistant_runtime);
-    check_entity!(agent_assistant_device_roster);
+    check_entity!(agent_search_document);
+    check_entity!(agent_search_term);
+    check_entity!(agent_source_use);
+    check_entity!(agent_citation);
+    check_entity!(agent_quota);
+    check_entity!(agent_runtime);
+    check_entity!(agent_device_roster);
     check_entity!(agent_main_request);
     check_entity!(agent_issue_reply);
     check_entity!(agent_issue_subscription);
@@ -777,14 +712,14 @@ async fn validate_latest_schema<C: ConnectionTrait + crate::config::ConfigConnec
     check_entity!(agent_skill_proposal);
     check_entity!(agent_skill_scan);
     check_entity!(agent_decision_resume);
-    check_entity!(agent_assistant_retrieval_query);
-    check_entity!(agent_assistant_read_projection);
-    check_entity!(agent_assistant_data_authorization);
-    check_entity!(agent_assistant_source_suppression);
-    check_entity!(agent_assistant_model_output);
-    check_entity!(agent_assistant_model_input_item);
-    check_entity!(agent_assistant_control_receipt);
-    check_entity!(agent_assistant_device_binding);
+    check_entity!(agent_retrieval_query);
+    check_entity!(agent_read_projection);
+    check_entity!(agent_data_authorization);
+    check_entity!(agent_source_suppression);
+    check_entity!(agent_model_output);
+    check_entity!(agent_model_input_item);
+    check_entity!(agent_control_receipt);
+    check_entity!(agent_device_binding);
     check_entity!(agent_delegation_group);
     check_entity!(agent_subagent_run);
     check_entity!(agent_subagent_inbox);
@@ -831,7 +766,7 @@ async fn create_schedule_schema<C: ConnectionTrait + crate::config::ConfigConnec
         crate::entity::agent_task_budget_reservation::Entity,
     )
     .await?;
-    desk_assistant_data_store::schedule::ensure_indexes(db).await?;
+    desk_agent_data_store::schedule::ensure_indexes(db).await?;
     Ok(())
 }
 
@@ -921,9 +856,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn signal_db_rejects_unc_network_share() {
-        let error =
-            validate_signal_db_location(Path::new(r"\\server\share\assistant\desk_signal.db"))
-                .unwrap_err();
+        let error = validate_signal_db_location(Path::new(r"\\server\share\agent\desk_signal.db"))
+            .unwrap_err();
         assert!(error.to_string().contains("must not use a UNC"));
     }
 
@@ -1223,10 +1157,10 @@ mod write_tests;
 #[cfg(test)]
 pub(crate) async fn ensure_lifecycle_tables(db: &DatabaseConnection) {
     use crate::entity::*;
-    use desk_assistant_data_store::entity_table::EntityTableExt;
+    use desk_agent_data_store::entity_table::EntityTableExt;
     let schema = Schema::new(db.get_database_backend());
     for mut statement in [
-        schema.entity_table(agent_assistant_device_roster::Entity),
+        schema.entity_table(agent_device_roster::Entity),
         schema.entity_table(agent_main_request::Entity),
         schema.entity_table(agent_issue_reply::Entity),
         schema.entity_table(agent_issue_subscription::Entity),
@@ -1258,52 +1192,52 @@ pub(crate) async fn ensure_lifecycle_tables(db: &DatabaseConnection) {
     }
 }
 
-async fn create_assistant_data_indexes<C: ConnectionTrait>(db: &C) -> Result<(), DbErr> {
+async fn create_agent_data_indexes<C: ConnectionTrait>(db: &C) -> Result<(), DbErr> {
     for ddl in [
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_history_native ON agent_assistant_history (actor_id, conversation_id, native_id, kind, fragment_index)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_history_scope_time ON agent_assistant_history (actor_id, device_ref, recorded_at_ms, id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_history_actor_time ON agent_assistant_history (actor_id, recorded_at_ms, id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_history_native_time ON agent_assistant_history (actor_id, (COALESCE(native_action_at_ms, native_action_from_ms)), id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_history_window ON agent_assistant_history (actor_id, conversation_id, admitted_generation, fragment_index, id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_history_origin_fragment ON agent_assistant_history (actor_id, origin_id, fragment_index)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_origin_native ON agent_assistant_origin (actor_id, conversation_id, native_id, kind)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_origin_input ON agent_assistant_origin (actor_id, accepted_input_seq, id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_coverage_slot ON agent_assistant_history_coverage (actor_id, conversation_id, day_bucket, reason)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_memory_revision ON agent_memory_revision (memory_id, revision)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_memory_write ON agent_memory_revision (actor_id, producer_call_id, tool_call_id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_memory_sources ON agent_memory_source (actor_id, memory_id, memory_revision, id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_memory_use ON agent_memory_use (actor_id, authorization_id, memory_id, memory_revision, purpose)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_memory_commit_gc ON agent_memory_commit (actor_id, expires_at_ms, id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_memory_forget ON agent_memory_tombstone (actor_id, operation_id, memory_id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_search_source ON agent_assistant_search_document (source_kind, source_id, source_revision, fragment_index)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_term_document ON agent_assistant_search_term (document_id, term)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_term_lookup ON agent_assistant_search_term (actor_id, term, document_id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_source_use ON agent_assistant_source_use (actor_id, authorization_id, source_id, source_revision, purpose)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_citation ON agent_assistant_citation (actor_id, answer_message_id, answer_revision)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_control_operation ON agent_assistant_control_receipt (actor_id, operation_id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_retrieval_expiry ON agent_assistant_retrieval_query (actor_id, expires_at_ms, id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_projection_call ON agent_assistant_read_projection (actor_id, root_conversation_id, retrieval_episode_id, logical_call_id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_projection_envelope ON agent_assistant_read_projection (actor_id, source_envelope_id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_projection_unused ON agent_assistant_read_projection (actor_id, unused_until_ms, id) WHERE first_consumed_at_ms IS NULL",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_data_authorization ON agent_assistant_data_authorization (actor_id, physical_call_id, projection_id, purpose)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_authorization_projection ON agent_assistant_data_authorization (actor_id, projection_id, id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_authorization_call ON agent_assistant_data_authorization (actor_id, physical_call_id, id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_authorization_consumer ON agent_assistant_data_authorization (actor_id, consumer_conversation_id, id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_source_suppression_revision ON agent_assistant_source_suppression (actor_id, source_id, source_revision, origin_id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_suppression_cutoff ON agent_assistant_source_suppression (actor_id, cutoff_input_seq, id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_native_model_output ON model_egress_receipt (context_conversation_id, model_output_envelope_id, model_output_digest_sha256)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_archived_output ON agent_assistant_model_output (conversation_id, output_envelope_id, output_digest_sha256)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_archived_output_actor ON agent_assistant_model_output (actor_id, completed_at_ms, id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_model_input_item ON agent_assistant_model_input_item (actor_id, conversation_id, kind, item_sha256)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_model_input_item_ordinal ON agent_assistant_model_input_item (actor_id, conversation_id, kind, ordinal)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_archived_output_call ON agent_assistant_model_output (actor_id, conversation_id, physical_call_id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_output_gc_due ON agent_assistant_quota (output_gc_next_scan_at_ms, id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_memory_producer_pin ON agent_memory_revision (actor_id, producer_call_id, status)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_source_use_source ON agent_assistant_source_use (actor_id, source_id, source_revision, id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_source_use_call ON agent_assistant_source_use (actor_id, physical_call_id, id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_memory_use_memory ON agent_memory_use (actor_id, memory_id, memory_revision, id)",
-        "CREATE INDEX IF NOT EXISTS idx_assistant_memory_use_call ON agent_memory_use (actor_id, physical_call_id, id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_source_audience ON agent_assistant_device_binding (instance_id, audience)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_history_native ON agent_history (actor_id, conversation_id, native_id, kind, fragment_index)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_history_scope_time ON agent_history (actor_id, device_ref, recorded_at_ms, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_history_actor_time ON agent_history (actor_id, recorded_at_ms, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_history_native_time ON agent_history (actor_id, (COALESCE(native_action_at_ms, native_action_from_ms)), id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_history_window ON agent_history (actor_id, conversation_id, admitted_generation, fragment_index, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_history_origin_fragment ON agent_history (actor_id, origin_id, fragment_index)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_origin_native ON agent_origin (actor_id, conversation_id, native_id, kind)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_origin_input ON agent_origin (actor_id, accepted_input_seq, id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_coverage_slot ON agent_history_coverage (actor_id, conversation_id, day_bucket, reason)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_memory_revision ON agent_memory_revision (memory_id, revision)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_memory_write ON agent_memory_revision (actor_id, producer_call_id, tool_call_id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_memory_sources ON agent_memory_source (actor_id, memory_id, memory_revision, id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_memory_use ON agent_memory_use (actor_id, authorization_id, memory_id, memory_revision, purpose)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_memory_commit_gc ON agent_memory_commit (actor_id, expires_at_ms, id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_memory_forget ON agent_memory_tombstone (actor_id, operation_id, memory_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_search_source ON agent_search_document (source_kind, source_id, source_revision, fragment_index)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_term_document ON agent_search_term (document_id, term)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_term_lookup ON agent_search_term (actor_id, term, document_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_source_use ON agent_source_use (actor_id, authorization_id, source_id, source_revision, purpose)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_citation ON agent_citation (actor_id, answer_message_id, answer_revision)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_control_operation ON agent_control_receipt (actor_id, operation_id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_retrieval_expiry ON agent_retrieval_query (actor_id, expires_at_ms, id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_projection_call ON agent_read_projection (actor_id, root_conversation_id, retrieval_episode_id, logical_call_id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_projection_envelope ON agent_read_projection (actor_id, source_envelope_id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_projection_unused ON agent_read_projection (actor_id, unused_until_ms, id) WHERE first_consumed_at_ms IS NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_data_authorization ON agent_data_authorization (actor_id, physical_call_id, projection_id, purpose)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_authorization_projection ON agent_data_authorization (actor_id, projection_id, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_authorization_call ON agent_data_authorization (actor_id, physical_call_id, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_authorization_consumer ON agent_data_authorization (actor_id, consumer_conversation_id, id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_source_suppression_revision ON agent_source_suppression (actor_id, source_id, source_revision, origin_id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_suppression_cutoff ON agent_source_suppression (actor_id, cutoff_input_seq, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_native_model_output ON model_egress_receipt (context_conversation_id, model_output_envelope_id, model_output_digest_sha256)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_archived_output ON agent_model_output (conversation_id, output_envelope_id, output_digest_sha256)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_archived_output_actor ON agent_model_output (actor_id, completed_at_ms, id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_model_input_item ON agent_model_input_item (actor_id, conversation_id, kind, item_sha256)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_model_input_item_ordinal ON agent_model_input_item (actor_id, conversation_id, kind, ordinal)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_archived_output_call ON agent_model_output (actor_id, conversation_id, physical_call_id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_output_gc_due ON agent_quota (output_gc_next_scan_at_ms, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_memory_producer_pin ON agent_memory_revision (actor_id, producer_call_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_source_use_source ON agent_source_use (actor_id, source_id, source_revision, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_source_use_call ON agent_source_use (actor_id, physical_call_id, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_memory_use_memory ON agent_memory_use (actor_id, memory_id, memory_revision, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_memory_use_call ON agent_memory_use (actor_id, physical_call_id, id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_source_audience ON agent_device_binding (instance_id, audience)",
     ] {
         db.execute_unprepared(ddl).await?;
     }

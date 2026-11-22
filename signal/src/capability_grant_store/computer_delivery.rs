@@ -81,7 +81,7 @@ pub(super) fn validate_destination(
 ) -> Result<bool, DbErr> {
     let action = &original.receipt.action;
     let call = &original.original_call_id;
-    if session.surface != AgentSessionSurface::AiAssistant
+    if session.surface != AgentSessionSurface::AiAgent
         || session
             .execution_state
             .tasks()
@@ -290,7 +290,7 @@ impl SignalCapabilityGrantStore {
         session: &mut PersistedAgentSession,
         now: &str,
     ) -> Result<bool, DbErr> {
-        if session.surface != AgentSessionSurface::AiAssistant {
+        if session.surface != AgentSessionSurface::AiAgent {
             return Ok(false);
         }
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_session::Entity).await?;
@@ -637,7 +637,7 @@ mod tests {
             },
             "2026-11-14T00:00:00Z",
         );
-        let mut call = desk_diagnose_core::chat::ChatMessage::assistant_tool_calls(
+        let mut call = desk_diagnose_core::chat::ChatMessage::agent_tool_calls(
             "assistant",
             "",
             vec![desk_diagnose_core::chat::ToolCallRef {

@@ -9,7 +9,7 @@ import type { QueryKey, QueryClient, QueryObserverOptions, UseQueryResult } from
 import { listApprovalReviews } from "../../clients.ts";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
-export const listApprovalReviewsQueryKey = (params: ListApprovalReviewsQueryParams) => [{ url: '/api/my/ai-assistant-session/approval-reviews' }, ...(params ? [params] : [])] as const
+export const listApprovalReviewsQueryKey = (params: ListApprovalReviewsQueryParams) => [{ url: '/api/my/ai-agent-session/approval-reviews' }, ...(params ? [params] : [])] as const
 
 export type ListApprovalReviewsQueryKey = ReturnType<typeof listApprovalReviewsQueryKey>
 
@@ -28,7 +28,7 @@ export function listApprovalReviewsQueryOptions(params: ListApprovalReviewsQuery
 
 /**
  * @summary List own AI approval reviews (administrator)
- * {@link /api/my/ai-assistant-session/approval-reviews}
+ * {@link /api/my/ai-agent-session/approval-reviews}
  */
 export function useListApprovalReviews<TData = ListApprovalReviewsQueryResponse, TQueryData = ListApprovalReviewsQueryResponse, TQueryKey extends QueryKey = ListApprovalReviewsQueryKey>(params: ListApprovalReviewsQueryParams, options: 
 {

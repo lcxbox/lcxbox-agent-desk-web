@@ -2,7 +2,7 @@
 //!
 //! The portable signal server is the OSS central brain (thin-edge model): it
 //! authorizes and wraps control-end capability and execution frames as they are
-//! relayed to the edge, and owns AI Assistant / terminal AI frames which it
+//! relayed to the edge, and owns AI Agent / terminal AI frames which it
 //! runs centrally rather than
 //! relaying. This mirrors the manager's `ManagerControlAuthorizer`, but as a
 //! **separate, much simpler implementation**: OSS signal is single-account, so
@@ -24,9 +24,7 @@
 
 use crate::config::connection::DatabaseConnection;
 use actix_web::web;
-use desk_agent_protocol::ai_assistant::{
-    AiAssistantAsk, AiAssistantContextUpdate, AiAssistantObjectContextUpdate,
-};
+use desk_agent_protocol::ai_agent::{AiAgentAsk, AiAgentContextUpdate, AiAgentObjectContextUpdate};
 use desk_agent_protocol::authz::{
     AUTHORIZATION_BLOCK_VERSION, AuthorizationBlock, AuthorizedControlPayload, AuthzActor,
     AuthzDevice, ExecAdmissionPolicy,
@@ -55,19 +53,19 @@ pub const SINGLE_ACCOUNT_TOKEN_ID: i32 = 1;
 /// manager's `AUTHZ_TTL_SECS`; doubles as the wrapper replay window the edge
 /// enforces via `expires_at`.
 const AUTHZ_TTL_SECS: i64 = 300;
-/// The orchestrator-layer permission gating AI Assistant.
-const AI_ASSISTANT_GRANT: &str = "ai.assistant";
-/// The orchestrator-layer permission gating the Terminal AI Assistant / completion.
-const AI_AI_ASSISTANT_GRANT: &str = "ai.terminal_ai_assistant";
+/// The orchestrator-layer permission gating AI Agent.
+const AI_AGENT_GRANT: &str = "ai.agent";
+/// The orchestrator-layer permission gating the Terminal AI Agent / completion.
+const AI_AI_AGENT_GRANT: &str = "ai.terminal_ai_agent";
 
-fn starts_ai_assistant_work(signaling_type: SignalingType) -> bool {
+fn starts_ai_agent_work(signaling_type: SignalingType) -> bool {
     matches!(
         signaling_type,
-        SignalingType::AskAiAssistant
-            | SignalingType::GetAiAssistantCapabilities
-            | SignalingType::UpdateAiAssistantContext
-            | SignalingType::UpdateAiAssistantObjectContext
-            | SignalingType::SelectAiAssistantSession
+        SignalingType::AskAiAgent
+            | SignalingType::GetAiAgentCapabilities
+            | SignalingType::UpdateAiAgentContext
+            | SignalingType::UpdateAiAgentObjectContext
+            | SignalingType::SelectAiAgentSession
             | SignalingType::RequestDocumentPreviewPage
     )
 }
@@ -120,8 +118,8 @@ fn single_account_decision(mode: ExecutionMode) -> (AgentScope, Vec<String>, Ris
     (
         scope,
         vec![
-            AI_ASSISTANT_GRANT.to_string(),
-            AI_AI_ASSISTANT_GRANT.to_string(),
+            AI_AGENT_GRANT.to_string(),
+            AI_AI_AGENT_GRANT.to_string(),
             "shell.plan".to_string(),
         ],
         RiskLevel::Critical,
@@ -262,9 +260,9 @@ fn build_wrapper_outcome(
 pub struct SignalControlAuthorizer {
     db: DatabaseConnection,
     issuer: String,
-    ai_assistant_gate: std::sync::Arc<crate::ai_assistant_gate::AiAssistantGate>,
+    ai_agent_gate: std::sync::Arc<crate::ai_agent_gate::AiAgentGate>,
     /// Connection map handle used to stream centrally-orchestrated terminal
-    /// assistant / completion results back to the asking browser. Held (not just
+    /// agent / completion results back to the asking browser. Held (not just
     /// borrowed per call) so a spawned, `!Send` model dial can reach the browser
     /// after `authorize` returns.
     connection_map: web::Data<SharedConnectionMap>,
@@ -282,23 +280,22 @@ impl SignalControlAuthorizer {
         message: String,
     ) -> ControlFrameOutcome {
         match model.signaling_type {
-            SignalingType::UpdateAiAssistantContext => {
-                crate::ai_assistant_orchestrator::reject_live_context(actor, model, message).await;
+            SignalingType::UpdateAiAgentContext => {
+                crate::ai_agent_orchestrator::reject_live_context(actor, model, message).await;
             }
-            SignalingType::UpdateAiAssistantObjectContext => {
-                crate::ai_assistant_orchestrator::reject_object_context(actor, model, message)
-                    .await;
+            SignalingType::UpdateAiAgentObjectContext => {
+                crate::ai_agent_orchestrator::reject_object_context(actor, model, message).await;
             }
-            SignalingType::AskAiAssistant => {
-                crate::ai_assistant_orchestrator::reject_ask(
+            SignalingType::AskAiAgent => {
+                crate::ai_agent_orchestrator::reject_ask(
                     actor,
                     model,
                     rejection_error(code, message),
                 )
                 .await;
             }
-            SignalingType::AskTerminalAiAssistant => {
-                crate::terminal_orchestrator::reject_assistant(
+            SignalingType::AskTerminalAiAgent => {
+                crate::terminal_orchestrator::reject_agent(
                     &self.connection_map,
                     &actor.model.connection_id,
                     &model.request_id,
@@ -322,17 +319,17 @@ impl SignalControlAuthorizer {
     pub fn new(
         db: DatabaseConnection,
         connection_map: web::Data<SharedConnectionMap>,
-        ai_assistant_gate: std::sync::Arc<crate::ai_assistant_gate::AiAssistantGate>,
+        ai_agent_gate: std::sync::Arc<crate::ai_agent_gate::AiAgentGate>,
     ) -> Self {
         Self {
             db,
             issuer: "signal".to_string(),
             connection_map,
-            ai_assistant_gate,
+            ai_agent_gate,
         }
     }
 
-    async fn start_ai_assistant_turn(
+    async fn start_ai_agent_turn(
         &self,
         actor: &ConnectionState,
         model: &SignalingModel,
@@ -340,7 +337,7 @@ impl SignalControlAuthorizer {
         target: Option<(String, String)>,
     ) -> ControlFrameOutcome {
         let (target_connection, device_id) = target.unwrap_or_default();
-        let ask = match model.get_data::<AiAssistantAsk>() {
+        let ask = match model.get_data::<AiAgentAsk>() {
             Ok(ask) => ask,
             Err(e) => {
                 return self
@@ -348,51 +345,46 @@ impl SignalControlAuthorizer {
                         actor,
                         model,
                         DeskErrorCode::INVALID_PARAMS,
-                        format!("invalid AiAssistantAsk payload: {e}"),
+                        format!("invalid AiAgentAsk payload: {e}"),
                     )
                     .await;
             }
         };
-        if let Err(message) = desk_diagnose_core::assistant_policy::validate_assistant_ask_scope(
-            &ask,
-            !device_id.is_empty(),
-        ) {
+        if let Err(message) =
+            desk_diagnose_core::agent_policy::validate_agent_ask_scope(&ask, !device_id.is_empty())
+        {
             return self
                 .reject_frame(actor, model, DeskErrorCode::INVALID_PARAMS, message.into())
                 .await;
         }
-        let limits = crate::assistant_data_config::policy(&self.db)
+        let limits = crate::agent_data_config::policy(&self.db)
             .await
             .limits
             .conversation;
         if let Err(message) = ask.validate_with_limits(&limits).and_then(|_| {
-            desk_diagnose_core::ai_assistant::source::valid_statement_timezone(&ask.client_timezone)
+            desk_diagnose_core::ai_agent::source::valid_statement_timezone(&ask.client_timezone)
                 .then_some(())
-                .ok_or("invalid AI Assistant client timezone")
+                .ok_or("invalid AI Agent client timezone")
         }) {
             return self
                 .reject_frame(actor, model, DeskErrorCode::INVALID_PARAMS, message.into())
                 .await;
         }
-        if desk_diagnose_core::ai_assistant::selected_context_capabilities(
-            &ask.selected_capability_ids,
-        )
-        .is_err()
+        if desk_diagnose_core::ai_agent::selected_context_capabilities(&ask.selected_capability_ids)
+            .is_err()
         {
             return self
                 .reject_frame(
                     actor,
                     model,
                     DeskErrorCode::INVALID_PARAMS,
-                    "unknown or non-context AI Assistant capability".into(),
+                    "unknown or non-context AI Agent capability".into(),
                 )
                 .await;
         }
-        let cancellation = crate::ai_assistant_orchestrator::cancellation::register(
-            actor_user_id,
-            &model.request_id,
-        );
-        let turn = crate::ai_assistant_orchestrator::submit_owner_turn(
+        let cancellation =
+            crate::ai_agent_orchestrator::cancellation::register(actor_user_id, &model.request_id);
+        let turn = crate::ai_agent_orchestrator::submit_owner_turn(
             self.connection_map.clone(),
             self.db.clone(),
             model.request_id.clone(),
@@ -443,32 +435,32 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                     actor,
                     model,
                     self.connection_map.clone(),
-                    self.ai_assistant_gate.clone(),
+                    self.ai_agent_gate.clone(),
                 )
                 .await;
             }
-            // A assistant cancel is consumed centrally (the assistant runs on signal,
+            // A agent cancel is consumed centrally (the agent runs on signal,
             // not the edge); best-effort no-op, never relayed.
-            if model.signaling_type == SignalingType::CancelTerminalAiAssistant {
+            if model.signaling_type == SignalingType::CancelTerminalAiAgent {
                 return ControlFrameOutcome::Handled;
             }
             // Main stops need durable input/control fences and an explicit child
             // scope, committed by the owner REST endpoint before token delivery.
-            if model.signaling_type == SignalingType::CancelAiAssistant {
+            if model.signaling_type == SignalingType::CancelAiAgent {
                 return ControlFrameOutcome::Reject {
                     code: DeskErrorCode::PRECONDITION_FAILED,
-                    message: "Use the owner AI Assistant stop API with current input and control revisions".into(),
+                    message:
+                        "Use the owner AI Agent stop API with current input and control revisions"
+                            .into(),
                 };
             }
-            if starts_ai_assistant_work(model.signaling_type)
-                && !self.ai_assistant_gate.is_enabled()
-            {
+            if starts_ai_agent_work(model.signaling_type) && !self.ai_agent_gate.is_enabled() {
                 return self
                     .reject_frame(
                         actor,
                         model,
                         DeskErrorCode::FEATURE_UNAVAILABLE,
-                        "AI Assistant is disabled on this device".into(),
+                        "AI Agent is disabled on this device".into(),
                     )
                     .await;
             }
@@ -505,11 +497,10 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                     .await;
             };
 
-            if model.signaling_type == SignalingType::AskAiAssistant
-                && model.to_connection_id.is_none()
+            if model.signaling_type == SignalingType::AskAiAgent && model.to_connection_id.is_none()
             {
                 return self
-                    .start_ai_assistant_turn(actor, model, actor_user_id, None)
+                    .start_ai_agent_turn(actor, model, actor_user_id, None)
                     .await;
             }
 
@@ -584,7 +575,7 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                         expires_at,
                     )
                 }
-                // The Terminal AI Assistant / completion run centrally too: signal
+                // The Terminal AI Agent / completion run centrally too: signal
                 // dials its own model over the inline terminal context the browser
                 // supplied (no edge round-trip) and streams the result back. The
                 // dial is `!Send` and latency-sensitive, so it is spawned and the
@@ -615,9 +606,9 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                     ));
                     ControlFrameOutcome::Handled
                 }
-                SignalingType::AskTerminalAiAssistant => {
+                SignalingType::AskTerminalAiAgent => {
                     let ask = match model
-                        .get_data::<desk_agent_protocol::terminal_ai_assistant::TerminalAiAssistantAsk>()
+                        .get_data::<desk_agent_protocol::terminal_ai_agent::TerminalAiAgentAsk>()
                     {
                         Ok(a) => a,
                         Err(e) => {
@@ -626,12 +617,12 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                                     actor,
                                     model,
                                     DeskErrorCode::INVALID_PARAMS,
-                                    format!("invalid TerminalAiAssistantAsk payload: {e}"),
+                                    format!("invalid TerminalAiAgentAsk payload: {e}"),
                                 )
                                 .await;
                         }
                     };
-                    actix_web::rt::spawn(crate::terminal_orchestrator::run_assistant(
+                    actix_web::rt::spawn(crate::terminal_orchestrator::run_agent(
                         self.connection_map.clone(),
                         self.db.clone(),
                         model.request_id.clone(),
@@ -640,29 +631,22 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                     ));
                     ControlFrameOutcome::Handled
                 }
-                SignalingType::AskAiAssistant => {
-                    self.start_ai_assistant_turn(
-                        actor,
-                        model,
-                        actor_user_id,
-                        Some((to_id, audience)),
-                    )
-                    .await
+                SignalingType::AskAiAgent => {
+                    self.start_ai_agent_turn(actor, model, actor_user_id, Some((to_id, audience)))
+                        .await
                 }
-                SignalingType::GetAiAssistantCapabilities => {
-                    actix_web::rt::spawn(
-                        crate::ai_assistant_orchestrator::send_capability_inventory(
-                            self.connection_map.clone(),
-                            self.db.clone(),
-                            model.request_id.clone(),
-                            actor.model.connection_id.clone(),
-                            to_id,
-                        ),
-                    );
+                SignalingType::GetAiAgentCapabilities => {
+                    actix_web::rt::spawn(crate::ai_agent_orchestrator::send_capability_inventory(
+                        self.connection_map.clone(),
+                        self.db.clone(),
+                        model.request_id.clone(),
+                        actor.model.connection_id.clone(),
+                        to_id,
+                    ));
                     ControlFrameOutcome::Handled
                 }
-                SignalingType::UpdateAiAssistantContext => {
-                    let update = match model.get_data::<AiAssistantContextUpdate>() {
+                SignalingType::UpdateAiAgentContext => {
+                    let update = match model.get_data::<AiAgentContextUpdate>() {
                         Ok(update) => update,
                         Err(_) => {
                             return self
@@ -670,7 +654,7 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                                     actor,
                                     model,
                                     DeskErrorCode::INVALID_PARAMS,
-                                    "Invalid AI Assistant live context selection".into(),
+                                    "Invalid AI Agent live context selection".into(),
                                 )
                                 .await;
                         }
@@ -687,7 +671,7 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                             )
                             .await;
                     }
-                    actix_web::rt::spawn(crate::ai_assistant_orchestrator::update_context(
+                    actix_web::rt::spawn(crate::ai_agent_orchestrator::update_context(
                         self.connection_map.clone(),
                         self.db.clone(),
                         model.request_id.clone(),
@@ -699,8 +683,8 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                     ));
                     ControlFrameOutcome::Handled
                 }
-                SignalingType::UpdateAiAssistantObjectContext => {
-                    let update = match model.get_data::<AiAssistantObjectContextUpdate>() {
+                SignalingType::UpdateAiAgentObjectContext => {
+                    let update = match model.get_data::<AiAgentObjectContextUpdate>() {
                         Ok(update) => update,
                         Err(error) => {
                             return self
@@ -708,9 +692,7 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                                     actor,
                                     model,
                                     DeskErrorCode::INVALID_PARAMS,
-                                    format!(
-                                        "invalid AiAssistantObjectContextUpdate payload: {error}"
-                                    ),
+                                    format!("invalid AiAgentObjectContextUpdate payload: {error}"),
                                 )
                                 .await;
                         }
@@ -733,11 +715,11 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                                 actor,
                                 model,
                                 DeskErrorCode::INVALID_PARAMS,
-                                "invalid AI Assistant conversation id".into(),
+                                "invalid AI Agent conversation id".into(),
                             )
                             .await;
                     }
-                    actix_web::rt::spawn(crate::ai_assistant_orchestrator::update_object_context(
+                    actix_web::rt::spawn(crate::ai_agent_orchestrator::update_object_context(
                         self.connection_map.clone(),
                         self.db.clone(),
                         model.request_id.clone(),
@@ -762,7 +744,7 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                         }
                     };
                     actix_web::rt::spawn(
-                        crate::ai_assistant_orchestrator::render_document_preview_page(
+                        crate::ai_agent_orchestrator::render_document_preview_page(
                             self.connection_map.clone(),
                             self.db.clone(),
                             model.request_id.clone(),
@@ -778,9 +760,7 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                 // The authenticated single-account owner asks the host to apply
                 // its own opaque 0/1/N session-target policy. The central never
                 // decodes or rewrites the selector.
-                SignalingType::SelectAiAssistantSession => {
-                    ControlFrameOutcome::Forward(model.clone())
-                }
+                SignalingType::SelectAiAgentSession => ControlFrameOutcome::Forward(model.clone()),
                 // The relay branch only routes the frame types above through the
                 // authorizer; any other type here is a routing bug.
                 other => ControlFrameOutcome::Reject {
@@ -822,8 +802,8 @@ fn rejection_error(code: DeskErrorCode, message: String) -> desk_agent_protocol:
 mod tests {
     use super::*;
 
-    fn assistant_model(request_id: &str, to: Option<&str>) -> SignalingModel {
-        let data = serde_json::to_value(AiAssistantAsk {
+    fn agent_model(request_id: &str, to: Option<&str>) -> SignalingModel {
+        let data = serde_json::to_value(AiAgentAsk {
             client_timezone: "UTC".into(),
             temporary_conversation: None,
             question: "why slow?".to_string(),
@@ -833,7 +813,7 @@ mod tests {
         .unwrap();
         SignalingModel::new(
             request_id,
-            SignalingType::AskAiAssistant,
+            SignalingType::AskAiAgent,
             Some("browser-1".to_string()),
             to.map(str::to_string),
             Some(data),
@@ -861,7 +841,7 @@ mod tests {
                     sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
                 }),
             },
-            reason: Some("operator promoted a assistant suggestion".to_string()),
+            reason: Some("operator promoted a agent suggestion".to_string()),
             org_id: None,
         })
         .unwrap();
@@ -895,8 +875,8 @@ mod tests {
         // the edge clamps it locally.
         assert_eq!(scope.mode, ExecutionMode::ConfirmEachAction);
         assert_eq!(scope.policy_name.as_deref(), Some("single-account"));
-        assert!(grants.contains(&AI_ASSISTANT_GRANT.to_string()));
-        assert!(grants.contains(&AI_AI_ASSISTANT_GRANT.to_string()));
+        assert!(grants.contains(&AI_AGENT_GRANT.to_string()));
+        assert!(grants.contains(&AI_AI_AGENT_GRANT.to_string()));
         assert_eq!(max_risk, RiskLevel::Critical);
     }
 
@@ -952,7 +932,7 @@ mod tests {
 
     #[test]
     fn wrapper_stamps_server_resolved_identity_and_binding() {
-        let model = assistant_model("req-1", Some("edge-1"));
+        let model = agent_model("req-1", Some("edge-1"));
         let (scope, grants, max_risk) = single_account_decision(ExecutionMode::ReadOnly);
         let frame = match build_wrapper_outcome(
             &model,
@@ -973,7 +953,7 @@ mod tests {
         // The stamped block carries server-resolved fields the control end cannot
         // self-report: the single-account actor, the target audience binding, and
         // the request-id replay binding.
-        let wrapper: AuthorizedControlPayload<AiAssistantAsk> =
+        let wrapper: AuthorizedControlPayload<AiAgentAsk> =
             serde_json::from_value(frame.get_raw_data().clone().unwrap()).unwrap();
         assert_eq!(wrapper.authz.actor.user_id, Some(SINGLE_ACCOUNT_USER_ID));
         assert_eq!(wrapper.authz.device.device_id, None);
@@ -1002,7 +982,7 @@ mod tests {
 
     #[test]
     fn confirm_exec_frame_is_wrapped_for_relay() {
-        // The operator-promoted assistant exec frame (ConfirmExec) is wrapped by the
+        // The operator-promoted agent exec frame (ConfirmExec) is wrapped by the
         // central brain exactly like AgentRequest: the inner ConfirmExecData
         // survives verbatim (command + cwd preserved) and the stamped block binds
         // to the resolved audience + request id so the edge can validate it.
@@ -1186,21 +1166,15 @@ mod tests {
     }
 
     #[test]
-    fn total_switch_blocks_only_new_assistant_work_at_the_control_gate() {
-        assert!(starts_ai_assistant_work(SignalingType::AskAiAssistant));
-        assert!(starts_ai_assistant_work(
-            SignalingType::GetAiAssistantCapabilities
+    fn total_switch_blocks_only_new_agent_work_at_the_control_gate() {
+        assert!(starts_ai_agent_work(SignalingType::AskAiAgent));
+        assert!(starts_ai_agent_work(SignalingType::GetAiAgentCapabilities));
+        assert!(starts_ai_agent_work(SignalingType::UpdateAiAgentContext));
+        assert!(starts_ai_agent_work(
+            SignalingType::UpdateAiAgentObjectContext
         ));
-        assert!(starts_ai_assistant_work(
-            SignalingType::UpdateAiAssistantContext
-        ));
-        assert!(starts_ai_assistant_work(
-            SignalingType::UpdateAiAssistantObjectContext
-        ));
-        assert!(starts_ai_assistant_work(
-            SignalingType::SelectAiAssistantSession
-        ));
-        assert!(!starts_ai_assistant_work(SignalingType::CancelAiAssistant));
-        assert!(!starts_ai_assistant_work(SignalingType::ControlExecution));
+        assert!(starts_ai_agent_work(SignalingType::SelectAiAgentSession));
+        assert!(!starts_ai_agent_work(SignalingType::CancelAiAgent));
+        assert!(!starts_ai_agent_work(SignalingType::ControlExecution));
     }
 }

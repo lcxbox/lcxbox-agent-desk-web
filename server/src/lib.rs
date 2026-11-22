@@ -29,7 +29,7 @@ pub mod model;
 pub mod openapi;
 pub mod service;
 pub mod telemetry;
-pub mod terminal_ai_assistant;
+pub mod terminal_ai_agent;
 pub mod terminal_complete;
 pub mod transport_guard;
 pub(crate) mod user_home;
@@ -63,14 +63,13 @@ use crate::{
         redeem::redeem_code,
         service_mgmt::{install_service, query_service_operation, uninstall_service},
         settings::{
-            ack_security_approval, query_ai_assistant_settings, query_ai_policy_settings,
+            ack_security_approval, query_ai_agent_settings, query_ai_policy_settings,
             query_collection_policy_settings, query_log_settings, query_security_settings,
             query_settings, query_telemetry_status, query_turn_client_settings,
             query_turn_settings, regenerate_turn_secret, submit_security_approval,
-            update_ai_assistant_settings, update_ai_policy_settings,
-            update_collection_policy_settings, update_log_settings, update_security_settings,
-            update_settings, update_telemetry_consent, update_turn_client_settings,
-            update_turn_settings,
+            update_ai_agent_settings, update_ai_policy_settings, update_collection_policy_settings,
+            update_log_settings, update_security_settings, update_settings,
+            update_telemetry_consent, update_turn_client_settings, update_turn_settings,
         },
         support::{start_support, stop_support, support_status},
         turn::{get_turn_info, get_turn_metrics, get_turn_session_statistics},
@@ -101,13 +100,12 @@ use actix_web::{
 use clap::Parser as _;
 use desk_signal::{
     controller::{
-        ai_assistant_session::{
-            cancel_ai_assistant_background_task, close_ai_assistant_approval_delegation,
-            control_ai_assistant_goal, decide_ai_assistant_goal_open,
-            decide_ai_assistant_permission, delete_ai_assistant_session, delete_assistant_image,
-            get_ai_assistant_session, get_assistant_image, list_ai_assistant_attention,
-            list_ai_assistant_sessions, list_assistant_images,
-            open_ai_assistant_approval_delegation, revoke_ai_assistant_capability_grant,
+        ai_agent_session::{
+            cancel_ai_agent_background_task, close_ai_agent_approval_delegation,
+            control_ai_agent_goal, decide_ai_agent_goal_open, decide_ai_agent_permission,
+            delete_agent_image, delete_ai_agent_session, get_agent_image, get_ai_agent_session,
+            list_agent_images, list_ai_agent_attention, list_ai_agent_sessions,
+            open_ai_agent_approval_delegation, revoke_ai_agent_capability_grant,
         },
         ai_usage::get_model_usage,
         approval_model_provider::{
@@ -201,7 +199,7 @@ pub async fn shutdown_model_metrics() {
 }
 
 /// Start the embedded signal's background work for one connection registry:
-/// queued AI Assistant requests, permission and decision resumes, schedules,
+/// queued AI Agent requests, permission and decision resumes, schedules,
 /// file recovery dispatch, cancellations and reconnected-host reconciliation.
 /// Every host that serves the signal database runs all of it (Default,
 /// Signaling and the ServiceDaemon local API), once per process.
@@ -216,10 +214,10 @@ pub(crate) fn spawn_signal_background_tasks(connection_map: &web::Data<SharedCon
         connection_map.clone(),
     ));
     actix_web::rt::spawn(
-        desk_signal::ai_assistant_orchestrator::main_requests::SignalMainRequestExecutor::new(
+        desk_signal::ai_agent_orchestrator::main_requests::SignalMainRequestExecutor::new(
             desk_signal::db::get_db().clone(),
             connection_map.clone(),
-            desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
+            desk_signal::ai_agent_gate::global_ai_agent_gate(),
         )
         .run(),
     );
@@ -227,7 +225,7 @@ pub(crate) fn spawn_signal_background_tasks(connection_map: &web::Data<SharedCon
         desk_signal::permission_resume_executor::SignalPermissionResumeExecutor::new(
             desk_signal::db::get_db().clone(),
             connection_map.clone(),
-            desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
+            desk_signal::ai_agent_gate::global_ai_agent_gate(),
         )
         .run(),
     );
@@ -235,7 +233,7 @@ pub(crate) fn spawn_signal_background_tasks(connection_map: &web::Data<SharedCon
         desk_signal::decision_resume::DecisionResumeExecutor::new(
             desk_signal::db::get_db().clone(),
             connection_map.clone(),
-            desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
+            desk_signal::ai_agent_gate::global_ai_agent_gate(),
         )
         .run(),
     );
@@ -243,7 +241,7 @@ pub(crate) fn spawn_signal_background_tasks(connection_map: &web::Data<SharedCon
         desk_signal::schedule_executor::SignalScheduleExecutor::new(
             desk_signal::db::get_db().clone(),
             connection_map.clone(),
-            desk_signal::ai_assistant_gate::global_ai_assistant_gate(),
+            desk_signal::ai_agent_gate::global_ai_agent_gate(),
         )
         .run(),
     );
@@ -344,65 +342,65 @@ pub fn configure_api_surface(
                 // no embedded signaling route, so it never offers this endpoint.
                 if opts.include_signaling {
                     cfg.service(create_token)
-                        .service(get_ai_assistant_session)
-                        .service(desk_signal::controller::ai_assistant_session::get_ai_assistant_approval_mode)
-                        .service(desk_signal::controller::ai_assistant_session::update_ai_assistant_approval_mode)
-                        .service(desk_signal::controller::ai_assistant_session::get_ai_assistant_device_roster)
-                        .service(desk_signal::controller::ai_assistant_session::list_ai_assistant_issue_subscriptions)
-                        .service(desk_signal::controller::ai_assistant_session::get_ai_assistant_issue_subscription_accounts)
-                        .service(desk_signal::controller::ai_assistant_session::list_ai_assistant_workbenches)
-                        .service(desk_signal::controller::ai_assistant_session::list_ai_assistant_workbench_tasks)
-                        .service(desk_signal::controller::ai_assistant_session::create_ai_assistant_workbench)
-                        .service(desk_signal::controller::ai_assistant_session::save_ai_assistant_issue_subscription)
-                        .service(desk_signal::controller::ai_assistant_session::set_ai_assistant_issue_subscription_enabled)
-                        .service(desk_signal::controller::ai_assistant_session::list_ai_assistant_main_requests)
-                        .service(desk_signal::controller::ai_assistant_session::cancel_ai_assistant_main_request)
-                        .service(desk_signal::controller::ai_assistant_session::resume_ai_assistant_main_requests)
-                        .service(desk_signal::controller::ai_assistant_session::update_ai_assistant_device_roster)
-                        .service(desk_signal::controller::ai_assistant_session::list_ai_assistant_subagents)
-                        .service(desk_signal::controller::ai_assistant_session::get_ai_assistant_subagent_status)
-                        .service(desk_signal::controller::ai_assistant_session::read_ai_assistant_subagent_result)
-                        .service(desk_signal::controller::ai_assistant_session::control_ai_assistant_subagent)
-                        .service(desk_signal::controller::ai_assistant_session::stop_ai_assistant_session)
-                        .service(desk_signal::controller::ai_assistant_session::cancel_ai_assistant_command)
-                        .service(desk_signal::controller::ai_assistant_session::control_ai_assistant_directory)
-                        .service(desk_signal::controller::ai_assistant_session::mark_ai_assistant_subagent_read)
+                        .service(get_ai_agent_session)
+                        .service(desk_signal::controller::ai_agent_session::get_ai_agent_approval_mode)
+                        .service(desk_signal::controller::ai_agent_session::update_ai_agent_approval_mode)
+                        .service(desk_signal::controller::ai_agent_session::get_ai_agent_device_roster)
+                        .service(desk_signal::controller::ai_agent_session::list_ai_agent_issue_subscriptions)
+                        .service(desk_signal::controller::ai_agent_session::get_ai_agent_issue_subscription_accounts)
+                        .service(desk_signal::controller::ai_agent_session::list_ai_agent_workbenches)
+                        .service(desk_signal::controller::ai_agent_session::list_ai_agent_workbench_tasks)
+                        .service(desk_signal::controller::ai_agent_session::create_ai_agent_workbench)
+                        .service(desk_signal::controller::ai_agent_session::save_ai_agent_issue_subscription)
+                        .service(desk_signal::controller::ai_agent_session::set_ai_agent_issue_subscription_enabled)
+                        .service(desk_signal::controller::ai_agent_session::list_ai_agent_main_requests)
+                        .service(desk_signal::controller::ai_agent_session::cancel_ai_agent_main_request)
+                        .service(desk_signal::controller::ai_agent_session::resume_ai_agent_main_requests)
+                        .service(desk_signal::controller::ai_agent_session::update_ai_agent_device_roster)
+                        .service(desk_signal::controller::ai_agent_session::list_ai_agent_subagents)
+                        .service(desk_signal::controller::ai_agent_session::get_ai_agent_subagent_status)
+                        .service(desk_signal::controller::ai_agent_session::read_ai_agent_subagent_result)
+                        .service(desk_signal::controller::ai_agent_session::control_ai_agent_subagent)
+                        .service(desk_signal::controller::ai_agent_session::stop_ai_agent_session)
+                        .service(desk_signal::controller::ai_agent_session::cancel_ai_agent_command)
+                        .service(desk_signal::controller::ai_agent_session::control_ai_agent_directory)
+                        .service(desk_signal::controller::ai_agent_session::mark_ai_agent_subagent_read)
                         .service(desk_signal::controller::goal_budget_policy::get_my_goal_budget_policy)
                 .service(desk_signal::controller::subagent_policy::get_my_subagent_policy)
                 .service(desk_signal::controller::issue_connections::get_my_issue_connections)
-                .service(desk_signal::controller::assistant_skills::list_my_skills)
-                .service(desk_signal::controller::assistant_skills::preview_my_skill)
-                .service(desk_signal::controller::assistant_skills::create_my_skill)
-                .service(desk_signal::controller::assistant_skills::get_my_skill)
-                .service(desk_signal::controller::assistant_skills::preview_my_skill_version)
-                .service(desk_signal::controller::assistant_skills::update_my_skill)
-                .service(desk_signal::controller::assistant_skills::delete_my_skill)
-                .service(desk_signal::controller::assistant_skills::get_my_skill_version)
-                .service(desk_signal::controller::assistant_skills::get_my_skill_scan)
-                        .service(list_assistant_images)
-                        .service(desk_signal::controller::ai_assistant_session::get_ai_assistant_context_summary)
-                        .service(desk_signal::controller::ai_assistant_session::list_assistant_attachments)
-                        .service(desk_signal::controller::ai_assistant_session::get_assistant_attachment)
-                        .service(desk_signal::controller::ai_assistant_session::read_assistant_attachment)
-                        .service(desk_signal::controller::ai_assistant_session::delete_assistant_attachments)
-                        .service(get_assistant_image)
-                        .service(delete_assistant_image)
+                .service(desk_signal::controller::agent_skills::list_my_skills)
+                .service(desk_signal::controller::agent_skills::preview_my_skill)
+                .service(desk_signal::controller::agent_skills::create_my_skill)
+                .service(desk_signal::controller::agent_skills::get_my_skill)
+                .service(desk_signal::controller::agent_skills::preview_my_skill_version)
+                .service(desk_signal::controller::agent_skills::update_my_skill)
+                .service(desk_signal::controller::agent_skills::delete_my_skill)
+                .service(desk_signal::controller::agent_skills::get_my_skill_version)
+                .service(desk_signal::controller::agent_skills::get_my_skill_scan)
+                        .service(list_agent_images)
+                        .service(desk_signal::controller::ai_agent_session::get_ai_agent_context_summary)
+                        .service(desk_signal::controller::ai_agent_session::list_agent_attachments)
+                        .service(desk_signal::controller::ai_agent_session::get_agent_attachment)
+                        .service(desk_signal::controller::ai_agent_session::read_agent_attachment)
+                        .service(desk_signal::controller::ai_agent_session::delete_agent_attachments)
+                        .service(get_agent_image)
+                        .service(delete_agent_image)
                         .service(desk_signal::controller::file_recovery::manage_device_file_recovery)
                         .service(desk_signal::controller::file_recovery::list_file_recovery_cleanup)
                         .service(desk_signal::controller::file_recovery::retry_file_recovery_cleanup)
                         .service(desk_signal::controller::file_recovery::export_device_file_recovery)
-                        .service(decide_ai_assistant_permission)
-                        .service(open_ai_assistant_approval_delegation)
-                        .service(close_ai_assistant_approval_delegation)
-                        .service(control_ai_assistant_goal)
-                        .service(decide_ai_assistant_goal_open)
-                        .service(desk_signal::controller::ai_assistant_session::list_ai_assistant_skill_proposals)
-                        .service(desk_signal::controller::ai_assistant_session::decide_ai_assistant_skill_proposal)
-                        .service(revoke_ai_assistant_capability_grant)
-                        .service(cancel_ai_assistant_background_task)
-                        .service(list_ai_assistant_sessions)
-                        .service(list_ai_assistant_attention)
-                        .service(delete_ai_assistant_session);
+                        .service(decide_ai_agent_permission)
+                        .service(open_ai_agent_approval_delegation)
+                        .service(close_ai_agent_approval_delegation)
+                        .service(control_ai_agent_goal)
+                        .service(decide_ai_agent_goal_open)
+                        .service(desk_signal::controller::ai_agent_session::list_ai_agent_skill_proposals)
+                        .service(desk_signal::controller::ai_agent_session::decide_ai_agent_skill_proposal)
+                        .service(revoke_ai_agent_capability_grant)
+                        .service(cancel_ai_agent_background_task)
+                        .service(list_ai_agent_sessions)
+                        .service(list_ai_agent_attention)
+                        .service(delete_ai_agent_session);
                 }
             })
             .service(
@@ -414,8 +412,8 @@ pub fn configure_api_surface(
                     .service(update_ai_policy_settings)
                     .service(query_collection_policy_settings)
                     .service(update_collection_policy_settings)
-                    .service(query_ai_assistant_settings)
-                    .service(update_ai_assistant_settings)
+                    .service(query_ai_agent_settings)
+                    .service(update_ai_agent_settings)
                     .service(controller::computer_use_policy::query_computer_use_application_policy)
                     .service(controller::exec_sandbox::revoke_exec_sandbox_labels)
                     .service(controller::file_recovery::query_local_file_recovery)
@@ -499,21 +497,21 @@ pub fn configure_api_surface(
                         .service(desk_signal::controller::device_code_settings::update_device_code_settings);
                     cfg.service(desk_signal::controller::access_code_protection::get_access_code_protection)
                         .service(desk_signal::controller::access_code_protection::update_access_code_protection);
-                    cfg.service(desk_signal::controller::assistant_data::get_assistant_data_settings);
-                    cfg.service(desk_signal::controller::assistant_data::update_assistant_data_settings);
-                    cfg.service(desk_signal::controller::assistant_data::get_assistant_user_instructions);
-                    cfg.service(desk_signal::controller::assistant_data::update_assistant_user_instructions);
-                    cfg.service(desk_signal::controller::assistant_data::get_assistant_memories);
-                    cfg.service(desk_signal::controller::assistant_data::delete_assistant_memory);
-                    cfg.service(desk_signal::controller::assistant_data::clear_assistant_memories);
-                    cfg.service(desk_signal::controller::assistant_data::get_assistant_source);
-                    cfg.service(desk_signal::controller::assistant_data::get_assistant_history_window)
-                    .service(desk_signal::controller::assistant_data::search_assistant_history)
-                    .service(desk_signal::controller::assistant_data::list_retained_assistant_conversations)
-                    .service(desk_signal::controller::assistant_data::get_assistant_processing)
+                    cfg.service(desk_signal::controller::agent_data::get_agent_data_settings);
+                    cfg.service(desk_signal::controller::agent_data::update_agent_data_settings);
+                    cfg.service(desk_signal::controller::agent_data::get_agent_user_instructions);
+                    cfg.service(desk_signal::controller::agent_data::update_agent_user_instructions);
+                    cfg.service(desk_signal::controller::agent_data::get_agent_memories);
+                    cfg.service(desk_signal::controller::agent_data::delete_agent_memory);
+                    cfg.service(desk_signal::controller::agent_data::clear_agent_memories);
+                    cfg.service(desk_signal::controller::agent_data::get_agent_source);
+                    cfg.service(desk_signal::controller::agent_data::get_agent_history_window)
+                    .service(desk_signal::controller::agent_data::search_agent_history)
+                    .service(desk_signal::controller::agent_data::list_retained_agent_conversations)
+                    .service(desk_signal::controller::agent_data::get_agent_processing)
                     ;
-                    cfg.service(desk_signal::controller::assistant_data::get_assistant_data_policy);
-                    cfg.service(desk_signal::controller::assistant_data::update_assistant_data_policy);
+                    cfg.service(desk_signal::controller::agent_data::get_agent_data_policy);
+                    cfg.service(desk_signal::controller::agent_data::update_agent_data_policy);
                     cfg.service(desk_signal::controller::approval_trace::list_approval_reviews);
                     cfg.service(desk_signal::controller::approval_trace::get_approval_review);
                     cfg.service(desk_signal::controller::approval_trace::get_approval_review_parts);
@@ -568,17 +566,17 @@ pub fn configure_api_surface(
                     .service(desk_signal::controller::issue_connections::get_issue_connections)
                     .service(desk_signal::controller::issue_connections::update_issue_connections)
                     .service(desk_signal::controller::issue_connections::test_issue_connection)
-                    .service(desk_signal::controller::assistant_skills::list_platform_skills)
-                    .service(desk_signal::controller::assistant_skills::preview_platform_skill)
-                    .service(desk_signal::controller::assistant_skills::create_platform_skill)
-                    .service(desk_signal::controller::assistant_skills::get_platform_skill)
-                    .service(desk_signal::controller::assistant_skills::preview_platform_skill_version)
-                    .service(desk_signal::controller::assistant_skills::update_platform_skill)
-                    .service(desk_signal::controller::assistant_skills::delete_platform_skill)
-                    .service(desk_signal::controller::assistant_skills::list_bundled_skills)
-                    .service(desk_signal::controller::assistant_skills::set_bundled_skill)
-                    .service(desk_signal::controller::assistant_skills::get_platform_skill_version)
-                    .service(desk_signal::controller::assistant_skills::get_platform_skill_scan)
+                    .service(desk_signal::controller::agent_skills::list_platform_skills)
+                    .service(desk_signal::controller::agent_skills::preview_platform_skill)
+                    .service(desk_signal::controller::agent_skills::create_platform_skill)
+                    .service(desk_signal::controller::agent_skills::get_platform_skill)
+                    .service(desk_signal::controller::agent_skills::preview_platform_skill_version)
+                    .service(desk_signal::controller::agent_skills::update_platform_skill)
+                    .service(desk_signal::controller::agent_skills::delete_platform_skill)
+                    .service(desk_signal::controller::agent_skills::list_bundled_skills)
+                    .service(desk_signal::controller::agent_skills::set_bundled_skill)
+                    .service(desk_signal::controller::agent_skills::get_platform_skill_version)
+                    .service(desk_signal::controller::agent_skills::get_platform_skill_scan)
                     // Usage-retention windows govern both rollup tables; the row
                     // lives in the same local signal DB, present whenever the
                     // usage view is.
@@ -774,7 +772,7 @@ pub async fn run_with_hub(
     // The durable host setting is authoritative. Publish it before starting
     // signaling maintenance tasks so the default-disabled gate cannot briefly
     // admit work during startup.
-    desk_signal::ai_assistant_gate::global_ai_assistant_gate().replace(settings.ai_assistant);
+    desk_signal::ai_agent_gate::global_ai_agent_gate().replace(settings.ai_agent);
 
     // The host's authoritative security policy, and the only path that commits
     // it or the locale durably. Every mode builds one; the modes with no worker
@@ -1635,13 +1633,13 @@ mod tests {
             "/api/admin/system/access-code-protection",
             "/api/desk/devices/{device_id}/connection",
             "/api/desk/signaling",
-            "/api/my/ai-assistant-session",
-            "/api/my/ai-assistant-session/permission-decision",
-            "/api/my/ai-assistant-session/skill-proposals",
-            "/api/my/ai-assistant-session/skill-proposal-decision",
-            "/api/my/ai-assistant-session/background-task/cancel",
-            "/api/my/ai-assistant-sessions",
-            "/api/my/ai-assistant-session/delete",
+            "/api/my/ai-agent-session",
+            "/api/my/ai-agent-session/permission-decision",
+            "/api/my/ai-agent-session/skill-proposals",
+            "/api/my/ai-agent-session/skill-proposal-decision",
+            "/api/my/ai-agent-session/background-task/cancel",
+            "/api/my/ai-agent-sessions",
+            "/api/my/ai-agent-session/delete",
             "/api/turn/info",
         ] {
             assert!(
@@ -1798,7 +1796,7 @@ mod tests {
                         desk_agent_protocol::exec_policy::DEFAULT_TIMEOUT_MS,
                     ),
                 },
-                ai_assistant_settings: desk_agent_protocol::ai_assistant::AiAssistantSettings {
+                ai_agent_settings: desk_agent_protocol::ai_agent::AiAgentSettings {
                     revision: 0,
                     enabled: false,
                 },

@@ -175,9 +175,9 @@ AI 推理由中心服务统一编排，被控设备只负责证据采集和最�
 - **默认只提出建议**：命令建议使用独立的授权流程，必须通过风险检查和黑名单检查，并由设备所有者逐条确认；服务端会固化获批的命令与参数，被控端再次核对不可变字段和风险上限后才会执行。
 - **保护隐私的审计**：模型调用、批准/拒绝、脱敏失败和执行结果会产生审计元数据与摘要；审计事件不保存原始提问、模型回复、stdout 或截图。
 
-**面向外部的 MCP 服务。** `mcp-stdio` 与内置AI 助手完全分离，只提供 `lcxbox_system_info`、`lcxbox_process_list`、`lcxbox_network_ports` 和 `lcxbox_recent_logs`。其中日志工具每次调用都会实时检查 `allow_logs`；MCP 不调用模型，也不提供截图、命令执行、远程控制或其他写入工具。
+**面向外部的 MCP 服务。** `mcp-stdio` 与内置AI 智能体完全分离，只提供 `lcxbox_system_info`、`lcxbox_process_list`、`lcxbox_network_ports` 和 `lcxbox_recent_logs`。其中日志工具每次调用都会实时检查 `allow_logs`；MCP 不调用模型，也不提供截图、命令执行、远程控制或其他写入工具。
 
-> 模型服务商配置与实际使用步骤请参考 [AI 诊断](docs/zh/features/ai-diagnostics.md)，信任边界、脱敏与审计的完整约束请参考 [AI 安全模型](docs/zh/security/ai-security-model.md)，外部助手接入方式请参考 [MCP 服务](docs/zh/features/mcp-server.md)。
+> 模型服务商配置与实际使用步骤请参考 [AI 诊断](docs/zh/features/ai-diagnostics.md)，信任边界、脱敏与审计的完整约束请参考 [AI 安全模型](docs/zh/security/ai-security-model.md)，外部智能体接入方式请参考 [MCP 服务](docs/zh/features/mcp-server.md)。
 
 ---
 
@@ -203,7 +203,7 @@ AI 推理由中心服务统一编排，被控设备只负责证据采集和最�
 - [x] 隐私屏与白板
 - [x] Windows service-daemon 虚拟屏
 - [x] 中心化 AI 故障诊断（OpenAI 兼容 / Anthropic）
-- [x] 面向外部 AI 助手的只读 MCP 服务
+- [x] 面向外部 AI 智能体的只读 MCP 服务
 - [x] 设备所有者逐条确认、服务端固化计划、被控端再次核验的 AI 命令执行
 - [ ] 移动端浏览体验优化
 - [ ] 远程会话录制

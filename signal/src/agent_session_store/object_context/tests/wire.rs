@@ -3,13 +3,13 @@
 
 use super::*;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_signal_facade::model::peer::{
     HostExecCapabilities, PeerInfo, ServerRegistration, SignalingPeer,
 };
 mod live_context;
 use crate::{control_authorizer::SignalControlAuthorizer, entity::model_probe_observation};
-use desk_agent_protocol::ai_assistant::AiAssistantObjectContextUpdated;
+use desk_agent_protocol::ai_agent::AiAgentObjectContextUpdated;
 use desk_diagnose_core::model_profile::WireProtocol;
 use desk_signal_facade::{
     model::{
@@ -47,8 +47,8 @@ async fn object_wire_replays_first_receipts_after_reconnect_and_model_removal() 
     let authorizer = Arc::new(SignalControlAuthorizer::new(
         store.db.clone(),
         map.clone(),
-        Arc::new(crate::ai_assistant_gate::AiAssistantGate::new(
-            desk_agent_protocol::ai_assistant::AiAssistantSettings {
+        Arc::new(crate::ai_agent_gate::AiAgentGate::new(
+            desk_agent_protocol::ai_agent::AiAgentSettings {
                 revision: 1,
                 enabled: true,
             },
@@ -126,11 +126,10 @@ async fn object_wire_replays_first_receipts_after_reconnect_and_model_removal() 
                                     exec_pty_elevation: false,
                                     max_ai_command_runtime_ms: None,
                                 },
-                                ai_assistant_settings:
-                                    desk_agent_protocol::ai_assistant::AiAssistantSettings {
-                                        revision: 0,
-                                        enabled: false,
-                                    },
+                                ai_agent_settings: desk_agent_protocol::ai_agent::AiAgentSettings {
+                                    revision: 0,
+                                    enabled: false,
+                                },
                             }),
                         })
                         .into_connection_model(
@@ -154,7 +153,7 @@ async fn object_wire_replays_first_receipts_after_reconnect_and_model_removal() 
                                             serde_json::from_str(&text).unwrap();
                                         assert_eq!(
                                             frame.signaling_type,
-                                            SignalingType::UpdateAiAssistantObjectContext
+                                            SignalingType::UpdateAiAgentObjectContext
                                         );
                                         assert!(matches!(
                                             authorizer.authorize(&actor, &map, &frame).await,
@@ -190,10 +189,10 @@ async fn object_wire_replays_first_receipts_after_reconnect_and_model_removal() 
 
     macro_rules! exchange {
         ($request:expr, $transport_id:expr) => {{
-            let update: &AiAssistantObjectContextUpdate = $request;
+            let update: &AiAgentObjectContextUpdate = $request;
             let frame = SignalingModel::new(
                 $transport_id,
-                SignalingType::UpdateAiAssistantObjectContext,
+                SignalingType::UpdateAiAgentObjectContext,
                 Some("untrusted-sender-is-ignored".into()),
                 Some("host".into()),
                 Some(serde_json::to_value(update).unwrap()),
@@ -217,10 +216,10 @@ async fn object_wire_replays_first_receipts_after_reconnect_and_model_removal() 
             assert_eq!(reply.request_id, $transport_id);
             assert_eq!(
                 reply.signaling_type,
-                SignalingType::AiAssistantObjectContextUpdated
+                SignalingType::AiAgentObjectContextUpdated
             );
             assert_eq!(reply.to_connection_id.as_deref(), Some("controller"));
-            let ack: AiAssistantObjectContextUpdated = reply.get_data().unwrap();
+            let ack: AiAgentObjectContextUpdated = reply.get_data().unwrap();
             assert_eq!(ack.conversation_id, update.conversation_id);
             assert_eq!(ack.client_request_id, update.client_request_id);
             ack
@@ -252,7 +251,7 @@ async fn object_wire_replays_first_receipts_after_reconnect_and_model_removal() 
     assert_eq!(row(&store).await, saved);
 
     let mut conflicting = original.update.clone();
-    if let AiAssistantObjectContextOperation::AttachTerminalOutput {
+    if let AiAgentObjectContextOperation::AttachTerminalOutput {
         display_summary, ..
     } = &mut conflicting.operation
     {
@@ -268,9 +267,9 @@ async fn object_wire_replays_first_receipts_after_reconnect_and_model_removal() 
     assert!(!rejected.changed && rejected.error.is_some());
     assert_eq!(row(&store).await, saved);
 
-    let detach = AiAssistantObjectContextUpdate {
+    let detach = AiAgentObjectContextUpdate {
         client_request_id: "detach".into(),
-        operation: AiAssistantObjectContextOperation::Detach {
+        operation: AiAgentObjectContextOperation::Detach {
             attachment_id: attachment.attachment_id.clone(),
         },
         ..original.update.clone()
@@ -298,7 +297,7 @@ async fn object_wire_replays_first_receipts_after_reconnect_and_model_removal() 
     anonymous.auth_context = AuthContext::anonymous(RemoteDeskTypeEnum::Browser);
     let frame = SignalingModel::new(
         "anonymous-retry",
-        SignalingType::UpdateAiAssistantObjectContext,
+        SignalingType::UpdateAiAgentObjectContext,
         None,
         Some("host".into()),
         Some(serde_json::to_value(&original.update).unwrap()),
@@ -322,9 +321,9 @@ async fn object_wire_replays_first_receipts_after_reconnect_and_model_removal() 
     assert_eq!(reply.request_id, "anonymous-retry");
     assert_eq!(
         reply.signaling_type,
-        SignalingType::AiAssistantObjectContextUpdated
+        SignalingType::AiAgentObjectContextUpdated
     );
-    let ack: AiAssistantObjectContextUpdated = reply.get_data().unwrap();
+    let ack: AiAgentObjectContextUpdated = reply.get_data().unwrap();
     assert!(!ack.changed && ack.error.is_some());
     assert_eq!(ack.conversation_id, original.update.conversation_id);
     assert_eq!(ack.client_request_id, original.update.client_request_id);

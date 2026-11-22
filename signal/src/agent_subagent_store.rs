@@ -1,7 +1,7 @@
 //! Durable delegation records and source controls, scoped to one owner and root.
 
 use crate::config::connection::DatabaseConnection;
-pub(crate) use desk_assistant_data_store::delegation_group::{
+pub(crate) use desk_agent_data_store::delegation_group::{
     admission_label, decode_group, group_children_on,
 };
 mod control;
@@ -100,9 +100,8 @@ use crate::entity::{
     agent_delegation_group as group_row, agent_goal_run as goal_row, agent_session as session_row,
     agent_subagent_run as run_row,
 };
-use desk_agent_protocol::ai_assistant::subagent::{
-    AiAssistantSubAgentPage, AiAssistantSubAgentResult, AiAssistantSubAgentSummary,
-    MAX_SUBAGENT_PAGE_SIZE,
+use desk_agent_protocol::ai_agent::subagent::{
+    AiAgentSubAgentPage, AiAgentSubAgentResult, AiAgentSubAgentSummary, MAX_SUBAGENT_PAGE_SIZE,
 };
 use desk_diagnose_core::{
     goal::GoalState,
@@ -135,7 +134,7 @@ fn invalid() -> DbErr {
     DbErr::Custom("delegated task is unavailable or its control state changed".into())
 }
 
-pub(crate) use desk_assistant_data_store::worker_request::decode_run;
+pub(crate) use desk_agent_data_store::worker_request::decode_run;
 
 /// A child's directory check at dispatch uses what its owner approves in the
 /// main conversation now, read inside the caller's transaction.
@@ -188,7 +187,7 @@ async fn parent_on_inner<C: ConnectionTrait + crate::config::ConfigConnection>(
     let session =
         Box::new(PersistedAgentSession::decode_json(&row.state_json).map_err(|_| invalid())?);
     if !session.agent_role.is_main()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || session.conversation_id != root
         || session.actor_id != actor
         || session.device_id != device
@@ -211,7 +210,7 @@ impl SubAgentStore {
         device: &str,
         cursor: Option<&str>,
         limit: u32,
-    ) -> Result<AiAssistantSubAgentPage, DbErr> {
+    ) -> Result<AiAgentSubAgentPage, DbErr> {
         if !(1..=MAX_SUBAGENT_PAGE_SIZE).contains(&limit) {
             return Err(invalid());
         }
@@ -252,7 +251,7 @@ impl SubAgentStore {
             None
         };
         txn.commit().await?;
-        Ok(AiAssistantSubAgentPage {
+        Ok(AiAgentSubAgentPage {
             items,
             total,
             unfinished,
@@ -267,7 +266,7 @@ impl SubAgentStore {
         actor: &str,
         device: &str,
         task_id: &str,
-    ) -> Result<AiAssistantSubAgentSummary, DbErr> {
+    ) -> Result<AiAgentSubAgentSummary, DbErr> {
         let txn = self.db.begin().await?;
         let task = owned_task_on(&txn, root, actor, device, task_id)
             .await?
@@ -283,10 +282,10 @@ impl SubAgentStore {
         device: &str,
         task_id: &str,
         before_report_seq: Option<u64>,
-    ) -> Result<AiAssistantSubAgentResult, DbErr> {
+    ) -> Result<AiAgentSubAgentResult, DbErr> {
         let txn = self.db.begin().await?;
         let task = owned_task_on(&txn, root, actor, device, task_id).await?;
-        let result = desk_assistant_data_store::worker_report::owner_result_on(
+        let result = desk_agent_data_store::worker_report::owner_result_on(
             &txn,
             &task,
             before_report_seq,
@@ -521,7 +520,7 @@ pub(crate) async fn replace_run_on<C: ConnectionTrait + crate::config::ConfigCon
 pub(crate) async fn check_child_action_on<C: ConnectionTrait + crate::config::ConfigConnection>(
     db: &C,
     session: &PersistedAgentSession,
-    fence: &desk_diagnose_core::action_turn_fence::AssistantTurnFence,
+    fence: &desk_diagnose_core::action_turn_fence::AgentTurnFence,
     now_ms: i64,
 ) -> Result<bool, DbErr> {
     let Some(binding) = session.agent_role.binding() else {

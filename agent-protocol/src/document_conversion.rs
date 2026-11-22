@@ -204,7 +204,7 @@ pub struct DocumentPreviewPageFrame {
 )]
 #[serde(deny_unknown_fields)]
 pub struct DocumentPreviewPageRequest {
-    pub conversation_target: crate::ai_assistant::AiAssistantConversationTarget,
+    pub conversation_target: crate::ai_agent::AiAgentConversationTarget,
     pub conversation_id: String,
     pub preview_id: String,
     pub page: u32,
@@ -377,7 +377,7 @@ mod tests {
     #[test]
     fn preview_page_request_is_versioned_and_bounded() {
         let valid = DocumentPreviewPageRequest {
-            conversation_target: crate::ai_assistant::AiAssistantConversationTarget::FixedDevice,
+            conversation_target: crate::ai_agent::AiAgentConversationTarget::FixedDevice,
             conversation_id: "conversation".into(),
             preview_id: "preview".into(),
             page: 1,

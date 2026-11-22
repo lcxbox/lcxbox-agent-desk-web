@@ -1,6 +1,6 @@
 //! Host-owned external connections. Public projections never include credentials.
 
-use desk_agent_protocol::ai_assistant::issue_subscription::IssueSubscriptionAccounts;
+use desk_agent_protocol::ai_agent::issue_subscription::IssueSubscriptionAccounts;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

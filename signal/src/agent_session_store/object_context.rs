@@ -3,7 +3,7 @@
 use super::*;
 use desk_agent_protocol::{
     ExecutionMode,
-    ai_assistant::{AiAssistantObjectContextOperation, AiAssistantObjectContextUpdate},
+    ai_agent::{AiAgentObjectContextOperation, AiAgentObjectContextUpdate},
     data_lineage::DestinationIdentity,
 };
 use desk_diagnose_core::{
@@ -20,7 +20,7 @@ pub struct UpdateObjectContext {
     pub run_id: String,
     pub actor_id: String,
     pub device_id: String,
-    pub update: AiAssistantObjectContextUpdate,
+    pub update: AiAgentObjectContextUpdate,
     pub destination: Option<DestinationIdentity>,
     pub created_at: String,
 }
@@ -41,18 +41,18 @@ struct Receipt {
     event: AgentRunEvent,
     actor_id: String,
     device_id: String,
-    update: AiAssistantObjectContextUpdate,
+    update: AiAgentObjectContextUpdate,
     changed: bool,
 }
 
 fn error() -> AgentError {
-    internal("AI Assistant object context receipt or subject is inconsistent")
+    internal("AI Agent object context receipt or subject is inconsistent")
 }
 
 fn storage_error(_: sea_orm::DbErr) -> AgentError {
     AgentError {
         retryable: true,
-        ..internal("AI Assistant object context storage is unavailable; retry the same request")
+        ..internal("AI Agent object context storage is unavailable; retry the same request")
     }
 }
 
@@ -92,7 +92,7 @@ impl SignalAgentSessionStore {
             || params.device_id.trim().is_empty()
             || (params.update.conversation_target.is_selectable()
                 && params.actor_id != crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string())
-            || self.surface != AgentSessionSurface::AiAssistant
+            || self.surface != AgentSessionSurface::AiAgent
             || self.client_conversation_id.as_deref()
                 != Some(params.update.conversation_id.as_str())
         {
@@ -189,10 +189,10 @@ impl SignalAgentSessionStore {
                 None => {
                     if !matches!(
                         params.update.operation,
-                        AiAssistantObjectContextOperation::AttachTerminalOutput { .. }
-                            | AiAssistantObjectContextOperation::AttachWindow { .. }
+                        AiAgentObjectContextOperation::AttachTerminalOutput { .. }
+                            | AiAgentObjectContextOperation::AttachWindow { .. }
                     ) {
-                        return Err(transport("AI Assistant attachment does not exist"));
+                        return Err(transport("AI Agent attachment does not exist"));
                     }
                     let mut session = PersistedAgentSession::new(
                         &params.run_id,
@@ -226,16 +226,16 @@ impl SignalAgentSessionStore {
             if session.turn_state.is_active() {
                 return Err(AgentError {
                     retryable: true,
-                    ..transport("AI Assistant context is busy")
+                    ..transport("AI Agent context is busy")
                 });
             }
             if params.update.conversation_target.is_selectable()
                 && !matches!(
                     params.update.operation,
-                    AiAssistantObjectContextOperation::Detach { .. }
+                    AiAgentObjectContextOperation::Detach { .. }
                 )
             {
-                use desk_assistant_data_store::device_roster::{lock, personal_selection_key};
+                use desk_agent_data_store::device_roster::{lock, personal_selection_key};
                 if crate::agent_run_event_store::eligible_request_device_ids(
                     &txn,
                     std::slice::from_ref(&params.device_id),
@@ -252,12 +252,12 @@ impl SignalAgentSessionStore {
                     .is_none_or(|roster| !roster.members.contains_key(&params.device_id))
                 {
                     return Err(transport(
-                        "attachment device is not selected for this assistant",
+                        "attachment device is not selected for this agent",
                     ));
                 }
             }
             let mutation = match &params.update.operation {
-                AiAssistantObjectContextOperation::Detach { attachment_id } => {
+                AiAgentObjectContextOperation::Detach { attachment_id } => {
                     ObjectContextMutation::Detach {
                         attachment_id: attachment_id.clone(),
                     }
@@ -363,7 +363,7 @@ impl SignalAgentSessionStore {
             txn.commit().await.map_err(storage_error)?;
             return Ok(changed);
         }
-        Err(transport("AI Assistant object context update conflicted"))
+        Err(transport("AI Agent object context update conflicted"))
     }
 }
 
@@ -421,7 +421,7 @@ impl SignalAgentSessionStore {
         params: &UpdateObjectContext,
     ) -> Result<(), AgentError> {
         use desk_agent_protocol::computer_use::ObjectKind;
-        let AiAssistantObjectContextOperation::AttachTerminalOutput {
+        let AiAgentObjectContextOperation::AttachTerminalOutput {
             object_ref,
             display_summary,
         } = &params.update.operation
@@ -429,7 +429,7 @@ impl SignalAgentSessionStore {
             return self.update_object_context(params).await.map(|_| ());
         };
         let mut seed = params.clone();
-        if let AiAssistantObjectContextOperation::AttachTerminalOutput { object_ref, .. } =
+        if let AiAgentObjectContextOperation::AttachTerminalOutput { object_ref, .. } =
             &mut seed.update.operation
         {
             object_ref.object_kind = ObjectKind::TerminalOutput;

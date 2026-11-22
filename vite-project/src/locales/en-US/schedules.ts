@@ -93,7 +93,7 @@ export default {
     "schedules.result.older": "Earlier messages",
     "schedules.result.thisRun": "Initial turn of this run",
     "schedules.result.role.user": "User",
-    "schedules.result.role.assistant": "Assistant",
+    "schedules.result.role.assistant": "Agent",
     "schedules.result.role.tool": "Tool",
     "schedules.result.role.other": "Message",
 
@@ -101,7 +101,7 @@ export default {
     "schedules.runIssue.misfire": "The scheduled time was missed.",
     "schedules.runIssue.device_offline_timeout": "The device stayed offline past the start deadline.",
     "schedules.runIssue.queue_timeout": "The task did not start before its deadline.",
-    "schedules.runIssue.active_goal_conflict": "The task could not start before its deadline because this conversation had an active AI Assistant goal.",
+    "schedules.runIssue.active_goal_conflict": "The task could not start before its deadline because this conversation had an active AI Agent goal.",
     "schedules.runIssue.executor_interrupted": "Execution was interrupted before the turn completed.",
     "schedules.runIssue.outcome_unknown": "The outcome needs reconciliation before further execution.",
     "schedules.runIssue.unavailable": "The reason is currently unavailable.",

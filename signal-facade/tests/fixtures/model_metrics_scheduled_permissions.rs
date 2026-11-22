@@ -17,7 +17,7 @@ async fn seed_observed_schedule_waits<C: sea_orm::ConnectionTrait>(
         let request=desk_diagnose_core::permission_tools::build_permission_request(
             &desk_diagnose_core::chat::ToolCall { id:"private-provider-call".into(),name:"request_permissions".into(),
                 arguments_json:r#"{"items":[{"item_id":"capture","tool_name":"read_current_screen","exact_input":{"display":"private-display"},"suggested_ttl_seconds":300,"suggested_max_uses":1,"reason":"private-owner-reason"}]}"#.into() },
-            &desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+            &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
             "server-scheduled-permission".into(),session.input_revision,chrono::Utc::now().to_rfc3339(),
         ).unwrap();
         aliases.push(ObservationAlias::permission_request(conversation,&request.request_id).unwrap());

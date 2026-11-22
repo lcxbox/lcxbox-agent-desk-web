@@ -260,7 +260,7 @@ mod tests {
         Capability, capability_provider::CapabilityBlockedReason,
         computer_use::ComputerUseReadinessReason,
     };
-    use desk_diagnose_core::ai_assistant::{
+    use desk_diagnose_core::ai_agent::{
         DESKTOP_UI_CAPABILITY_ID, DESKTOP_UI_PROVIDER_ID, WINDOWS_UIA_ADAPTER_ID,
         provider_readiness_reports,
     };

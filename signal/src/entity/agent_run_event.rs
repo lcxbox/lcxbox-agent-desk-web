@@ -1,7 +1,7 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// Append-only ordered facts for one dynamic AI Assistant run.
+/// Append-only ordered facts for one dynamic AI Agent run.
 ///
 /// Dispatch authority remains in `agent_action_item` / `agent_exec_task`; this
 /// table stores correlations and bounded event payloads only.

@@ -50,7 +50,7 @@ async fn native_skill_load_persists_first_party_text_and_only_projects_requested
         scope(),
         "2026-11-05T00:00:00Z",
     );
-    seed.surface = crate::session::AgentSessionSurface::AiAssistant;
+    seed.surface = crate::session::AgentSessionSurface::AiAgent;
     *sessions.inner.borrow_mut() = Some(seed);
     let mut load = tool_use("skill-body", crate::skills::LOAD_TOOL);
     load.tool_calls[0].arguments_json =
@@ -166,11 +166,11 @@ async fn pure_action_preview_completes_without_a_device_executor_on_both_entries
             PersistedAgentSession::new("conv", "actor", device, 1, scope(), "2026-11-05T00:00:00Z");
         seed.adopt_client_metadata(
             Some("client-conversation"),
-            crate::session::AgentSessionSurface::AiAssistant,
+            crate::session::AgentSessionSurface::AiAgent,
         );
         seed.input_revision = 1;
         seed.begin_focus_epoch(1, Vec::new()).unwrap();
-        seed.bind_assistant_input_targets(&[]).unwrap();
+        seed.bind_agent_input_targets(&[]).unwrap();
         let app = serde_json::json!({"token":"app","snapshot_id":"ui","object_kind":"application","expires_at":""});
         let target = serde_json::json!({"token":"button","snapshot_id":"ui","object_kind":"ui_element","expires_at":""});
         let node = |reference: serde_json::Value, role: &str| serde_json::json!({"object_ref":reference,"parent_index":null,"role":role,"name":"Calendar","value":null,"is_protected":false,"enabled":true,"supported_actions":["invoke"],"location":{"status":"unavailable"}});
@@ -178,7 +178,7 @@ async fn pure_action_preview_completes_without_a_device_executor_on_both_entries
             "inspect_desktop_ui",
             "ui-read",
             serde_json::json!({"queries":["Calendar"]}),
-            serde_json::json!({"ReadContext":{"DesktopUiInspect":{"snapshot_id":"ui","adapter":{"kind":"macos_accessibility","version":crate::ai_assistant::MACOS_ACCESSIBILITY_ADAPTER_VERSION},"nodes":[node(app,"application"),node(target,"button")],"truncated":false}}}),
+            serde_json::json!({"ReadContext":{"DesktopUiInspect":{"snapshot_id":"ui","adapter":{"kind":"macos_accessibility","version":crate::ai_agent::MACOS_ACCESSIBILITY_ADAPTER_VERSION},"nodes":[node(app,"application"),node(target,"button")],"truncated":false}}}),
         );
         for message in &mut seed.conversation {
             if message.role == ChatRole::Assistant {
@@ -197,7 +197,7 @@ async fn pure_action_preview_completes_without_a_device_executor_on_both_entries
         }
         seed.ui_references.observe(&seed.conversation).unwrap();
         *sessions.inner.borrow_mut() = Some(seed);
-        let mut preview = tool_use("preview", crate::ai_assistant::PREVIEW_COMPUTER_ACTION_TOOL);
+        let mut preview = tool_use("preview", crate::ai_agent::PREVIEW_COMPUTER_ACTION_TOOL);
         preview.tool_calls[0].arguments_json = serde_json::json!({"risk":"low","reversible":true,"data_egress":false,"actions":[{"target_id":"e1","action":{"adapter":"ui_in_application","action":{"application_id":"a1","action":{"kind":"invoke"}}},"before_summary":"Button observed","after_intent":"requested change","verification":"Read panel state"}]}).to_string();
         let model = SkillModel(ScriptModel {
             turns: RefCell::new([preview, answer("done")].into()),
@@ -207,7 +207,7 @@ async fn pure_action_preview_completes_without_a_device_executor_on_both_entries
             calls: Rc::new(RefCell::new(vec![])),
             reply: "unused".into(),
         };
-        let registry = crate::assistant_policy::targetless_web_internal_tools();
+        let registry = crate::agent_policy::targetless_web_internal_tools();
         let clock = || "2026-11-05T00:00:00Z".to_string();
         let mut params = claim();
         params.device_id = device.into();

@@ -5,7 +5,7 @@ use crate::config::connection::DatabaseTransaction;
 use crate::entity::{
     agent_action_item, agent_exec_task, agent_goal_run as goal_row, agent_run_event, agent_session,
 };
-use desk_assistant_data_store::schedule::session::{
+use desk_agent_data_store::schedule::session::{
     ActionClass, ActionFilter, ActionView, LockError, NativeDisposition, OrgMode,
     ScheduleHostStores, ScheduleLocks, SessionGuard, SessionKey, SessionPatch, SessionRow,
     SessionRows, TouchColumn,
@@ -169,7 +169,7 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
     }
 
     type Action = agent_action_item::Model;
-    type NativeScope = crate::assistant_data_store::NativeStatusScope;
+    type NativeScope = crate::agent_data_store::NativeStatusScope;
 
     async fn find_actions(
         &self,
@@ -271,7 +271,7 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
         request_id: &str,
         now_ms: i64,
     ) -> Result<(), LockError> {
-        let now = desk_assistant_data_store::schedule::session::timestamp(now_ms)
+        let now = desk_agent_data_store::schedule::session::timestamp(now_ms)
             .map_err(|_| LockError::Denied)?;
         crate::agent_session_store::permission_resume::close_fresh_wait_decision_on(
             txn, session, request_id, now,
@@ -287,7 +287,7 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
         session: &mut PersistedAgentSession,
         now_ms: i64,
     ) -> Result<bool, ScheduleStoreError> {
-        let now = desk_assistant_data_store::schedule::session::timestamp(now_ms)?;
+        let now = desk_agent_data_store::schedule::session::timestamp(now_ms)?;
         let context = super::TaskReceiptContext::load(txn, work).await?;
         let finished_at = now.to_rfc3339();
         Ok(desk_diagnose_core::future::send_phase(|| {
@@ -308,7 +308,7 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
         device: &str,
         root: &str,
     ) -> Result<Option<Box<Self::NativeScope>>, DbErr> {
-        crate::assistant_data_store::native_scope_on(txn, actor, device, root).await
+        crate::agent_data_store::native_scope_on(txn, actor, device, root).await
     }
 
     async fn capture_native_scope(
@@ -378,7 +378,7 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
         session: &PersistedAgentSession,
         now_ms: i64,
     ) -> Result<(), LockError> {
-        let now = desk_assistant_data_store::schedule::session::timestamp(now_ms)
+        let now = desk_agent_data_store::schedule::session::timestamp(now_ms)
             .map_err(|_| LockError::Denied)?;
         crate::agent_session_store::permission_resume::settle_scheduled_decision_on(
             txn, session, now,
@@ -394,7 +394,7 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
         request_id: &str,
         now_ms: i64,
     ) -> Result<(), LockError> {
-        let now = desk_assistant_data_store::schedule::session::timestamp(now_ms)
+        let now = desk_agent_data_store::schedule::session::timestamp(now_ms)
             .map_err(|_| LockError::Denied)?;
         crate::agent_session_store::permission_resume::settle_fresh_decision_on(
             txn, session, request_id, now,
@@ -619,7 +619,7 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
         request_id: &str,
         now_ms: i64,
     ) -> Result<(), ScheduleStoreError> {
-        let timestamp = desk_assistant_data_store::schedule::session::timestamp(now_ms)?;
+        let timestamp = desk_agent_data_store::schedule::session::timestamp(now_ms)?;
         crate::agent_session_store::permission_resume::close_wait_decision_on(
             txn, session, request_id, timestamp,
         )
@@ -645,7 +645,7 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
         grants: &[desk_agent_protocol::capability_grant::CapabilityGrant],
         now_ms: i64,
     ) -> Result<(), LockError> {
-        let now = desk_assistant_data_store::schedule::session::timestamp(now_ms)
+        let now = desk_agent_data_store::schedule::session::timestamp(now_ms)
             .map_err(|_| LockError::Denied)?;
         crate::agent_session_store::permission_resume::consume_scheduled_decision_on(
             txn, session, request_id, grants, now,
@@ -654,11 +654,11 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
         .map_err(|_| LockError::Denied)
     }
 
-    async fn assistant_data_limits(
+    async fn agent_data_limits(
         &self,
         txn: &DatabaseTransaction,
-    ) -> Result<Box<desk_agent_protocol::ai_assistant::limits::AssistantDataLimits>, DbErr> {
-        Ok(crate::assistant_data_config::policy(txn).await.limits)
+    ) -> Result<Box<desk_agent_protocol::ai_agent::limits::AgentDataLimits>, DbErr> {
+        Ok(crate::agent_data_config::policy(txn).await.limits)
     }
 
     async fn initialize_continuation_group(
@@ -709,13 +709,13 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
         txn: &DatabaseTransaction,
         owner: i32,
     ) -> Result<
-        desk_agent_protocol::ai_assistant::user_instructions::UserInstructions,
-        desk_assistant_data_store::AssistantStoreError,
+        desk_agent_protocol::ai_agent::user_instructions::UserInstructions,
+        desk_agent_data_store::AgentStoreError,
     > {
         use crate::config::ConfigConnection;
         let actor = owner.to_string();
-        crate::assistant_data_store::ensure_runtime_on(txn, &actor).await?;
-        Ok(txn.config_read().await.assistant_user_instructions.clone())
+        crate::agent_data_store::ensure_runtime_on(txn, &actor).await?;
+        Ok(txn.config_read().await.agent_user_instructions.clone())
     }
 
     async fn record_prompt_retention(
@@ -758,8 +758,8 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
         parent: &desk_diagnose_core::chat::ChatMessage,
     ) -> Result<
         Option<(
-            desk_agent_protocol::ai_assistant::source::SourceUsePolicy,
-            desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy,
+            desk_agent_protocol::ai_agent::source::SourceUsePolicy,
+            desk_diagnose_core::ai_agent::source_registry::NativeDerivedInputPolicy,
         )>,
         ScheduleStoreError,
     > {
@@ -869,9 +869,9 @@ fn action_view(model: agent_action_item::Model) -> ActionView<agent_action_item:
 /// Applies a shared rule's commit or rollback decision to its transaction.
 pub(super) async fn finish<T>(
     txn: crate::config::connection::DatabaseTransaction,
-    decision: desk_assistant_data_store::schedule::session::Finish<T>,
+    decision: desk_agent_data_store::schedule::session::Finish<T>,
 ) -> Result<T, ScheduleStoreError> {
-    use desk_assistant_data_store::schedule::session::Finish;
+    use desk_agent_data_store::schedule::session::Finish;
     match decision {
         Finish::Commit(value) => {
             txn.commit().await?;

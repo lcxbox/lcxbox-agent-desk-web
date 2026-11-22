@@ -74,7 +74,7 @@ describe("SettingsOverview AI settings placement", () => {
         const c = renderFor("default")
         const cards = [
             ["approval-model", "Configure and test the independent model for AI automatic approval."],
-            ["web-search", "Choose the web search service for the AI Assistant."],
+            ["web-search", "Choose the web search service for the AI Agent."],
             ["schedule-budget", "Set runtime budget limits for independent automatic tasks."],
             ["goal-budget", "Set runtime budget limits for long-running goals."],
             ["context-management", "Choose summary and trimming settings for long conversations."],

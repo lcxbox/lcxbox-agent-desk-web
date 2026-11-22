@@ -31,20 +31,20 @@ fn raw(config: &GlobalConfig) -> Result<Map<String, Value>, DbErr> {
             value(&config.context_management)?,
         ),
         (
-            "assistant_data_policy".into(),
-            value(&config.assistant_data_policy)?,
+            "agent_data_policy".into(),
+            value(&config.agent_data_policy)?,
         ),
         (
-            "assistant_data_settings".into(),
-            value(&config.assistant_data_settings)?,
+            "agent_data_settings".into(),
+            value(&config.agent_data_settings)?,
         ),
         (
-            "assistant_user_instructions".into(),
-            value(&config.assistant_user_instructions)?,
+            "agent_user_instructions".into(),
+            value(&config.agent_user_instructions)?,
         ),
         (
-            "assistant_bundled_skills".into(),
-            value(&config.assistant_bundled_skills)?,
+            "agent_bundled_skills".into(),
+            value(&config.agent_bundled_skills)?,
         ),
         ("subagent_policy".into(), value(&config.subagent_policy)?),
         (
@@ -224,23 +224,17 @@ impl<'de> Deserialize<'de> for GlobalConfig {
                 .map_err(serde::de::Error::custom)?,
             issue_connections: decode(take("issue_connections"), "issue_connections")
                 .map_err(serde::de::Error::custom)?,
-            assistant_data_policy: decode(take("assistant_data_policy"), "assistant_data_policy")
+            agent_data_policy: decode(take("agent_data_policy"), "agent_data_policy")
                 .map_err(serde::de::Error::custom)?,
-            assistant_data_settings: decode(
-                take("assistant_data_settings"),
-                "assistant_data_settings",
+            agent_data_settings: decode(take("agent_data_settings"), "agent_data_settings")
+                .map_err(serde::de::Error::custom)?,
+            agent_user_instructions: decode(
+                take("agent_user_instructions"),
+                "agent_user_instructions",
             )
             .map_err(serde::de::Error::custom)?,
-            assistant_user_instructions: decode(
-                take("assistant_user_instructions"),
-                "assistant_user_instructions",
-            )
-            .map_err(serde::de::Error::custom)?,
-            assistant_bundled_skills: decode(
-                take("assistant_bundled_skills"),
-                "assistant_bundled_skills",
-            )
-            .map_err(serde::de::Error::custom)?,
+            agent_bundled_skills: decode(take("agent_bundled_skills"), "agent_bundled_skills")
+                .map_err(serde::de::Error::custom)?,
             context_management: decode(take("context_management"), "context_management")
                 .map_err(serde::de::Error::custom)?,
             terminal_completion: decode(take("terminal_completion"), "terminal_completion")
@@ -377,10 +371,10 @@ pub(super) fn revision(config: &GlobalConfig, key: &str) -> String {
         "web_search" => config.web_search.revision.to_string(),
         "issue_connections" => config.issue_connections.revision.to_string(),
         "context_management" => config.context_management.revision.to_string(),
-        "assistant_data_policy" => config.assistant_data_policy.revision.to_string(),
-        "assistant_data_settings" => config.assistant_data_settings.revision.to_string(),
-        "assistant_user_instructions" => config.assistant_user_instructions.revision.to_string(),
-        "assistant_bundled_skills" => config.assistant_bundled_skills.revision.to_string(),
+        "agent_data_policy" => config.agent_data_policy.revision.to_string(),
+        "agent_data_settings" => config.agent_data_settings.revision.to_string(),
+        "agent_user_instructions" => config.agent_user_instructions.revision.to_string(),
+        "agent_bundled_skills" => config.agent_bundled_skills.revision.to_string(),
         "device_codes" => config.device_codes.revision.to_string(),
         "access_code_protection" => config.access_code_protection.revision.to_string(),
         "terminal_completion" => config.terminal_completion.revision.to_string(),
@@ -450,10 +444,10 @@ pub(super) fn advance_revision(
             "web_search" => config.web_search.revision = next,
             "issue_connections" => config.issue_connections.revision = next,
             "context_management" => config.context_management.revision = next,
-            "assistant_data_policy" => config.assistant_data_policy.revision = next,
-            "assistant_data_settings" => config.assistant_data_settings.revision = next,
-            "assistant_user_instructions" => config.assistant_user_instructions.revision = next,
-            "assistant_bundled_skills" => config.assistant_bundled_skills.revision = next,
+            "agent_data_policy" => config.agent_data_policy.revision = next,
+            "agent_data_settings" => config.agent_data_settings.revision = next,
+            "agent_user_instructions" => config.agent_user_instructions.revision = next,
+            "agent_bundled_skills" => config.agent_bundled_skills.revision = next,
             "device_codes" => config.device_codes.revision = next,
             "access_code_protection" => config.access_code_protection.revision = next,
             "terminal_completion" => config.terminal_completion.revision = next,

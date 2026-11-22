@@ -11,7 +11,7 @@ function input(): ObservationRecord {
         id: 'root.tool.0', call_id: 'root', tool_observation_id: null, kind: 'tool',
         started_at: '2026-10-08T00:00:00Z', updated_at: '2026-10-08T00:00:01Z',
         provider_id: 'provider', model_id: 'model', model_name: 'Selected model',
-        purpose: 'agent', surface: 'assistant', origin: 'user', configuration_scope: 'local',
+        purpose: 'agent', surface: 'agent', origin: 'user', configuration_scope: 'local',
         configuration_revision: '1', contract_revision: '1', protocol: 'open_ai_chat_completions',
         outcome: 'rejected', not_started_reason: null, output: null, tool: 'request_permissions', ordinal: 0,
         input_conclusion: 'rejected', input_issue: 'type', schema_path: null,

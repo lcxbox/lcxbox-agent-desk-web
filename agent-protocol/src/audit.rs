@@ -851,7 +851,7 @@ impl Capability {
             Capability::WebResearchFetch => "web.research.fetch",
             Capability::WebResearchSearch => "web.research.search",
             Capability::TerminalOutputRead => "terminal.output.read",
-            Capability::AssistantActionPreview => "assistant.action.preview",
+            Capability::AgentActionPreview => "agent.action.preview",
             Capability::ShellExecReadonly => "shell.exec.readonly",
             Capability::ShellExecConfirmed => "shell.exec.confirmed",
             Capability::DesktopUiActionConfirmed => "desktop.ui.action.confirmed",

@@ -1,0 +1,84 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { AgentCapabilityList } from './agent-capability-list';
+import type { CapabilityInventoryEntry } from './use-ai-agent-capabilities';
+import zh from '@/locales/zh-CN/pages';
+
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: { defaultValue?: string }) =>
+    key.startsWith('agent.capability') ? (zh as Record<string, string>)[key] ?? options?.defaultValue ?? key : options?.defaultValue ?? key }) }));
+
+const entry = (id: string, ready: boolean, reason: CapabilityInventoryEntry['reason']): CapabilityInventoryEntry => ({
+    provider_id: 'browser.control', provider_display_name_key: 'provider.browser', provider_version: 1,
+    capability: { capability_id: id, tool_name: `tool_${id}`, display_name_key: `capability.${id}`,
+        effect: 'read_device', execution_locality: 'edge', execution_policy: 'inline_only',
+        limits: { max_input_bytes: 1, max_output_bytes: 2, max_objects: 3, hard_timeout_ms: 4 } },
+    context_selectable: true, selectable_device_context: false, compiled: true, enabled: true, connected: true, ready, reason,
+});
+
+describe('complete device capability inventory', () => {
+    it('shows Word batch names, replacement limits and unavailable state without starting an action', () => {
+        const read = entry('office.docx.batch.inspect', true, null);
+        read.provider_id = 'office.docx.batch';
+        read.capability.display_name_key = 'agent.capability.wordBatchInspect';
+        read.capability.tool_name = 'inspect_word_file';
+        read.capability.effect = 'read_file';
+        const write = entry('office.docx.batch.patch', false, 'permission_missing');
+        write.provider_id = 'office.docx.batch';
+        write.capability.display_name_key = 'agent.capability.wordBatchPatch';
+        write.capability.tool_name = 'replace_word_copy_body';
+        write.capability.effect = 'mutate_application';
+        write.context_selectable = false;
+        const refresh = vi.fn();
+        render(<AgentCapabilityList entries={[read, write]} loading={false} error={false} refreshDisabled={false} onRefresh={refresh} />);
+        expect(screen.getByText(zh['agent.capability.wordBatchInspect'])).toBeTruthy();
+        expect(screen.getByText(zh['agent.capability.wordBatchPatch'])).toBeTruthy();
+        expect(screen.getByText(zh['agent.capabilityDescription.wordBatchPatch'])).toBeTruthy();
+        expect(screen.getByText('permission_missing')).toBeTruthy();
+        expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+        expect(refresh).not.toHaveBeenCalled();
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: '图片' } });
+        expect(screen.getByText('office.docx.batch.patch')).toBeTruthy();
+        expect(screen.queryByText('office.docx.batch.inspect')).toBeNull();
+    });
+    it('shows the original key alongside localized name and searchable description', () => {
+        const command = entry('system.command.execute', true, null);
+        command.capability.display_name_key = 'agent.capability.systemCommandExecute';
+        render(<AgentCapabilityList entries={[command]} loading={false} error={false} refreshDisabled={false} onRefresh={() => {}} />);
+        expect(screen.getByText('执行命令')).toBeTruthy();
+        expect(screen.getByText('system.command.execute').tagName).toBe('CODE');
+        expect(screen.getByText(zh['agent.capabilityDescription.systemCommandExecute'])).toBeTruthy();
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: '修改文件' } });
+        expect(screen.getByText('system.command.execute')).toBeTruthy();
+    });
+
+    it('includes unavailable entries, reasons and ready entries without selecting or executing anything', () => {
+        const refresh = vi.fn();
+        render(<AgentCapabilityList entries={[entry('ready', true, null), entry('permission', false, 'permission_missing'), entry('unsupported', false, 'unsupported_platform')]}
+            loading={false} error={false} refreshDisabled={false} onRefresh={refresh} />);
+        expect(screen.getByText('permission_missing')).toBeTruthy();
+        expect(screen.getByText('unsupported_platform')).toBeTruthy();
+        expect(screen.getAllByText('ready', { exact: true }).length).toBeGreaterThan(0);
+        expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+        expect(refresh).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.refreshCapabilities' }));
+        expect(refresh).toHaveBeenCalledOnce();
+    });
+
+    it('searches unavailable reasons without changing the underlying inventory', () => {
+        const entries = [entry('one', true, null), entry('two', false, 'permission_missing')];
+        render(<AgentCapabilityList entries={entries} loading={false} error={false} refreshDisabled={false} onRefresh={() => {}} />);
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'permission_missing' } });
+        expect(screen.getAllByText('two', { exact: true }).length).toBeGreaterThan(0);
+        expect(screen.queryAllByText('one', { exact: true })).toHaveLength(0);
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: '' } });
+        expect(screen.getAllByText('one', { exact: true }).length).toBeGreaterThan(0);
+        expect(entries).toHaveLength(2);
+    });
+
+    it('keeps errors distinct from an empty inventory and disables offline refresh', () => {
+        render(<AgentCapabilityList entries={[]} loading={false} error refreshDisabled onRefresh={() => {}} />);
+        expect(screen.getByRole('alert').textContent).toContain('capabilityLoadError');
+        expect(screen.queryByText('pages.aiAgent.capabilityEmpty')).toBeNull();
+        expect((screen.getByRole('button') as HTMLButtonElement).disabled).toBe(true);
+    });
+});

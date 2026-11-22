@@ -41,8 +41,7 @@ pub fn observed_output(
         if envelope.validate().is_err()
             || crate::model_egress::envelope_expires_by(envelope, now_unix_ms)
             || envelope.provenance.source_tool_name != crate::tool_names::READ_CURRENT_SCREEN
-            || envelope.provenance.source_provider_id
-                != crate::ai_assistant::CURRENT_SCREEN_PROVIDER_ID
+            || envelope.provenance.source_provider_id != crate::ai_agent::CURRENT_SCREEN_PROVIDER_ID
             || envelope.content.size_bytes() != message.text.len() as u64
         {
             continue;

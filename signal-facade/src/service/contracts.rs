@@ -44,17 +44,17 @@ pub fn signaling_role(t: SignalingType) -> SignalingRole {
         | SignalingType::ResolveExecution
         | SignalingType::ExecuteEdgePlan
         | SignalingType::InvokeRemoteTool
-        | SignalingType::AskTerminalAiAssistant
+        | SignalingType::AskTerminalAiAgent
         | SignalingType::GenerateTerminalCompletions
         | SignalingType::ControlExecution
         | SignalingType::DispatchComputerAction
         | SignalingType::CancelComputerAction
         | SignalingType::QueryComputerActionState
-        | SignalingType::AskAiAssistant
-        | SignalingType::GetAiAssistantCapabilities
-        | SignalingType::UpdateAiAssistantContext
-        | SignalingType::UpdateAiAssistantObjectContext
-        | SignalingType::SelectAiAssistantSession
+        | SignalingType::AskAiAgent
+        | SignalingType::GetAiAgentCapabilities
+        | SignalingType::UpdateAiAgentContext
+        | SignalingType::UpdateAiAgentObjectContext
+        | SignalingType::SelectAiAgentSession
         | SignalingType::QueryComputerActionTurn
         | SignalingType::ManageScheduledTasks
         | SignalingType::RequestDocumentPreviewPage
@@ -84,17 +84,17 @@ pub fn signaling_role(t: SignalingType) -> SignalingRole {
         | SignalingType::ExecutionCompleted
         | SignalingType::EdgeExecutionCompleted
         | SignalingType::RemoteToolOutputUpdated
-        | SignalingType::TerminalAiAssistantUpdated
+        | SignalingType::TerminalAiAgentUpdated
         | SignalingType::TerminalCompletionsGenerated
         | SignalingType::ExecutionStateReported
         | SignalingType::ComputerActionStarted
         | SignalingType::ComputerActionCompleted
         | SignalingType::ComputerActionStateReported
-        | SignalingType::AiAssistantUpdated
-        | SignalingType::AiAssistantCapabilitiesUpdated
-        | SignalingType::AiAssistantContextUpdated
-        | SignalingType::AiAssistantObjectContextUpdated
-        | SignalingType::AiAssistantSessionSelected
+        | SignalingType::AiAgentUpdated
+        | SignalingType::AiAgentCapabilitiesUpdated
+        | SignalingType::AiAgentContextUpdated
+        | SignalingType::AiAgentObjectContextUpdated
+        | SignalingType::AiAgentSessionSelected
         | SignalingType::ComputerActionTurnStatus
         | SignalingType::ScheduledTasksManaged
         | SignalingType::DocumentPreviewPageUpdated
@@ -109,10 +109,10 @@ pub fn signaling_role(t: SignalingType) -> SignalingRole {
         | SignalingType::CloseTerminal
         | SignalingType::ReportAiAuditEvent
         | SignalingType::SyncCommandTemplates
-        | SignalingType::CancelTerminalAiAssistant
+        | SignalingType::CancelTerminalAiAgent
         | SignalingType::SyncCommandBlocklist
-        | SignalingType::CancelAiAssistant
-        | SignalingType::UpdateAiAssistantSettings => Command,
+        | SignalingType::CancelAiAgent
+        | SignalingType::UpdateAiAgentSettings => Command,
 
         SignalingType::ConnectionRemoved
         | SignalingType::PrivateScreenStateChanged
@@ -163,7 +163,7 @@ pub fn response_type_for_request(t: SignalingType) -> Option<SignalingType> {
         SignalingType::ResolveExecution => SignalingType::ExecutionCompleted,
         SignalingType::ExecuteEdgePlan => SignalingType::EdgeExecutionCompleted,
         SignalingType::InvokeRemoteTool => SignalingType::RemoteToolOutputUpdated,
-        SignalingType::AskTerminalAiAssistant => SignalingType::TerminalAiAssistantUpdated,
+        SignalingType::AskTerminalAiAgent => SignalingType::TerminalAiAgentUpdated,
         SignalingType::GenerateTerminalCompletions => SignalingType::TerminalCompletionsGenerated,
         SignalingType::ControlExecution => SignalingType::ExecutionStateReported,
         SignalingType::DispatchComputerAction => SignalingType::ComputerActionCompleted,
@@ -171,13 +171,11 @@ pub fn response_type_for_request(t: SignalingType) -> Option<SignalingType> {
             SignalingType::ComputerActionStateReported
         }
         SignalingType::QueryComputerActionTurn => SignalingType::ComputerActionTurnStatus,
-        SignalingType::AskAiAssistant => SignalingType::AiAssistantUpdated,
-        SignalingType::GetAiAssistantCapabilities => SignalingType::AiAssistantCapabilitiesUpdated,
-        SignalingType::UpdateAiAssistantContext => SignalingType::AiAssistantContextUpdated,
-        SignalingType::UpdateAiAssistantObjectContext => {
-            SignalingType::AiAssistantObjectContextUpdated
-        }
-        SignalingType::SelectAiAssistantSession => SignalingType::AiAssistantSessionSelected,
+        SignalingType::AskAiAgent => SignalingType::AiAgentUpdated,
+        SignalingType::GetAiAgentCapabilities => SignalingType::AiAgentCapabilitiesUpdated,
+        SignalingType::UpdateAiAgentContext => SignalingType::AiAgentContextUpdated,
+        SignalingType::UpdateAiAgentObjectContext => SignalingType::AiAgentObjectContextUpdated,
+        SignalingType::SelectAiAgentSession => SignalingType::AiAgentSessionSelected,
         SignalingType::RequestDocumentPreviewPage => SignalingType::DocumentPreviewPageUpdated,
         _ => return None,
     })
@@ -214,16 +212,16 @@ pub fn response_types_for_request(t: SignalingType) -> &'static [SignalingType] 
         ResolveExecution => &[ExecutionCompleted],
         ExecuteEdgePlan => &[EdgeExecutionCompleted],
         InvokeRemoteTool => &[RemoteToolOutputUpdated],
-        AskTerminalAiAssistant => &[TerminalAiAssistantUpdated],
+        AskTerminalAiAgent => &[TerminalAiAgentUpdated],
         GenerateTerminalCompletions => &[TerminalCompletionsGenerated],
         ControlExecution => &[ExecutionStateReported],
         DispatchComputerAction => &[ComputerActionStarted, ComputerActionCompleted],
         CancelComputerAction | QueryComputerActionState => &[ComputerActionStateReported],
-        AskAiAssistant => &[AiAssistantUpdated],
-        GetAiAssistantCapabilities => &[AiAssistantCapabilitiesUpdated],
-        UpdateAiAssistantContext => &[AiAssistantContextUpdated],
-        UpdateAiAssistantObjectContext => &[AiAssistantObjectContextUpdated],
-        SelectAiAssistantSession => &[AiAssistantSessionSelected],
+        AskAiAgent => &[AiAgentUpdated],
+        GetAiAgentCapabilities => &[AiAgentCapabilitiesUpdated],
+        UpdateAiAgentContext => &[AiAgentContextUpdated],
+        UpdateAiAgentObjectContext => &[AiAgentObjectContextUpdated],
+        SelectAiAgentSession => &[AiAgentSessionSelected],
         RequestDocumentPreviewPage => &[DocumentPreviewPageUpdated],
         QueryComputerActionTurn => &[ComputerActionTurnStatus],
         _ => &[],

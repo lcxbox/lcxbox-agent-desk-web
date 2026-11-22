@@ -119,14 +119,14 @@ async fn prepare_on_inner(
     let mut session = PersistedAgentSession::decode_json(&row.state_json).map_err(|_| invalid())?;
     session.version = row.version;
     if session.device_id != row.device_id
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || !session.turn_state.is_active()
         || !session.allows_delegated_review()
         || session.current_turn_id.as_deref() != Some(subject.turn_id)
         || session.conversation_id != subject.conversation_id
         || session.actor_id != subject.actor_id
         || (if session.device_id.is_empty() {
-            !session.admits_assistant_device(subject.device_id)
+            !session.admits_agent_device(subject.device_id)
         } else {
             session.device_id != subject.device_id
         })

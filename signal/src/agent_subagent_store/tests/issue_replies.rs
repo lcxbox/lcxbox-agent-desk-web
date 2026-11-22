@@ -1,5 +1,5 @@
 use super::*;
-use desk_assistant_data_store::{entity::agent_issue_reply as reply, issue_reply};
+use desk_agent_data_store::{entity::agent_issue_reply as reply, issue_reply};
 use desk_diagnose_core::{
     external_tools::{IssueAccess, IssueTarget},
     issue_reply::ReplyOrigin,
@@ -121,13 +121,13 @@ async fn native_request_stop_keeps_a_prior_delivery_from_the_same_executor() {
 
 #[tokio::test]
 async fn explicit_stop_all_cancels_delivery_after_worker_execution_finished() {
-    use desk_agent_protocol::ai_assistant::subagent::{AiAssistantStopControl, SubAgentStopChoice};
+    use desk_agent_protocol::ai_agent::subagent::{AiAgentStopControl, SubAgentStopChoice};
     let db = database().await;
     let (parent, _) = super::creation::runnable_parent(&db).await;
     let completed = seed(&db, "completed-executor", "root").await;
     let other = seed(&db, "other-executor", "other-root").await;
     let store = SubAgentStore::new(db.clone());
-    let control = AiAssistantStopControl {
+    let control = AiAgentStopControl {
         client_request_id: "stop-completed-delivery".into(),
         expected_input_revision: parent.input_revision,
         expected_control_revision: parent.control_revision,

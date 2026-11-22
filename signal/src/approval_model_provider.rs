@@ -399,7 +399,7 @@ mod tests {
     #[tokio::test]
     async fn empty_context_owner_can_open_approval_without_input_or_model_tests() {
         use crate::agent_session_store::{SignalAgentSessionStore, UpdateLiveContext};
-        use desk_agent_protocol::ai_assistant::AiAssistantContextUpdate;
+        use desk_agent_protocol::ai_agent::AiAgentContextUpdate;
         use desk_diagnose_core::seam::SessionSeam;
         use desk_diagnose_core::{
             live_context::ContextSelectionClaim, session::AgentSessionSurface,
@@ -432,15 +432,16 @@ mod tests {
         let now = chrono::Utc::now();
         let store = SignalAgentSessionStore::new(db.clone()).with_client_metadata(
             Some("empty-client-conversation".into()),
-            AgentSessionSurface::AiAssistant,
+            AgentSessionSurface::AiAgent,
         );
         store
             .update_live_context(&UpdateLiveContext {
                 run_id: "conversation".into(),
                 actor_id: "1".into(),
                 device_id: "device".into(),
-                update: AiAssistantContextUpdate {
-                    conversation_target: desk_agent_protocol::ai_assistant::AiAssistantConversationTarget::FixedDevice,
+                update: AiAgentContextUpdate {
+                    conversation_target:
+                        desk_agent_protocol::ai_agent::AiAgentConversationTarget::FixedDevice,
                     conversation_id: "empty-client-conversation".into(),
                     client_request_id: "initialize-empty".into(),
                     selected_capability_ids: vec![],
@@ -503,9 +504,8 @@ mod tests {
                 client_conversation_id: Some("empty-client-conversation".into()),
                 actor_id: "1".into(),
                 device_id: "device".into(),
-                surface: AgentSessionSurface::AiAssistant,
-                policy_revision:
-                    desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+                surface: AgentSessionSurface::AiAgent,
+                policy_revision: desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
                 current_scope: saved.scope_snapshot,
                 read_context: None,
                 message,
@@ -522,8 +522,7 @@ mod tests {
                 conversation_id: "conversation".into(),
                 actor_id: "1".into(),
                 device_id: "device".into(),
-                policy_revision:
-                    desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+                policy_revision: desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
                 current_pdp_scope: started.scope_snapshot,
                 turn_id: "first-turn".into(),
                 request_id: Some("first-request".into()),
@@ -535,7 +534,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             claimed.policy_revision,
-            desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION
+            desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION
         );
         assert!(claimed.scope_snapshot.granted.is_empty());
         assert!(

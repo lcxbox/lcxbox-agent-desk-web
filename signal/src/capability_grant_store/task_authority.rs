@@ -52,7 +52,7 @@ pub(super) async fn match_current_on(
             })
             .await?
         } else {
-            let fence = desk_diagnose_core::action_turn_fence::AssistantTurnFence::for_device(
+            let fence = desk_diagnose_core::action_turn_fence::AgentTurnFence::for_device(
                 session,
                 call.target_device_id,
             )

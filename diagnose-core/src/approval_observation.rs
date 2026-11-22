@@ -246,7 +246,7 @@ impl ReviewTracking {
             },
             attribution: crate::model_observability::Attribution::unresolved(
                 crate::model_observability::Purpose::Approval,
-                crate::model_observability::Surface::Assistant,
+                crate::model_observability::Surface::Agent,
                 crate::model_observability::Origin::System,
             ),
         }

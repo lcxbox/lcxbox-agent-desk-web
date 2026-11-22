@@ -27,7 +27,7 @@ pub mod wait;
 #[cfg(test)]
 mod tests;
 
-pub use desk_agent_protocol::ai_assistant::subagent::{
+pub use desk_agent_protocol::ai_agent::subagent::{
     SubAgentState, SubAgentWaitReason, TaskAssessment, TaskFinalReport,
 };
 pub use role::{AgentRole, DelegatedTaskBinding, DelegationSource};

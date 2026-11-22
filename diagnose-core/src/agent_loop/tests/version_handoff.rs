@@ -53,7 +53,7 @@ impl ToolSeam for TransactionalTools<'_> {
         let mut stored = self.store.0.borrow_mut();
         assert_eq!(stored.turn_state, TurnState::AwaitingApproval);
         assert_eq!(stored.version, version.version);
-        assert_eq!(ctx.assistant_turn_fence.as_ref(), Some(&version.turn_fence));
+        assert_eq!(ctx.agent_turn_fence.as_ref(), Some(&version.turn_fence));
         assert_eq!(call.id, version.tool_call_id);
         self.observed_version.set(version.version);
         stored.version += 1;
@@ -126,13 +126,13 @@ async fn execute(
     bool,
 ) {
     let mut held = PersistedAgentSession::new("conv", "actor", "device", 1, exec_scope(), "now");
-    held.surface = AgentSessionSurface::AiAssistant;
+    held.surface = AgentSessionSurface::AiAgent;
     held.turn_state = TurnState::Running;
     held.current_turn_id = Some("turn".into());
     held.input_revision = 1;
     held.lease_token = 1;
     held.version = 10;
-    held.conversation.push(ChatMessage::assistant_tool_calls(
+    held.conversation.push(ChatMessage::agent_tool_calls(
         "proposal",
         "",
         vec![ToolCallRef {

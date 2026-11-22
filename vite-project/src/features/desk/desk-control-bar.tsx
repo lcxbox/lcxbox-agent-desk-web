@@ -1,6 +1,6 @@
 import { MobileDeskControls } from "./mobile-desk-controls"
 import type { useMobileDeskInteraction } from "./use-mobile-desk-interaction"
-import { AiAssistantIcon } from "@/components/ai-assistant-icon"
+import { AiAgentIcon } from "@/components/ai-agent-icon"
 import { useEffect, useRef, useState } from "react"
 import type { useDraggableControlBar } from './use-draggable-control-bar'
 import { TOOLBAR_EDGES } from './toolbar-layout'
@@ -76,8 +76,8 @@ type DeskControlBarProps = {
     toolbar?: ReturnType<typeof useDraggableControlBar>
     connectionAvailable?: boolean
     mobileInteraction?: ReturnType<typeof useMobileDeskInteraction>
-    onToggleAssistant?: () => void
-    assistantOpen?: boolean
+    onToggleAgent?: () => void
+    agentOpen?: boolean
     audioVolume: number
     clipboardEnabled: boolean
     controlBarRef: RefObject<HTMLDivElement | null>
@@ -112,8 +112,8 @@ export function DeskControlBar({
     toolbar,
     connectionAvailable = true,
     mobileInteraction,
-    onToggleAssistant,
-    assistantOpen,
+    onToggleAgent,
+    agentOpen,
     audioVolume,
     clipboardEnabled,
     controlBarRef,
@@ -235,16 +235,16 @@ export function DeskControlBar({
                 onFocus={() => setContentFocused(true)}
             >
                     {mobileInteraction && <MobileDeskControls side={menuSide} interaction={mobileInteraction} onOpenChange={setIsMenuOpen} />}
-                    {onToggleAssistant && (
+                    {onToggleAgent && (
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button className={`controlButton ${assistantOpen ? "bg-white/20" : ""}`} variant="ghost"
-                                    onClick={onToggleAssistant} aria-pressed={!!assistantOpen}
-                                    aria-label={t("pages.deskDashboard.aiAssistant")}>
-                                    <AiAssistantIcon />
+                                <Button className={`controlButton ${agentOpen ? "bg-white/20" : ""}`} variant="ghost"
+                                    onClick={onToggleAgent} aria-pressed={!!agentOpen}
+                                    aria-label={t("pages.deskDashboard.aiAgent")}>
+                                    <AiAgentIcon />
                                 </Button>
                             </TooltipTrigger>
-                            <TooltipContent side={menuSide}>{t("pages.deskDashboard.aiAssistant")}</TooltipContent>
+                            <TooltipContent side={menuSide}>{t("pages.deskDashboard.aiAgent")}</TooltipContent>
                         </Tooltip>
                     )}
                     {restricted.isRestricted && (

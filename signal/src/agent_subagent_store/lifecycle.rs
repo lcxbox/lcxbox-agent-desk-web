@@ -197,7 +197,7 @@ impl SubAgentStore {
             append_state_event_on(&txn, &group, &run, now.timestamp_millis()).await?;
         }
         next.version = write_child_session_on(&txn, &next, now).await?;
-        let history = crate::assistant_data_store::native_scope_on(
+        let history = crate::agent_data_store::native_scope_on(
             &txn,
             &held.actor_id,
             &held.device_id,
@@ -362,7 +362,7 @@ impl SubAgentStore {
             &creation.source.model_destination,
             u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?,
         );
-        let report = desk_assistant_data_store::worker_report::append_report_on(
+        let report = desk_agent_data_store::worker_report::append_report_on(
             &txn,
             &group,
             &run,
@@ -423,7 +423,7 @@ impl SubAgentStore {
         if yields {
             append_state_event_on(&txn, &group, &run, now.timestamp_millis()).await?;
         }
-        let history = crate::assistant_data_store::native_scope_on(
+        let history = crate::agent_data_store::native_scope_on(
             &txn,
             &held.actor_id,
             &held.device_id,
@@ -457,7 +457,7 @@ impl SubAgentStore {
         .await?;
         let binding = held.agent_role.binding().ok_or_else(|| invalid())?;
         let history = desk_diagnose_core::future::boxed(|| {
-            crate::assistant_data_store::native_scope_on(
+            crate::agent_data_store::native_scope_on(
                 &txn,
                 &held.actor_id,
                 &held.device_id,
@@ -718,7 +718,7 @@ impl SubAgentStore {
         .await?;
         let binding = held.agent_role.binding().ok_or_else(|| invalid())?;
         let history = desk_diagnose_core::future::boxed(|| {
-            crate::assistant_data_store::native_scope_on(
+            crate::agent_data_store::native_scope_on(
                 &txn,
                 &held.actor_id,
                 &held.device_id,
@@ -801,7 +801,7 @@ impl SubAgentStore {
                 CompletionDisposition::Unable => ReportKind::Failed,
                 CompletionDisposition::Waiting => ReportKind::Progress,
             };
-            desk_assistant_data_store::worker_report::append_report_on(
+            desk_agent_data_store::worker_report::append_report_on(
                 &txn,
                 &group,
                 &run,

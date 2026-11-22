@@ -1,12 +1,8 @@
 //! Owner preference updates do not replace the current turn snapshot.
 
 use super::*;
-use desk_agent_protocol::ai_assistant::approval_mode::{
-    AssistantApprovalMode, UpdateAssistantApprovalMode,
-};
-use desk_diagnose_core::assistant_approval_mode::{
-    AssistantApprovalPreference, preference_for_root,
-};
+use desk_agent_protocol::ai_agent::approval_mode::{AgentApprovalMode, UpdateAgentApprovalMode};
+use desk_diagnose_core::agent_approval_mode::{AgentApprovalPreference, preference_for_root};
 
 /// A saved manual preference also stops already claimed AI review from granting an action.
 pub(crate) async fn review_mode_current_on(
@@ -15,13 +11,13 @@ pub(crate) async fn review_mode_current_on(
 ) -> Result<bool, DbErr> {
     Ok(preference_for_session_on(db, session)
         .await?
-        .is_some_and(|pref| pref.mode != AssistantApprovalMode::Manual))
+        .is_some_and(|pref| pref.mode != AgentApprovalMode::Manual))
 }
 
 pub(crate) async fn preference_for_session_on(
     db: &impl ConnectionTrait,
     session: &PersistedAgentSession,
-) -> Result<Option<AssistantApprovalPreference>, DbErr> {
+) -> Result<Option<AgentApprovalPreference>, DbErr> {
     let raw = agent_session::Entity::find()
         .select_only()
         .column(agent_session::Column::ApprovalPreferenceJson)
@@ -33,7 +29,7 @@ pub(crate) async fn preference_for_session_on(
         .into_tuple::<Option<String>>()
         .one(db)
         .await?;
-    Ok(raw.and_then(|raw| AssistantApprovalPreference::decode(raw.as_deref())))
+    Ok(raw.and_then(|raw| AgentApprovalPreference::decode(raw.as_deref())))
 }
 
 pub(crate) async fn current_no_review_parent_on(
@@ -72,13 +68,13 @@ async fn root_on(
     db: &impl ConnectionTrait,
     actor: &str,
     conversation: &str,
-) -> Result<(agent_session::Model, AssistantApprovalPreference), DbErr> {
+) -> Result<(agent_session::Model, AgentApprovalPreference), DbErr> {
     let row = agent_session::Entity::find()
         .filter(agent_session::Column::ActorId.eq(actor))
         .filter(agent_session::Column::ConversationId.eq(conversation))
         .one(db)
         .await?
-        .ok_or_else(|| DbErr::RecordNotFound("Assistant approval root".into()))?;
+        .ok_or_else(|| DbErr::RecordNotFound("Agent approval root".into()))?;
     let preference = preference_for_root(
         &row.state_json,
         conversation,
@@ -86,7 +82,7 @@ async fn root_on(
         &row.device_id,
         row.approval_preference_json.as_deref(),
     )
-    .ok_or_else(|| DbErr::RecordNotFound("Assistant approval root".into()))?;
+    .ok_or_else(|| DbErr::RecordNotFound("Agent approval root".into()))?;
     Ok((row, preference))
 }
 
@@ -94,15 +90,15 @@ pub async fn load_preference(
     db: &DatabaseConnection,
     actor: &str,
     conversation: &str,
-) -> Result<AssistantApprovalPreference, DbErr> {
+) -> Result<AgentApprovalPreference, DbErr> {
     root_on(db, actor, conversation).await.map(|(_, mode)| mode)
 }
 
 pub async fn save_preference(
     db: &DatabaseConnection,
     actor: &str,
-    change: UpdateAssistantApprovalMode,
-) -> Result<Option<AssistantApprovalPreference>, DbErr> {
+    change: UpdateAgentApprovalMode,
+) -> Result<Option<AgentApprovalPreference>, DbErr> {
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
     let (row, mut preference) = root_on(&txn, actor, &change.session).await?;
     if !preference.update(change) {
@@ -117,15 +113,14 @@ pub async fn save_preference(
 pub(super) async fn override_mode_on(
     txn: &DatabaseTransaction,
     row: &agent_session::Model,
-    mode: AssistantApprovalMode,
+    mode: AgentApprovalMode,
 ) -> Result<(), DbErr> {
-    let mut preference =
-        AssistantApprovalPreference::decode(row.approval_preference_json.as_deref())
-            .ok_or_else(invalid)?;
+    let mut preference = AgentApprovalPreference::decode(row.approval_preference_json.as_deref())
+        .ok_or_else(invalid)?;
     if preference.mode == mode {
         return Ok(());
     }
-    if !preference.update(UpdateAssistantApprovalMode {
+    if !preference.update(UpdateAgentApprovalMode {
         session: row.conversation_id.clone(),
         expected_revision: preference.revision,
         mode,
@@ -139,7 +134,7 @@ pub(super) async fn override_mode_on(
 async fn write_on(
     txn: &DatabaseTransaction,
     row_id: i64,
-    preference: &AssistantApprovalPreference,
+    preference: &AgentApprovalPreference,
 ) -> Result<(), DbErr> {
     let json = serde_json::to_string(preference).map_err(|_| invalid())?;
     let changed = agent_session::Entity::update_many()

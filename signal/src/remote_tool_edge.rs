@@ -1,6 +1,6 @@
 //! Single-node OSS Signal remote Provider transport.
 //!
-//! The AI Assistant loop runs in Signal while the host worker performs
+//! The AI Agent loop runs in Signal while the host worker performs
 //! local reads and confirmed mutations. Reads use server-stamped remote-tool
 //! frames; writes use exact durable grants and sealed Computer Action plans.
 
@@ -65,7 +65,7 @@ use desk_agent_protocol::{
     AgentScope, AuditMeta, CallerRef, CallerType, ContextKind, ExecutionMode, OperationInput,
     ProtocolVersion, ReadContextInput, RequestId, TargetRef,
 };
-use desk_diagnose_core::ai_assistant::{
+use desk_diagnose_core::ai_agent::{
     EXECUTE_BACKGROUND_INPUT_TOOL, EXECUTE_CONFIRMED_RAW_INPUT_TOOL,
     EXECUTE_CONFIRMED_UI_ACTION_TOOL, PREVIEW_COMPUTER_ACTION_TOOL, validate_preview_call,
 };
@@ -531,7 +531,7 @@ impl SignalRemoteToolPendingStore {
             if let Some(pending) = map.remove(id) {
                 let _ = pending.completion.send(Err(RemoteToolFailure::Local(error(
                     AgentErrorKind::TargetOffline,
-                    "the host disconnected during a AI Assistant observation",
+                    "the host disconnected during a AI Agent observation",
                     true,
                     true,
                 ))));
@@ -802,7 +802,7 @@ impl RemoteToolObserver for SignalRemoteToolObserver {
             let response = match model.get_data::<RemoteToolResponse>() {
                 Ok(response) => response,
                 Err(e) => {
-                    log::warn!("[ai-assistant] malformed remote tool response: {e}");
+                    log::warn!("[ai-agent] malformed remote tool response: {e}");
                     return;
                 }
             };
@@ -815,27 +815,25 @@ impl RemoteToolObserver for SignalRemoteToolObserver {
                 }
             };
             if let AcceptOutcome::Rejected(reason) = outcome {
-                log::warn!(
-                    "[ai-assistant] dropped remote tool response from {source_id}: {reason}"
-                );
+                log::warn!("[ai-agent] dropped remote tool response from {source_id}: {reason}");
             }
         })
     }
 }
 
-/// Per-turn Provider seam for the OSS AI Assistant.
+/// Per-turn Provider seam for the OSS AI Agent.
 #[derive(Clone)]
-pub struct SignalAiAssistantTools(Arc<SignalAiAssistantToolState>);
+pub struct SignalAiAgentTools(Arc<SignalAiAgentToolState>);
 
-impl std::ops::Deref for SignalAiAssistantTools {
-    type Target = SignalAiAssistantToolState;
+impl std::ops::Deref for SignalAiAgentTools {
+    type Target = SignalAiAgentToolState;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 /// Shared state for one turn; fields remain private to the Provider implementation.
-pub struct SignalAiAssistantToolState {
+pub struct SignalAiAgentToolState {
     db: DatabaseConnection,
     provider_registry: ProviderRegistry,
     connections: Arc<SharedConnectionMap>,
@@ -843,7 +841,7 @@ pub struct SignalAiAssistantToolState {
     target_connection_id: String,
     target_device_id: String,
     storage_device_id: String,
-    selected_device_fence: Option<desk_diagnose_core::action_turn_fence::AssistantTurnFence>,
+    selected_device_fence: Option<desk_diagnose_core::action_turn_fence::AgentTurnFence>,
     actor_id: String,
     model_provider: Option<String>,
     model_name: Option<String>,
@@ -1007,7 +1005,7 @@ struct SemanticBindings {
 type PreparedAction<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<ExecOutcome, AgentError>> + 'a>>;
 
-impl SignalAiAssistantTools {
+impl SignalAiAgentTools {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DatabaseConnection,
@@ -1042,7 +1040,7 @@ impl SignalAiAssistantTools {
             crate::agent_exec::global_agent_exec_pending(),
             target_connection_id.clone(),
             desk_agent_protocol::evidence::EvidenceSnapshot::record(
-                "ai-assistant-command",
+                "ai-agent-command",
                 "owner-approved exact command dispatch",
                 chrono::Utc::now().to_rfc3339(),
                 Vec::new(),
@@ -1052,7 +1050,7 @@ impl SignalAiAssistantTools {
             available_exec_shells,
             max_command_runtime_ms,
         );
-        Self(Arc::new(SignalAiAssistantToolState {
+        Self(Arc::new(SignalAiAgentToolState {
             db,
             provider_registry,
             connections,
@@ -1319,7 +1317,7 @@ impl SignalAiAssistantTools {
     async fn authoritative_session(
         &self,
     ) -> Result<desk_diagnose_core::session::PersistedAgentSession, AgentError> {
-        desk_diagnose_core::assistant_policy::require_current_policy(self.policy_revision)?;
+        desk_diagnose_core::agent_policy::require_current_policy(self.policy_revision)?;
         let row = agent_session::Entity::find()
             .filter(agent_session::Column::ConversationId.eq(&self.run_id))
             .one(&self.db)
@@ -1372,13 +1370,13 @@ impl SignalAiAssistantTools {
         {
             return Err(error(
                 AgentErrorKind::PermissionDenied,
-                "Personal assistant read lease is unavailable",
+                "Personal agent read lease is unavailable",
                 false,
                 true,
             ));
         }
         if let Some(held) = &self.selected_device_fence
-            && desk_diagnose_core::action_turn_fence::AssistantTurnFence::for_device(
+            && desk_diagnose_core::action_turn_fence::AgentTurnFence::for_device(
                 &session,
                 &self.target_device_id,
             )?
@@ -2947,8 +2945,7 @@ impl SignalAiAssistantTools {
         })
         .await?;
         let shared_output = desk_diagnose_core::future::phase(|| async {
-            let shared_output = if call.name == desk_diagnose_core::ai_assistant::linux::OUTPUT_TOOL
-            {
+            let shared_output = if call.name == desk_diagnose_core::ai_agent::linux::OUTPUT_TOOL {
                 Some(
                 desk_diagnose_core::provider_preflight::WaylandOutputInputPreflight::from_history(
                     &self.provider_registry,
@@ -3203,8 +3200,7 @@ impl SignalAiAssistantTools {
                                     && entry.ready
                             })
                             .ok_or_else(desk_diagnose_core::directory_tools::unavailable)?;
-                        if !desk_diagnose_core::ai_assistant::valid_ui_adapter(&ui_adapter.adapter)
-                        {
+                        if !desk_diagnose_core::ai_agent::valid_ui_adapter(&ui_adapter.adapter) {
                             return Err(desk_diagnose_core::directory_tools::unavailable());
                         }
                         let ui_adapter_kind = ui_adapter.adapter.kind;
@@ -3238,7 +3234,7 @@ impl SignalAiAssistantTools {
                 })
                 .await?
             }
-            desk_diagnose_core::ai_assistant::linux::OUTPUT_TOOL => {
+            desk_diagnose_core::ai_agent::linux::OUTPUT_TOOL => {
                 desk_diagnose_core::future::boxed(|| async {
                     Ok::<_, AgentError>(Box::new({
                         let input = shared_output.as_ref().expect("output input preflight");
@@ -3501,8 +3497,8 @@ impl SignalAiAssistantTools {
                 desk_diagnose_core::future::boxed(|| async { self.authoritative_session().await })
                     .await?,
             );
-            let turn_scope = desk_diagnose_core::action_turn_fence::AssistantTurnFence::computer_action_scope_for_session(
-            ctx.assistant_turn_fence.as_ref(), &session,
+            let turn_scope = desk_diagnose_core::action_turn_fence::AgentTurnFence::computer_action_scope_for_session(
+            ctx.agent_turn_fence.as_ref(), &session,
         )?;
             let (canonical_input_json, canonical_input_digest_sha256) =
                 Self::canonical_call_input(call)?;
@@ -3856,8 +3852,8 @@ impl SignalAiAssistantTools {
                 )
             })?;
         if adapter.kind != adapter_kind
-            || (shared_ui.is_some() && !desk_diagnose_core::ai_assistant::valid_ui_adapter(&adapter))
-            || (shared_output.is_some() && adapter.version != desk_diagnose_core::ai_assistant::linux::OUTPUT_ADAPTER_VERSION)
+            || (shared_ui.is_some() && !desk_diagnose_core::ai_agent::valid_ui_adapter(&adapter))
+            || (shared_output.is_some() && adapter.version != desk_diagnose_core::ai_agent::linux::OUTPUT_ADAPTER_VERSION)
         {
             return Err(error(
                 AgentErrorKind::UnsupportedCapability,
@@ -3899,7 +3895,7 @@ impl SignalAiAssistantTools {
                 verification: if shared_output.is_some() {
                     "Verify original output, frame freshness, input ownership and sensitive-target gates before dispatch; Portal completion is not UI-effect verification".into()
                 } else if background_input {
-                    "Report event dispatch only; the assistant must read the target UI or screenshot to verify application state".into()
+                    "Report event dispatch only; the agent must read the target UI or screenshot to verify application state".into()
                 } else if raw_input {
                     "re-observe foreground application and display/DPI, then require a later semantic or screen observation before completion"
                         .into()
@@ -3972,7 +3968,7 @@ impl SignalAiAssistantTools {
                 granted: vec![required_capability],
                 mode: ExecutionMode::ConfirmEachAction,
                 expires_at: None,
-                policy_name: Some("oss-ai-assistant-semantic-action".into()),
+                policy_name: Some("oss-ai-agent-semantic-action".into()),
             },
             orchestrator_grants: vec![capability.wire.capability_id.clone()],
             max_risk: desk_agent_protocol::RiskLevel::Medium,
@@ -4194,7 +4190,7 @@ impl SignalAiAssistantTools {
                 )?),
                 desk_agent_protocol::Capability::FileArtifactCreateConfirmed,
                 "create_new_artifact",
-                desk_diagnose_core::ai_assistant::FILE_ARTIFACT_CREATE_CAPABILITY_ID,
+                desk_diagnose_core::ai_agent::FILE_ARTIFACT_CREATE_CAPABILITY_ID,
             ))) }).await? },
             "create_local_message_draft" => { desk_diagnose_core::future::boxed(|| async { Ok::<_, AgentError>(Box::new({
                 let args: LocalDraftArgs =
@@ -4218,7 +4214,7 @@ impl SignalAiAssistantTools {
                 ArtifactRequest::LocalDraft(args),
                 desk_agent_protocol::Capability::CommunicationLocalDraftCreateConfirmed,
                 "create_new_artifact",
-                desk_diagnose_core::ai_assistant::LOCAL_COMMUNICATION_DRAFT_CREATE_CAPABILITY_ID,
+                desk_diagnose_core::ai_agent::LOCAL_COMMUNICATION_DRAFT_CREATE_CAPABILITY_ID,
             )
             })) }).await? }
             "create_workbook" => { desk_diagnose_core::future::boxed(|| async { Ok::<_, AgentError>(Box::new((
@@ -4234,7 +4230,7 @@ impl SignalAiAssistantTools {
                 )?),
                 desk_agent_protocol::Capability::SpreadsheetWorkbookCreateConfirmed,
                 "create_new_artifact",
-                desk_diagnose_core::ai_assistant::SPREADSHEET_WORKBOOK_CREATE_CAPABILITY_ID,
+                desk_diagnose_core::ai_agent::SPREADSHEET_WORKBOOK_CREATE_CAPABILITY_ID,
             ))) }).await? },
             "create_formula_workbook" => { desk_diagnose_core::future::boxed(|| async { Ok::<_, AgentError>(Box::new({
                 let args: SpreadsheetFormulaArgs =
@@ -4281,7 +4277,7 @@ impl SignalAiAssistantTools {
                 },
                 desk_agent_protocol::Capability::SpreadsheetFormulaWorkbookCreateConfirmed,
                 "create_new_artifact",
-                desk_diagnose_core::ai_assistant::SPREADSHEET_FORMULA_WORKBOOK_CREATE_CAPABILITY_ID,
+                desk_diagnose_core::ai_agent::SPREADSHEET_FORMULA_WORKBOOK_CREATE_CAPABILITY_ID,
             )
             })) }).await? }
             "create_word_report" => { desk_diagnose_core::future::boxed(|| async { Ok::<_, AgentError>(Box::new({
@@ -4308,7 +4304,7 @@ impl SignalAiAssistantTools {
                     ArtifactRequest::Word(args),
                     desk_agent_protocol::Capability::WordDocumentCreateConfirmed,
                     "create_new_artifact",
-                    desk_diagnose_core::ai_assistant::WORD_DOCUMENT_CREATE_CAPABILITY_ID,
+                    desk_diagnose_core::ai_agent::WORD_DOCUMENT_CREATE_CAPABILITY_ID,
                 )
             })) }).await? }
             desk_diagnose_core::tool_names::CONVERT_DOCUMENT => { desk_diagnose_core::future::boxed(|| async { Ok::<_, AgentError>(Box::new((
@@ -4324,7 +4320,7 @@ impl SignalAiAssistantTools {
                 )?),
                 desk_agent_protocol::Capability::DocumentConvertConfirmed,
                 "convert_document_create_new",
-                desk_diagnose_core::ai_assistant::DOCUMENT_CONVERT_CAPABILITY_ID,
+                desk_diagnose_core::ai_agent::DOCUMENT_CONVERT_CAPABILITY_ID,
             ))) }).await? },
             _ => { return Err(error(
                     AgentErrorKind::UnsupportedCapability,
@@ -4847,7 +4843,7 @@ impl SignalAiAssistantTools {
                 granted: vec![required_capability],
                 mode: ExecutionMode::ConfirmEachAction,
                 expires_at: None,
-                policy_name: Some("oss-ai-assistant-artifact".into()),
+                policy_name: Some("oss-ai-agent-artifact".into()),
             },
             orchestrator_grants: vec![orchestrator_grant.into()],
             max_risk: desk_agent_protocol::RiskLevel::Medium,
@@ -5174,41 +5170,41 @@ impl SignalAiAssistantTools {
                 grant_id
             } else {
                 {
-                let grants = desk_diagnose_core::future::boxed(|| async {
-                    store
-                        .list_for_subject(&self.run_id, &self.actor_id, &self.target_device_id)
-                        .await
-                })
-                .await
-                .map_err(|db_error| {
-                    error(
-                        AgentErrorKind::Internal,
-                        format!("failed to load browser grants: {db_error}"),
-                        false,
-                        false,
-                    )
-                })?;
-                match desk_diagnose_core::capability_grant::select_grant(
-                    &grants,
-                    &call_authority,
-                    session.trigger_origin,
-                ) {
-                    desk_diagnose_core::capability_grant::GrantSelection::Selected(grant) => {
-                        grant.grant_id.clone()
-                    }
-                    desk_diagnose_core::capability_grant::GrantSelection::Required {
-                        input_mismatch,
-                    } => return Ok(ExecOutcome::GrantRequired { input_mismatch }),
-                    desk_diagnose_core::capability_grant::GrantSelection::Unavailable => {
-                        return Err(error(
-                            AgentErrorKind::PermissionDenied,
-                            "browser action requires an active approved capability grant",
+                    let grants = desk_diagnose_core::future::boxed(|| async {
+                        store
+                            .list_for_subject(&self.run_id, &self.actor_id, &self.target_device_id)
+                            .await
+                    })
+                    .await
+                    .map_err(|db_error| {
+                        error(
+                            AgentErrorKind::Internal,
+                            format!("failed to load browser grants: {db_error}"),
                             false,
-                            true,
-                        ));
+                            false,
+                        )
+                    })?;
+                    match desk_diagnose_core::capability_grant::select_grant(
+                        &grants,
+                        &call_authority,
+                        session.trigger_origin,
+                    ) {
+                        desk_diagnose_core::capability_grant::GrantSelection::Selected(grant) => {
+                            grant.grant_id.clone()
+                        }
+                        desk_diagnose_core::capability_grant::GrantSelection::Required {
+                            input_mismatch,
+                        } => return Ok(ExecOutcome::GrantRequired { input_mismatch }),
+                        desk_diagnose_core::capability_grant::GrantSelection::Unavailable => {
+                            return Err(error(
+                                AgentErrorKind::PermissionDenied,
+                                "browser action requires an active approved capability grant",
+                                false,
+                                true,
+                            ));
+                        }
                     }
                 }
-            }
             };
             if slack_input.is_some() || gmail_input.is_some() {
                 let site = if gmail_input.is_some() {
@@ -5331,7 +5327,12 @@ impl SignalAiAssistantTools {
                     }
                 };
                 let dispatch_id = match desk_diagnose_core::future::boxed(|| async {
-                    store.record_dispatch_intent_for_target(prepare(), self.selected_device_fence.as_ref()).await
+                    store
+                        .record_dispatch_intent_for_target(
+                            prepare(),
+                            self.selected_device_fence.as_ref(),
+                        )
+                        .await
                 })
                 .await
                 .map_err(|db_error| {
@@ -5361,66 +5362,68 @@ impl SignalAiAssistantTools {
                     }
                 };
                 desk_diagnose_core::future::phase(|| async {
-        let claimed = match desk_diagnose_core::future::boxed(|| async {
-            store.claim_dispatch(&dispatch_id, now_unix_ms).await
-        })
-        .await
-        .map_err(|db_error| {
-            error(
-                AgentErrorKind::Internal,
-                format!("failed to claim browser dispatch: {db_error}"),
-                false,
-                false,
-            )
-        })? {
-            DispatchClaimResult::Claimed(payload) => payload,
-            DispatchClaimResult::OutcomeUnknown { .. } => {
-                return Ok(ExecOutcome::Unknown(
-                    desk_diagnose_core::session::ActionIdentity::new(
-                        prepared.work_id,
-                        &server_call_id,
-                        &dispatch_id,
-                        desk_diagnose_core::session::WorkKind::ComputerAction,
-                    ),
-                ));
-            }
-        };
+                    let claimed = match desk_diagnose_core::future::boxed(|| async {
+                        store.claim_dispatch(&dispatch_id, now_unix_ms).await
+                    })
+                    .await
+                    .map_err(|db_error| {
+                        error(
+                            AgentErrorKind::Internal,
+                            format!("failed to claim browser dispatch: {db_error}"),
+                            false,
+                            false,
+                        )
+                    })? {
+                        DispatchClaimResult::Claimed(payload) => payload,
+                        DispatchClaimResult::OutcomeUnknown { .. } => {
+                            return Ok(ExecOutcome::Unknown(
+                                desk_diagnose_core::session::ActionIdentity::new(
+                                    prepared.work_id,
+                                    &server_call_id,
+                                    &dispatch_id,
+                                    desk_diagnose_core::session::WorkKind::ComputerAction,
+                                ),
+                            ));
+                        }
+                    };
 
-        macro_rules! browser_pre_send {
-            ($result:expr) => {
-                match $result {
-                    Ok(value) => value,
-                    Err(dispatch_error) => {
-                        desk_diagnose_core::future::boxed(|| record_computer_action_pre_send_failure(
-                            &store,
-                            &dispatch_id,
-                            &server_call_id,
-                            now_unix_ms,
-                            &dispatch_error,
-                        ))
-                        .await?;
-                        return Err(dispatch_error);
+                    macro_rules! browser_pre_send {
+                        ($result:expr) => {
+                            match $result {
+                                Ok(value) => value,
+                                Err(dispatch_error) => {
+                                    desk_diagnose_core::future::boxed(|| {
+                                        record_computer_action_pre_send_failure(
+                                            &store,
+                                            &dispatch_id,
+                                            &server_call_id,
+                                            now_unix_ms,
+                                            &dispatch_error,
+                                        )
+                                    })
+                                    .await?;
+                                    return Err(dispatch_error);
+                                }
+                            }
+                        };
                     }
-                }
-            };
-        }
 
-        let readiness = browser_pre_send!(
-            crate::computer_use_readiness::global_computer_use_readiness_cache()
-                .get_fresh(&self.target_connection_id, chrono::Utc::now())
-                .ok_or_else(|| {
-                    error(
-                        AgentErrorKind::TargetOffline,
-                        "browser readiness expired before dispatch",
-                        false,
-                        true,
-                    )
-                })
-        );
-        let generation = dispatch_id.clone();
-        let plan = SealedComputerActionPlan {
+                    let readiness = browser_pre_send!(
+                        crate::computer_use_readiness::global_computer_use_readiness_cache()
+                            .get_fresh(&self.target_connection_id, chrono::Utc::now())
+                            .ok_or_else(|| {
+                                error(
+                                    AgentErrorKind::TargetOffline,
+                                    "browser readiness expired before dispatch",
+                                    false,
+                                    true,
+                                )
+                            })
+                    );
+                    let generation = dispatch_id.clone();
+                    let plan = SealedComputerActionPlan {
             turn_scope: self.selected_device_fence.as_ref()
-                .map(desk_diagnose_core::action_turn_fence::AssistantTurnFence::computer_action_scope)
+                .map(desk_diagnose_core::action_turn_fence::AgentTurnFence::computer_action_scope)
                 .transpose()?,
             schema_version: COMPUTER_USE_SCHEMA_VERSION,
             work_id: claimed.work_id.to_string(),
@@ -5430,7 +5433,7 @@ impl SignalAiAssistantTools {
             interactive_session_incarnation: readiness.readiness.interactive_session_incarnation,
             adapter: ComputerUseAdapterRef {
                 kind: ComputerUseAdapterKind::BrowserExtension,
-                version: desk_diagnose_core::ai_assistant::BROWSER_EXTENSION_ADAPTER_VERSION.into(),
+                version: desk_diagnose_core::ai_agent::BROWSER_EXTENSION_ADAPTER_VERSION.into(),
             },
             approval_id: grant_id.clone(),
             approved_actor_id: self.actor_id.clone(),
@@ -5459,195 +5462,220 @@ impl SignalAiAssistantTools {
                 },
             }],
         };
-        browser_pre_send!(plan.validate().map_err(|validation_error| {
-            error(
-                AgentErrorKind::Internal,
-                format!("failed to seal browser plan: {validation_error}"),
-                false,
-                false,
-            )
-        }));
-        let target = browser_pre_send!({
-            let map = self.connections.read().await;
-            let target = if self.selected_device_fence.is_some() {
-                map.current_oss_server(&self.target_device_id)
-                    .filter(|state| state.model.connection_id == self.target_connection_id
-                        && request_devices::selected_read_connection(state))
-            } else {
-                map.get(&self.target_connection_id)
-            };
-            target.cloned().ok_or_else(|| {
-                error(
-                    AgentErrorKind::TargetOffline,
-                    "target host is not connected",
-                    false,
-                    true,
-                )
-            })
-        });
-        let audience =
-            browser_pre_send!(target.client_id.clone().ok_or_else(|| {
-                error(
-                    AgentErrorKind::PermissionDenied,
-                    "target host has no bound client id",
-                    false,
-                    false,
-                )
-            }));
-        if audience != self.target_device_id {
-            let dispatch_error = error(
-                AgentErrorKind::PermissionDenied,
-                "target device binding changed before browser dispatch",
-                false,
-                false,
-            );
-            desk_diagnose_core::future::boxed(|| async {
-                record_computer_action_pre_send_failure(
-                    &store,
-                    &dispatch_id,
-                    &server_call_id,
-                    now_unix_ms,
-                    &dispatch_error,
-                )
-                .await
-            })
-            .await?;
-            return Err(dispatch_error);
-        }
-        let max_risk = match risk_tier {
-            CapabilityRiskTier::R0 | CapabilityRiskTier::R1 => desk_agent_protocol::RiskLevel::Low,
-            CapabilityRiskTier::R2 => desk_agent_protocol::RiskLevel::Medium,
-            CapabilityRiskTier::R3 => desk_agent_protocol::RiskLevel::High,
-        };
-        let authz = AuthorizationBlock {
-            file_recovery_registration: None,
-            version: AUTHORIZATION_BLOCK_VERSION,
-            exec_admission_policy: ExecAdmissionPolicy::OwnerInteractive,
-            scope: AgentScope {
-                granted: vec![capability.required_capability],
-                mode: ExecutionMode::ConfirmEachAction,
-                expires_at: None,
-                policy_name: Some("oss-ai-assistant-browser".into()),
-            },
-            orchestrator_grants: vec![capability.wire.capability_id.clone()],
-            max_risk,
-            actor: AuthzActor {
-                user_id: self.actor_id.parse().ok(),
-            },
-            device: AuthzDevice { device_id: None },
-            request_id: generation.clone(),
-            session_id: Some(self.run_id.clone()),
-            expires_at: Some((chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc3339()),
-            issuer: "signal".into(),
-            audience,
-            signature: None,
-        };
-        let wrapper = AuthorizedControlPayload {
-            inner: browser_pre_send!(serde_json::to_value(&plan).map_err(|encode_error| {
-                error(
-                    AgentErrorKind::Internal,
-                    format!("failed to encode browser plan: {encode_error}"),
-                    false,
-                    false,
-                )
-            })),
-            authz,
-        };
-        let mut frame = browser_pre_send!(
-            SignalingModel::new_request(
-                SignalingType::DispatchComputerAction,
-                None,
-                Some(&wrapper),
-            )
-            .map_err(|frame_error| {
-                error(
-                    AgentErrorKind::TransportError,
-                    format!("failed to build browser frame: {frame_error}"),
-                    false,
-                    false,
-                )
-            })
-        );
-        frame.request_id = generation.clone();
-        let text = browser_pre_send!(serde_json::to_string(&frame).map_err(|encode_error| {
-            error(
-                AgentErrorKind::TransportError,
-                format!("failed to encode browser frame: {encode_error}"),
-                false,
-                false,
-            )
-        }));
-        let durable = !matches!(
-            capability.wire.execution_policy,
-            ExecutionPolicy::InlineOnly
-        );
-        if durable {
-            browser_pre_send!(
-                store
-                    .bind_computer_transport(
-                        &self.target_connection_id,
-                        &plan,
-                        &session,
-                        call,
-                        self.model_egress_policy.as_ref()
-                    )
-                    .await
-                    .map_err(|_| {
+                    browser_pre_send!(plan.validate().map_err(|validation_error| {
                         error(
                             AgentErrorKind::Internal,
-                            "failed to freeze original Computer Action transport",
+                            format!("failed to seal browser plan: {validation_error}"),
                             false,
                             false,
                         )
+                    }));
+                    let target = browser_pre_send!({
+                        let map = self.connections.read().await;
+                        let target = if self.selected_device_fence.is_some() {
+                            map.current_oss_server(&self.target_device_id)
+                                .filter(|state| {
+                                    state.model.connection_id == self.target_connection_id
+                                        && request_devices::selected_read_connection(state)
+                                })
+                        } else {
+                            map.get(&self.target_connection_id)
+                        };
+                        target.cloned().ok_or_else(|| {
+                            error(
+                                AgentErrorKind::TargetOffline,
+                                "target host is not connected",
+                                false,
+                                true,
+                            )
+                        })
+                    });
+                    let audience = browser_pre_send!(target.client_id.clone().ok_or_else(|| {
+                        error(
+                            AgentErrorKind::PermissionDenied,
+                            "target host has no bound client id",
+                            false,
+                            false,
+                        )
+                    }));
+                    if audience != self.target_device_id {
+                        let dispatch_error = error(
+                            AgentErrorKind::PermissionDenied,
+                            "target device binding changed before browser dispatch",
+                            false,
+                            false,
+                        );
+                        desk_diagnose_core::future::boxed(|| async {
+                            record_computer_action_pre_send_failure(
+                                &store,
+                                &dispatch_id,
+                                &server_call_id,
+                                now_unix_ms,
+                                &dispatch_error,
+                            )
+                            .await
+                        })
+                        .await?;
+                        return Err(dispatch_error);
+                    }
+                    let max_risk = match risk_tier {
+                        CapabilityRiskTier::R0 | CapabilityRiskTier::R1 => {
+                            desk_agent_protocol::RiskLevel::Low
+                        }
+                        CapabilityRiskTier::R2 => desk_agent_protocol::RiskLevel::Medium,
+                        CapabilityRiskTier::R3 => desk_agent_protocol::RiskLevel::High,
+                    };
+                    let authz = AuthorizationBlock {
+                        file_recovery_registration: None,
+                        version: AUTHORIZATION_BLOCK_VERSION,
+                        exec_admission_policy: ExecAdmissionPolicy::OwnerInteractive,
+                        scope: AgentScope {
+                            granted: vec![capability.required_capability],
+                            mode: ExecutionMode::ConfirmEachAction,
+                            expires_at: None,
+                            policy_name: Some("oss-ai-agent-browser".into()),
+                        },
+                        orchestrator_grants: vec![capability.wire.capability_id.clone()],
+                        max_risk,
+                        actor: AuthzActor {
+                            user_id: self.actor_id.parse().ok(),
+                        },
+                        device: AuthzDevice { device_id: None },
+                        request_id: generation.clone(),
+                        session_id: Some(self.run_id.clone()),
+                        expires_at: Some(
+                            (chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc3339(),
+                        ),
+                        issuer: "signal".into(),
+                        audience,
+                        signature: None,
+                    };
+                    let wrapper = AuthorizedControlPayload {
+                        inner: browser_pre_send!(serde_json::to_value(&plan).map_err(
+                            |encode_error| {
+                                error(
+                                    AgentErrorKind::Internal,
+                                    format!("failed to encode browser plan: {encode_error}"),
+                                    false,
+                                    false,
+                                )
+                            }
+                        )),
+                        authz,
+                    };
+                    let mut frame = browser_pre_send!(
+                        SignalingModel::new_request(
+                            SignalingType::DispatchComputerAction,
+                            None,
+                            Some(&wrapper),
+                        )
+                        .map_err(|frame_error| {
+                            error(
+                                AgentErrorKind::TransportError,
+                                format!("failed to build browser frame: {frame_error}"),
+                                false,
+                                false,
+                            )
+                        })
+                    );
+                    frame.request_id = generation.clone();
+                    let text =
+                        browser_pre_send!(serde_json::to_string(&frame).map_err(|encode_error| {
+                            error(
+                                AgentErrorKind::TransportError,
+                                format!("failed to encode browser frame: {encode_error}"),
+                                false,
+                                false,
+                            )
+                        }));
+                    let durable = !matches!(
+                        capability.wire.execution_policy,
+                        ExecutionPolicy::InlineOnly
+                    );
+                    if durable {
+                        browser_pre_send!(
+                            store
+                                .bind_computer_transport(
+                                    &self.target_connection_id,
+                                    &plan,
+                                    &session,
+                                    call,
+                                    self.model_egress_policy.as_ref()
+                                )
+                                .await
+                                .map_err(|_| {
+                                    error(
+                                        AgentErrorKind::Internal,
+                                        "failed to freeze original Computer Action transport",
+                                        false,
+                                        false,
+                                    )
+                                })
+                        );
+                    }
+                    let (completion_tx, completion_rx) = oneshot::channel();
+                    if !global_computer_action_pending().register(
+                        generation.clone(),
+                        self.target_connection_id.clone(),
+                        completion_tx,
+                    ) {
+                        let dispatch_error = error(
+                            AgentErrorKind::Internal,
+                            "duplicate browser execution generation",
+                            false,
+                            false,
+                        );
+                        desk_diagnose_core::future::boxed(|| async {
+                            record_computer_action_pre_send_failure(
+                                &store,
+                                &dispatch_id,
+                                &server_call_id,
+                                now_unix_ms,
+                                &dispatch_error,
+                            )
+                            .await
+                        })
+                        .await?;
+                        return Err(dispatch_error);
+                    }
+                    if self.selected_device_fence.is_some() {
+                        browser_pre_send!(
+                            store
+                                .validate_claimed_dispatch_for_target(
+                                    &dispatch_id,
+                                    prepare(),
+                                    self.selected_device_fence.as_ref(),
+                                )
+                                .await
+                                .map_err(|_| error(
+                                    AgentErrorKind::PermissionDenied,
+                                    "Selected browser action no longer has authority",
+                                    false,
+                                    true,
+                                ))
+                        );
+                    }
+                    let sent = desk_diagnose_core::future::boxed(|| async {
+                        target.session.write().await
                     })
-            );
-        }
-        let (completion_tx, completion_rx) = oneshot::channel();
-        if !global_computer_action_pending().register(
-            generation.clone(),
-            self.target_connection_id.clone(),
-            completion_tx,
-        ) {
-            let dispatch_error = error(
-                AgentErrorKind::Internal,
-                "duplicate browser execution generation",
-                false,
-                false,
-            );
-            desk_diagnose_core::future::boxed(|| async {
-                record_computer_action_pre_send_failure(
-                    &store,
-                    &dispatch_id,
-                    &server_call_id,
-                    now_unix_ms,
-                    &dispatch_error,
-                )
+                    .await
+                    .text(text)
+                    .await
+                    .is_ok();
+                    desk_diagnose_core::future::boxed(|| async {
+                        self.finish_computer_action(
+                            &store,
+                            call,
+                            &plan,
+                            completion_rx,
+                            sent,
+                            durable,
+                        )
+                        .await
+                    })
+                    .await
+                })
                 .await
-            })
-            .await?;
-            return Err(dispatch_error);
-        }
-        if self.selected_device_fence.is_some() {
-            browser_pre_send!(
-                store.validate_claimed_dispatch_for_target(
-                    &dispatch_id, prepare(), self.selected_device_fence.as_ref(),
-                ).await.map_err(|_| error(
-                    AgentErrorKind::PermissionDenied, "Selected browser action no longer has authority",
-                    false, true,
-                ))
-            );
-        }
-        let sent = desk_diagnose_core::future::boxed(|| async { target.session.write().await })
-            .await
-            .text(text)
-            .await
-            .is_ok();
-        desk_diagnose_core::future::boxed(|| async {
-            self.finish_computer_action(&store, call, &plan, completion_rx, sent, durable)
-                .await
-        })
-        .await
-            }).await
             })
             .await
         })
@@ -6076,7 +6104,7 @@ impl SignalAiAssistantTools {
         adapter: ComputerUseAdapterRef {
             kind: ComputerUseAdapterKind::OutlookNewMailto,
             version:
-                desk_diagnose_core::ai_assistant::OUTLOOK_NEW_MAILTO_ADAPTER_VERSION
+                desk_diagnose_core::ai_agent::OUTLOOK_NEW_MAILTO_ADAPTER_VERSION
                     .into(),
         },
         approval_id: grant_id.clone(),
@@ -6108,7 +6136,7 @@ impl SignalAiAssistantTools {
                 granted: vec![capability.required_capability],
                 mode: ExecutionMode::ConfirmEachAction,
                 expires_at: None,
-                policy_name: Some("oss-ai-assistant-outlook-handoff".into()),
+                policy_name: Some("oss-ai-agent-outlook-handoff".into()),
             },
             orchestrator_grants: vec![capability.wire.capability_id.clone()],
             max_risk: desk_agent_protocol::RiskLevel::Medium,
@@ -6612,7 +6640,7 @@ impl SignalAiAssistantTools {
                 caller_type: CallerType::AiModel,
                 model_provider: self.model_provider.clone(),
                 model_name: self.model_name.clone(),
-                adapter: Some("ai-assistant-read-v1".into()),
+                adapter: Some("ai-agent-read-v1".into()),
             },
             scope: AgentScope {
                 granted: vec![capability],
@@ -6629,7 +6657,7 @@ impl SignalAiAssistantTools {
                         })?
                         .to_rfc3339(),
                 ),
-                policy_name: Some("oss-ai-assistant-read-only".into()),
+                policy_name: Some("oss-ai-agent-read-only".into()),
             },
             operation: AgentOperation {
                 risk_hint: None,
@@ -6637,14 +6665,14 @@ impl SignalAiAssistantTools {
             },
             audit: AuditMeta {
                 approval_id: None,
-                reason: Some("AI Assistant read-only observation".into()),
+                reason: Some("AI Agent read-only observation".into()),
             },
         }
         .try_into()
         .map_err(|_| {
             error(
                 AgentErrorKind::Internal,
-                "failed to construct read-only AI Assistant envelope",
+                "failed to construct read-only AI Agent envelope",
                 false,
                 false,
             )
@@ -6850,7 +6878,7 @@ impl SignalAiAssistantTools {
 }
 
 #[async_trait(?Send)]
-impl ToolSeam for SignalAiAssistantTools {
+impl ToolSeam for SignalAiAgentTools {
     async fn issue_reply_access(
         &self,
         session: &desk_diagnose_core::session::PersistedAgentSession,
@@ -7107,7 +7135,7 @@ impl ToolSeam for SignalAiAssistantTools {
         let outcome = match version {
             Some(held)
                 if held.tool_call_id == call.id
-                    && ctx.assistant_turn_fence.as_ref() == Some(&held.turn_fence)
+                    && ctx.agent_turn_fence.as_ref() == Some(&held.turn_fence)
                     && ctx.conversation_id == held.turn_fence.conversation_id
                     && ctx.actor_id == held.turn_fence.actor_id
                     && ctx.turn_id == held.turn_fence.turn_id =>
@@ -7150,7 +7178,7 @@ impl ToolSeam for SignalAiAssistantTools {
             EXECUTE_CONFIRMED_UI_ACTION_TOOL
                 | EXECUTE_BACKGROUND_INPUT_TOOL
                 | EXECUTE_CONFIRMED_RAW_INPUT_TOOL
-                | desk_diagnose_core::ai_assistant::linux::OUTPUT_TOOL
+                | desk_diagnose_core::ai_agent::linux::OUTPUT_TOOL
                 | "patch_live_spreadsheet_cell"
                 | "replace_live_document_body"
                 | "patch_live_presentation_slide"
@@ -7197,7 +7225,7 @@ impl ToolSeam for SignalAiAssistantTools {
         ) {
             return Ok(ExecOutcome::Rejected {
                 reason: Some(desk_diagnose_core::seam::ExecReason::Server(
-                    "this AI Assistant mutation is not enabled",
+                    "this AI Agent mutation is not enabled",
                 )),
             });
         }
@@ -7361,7 +7389,7 @@ impl ToolSeam for SignalAiAssistantTools {
         call: &ToolCall,
         output: &ToolRunOutput,
     ) -> Result<Option<DataEnvelope>, AgentError> {
-        let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+        let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
         let capability = registry.capability_for_tool(&call.name).ok_or_else(|| {
             error(
                 AgentErrorKind::UnsupportedCapability,
@@ -7371,7 +7399,7 @@ impl ToolSeam for SignalAiAssistantTools {
             )
         })?;
         let source_object_id = if capability.wire.capability_id
-            == desk_diagnose_core::ai_assistant::WEB_RESEARCH_FETCH_CAPABILITY_ID
+            == desk_diagnose_core::ai_agent::WEB_RESEARCH_FETCH_CAPABILITY_ID
         {
             let (_, digest) = Self::canonical_call_input(call)?;
             Some(format!("external_url_input:sha256:{digest}"))
@@ -7444,7 +7472,7 @@ impl ToolSeam for SignalAiAssistantTools {
         call: &ToolCall,
         output: &ToolRunOutput,
     ) -> Result<Option<DataEnvelope>, AgentError> {
-        let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+        let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
         let capability = registry.capability_for_tool(&call.name).ok_or_else(|| {
             error(
                 AgentErrorKind::UnsupportedCapability,
@@ -7647,9 +7675,9 @@ mod tests {
             .await
             .unwrap();
         let tools_for = |roots| {
-            SignalAiAssistantTools::new(
+            SignalAiAgentTools::new(
                 db.clone(),
-                desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+                desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
                 Arc::new(SharedConnectionMap::default()),
                 Arc::new(SignalRemoteToolPendingStore::default()),
                 "host".into(),
@@ -7735,9 +7763,9 @@ mod tests {
         let db = crate::config::test_support::Database::connect("sqlite::memory:")
             .await
             .unwrap();
-        let tools = SignalAiAssistantTools::new(
+        let tools = SignalAiAgentTools::new(
             db,
-            desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+            desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
             Arc::new(SharedConnectionMap::default()),
             Arc::new(SignalRemoteToolPendingStore::default()),
             "host".into(),
@@ -7787,7 +7815,7 @@ mod tests {
 
     #[test]
     fn background_batch_preflight_targets_pass_signal_semantic_gate() {
-        let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+        let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
         for input in [
             serde_json::json!({"kind":"scroll","position":{"x":300,"y":450},"horizontal_pixels":0,"vertical_pixels":-400}),
             serde_json::json!({"kind":"type_text","text":"hello"}),
@@ -7950,10 +7978,9 @@ mod tests {
             arguments_json: r#"{"a":true,"z":{"a":1,"b":2}}"#.into(),
             ..first.clone()
         };
-        let (first_json, first_digest) =
-            SignalAiAssistantTools::canonical_call_input(&first).unwrap();
+        let (first_json, first_digest) = SignalAiAgentTools::canonical_call_input(&first).unwrap();
         let (second_json, second_digest) =
-            SignalAiAssistantTools::canonical_call_input(&second).unwrap();
+            SignalAiAgentTools::canonical_call_input(&second).unwrap();
         assert_eq!(
             first_json,
             r#"{"a":true,"include_active_application":true,"z":{"a":1,"b":2}}"#
@@ -7975,9 +8002,9 @@ mod tests {
             arguments_json: r#"{"max_results":5,"query":"Rust language"}"#.into(),
         };
         let (omitted_json, omitted_digest) =
-            SignalAiAssistantTools::canonical_call_input(&omitted).unwrap();
+            SignalAiAgentTools::canonical_call_input(&omitted).unwrap();
         let (explicit_json, explicit_digest) =
-            SignalAiAssistantTools::canonical_call_input(&explicit).unwrap();
+            SignalAiAgentTools::canonical_call_input(&explicit).unwrap();
         assert_eq!(omitted_json, r#"{"max_results":5,"query":"Rust language"}"#);
         assert_eq!(omitted_json, explicit_json);
         assert_eq!(omitted_digest, explicit_digest);
@@ -7985,66 +8012,59 @@ mod tests {
 
     #[test]
     fn provider_risk_classifies_bounded_diagnostics_and_sensitive_reads() {
-        let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+        let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
         let call = |name: &str, arguments_json: &str| ToolCall {
             id: format!("call-{name}"),
             name: name.into(),
             arguments_json: arguments_json.into(),
         };
         let session = registry
-            .capability(desk_diagnose_core::ai_assistant::DESKTOP_SESSION_CAPABILITY_ID)
+            .capability(desk_diagnose_core::ai_agent::DESKTOP_SESSION_CAPABILITY_ID)
             .unwrap();
         let office = registry
-            .capability(desk_diagnose_core::ai_assistant::OFFICE_DOCUMENT_CAPABILITY_ID)
+            .capability(desk_diagnose_core::ai_agent::OFFICE_DOCUMENT_CAPABILITY_ID)
             .unwrap();
         let file = registry
-            .capability(desk_diagnose_core::ai_assistant::FILE_METADATA_CAPABILITY_ID)
+            .capability(desk_diagnose_core::ai_agent::FILE_METADATA_CAPABILITY_ID)
             .unwrap();
         let system = registry
-            .capability(desk_diagnose_core::ai_assistant::SYSTEM_INFO_CAPABILITY_ID)
+            .capability(desk_diagnose_core::ai_agent::SYSTEM_INFO_CAPABILITY_ID)
             .unwrap();
         let process = registry
-            .capability(desk_diagnose_core::ai_assistant::SYSTEM_PROCESS_CAPABILITY_ID)
+            .capability(desk_diagnose_core::ai_agent::SYSTEM_PROCESS_CAPABILITY_ID)
             .unwrap();
         let logs = registry
-            .capability(desk_diagnose_core::ai_assistant::SYSTEM_LOG_CAPABILITY_ID)
+            .capability(desk_diagnose_core::ai_agent::SYSTEM_LOG_CAPABILITY_ID)
             .unwrap();
         let browser_snapshot = registry
-            .capability(desk_diagnose_core::ai_assistant::BROWSER_SNAPSHOT_CAPABILITY_ID)
+            .capability(desk_diagnose_core::ai_agent::BROWSER_SNAPSHOT_CAPABILITY_ID)
             .unwrap();
         let browser_open = registry
-            .capability(desk_diagnose_core::ai_assistant::BROWSER_OPEN_CAPABILITY_ID)
+            .capability(desk_diagnose_core::ai_agent::BROWSER_OPEN_CAPABILITY_ID)
             .unwrap();
         let browser_fill = registry
-            .capability(desk_diagnose_core::ai_assistant::BROWSER_FILL_CAPABILITY_ID)
+            .capability(desk_diagnose_core::ai_agent::BROWSER_FILL_CAPABILITY_ID)
             .unwrap();
         assert_eq!(
-            SignalAiAssistantTools::capability_risk(
-                session,
-                &call("inspect_desktop_session", "{}")
-            )
-            .unwrap(),
-            CapabilityRiskTier::R1
-        );
-        assert_eq!(
-            SignalAiAssistantTools::capability_risk(
-                office,
-                &call("inspect_office_selection", "{}")
-            )
-            .unwrap(),
-            CapabilityRiskTier::R1
-        );
-        assert_eq!(
-            SignalAiAssistantTools::capability_risk(file, &call("inspect_files", "{}")).unwrap(),
-            CapabilityRiskTier::R1
-        );
-        assert_eq!(
-            SignalAiAssistantTools::capability_risk(system, &call("read_system_info", "{}"))
+            SignalAiAgentTools::capability_risk(session, &call("inspect_desktop_session", "{}"))
                 .unwrap(),
+            CapabilityRiskTier::R1
+        );
+        assert_eq!(
+            SignalAiAgentTools::capability_risk(office, &call("inspect_office_selection", "{}"))
+                .unwrap(),
+            CapabilityRiskTier::R1
+        );
+        assert_eq!(
+            SignalAiAgentTools::capability_risk(file, &call("inspect_files", "{}")).unwrap(),
+            CapabilityRiskTier::R1
+        );
+        assert_eq!(
+            SignalAiAgentTools::capability_risk(system, &call("read_system_info", "{}")).unwrap(),
             CapabilityRiskTier::R0
         );
         assert_eq!(
-            SignalAiAssistantTools::capability_risk(
+            SignalAiAgentTools::capability_risk(
                 process,
                 &call("read_process_list", r#"{"queries":["Calendar"]}"#)
             )
@@ -8052,7 +8072,7 @@ mod tests {
             CapabilityRiskTier::R0
         );
         assert_eq!(
-            SignalAiAssistantTools::capability_risk(
+            SignalAiAgentTools::capability_risk(
                 process,
                 &call(
                     "read_process_list",
@@ -8063,11 +8083,11 @@ mod tests {
             CapabilityRiskTier::R1
         );
         assert_eq!(
-            SignalAiAssistantTools::capability_risk(logs, &call("read_recent_logs", "{}")).unwrap(),
+            SignalAiAgentTools::capability_risk(logs, &call("read_recent_logs", "{}")).unwrap(),
             CapabilityRiskTier::R1
         );
         assert_eq!(
-            SignalAiAssistantTools::capability_risk(
+            SignalAiAgentTools::capability_risk(
                 browser_snapshot,
                 &call("browser_take_snapshot", "{}")
             )
@@ -8075,12 +8095,12 @@ mod tests {
             CapabilityRiskTier::R1
         );
         assert_eq!(
-            SignalAiAssistantTools::capability_risk(browser_open, &call("browser_open_page", "{}"))
+            SignalAiAgentTools::capability_risk(browser_open, &call("browser_open_page", "{}"))
                 .unwrap(),
             CapabilityRiskTier::R2
         );
         assert_eq!(
-            SignalAiAssistantTools::capability_risk(browser_fill, &call("browser_fill_form", "{}"))
+            SignalAiAgentTools::capability_risk(browser_fill, &call("browser_fill_form", "{}"))
                 .unwrap(),
             CapabilityRiskTier::R3
         );
@@ -8136,8 +8156,7 @@ mod tests {
             })
             .to_string(),
         };
-        let request =
-            SignalAiAssistantTools::browser_action_from_call(&call, "server-call").unwrap();
+        let request = SignalAiAgentTools::browser_action_from_call(&call, "server-call").unwrap();
         assert_eq!(request.call_id, "server-call");
         assert!(matches!(
             request.action,
@@ -8200,8 +8219,7 @@ mod tests {
             })
             .to_string(),
         };
-        let request =
-            SignalAiAssistantTools::browser_action_from_call(&call, "server-call").unwrap();
+        let request = SignalAiAgentTools::browser_action_from_call(&call, "server-call").unwrap();
         assert!(matches!(
             request.action,
             BrowserAction::FillForm {
@@ -8275,8 +8293,7 @@ mod tests {
             })
             .to_string(),
         };
-        let request =
-            SignalAiAssistantTools::browser_action_from_call(&call, "server-call").unwrap();
+        let request = SignalAiAgentTools::browser_action_from_call(&call, "server-call").unwrap();
         assert!(matches!(
             request.action,
             BrowserAction::FillForm {
@@ -8320,7 +8337,7 @@ mod tests {
             name: "prepare_gmail_draft".into(),
             arguments_json: attachment_arguments.to_string(),
         };
-        let attachment_request = SignalAiAssistantTools::browser_action_from_call(
+        let attachment_request = SignalAiAgentTools::browser_action_from_call(
             &attachment_call,
             "server-call-with-attachment",
         )
@@ -8434,7 +8451,7 @@ mod tests {
 
     #[test]
     fn browser_grant_and_runtime_share_compiled_operation_scope() {
-        let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+        let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
         let capability = registry
             .capability_for_tool("browser_open_page")
             .expect("browser open capability is compiled");

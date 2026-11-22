@@ -74,7 +74,7 @@ impl ModelSeam for PublishingModel {
                     .all(|m| !m.text.contains("PRIVATE_OWNER_INPUT"))
             );
             assert!(request.tools.is_empty());
-            assert!(request.assistant_data.is_none());
+            assert!(request.agent_data.is_none());
         }
         self.inner.call(request, sink).await
     }

@@ -17,16 +17,16 @@ fn invalid_forget_arguments_reach_the_model_without_dispatch_on_small_stacks() {
                             (r#"{"operation":"forget","memory_id":"memory-one","expected_revision":"PRIVATE_VALUE"}"#, "invalid type; expected u64"),
                         ] {
                             let store=MemSession {
-                                data_access:Some(crate::ai_assistant::data_access::AssistantDataToolAccess {
+                                data_access:Some(crate::ai_agent::data_access::AgentDataToolAccess {
                                     settings:Default::default(),policy_revision:1,memory_state_generation:1,control_generation:1,
                                 }),..Default::default()
                             };
                             let params=claim();
-                            let mut session=crate::ai_assistant::test_support::personal_session(&params.actor_id,&params.conversation_id,&params.device_id);
+                            let mut session=crate::ai_agent::test_support::personal_session(&params.actor_id,&params.conversation_id,&params.device_id);
                             session.scope_snapshot=params.current_pdp_scope.clone();
                             *store.inner.borrow_mut()=Some(session);
                             let model=ScriptModel{
-                                turns:RefCell::new([tool_use_args("invalid-forget",crate::ai_assistant::data_tools::MANAGE_MEMORIES,arguments),answer("correct the memory request")].into()),
+                                turns:RefCell::new([tool_use_args("invalid-forget",crate::ai_agent::data_tools::MANAGE_MEMORIES,arguments),answer("correct the memory request")].into()),
                                 requests:Rc::new(RefCell::new(Vec::new())),
                             };
                             let calls=Rc::new(RefCell::new(Vec::new()));

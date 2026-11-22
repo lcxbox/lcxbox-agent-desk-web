@@ -1,6 +1,6 @@
 # Introduction
 
-**LCXBOX Agent Desk** is an **AI-native**, open-source, high-performance remote desktop. It treats AI as a **first-class control plane alongside the browser**: beyond browser-based remote control, it ships a built-in AI assistant that reads device state and can propose owner-confirmed commands, while exposing only the read capabilities to external AI assistants via a read-only [MCP](https://modelcontextprotocol.io/) server.
+**LCXBOX Agent Desk** is an **AI-native**, open-source, high-performance remote desktop. It treats AI as a **first-class control plane alongside the browser**: beyond browser-based remote control, it ships a built-in AI agent that reads device state and can propose owner-confirmed commands, while exposing only the read capabilities to external AI agents via a read-only [MCP](https://modelcontextprotocol.io/) server.
 
 The backend is written in Rust (Actix-Web); the frontend with React + Vite + Tailwind CSS.
 
@@ -24,7 +24,7 @@ See the [AI Security Model](/security/ai-security-model) for the full picture.
 ## Key Features
 
 - **AI Diagnostics** — ask troubleshooting questions in plain language; the system collects and redacts read-only state for analysis. On the owner's own device, the agent may also request a supported-shell command, which remains blocked until the owner explicitly confirms that exact command.
-- **Read-Only MCP Server** — `--startup-mode mcp-stdio` exposes a static whitelist of read-only tools to local AI assistants, with no execution or write permissions.
+- **Read-Only MCP Server** — `--startup-mode mcp-stdio` exposes a static whitelist of read-only tools to local AI agents, with no execution or write permissions.
 - **High-Performance Streaming** — WebRTC with AV1 / H.264 / VP8 / VP9 encoding and Opus audio.
 - **Remote Terminal** — a built-in xterm.js terminal supporting full shell interactions.
 - **File Management** — uploads, downloads, deletions, and a recycle-bin mechanism.

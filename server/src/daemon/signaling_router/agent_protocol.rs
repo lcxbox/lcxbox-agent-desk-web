@@ -147,25 +147,25 @@ pub(super) fn emit_agent_error(ctx: &RouterContext, model: &SignalingModel, erro
     }
 }
 
-/// Route a control-end `TerminalAiAssistantAsk`. The Terminal AI Assistant is orchestrated
+/// Route a control-end `TerminalAiAgentAsk`. The Terminal AI Agent is orchestrated
 /// by the central signaling brain (signal / manager): the control end sends the
 /// ask — carrying the terminal context inline — to the central server, which dials
-/// the model and streams `TerminalAiAssistantEvent` frames back. This host runs no
-/// local assistant. If an ask still reaches the edge router (a link without a central
-/// brain), answer with one terminal `TerminalAiAssistantEvent::error` so the control
+/// the model and streams `TerminalAiAgentEvent` frames back. This host runs no
+/// local agent. If an ask still reaches the edge router (a link without a central
+/// brain), answer with one terminal `TerminalAiAgentEvent::error` so the control
 /// end stops waiting on the stream.
-pub(super) async fn handle_terminal_ai_assistant_inbound(
+pub(super) async fn handle_terminal_ai_agent_inbound(
     ctx: &RouterContext,
     model: &SignalingModel,
 ) -> Result<(), RouterError> {
-    let mut sink = assistant_signaling_sink(
+    let mut sink = agent_signaling_sink(
         ctx.outbound_tx.clone(),
         model.from_connection_id.clone(),
         model.request_id.clone(),
     );
     sink.emit_error(agent_error(
         AgentErrorKind::UnsupportedCapability,
-        "the Terminal AI Assistant is handled by the central signaling server",
+        "the Terminal AI Agent is handled by the central signaling server",
         false,
         true,
     ));

@@ -234,7 +234,7 @@ pub(super) async fn reserve_budget_for_session_on(
             Ok(BudgetAdmission::AlreadyReserved(existing))
         };
     }
-    if session.surface != AgentSessionSurface::AiAssistant
+    if session.surface != AgentSessionSurface::AiAgent
         || (review_authority.is_none() && !session.turn_state.is_active())
         || group.source_admission != SourceAdmission::Open
     {

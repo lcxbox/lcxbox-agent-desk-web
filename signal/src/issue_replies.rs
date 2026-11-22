@@ -4,11 +4,11 @@ use crate::{
     agent_run_event_store::SignalAgentRunEventStore, config::connection::DatabaseConnection,
     issue_connections, model_egress_store::SignalModelEgressStore,
 };
-use desk_agent_protocol::AgentError;
-use desk_assistant_data_store::{
+use desk_agent_data_store::{
     entity::agent_issue_reply,
     issue_reply::{self, DeliveryMode, ReplyPreparation},
 };
+use desk_agent_protocol::AgentError;
 use desk_diagnose_core::issue_reply::FrozenIssueReply;
 
 /// The original caller retains the model, lease, budget and cancellation scope.
@@ -54,7 +54,7 @@ pub async fn freeze(
     let mode = if config
         .connection_for_issue(&artifact.origin.actor_id, &artifact.access)
         .is_some()
-        && desk_assistant_data_store::issue_authority::publication_revision_for_input(
+        && desk_agent_data_store::issue_authority::publication_revision_for_input(
             &txn,
             prepared.held,
             &original,

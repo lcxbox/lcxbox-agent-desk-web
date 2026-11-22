@@ -1,0 +1,445 @@
+//! Bounded owner-only retained fragments, independent of execution-state lifetime.
+//! Cursor rows define immutable ordering, never authority; every page rechecks
+//! the owner, exact anchor, device, retention and each returned source.
+use super::{AgentStoreError, unsigned};
+use crate::{config::ConfigConnection, entity::agent_history as history};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use desk_agent_protocol::ai_agent::{
+    history_window::{
+        AgentHistoryFragment, AgentHistoryWindow, AgentHistoryWindowRequest, AgentHistoryWindowView,
+    },
+    source::{AgentSourceKind, SourceAvailability},
+};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, QueryFilter, QueryOrder, QuerySelect,
+    sea_query::{Condition, Expr},
+};
+use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
+
+const LIMIT: u64 = 20;
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Cursor {
+    source_id: String,
+    revision: u64,
+    view: AgentHistoryWindowView,
+    anchor: String,
+    tail: String,
+    tail_revision: i64,
+    boundary: String,
+    forward: bool,
+}
+impl Cursor {
+    fn encode(&self) -> Result<String, AgentStoreError> {
+        let bytes = serde_json::to_vec(self).map_err(|_| AgentStoreError::Inaccessible)?;
+        let value = format!("rh1_{}", URL_SAFE_NO_PAD.encode(bytes));
+        if value.len() > 2048 {
+            return Err(AgentStoreError::Capacity);
+        }
+        Ok(value)
+    }
+}
+fn available(value: &desk_agent_protocol::ai_agent::source::AgentSourceResolution) -> bool {
+    matches!(
+        value.availability,
+        SourceAvailability::Available | SourceAvailability::Partial | SourceAvailability::Redacted
+    ) && value.content.is_some()
+        && value.locator.is_some()
+}
+fn position(row: &history::Model) -> (i64, i32, i64) {
+    (row.admitted_generation, row.fragment_index, row.id)
+}
+fn bound(row: &history::Model, forward: bool, inclusive: bool) -> Condition {
+    let generation = Expr::col(history::Column::AdmittedGeneration);
+    let fragment = Expr::col(history::Column::FragmentIndex);
+    let source = Expr::col(history::Column::Id);
+    let mut result = Condition::any()
+        .add(if forward {
+            generation.clone().gt(row.admitted_generation)
+        } else {
+            generation.clone().lt(row.admitted_generation)
+        })
+        .add(
+            Condition::all()
+                .add(generation.clone().eq(row.admitted_generation))
+                .add(if forward {
+                    fragment.clone().gt(row.fragment_index)
+                } else {
+                    fragment.clone().lt(row.fragment_index)
+                }),
+        )
+        .add(
+            Condition::all()
+                .add(generation.clone().eq(row.admitted_generation))
+                .add(fragment.clone().eq(row.fragment_index))
+                .add(if forward {
+                    source.clone().gt(row.id)
+                } else {
+                    source.clone().lt(row.id)
+                }),
+        );
+    if inclusive {
+        result = result.add(
+            Condition::all()
+                .add(generation.eq(row.admitted_generation))
+                .add(fragment.eq(row.fragment_index))
+                .add(source.eq(row.id)),
+        );
+    }
+    result
+}
+fn base(actor: &str, anchor: &history::Model) -> sea_orm::Select<history::Entity> {
+    history::Entity::find()
+        .filter(history::Column::ActorId.eq(actor))
+        .filter(history::Column::ConversationId.eq(&anchor.conversation_id))
+        .filter(history::Column::RootConversationId.eq(&anchor.root_conversation_id))
+        .filter(history::Column::DeviceRef.eq(&anchor.device_ref))
+        .filter(history::Column::DeletedAtMs.is_null())
+}
+async fn exact_on<C: ConnectionTrait + ConfigConnection>(
+    db: &C,
+    actor: &str,
+    anchor: &history::Model,
+    id: &str,
+    policy: &desk_agent_protocol::ai_agent::user_instructions::AgentDataPolicy,
+    now: u64,
+) -> Result<history::Model, AgentStoreError> {
+    let row = base(actor, anchor)
+        .filter(history::Column::Id.eq(desk_agent_data_store::source_rows::history(id)))
+        .one(db)
+        .await?
+        .ok_or(AgentStoreError::Inaccessible)?;
+    if !available(
+        &desk_diagnose_core::future::send_phase(|| {
+            super::owner_source::history_source_on(db, actor, &row, policy, now)
+        })
+        .await?,
+    ) {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    Ok(row)
+}
+
+pub(crate) async fn read_on<C: ConnectionTrait + ConfigConnection>(
+    db: &C,
+    actor: &str,
+    request: &AgentHistoryWindowRequest,
+    policy: &desk_agent_protocol::ai_agent::user_instructions::AgentDataPolicy,
+    now: u64,
+) -> Result<AgentHistoryWindow, AgentStoreError> {
+    request.validate().map_err(AgentStoreError::Invalid)?;
+    let (original, anchor) = desk_diagnose_core::future::send_phase(|| {
+        super::owner_source::owner_source_with_original_on(
+            db,
+            actor,
+            &request.source_id,
+            policy,
+            now,
+        )
+    })
+    .await?;
+    if original.revision != request.revision || !available(&original) {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    if original.locator.is_none() {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    // The resolution names the exact original history row it was built from.
+    let anchor = anchor.ok_or(AgentStoreError::Inaccessible)?;
+    let anchor = &anchor;
+    let resolved = desk_diagnose_core::future::send_phase(|| {
+        super::owner_source::history_source_on(db, actor, anchor, policy, now)
+    })
+    .await?;
+    if resolved.locator != original.locator
+        || resolved.content != original.content
+        || !available(&resolved)
+    {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    let cursor: Option<Cursor> = request
+        .cursor
+        .as_ref()
+        .map(|raw| {
+            let bytes = URL_SAFE_NO_PAD
+                .decode(
+                    raw.strip_prefix("rh1_")
+                        .ok_or(AgentStoreError::Inaccessible)?,
+                )
+                .map_err(|_| AgentStoreError::Inaccessible)?;
+            serde_json::from_slice(&bytes).map_err(|_| AgentStoreError::Inaccessible)
+        })
+        .transpose()?;
+    let mut partial = false;
+    let tail = if let Some(cursor) = &cursor {
+        if cursor.source_id != request.source_id
+            || cursor.revision != request.revision
+            || cursor.view != request.view
+            || cursor.anchor != anchor.source_id()
+        {
+            return Err(AgentStoreError::Inaccessible);
+        }
+        let tail = desk_diagnose_core::future::send_phase(|| {
+            exact_on(db, actor, anchor, &cursor.tail, policy, now)
+        })
+        .await?;
+        if tail.revision != cursor.tail_revision || position(&tail) < position(anchor) {
+            return Err(AgentStoreError::Inaccessible);
+        }
+        tail
+    } else {
+        let maximum = std::cmp::min(
+            u64::from(policy.max_retrieval_document_visits),
+            u64::from(policy.limits.retrieval.owner_scan_documents),
+        );
+        let began = Instant::now();
+        let duration = Duration::from_millis(policy.limits.retrieval.owner_scan_ms);
+        let mut scanned = 0;
+        let mut tail = None;
+        while scanned < maximum && began.elapsed() < duration {
+            let page = std::cmp::min(
+                maximum - scanned,
+                u64::from(policy.limits.processing.history_scan_page_size),
+            );
+            let rows = base(actor, anchor)
+                .order_by_desc(history::Column::AdmittedGeneration)
+                .order_by_desc(history::Column::FragmentIndex)
+                .order_by_desc(history::Column::Id)
+                .offset(scanned)
+                .limit(page)
+                .all(db)
+                .await?;
+            let finished = rows.len() < page as usize;
+            if rows.is_empty() {
+                break;
+            }
+            for row in rows {
+                if began.elapsed() >= duration {
+                    break;
+                }
+                scanned += 1;
+                if available(
+                    &desk_diagnose_core::future::send_phase(|| {
+                        super::owner_source::history_source_on(db, actor, &row, policy, now)
+                    })
+                    .await?,
+                ) {
+                    tail = Some(row);
+                    break;
+                }
+                partial = true;
+            }
+            if tail.is_some() || finished {
+                break;
+            }
+        }
+        if tail.is_none() {
+            partial = true;
+        }
+        // The already-validated anchor remains readable when tail discovery
+        // exhausts its scan budget. It does not establish an exhaustive tail.
+        tail.unwrap_or_else(|| anchor.clone())
+    };
+    let mut selected = Vec::new();
+    if let Some(cursor) = &cursor {
+        let boundary = desk_diagnose_core::future::send_phase(|| {
+            exact_on(db, actor, anchor, &cursor.boundary, policy, now)
+        })
+        .await?;
+        if position(&boundary) > position(&tail) {
+            return Err(AgentStoreError::Inaccessible);
+        }
+        let forward_page = cursor.forward;
+        let query = base(actor, anchor)
+            .filter(bound(&tail, false, true))
+            .filter(bound(&boundary, forward_page, false));
+        selected = if forward_page {
+            query
+                .order_by_asc(history::Column::AdmittedGeneration)
+                .order_by_asc(history::Column::FragmentIndex)
+                .order_by_asc(history::Column::Id)
+                .limit(LIMIT + 1)
+                .all(db)
+                .await?
+        } else {
+            query
+                .order_by_desc(history::Column::AdmittedGeneration)
+                .order_by_desc(history::Column::FragmentIndex)
+                .order_by_desc(history::Column::Id)
+                .limit(LIMIT + 1)
+                .all(db)
+                .await?
+        };
+    } else if request.view == AgentHistoryWindowView::Latest {
+        selected = base(actor, anchor)
+            .filter(bound(&tail, false, true))
+            .order_by_desc(history::Column::AdmittedGeneration)
+            .order_by_desc(history::Column::FragmentIndex)
+            .order_by_desc(history::Column::Id)
+            .limit(LIMIT + 1)
+            .all(db)
+            .await?;
+    } else {
+        selected.push(anchor.clone());
+        selected.extend(
+            base(actor, anchor)
+                .filter(bound(anchor, false, false))
+                .order_by_desc(history::Column::AdmittedGeneration)
+                .order_by_desc(history::Column::FragmentIndex)
+                .order_by_desc(history::Column::Id)
+                .limit(9)
+                .all(db)
+                .await?,
+        );
+        selected.extend(
+            base(actor, anchor)
+                .filter(bound(&tail, false, true))
+                .filter(bound(anchor, true, false))
+                .order_by_asc(history::Column::AdmittedGeneration)
+                .order_by_asc(history::Column::FragmentIndex)
+                .order_by_asc(history::Column::Id)
+                .limit(10)
+                .all(db)
+                .await?,
+        );
+    }
+    let mut result = AgentHistoryWindow {
+        conversation_id: anchor.conversation_id.clone(),
+        anchor_source_id: anchor.source_id().clone(),
+        anchor_revision: unsigned(anchor.revision)?,
+        observed_through_generation: unsigned(tail.admitted_generation)?,
+        fragments: Vec::new(),
+        previous_cursor: None,
+        next_cursor: None,
+        partial,
+    };
+    let mut emitted = Vec::new();
+    for row in selected {
+        if emitted.len() >= LIMIT as usize {
+            break;
+        }
+        let source = desk_diagnose_core::future::send_phase(|| {
+            super::owner_source::history_source_on(db, actor, &row, policy, now)
+        })
+        .await?;
+        if !available(&source) {
+            result.partial = true;
+            continue;
+        }
+        let kind = match row.kind.as_str() {
+            "input" => AgentSourceKind::Input,
+            "agent_message" => AgentSourceKind::AgentMessage,
+            "receipt" => AgentSourceKind::Receipt,
+            "native_status" => AgentSourceKind::NativeStatus,
+            _ => return Err(AgentStoreError::Inaccessible),
+        };
+        result.fragments.push(AgentHistoryFragment {
+            source,
+            role: row.role.clone(),
+            kind,
+        });
+        emitted.push(row);
+    }
+    if emitted.is_empty() {
+        return Err(AgentStoreError::Capacity);
+    }
+    emitted.sort_by_key(position);
+    result.fragments.sort_by_key(|fragment| {
+        emitted
+            .iter()
+            .position(|row| row.source_id() == fragment.source.source_id)
+    });
+    while result.fragments.len() > 1
+        && serde_json::to_vec(&result)
+            .map_err(|_| AgentStoreError::Inaccessible)?
+            .len()
+            > policy.limits.conversation.page_bytes as usize
+    {
+        let trim_back = cursor.as_ref().is_some_and(|cursor| cursor.forward)
+            || (cursor.is_none()
+                && request.view == AgentHistoryWindowView::Context
+                && emitted[0].source_id() == anchor.source_id());
+        if trim_back {
+            result.fragments.pop();
+            emitted.pop();
+        } else {
+            result.fragments.remove(0);
+            emitted.remove(0);
+        }
+    }
+    let first = &emitted[0];
+    let last = emitted.last().ok_or(AgentStoreError::Inaccessible)?;
+    let make_cursor = |boundary: &history::Model, forward| {
+        Cursor {
+            source_id: request.source_id.clone(),
+            revision: request.revision,
+            view: request.view,
+            anchor: anchor.source_id().clone(),
+            tail: tail.source_id().clone(),
+            tail_revision: tail.revision,
+            boundary: boundary.source_id().clone(),
+            forward,
+        }
+        .encode()
+    };
+    if base(actor, anchor)
+        .filter(bound(first, false, false))
+        .limit(1)
+        .one(db)
+        .await?
+        .is_some()
+    {
+        result.previous_cursor = Some(make_cursor(first, false)?);
+    }
+    if position(last) < position(&tail) {
+        result.next_cursor = Some(make_cursor(last, true)?);
+    }
+    // Full row equality and the original owner locator are re-read after page
+    // construction. Sharing a transaction is not a snapshot guarantee.
+    for row in &emitted {
+        let source_id = row.source_id();
+        if desk_diagnose_core::future::send_phase(|| {
+            exact_on(db, actor, anchor, &source_id, policy, now)
+        })
+        .await?
+            != *row
+        {
+            return Err(AgentStoreError::Inaccessible);
+        }
+    }
+    let tail_source_id = tail.source_id();
+    if desk_diagnose_core::future::send_phase(|| {
+        super::owner_source::owner_source_on(db, actor, &request.source_id, policy, now)
+    })
+    .await?
+        != original
+        || desk_diagnose_core::future::send_phase(|| {
+            exact_on(db, actor, anchor, &tail_source_id, policy, now)
+        })
+        .await?
+            != tail
+    {
+        return Err(AgentStoreError::Inaccessible);
+    }
+    Ok(result)
+}
+
+pub(crate) async fn owner_history_window(
+    db: &crate::config::connection::DatabaseConnection,
+    request: &AgentHistoryWindowRequest,
+    now: u64,
+) -> Result<AgentHistoryWindow, AgentStoreError> {
+    use sea_orm::TransactionTrait;
+    let txn = db.begin().await?;
+    let actor = crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string();
+    super::ensure_runtime_on(&txn, &actor).await?;
+    let config = txn.config_read().await;
+    let result = desk_diagnose_core::future::boxed(|| {
+        read_on(&txn, &actor, request, &config.agent_data_policy, now)
+    })
+    .await?;
+    txn.commit().await?;
+    Ok(result)
+}

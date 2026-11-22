@@ -23,8 +23,7 @@ pub fn wayland_output_input_from_call(
         target: ObjectRef,
         action: WaylandOutputInputAction,
     }
-    if call.name != crate::ai_assistant::linux::OUTPUT_TOOL || call.arguments_json.len() > 64 * 1024
-    {
+    if call.name != crate::ai_agent::linux::OUTPUT_TOOL || call.arguments_json.len() > 64 * 1024 {
         return Err(unavailable());
     }
     let input: Input = serde_json::from_str(&call.arguments_json).map_err(|_| unavailable())?;
@@ -148,7 +147,7 @@ impl WaylandOutputInputPreflight {
         &'a self,
         subject: &'a ProviderCallSubject<'_>,
     ) -> Result<CapabilityGrantCall<'a>, AgentError> {
-        crate::assistant_policy::require_current_policy(subject.policy_revision)?;
+        crate::agent_policy::require_current_policy(subject.policy_revision)?;
         if subject.readiness_revision == 0
             || subject.now_unix_ms == 0
             || subject.now_unix_ms >= self.valid_until_unix_ms

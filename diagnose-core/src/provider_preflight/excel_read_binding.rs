@@ -20,7 +20,7 @@ impl ExcelReadBinding {
         selected: &ObjectRef,
         worker: &str,
         output: &LiveDocumentInspectOutput,
-        args: &crate::ai_assistant::windows_excel::InspectArgs,
+        args: &crate::ai_agent::windows_excel::InspectArgs,
         now: u64,
     ) -> Result<Self, AgentError> {
         let source = output.batch_source.as_ref().ok_or_else(denied)?;
@@ -151,7 +151,7 @@ pub fn resolve_excel_read_on_device(
     target: &ObjectRef,
     now: u64,
 ) -> Result<ExcelReadBinding, AgentError> {
-    use crate::{ai_assistant::windows_excel, chat::ChatRole};
+    use crate::{ai_agent::windows_excel, chat::ChatRole};
     let mut found = None;
     for message in &session.conversation {
         if !matches!(message.role, ChatRole::Tool | ChatRole::UntrustedOutput) {

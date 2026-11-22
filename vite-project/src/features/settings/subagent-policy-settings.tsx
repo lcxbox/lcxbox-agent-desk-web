@@ -40,11 +40,11 @@ export default function SubAgentPolicySettings() {
         try {
             const response = await fetch(path, { credentials: 'include', cache: 'no-store' });
             const body = await response.json();
-            if (!response.ok || !body?.success || !validPolicy(body.data)) throw new Error(body?.message ?? t('pages.aiAssistant.subagentPolicyLoadFailed'));
+            if (!response.ok || !body?.success || !validPolicy(body.data)) throw new Error(body?.message ?? t('pages.aiAgent.subagentPolicyLoadFailed'));
             adopt(body.data);
         } catch (cause) {
             setCurrent(null);
-            setError(cause instanceof Error ? cause.message : t('pages.aiAssistant.subagentPolicyLoadFailed'));
+            setError(cause instanceof Error ? cause.message : t('pages.aiAgent.subagentPolicyLoadFailed'));
         } finally { setBusy(false); }
     };
     useEffect(() => { void reload(); }, []);
@@ -64,33 +64,33 @@ export default function SubAgentPolicySettings() {
                 body: JSON.stringify({ expectedRevision: current.revision, limits: next }),
             });
             const body = await response.json();
-            if (!response.ok || !body?.success || !validPolicy(body.data)) throw new Error(body?.message ?? t('pages.aiAssistant.subagentPolicySaveFailed'));
+            if (!response.ok || !body?.success || !validPolicy(body.data)) throw new Error(body?.message ?? t('pages.aiAgent.subagentPolicySaveFailed'));
             adopt(body.data); setSaved(true);
         } catch (cause) {
             setCurrent(null);
-            setError(cause instanceof Error ? cause.message : t('pages.aiAssistant.subagentPolicySaveFailed'));
+            setError(cause instanceof Error ? cause.message : t('pages.aiAgent.subagentPolicySaveFailed'));
         } finally { setBusy(false); }
     };
     return <Card>
-        <CardHeader><CardTitle>{t('pages.aiAssistant.subagentPolicyTitle')}</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t('pages.aiAgent.subagentPolicyTitle')}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">{t('pages.aiAssistant.subagentPolicyDescription')}</p>
+            <p className="text-sm text-muted-foreground">{t('pages.aiAgent.subagentPolicyDescription')}</p>
             {fields.map(({ key, label, maximum }) => <div key={key} className="space-y-1">
                 <div className="flex flex-wrap items-center gap-3">
-                    <label htmlFor={key} className="min-w-56">{t(`pages.aiAssistant.${label}`)}</label>
+                    <label htmlFor={key} className="min-w-56">{t(`pages.aiAgent.${label}`)}</label>
                     <Input id={key} className="w-32" type="number" min={1} max={maximum} step={1}
                         value={input?.[key] ?? ''} disabled={!current || busy}
                         onChange={(event) => { setSaved(false); setInput(previous => previous && ({ ...previous, [key]: event.target.value })); }} />
                 </div>
-                <p className="text-sm text-muted-foreground">{t(`pages.aiAssistant.${label}Description`)}</p>
+                <p className="text-sm text-muted-foreground">{t(`pages.aiAgent.${label}Description`)}</p>
             </div>)}
-            <p className="text-sm text-muted-foreground">{t('pages.aiAssistant.subagentPolicyBudget')}</p>
+            <p className="text-sm text-muted-foreground">{t('pages.aiAgent.subagentPolicyBudget')}</p>
             {error && <p role="alert" className="text-destructive">{error}</p>}
-            {current && !valid && <p role="alert" className="text-destructive">{t('pages.aiAssistant.subagentPolicyInvalid')}</p>}
-            {saved && <p role="status">{t('pages.aiAssistant.subagentPolicySaved')}</p>}
+            {current && !valid && <p role="alert" className="text-destructive">{t('pages.aiAgent.subagentPolicyInvalid')}</p>}
+            {saved && <p role="status">{t('pages.aiAgent.subagentPolicySaved')}</p>}
             <div className="flex gap-2">
-                <Button onClick={() => void save()} disabled={!current || busy || !valid || !dirty}>{t('pages.aiAssistant.goalBudgetSave')}</Button>
-                <Button variant="outline" onClick={() => void reload()} disabled={busy}>{t('pages.aiAssistant.goalBudgetReload')}</Button>
+                <Button onClick={() => void save()} disabled={!current || busy || !valid || !dirty}>{t('pages.aiAgent.goalBudgetSave')}</Button>
+                <Button variant="outline" onClick={() => void reload()} disabled={busy}>{t('pages.aiAgent.goalBudgetReload')}</Button>
             </div>
         </CardContent>
     </Card>;

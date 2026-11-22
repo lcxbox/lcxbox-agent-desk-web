@@ -47,7 +47,7 @@ pub(super) fn permission_resources(
         )
         .map(|_| None);
     }
-    if call.name == crate::ai_assistant::linux::OUTPUT_TOOL {
+    if call.name == crate::ai_agent::linux::OUTPUT_TOOL {
         require_desktop_action_target(
             session,
             &target.device_id,
@@ -222,7 +222,7 @@ pub(super) fn permission_request(
         }
         item.selected_device_target = Some(target.clone());
     }
-    if crate::assistant_policy::permits_permission_request(session, &request) {
+    if crate::agent_policy::permits_permission_request(session, &request) {
         Ok(request)
     } else {
         Err(invalid())

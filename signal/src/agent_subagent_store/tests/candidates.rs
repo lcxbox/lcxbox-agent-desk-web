@@ -302,7 +302,7 @@ async fn root_wait_scan_skips_unreadable_active_and_duplicate_parents_without_lo
         .unwrap();
     let mut legacy: serde_json::Value = serde_json::from_str(&original_session.state_json).unwrap();
     legacy["conversation_id"] = "legacy-root".into();
-    legacy["assistant_data"] = serde_json::json!({"closed_control_message_ids": []});
+    legacy["agent_data"] = serde_json::json!({"closed_control_message_ids": []});
     let legacy_json = serde_json::to_string(&legacy).unwrap();
     assert!(PersistedAgentSession::decode_json(&legacy_json).is_err());
     let mut old: session_row::ActiveModel = original_session.clone().into();
@@ -404,7 +404,7 @@ async fn root_wait_scan_skips_unreadable_active_and_duplicate_parents_without_lo
 async fn wal_snapshot_and_legacy_delete_finish_after_a_writer_without_background_recovery() {
     use sea_orm::ConnectOptions;
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("assistant.db");
+    let path = directory.path().join("agent.db");
     let mut options = ConnectOptions::new(format!("sqlite://{}?mode=rwc", path.display()));
     options.max_connections(4).sqlx_logging(false);
     options.map_sqlx_sqlite_opts(|options| {
@@ -425,7 +425,7 @@ async fn wal_snapshot_and_legacy_delete_finish_after_a_writer_without_background
         .unwrap();
     let mut legacy: serde_json::Value = serde_json::from_str(&original.state_json).unwrap();
     legacy["conversation_id"] = "legacy-removal".into();
-    legacy["assistant_data"] = serde_json::json!({"closed_control_message_ids": []});
+    legacy["agent_data"] = serde_json::json!({"closed_control_message_ids": []});
     let mut old: session_row::ActiveModel = original.clone().into();
     old.id = sea_orm::NotSet;
     old.conversation_id = Set("legacy-removal".into());
@@ -447,7 +447,7 @@ async fn wal_snapshot_and_legacy_delete_finish_after_a_writer_without_background
     assert!(candidates.is_empty());
 
     let sessions = crate::agent_session_store::SignalAgentSessionStore::new(db.clone());
-    let snapshot = sessions.read_assistant_snapshot_for_subject(
+    let snapshot = sessions.read_agent_snapshot_for_subject(
         &parent.conversation_id,
         &parent.actor_id,
         &parent.device_id,

@@ -29,7 +29,7 @@ use crate::session::{PersistedAgentSession, SubjectMismatch};
 pub struct ModelRequest {
     /// Host-only selected-source manifest; the physical receipt gate mints the
     /// actual send authorization. Never serialized as a provider parameter.
-    pub assistant_data: Option<Box<crate::ai_assistant::seam::AssistantModelDataManifest>>,
+    pub agent_data: Option<Box<crate::ai_agent::seam::AgentModelDataManifest>>,
     /// Pure preparation receipt, never a provider parameter or durable authority.
     pub preparation: Option<Box<crate::model_preparation::ModelRequestPreparation>>,
     /// Stable server identity for one compression source range.
@@ -155,7 +155,7 @@ impl ModelRequest {
         Self {
             observation: None,
             preparation: None,
-            assistant_data: None,
+            agent_data: None,
             compression_identity: None,
             issue_reply: None,
             messages,
@@ -214,12 +214,12 @@ pub trait TurnSink {
     fn on_request_not_started(&mut self, _reason: crate::model_observability::NotStartedReason) {}
     /// Readable provider reasoning, independent of opaque replay and display caps.
     fn on_reasoning_delta(&mut self, _delta: &str) {}
-    /// An incremental fragment of the assistant's text for the current turn
+    /// An incremental fragment of the agent's text for the current turn
     /// (provisional until the turn commits).
     fn on_text_delta(&mut self, delta: &str);
 
     /// Commit provisional prose from an allowed intermediate tool-calling turn.
-    /// Enforced loops invoke this only after the assistant tool-call message has
+    /// Enforced loops invoke this only after the agent tool-call message has
     /// been persisted and before any tool or approval lifecycle event.
     fn on_partial_committed(&mut self) {}
 
@@ -471,8 +471,8 @@ pub trait ModelSeam {
         None
     }
 
-    /// Exact data-egress policy for AI Assistant context transformations.
-    /// Ordinary diagnostic/assistant seams leave this unset. A strict seam must
+    /// Exact data-egress policy for AI Agent context transformations.
+    /// Ordinary diagnostic/agent seams leave this unset. A strict seam must
     /// also enforce the same policy inside `call`, before its transport starts.
     fn model_egress_policy(
         &self,
@@ -860,9 +860,9 @@ pub enum WaitOutcome {
 /// so a control end can never influence the work item's subject.
 #[derive(Debug, Clone)]
 pub struct ExecContext {
-    /// Frozen by the loop for AI Assistant, never inferred by an executor
+    /// Frozen by the loop for AI Agent, never inferred by an executor
     /// from newer input. Other surfaces retain their existing authorization path.
-    pub assistant_turn_fence: Option<crate::action_turn_fence::AssistantTurnFence>,
+    pub agent_turn_fence: Option<crate::action_turn_fence::AgentTurnFence>,
     pub conversation_id: String,
     pub turn_id: String,
     pub tool_call_id: String,
@@ -1061,7 +1061,7 @@ pub trait ToolSeam {
 
     /// Produce source metadata for one successful read result before it is
     /// persisted or considered for model export. Default `None` keeps existing
-    /// non-Assistant surfaces unchanged; an information-flow-enforced surface
+    /// non-Agent surfaces unchanged; an information-flow-enforced surface
     /// must return a validated envelope with no implicit external destination.
     fn read_data_envelope(
         &self,
@@ -1207,7 +1207,7 @@ pub enum ClaimError {
 /// in DB with optimistic-concurrency CAS and is the authority across instances.
 #[async_trait(?Send)]
 pub trait SessionSeam {
-    /// Optional naming support for personal assistant conversations.
+    /// Optional naming support for personal agent conversations.
     async fn conversation_title_limit(
         &self,
         _session: &PersistedAgentSession,
@@ -1224,12 +1224,12 @@ pub trait SessionSeam {
     }
 
     /// Bind selected saved observations and temporary reads to the current request.
-    async fn assistant_data_request_manifest(
+    async fn agent_data_request_manifest(
         &self,
         _session: &PersistedAgentSession,
         _request: &ModelRequest,
         _now_unix_ms: u64,
-    ) -> Result<Option<crate::ai_assistant::seam::AssistantModelDataManifest>, AgentError> {
+    ) -> Result<Option<crate::ai_agent::seam::AgentModelDataManifest>, AgentError> {
         Ok(None)
     }
 
@@ -1245,25 +1245,23 @@ pub trait SessionSeam {
 
     /// Fresh settings and generations for new reads. Saved snapshots retain
     /// their conversation ownership.
-    async fn assistant_data_access(
+    async fn agent_data_access(
         &self,
         _session: &PersistedAgentSession,
         _now_unix_ms: u64,
-    ) -> Result<Option<crate::ai_assistant::data_access::AssistantDataToolAccess>, AgentError> {
+    ) -> Result<Option<crate::ai_agent::data_access::AgentDataToolAccess>, AgentError> {
         Ok(None)
     }
 
-    fn memory(&self) -> Option<&dyn crate::ai_assistant::seam::MemorySeam> {
+    fn memory(&self) -> Option<&dyn crate::ai_agent::seam::MemorySeam> {
         None
     }
 
-    fn memory_mutation(&self) -> Option<&dyn crate::ai_assistant::seam::MemoryMutationSeam> {
+    fn memory_mutation(&self) -> Option<&dyn crate::ai_agent::seam::MemoryMutationSeam> {
         None
     }
 
-    fn conversation_search(
-        &self,
-    ) -> Option<&dyn crate::ai_assistant::seam::ConversationSearchSeam> {
+    fn conversation_search(&self) -> Option<&dyn crate::ai_agent::seam::ConversationSearchSeam> {
         None
     }
 
@@ -1732,7 +1730,7 @@ mod tests {
             previous_cache_projection: None,
             delegation_call: None,
             preparation: None,
-            assistant_data: None,
+            agent_data: None,
             compression_identity: None,
             issue_reply: None,
             caller_output_hard_cap: None,

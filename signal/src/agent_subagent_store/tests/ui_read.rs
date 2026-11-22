@@ -51,7 +51,7 @@ async fn ui_read_is_subject_scoped_monotonic_and_independent_of_model_consumptio
     let projection = presentation_on(&db, &parent).await.unwrap();
     assert_eq!(projection.attention_count, 1);
     assert_eq!(projection.attention_tasks[0].task_id, task.binding.task_id);
-    let approval = desk_signal_facade::controller::ai_assistant_session::AiAssistantAttentionItemDto::from_command_approval(
+    let approval = desk_signal_facade::controller::ai_agent_session::AiAgentAttentionItemDto::from_command_approval(
         &task.child_conversation_id, "1", "original-child-approval", 1000, Some(5000));
     let mut global = vec![approval];
     augment_owner_attention_on(&db, "1", None, &mut global)
@@ -62,7 +62,7 @@ async fn ui_read_is_subject_scoped_monotonic_and_independent_of_model_consumptio
     assert!(std::mem::size_of_val(&scan) <= 16 * 1024);
     let overview = scan.await.unwrap();
     assert!(overview.iter().any(|item| item.session_id == "root"
-        && item.reason == desk_signal_facade::controller::ai_assistant_session::AiAssistantAttentionReason::SubAgentResult));
+        && item.reason == desk_signal_facade::controller::ai_agent_session::AiAgentAttentionReason::SubAgentResult));
     assert_eq!(
         session_row::Entity::find_by_id(unreadable.id)
             .one(&db)
@@ -75,7 +75,7 @@ async fn ui_read_is_subject_scoped_monotonic_and_independent_of_model_consumptio
 
     assert!(global.iter().all(|item| item.session_id == "root"
         && item.client_conversation_id.as_deref() == Some("original-parent-intent")));
-    let result_identity = global.iter().find(|item| item.reason == desk_signal_facade::controller::ai_assistant_session::AiAssistantAttentionReason::SubAgentResult).unwrap().attention_id.clone();
+    let result_identity = global.iter().find(|item| item.reason == desk_signal_facade::controller::ai_agent_session::AiAgentAttentionReason::SubAgentResult).unwrap().attention_id.clone();
     let mut replay = Vec::new();
     augment_owner_attention_on(&db, "1", None, &mut replay)
         .await

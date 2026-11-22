@@ -4,7 +4,7 @@ import { useQueryServerInfo } from "@/services/hooks/systemController/useQuerySe
 import { startupModeEnum } from "@/services/types";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Settings, FileText, Server, Key, Shield, ShieldCheck, Network, Monitor, KeyRound, Link2, Search, CalendarClock, Target, Layers3, Repeat, Globe, BarChart3, BookOpen } from "lucide-react";
-import { AiAssistantIcon } from '@/components/ai-assistant-icon';
+import { AiAgentIcon } from '@/components/ai-agent-icon';
 
 export function SettingsOverview() {
     const { t } = useTranslation();
@@ -107,7 +107,7 @@ export function SettingsOverview() {
                             <Card className="hover:bg-muted/50 transition-colors h-full cursor-pointer">
                                 <CardHeader>
                                     <div className="flex items-center gap-2">
-                                        <AiAssistantIcon className="h-5 w-5 text-violet-500" />
+                                        <AiAgentIcon className="h-5 w-5 text-violet-500" />
                                         <CardTitle className="text-lg">{t('menu.settings.aiModel')}</CardTitle>
                                     </div>
                                     <CardDescription className="mt-2 line-clamp-2">
@@ -160,14 +160,14 @@ export function SettingsOverview() {
                                 </CardHeader>
                             </Card>
                         </Link>
-                        <Link to="/system/assistant-skills" className="block outline-none">
+                        <Link to="/system/agent-skills" className="block outline-none">
                             <Card className="hover:bg-muted/50 transition-colors h-full cursor-pointer">
                                 <CardHeader>
                                     <div className="flex items-center gap-2">
                                         <BookOpen className="h-5 w-5 text-primary" />
-                                        <CardTitle className="text-lg">{t('pages.assistantSkills.platform.title')}</CardTitle>
+                                        <CardTitle className="text-lg">{t('pages.agentSkills.platform.title')}</CardTitle>
                                     </div>
-                                    <CardDescription className="mt-2 line-clamp-2">{t('pages.assistantSkills.platform.scope')}</CardDescription>
+                                    <CardDescription className="mt-2 line-clamp-2">{t('pages.agentSkills.platform.scope')}</CardDescription>
                                 </CardHeader>
                             </Card>
                         </Link>
@@ -187,9 +187,9 @@ export function SettingsOverview() {
                                 <CardHeader>
                                     <div className="flex items-center gap-2">
                                         <Layers3 className="h-5 w-5 text-primary" />
-                                        <CardTitle className="text-lg">{t('pages.aiAssistant.subagentPolicyTitle')}</CardTitle>
+                                        <CardTitle className="text-lg">{t('pages.aiAgent.subagentPolicyTitle')}</CardTitle>
                                     </div>
-                                    <CardDescription className="mt-2 line-clamp-2">{t('pages.aiAssistant.subagentPolicyDescription')}</CardDescription>
+                                    <CardDescription className="mt-2 line-clamp-2">{t('pages.aiAgent.subagentPolicyDescription')}</CardDescription>
                                 </CardHeader>
                             </Card>
                         </Link>
@@ -198,9 +198,9 @@ export function SettingsOverview() {
                                 <CardHeader>
                                     <div className="flex items-center gap-2">
                                         <Repeat className="h-5 w-5 text-primary" />
-                                        <CardTitle className="text-lg">{t('pages.aiAssistant.automationPolicyTitle')}</CardTitle>
+                                        <CardTitle className="text-lg">{t('pages.aiAgent.automationPolicyTitle')}</CardTitle>
                                     </div>
-                                    <CardDescription className="mt-2 line-clamp-2">{t('pages.aiAssistant.automationPolicyDescription')}</CardDescription>
+                                    <CardDescription className="mt-2 line-clamp-2">{t('pages.aiAgent.automationPolicyDescription')}</CardDescription>
                                 </CardHeader>
                             </Card>
                         </Link>
@@ -209,9 +209,9 @@ export function SettingsOverview() {
                                 <CardHeader>
                                     <div className="flex items-center gap-2">
                                         <Globe className="h-5 w-5 text-primary" />
-                                        <CardTitle className="text-lg">{t('pages.aiAssistant.webResearchPolicyTitle')}</CardTitle>
+                                        <CardTitle className="text-lg">{t('pages.aiAgent.webResearchPolicyTitle')}</CardTitle>
                                     </div>
-                                    <CardDescription className="mt-2 line-clamp-2">{t('pages.aiAssistant.webResearchPolicyDescription')}</CardDescription>
+                                    <CardDescription className="mt-2 line-clamp-2">{t('pages.aiAgent.webResearchPolicyDescription')}</CardDescription>
                                 </CardHeader>
                             </Card>
                         </Link>
@@ -220,7 +220,7 @@ export function SettingsOverview() {
                                 <CardHeader>
                                     <div className="flex items-center gap-2">
                                         <Target className="h-5 w-5 text-primary" />
-                                        <CardTitle className="text-lg">{t('pages.aiAssistant.goalBudgetPolicyTitle')}</CardTitle>
+                                        <CardTitle className="text-lg">{t('pages.aiAgent.goalBudgetPolicyTitle')}</CardTitle>
                                     </div>
                                     <CardDescription className="mt-2 line-clamp-2">{t('pages.settings.overview.goalBudgetDescription')}</CardDescription>
                                 </CardHeader>

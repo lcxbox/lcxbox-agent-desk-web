@@ -3,9 +3,9 @@ use super::*;
 use crate::agent_approval_store as approval;
 use crate::config::ConfigConnection;
 use crate::entity::agent_approval_delegation as ledger;
-use desk_agent_protocol::data_lineage::Sensitivity;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
+use desk_agent_protocol::data_lineage::Sensitivity;
 use desk_diagnose_core::{
     approval_delegation::ApprovalDelegation,
     chat::{ChatMessage, ToolCallRef},
@@ -135,7 +135,7 @@ async fn child(
         .as_ref()
         .unwrap()
         .clone();
-    let mut assistant = ChatMessage::assistant_tool_calls(
+    let mut agent = ChatMessage::agent_tool_calls(
         format!("ask-{}", task.task_id),
         "Request child permission",
         vec![ToolCallRef {
@@ -146,7 +146,7 @@ async fn child(
     );
     let mut result = ChatMessage::tool_result(format!("result-{}", task.task_id), format!("ask-call-{}", task.task_id),
         serde_json::json!({"request_id": event.request.request_id, "status": "pending_user_decision"}).to_string());
-    for message in [&mut assistant, &mut result] {
+    for message in [&mut agent, &mut result] {
         message.data_envelope = Some(
             desk_diagnose_core::subagent::projection::envelope(
                 &message.message_id,
@@ -160,7 +160,7 @@ async fn child(
             .unwrap(),
         );
     }
-    session.conversation.extend([assistant, result]);
+    session.conversation.extend([agent, result]);
     super::paused_permission::publish(db, &mut session, &event).await;
     session.finish_turn(
         desk_diagnose_core::session::TurnState::Idle,
@@ -458,8 +458,8 @@ async fn active_child_directory_is_claimed_once_and_fault_ends_only_directory_co
         .data_envelope
         .clone()
         .unwrap();
-    let mut assistant = ChatMessage::assistant_tool_calls(
-        "directory-assistant",
+    let mut agent = ChatMessage::agent_tool_calls(
+        "directory-agent",
         "",
         vec![ToolCallRef {
             id: "directory-call".into(),
@@ -467,18 +467,18 @@ async fn active_child_directory_is_claimed_once_and_fault_ends_only_directory_co
             arguments_json: r#"{"path":"/work","purpose":"report"}"#.into(),
         }],
     );
-    assistant.turn_id = session.current_turn_id.clone();
-    let bytes = desk_diagnose_core::model_egress::message_content_bytes(&assistant).unwrap();
-    assistant.data_envelope = Some(
+    agent.turn_id = session.current_turn_id.clone();
+    let bytes = desk_diagnose_core::model_egress::message_content_bytes(&agent).unwrap();
+    agent.data_envelope = Some(
         desk_diagnose_core::subagent::projection::envelope(
-            "directory-assistant",
+            "directory-agent",
             &String::from_utf8(bytes).unwrap(),
             "test",
             &[source],
         )
         .unwrap(),
     );
-    session.conversation.push(assistant);
+    session.conversation.push(agent);
     let update = FileScopeUpdate {
         subject: session
             .file_scope_subject(
@@ -544,7 +544,7 @@ async fn active_child_directory_is_claimed_once_and_fault_ends_only_directory_co
         == desk_diagnose_core::approval_review::PendingRequestKind::Directory
         && review.request_id == id
         && review.conversation_id == session.conversation_id));
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let candidate = approval::prepare_permission_review_batch(
         &db,
         &session.conversation_id,
@@ -633,7 +633,7 @@ async fn active_child_directory_is_claimed_once_and_fault_ends_only_directory_co
         Some(candidate.candidate_id.as_str())
     );
     // The child's paused turn resumes with the system rejection.
-    let resume = desk_assistant_data_store::entity::agent_decision_resume::Entity::find()
+    let resume = desk_agent_data_store::entity::agent_decision_resume::Entity::find()
         .one(&db)
         .await
         .unwrap()
@@ -648,7 +648,7 @@ async fn active_child_directory_is_claimed_once_and_fault_ends_only_directory_co
 async fn closed_child_claim_releases_the_root_reservation_without_dialing() {
     use desk_agent_protocol::capability_provider::ProductSurface;
     let (db, child, mut delegation) = review_child_fixture(database().await, false).await;
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let now = chrono::Utc::now().timestamp_millis() as u64;
     let candidates = approval::prepare_permission_review_batch(
         &db,
@@ -787,7 +787,7 @@ async fn reviewed_child_permission(command: bool, stack: Option<usize>) {
         directory.path().join("review.sqlite").display()
     );
     let (db, child, delegation) = review_child_fixture(database_at(&url).await, command).await;
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let registry = if command {
         registry.with_command_policy(stale_command_policy())
     } else {

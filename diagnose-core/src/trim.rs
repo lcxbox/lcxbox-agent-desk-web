@@ -5,7 +5,7 @@
 //! history (the system prompt is prepended separately and is not subject to this
 //! trim). The window is the largest suffix that fits a byte budget, adjusted so it
 //! never begins with an orphaned tool result — a [`ChatRole::Tool`] message whose
-//! originating assistant `tool_calls` message fell outside the window. Sending a
+//! originating agent `tool_calls` message fell outside the window. Sending a
 //! tool result without its preceding tool call is a protocol error on both the
 //! OpenAI and Anthropic dialects, so well-formedness wins over the byte budget in
 //! the degenerate case where even one group does not fit.
@@ -97,7 +97,7 @@ pub fn model_context_cost(msg: &ChatMessage) -> usize {
 /// The window is the largest suffix whose summed [`message_cost`] is `<= max_bytes`
 /// (always keeping at least the newest message), then advanced past any leading
 /// run of [`ChatRole::Tool`] messages so the first kept message is a user or
-/// assistant message. If that advance would empty the window, it falls back to the
+/// agent message. If that advance would empty the window, it falls back to the
 /// shortest non-empty well-formed suffix (from the last non-`Tool` message), so a
 /// budget smaller than the final group still yields a well-formed request.
 pub fn trim_conversation(messages: &[ChatMessage], max_bytes: usize) -> Vec<ChatMessage> {
@@ -118,11 +118,11 @@ pub fn trim_conversation(messages: &[ChatMessage], max_bytes: usize) -> Vec<Chat
         start = idx;
     }
 
-    // Drop a leading run of orphaned tool results (their assistant call is out of
+    // Drop a leading run of orphaned tool results (their agent call is out of
     // window). In a well-formed history a tool result follows either its
-    // assistant(tool_calls) or another tool result for the same call, so trimming
+    // agent(tool_calls) or another tool result for the same call, so trimming
     // only the front run leaves every remaining tool result paired with an
-    // in-window assistant call.
+    // in-window agent call.
     let mut window_start = start;
     while window_start < messages.len() && messages[window_start].role == ChatRole::Tool {
         window_start += 1;
@@ -152,7 +152,7 @@ mod tests {
         ChatMessage::text(id, ChatRole::Assistant, text)
     }
     fn calls(id: &str, call_id: &str) -> ChatMessage {
-        ChatMessage::assistant_tool_calls(
+        ChatMessage::agent_tool_calls(
             id,
             "",
             vec![ToolCallRef {
@@ -206,7 +206,7 @@ mod tests {
     }
 
     /// A window that would begin with an orphaned tool result drops the leading
-    /// orphan run so the result never appears without its assistant call.
+    /// orphan run so the result never appears without its agent call.
     #[test]
     fn drops_leading_orphan_tool_results() {
         let msgs = vec![
@@ -226,8 +226,8 @@ mod tests {
         );
     }
 
-    /// A trailing tool group keeps its assistant call paired in the window (the
-    /// assistant precedes its results, so no orphan results survive).
+    /// A trailing tool group keeps its agent call paired in the window (the
+    /// agent precedes its results, so no orphan results survive).
     #[test]
     fn keeps_trailing_group_paired() {
         let msgs = vec![
@@ -236,7 +236,7 @@ mod tests {
             result("t1", "c1", "tool output"),
         ];
         let out = trim_conversation(&msgs, 200);
-        // u1 drops; the window begins at the assistant call, not the tool result.
+        // u1 drops; the window begins at the agent call, not the tool result.
         let ids: Vec<_> = out.iter().map(|m| m.message_id.clone()).collect();
         assert_eq!(ids, vec!["a1", "t1"]);
         assert_eq!(out[0].role, ChatRole::Assistant);

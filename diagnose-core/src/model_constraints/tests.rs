@@ -1,11 +1,11 @@
 use super::*;
-use crate::{ai_assistant::data_tools, registry::RegisteredTool};
-use desk_agent_protocol::ai_assistant::limits::AssistantDataLimits;
+use crate::{ai_agent::data_tools, registry::RegisteredTool};
+use desk_agent_protocol::ai_agent::limits::AgentDataLimits;
 
-fn tools(limits: &AssistantDataLimits) -> Vec<RegisteredTool> {
+fn tools(limits: &AgentDataLimits) -> Vec<RegisteredTool> {
     let mut tools = crate::read_tools::read_tool_registry();
-    tools.extend(crate::read_tools::ai_assistant_read_tool_registry());
-    tools.extend(crate::ai_assistant::ai_assistant_provider_registry().registered_tools());
+    tools.extend(crate::read_tools::ai_agent_read_tool_registry());
+    tools.extend(crate::ai_agent::ai_agent_provider_registry().registered_tools());
     tools.extend(crate::permission_tools::permission_planning_tool_registry());
     tools.extend(crate::task_status_tools::task_status_tool_registry());
     tools.extend(crate::subagent::tools::registry());
@@ -33,7 +33,7 @@ fn tools(limits: &AssistantDataLimits) -> Vec<RegisteredTool> {
 #[test]
 fn configured_limits_stay_in_schema_and_descriptions_use_one_reminder() {
     for (groups, characters, hits, reads, references) in [(2, 81, 7, 11, 1), (6, 300, 13, 60, 9)] {
-        let mut limits = AssistantDataLimits::default();
+        let mut limits = AgentDataLimits::default();
         limits.retrieval.query_groups = groups;
         limits.retrieval.query_chars = characters;
         limits.retrieval.relevance_hits = hits;
@@ -113,7 +113,7 @@ fn configured_limits_stay_in_schema_and_descriptions_use_one_reminder() {
 
 #[test]
 fn native_limits_keep_their_schema_values_without_numeric_captions() {
-    let mut registry = tools(&AssistantDataLimits::default());
+    let mut registry = tools(&AgentDataLimits::default());
     for tool in &mut registry {
         crate::ui_model_ids::project_tool(&mut tool.spec);
     }
@@ -198,7 +198,7 @@ fn conditions_and_literal_data_are_unchanged_by_the_reminder() {
 
 #[test]
 fn already_batched_tools_get_one_reminder_without_rewrapping_the_schema() {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     for name in ["execute_ui_actions", "send_background_input"] {
         let mut tool = registry
             .capability_for_tool(name)
@@ -225,7 +225,7 @@ fn already_batched_tools_get_one_reminder_without_rewrapping_the_schema() {
 
 #[test]
 fn search_mode_limits_and_compound_metadata_use_the_configured_schema() {
-    let mut limits = AssistantDataLimits::default();
+    let mut limits = AgentDataLimits::default();
     limits.retrieval.relevance_hits = 3;
     limits.retrieval.time_hits = 8;
     limits.retrieval.search_window_days = 2;
@@ -277,7 +277,7 @@ fn search_mode_limits_and_compound_metadata_use_the_configured_schema() {
 
 #[test]
 fn schema_errors_identify_the_field_and_expected_limits() {
-    let mut limits = AssistantDataLimits::default();
+    let mut limits = AgentDataLimits::default();
     limits.retrieval.query_groups = 2;
     limits.retrieval.query_chars = 3;
     limits.retrieval.relevance_hits = 5;
@@ -325,7 +325,7 @@ fn all_registered_tool_projections_remain_idempotent_on_one_and_two_mib_stacks()
             .stack_size(stack)
             .spawn(|| {
                 let mut projected = 0;
-                for mut registered in tools(&AssistantDataLimits::default()) {
+                for mut registered in tools(&AgentDataLimits::default()) {
                     crate::ui_model_ids::project_tool(&mut registered.spec);
                     let first = registered.spec.clone();
                     crate::ui_model_ids::project_tool(&mut registered.spec);

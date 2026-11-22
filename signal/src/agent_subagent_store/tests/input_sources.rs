@@ -1,7 +1,7 @@
 use super::*;
 use crate::agent_goal_store as goals;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_diagnose_core::{
     chat::{ChatMessage, ToolCall, ToolCallRef},
     goal::{GoalModelBinding, GoalOwnerAction, GoalRun, GoalUsage},
@@ -37,7 +37,7 @@ pub(super) async fn first_input(
         actor_id: "1".into(),
         device_id: "1".into(),
         client_conversation_id: None,
-        surface: AgentSessionSurface::AiAssistant,
+        surface: AgentSessionSurface::AiAgent,
         policy_revision: 1,
         current_scope: scope(),
         read_context: None,
@@ -54,7 +54,7 @@ pub(super) async fn first_input(
     let accepted = root(db).await;
     assert_eq!(accepted.input_revision, 1);
     assert_eq!(accepted.latest_input_seq, 1);
-    assert!(accepted.assistant_data.is_some());
+    assert!(accepted.agent_data.is_some());
     accepted
 }
 
@@ -123,7 +123,7 @@ pub(super) async fn append_input(db: &DatabaseConnection, start: bool, id: &str)
         actor_id: "1".into(),
         device_id: "1".into(),
         client_conversation_id: None,
-        surface: AgentSessionSurface::AiAssistant,
+        surface: AgentSessionSurface::AiAgent,
         policy_revision: 2,
         current_scope: scope(),
         read_context: None,
@@ -161,7 +161,7 @@ pub(super) async fn goal(db: &DatabaseConnection) -> GoalRun {
 pub(super) async fn spawn_goal_child(
     db: &DatabaseConnection,
     store: &SubAgentStore,
-) -> AiAssistantSubAgentSummary {
+) -> AiAgentSubAgentSummary {
     let mut parent = root(db).await;
     let now = chrono::Utc::now();
     parent
@@ -179,7 +179,7 @@ pub(super) async fn spawn_goal_child(
         name: desk_diagnose_core::subagent::tools::SPAWN.into(),
         arguments_json: serde_json::to_string(&super::creation::spawn_request()).unwrap(),
     };
-    let mut caller = ChatMessage::assistant_tool_calls(
+    let mut caller = ChatMessage::agent_tool_calls(
         "new-goal-caller",
         "Delegate the new goal",
         vec![ToolCallRef {
@@ -425,7 +425,7 @@ async fn promoting_the_same_input_to_a_goal_does_not_adopt_an_existing_ordinary_
         "new-goal".into(),
         "root".into(),
         "1".into(),
-        desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("1".into()),
+        desk_diagnose_core::dynamic_run::AgentInputTarget::fixed("1".into()),
         "1".into(),
         "Investigate these independent symptoms".into(),
         "source-message".into(),

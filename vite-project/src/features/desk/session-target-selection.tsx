@@ -19,7 +19,7 @@ export type SessionTargetDescriptor = {
     remote_desktop_ready: boolean
     terminal_ready: boolean
     file_ready: boolean
-    assistant_ready: boolean
+    agent_ready: boolean
 }
 
 export type SessionTargetListData = {

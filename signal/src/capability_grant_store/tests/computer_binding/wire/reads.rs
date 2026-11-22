@@ -1,6 +1,6 @@
 use super::*;
 use crate::remote_tool_edge::{
-    SignalAiAssistantTools, SignalRemoteToolPendingStore, global_computer_action_pending,
+    SignalAiAgentTools, SignalRemoteToolPendingStore, global_computer_action_pending,
 };
 use desk_agent_protocol::{
     Capability,
@@ -81,8 +81,8 @@ async fn browser_wire_case_inner() {
                                             exec_pty_elevation: false,
                                             max_ai_command_runtime_ms: None,
                                         },
-                                        ai_assistant_settings:
-                                            desk_agent_protocol::ai_assistant::AiAssistantSettings {
+                                        ai_agent_settings:
+                                            desk_agent_protocol::ai_agent::AiAgentSettings {
                                                 revision: 0,
                                                 enabled: false,
                                             },
@@ -186,9 +186,9 @@ async fn browser_wire_case_inner() {
             now,
         )
         .unwrap();
-    let tools = SignalAiAssistantTools::new(
+    let tools = SignalAiAgentTools::new(
         fixture.store.db.clone(),
-        desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+        desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         connections.clone(),
         Arc::new(SignalRemoteToolPendingStore::default()),
         connection_id.clone(),
@@ -208,7 +208,7 @@ async fn browser_wire_case_inner() {
         "inspect selected browser page".into(),
         "run-1".into(),
         "turn-1".into(),
-        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         9,
         vec![],
         30_000,
@@ -425,7 +425,7 @@ async fn browser_wire_case_inner() {
                 let snapshot = crate::agent_session_store::SignalAgentSessionStore::new(
                     fixture.store.db.clone(),
                 )
-                .read_assistant_snapshot_for_subject("run-1", "1", "device-1")
+                .read_agent_snapshot_for_subject("run-1", "1", "device-1")
                 .await
                 .unwrap()
                 .unwrap();
@@ -477,8 +477,8 @@ async fn browser_wire_case_inner() {
                 });
             }
             let context = ExecContext {
-                assistant_turn_fence:
-                    desk_diagnose_core::action_turn_fence::AssistantTurnFence::from_session(
+                agent_turn_fence:
+                    desk_diagnose_core::action_turn_fence::AgentTurnFence::from_session(
                         &fixture.session,
                     )
                     .unwrap(),
@@ -514,7 +514,7 @@ async fn browser_wire_case_inner() {
                     let snapshot = crate::agent_session_store::SignalAgentSessionStore::new(
                         fixture.store.db.clone(),
                     )
-                    .read_assistant_snapshot_for_subject("run-1", "1", "device-1")
+                    .read_agent_snapshot_for_subject("run-1", "1", "device-1")
                     .await
                     .unwrap()
                     .unwrap();

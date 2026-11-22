@@ -22,7 +22,7 @@ async fn fixture() -> (DatabaseConnection, i64) {
     let origin = desk_diagnose_core::action_result::ActionResultOrigin {
         schema_version: 1,
         command_completion: None,
-        turn_fence: desk_diagnose_core::action_turn_fence::AssistantTurnFence {
+        turn_fence: desk_diagnose_core::action_turn_fence::AgentTurnFence {
             schema_version: 1,
             conversation_id: "child".into(),
             turn_id: "turn".into(),

@@ -1,4 +1,4 @@
-//! SQLite append-only event ledger for the OSS dynamic AI Assistant run.
+//! SQLite append-only event ledger for the OSS dynamic AI Agent run.
 
 use crate::config::connection::{DatabaseConnection, DatabaseTransaction};
 mod external_reads;
@@ -8,13 +8,13 @@ pub use desk_diagnose_core::input_read_context::ReadContextSelection;
 pub use input_context::InputSubject;
 
 use chrono::{DateTime, Utc};
-use desk_agent_protocol::{AgentError, AgentErrorKind, AgentScope};
-use desk_assistant_data_store::main_request::{
+use desk_agent_data_store::main_request::{
     self, FrozenRequestInput, OwnerAdmission, OwnerAdmissionResult,
 };
+use desk_agent_protocol::{AgentError, AgentErrorKind, AgentScope};
 use desk_diagnose_core::chat::{ChatMessage, ChatRole};
 use desk_diagnose_core::dynamic_run::{
-    AGENT_RUN_EVENT_SCHEMA_VERSION, AgentRunEvent, AgentRunEventKind, AssistantInputTarget,
+    AGENT_RUN_EVENT_SCHEMA_VERSION, AgentInputTarget, AgentRunEvent, AgentRunEventKind,
     UserFollowupEvent,
 };
 use desk_diagnose_core::goal::{
@@ -141,9 +141,7 @@ impl SignalAgentRunEventStore {
             let queue_id = workbench_id.as_deref().unwrap_or(&params.run_id);
             if let Some(workbench_id) = &workbench_id {
                 if !targetless {
-                    return Err(internal(
-                        "workbench work must use the personal assistant scope",
-                    ));
+                    return Err(internal("workbench work must use the personal agent scope"));
                 }
 
                 if !main_requests::workbench_ready_on(
@@ -200,7 +198,7 @@ impl SignalAgentRunEventStore {
                 }
                 if params.temporary_conversation.is_some_and(|value| {
                     session
-                        .assistant_data
+                        .agent_data
                         .as_ref()
                         .is_none_or(|data| data.temporary != value)
                 }) {
@@ -270,7 +268,7 @@ impl SignalAgentRunEventStore {
             };
             if !targets.is_empty()
                 && let Some(roster) = desk_diagnose_core::future::boxed(|| {
-                    desk_assistant_data_store::device_roster::lock(&txn, &params.actor_id, queue_id)
+                    desk_agent_data_store::device_roster::lock(&txn, &params.actor_id, queue_id)
                 })
                 .await
                 .map_err(|error| error.into_agent_error())?
@@ -377,7 +375,7 @@ impl SignalAgentRunEventStore {
                     .await?;
                     txn.commit()
                         .await
-                        .map_err(|_| internal("commit queued assistant input"))?;
+                        .map_err(|_| internal("commit queued agent input"))?;
                     return Ok(OwnerAdmissionResult::Queued {
                         row: Box::new(queued),
                         waiting,
@@ -420,9 +418,7 @@ impl SignalAgentRunEventStore {
                             )
                             .map_err(|error| error.into_agent_error())?
                     {
-                        return Err(internal(
-                            "queued assistant input scope or destination changed",
-                        ));
+                        return Err(internal("queued agent input scope or destination changed"));
                     }
                     match frozen
                         .authorized_issue_on(
@@ -445,9 +441,9 @@ impl SignalAgentRunEventStore {
                 }
             };
             let prior_task_retrieval =
-                desk_diagnose_core::ai_assistant::data_access::task_retrieval_snapshot(&session);
+                desk_diagnose_core::ai_agent::data_access::task_retrieval_snapshot(&session);
             desk_diagnose_core::future::send_phase(|| {
-                crate::assistant_data_store::accept_input_on(
+                crate::agent_data_store::accept_input_on(
                     &txn,
                     &mut session,
                     &params.client_timezone,
@@ -456,7 +452,7 @@ impl SignalAgentRunEventStore {
                 )
             })
             .await
-            .map_err(|_| internal("assistant data input could not be committed"))?;
+            .map_err(|_| internal("agent data input could not be committed"))?;
             session.latest_input_seq = session
                 .latest_input_seq
                 .checked_add(1)
@@ -466,10 +462,10 @@ impl SignalAgentRunEventStore {
                 .checked_add(1)
                 .ok_or_else(|| internal("user input revision exhausted"))?;
             session
-                .bind_assistant_input_targets(&targets)
+                .bind_agent_input_targets(&targets)
                 .map_err(internal)?;
             if targetless {
-                crate::assistant_data_store::bind_input_memory_devices(&mut session, &targets)
+                crate::agent_data_store::bind_input_memory_devices(&mut session, &targets)
                     .map_err(internal)?;
             }
             // The new message and the approval fence commit atomically. Once the
@@ -517,7 +513,7 @@ impl SignalAgentRunEventStore {
                 message_id: params.message.message_id.clone(),
                 message_envelope: envelope.clone(),
                 targets: session
-                    .assistant_request_targets()
+                    .agent_request_targets()
                     .expect("admitted input targets")
                     .to_vec(),
             };
@@ -669,10 +665,10 @@ impl SignalAgentRunEventStore {
                 .await
                 .map_err(|error| error.into_agent_error())?
             {
-                return Err(internal("queued assistant input changed before activation"));
+                return Err(internal("queued agent input changed before activation"));
             }
             desk_diagnose_core::future::boxed(|| {
-                crate::assistant_data_store::history::capture_user_input_on(
+                crate::agent_data_store::history::capture_user_input_on(
                     &txn,
                     &session,
                     &params.message,
@@ -680,7 +676,7 @@ impl SignalAgentRunEventStore {
                 )
             })
             .await
-            .map_err(|_| internal("assistant input history could not be committed"))?;
+            .map_err(|_| internal("agent input history could not be committed"))?;
             txn.commit()
                 .await
                 .map_err(|error| internal(format!("commit user follow-up: {error}")))?;
@@ -786,7 +782,7 @@ async fn prepare_input_goals_on(
     goal_start: Option<&StartUserGoal>,
     session: &mut PersistedAgentSession,
     prior_task_retrieval: Option<
-        Box<desk_diagnose_core::ai_assistant::data_access::TaskRetrievalSnapshot>,
+        Box<desk_diagnose_core::ai_agent::data_access::TaskRetrievalSnapshot>,
     >,
     now: DateTime<Utc>,
 ) -> Result<Box<PreparedInputGoals>, AgentError> {
@@ -813,7 +809,7 @@ async fn prepare_input_goals_on(
             params.run_id.clone(),
             params.actor_id.clone(),
             session
-                .single_assistant_request_target()
+                .single_agent_request_target()
                 .map_err(internal)?
                 .clone(),
             params.device_id.clone(),
@@ -862,7 +858,7 @@ async fn prepare_input_goals_on(
         None
     };
     if let Some(goal) = &goals.opened_goal {
-        desk_diagnose_core::ai_assistant::data_access::bind_opened_task(
+        desk_diagnose_core::ai_agent::data_access::bind_opened_task(
             session,
             &goal.goal_id,
             goal.deadline_unix_ms,
@@ -876,7 +872,7 @@ async fn prepare_input_goals_on(
             if goal.owner_id != params.actor_id || goal.device_id != params.device_id {
                 return Err(internal("active goal subject mismatch"));
             }
-            desk_diagnose_core::ai_assistant::data_access::preserve_active_task(
+            desk_diagnose_core::ai_agent::data_access::preserve_active_task(
                 session,
                 prior_task_retrieval,
                 &goal.goal_id,
@@ -1081,19 +1077,19 @@ async fn write_input_goal_events_on(
 
 fn check_queue_intent(
     params: &AppendUserFollowupParams,
-    ask: &desk_agent_protocol::ai_assistant::AiAssistantAsk,
+    ask: &desk_agent_protocol::ai_agent::AiAgentAsk,
 ) -> Result<(), AgentError> {
     if ask.conversation_id.as_deref().map(str::trim) != params.client_conversation_id.as_deref()
         || ask.client_timezone != params.client_timezone
         || ask.temporary_conversation != params.temporary_conversation
     {
-        return Err(internal("queued assistant conversation intent changed"));
+        return Err(internal("queued agent conversation intent changed"));
     }
     Ok(())
 }
 
 fn validate_append_params(params: &AppendUserFollowupParams) -> Result<(), AgentError> {
-    desk_agent_protocol::ai_assistant::validate_target_refs(
+    desk_agent_protocol::ai_agent::validate_target_refs(
         params.target_refs.iter().map(String::as_str),
     )
     .map_err(internal)?;
@@ -1113,16 +1109,16 @@ fn validate_append_params(params: &AppendUserFollowupParams) -> Result<(), Agent
                 "targetless input requires an owner without device context",
             ));
         }
-        desk_diagnose_core::assistant_policy::validate_targetless_turn(
+        desk_diagnose_core::agent_policy::validate_targetless_turn(
             &params.actor_id,
             &params.run_id,
             params.client_conversation_id.as_deref(),
             &params.current_scope,
-            desk_diagnose_core::assistant_policy::TargetlessEntry::WorkInput,
+            desk_diagnose_core::agent_policy::TargetlessEntry::WorkInput,
         )
         .map_err(internal)?;
         if let Some(selection) = &params.read_context {
-            let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry_ref();
+            let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry_ref();
             if selection.expires_at != params.current_scope.expires_at
                 || selection.tool_names.iter().any(|name| {
                     registry.capability_for_tool(name).is_none_or(|capability| {
@@ -1143,8 +1139,8 @@ fn validate_append_params(params: &AppendUserFollowupParams) -> Result<(), Agent
     if let Some(selection) = &params.read_context {
         selection.validate()?;
     }
-    if params.surface != AgentSessionSurface::AiAssistant {
-        return Err(internal("user follow-up ledger is AI Assistant only"));
+    if params.surface != AgentSessionSurface::AiAgent {
+        return Err(internal("user follow-up ledger is AI Agent only"));
     }
     if params.message.role != ChatRole::User
         || params.message.text.trim().is_empty()
@@ -1180,14 +1176,14 @@ fn validate_append_params(params: &AppendUserFollowupParams) -> Result<(), Agent
 pub(crate) async fn resolve_targets_on(
     txn: &DatabaseTransaction,
     references: &[String],
-) -> Result<Vec<AssistantInputTarget>, AgentError> {
+) -> Result<Vec<AgentInputTarget>, AgentError> {
     let ids = eligible_request_device_ids(txn, references).await?;
     if ids.len() != references.len() {
-        return Err(internal("selected assistant device is unavailable"));
+        return Err(internal("selected agent device is unavailable"));
     }
     Ok(references
         .iter()
-        .map(|reference| AssistantInputTarget {
+        .map(|reference| AgentInputTarget {
             reference: reference.clone(),
             device_id: reference.clone(),
             member_generation: None,
@@ -1213,7 +1209,7 @@ pub(crate) async fn eligible_request_device_ids<C: sea_orm::ConnectionTrait>(
         .into_tuple::<String>()
         .all(db)
         .await
-        .map_err(|_| internal("assistant device directory unavailable"))?
+        .map_err(|_| internal("agent device directory unavailable"))?
         .into_iter()
         .collect())
 }
@@ -1316,7 +1312,7 @@ mod tests {
                 media_type: "text/plain;charset=utf-8".into(),
             },
             provenance: DataProvenance {
-                source_provider_id: "ai-assistant-user".into(),
+                source_provider_id: "ai-agent-user".into(),
                 source_tool_name: "send-message".into(),
                 source_object_id: Some(message_id.into()),
                 source_envelope_ids: Vec::new(),
@@ -1344,7 +1340,7 @@ mod tests {
             client_conversation_id: Some("client-run-1".into()),
             actor_id: owner_actor(),
             device_id: "device-1".into(),
-            surface: AgentSessionSurface::AiAssistant,
+            surface: AgentSessionSurface::AiAgent,
             policy_revision: 0,
             current_scope: scope(),
             read_context: None,
@@ -1382,13 +1378,13 @@ mod tests {
 
     async fn verify_selected_command_device(managed: bool, policy_changed: bool) {
         use crate::agent_session_store::{SignalAgentSessionStore, permission_resume};
-        use crate::controller::ai_assistant_session::{AiAssistantDeviceRosterBody, update_roster};
+        use crate::controller::ai_agent_session::{AiAgentDeviceRosterBody, update_roster};
         use desk_diagnose_core::{
-            ai_assistant::ai_assistant_provider_registry,
+            ai_agent::ai_agent_provider_registry,
             capability_availability::CapabilityAvailability,
             chat::ToolCall,
             command_confirmation::test_policy,
-            conversation_key::{AssistantConversationScope, derive_assistant_conversation_key},
+            conversation_key::{AgentConversationScope, derive_agent_conversation_key},
             dynamic_run::{
                 PermissionDecisionItem, PermissionItemDecision, PermissionRequestState,
                 PermissionRequestedEvent,
@@ -1410,15 +1406,14 @@ mod tests {
         let mut input = params("command-input", "command-user", "Check disk space");
         input.device_id.clear();
         input.target_refs = vec!["device-1".into()];
-        input.policy_revision =
-            desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
+        input.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
         input.created_at = now.to_rfc3339();
-        input.run_id = derive_assistant_conversation_key(
+        input.run_id = derive_agent_conversation_key(
             &input.actor_id,
-            AssistantConversationScope::Personal,
+            AgentConversationScope::Personal,
             input.client_conversation_id.as_deref().unwrap(),
         );
-        let roster = |expected_revision, target_refs| AiAssistantDeviceRosterBody {
+        let roster = |expected_revision, target_refs| AiAgentDeviceRosterBody {
             conversation: input.client_conversation_id.clone().unwrap(),
             expected_revision,
             target_refs,
@@ -1435,7 +1430,7 @@ mod tests {
         let sessions = SignalAgentSessionStore::new(db.clone())
             .with_client_metadata(
                 input.client_conversation_id.clone(),
-                AgentSessionSurface::AiAssistant,
+                AgentSessionSurface::AiAgent,
             )
             .with_expected_input_revision(admitted.input_revision);
         let mut claim = ClaimTurnParams {
@@ -1453,7 +1448,7 @@ mod tests {
         let mut session = sessions.claim_turn(claim.clone()).await.unwrap();
         let mut policy = test_policy();
         policy.actor_id = input.actor_id.clone();
-        let registry = ai_assistant_provider_registry().with_command_policy(policy.clone());
+        let registry = ai_agent_provider_registry().with_command_policy(policy.clone());
         let request = build_permission_request(
             &ToolCall {
                 id: "propose".into(),
@@ -1498,8 +1493,8 @@ mod tests {
         if !managed {
             use crate::agent_approval_store as approvals;
             use crate::config::ConfigConnection;
-            use desk_agent_protocol::ai_assistant::approval_mode::{
-                AssistantApprovalMode, UpdateAssistantApprovalMode,
+            use desk_agent_protocol::ai_agent::approval_mode::{
+                AgentApprovalMode, UpdateAgentApprovalMode,
             };
             use desk_diagnose_core::approval_delegation::{
                 ApprovalDelegationAuditEvent, ApprovalDelegationAuthority,
@@ -1618,10 +1613,10 @@ mod tests {
                 approvals::save_preference(
                     &db,
                     &input.actor_id,
-                    UpdateAssistantApprovalMode {
+                    UpdateAgentApprovalMode {
                         session: input.run_id.clone(),
                         expected_revision: 1,
-                        mode: AssistantApprovalMode::Manual,
+                        mode: AgentApprovalMode::Manual,
                         no_review_confirmation_id: None,
                     }
                 )
@@ -1759,9 +1754,9 @@ mod tests {
     }
 
     async fn verify_personal_device_selection(managed: bool) {
-        use crate::controller::ai_assistant_session::{AiAssistantDeviceRosterBody, update_roster};
+        use crate::controller::ai_agent_session::{AiAgentDeviceRosterBody, update_roster};
         use desk_diagnose_core::conversation_key::{
-            AssistantConversationScope, derive_assistant_conversation_key,
+            AgentConversationScope, derive_agent_conversation_key,
         };
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("roster.sqlite");
@@ -1782,16 +1777,15 @@ mod tests {
         let store = SignalAgentRunEventStore::new(db.clone());
         let mut first = params("first-event", "first-input", "Compare these two devices");
         first.device_id.clear();
-        first.policy_revision =
-            desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
-        first.run_id = derive_assistant_conversation_key(
+        first.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
+        first.run_id = derive_agent_conversation_key(
             &first.actor_id,
-            AssistantConversationScope::Personal,
+            AgentConversationScope::Personal,
             first.client_conversation_id.as_deref().unwrap(),
         );
         first.target_refs = vec!["mac".into(), "linux".into()];
         first.created_at = chrono::Utc::now().to_rfc3339();
-        let roster = |expected_revision, target_refs| AiAssistantDeviceRosterBody {
+        let roster = |expected_revision, target_refs| AiAgentDeviceRosterBody {
             conversation: first.client_conversation_id.clone().unwrap(),
             expected_revision,
             target_refs,
@@ -1812,11 +1806,11 @@ mod tests {
             .unwrap();
         let current = input_context::decode_session(&row, InputSubject::from(&first)).unwrap();
         assert!(current.has_admitted_personal_input());
-        assert!(current.admits_assistant_device("mac"));
-        assert!(current.admits_assistant_device("linux"));
+        assert!(current.admits_agent_device("mac"));
+        assert!(current.admits_agent_device("linux"));
 
         if managed {
-            use desk_assistant_data_store::device_roster;
+            use desk_agent_data_store::device_roster;
 
             use desk_diagnose_core::{
                 chat::{ChatMessage, ToolCall, ToolCallRef},
@@ -1827,7 +1821,7 @@ mod tests {
             let sessions = crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
                 .with_client_metadata(
                     first.client_conversation_id.clone(),
-                    AgentSessionSurface::AiAssistant,
+                    AgentSessionSurface::AiAgent,
                 )
                 .with_expected_input_revision(receipt.input_revision);
             let turn = ClaimTurnParams {
@@ -1850,7 +1844,7 @@ mod tests {
                     "acceptance_criteria":["Report per-device observations"],"required_for_completion":true
                 }).to_string(),
             };
-            let mut caller = ChatMessage::assistant_tool_calls(
+            let mut caller = ChatMessage::agent_tool_calls(
                 "personal-worker-caller",
                 "Delegate the comparison",
                 vec![ToolCallRef {
@@ -1948,18 +1942,18 @@ mod tests {
                 panic!("personal Worker should claim without a bound device");
             };
             let mut worker = claimed.session;
-            assert_eq!(worker.assistant_request_targets().unwrap().len(), 2);
+            assert_eq!(worker.agent_request_targets().unwrap().len(), 2);
             use desk_diagnose_core::subagent::device_wait::DeviceWaitStatus;
             let child_sessions =
                 crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
-                    .with_client_metadata(None, AgentSessionSurface::AiAssistant);
+                    .with_client_metadata(None, AgentSessionSurface::AiAgent);
             let wait_for_mac = async |worker: &mut PersistedAgentSession, receipt_id: &str| {
                 let call = ToolCall {
                     id: format!("call-{receipt_id}"),
                     name: tools::WAIT_DEVICE.into(),
                     arguments_json: serde_json::json!({"target_ref":"mac"}).to_string(),
                 };
-                let mut caller = ChatMessage::assistant_tool_calls(
+                let mut caller = ChatMessage::agent_tool_calls(
                     format!("proposal-{receipt_id}"),
                     "Wait for the Mac",
                     vec![ToolCallRef {
@@ -2053,7 +2047,7 @@ mod tests {
             worker = claimed.session;
             wait_for_mac(&mut worker, "wait-for-removed-mac").await;
 
-            assert_eq!(current.assistant_request_device_generation("mac"), Some(1));
+            assert_eq!(current.agent_request_device_generation("mac"), Some(1));
             let removed = update_roster(&db, &roster(1, vec!["linux".into()]))
                 .await
                 .unwrap();
@@ -2145,8 +2139,8 @@ mod tests {
                 .unwrap()
                 .unwrap();
             let fresh = input_context::decode_session(&row, InputSubject::from(&next)).unwrap();
-            assert_eq!(fresh.assistant_request_device_generation("mac"), Some(3));
-            assert_eq!(fresh.assistant_request_device_generation("linux"), Some(1));
+            assert_eq!(fresh.agent_request_device_generation("mac"), Some(3));
+            assert_eq!(fresh.agent_request_device_generation("linux"), Some(1));
             return;
         }
 
@@ -2172,8 +2166,8 @@ mod tests {
             .unwrap();
         let current = input_context::decode_session(&row, InputSubject::from(&next)).unwrap();
         assert_eq!(next_receipt.input_revision, receipt.input_revision + 1);
-        assert!(!current.admits_assistant_device("mac"));
-        assert!(current.admits_assistant_device("linux"));
+        assert!(!current.admits_agent_device("mac"));
+        assert!(current.admits_agent_device("linux"));
         assert!(
             !store
                 .append_user_followup(&first)
@@ -2197,7 +2191,7 @@ mod tests {
 
     async fn personal_input_lifecycle(temporary: bool) {
         use desk_diagnose_core::{
-            conversation_key::{AssistantConversationScope, derive_assistant_conversation_key},
+            conversation_key::{AgentConversationScope, derive_agent_conversation_key},
             seam::{ClaimTurnParams, SessionSeam},
             session::TriggerOrigin,
         };
@@ -2210,12 +2204,11 @@ mod tests {
         let mut input = params("targetless-event", "targetless-input", "No device required");
         input.temporary_conversation = Some(temporary);
         input.device_id.clear();
-        input.policy_revision =
-            desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
+        input.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
         assert!(store.append_user_followup(&input).await.is_err());
-        input.run_id = derive_assistant_conversation_key(
+        input.run_id = derive_agent_conversation_key(
             &input.actor_id,
-            AssistantConversationScope::Personal,
+            AgentConversationScope::Personal,
             input.client_conversation_id.as_deref().unwrap(),
         );
         input.read_context = Some(ReadContextSelection {
@@ -2241,7 +2234,7 @@ mod tests {
         let sessions = crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
             .with_client_metadata(
                 input.client_conversation_id.clone(),
-                AgentSessionSurface::AiAssistant,
+                AgentSessionSurface::AiAgent,
             );
         let mut claim = ClaimTurnParams {
             conversation_id: input.run_id.clone(),
@@ -2263,17 +2256,14 @@ mod tests {
         let mut session = sessions.claim_turn(claim).await.unwrap();
         assert!(session.turn_state.is_active());
         assert!(session.has_admitted_targetless_input());
-        assert_eq!(
-            session.assistant_data.as_ref().unwrap().temporary,
-            temporary
-        );
+        assert_eq!(session.agent_data.as_ref().unwrap().temporary, temporary);
         input.temporary_conversation = Some(!temporary);
         assert!(store.append_user_followup(&input).await.is_err());
         input.temporary_conversation = Some(temporary);
-        assert!(!session.admits_assistant_device("device-1"));
+        assert!(!session.admits_agent_device("device-1"));
 
         let snapshot = sessions
-            .read_assistant_snapshot_for_subject(&input.run_id, &input.actor_id, "")
+            .read_agent_snapshot_for_subject(&input.run_id, &input.actor_id, "")
             .await
             .unwrap()
             .unwrap();
@@ -2281,27 +2271,27 @@ mod tests {
         assert!(snapshot.capability_grants.is_empty());
         assert!(
             sessions
-                .read_assistant_snapshot_for_subject(&input.run_id, "another-actor", "")
+                .read_agent_snapshot_for_subject(&input.run_id, "another-actor", "")
                 .await
                 .unwrap()
                 .is_none()
         );
         let listed = sessions
-            .list_ai_assistant_sessions(&input.actor_id, "", 10)
+            .list_ai_agent_sessions(&input.actor_id, "", 10)
             .await
             .unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].session_id, input.run_id);
         assert!(
             sessions
-                .list_ai_assistant_sessions("another-actor", "", 10)
+                .list_ai_agent_sessions("another-actor", "", 10)
                 .await
                 .unwrap()
                 .is_empty()
         );
         assert!(
             sessions
-                .list_ai_assistant_sessions(&input.actor_id, "device-1", 10)
+                .list_ai_agent_sessions(&input.actor_id, "device-1", 10)
                 .await
                 .unwrap()
                 .is_empty()
@@ -2325,7 +2315,7 @@ mod tests {
         );
         assert!(
             sessions
-                .list_ai_assistant_sessions(&input.actor_id, "", 10)
+                .list_ai_agent_sessions(&input.actor_id, "", 10)
                 .await
                 .unwrap()
                 .is_empty()
@@ -2352,13 +2342,13 @@ mod tests {
     }
 
     async fn check_targetless_web_permission(stop_before_resume: bool) {
-        use crate::remote_tool_edge::{SignalAiAssistantTools, SignalRemoteToolPendingStore};
-        use desk_agent_protocol::ai_assistant::subagent::AiAssistantStopControl;
+        use crate::remote_tool_edge::{SignalAiAgentTools, SignalRemoteToolPendingStore};
+        use desk_agent_protocol::ai_agent::subagent::AiAgentStopControl;
         use desk_agent_protocol::capability_provider::ProductSurface;
         use desk_diagnose_core::{
             capability_availability::CapabilityAvailability,
             chat::ToolCall,
-            conversation_key::{AssistantConversationScope, derive_assistant_conversation_key},
+            conversation_key::{AgentConversationScope, derive_agent_conversation_key},
             dynamic_run::{
                 PermissionDecisionItem, PermissionItemDecision, PermissionRequestState,
                 PermissionRequestedEvent,
@@ -2379,11 +2369,10 @@ mod tests {
         let now = Utc::now();
         let mut input = params("web-input-event", "web-input", "Read public documentation");
         input.device_id.clear();
-        input.policy_revision =
-            desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
-        input.run_id = derive_assistant_conversation_key(
+        input.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
+        input.run_id = derive_agent_conversation_key(
             &input.actor_id,
-            AssistantConversationScope::Personal,
+            AgentConversationScope::Personal,
             input.client_conversation_id.as_deref().unwrap(),
         );
         input.created_at = now.to_rfc3339();
@@ -2401,7 +2390,7 @@ mod tests {
         let sessions = crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
             .with_client_metadata(
                 input.client_conversation_id.clone(),
-                AgentSessionSurface::AiAssistant,
+                AgentSessionSurface::AiAgent,
             )
             .with_expected_input_revision(receipt.input_revision);
         let mut session = sessions
@@ -2419,8 +2408,8 @@ mod tests {
             })
             .await
             .unwrap();
-        let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry_ref();
-        let tools = SignalAiAssistantTools::new(
+        let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry_ref();
+        let tools = SignalAiAgentTools::new(
             db.clone(),
             registry.clone(),
             Arc::new(SharedConnectionMap::default()),
@@ -2575,9 +2564,8 @@ mod tests {
                 .unwrap();
             assert!(selected.device_id.is_empty() && selected.target_device_id.is_empty());
             let search = crate::web_search_config::read(&db).await.unwrap();
-            let review_registry =
-                desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
-                    .with_web_search_binding(search.binding());
+            let review_registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry()
+                .with_web_search_binding(search.binding());
             let candidates = approvals::prepare_permission_review_batch(
                 &db,
                 &input.run_id,
@@ -2610,7 +2598,7 @@ mod tests {
                 message: params("new-event", "queued-personal-web", "Check the next item").message,
                 ..input.clone()
             };
-            let ask = desk_agent_protocol::ai_assistant::AiAssistantAsk {
+            let ask = desk_agent_protocol::ai_agent::AiAgentAsk {
                 question: next.message.text.clone(),
                 client_message_id: next.message.message_id.clone(),
                 client_timezone: next.client_timezone.clone(),
@@ -2707,7 +2695,7 @@ mod tests {
                 .newly_recorded
         );
         let snapshot = sessions
-            .read_assistant_snapshot_for_subject(&input.run_id, &input.actor_id, "")
+            .read_agent_snapshot_for_subject(&input.run_id, &input.actor_id, "")
             .await
             .unwrap()
             .unwrap();
@@ -2776,7 +2764,7 @@ mod tests {
         );
         if stop_before_resume {
             let stops = crate::agent_subagent_store::SubAgentStore::new(db);
-            let control = AiAssistantStopControl {
+            let control = AiAgentStopControl {
                 client_request_id: "stop-personal-web".into(),
                 expected_input_revision: pending.input_revision,
                 expected_control_revision: pending.control_revision,
@@ -2819,7 +2807,7 @@ mod tests {
                     .is_empty()
             );
             let snapshot = sessions
-                .read_assistant_snapshot_for_subject(&input.run_id, &input.actor_id, "")
+                .read_agent_snapshot_for_subject(&input.run_id, &input.actor_id, "")
                 .await
                 .unwrap()
                 .unwrap();
@@ -2860,7 +2848,7 @@ mod tests {
             assert!(!claimed.main_stopped);
             assert_eq!(claimed.input_revision, pending.input_revision + 1);
             assert_eq!(claimed.control_revision, stopped.result.control_revision);
-            let active_control = AiAssistantStopControl {
+            let active_control = AiAgentStopControl {
                 client_request_id: "stop-active-personal-web".into(),
                 expected_input_revision: claimed.input_revision,
                 expected_control_revision: claimed.control_revision,
@@ -2954,9 +2942,9 @@ mod tests {
         let now = chrono::Utc::now();
         let mut a = params("event-a", "work-a", "Check work A");
         let mut b = params("event-b", "work-b", "Check work B");
-        let workbench_key = desk_diagnose_core::conversation_key::derive_assistant_conversation_key(
+        let workbench_key = desk_diagnose_core::conversation_key::derive_agent_conversation_key(
             &a.actor_id,
-            desk_diagnose_core::conversation_key::AssistantConversationScope::Personal,
+            desk_diagnose_core::conversation_key::AgentConversationScope::Personal,
             a.client_conversation_id.as_deref().unwrap(),
         );
         let workbench_id = workbench_key.as_str();
@@ -2964,7 +2952,7 @@ mod tests {
             input.device_id.clear();
             input.run_id = workbench_id.into();
             input.policy_revision =
-                desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
+                desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
             input.created_at = now.to_rfc3339();
             input.read_context =
                 Some(ReadContextSelection::capture(&[], &input.current_scope).unwrap());
@@ -2980,7 +2968,7 @@ mod tests {
         .unwrap();
         root.adopt_client_metadata(
             a.client_conversation_id.as_deref(),
-            AgentSessionSurface::AiAssistant,
+            AgentSessionSurface::AiAgent,
         );
         let root_row = agent_session::ActiveModel {
             conversation_id: Set(root.conversation_id.clone()),
@@ -3000,7 +2988,7 @@ mod tests {
 
         let mut request_ids = Vec::new();
         for input in [&mut a, &mut b] {
-            let ask = desk_agent_protocol::ai_assistant::AiAssistantAsk {
+            let ask = desk_agent_protocol::ai_agent::AiAgentAsk {
                 question: input.message.text.clone(),
                 client_message_id: input.message.message_id.clone(),
                 client_timezone: input.client_timezone.clone(),
@@ -3091,7 +3079,7 @@ mod tests {
             let sessions = crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
                 .with_client_metadata(
                     input.client_conversation_id.clone(),
-                    AgentSessionSurface::AiAssistant,
+                    AgentSessionSurface::AiAgent,
                 )
                 .with_expected_input_revision(1)
                 .with_queued_input(request_id.clone(), input.message.message_id.clone());
@@ -3160,7 +3148,7 @@ mod tests {
         assert_eq!(root_after.input_revision, root.input_revision);
         assert_eq!(root_after.conversation, root.conversation);
         let stop = crate::agent_subagent_store::SubAgentStore::new(db.clone());
-        let control = desk_agent_protocol::ai_assistant::subagent::AiAssistantStopControl {
+        let control = desk_agent_protocol::ai_agent::subagent::AiAgentStopControl {
             client_request_id: "stop-active-workbench-work".into(),
             expected_input_revision: 0,
             expected_control_revision: root_after.control_revision,
@@ -3227,15 +3215,14 @@ mod tests {
         let events = SignalAgentRunEventStore::new(db.clone());
         let mut next = params("queued-event", "queued-input", "Analyze next");
         next.device_id.clear();
-        next.policy_revision =
-            desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
-        next.run_id = desk_diagnose_core::conversation_key::derive_assistant_conversation_key(
+        next.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
+        next.run_id = desk_diagnose_core::conversation_key::derive_agent_conversation_key(
             &next.actor_id,
-            desk_diagnose_core::conversation_key::AssistantConversationScope::Personal,
+            desk_diagnose_core::conversation_key::AgentConversationScope::Personal,
             next.client_conversation_id.as_deref().unwrap(),
         );
         next.read_context = Some(ReadContextSelection::capture(&[], &next.current_scope).unwrap());
-        let ask = desk_agent_protocol::ai_assistant::AiAssistantAsk {
+        let ask = desk_agent_protocol::ai_agent::AiAgentAsk {
             question: next.message.text.clone(),
             client_message_id: next.message.message_id.clone(),
             client_timezone: next.client_timezone.clone(),
@@ -3296,7 +3283,7 @@ mod tests {
         let activated = receipt(db.clone(), None).await;
         assert_eq!(
             activated[0].state,
-            desk_agent_protocol::ai_assistant::MainRequestState::Activated
+            desk_agent_protocol::ai_agent::MainRequestState::Activated
         );
         assert_eq!(
             activated[0].question.as_deref(),
@@ -3356,7 +3343,7 @@ mod tests {
                     &next.run_id,
                     &next.actor_id,
                     "",
-                    &desk_agent_protocol::ai_assistant::subagent::AiAssistantStopControl {
+                    &desk_agent_protocol::ai_agent::subagent::AiAgentStopControl {
                         client_request_id: "pause-queued-input".into(),
                         expected_input_revision: admitted.input_revision,
                         expected_control_revision: 1,
@@ -3416,11 +3403,10 @@ mod tests {
         let events = SignalAgentRunEventStore::new(db.clone());
         let mut first = params("first-event", "first-input", "First request");
         first.device_id.clear();
-        first.policy_revision =
-            desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
-        first.run_id = desk_diagnose_core::conversation_key::derive_assistant_conversation_key(
+        first.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
+        first.run_id = desk_diagnose_core::conversation_key::derive_agent_conversation_key(
             &first.actor_id,
-            desk_diagnose_core::conversation_key::AssistantConversationScope::Personal,
+            desk_diagnose_core::conversation_key::AgentConversationScope::Personal,
             first.client_conversation_id.as_deref().unwrap(),
         );
         first.read_context =
@@ -3430,7 +3416,7 @@ mod tests {
         second.message = params("second-event", "second-input", "Second request").message;
         let mut outcomes = Vec::new();
         for input in [&first, &second] {
-            let ask = desk_agent_protocol::ai_assistant::AiAssistantAsk {
+            let ask = desk_agent_protocol::ai_agent::AiAgentAsk {
                 question: input.message.text.clone(),
                 client_message_id: input.message.message_id.clone(),
                 client_timezone: input.client_timezone.clone(),
@@ -3506,14 +3492,14 @@ mod tests {
             .unwrap();
         let session = PersistedAgentSession::decode_json(&row.state_json).unwrap();
         assert_eq!(
-            serde_json::to_value(&session).unwrap()["assistant_request_targets"],
+            serde_json::to_value(&session).unwrap()["agent_request_targets"],
             serde_json::json!({
                 "input_revision": 2,
                 "targets": [{"device_id": "device-1", "reference": "device-1"}],
             })
         );
-        assert!(session.admits_assistant_device("device-1"));
-        assert!(!session.admits_assistant_device("other-device"));
+        assert!(session.admits_agent_device("device-1"));
+        assert!(!session.admits_agent_device("other-device"));
         assert_eq!(session.latest_input_seq, 2);
         assert_eq!(session.input_revision, 2);
         assert_eq!(session.handled_input_seq, 0);
@@ -3523,7 +3509,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn foreign_actor_cannot_create_personal_assistant_input() {
+    async fn foreign_actor_cannot_create_personal_agent_input() {
         let db = crate::config::test_support::Database::connect("sqlite::memory:")
             .await
             .unwrap();
@@ -3551,7 +3537,7 @@ mod tests {
                 .is_empty()
         );
         assert!(
-            crate::entity::agent_assistant_runtime::Entity::find()
+            crate::entity::agent_runtime::Entity::find()
                 .all(&db)
                 .await
                 .unwrap()
@@ -3570,7 +3556,7 @@ mod tests {
         configured.deadline_ms = Some(7 * 86_400_000);
         crate::goal_budget_policy::update(
             &db,
-            &desk_agent_protocol::ai_assistant::goal_budget::UpdateGoalBudgetPolicy {
+            &desk_agent_protocol::ai_agent::goal_budget::UpdateGoalBudgetPolicy {
                 expected_revision: 0,
                 limits: configured,
                 device_unavailable_max_ms:
@@ -3620,7 +3606,7 @@ mod tests {
         extended.model_calls = Some(1);
         crate::goal_budget_policy::update(
             &db,
-            &desk_agent_protocol::ai_assistant::goal_budget::UpdateGoalBudgetPolicy {
+            &desk_agent_protocol::ai_agent::goal_budget::UpdateGoalBudgetPolicy {
                 expected_revision: 1,
                 limits: extended,
                 device_unavailable_max_ms:
@@ -3708,7 +3694,7 @@ mod tests {
             "old-goal".into(),
             "run-1".into(),
             owner_actor(),
-            desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("device-1".into()),
+            desk_diagnose_core::dynamic_run::AgentInputTarget::fixed("device-1".into()),
             "device-1".into(),
             "Original goal".into(),
             "message-1".into(),
@@ -3958,7 +3944,7 @@ mod tests {
             "proposal".into(),
             "run-1".into(),
             owner_actor(),
-            desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("device-1".into()),
+            desk_diagnose_core::dynamic_run::AgentInputTarget::fixed("device-1".into()),
             "device-1".into(),
             "first-message".into(),
             1,
@@ -4022,7 +4008,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let restored = PersistedAgentSession::decode_json(&row.state_json).unwrap();
-        let data = restored.assistant_data.as_ref().unwrap();
+        let data = restored.agent_data.as_ref().unwrap();
         assert_eq!(data.current_input_timezone, "America/Los_Angeles");
         assert_eq!(
             data.history_access_scope.as_ref().unwrap().timezone,
@@ -4042,7 +4028,7 @@ mod tests {
                 .into_iter()
                 .collect()
         );
-        let origins = crate::entity::agent_assistant_origin::Entity::find()
+        let origins = crate::entity::agent_origin::Entity::find()
             .all(&store.db)
             .await
             .unwrap();

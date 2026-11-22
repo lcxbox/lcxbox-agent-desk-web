@@ -18,7 +18,7 @@ use desk_diagnose_core::{
 use sha2::{Digest, Sha256};
 
 fn worker_scope(parent: &PersistedAgentSession) -> sea_orm::Select<run_row::Entity> {
-    desk_assistant_data_store::worker_request::in_scope(
+    desk_agent_data_store::worker_request::in_scope(
         &parent.actor_id,
         &parent.device_id,
         &parent.conversation_id,
@@ -285,7 +285,7 @@ impl SubAgentStore {
             "rule": "Current task state is durable across compression. Use list, status and report tools for omitted details. Pending reports are independent; acknowledge only the ones you have handled. Verify reports against receipts. Approval attention does not finish a wait."});
         if let Some(workbench) = group.source.workbench_id() {
             let workers = desk_diagnose_core::future::boxed(|| {
-                desk_assistant_data_store::worker_request::recent_workbench_workers_on(
+                desk_agent_data_store::worker_request::recent_workbench_workers_on(
                     &txn,
                     &parent.actor_id,
                     workbench,
@@ -302,7 +302,7 @@ impl SubAgentStore {
         let max_bytes = usize::try_from(group.limits.max_context_bytes).map_err(|_| invalid())?;
         let base_bytes = desk_diagnose_core::subagent::projection::runtime_text(&payload).len();
         let reports = desk_diagnose_core::future::boxed(|| {
-            desk_assistant_data_store::worker_report::project_pending_on(
+            desk_agent_data_store::worker_report::project_pending_on(
                 &txn,
                 &group,
                 &creation.model_destination,
@@ -363,7 +363,7 @@ impl SubAgentStore {
         })
         .await?;
         let history = desk_diagnose_core::future::boxed(|| {
-            crate::assistant_data_store::native_scope_on(
+            crate::agent_data_store::native_scope_on(
                 &txn,
                 &held.actor_id,
                 &held.device_id,
@@ -474,7 +474,7 @@ impl SubAgentStore {
                     input_observation.stage(Stage::Reference, StageOutcome::Attempted);
                 }
                 let page = desk_diagnose_core::future::boxed(|| {
-                    desk_assistant_data_store::worker_request::worker_page_on(
+                    desk_agent_data_store::worker_request::worker_page_on(
                         &txn,
                         worker_scope(&parent),
                         cursor.as_deref(),
@@ -494,7 +494,7 @@ impl SubAgentStore {
             Operation::WorkerStatus { worker_id } => {
                 input_observation.stage(Stage::Reference, StageOutcome::Attempted);
                 let status = desk_diagnose_core::future::boxed(|| {
-                    desk_assistant_data_store::worker_request::worker_status_on(
+                    desk_agent_data_store::worker_request::worker_status_on(
                         &txn,
                         worker_scope(&parent),
                         &worker_id,
@@ -582,7 +582,7 @@ impl SubAgentStore {
                 let run = decode_run(&row)?;
                 let turn = parent.current_turn_id.as_deref().ok_or_else(invalid)?;
                 desk_diagnose_core::future::boxed(|| {
-                    desk_assistant_data_store::worker_report::handoff_question_on(
+                    desk_agent_data_store::worker_report::handoff_question_on(
                         &txn,
                         &run,
                         &question_id,
@@ -599,7 +599,7 @@ impl SubAgentStore {
                 let turn_id = parent.current_turn_id.as_deref().ok_or_else(invalid)?;
                 let payload = serde_json::json!({"acknowledged_report_ids": report_ids});
                 desk_diagnose_core::future::boxed(|| {
-                    desk_assistant_data_store::worker_report::settle_projected_on(
+                    desk_agent_data_store::worker_report::settle_projected_on(
                         &txn,
                         &group,
                         report_ids,
@@ -622,10 +622,10 @@ impl SubAgentStore {
                 let run = decode_run(&row)?;
                 let destination = serde_json::from_str(&model_binding).map_err(|_| invalid())?;
                 let (page, terminal) = desk_diagnose_core::future::boxed(|| {
-                    desk_assistant_data_store::worker_report::read_report_page_on(
+                    desk_agent_data_store::worker_report::read_report_page_on(
                         &txn,
                         &run,
-                        desk_assistant_data_store::worker_report::ReportPageRead {
+                        desk_agent_data_store::worker_report::ReportPageRead {
                             after_seq,
                             limit,
                             byte_limit: group.limits.max_context_bytes.min(64 * 1024),
@@ -684,7 +684,7 @@ impl SubAgentStore {
                     let run = decode_run(&row)?;
                     labels.extend(task_labels(&row)?);
                     if let Some(report) = desk_diagnose_core::future::boxed(|| {
-                        desk_assistant_data_store::worker_report::first_matching_report_on(
+                        desk_agent_data_store::worker_report::first_matching_report_on(
                             &txn,
                             &run,
                             cursor.after_seq,

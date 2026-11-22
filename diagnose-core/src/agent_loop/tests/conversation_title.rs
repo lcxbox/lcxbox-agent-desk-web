@@ -54,21 +54,17 @@ async fn exercise_with_error(
     title_error: Option<AgentErrorKind>,
 ) {
     let params = claim();
-    let mut initial = crate::ai_assistant::test_support::personal_session(
+    let mut initial = crate::ai_agent::test_support::personal_session(
         &params.actor_id,
         &params.conversation_id,
         &params.device_id,
     );
     initial.input_revision = 1;
-    initial.assistant_data.as_mut().unwrap().temporary = temporary;
-    initial
-        .assistant_data
-        .as_mut()
-        .unwrap()
-        .current_actor_input_seq = 37;
+    initial.agent_data.as_mut().unwrap().temporary = temporary;
+    initial.agent_data.as_mut().unwrap().current_actor_input_seq = 37;
     let store = MemSession {
         title_limit: Some(40),
-        data_access: Some(crate::ai_assistant::data_access::AssistantDataToolAccess {
+        data_access: Some(crate::ai_agent::data_access::AgentDataToolAccess {
             settings: Default::default(),
             policy_revision: 1,
             memory_state_generation: 1,

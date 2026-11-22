@@ -1,6 +1,6 @@
 use super::*;
 use crate::chat::{ModelTurn, StopReason};
-use crate::terminal_ai_assistant::{parse_assistant_answer, parse_assistant_answer_observed};
+use crate::terminal_ai_agent::{parse_agent_answer, parse_agent_answer_observed};
 use crate::terminal_complete::{parse_completions, parse_completions_observed};
 
 #[derive(Default)]
@@ -142,7 +142,7 @@ fn completion_output_uses_actual_parse_validity_not_the_number_of_visible_candid
 }
 
 #[test]
-fn assistant_degraded_display_does_not_become_structured_output_success() {
+fn agent_degraded_display_does_not_become_structured_output_success() {
     for (text, expected) in [
         (
             r#"{"explanation_md":"private explanation","suggestions":[]}"#,
@@ -165,8 +165,8 @@ fn assistant_degraded_display_does_not_become_structured_output_success() {
             stop_reason: StopReason::EndTurn,
             ..Default::default()
         };
-        let original = parse_assistant_answer(text, "bash");
-        let observed = parse_assistant_answer_observed(&turn, "bash", Some(&context), 1_001);
+        let original = parse_agent_answer(text, "bash");
+        let observed = parse_agent_answer_observed(&turn, "bash", Some(&context), 1_001);
         assert_eq!(observed.1, original.1);
         assert_eq!(
             serde_json::to_value(observed.0).unwrap(),

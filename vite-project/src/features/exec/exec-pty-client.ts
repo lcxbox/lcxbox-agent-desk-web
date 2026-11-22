@@ -62,7 +62,7 @@ export type ExecPtyPrepare = {
     targetConnectionId: string;
     execRequestId: string;
     deviceId?: string;
-    /** Pending AI Assistant permission this carrier is prepared for. */
+    /** Pending AI Agent permission this carrier is prepared for. */
     permission?: { runId: string; requestId: string };
 };
 

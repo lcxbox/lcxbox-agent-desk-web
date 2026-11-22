@@ -77,7 +77,7 @@ pub fn validate_origin(
         .ok_or("action has no delegation origin")?;
     if fence.conversation_id != session.conversation_id
         || fence.actor_id != session.actor_id
-        || !session.admits_assistant_device(&fence.device_id)
+        || !session.admits_agent_device(&fence.device_id)
         || fence.input_revision > session.input_revision
         || fence.control_revision > session.control_revision
         || delegation.source_epoch > binding.source_epoch
@@ -192,7 +192,7 @@ impl RuntimeFacts {
                 && let Some(call_id) = &message.tool_call_id
                 && !self.native_result_call_ids.contains(call_id)
             {
-                let registry = crate::ai_assistant::ai_assistant_provider_registry();
+                let registry = crate::ai_agent::ai_agent_provider_registry();
                 if session
                     .conversation
                     .iter()

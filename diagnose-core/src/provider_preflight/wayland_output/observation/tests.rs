@@ -29,7 +29,7 @@ fn history() -> Vec<ChatMessage> {
             media_type: "application/json".into(),
         },
         provenance: DataProvenance {
-            source_provider_id: crate::ai_assistant::CURRENT_SCREEN_PROVIDER_ID.into(),
+            source_provider_id: crate::ai_agent::CURRENT_SCREEN_PROVIDER_ID.into(),
             source_tool_name: "read_current_screen".into(),
             source_object_id: None,
             source_envelope_ids: vec![],
@@ -62,10 +62,10 @@ fn intact_output_observation_allows_best_effort_without_relabeling() {
         desk_agent_protocol::ScreenFrameFreshness::LatestObserved
     );
     assert!(action.validate().is_ok());
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let mut call = crate::chat::ToolCall {
         id: "input".into(),
-        name: crate::ai_assistant::linux::OUTPUT_TOOL.into(),
+        name: crate::ai_agent::linux::OUTPUT_TOOL.into(),
         arguments_json: json!({"target": reference, "action": action}).to_string(),
     };
     for surface in [
@@ -98,7 +98,7 @@ fn output_id_call_and_permission_preserve_model_input_and_exact_frame() {
     let history = history();
     let original = crate::chat::ToolCall {
         id: "input".into(),
-        name: crate::ai_assistant::linux::OUTPUT_TOOL.into(),
+        name: crate::ai_agent::linux::OUTPUT_TOOL.into(),
         arguments_json: json!({"output_id":"output", "action":{"step":
             desk_agent_protocol::computer_use::RawInputStep::KeyPress {
                 key: desk_agent_protocol::computer_use::RawInputKey::Enter,
@@ -131,7 +131,7 @@ fn output_id_call_and_permission_preserve_model_input_and_exact_frame() {
     let resolved_value: serde_json::Value = serde_json::from_str(&resolved.arguments_json).unwrap();
     assert_eq!(permission_value["items"][0]["exact_input"], resolved_value);
 
-    let replay = ChatMessage::assistant_tool_calls(
+    let replay = ChatMessage::agent_tool_calls(
         "replay",
         "",
         vec![
@@ -168,7 +168,7 @@ fn output_id_call_and_permission_preserve_model_input_and_exact_frame() {
         serde_json::to_string(&projected.messages).unwrap(),
     );
 
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     for surface in [
         ProductSurface::OssPersonalOwner,
         ProductSurface::ManagerPersonalOwner,

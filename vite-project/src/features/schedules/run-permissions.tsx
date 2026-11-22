@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AssistantPermissionRequest } from '@/features/desk/assistant-permission-request';
-import { deskErrorCodeEnum, type AiAssistantSessionSnapshotDto, type PermissionDecisionBody, type PermissionRequestDto, type ScheduleView } from '@/services/types';
+import { AgentPermissionRequest } from '@/features/desk/agent-permission-request';
+import { deskErrorCodeEnum, type AiAgentSessionSnapshotDto, type PermissionDecisionBody, type PermissionRequestDto, type ScheduleView } from '@/services/types';
 import type { ScheduleClient } from './client';
 
-type ApprovalSnapshot = Pick<AiAssistantSessionSnapshotDto, 'sessionId' | 'seq' | 'requestId' | 'inputRevision' | 'permissionRequests' | 'active'>;
+type ApprovalSnapshot = Pick<AiAgentSessionSnapshotDto, 'sessionId' | 'seq' | 'requestId' | 'inputRevision' | 'permissionRequests' | 'active'>;
 
 export function RunPermissions({ client, scheduleId, runId, snapshot, connectionIds = {}, connected, loading, onReload }: {
     client: Pick<ScheduleClient, 'request'>; scheduleId: string; runId: string; snapshot: ApprovalSnapshot;
@@ -52,7 +52,7 @@ export function RunPermissions({ client, scheduleId, runId, snapshot, connection
         };
         let recorded = false;
         try {
-            const response = await fetch('/api/my/ai-assistant-session/permission-decision', {
+            const response = await fetch('/api/my/ai-agent-session/permission-decision', {
                 method: 'POST', credentials: 'include', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
                 body: JSON.stringify(body), signal: controller.signal,
             });
@@ -75,7 +75,7 @@ export function RunPermissions({ client, scheduleId, runId, snapshot, connection
         {!canDecide && snapshot.permissionRequests.some(request => request.state === 'pending') &&
             <p role="status">{t('schedules.approval.unavailable')}</p>}
         {notice && <p role={notice === 'rejected' ? 'alert' : 'status'}>{t(`schedules.approval.${notice}`)}</p>}
-        {snapshot.permissionRequests.map(request => <AssistantPermissionRequest
+        {snapshot.permissionRequests.map(request => <AgentPermissionRequest
             key={`${snapshot.sessionId}:${request.requestId}:${request.inputRevision}`} request={request}
             canDecide={currentRun && request.inputRevision === snapshot.inputRevision}
             disabled={!canDecide} busy={submitting} waitingForTurn={snapshot.active} onDecide={decide} />)}

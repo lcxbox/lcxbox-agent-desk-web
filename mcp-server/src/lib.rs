@@ -1,5 +1,5 @@
 //! Single-machine, **read-only** MCP server exposing the diagnose agent's read
-//! capabilities to a local MCP client (e.g. an external AI assistant).
+//! capabilities to a local MCP client (e.g. an external AI agent).
 //!
 //! This crate carries only the MCP protocol layer (tool whitelist, schemas,
 //! dispatch) on top of the official Rust SDK [`rmcp`] over a stdio transport. It

@@ -178,7 +178,7 @@ pub fn validate_permission_review_current(
     request
         .validate()
         .map_err(|_| ApprovalReviewError::InvalidContext)?;
-    if session.surface != AgentSessionSurface::AiAssistant
+    if session.surface != AgentSessionSurface::AiAgent
         || request.state != PermissionRequestState::Pending
         || !session
             .permission_requests
@@ -365,7 +365,7 @@ pub fn validate_source_review_current(
     now_unix_ms: u64,
 ) -> Result<(), ApprovalReviewError> {
     candidate.validate()?;
-    if session.surface != AgentSessionSurface::AiAssistant
+    if session.surface != AgentSessionSurface::AiAgent
         || match candidate.source {
             ApprovalSource::GoalProposal { .. } => {
                 !session.agent_role.is_main()
@@ -398,8 +398,8 @@ pub fn validate_source_review_current(
         || candidate.device_id != binding.device_id
         || (binding.device_id != session.device_id
             && (!matches!(binding.source, ApprovalSource::ConcreteCall { .. })
-                || !session.has_admitted_assistant_input()
-                || !session.admits_assistant_device(binding.device_id)))
+                || !session.has_admitted_agent_input()
+                || !session.admits_agent_device(binding.device_id)))
         || candidate.delegation_id != delegation.delegation_id
         || candidate.delegation_revision != delegation.revision
         || candidate.expires_at_unix_ms <= now_unix_ms
@@ -736,7 +736,7 @@ mod tests {
         let mut released = page.clone();
         released.message_id = "released-page".into();
         // A released receipt derives from the model output that made the read.
-        let mut issuing = ChatMessage::assistant_tool_calls(
+        let mut issuing = ChatMessage::agent_tool_calls(
             "read-call",
             "",
             vec![crate::chat::ToolCallRef {
@@ -766,7 +766,7 @@ mod tests {
             },
             "2026-09-23T00:00:00Z",
         );
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session.latest_input_seq = 1;
         session
@@ -781,7 +781,7 @@ mod tests {
             .unwrap();
         let mut user = ChatMessage::text("user", ChatRole::User, "Run the approved check");
         user.data_envelope = Some(envelope_for(&user, Sensitivity::UserContent));
-        let mut assistant = ChatMessage::assistant_tool_calls(
+        let mut agent = ChatMessage::agent_tool_calls(
             "assistant",
             "",
             vec![ToolCallRef {
@@ -790,9 +790,9 @@ mod tests {
                 arguments_json: r#"{"shell":"powershell","command":"Get-Date"}"#.into(),
             }],
         );
-        assistant.turn_id = Some("turn".into());
-        assistant.data_envelope = Some(envelope_for(&assistant, Sensitivity::UserContent));
-        session.conversation.extend([user, assistant]);
+        agent.turn_id = Some("turn".into());
+        agent.data_envelope = Some(envelope_for(&agent, Sensitivity::UserContent));
+        session.conversation.extend([user, agent]);
         session
     }
 
@@ -897,7 +897,7 @@ mod tests {
         let mut session = source_review_session();
         session.device_id.clear();
         session
-            .bind_assistant_request_targets(vec!["device-a".into(), "device-b".into()])
+            .bind_agent_request_targets(vec!["device-a".into(), "device-b".into()])
             .unwrap();
         let source = ApprovalSource::ConcreteCall {
             call_id: "native-call".into(),
@@ -918,7 +918,7 @@ mod tests {
         session.delegated_owner_requirement = Some(Box::new(owner.clone()));
         session.agent_role = AgentRole::SubAgent {
             binding: Box::new(DelegatedTaskBinding {
-                targets: vec![crate::dynamic_run::AssistantInputTarget::fixed(
+                targets: vec![crate::dynamic_run::AgentInputTarget::fixed(
                     session.device_id.clone(),
                 )],
                 root_conversation_id: "conversation".into(),
@@ -1042,7 +1042,7 @@ mod tests {
     #[test]
     fn completed_command_receipt_outlives_execution_reference_without_widening_other_content() {
         let mut session = source_review_session();
-        let mut parent = ChatMessage::assistant_tool_calls(
+        let mut parent = ChatMessage::agent_tool_calls(
             "old-call",
             "",
             vec![ToolCallRef {
@@ -1263,11 +1263,11 @@ mod tests {
             },
             "2026-09-23T00:00:00Z",
         );
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         let mut user = ChatMessage::text("user", ChatRole::User, "Update the report");
         user.data_envelope = Some(envelope_for(&user, Sensitivity::UserContent));
-        let mut assistant = ChatMessage::assistant_tool_calls(
+        let mut agent = ChatMessage::agent_tool_calls(
             "assistant",
             "",
             vec![ToolCallRef {
@@ -1276,9 +1276,9 @@ mod tests {
                 arguments_json: r#"{"tool_name":"write_text_file"}"#.into(),
             }],
         );
-        assistant.data_envelope = Some(envelope_for(&assistant, Sensitivity::UserContent));
+        agent.data_envelope = Some(envelope_for(&agent, Sensitivity::UserContent));
         session.conversation.push(user);
-        session.conversation.push(assistant);
+        session.conversation.push(agent);
         session.conversation.extend(review_projections());
         session.conversation.push(ChatMessage::tool_result(
             "result",
@@ -1360,7 +1360,7 @@ mod tests {
             "approved-goal".into(),
             session.conversation_id.clone(),
             session.actor_id.clone(),
-            crate::dynamic_run::AssistantInputTarget::fixed(session.device_id.clone()),
+            crate::dynamic_run::AgentInputTarget::fixed(session.device_id.clone()),
             session.device_id.clone(),
             "Finish the report and deliver the updated artifact".into(),
             "user".into(),
@@ -1513,7 +1513,7 @@ mod tests {
             },
             "2026-09-23T00:00:00Z",
         );
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session.latest_input_seq = 1;
         session
@@ -1528,7 +1528,7 @@ mod tests {
             .unwrap();
         let mut user = ChatMessage::text("user", ChatRole::User, "Run the approved check");
         user.data_envelope = Some(envelope_for(&user, Sensitivity::UserContent));
-        let mut assistant = ChatMessage::assistant_tool_calls(
+        let mut agent = ChatMessage::agent_tool_calls(
             "assistant",
             "",
             vec![ToolCallRef {
@@ -1537,9 +1537,9 @@ mod tests {
                 arguments_json: r#"{"shell":"powershell","command":"Get-Date"}"#.into(),
             }],
         );
-        assistant.turn_id = Some("turn".into());
-        assistant.data_envelope = Some(envelope_for(&assistant, Sensitivity::UserContent));
-        session.conversation.extend([user, assistant]);
+        agent.turn_id = Some("turn".into());
+        agent.data_envelope = Some(envelope_for(&agent, Sensitivity::UserContent));
+        session.conversation.extend([user, agent]);
         let source = ApprovalSource::ManagerCommand {
             work_id: "12".into(),
         };

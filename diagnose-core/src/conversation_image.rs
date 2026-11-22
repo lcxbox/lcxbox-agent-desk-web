@@ -36,8 +36,7 @@ impl ImageAttachment {
         use crate::conversation_attachment::{AttachmentMetadata, Availability, ContentKind};
         if self.frame.conversation_id != session.conversation_id
             || !self.matches_device_scope(&session.device_id)
-            || (session.device_id.is_empty()
-                && !session.admits_assistant_device(&self.frame.device_id))
+            || (session.device_id.is_empty() && !session.admits_agent_device(&self.frame.device_id))
         {
             return Err(error("Screenshot belongs to another conversation"));
         }
@@ -228,7 +227,7 @@ mod tests {
         };
         let mut session =
             PersistedAgentSession::new("conversation", "owner", "device", 1, scope.clone(), "now");
-        session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAssistant);
+        session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAgent);
         session.input_revision = 1;
         session.latest_input_seq = 1;
         session.begin_focus_epoch(1, vec![]).unwrap();

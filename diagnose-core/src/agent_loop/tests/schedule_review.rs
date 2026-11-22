@@ -46,7 +46,7 @@ impl SessionSeam for ProposalStore<'_> {
         params: ClaimTurnParams,
     ) -> Result<PersistedAgentSession, ClaimError> {
         let mut session = self.mem.claim_turn(params).await?;
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         Ok(session)
     }
     async fn save(&self, session: &mut PersistedAgentSession) -> Result<(), AgentError> {

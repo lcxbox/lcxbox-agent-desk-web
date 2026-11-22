@@ -1,0 +1,92 @@
+//! Shared table shapes; host configuration and native execution tables stay in the host.
+
+pub mod agent_citation;
+pub mod agent_control_receipt;
+pub mod agent_data_authorization;
+pub mod agent_decision_resume;
+pub mod agent_delegation_group;
+pub mod agent_device_roster;
+pub mod agent_history;
+pub mod agent_history_conversation;
+pub mod agent_history_coverage;
+pub mod agent_issue_admission;
+pub mod agent_issue_event;
+pub mod agent_issue_reply;
+pub mod agent_issue_source;
+pub mod agent_issue_subscription;
+pub mod agent_main_request;
+pub mod agent_memory;
+pub mod agent_memory_commit;
+pub mod agent_memory_revision;
+pub mod agent_memory_source;
+pub mod agent_memory_tombstone;
+pub mod agent_memory_use;
+pub mod agent_model_input_item;
+pub mod agent_model_output;
+pub mod agent_origin;
+pub mod agent_quota;
+pub mod agent_read_projection;
+pub mod agent_retrieval_query;
+pub mod agent_runtime;
+pub mod agent_schedule;
+pub mod agent_schedule_run;
+pub mod agent_search_document;
+pub mod agent_search_term;
+pub mod agent_skill;
+pub mod agent_skill_proposal;
+pub mod agent_skill_scan;
+pub mod agent_skill_scope;
+pub mod agent_skill_version;
+pub mod agent_source_suppression;
+pub mod agent_source_use;
+pub mod agent_subagent_inbox;
+pub mod agent_subagent_run;
+pub mod agent_task_budget_reservation;
+
+/// Add agent tables to the host schema transaction.
+#[cfg(any(feature = "schema-sync", test))]
+pub fn register_schema(schema: sea_orm::SchemaBuilder) -> sea_orm::SchemaBuilder {
+    schema
+        .register(agent_citation::Entity)
+        .register(agent_control_receipt::Entity)
+        .register(agent_data_authorization::Entity)
+        .register(agent_device_roster::Entity)
+        .register(agent_history::Entity)
+        .register(agent_history_conversation::Entity)
+        .register(agent_history_coverage::Entity)
+        .register(agent_model_output::Entity)
+        .register(agent_model_input_item::Entity)
+        .register(agent_origin::Entity)
+        .register(agent_quota::Entity)
+        .register(agent_read_projection::Entity)
+        .register(agent_retrieval_query::Entity)
+        .register(agent_runtime::Entity)
+        .register(agent_search_document::Entity)
+        .register(agent_search_term::Entity)
+        .register(agent_source_suppression::Entity)
+        .register(agent_source_use::Entity)
+        .register(agent_main_request::Entity)
+        .register(agent_issue_reply::Entity)
+        .register(agent_issue_subscription::Entity)
+        .register(agent_issue_admission::Entity)
+        .register(agent_issue_event::Entity)
+        .register(agent_issue_source::Entity)
+        .register(agent_memory::Entity)
+        .register(agent_memory_commit::Entity)
+        .register(agent_memory_revision::Entity)
+        .register(agent_memory_source::Entity)
+        .register(agent_memory_tombstone::Entity)
+        .register(agent_memory_use::Entity)
+        .register(agent_subagent_inbox::Entity)
+        .register(agent_delegation_group::Entity)
+        .register(agent_subagent_run::Entity)
+        .register(agent_schedule::Entity)
+        .register(agent_schedule_run::Entity)
+        .register(agent_task_budget_reservation::Entity)
+        .register(agent_skill::Entity)
+        .register(agent_skill_version::Entity)
+        .register(agent_skill_scope::Entity)
+        .register(agent_skill_proposal::Entity)
+        .register(agent_skill_scan::Entity)
+        .register(agent_decision_resume::Entity)
+}

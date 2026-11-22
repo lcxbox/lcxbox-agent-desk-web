@@ -13,11 +13,11 @@ describe('automation policy settings', () => {
             .mockResolvedValueOnce(response(policy(4, 8)));
         vi.stubGlobal('fetch', fetchMock);
         render(<AutomationPolicySettings />);
-        const limit = await screen.findByLabelText('pages.aiAssistant.automationPolicyMaxTurns');
+        const limit = await screen.findByLabelText('pages.aiAgent.automationPolicyMaxTurns');
         await waitFor(() => expect(limit).toHaveValue(20));
         fireEvent.change(limit, { target: { value: '8' } });
-        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAssistant.goalBudgetSave' }));
-        await screen.findByText('pages.aiAssistant.automationPolicySaved');
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.goalBudgetSave' }));
+        await screen.findByText('pages.aiAgent.automationPolicySaved');
         expect(fetchMock.mock.calls[1][0]).toBe('/api/admin/system/automation-policy');
         expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ expectedRevision: 3, maxAutoTurnsPerChain: 8 });
         expect(limit).toHaveValue(8);
@@ -27,9 +27,9 @@ describe('automation policy settings', () => {
         const fetchMock = vi.fn().mockResolvedValue(response(policy(0)));
         vi.stubGlobal('fetch', fetchMock);
         render(<AutomationPolicySettings />);
-        const limit = await screen.findByLabelText('pages.aiAssistant.automationPolicyMaxTurns');
+        const limit = await screen.findByLabelText('pages.aiAgent.automationPolicyMaxTurns');
         await waitFor(() => expect(limit).toHaveValue(20));
-        const save = screen.getByRole('button', { name: 'pages.aiAssistant.goalBudgetSave' });
+        const save = screen.getByRole('button', { name: 'pages.aiAgent.goalBudgetSave' });
         for (const value of ['0', '1.5', '51', '']) {
             fireEvent.change(limit, { target: { value } });
             expect(save).toBeDisabled();

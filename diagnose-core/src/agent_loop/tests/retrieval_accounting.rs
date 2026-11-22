@@ -1,8 +1,6 @@
 use super::super::retrieval_accounting::{self as accounting, Admission};
 use super::*;
-use crate::ai_assistant::{
-    history::serialized_tool_response_bytes, test_support::personal_session,
-};
+use crate::ai_agent::{history::serialized_tool_response_bytes, test_support::personal_session};
 
 fn model() -> ScriptModel {
     ScriptModel {
@@ -39,7 +37,7 @@ async fn pending_read_is_durable_and_completed_response_replays_without_reopenin
         "call-1",
         crate::conversation_history::LOAD_CONVERSATION_HISTORY_TOOL_NAME,
     );
-    session.conversation.push(ChatMessage::assistant_tool_calls(
+    session.conversation.push(ChatMessage::agent_tool_calls(
         "producer",
         "",
         vec![ToolCallRef {
@@ -57,7 +55,7 @@ async fn pending_read_is_durable_and_completed_response_replays_without_reopenin
     let persisted = store.inner.borrow().clone().unwrap();
     assert_eq!(
         persisted
-            .assistant_data
+            .agent_data
             .as_ref()
             .unwrap()
             .retrieval_budget
@@ -66,7 +64,7 @@ async fn pending_read_is_durable_and_completed_response_replays_without_reopenin
     );
     assert!(
         persisted
-            .assistant_data
+            .agent_data
             .as_ref()
             .unwrap()
             .retrieval_budget
@@ -75,7 +73,7 @@ async fn pending_read_is_durable_and_completed_response_replays_without_reopenin
             .is_none()
     );
     let admitted_at = persisted
-        .assistant_data
+        .agent_data
         .as_ref()
         .unwrap()
         .retrieval_budget
@@ -100,7 +98,7 @@ async fn pending_read_is_durable_and_completed_response_replays_without_reopenin
     assert_eq!(*store.saves.borrow(), saves);
     assert_eq!(
         session
-            .assistant_data
+            .agent_data
             .as_ref()
             .unwrap()
             .retrieval_budget
@@ -121,7 +119,7 @@ async fn pending_read_is_durable_and_completed_response_replays_without_reopenin
         panic!("committed replay")
     };
     assert_eq!(*replayed, result);
-    let budget = &session.assistant_data.as_ref().unwrap().retrieval_budget;
+    let budget = &session.agent_data.as_ref().unwrap().retrieval_budget;
     assert_eq!(budget.read_calls, 1);
     assert_eq!(budget.read_bytes, u64::from(bytes));
     let mut changed = call.clone();
@@ -145,8 +143,8 @@ async fn legacy_attachment_and_cross_conversation_reads_share_one_eight_call_epi
     let names = [
         crate::conversation_history::LOAD_CONVERSATION_HISTORY_TOOL_NAME,
         crate::conversation_attachment::READ_ATTACHMENT_TOOL,
-        crate::ai_assistant::data_tools::READ_CONVERSATION,
-        crate::ai_assistant::data_tools::READ_MEMORY_SOURCE,
+        crate::ai_agent::data_tools::READ_CONVERSATION,
+        crate::ai_agent::data_tools::READ_MEMORY_SOURCE,
     ];
     for index in 0..8 {
         let call = read(&format!("call-{index}"), names[index % names.len()]);
@@ -163,13 +161,13 @@ async fn legacy_attachment_and_cross_conversation_reads_share_one_eight_call_epi
         )
         .unwrap();
     }
-    let data = &session.assistant_data.as_ref().unwrap();
+    let data = &session.agent_data.as_ref().unwrap();
     data.validate().unwrap();
-    let decoded = serde_json::from_str::<crate::ai_assistant::data_control::AssistantDataSession>(
+    let decoded = serde_json::from_str::<crate::ai_agent::data_control::AgentDataSession>(
         &serde_json::to_string(data).unwrap(),
     )
     .unwrap();
-    session.assistant_data = Some(Box::new(decoded));
+    session.agent_data = Some(Box::new(decoded));
     for name in names {
         assert!(
             accounting::reserve(&deps, &mut session, "next-segment", &read("ninth", name))
@@ -179,7 +177,7 @@ async fn legacy_attachment_and_cross_conversation_reads_share_one_eight_call_epi
     }
     assert_eq!(
         session
-            .assistant_data
+            .agent_data
             .as_ref()
             .unwrap()
             .retrieval_budget
@@ -217,7 +215,7 @@ async fn admitted_invalid_history_input_settles_only_the_small_framed_failure() 
     assert!(!result.ok);
     assert!(!result.replayed);
     assert_eq!(result.message.tool_ok, Some(false));
-    let budget = &session.assistant_data.as_ref().unwrap().retrieval_budget;
+    let budget = &session.agent_data.as_ref().unwrap().retrieval_budget;
     assert_eq!(budget.read_calls, 1);
     assert_eq!(
         budget.read_bytes,
@@ -236,8 +234,8 @@ async fn other_surfaces_keep_their_original_local_history_limits() {
     let clock = || "2026-10-20T00:00:00Z".into();
     let deps = deps(&store, &model, &tools, &[], &clock);
     let mut session = personal_session("actor", "root", "device");
-    session.surface = crate::session::AgentSessionSurface::TerminalAiAssistant;
-    session.assistant_data = None;
+    session.surface = crate::session::AgentSessionSurface::TerminalAiAgent;
+    session.agent_data = None;
     let call = read(
         "legacy",
         crate::conversation_attachment::READ_ATTACHMENT_TOOL,
@@ -265,7 +263,7 @@ async fn exercise_positive_remaining_read_bytes() {
         let deps = deps(&store, &model, &tools, &[], &clock);
         let mut session = personal_session("actor", "root", "device");
         session
-            .assistant_data
+            .agent_data
             .as_mut()
             .unwrap()
             .retrieval_budget
@@ -273,7 +271,7 @@ async fn exercise_positive_remaining_read_bytes() {
             .read_bytes = remaining;
         let call = read(
             "small-budget",
-            crate::ai_assistant::data_tools::READ_CONVERSATION,
+            crate::ai_agent::data_tools::READ_CONVERSATION,
         );
         let result =
             crate::future::boxed(|| accounting::reserve(&deps, &mut session, "producer", &call))
@@ -296,7 +294,7 @@ async fn exercise_positive_remaining_read_bytes() {
         };
         assert_eq!(reserved.id, replayed.id);
         assert_eq!(reserved.upper_bytes, replayed.upper_bytes);
-        let budget = &session.assistant_data.as_ref().unwrap().retrieval_budget;
+        let budget = &session.agent_data.as_ref().unwrap().retrieval_budget;
         assert_eq!(budget.read_calls, 1);
         assert_eq!(budget.read_bytes, remaining);
         assert!(
@@ -309,7 +307,7 @@ async fn exercise_positive_remaining_read_bytes() {
             .await
             .is_err()
         );
-        let encoder = crate::ai_assistant::retrieval_response::ToolReplyBudget::new(
+        let encoder = crate::ai_agent::retrieval_response::ToolReplyBudget::new(
             &call.id,
             reserved.upper_bytes,
         )

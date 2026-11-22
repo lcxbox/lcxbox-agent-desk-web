@@ -153,10 +153,8 @@ fn text_page_impl(
             serde_json::to_string(&page).map_err(|_| invalid("Cannot encode attachment page"))?;
         let framed_fits = match framed_limit {
             Some(maximum) => {
-                crate::ai_assistant::history::serialized_tool_response_bytes(
-                    call_id, &content, None,
-                )
-                .map_err(invalid)?
+                crate::ai_agent::history::serialized_tool_response_bytes(call_id, &content, None)
+                    .map_err(invalid)?
                     <= maximum
             }
             None => true,
@@ -358,7 +356,7 @@ mod tests {
 
     #[test]
     fn a_page_registers_under_the_attachment_it_was_read_from() {
-        use crate::ai_assistant::source_registry::{
+        use crate::ai_agent::source_registry::{
             NativeInputPolicyRegistration, RegisteredSourceContract, SOURCE_CONTRACT_REVISION,
         };
         let destination = desk_agent_protocol::data_lineage::DestinationIdentity::Model {
@@ -640,8 +638,7 @@ mod tests {
         input.max_bytes = Some(32768);
         let observation = crate::model_observability::tool::ToolObservation::default();
         let framed = |content: &str| {
-            crate::ai_assistant::history::serialized_tool_response_bytes("read", content, None)
-                .unwrap()
+            crate::ai_agent::history::serialized_tool_response_bytes("read", content, None).unwrap()
         };
         let mut unbounded = crate::ui_references::UiReferenceState::default();
         let (full, _) = text_page_with_references(

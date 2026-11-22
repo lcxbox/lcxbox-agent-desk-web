@@ -24,7 +24,7 @@ pub(crate) fn retire_unsupported_for_expiry<'a>(
             &candidate.conversation_id,
             &candidate.actor_id,
             &candidate.device_id,
-        ) || metadata.surface != AgentSessionSurface::AiAssistant
+        ) || metadata.surface != AgentSessionSurface::AiAgent
         {
             return Ok(false);
         }

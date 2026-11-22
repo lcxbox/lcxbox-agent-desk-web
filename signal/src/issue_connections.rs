@@ -51,8 +51,8 @@ pub(crate) async fn check_work_on(
     session: &desk_diagnose_core::session::PersistedAgentSession,
     requires_device: bool,
     now: i64,
-) -> Result<(), desk_assistant_data_store::AssistantStoreError> {
-    use desk_assistant_data_store::{AssistantStoreError, issue_authority};
+) -> Result<(), desk_agent_data_store::AgentStoreError> {
+    use desk_agent_data_store::{AgentStoreError, issue_authority};
     let Some(admission) =
         issue_authority::authorized_session_on(db, session, requires_device, now).await?
     else {
@@ -63,7 +63,7 @@ pub(crate) async fn check_work_on(
         .connection_for_issue(&session.actor_id, &admission.issue)
         .is_none()
     {
-        return Err(AssistantStoreError::Inaccessible);
+        return Err(AgentStoreError::Inaccessible);
     }
     Ok(())
 }

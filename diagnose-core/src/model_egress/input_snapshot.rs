@@ -86,7 +86,7 @@ impl NativeModelInputSnapshot {
             root.label
                 .validate()
                 .map_err(|_| "invalid stored root label")?;
-            if crate::ai_assistant::source_registry::stored_root_contract(&root.label).is_none()
+            if crate::ai_agent::source_registry::stored_root_contract(&root.label).is_none()
                 || !seen.insert(&root.label.envelope_id)
                 || !referenced.contains(&root.label.envelope_id)
             {

@@ -1,4 +1,4 @@
-//! Durable pending AI-proposed goal requests for the OSS AI Assistant.
+//! Durable pending AI-proposed goal requests for the OSS AI Agent.
 
 use crate::config::connection::{DatabaseConnection, DatabaseTransaction};
 use crate::entity::{
@@ -22,7 +22,7 @@ use sea_orm::{
 };
 
 fn invalid() -> DbErr {
-    DbErr::Custom("AI Assistant goal opening request is inconsistent".into())
+    DbErr::Custom("AI Agent goal opening request is inconsistent".into())
 }
 
 fn as_i64(value: u64) -> Result<i64, DbErr> {
@@ -48,13 +48,13 @@ pub async fn save_model_request(
         .validate()
         .map_err(|_| failed("invalid goal opening request"))?;
     if !session.agent_role.is_main()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || session.trigger_origin != TriggerOrigin::User
         || session.turn_state != TurnState::Running
         || event.event.run_id != session.conversation_id
         || event.request.owner_id != session.actor_id
         || event.request.device_id != session.device_id
-        || session.single_assistant_request_target().ok() != Some(&event.request.execution_target)
+        || session.single_agent_request_target().ok() != Some(&event.request.execution_target)
         || event.event.event_seq != session.last_event_seq
         || event.request.input_revision != session.input_revision
     {
@@ -400,7 +400,7 @@ pub(crate) async fn decide_on(
     let mut session =
         PersistedAgentSession::decode_json(&session_row.state_json).map_err(|_| invalid())?;
     if !session.agent_role.is_main()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || !session.turn_state.can_claim()
         || session_row
             .lease_deadline
@@ -448,7 +448,7 @@ pub(crate) async fn decide_on(
     };
     if request.state != GoalOpenRequestState::Pending
         || request.input_revision != session.input_revision
-        || session.single_assistant_request_target().ok() != Some(&request.execution_target)
+        || session.single_agent_request_target().ok() != Some(&request.execution_target)
         || !target_matches
     {
         return Ok(None);
@@ -516,8 +516,8 @@ pub(crate) async fn decide_on(
     if let Some(goal) = goal.as_mut() {
         goal.apply_budget_policy(&budget_policy)
             .map_err(|_| invalid())?;
-        if session.assistant_data.is_some() {
-            desk_diagnose_core::ai_assistant::data_access::bind_opened_task(
+        if session.agent_data.is_some() {
+            desk_diagnose_core::ai_agent::data_access::bind_opened_task(
                 &mut session,
                 &goal.goal_id,
                 goal.deadline_unix_ms,
@@ -661,7 +661,7 @@ pub async fn expire_due(
         .await
         {
             log::warn!(
-                "[ai-assistant-goal] failed to expire request {}: {error}",
+                "[ai-agent-goal] failed to expire request {}: {error}",
                 row.request_id
             );
         }

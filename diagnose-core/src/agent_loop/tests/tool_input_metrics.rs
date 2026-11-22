@@ -35,7 +35,7 @@ pub(super) fn observed(call: &ToolCall, recorder: Arc<Recorder>, spec: ToolSpec)
             model_name: "Model".into(),
             configuration_revision: "1".into(),
             contract_revision: "1".into(),
-            surface: Surface::Assistant,
+            surface: Surface::Agent,
             purpose: Purpose::Agent,
             origin: Origin::User,
             configuration_scope: ConfigurationScope::Local,
@@ -136,9 +136,7 @@ pub(super) struct ObservedScript<'a> {
 #[tokio::test]
 async fn terminal_answer_defers_output_until_the_real_renderer_and_never_sends_the_handle() {
     use crate::model_observability::{ObservationPhase, OutputOutcome};
-    use crate::terminal_ai_assistant::{
-        AssistantStreamSink, parse_committed_assistant_answer_observed,
-    };
+    use crate::terminal_ai_agent::{AgentStreamSink, parse_committed_agent_answer_observed};
     for (text, expected) in [
         (
             r#"{"explanation_md":"private terminal explanation","suggestions":[]}"#,
@@ -158,10 +156,7 @@ async fn terminal_answer_defers_output_until_the_real_renderer_and_never_sends_t
             scope(),
             "2026-06-20T00:00:00Z",
         );
-        session.adopt_client_metadata(
-            None,
-            crate::session::AgentSessionSurface::TerminalAiAssistant,
-        );
+        session.adopt_client_metadata(None, crate::session::AgentSessionSurface::TerminalAiAgent);
         *store.inner.borrow_mut() = Some(session);
         let script = ScriptModel {
             turns: RefCell::new([answer(text)].into()),
@@ -180,7 +175,7 @@ async fn terminal_answer_defers_output_until_the_real_renderer_and_never_sends_t
         let frames = Rc::new(RefCell::new(Vec::new()));
         let target = frames.clone();
         let mut sink =
-            AssistantStreamSink::new(move |frame| target.borrow_mut().push(frame), "request");
+            AgentStreamSink::new(move |frame| target.borrow_mut().push(frame), "request");
         let clock = || "2026-06-20T00:00:01Z".into();
         let result = run_agent_turn(
             &deps(&store, &model, &tools, &registry, &clock),
@@ -208,7 +203,7 @@ async fn terminal_answer_defers_output_until_the_real_renderer_and_never_sends_t
         assert_eq!(context.attribution.surface, Surface::Terminal);
         assert!(sink.take_answer_observation().is_none());
         let (parsed, _) =
-            parse_committed_assistant_answer_observed(text, "bash", Some(&context), 1_001);
+            parse_committed_agent_answer_observed(text, "bash", Some(&context), 1_001);
         sink.emit_final(parsed);
         let events = recorder.0.lock().unwrap();
         let outputs: Vec<_> = events
@@ -254,10 +249,7 @@ async fn terminal_answer_observation_callback_panic_cannot_change_the_loop_outco
         scope(),
         "2026-06-20T00:00:00Z",
     );
-    session.adopt_client_metadata(
-        None,
-        crate::session::AgentSessionSurface::TerminalAiAssistant,
-    );
+    session.adopt_client_metadata(None, crate::session::AgentSessionSurface::TerminalAiAgent);
     *store.inner.borrow_mut() = Some(session);
     let script = ScriptModel {
         turns: RefCell::new([answer("private final answer")].into()),
@@ -471,7 +463,7 @@ impl ModelSeam for ObservedScript<'_> {
                 model_name: "Model".into(),
                 configuration_revision: "1".into(),
                 contract_revision: "1".into(),
-                surface: Surface::Assistant,
+                surface: Surface::Agent,
                 purpose: Purpose::Agent,
                 origin,
                 configuration_scope: ConfigurationScope::Local,
@@ -513,10 +505,7 @@ async fn directory_loop_binds_only_the_published_proposal_and_ends_waiting_for_t
         let store = MemSession::default();
         let mut initial =
             PersistedAgentSession::new(&run, "actor", "device", 1, scope(), "2026-06-20T00:00:00Z");
-        initial.adopt_client_metadata(
-            Some("client"),
-            crate::session::AgentSessionSurface::AiAssistant,
-        );
+        initial.adopt_client_metadata(Some("client"), crate::session::AgentSessionSurface::AiAgent);
         initial.input_revision = 1;
         initial.latest_input_seq = 1;
         *store.inner.borrow_mut() = Some(initial);

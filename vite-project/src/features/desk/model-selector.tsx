@@ -49,7 +49,7 @@ type RestResponse<T> = {
 
 type SaveState = "idle" | "saving" | "error"
 
-/** The AI role slot a selector targets. Diagnose and the Terminal AI Assistant both use
+/** The AI role slot a selector targets. Diagnose and the Terminal AI Agent both use
  *  the `agent` model; terminal completion is a separate slot. */
 export type ModelRole = "agent" | "completion"
 
@@ -65,7 +65,7 @@ type ModelSelectorProps = {
     onChange: (modelId: number | null) => void
     /** Optional richer selection callback for hosts that gate capability-specific UI. */
     onModelChange?: (model: AiModelDto | null) => void
-    /** Extra classes for the select trigger, so each host (a dark assistant overlay vs.
+    /** Extra classes for the select trigger, so each host (a dark agent overlay vs.
      *  the themed terminal card) can blend it in. */
     className?: string
     /**

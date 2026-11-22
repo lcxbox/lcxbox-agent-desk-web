@@ -51,7 +51,7 @@ pub enum ToolEffect {
     /// this same conversation. It grants no device or execution authority.
     ConversationHistory,
     /// Searches or reads other personal conversations under a frozen owner scope.
-    AssistantHistory,
+    AgentHistory,
     /// Reads current owner facts without any device capability or execution authority.
     MemoryQuery,
     /// Maintains stable owner facts; data controls require their own exact batch.
@@ -84,7 +84,7 @@ pub enum ToolEffect {
 }
 
 /// A model-facing tool, its optional device grant, and its effect. Internal data
-/// tools are additionally gated by the original assistant data scope.
+/// tools are additionally gated by the original agent data scope.
 #[derive(Debug, Clone)]
 pub struct RegisteredTool {
     pub spec: ToolSpec,
@@ -137,7 +137,7 @@ fn mode_allows_effect(mode: ExecutionMode, effect: ToolEffect) -> bool {
         | ToolEffect::PermissionPlanning
         | ToolEffect::CapabilityDiscovery
         | ToolEffect::ConversationHistory
-        | ToolEffect::AssistantHistory
+        | ToolEffect::AgentHistory
         | ToolEffect::MemoryQuery
         | ToolEffect::MemoryWrite
         | ToolEffect::DirectoryPlanning
@@ -243,7 +243,7 @@ pub fn exposure_block_reason(
     }
     if matches!(
         tool.effect,
-        ToolEffect::MemoryQuery | ToolEffect::MemoryWrite | ToolEffect::AssistantHistory
+        ToolEffect::MemoryQuery | ToolEffect::MemoryWrite | ToolEffect::AgentHistory
     ) {
         // A child request uses the owner data frozen for it; the session's
         // own scope decides whether it has any.
@@ -259,7 +259,7 @@ pub fn exposure_block_reason(
                 | TriggerOrigin::SubAgentCompletion
                 | TriggerOrigin::DelegatedTask
         ))
-        .then_some("trigger_origin_has_no_assistant_data_scope");
+        .then_some("trigger_origin_has_no_agent_data_scope");
     }
     if matches!(
         tool.effect,
@@ -378,7 +378,7 @@ fn available_to_session(
     session: &crate::session::PersistedAgentSession,
 ) -> bool {
     session.agent_role.allows_effect(tool.effect)
-        && crate::ai_assistant::data_tools::session_allows(tool, session)
+        && crate::ai_agent::data_tools::session_allows(tool, session)
         && crate::subagent::tools::available_for_session(tool.name(), session)
         && (!session.is_subagent_result_turn()
             || matches!(

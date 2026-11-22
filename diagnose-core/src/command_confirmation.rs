@@ -798,7 +798,7 @@ impl CommandConfirmation {
                 "the coordination session cannot execute device commands",
             ));
         }
-        if !session.admits_assistant_device(target_device_id) {
+        if !session.admits_agent_device(target_device_id) {
             return Err(denied("command target is outside the admitted request"));
         }
         let digest = format!("{:x}", Sha256::digest(canonical.as_bytes()));

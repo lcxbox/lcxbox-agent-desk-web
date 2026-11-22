@@ -23,13 +23,13 @@ describe('goal budget policy settings', () => {
             .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { ...unlimited, revision: 2, limits: { ...unlimited.limits, activeTimeMs: 7_200_000 } } }) });
         vi.stubGlobal('fetch', fetchMock);
         render(<GoalBudgetPolicySettings />);
-        const active = await screen.findByRole('switch', { name: 'pages.aiAssistant.goalBudgetActiveHours' });
-        const deadline = screen.getByRole('switch', { name: 'pages.aiAssistant.goalBudgetDeadlineDays' });
+        const active = await screen.findByRole('switch', { name: 'pages.aiAgent.goalBudgetActiveHours' });
+        const deadline = screen.getByRole('switch', { name: 'pages.aiAgent.goalBudgetDeadlineDays' });
         expect(active).not.toBeChecked();
         expect(deadline).not.toBeChecked();
         fireEvent.click(active);
         expect(active).toBeChecked();
-        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAssistant.goalBudgetSave' }));
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.goalBudgetSave' }));
         await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
         const saved = JSON.parse(fetchMock.mock.calls[1][1].body);
         expect(saved.limits).toMatchObject({ activeTimeMs: 7_200_000, deadlineMs: null });
@@ -41,9 +41,9 @@ describe('goal budget policy settings', () => {
             .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: policy(5, 7_200_000) }) });
         vi.stubGlobal('fetch', fetchMock);
         render(<GoalBudgetPolicySettings />);
-        const hours = await screen.findByLabelText('pages.aiAssistant.goalBudgetDeviceUnavailableHours');
+        const hours = await screen.findByLabelText('pages.aiAgent.goalBudgetDeviceUnavailableHours');
         expect(hours).toHaveValue(24);
-        const save = screen.getByRole('button', { name: 'pages.aiAssistant.goalBudgetSave' });
+        const save = screen.getByRole('button', { name: 'pages.aiAgent.goalBudgetSave' });
         fireEvent.change(hours, { target: { value: '0' } });
         expect(save).toBeDisabled();
         fireEvent.change(hours, { target: { value: '721' } });
@@ -55,7 +55,7 @@ describe('goal budget policy settings', () => {
         const body = JSON.parse(fetchMock.mock.calls[1][1].body);
         expect(body).toMatchObject({ expectedRevision: 4, deviceUnavailableMaxMs: 7_200_000 });
         expect(body.limits.deadlineMs).toBeNull();
-        await screen.findByText('pages.aiAssistant.goalBudgetSaved');
+        await screen.findByText('pages.aiAgent.goalBudgetSaved');
     });
 
     it('rejects a stored policy without a valid device unavailable maximum', async () => {

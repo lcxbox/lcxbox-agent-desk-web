@@ -26,7 +26,7 @@ async fn conversation_alias_filters_real_history_without_rewriting_native_produc
         frame.now - 10,
     )
     .await;
-    let call = ChatMessage::assistant_tool_calls(
+    let call = ChatMessage::agent_tool_calls(
         "alias-source",
         "",
         vec![ToolCallRef {
@@ -82,7 +82,7 @@ async fn conversation_alias_filters_real_history_without_rewriting_native_produc
     let proof = result.projection.as_ref().unwrap();
     assert_eq!(
         proof.request_sha256,
-        desk_diagnose_core::ai_assistant::read_projection::request_sha256(
+        desk_diagnose_core::ai_agent::read_projection::request_sha256(
             data_tools::SEARCH_CONVERSATIONS,
             &raw
         )

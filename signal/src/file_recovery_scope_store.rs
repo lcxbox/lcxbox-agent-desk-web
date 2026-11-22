@@ -1,7 +1,7 @@
 //! Trusted edge registration must be acknowledged before a file mutation starts.
 use crate::entity::{agent_file_recovery_scope as vault, agent_session};
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use sea_orm::{
     ActiveValue::Set,
     ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, TransactionTrait,

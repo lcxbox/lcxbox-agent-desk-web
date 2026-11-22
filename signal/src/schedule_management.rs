@@ -1,7 +1,7 @@
 //! Owner-authenticated task management; no direct tool dispatch.
 use crate::config::connection::DatabaseConnection;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 mod resume_sources;
 use crate::entity::agent_schedule as row;
 use crate::schedule_store::{ScheduleStore, ScheduleStoreError};
@@ -22,7 +22,7 @@ pub async fn handle(
     actor: &ConnectionState,
     model: &SignalingModel,
     connections: actix_web::web::Data<desk_signal_facade::model::connection::SharedConnectionMap>,
-    gate: std::sync::Arc<crate::ai_assistant_gate::AiAssistantGate>,
+    gate: std::sync::Arc<crate::ai_agent_gate::AiAgentGate>,
 ) -> ControlFrameOutcome {
     let result = async {
         let owner = cookie_owner(&actor.auth_context).ok_or(ScheduleStoreError::NotFound)?;
@@ -574,7 +574,7 @@ async fn resolve_source(
     let Some(source) = draft.source_conversation_id.as_deref() else {
         return Ok(());
     };
-    if desk_agent_protocol::ai_assistant::source::validate_source_id(source).is_err() {
+    if desk_agent_protocol::ai_agent::source::validate_source_id(source).is_err() {
         return Err(ScheduleStoreError::Invalid);
     }
     let actor = owner.to_string();
@@ -590,14 +590,12 @@ async fn resolve_source(
         .map_err(|_| ScheduleStoreError::Invalid)?;
     if session.conversation_id != key
         || session.check_subject(&actor, &row.device_id).is_err()
-        || session
-            .check_surface(AgentSessionSurface::AiAssistant)
-            .is_err()
+        || session.check_surface(AgentSessionSurface::AiAgent).is_err()
     {
         return Err(ScheduleStoreError::NotFound);
     }
     if !session
-        .admitted_assistant_request_targets()
+        .admitted_agent_request_targets()
         .is_some_and(|targets| {
             targets
                 .iter()
@@ -713,7 +711,7 @@ mod tests {
             .await
             .unwrap();
         let schema = Schema::new(db.get_database_backend());
-        db.execute(&schema.entity_table(crate::entity::agent_assistant_runtime::Entity))
+        db.execute(&schema.entity_table(crate::entity::agent_runtime::Entity))
             .await
             .unwrap();
         db.execute(&schema.entity_table(row::Entity)).await.unwrap();
@@ -751,11 +749,11 @@ mod tests {
             },
             "2026-09-06T00:00:00Z",
         );
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.client_conversation_id = Some("chat-1".into());
         session.begin_focus_epoch(1, Vec::<String>::new()).unwrap();
         session.input_revision = 1;
-        session.bind_assistant_input_targets(&[]).unwrap();
+        session.bind_agent_input_targets(&[]).unwrap();
         let original = session.encode_json_for_storage().unwrap();
         PersistedAgentSession::decode_json(&original).unwrap();
         let row = session_row::ActiveModel {
@@ -922,7 +920,7 @@ mod tests {
             Err(ScheduleStoreError::NotFound)
         ));
         session.actor_id = "1".into();
-        session.surface = AgentSessionSurface::TerminalAiAssistant;
+        session.surface = AgentSessionSurface::TerminalAiAgent;
         let mut changed: session_row::ActiveModel = row.into();
         changed.state_json = Set(session.encode_json_for_storage().unwrap());
         changed.update(&db).await.unwrap();

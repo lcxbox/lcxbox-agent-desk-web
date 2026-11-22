@@ -23,7 +23,7 @@ pub const MAX_VISUAL_EVIDENCE_SNAPSHOT_ITEMS: usize = 32;
 pub struct VisualVerificationFence {
     pub focus_input_revision: u64,
     pub source_tool_call_id: String,
-    pub source_assistant_message_id: String,
+    pub source_agent_message_id: String,
 }
 
 pub fn blocks_targeting(session: &PersistedAgentSession, tool_name: &str) -> bool {
@@ -37,7 +37,7 @@ pub fn blocks_targeting(session: &PersistedAgentSession, tool_name: &str) -> boo
                     .iter()
                     .rev()
                     .find(|message| message.role == ChatRole::Assistant)
-                    .is_none_or(|message| message.message_id == pending.source_assistant_message_id)
+                    .is_none_or(|message| message.message_id == pending.source_agent_message_id)
         })
         && matches!(
             tool_name,
@@ -50,15 +50,15 @@ pub fn blocks_targeting(session: &PersistedAgentSession, tool_name: &str) -> boo
 }
 
 /// Advance the visual verification fence after an accepted, successful read.
-/// Calls in the same assistant batch cannot verify one another: the model has
-/// not yet observed either result. Each screenshot fences its own assistant batch;
+/// Calls in the same agent batch cannot verify one another: the model has
+/// not yet observed either result. Each screenshot fences its own agent batch;
 /// subsequent model steps may target without a redundant observation.
 pub fn note_successful_observation(
     session: &mut PersistedAgentSession,
     call_id: &str,
     tool_name: &str,
 ) -> Result<(), &'static str> {
-    if session.surface != crate::session::AgentSessionSurface::AiAssistant
+    if session.surface != crate::session::AgentSessionSurface::AiAgent
         || !matches!(
             tool_name,
             crate::tool_names::READ_CURRENT_SCREEN | crate::tool_names::INSPECT_DESKTOP_UI
@@ -66,7 +66,7 @@ pub fn note_successful_observation(
     {
         return Ok(());
     }
-    let assistant_message_id = session
+    let agent_message_id = session
         .conversation
         .iter()
         .rev()
@@ -75,7 +75,7 @@ pub fn note_successful_observation(
                 && message.tool_calls.iter().any(|call| call.id == call_id)
         })
         .map(|message| message.message_id.clone())
-        .ok_or("visual observation has no assistant tool-call message")?;
+        .ok_or("visual observation has no agent tool-call message")?;
 
     if let Some(pending) = &session.pending_visual_verification
         && pending.focus_input_revision != session.input_revision
@@ -86,12 +86,12 @@ pub fn note_successful_observation(
         session.pending_visual_verification = Some(VisualVerificationFence {
             focus_input_revision: session.input_revision,
             source_tool_call_id: call_id.to_string(),
-            source_assistant_message_id: assistant_message_id,
+            source_agent_message_id: agent_message_id,
         });
     } else if session
         .pending_visual_verification
         .as_ref()
-        .is_some_and(|pending| pending.source_assistant_message_id != assistant_message_id)
+        .is_some_and(|pending| pending.source_agent_message_id != agent_message_id)
     {
         session.pending_visual_verification = None;
     }
@@ -123,7 +123,7 @@ pub fn record_live_observation(
         .map_err(|_| "visual evidence has an invalid data envelope")?;
     let device_id = if session.device_id.is_empty() {
         let device = selected_image_device(envelope, call_id)
-            .filter(|device| session.admits_assistant_device(device))
+            .filter(|device| session.admits_agent_device(device))
             .ok_or("visual evidence is not bound to the selected device")?;
         device.to_owned()
     } else {
@@ -334,7 +334,7 @@ mod tests {
             scope.clone(),
             "now",
         );
-        session.adopt_client_metadata(Some("client-1"), AgentSessionSurface::AiAssistant);
+        session.adopt_client_metadata(Some("client-1"), AgentSessionSurface::AiAgent);
         session.input_revision = 1;
         session.latest_input_seq = 1;
         session.begin_focus_epoch(1, Vec::new()).unwrap();
@@ -552,8 +552,8 @@ mod tests {
     #[test]
     fn targeting_waits_for_model_to_consume_image_not_an_extra_observation() {
         let mut session = session_with_observation();
-        session.conversation.push(ChatMessage::assistant_tool_calls(
-            "assistant-1",
+        session.conversation.push(ChatMessage::agent_tool_calls(
+            "agent-1",
             "",
             vec![
                 ToolCallRef {
@@ -576,8 +576,8 @@ mod tests {
         note_successful_observation(&mut session, "ui-same-batch", "inspect_desktop_ui").unwrap();
         assert!(session.pending_visual_verification.is_some());
 
-        session.conversation.push(ChatMessage::assistant_tool_calls(
-            "assistant-2",
+        session.conversation.push(ChatMessage::agent_tool_calls(
+            "agent-2",
             "",
             vec![ToolCallRef {
                 id: "screen-2".into(),
@@ -590,7 +590,7 @@ mod tests {
         assert!(blocks_targeting(&session, "send_background_input"));
         session
             .conversation
-            .push(ChatMessage::assistant_tool_calls("assistant-3", "", vec![]));
+            .push(ChatMessage::agent_tool_calls("agent-3", "", vec![]));
         assert!(!blocks_targeting(&session, "send_raw_input"));
         assert!(!blocks_targeting(&session, "execute_wayland_output_input"));
     }

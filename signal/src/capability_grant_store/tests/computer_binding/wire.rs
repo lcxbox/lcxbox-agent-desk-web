@@ -82,8 +82,8 @@ async fn real_socket_observer_rejects_wrong_subject_and_frame_then_commits_origi
                                             exec_pty_elevation: false,
                                             max_ai_command_runtime_ms: None,
                                         },
-                                        ai_assistant_settings:
-                                            desk_agent_protocol::ai_assistant::AiAssistantSettings {
+                                        ai_agent_settings:
+                                            desk_agent_protocol::ai_agent::AiAgentSettings {
                                                 revision: 0,
                                                 enabled: false,
                                             },

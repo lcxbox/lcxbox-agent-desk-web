@@ -1,4 +1,4 @@
-//! Which idle AI Assistant sessions an expiry sweep may reclaim.
+//! Which idle AI Agent sessions an expiry sweep may reclaim.
 //!
 //! Manager and the OSS signal server apply the same rule so the two products
 //! cannot drift: work whose outcome is still being reconciled and any
@@ -101,7 +101,7 @@ mod tests {
             "goal".into(),
             "run".into(),
             "owner".into(),
-            crate::dynamic_run::AssistantInputTarget::fixed("device".into()),
+            crate::dynamic_run::AgentInputTarget::fixed("device".into()),
             "device".into(),
             "Finish".into(),
             "message".into(),

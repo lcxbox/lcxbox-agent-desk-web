@@ -1,5 +1,5 @@
 pub mod access_grant;
-pub mod ai_assistant;
+pub mod ai_agent;
 pub mod audio_capture;
 pub mod auth;
 pub mod auth_context;

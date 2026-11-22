@@ -1,7 +1,7 @@
 //! Live owner/device readiness before a task is enabled again.
 use super::{ScheduleStoreError, entity};
 use crate::config::connection::DatabaseTransaction;
-use crate::{ai_assistant_gate::AiAssistantGate, control_authorizer::SINGLE_ACCOUNT_USER_ID};
+use crate::{ai_agent_gate::AiAgentGate, control_authorizer::SINGLE_ACCOUNT_USER_ID};
 use desk_signal_facade::model::{
     auth_context::AuthKind, connection::SharedConnectionMap, signal::RemoteDeskTypeEnum,
 };
@@ -16,10 +16,10 @@ pub trait TaskSubjectVerifier: Send + Sync {
     ) -> Result<(), ScheduleStoreError>;
 }
 
-/// The assistant is enabled and the task's device has exactly one live connection.
+/// The agent is enabled and the task's device has exactly one live connection.
 pub struct SignalTaskSubjectVerifier<'a> {
     pub connections: &'a SharedConnectionMap,
-    pub gate: &'a AiAssistantGate,
+    pub gate: &'a AiAgentGate,
 }
 
 #[async_trait::async_trait]

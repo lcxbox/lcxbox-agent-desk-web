@@ -1,9 +1,9 @@
 {
   "extensionName": {
-    "message": "LCXBOX Browser Assistant"
+    "message": "LCXBOX Browser Agent"
   },
   "extensionDescription": {
-    "message": "Connects the local LCXBOX AI assistant to explicitly approved browser pages."
+    "message": "Connects the local LCXBOX AI agent to explicitly approved browser pages."
   },
   "bridgeUrlLabel": {
     "message": "Local bridge URL"
@@ -56,7 +56,7 @@
     "message": "Optional: allow access to all HTTP and HTTPS websites. AI actions still require authorization. Manage or revoke site access in Chrome extension settings."
   },
   "allWebAllowed": {
-    "message": "All HTTP and HTTPS websites allowed. Return to the AI assistant to continue."
+    "message": "All HTTP and HTTPS websites allowed. Return to the AI agent to continue."
   },
   "webOnly": {
     "message": "Only HTTP or HTTPS sites can be added."

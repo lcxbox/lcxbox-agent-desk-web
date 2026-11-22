@@ -15,14 +15,14 @@ async fn try_generate(
     deps: &LoopDeps<'_>,
     session: &mut PersistedAgentSession,
 ) -> Result<(), AgentError> {
-    if session.surface != AgentSessionSurface::AiAssistant
+    if session.surface != AgentSessionSurface::AiAgent
         || !session.agent_role.is_main()
         || matches!(
             session.trigger_origin,
             TriggerOrigin::ScheduledTask | TriggerOrigin::ScheduledContinuation
         )
         || session.input_revision != 1
-        || session.assistant_data.is_none()
+        || session.agent_data.is_none()
     {
         return Ok(());
     }
@@ -35,7 +35,7 @@ async fn try_generate(
         .find(|message| {
             message.role == ChatRole::User
                 && message.data_envelope.as_ref().is_some_and(|envelope| {
-                    envelope.provenance.source_provider_id == "ai-assistant-user"
+                    envelope.provenance.source_provider_id == "ai-agent-user"
                 })
         })
         .filter(|message| !message.text.trim().is_empty() && message.image_data_url.is_none())
@@ -53,7 +53,7 @@ async fn try_generate(
             .ok_or_else(|| { crate::subagent::invalid("missing title input identity") })?
     );
     ensure_lease_healthy(deps).await?;
-    assistant_data::prepare_request(deps, session, &mut request).await?;
+    agent_data::prepare_request(deps, session, &mut request).await?;
     let context = deps.model.context_policy(request.requirements()).await?;
     let size = deps.model.prepare_request(&request)?.map_or_else(
         || serde_json::to_vec(&request.messages).map_or(usize::MAX, |value| value.len()),

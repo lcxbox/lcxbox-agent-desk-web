@@ -2,7 +2,7 @@
 
 use crate::config::connection::DatabaseConnection;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 mod concrete_review;
 mod task_authority;
 pub(crate) mod task_grant;
@@ -526,7 +526,7 @@ impl SignalCapabilityGrantStore {
         &self,
         request: PrepareCapabilityCall<'_>,
     ) -> Result<PreparedCapabilityCall, DbErr> {
-        let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+        let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
         match self.prepare_outcome(request, &registry).await? {
             CapabilityPreparation::Ready(work) => Ok(work),
             CapabilityPreparation::PermissionRequired(_) => {
@@ -767,7 +767,7 @@ impl SignalCapabilityGrantStore {
     pub(crate) async fn record_dispatch_intent_for_target(
         &self,
         request: PrepareCapabilityCall<'_>,
-        selected: Option<&desk_diagnose_core::action_turn_fence::AssistantTurnFence>,
+        selected: Option<&desk_diagnose_core::action_turn_fence::AgentTurnFence>,
     ) -> Result<DispatchIntentResult, DbErr> {
         validate_prepare(&request)?;
         let txn = desk_diagnose_core::future::boxed(|| async {
@@ -1183,7 +1183,7 @@ impl SignalCapabilityGrantStore {
             if grant_row.status != GRANT_STATUS_ACTIVE
                 || session.actor_id != grant.actor_id
                 || (if session.device_id.is_empty() {
-                    !session.admits_assistant_device(&grant.target_device_id)
+                    !session.admits_agent_device(&grant.target_device_id)
                 } else {
                     session.device_id != grant.target_device_id
                 })
@@ -1352,7 +1352,7 @@ impl SignalCapabilityGrantStore {
         &self,
         dispatch_id: &str,
         request: PrepareCapabilityCall<'_>,
-        selected: Option<&desk_diagnose_core::action_turn_fence::AssistantTurnFence>,
+        selected: Option<&desk_diagnose_core::action_turn_fence::AgentTurnFence>,
     ) -> Result<CapabilityGrant, DbErr> {
         validate_prepare(&request)?;
         // The scheduled-session fence below writes even though this check
@@ -1845,24 +1845,24 @@ async fn validate_selected_dispatch(
     request: &PrepareCapabilityCall<'_>,
     row: &agent_session::Model,
     session: &PersistedAgentSession,
-    held: &desk_diagnose_core::action_turn_fence::AssistantTurnFence,
+    held: &desk_diagnose_core::action_turn_fence::AgentTurnFence,
 ) -> Result<(), DbErr> {
     use desk_agent_protocol::capability_grant::CapabilityRiskTier;
-    use desk_diagnose_core::action_turn_fence::AssistantTurnFence;
+    use desk_diagnose_core::action_turn_fence::AgentTurnFence;
 
     let unavailable = || DbErr::Custom("selected device authority changed".into());
     let supported = match request.call.tool_name {
-        name if desk_diagnose_core::ai_assistant::ai_assistant_provider_registry_ref()
+        name if desk_diagnose_core::ai_agent::ai_agent_provider_registry_ref()
             .capability_for_tool(name)
             .is_some_and(desk_diagnose_core::request_devices::selected_action_descriptor) => {
-                desk_diagnose_core::ai_assistant::ai_assistant_provider_registry_ref()
+                desk_diagnose_core::ai_agent::ai_agent_provider_registry_ref()
                     .capability_for_tool(name)
                     .is_some_and(|descriptor| {
                         descriptor.wire.effect == request.call.effect
                             && desk_diagnose_core::request_devices::permits_selected_action(session, descriptor)
                     })
             },
-        name if desk_diagnose_core::ai_assistant::ai_assistant_provider_registry_ref()
+        name if desk_diagnose_core::ai_agent::ai_agent_provider_registry_ref()
             .capability_for_tool(name)
             .is_some_and(desk_diagnose_core::request_devices::selected_read_descriptor) => {
                 matches!(request.call.risk_tier, CapabilityRiskTier::R0 | CapabilityRiskTier::R1)
@@ -1876,7 +1876,7 @@ async fn validate_selected_dispatch(
         }
         _ => false,
     };
-    if !session.has_admitted_assistant_input()
+    if !session.has_admitted_agent_input()
         || !supported
         || request.turn_id != held.turn_id
         || request.input_revision != held.input_revision
@@ -1884,7 +1884,7 @@ async fn validate_selected_dispatch(
         || row.device_id != session.device_id
         || row.lease_token != held.lease_token as i64
         || row.lease_deadline.is_none_or(|expiry| expiry <= Utc::now())
-        || AssistantTurnFence::for_device(session, request.call.target_device_id)
+        || AgentTurnFence::for_device(session, request.call.target_device_id)
             .map_err(|_| unavailable())?
             .as_ref()
             != Some(held)
@@ -1895,13 +1895,9 @@ async fn validate_selected_dispatch(
         .await
         .map_err(|_| unavailable())?;
     let references = std::slice::from_ref(&held.device_id);
-    if !desk_assistant_data_store::device_roster::permits_current_target(
-        txn,
-        session,
-        &held.device_id,
-    )
-    .await
-    .map_err(|_| unavailable())?
+    if !desk_agent_data_store::device_roster::permits_current_target(txn, session, &held.device_id)
+        .await
+        .map_err(|_| unavailable())?
         || crate::agent_run_event_store::eligible_request_device_ids(txn, references)
             .await
             .map_err(|_| unavailable())?
@@ -2580,7 +2576,7 @@ mod tests {
         let origin = desk_diagnose_core::action_result::ActionResultOrigin {
             command_completion: Some(completion.clone()),
             schema_version: 1,
-            turn_fence: desk_diagnose_core::action_turn_fence::AssistantTurnFence {
+            turn_fence: desk_diagnose_core::action_turn_fence::AgentTurnFence {
                 schema_version: 1,
                 control_revision: 1,
                 delegation: None,

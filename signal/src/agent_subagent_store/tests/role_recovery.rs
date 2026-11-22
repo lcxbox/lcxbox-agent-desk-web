@@ -1,7 +1,7 @@
 //! Raw orchestration writes remain forbidden across actual checkpoint and recovery boundaries.
 use super::*;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_diagnose_core::{
     chat::ToolCall,
     session::{TriggerOrigin, TurnState},
@@ -119,8 +119,7 @@ async fn raw_child_writes_stay_forbidden_after_compaction_permission_resume_and_
         db.execute(statement.if_not_exists()).await.unwrap();
     }
     let mut child = super::lifecycle::child(&db).await;
-    child.policy_revision =
-        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
+    child.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
     save_child_session(&db, &mut child).await.unwrap();
     reject_writes(&db, &child.conversation_id).await;
     super::compaction_races::add_history(&mut child);

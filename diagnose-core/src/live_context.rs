@@ -72,18 +72,18 @@ fn invalid(message: impl Into<String>) -> AgentError {
 }
 
 pub fn validate_durable_update(
-    update: &desk_agent_protocol::ai_assistant::AiAssistantContextUpdate,
+    update: &desk_agent_protocol::ai_agent::AiAgentContextUpdate,
 ) -> Result<(), AgentError> {
     update.validate().map_err(invalid)?;
     if !crate::conversation_key::is_valid_client_conversation_id(&update.conversation_id) {
         return Err(invalid("Invalid live context conversation id"));
     }
-    crate::ai_assistant::selected_context_capabilities(&update.selected_capability_ids)
+    crate::ai_agent::selected_context_capabilities(&update.selected_capability_ids)
         .map_err(invalid)?;
     if update
         .selected_capability_ids
         .iter()
-        .any(|id| id == crate::ai_assistant::CURRENT_SCREEN_CAPABILITY_ID)
+        .any(|id| id == crate::ai_agent::CURRENT_SCREEN_CAPABILITY_ID)
     {
         return Err(invalid(
             "CurrentScreen is a one-turn selection and cannot be saved as durable context",
@@ -91,7 +91,7 @@ pub fn validate_durable_update(
     }
     if update.conversation_target.is_selectable()
         && update.selected_capability_ids.iter().any(|id| {
-            !crate::ai_assistant::ai_assistant_provider_registry_ref()
+            !crate::ai_agent::ai_agent_provider_registry_ref()
                 .capability(id)
                 .is_some_and(crate::input_read_context::live_read::selectable_descriptor)
         })
@@ -127,7 +127,7 @@ pub fn build_live_context(
         now_unix_ms,
         skip_unready,
     } = params;
-    crate::ai_assistant::selected_context_capabilities(selected_capability_ids).map_err(invalid)?;
+    crate::ai_agent::selected_context_capabilities(selected_capability_ids).map_err(invalid)?;
     let unready = unready_selected_capabilities(inventory, selected_capability_ids);
     if let Some(capability_id) = unready.first()
         && !skip_unready
@@ -179,7 +179,7 @@ pub fn build_live_context(
         // CurrentScreen is a sensitive one-turn grant. It controls tool
         // exposure for this turn, but must never become durable session
         // attachment metadata.
-        if capability_id == crate::ai_assistant::CURRENT_SCREEN_CAPABILITY_ID {
+        if capability_id == crate::ai_agent::CURRENT_SCREEN_CAPABILITY_ID {
             continue;
         }
         let capability = registry.capability(capability_id).ok_or_else(|| {
@@ -241,7 +241,7 @@ pub fn build_live_context(
             client_request_id,
             actor_id: actor_id.to_string(),
             device_id: device_id.to_string(),
-            surface: AgentSessionSurface::AiAssistant,
+            surface: AgentSessionSurface::AiAgent,
             // Today's selector binds the capability to the exact worker
             // incarnation. More specific Office/file/range selectors replace
             // this with their own immutable object kinds and incarnations.
@@ -416,7 +416,7 @@ fn reconcile(
         if !already_active {
             changed |= session
                 .attach_context(candidate.clone())
-                .map_err(|error| invalid(format!("reconcile AI Assistant context: {error}")))?;
+                .map_err(|error| invalid(format!("reconcile AI Agent context: {error}")))?;
         }
     }
 

@@ -11,7 +11,7 @@ pub(super) async fn funded_parent(db: &DatabaseConnection) -> (PersistedAgentSes
         "funding-goal".into(),
         "root".into(),
         "1".into(),
-        desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("1".into()),
+        desk_diagnose_core::dynamic_run::AgentInputTarget::fixed("1".into()),
         "1".into(),
         "Investigate these independent symptoms".into(),
         "source-message".into(),
@@ -187,7 +187,7 @@ async fn source_goal_exhaustion_rolls_back_the_group_reservation() {
     policy.limits.model_calls = Some(1);
     crate::goal_budget_policy::update(
         &db,
-        &desk_agent_protocol::ai_assistant::goal_budget::UpdateGoalBudgetPolicy {
+        &desk_agent_protocol::ai_agent::goal_budget::UpdateGoalBudgetPolicy {
             expected_revision: old_revision,
             limits: policy.limits,
             device_unavailable_max_ms: policy.device_unavailable_max_ms,
@@ -1404,7 +1404,7 @@ async fn source_expiry_rejects_new_model_and_review_without_reserving_budget() {
     policy.limits.deadline_ms = Some(86_400_000);
     crate::goal_budget_policy::update(
         &db,
-        &desk_agent_protocol::ai_assistant::goal_budget::UpdateGoalBudgetPolicy {
+        &desk_agent_protocol::ai_agent::goal_budget::UpdateGoalBudgetPolicy {
             expected_revision: policy.revision,
             limits: policy.limits,
             device_unavailable_max_ms: policy.device_unavailable_max_ms,

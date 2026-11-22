@@ -56,13 +56,13 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-// Keep the control-bar tests independent of the assistant connection query.
+// Keep the control-bar tests independent of the agent connection query.
 vi.mock('@/services/hooks/connectionController/useListConnections', () => ({
   useListConnections: () => ({ data: { success: true, code: 0, data: [] } }),
 }));
 
 vi.mock('@/services/hooks/systemController/useQueryServerInfo', () => ({
-  useQueryServerInfo: () => ({ data: { data: { ai_assistant: null } } }),
+  useQueryServerInfo: () => ({ data: { data: { ai_agent: null } } }),
 }));
 
 // Mock hooks

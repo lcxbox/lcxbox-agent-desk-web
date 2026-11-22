@@ -47,7 +47,7 @@ async fn approve_held_command(policy_changed: bool) {
         .write()
         .await
         .insert("node".into(), peer("node", &task.target_device_id).await);
-    let gate = AiAssistantGate::new(AiAssistantSettings {
+    let gate = AiAgentGate::new(AiAgentSettings {
         revision: 1,
         enabled: true,
     });
@@ -77,7 +77,7 @@ async fn approve_held_command(policy_changed: bool) {
     )
     .unwrap();
     session.conversation.push(
-        ChatMessage::assistant_tool_calls(
+        ChatMessage::agent_tool_calls(
             "held-proposal",
             "",
             vec![ToolCallRef {
@@ -98,8 +98,8 @@ async fn approve_held_command(policy_changed: bool) {
         &session.device_id,
         chrono::Utc::now().timestamp_millis() as u64,
     );
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
-        .with_command_policy(policy);
+    let registry =
+        desk_diagnose_core::ai_agent::ai_agent_provider_registry().with_command_policy(policy);
     let created_at = chrono::Utc::now().to_rfc3339();
     let request = desk_diagnose_core::permission_tools::build_permission_request(
         &desk_diagnose_core::chat::ToolCall {

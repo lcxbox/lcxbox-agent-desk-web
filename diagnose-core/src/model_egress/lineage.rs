@@ -62,7 +62,7 @@ pub(crate) fn is_public_system_prompt(input: &DataEnvelope) -> bool {
         short_digest(message_id.as_bytes()),
     );
     input.envelope_id == expected_id
-        && input.provenance.source_provider_id == "ai-assistant-runtime"
+        && input.provenance.source_provider_id == "ai-agent-runtime"
         && input.provenance.source_tool_name == crate::model_message_labels::sources::SYSTEM_PROMPT
         && input.provenance.source_envelope_ids.is_empty()
         && input.sensitivity == Sensitivity::Public
@@ -82,7 +82,7 @@ pub(crate) fn is_public_system_prompt(input: &DataEnvelope) -> bool {
 pub fn is_audited_public_system_prompt(input: &ModelInputLineage) -> bool {
     input.public_system_prompt
         && input.size_bytes > 0
-        && input.source_provider_id == "ai-assistant-runtime"
+        && input.source_provider_id == "ai-agent-runtime"
         && input.source_tool_name == crate::model_message_labels::sources::SYSTEM_PROMPT
         && input.source_envelope_ids.is_empty()
         && input
@@ -176,7 +176,7 @@ pub fn validate_model_output_lineage(
     Ok(())
 }
 
-/// Read the label only after checking the actual persisted assistant payload.
+/// Read the label only after checking the actual persisted agent payload.
 pub fn model_output_message_envelope(
     message: &ChatMessage,
 ) -> Result<&DataEnvelope, InvalidModelInputLineage> {

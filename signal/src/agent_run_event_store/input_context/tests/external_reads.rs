@@ -17,7 +17,7 @@ async fn github_native_issue_transport_saves_lineage_and_rechecks_revocation_and
 async fn native_issue_transport(platform: desk_agent_protocol::external_tools::IssuePlatform) {
     use crate::{
         issue_connections,
-        remote_tool_edge::{SignalAiAssistantTools, SignalRemoteToolPendingStore},
+        remote_tool_edge::{SignalAiAgentTools, SignalRemoteToolPendingStore},
     };
     use desk_diagnose_core::{
         external_tools,
@@ -42,9 +42,9 @@ async fn native_issue_transport(platform: desk_agent_protocol::external_tools::I
         params.current_scope.granted.clear();
         params.current_scope.mode = ExecutionMode::ReadOnly;
         params.created_at = chrono::Utc::now().to_rfc3339();
-        params.run_id = desk_diagnose_core::conversation_key::derive_assistant_conversation_key(
+        params.run_id = desk_diagnose_core::conversation_key::derive_agent_conversation_key(
             &params.actor_id,
-            desk_diagnose_core::conversation_key::AssistantConversationScope::Personal,
+            desk_diagnose_core::conversation_key::AgentConversationScope::Personal,
             params.client_conversation_id.as_deref().unwrap(),
         );
         let mut original = ReadContextSelection::capture(&[], &params.current_scope).unwrap();
@@ -54,15 +54,10 @@ async fn native_issue_transport(platform: desk_agent_protocol::external_tools::I
             &params.run_id,
             access[0].clone(),
         );
-        desk_assistant_data_store::issue_authority::put(
-            &store.db,
-            admitted.subscription.clone(),
-            0,
-            0,
-        )
-        .await
-        .unwrap();
-        desk_assistant_data_store::issue_authority::admit(&store.db, &admitted)
+        desk_agent_data_store::issue_authority::put(&store.db, admitted.subscription.clone(), 0, 0)
+            .await
+            .unwrap();
+        desk_agent_data_store::issue_authority::admit(&store.db, &admitted)
             .await
             .unwrap();
         original
@@ -97,15 +92,15 @@ async fn native_issue_transport(platform: desk_agent_protocol::external_tools::I
                 serde_json::json!({"tool_ref":access[0].tool_ref(),"args":{"method":"get"}})
                     .to_string(),
         };
-        held.conversation.push(ChatMessage::assistant_tool_calls(
+        held.conversation.push(ChatMessage::agent_tool_calls(
             "model",
             "",
             vec![call.to_ref()],
         ));
         sessions(&store).save(&mut held).await.unwrap();
-        let tools = SignalAiAssistantTools::new(
+        let tools = SignalAiAgentTools::new(
             store.db.clone(),
-            desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+            desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
             Arc::new(SharedConnectionMap::new_oss()),
             Arc::new(SignalRemoteToolPendingStore::default()),
             String::new(),
@@ -173,7 +168,7 @@ async fn native_issue_transport(platform: desk_agent_protocol::external_tools::I
                 } else if interruption == 3 {
                     let mut paused = admitted.subscription.clone();
                     paused.enabled = false;
-                    desk_assistant_data_store::issue_authority::put(
+                    desk_agent_data_store::issue_authority::put(
                         &store.db,
                         paused,
                         1,
@@ -277,9 +272,9 @@ async fn external_read_input_is_native_device_independent_and_rejects_a_stale_le
     let now = chrono::Utc::now();
     let mut params = input("issue-input", vec![]);
     params.device_id.clear();
-    params.run_id = desk_diagnose_core::conversation_key::derive_assistant_conversation_key(
+    params.run_id = desk_diagnose_core::conversation_key::derive_agent_conversation_key(
         &params.actor_id,
-        desk_diagnose_core::conversation_key::AssistantConversationScope::Personal,
+        desk_diagnose_core::conversation_key::AgentConversationScope::Personal,
         params.client_conversation_id.as_deref().unwrap(),
     );
     params.current_scope.granted.clear();
@@ -333,7 +328,7 @@ async fn external_read_input_is_native_device_independent_and_rejects_a_stale_le
             .await
             .is_err()
     );
-    held.conversation.push(ChatMessage::assistant_tool_calls(
+    held.conversation.push(ChatMessage::agent_tool_calls(
         "model",
         "",
         vec![ToolCallRef {
@@ -374,9 +369,9 @@ async fn freeze_publication(
     access: IssueAccess,
     destination: desk_agent_protocol::data_lineage::DestinationIdentity,
 ) {
-    use desk_assistant_data_store::issue_reply::{self, ReplyPreparation};
+    use desk_agent_data_store::issue_reply::{self, ReplyPreparation};
     use desk_diagnose_core::issue_reply::{FrozenIssueReply, PREPARE_TOOL_NAME, ReplyOrigin};
-    held.conversation.push(ChatMessage::assistant_tool_calls(
+    held.conversation.push(ChatMessage::agent_tool_calls(
         "publication-model",
         "",
         vec![ToolCallRef {

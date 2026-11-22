@@ -30,7 +30,7 @@ fn fixture() -> (
         },
         "2026-10-15T07:36:10Z",
     );
-    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAgent);
     session.input_revision = 1;
     session.control_revision = 1;
     session.latest_input_seq = 1;
@@ -43,7 +43,7 @@ fn fixture() -> (
         destination.clone(),
     )
     .unwrap();
-    let mut assistant = ChatMessage::assistant_tool_calls(
+    let mut agent = ChatMessage::agent_tool_calls(
         "assistant",
         "I propose a daily check",
         vec![ToolCallRef {
@@ -52,9 +52,9 @@ fn fixture() -> (
             arguments_json: json!({"kind":"fresh_task","title":"Disk check"}).to_string(),
         }],
     );
-    assistant.turn_id = session.current_turn_id.clone();
-    let bytes = crate::model_egress::message_content_bytes(&assistant).unwrap();
-    assistant.data_envelope = Some(
+    agent.turn_id = session.current_turn_id.clone();
+    let bytes = crate::model_egress::message_content_bytes(&agent).unwrap();
+    agent.data_envelope = Some(
         crate::subagent::projection::envelope(
             "assistant",
             &String::from_utf8(bytes).unwrap(),
@@ -73,13 +73,13 @@ fn fixture() -> (
     receipt.turn_id = session.current_turn_id.clone();
     receipt.data_envelope = crate::model_message_labels::composed_envelope(
         &crate::model_content::ModelContent::server_text(&receipt_text),
-        assistant.data_envelope.as_ref(),
+        agent.data_envelope.as_ref(),
         "call-private-id",
         crate::model_message_labels::ServerResultSource::ScheduleProposal,
         false,
     )
     .unwrap();
-    session.conversation = vec![user, assistant, receipt];
+    session.conversation = vec![user, agent, receipt];
     session.turn_state = TurnState::Idle;
     session.decision_pause = Some(crate::proposal_review::DecisionPause {
         kind: crate::proposal_review::DecisionKind::Schedule,

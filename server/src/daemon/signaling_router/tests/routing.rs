@@ -87,10 +87,7 @@ pub(super) fn read_response(rx: &mut broadcast::Receiver<String>) -> SignalingMo
     serde_json::from_str::<SignalingModel>(&text).expect("response not valid JSON")
 }
 
-fn assistant_candidate(
-    name: &str,
-    generation: u64,
-) -> crate::daemon::session_target::SessionCandidate {
+fn agent_candidate(name: &str, generation: u64) -> crate::daemon::session_target::SessionCandidate {
     crate::daemon::session_target::SessionCandidate {
         session: desk_ipc_protocol::message::SessionKey {
             platform_session_id: name.to_string(),
@@ -103,23 +100,23 @@ fn assistant_candidate(
         remote_desktop_ready: false,
         terminal_ready: false,
         file_ready: false,
-        assistant_ready: true,
+        agent_ready: true,
     }
 }
 
-fn select_assistant_session_model(
+fn select_agent_session_model(
     request_id: &str,
     connection_id: &str,
     target_id: Option<String>,
 ) -> SignalingModel {
     SignalingModel::new(
         request_id,
-        SignalingType::SelectAiAssistantSession,
+        SignalingType::SelectAiAgentSession,
         Some(connection_id.to_string()),
         None,
         Some(
             serde_json::to_value(
-                desk_signal_facade::model::signal::SelectAiAssistantSessionData {
+                desk_signal_facade::model::signal::SelectAiAgentSessionData {
                     session_target_id: target_id,
                 },
             )
@@ -130,15 +127,15 @@ fn select_assistant_session_model(
 }
 
 #[tokio::test]
-pub(super) async fn assistant_session_selection_succeeds_for_portable_worker() {
+pub(super) async fn agent_session_selection_succeeds_for_portable_worker() {
     let (ctx, mut outbound_rx) = make_ctx_with_rx().await;
-    let model = select_assistant_session_model("assistant-portable", "controller-1", None);
+    let model = select_agent_session_model("agent-portable", "controller-1", None);
 
     route(&model, &ctx).await.expect("selection route");
     let response = read_response(&mut outbound_rx);
     assert_eq!(
         response.signaling_type,
-        SignalingType::AiAssistantSessionSelected
+        SignalingType::AiAgentSessionSelected
     );
     assert_eq!(
         response
@@ -148,7 +145,7 @@ pub(super) async fn assistant_session_selection_succeeds_for_portable_worker() {
             .error_code,
         DeskErrorCode::SUCCESS.code()
     );
-    let data: desk_signal_facade::model::signal::AiAssistantSessionSelectedData =
+    let data: desk_signal_facade::model::signal::AiAgentSessionSelectedData =
         response.get_data().expect("selected payload");
     assert_eq!(data.revision, 0);
     assert!(data.target.is_none());
@@ -156,13 +153,13 @@ pub(super) async fn assistant_session_selection_succeeds_for_portable_worker() {
 }
 
 #[tokio::test]
-pub(super) async fn assistant_session_selection_auto_binds_the_only_ready_target() {
+pub(super) async fn agent_session_selection_auto_binds_the_only_ready_target() {
     let (ctx, mut outbound_rx) = make_ctx_with_rx().await;
     ctx.worker_mgr.enable_session_targeting_for_test();
-    let candidate = assistant_candidate("session-a", 7);
+    let candidate = agent_candidate("session-a", 7);
     let expected_session = candidate.session.clone();
     ctx.worker_mgr.session_targets().upsert(candidate);
-    let model = select_assistant_session_model("assistant-single", "controller-1", None);
+    let model = select_agent_session_model("agent-single", "controller-1", None);
 
     route(&model, &ctx).await.expect("selection route");
     let response = read_response(&mut outbound_rx);
@@ -174,7 +171,7 @@ pub(super) async fn assistant_session_selection_auto_binds_the_only_ready_target
             .error_code,
         DeskErrorCode::SUCCESS.code()
     );
-    let data: desk_signal_facade::model::signal::AiAssistantSessionSelectedData =
+    let data: desk_signal_facade::model::signal::AiAgentSessionSelectedData =
         response.get_data().expect("selected payload");
     assert_eq!(
         data.target.expect("selected target").display_name,
@@ -187,16 +184,16 @@ pub(super) async fn assistant_session_selection_auto_binds_the_only_ready_target
 }
 
 #[tokio::test]
-pub(super) async fn assistant_session_selection_lists_multiple_ready_targets() {
+pub(super) async fn agent_session_selection_lists_multiple_ready_targets() {
     let (ctx, mut outbound_rx) = make_ctx_with_rx().await;
     ctx.worker_mgr.enable_session_targeting_for_test();
     ctx.worker_mgr
         .session_targets()
-        .upsert(assistant_candidate("session-a", 1));
+        .upsert(agent_candidate("session-a", 1));
     ctx.worker_mgr
         .session_targets()
-        .upsert(assistant_candidate("session-b", 1));
-    let model = select_assistant_session_model("assistant-many", "controller-1", None);
+        .upsert(agent_candidate("session-b", 1));
+    let model = select_agent_session_model("agent-many", "controller-1", None);
 
     route(&model, &ctx).await.expect("selection route");
     let response = read_response(&mut outbound_rx);
@@ -211,19 +208,19 @@ pub(super) async fn assistant_session_selection_lists_multiple_ready_targets() {
     let data: desk_signal_facade::model::signal::SessionTargetListData =
         response.get_data().expect("safe target list");
     assert_eq!(data.targets.len(), 2);
-    assert!(data.targets.iter().all(|target| target.assistant_ready));
+    assert!(data.targets.iter().all(|target| target.agent_ready));
     assert!(ctx.worker_mgr.connection_target("controller-1").is_none());
 }
 
 #[tokio::test]
-pub(super) async fn assistant_session_selection_rejects_stale_target() {
+pub(super) async fn agent_session_selection_rejects_stale_target() {
     let (ctx, mut outbound_rx) = make_ctx_with_rx().await;
     ctx.worker_mgr.enable_session_targeting_for_test();
-    let candidate = assistant_candidate("session-a", 1);
+    let candidate = agent_candidate("session-a", 1);
     let session = candidate.session.clone();
     let target_id = ctx.worker_mgr.session_targets().upsert(candidate);
     assert!(ctx.worker_mgr.session_targets().remove(&session));
-    let model = select_assistant_session_model("assistant-stale", "controller-1", Some(target_id));
+    let model = select_agent_session_model("agent-stale", "controller-1", Some(target_id));
 
     route(&model, &ctx).await.expect("selection route");
     let response = read_response(&mut outbound_rx);
@@ -235,26 +232,26 @@ pub(super) async fn assistant_session_selection_rejects_stale_target() {
 }
 
 #[tokio::test]
-pub(super) async fn assistant_session_binding_cannot_move_to_another_live_session() {
+pub(super) async fn agent_session_binding_cannot_move_to_another_live_session() {
     let (ctx, mut outbound_rx) = make_ctx_with_rx().await;
     ctx.worker_mgr.enable_session_targeting_for_test();
-    let first = assistant_candidate("session-a", 1);
+    let first = agent_candidate("session-a", 1);
     let first_session = first.session.clone();
     let first_id = ctx.worker_mgr.session_targets().upsert(first);
     let second_id = ctx
         .worker_mgr
         .session_targets()
-        .upsert(assistant_candidate("session-b", 1));
+        .upsert(agent_candidate("session-b", 1));
 
     route(
-        &select_assistant_session_model("assistant-first", "controller-1", Some(first_id)),
+        &select_agent_session_model("agent-first", "controller-1", Some(first_id)),
         &ctx,
     )
     .await
     .expect("first selection");
     let _ = read_response(&mut outbound_rx);
     route(
-        &select_assistant_session_model("assistant-second", "controller-1", Some(second_id)),
+        &select_agent_session_model("agent-second", "controller-1", Some(second_id)),
         &ctx,
     )
     .await
@@ -754,7 +751,7 @@ pub(super) async fn route_list_terminal_uses_the_only_ready_session_worker() {
             remote_desktop_ready: false,
             terminal_ready: true,
             file_ready: false,
-            assistant_ready: false,
+            agent_ready: false,
         });
     let (worker_tx, mut worker_rx) = tokio::sync::mpsc::unbounded_channel();
     ctx.worker_mgr
@@ -803,7 +800,7 @@ pub(super) async fn route_list_terminal_requires_selection_for_multiple_sessions
                 remote_desktop_ready: false,
                 terminal_ready: true,
                 file_ready: false,
-                assistant_ready: false,
+                agent_ready: false,
             });
     }
     let model = SignalingModel::new(

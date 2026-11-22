@@ -65,8 +65,7 @@ pub fn validate_targets(selection: &ReadContextSelection) -> Result<(), AgentErr
     for target in &selection.live_targets {
         let (_, kind) =
             target_kind(&target.tool_name).ok_or_else(|| invalid("invalid original live tool"))?;
-        if desk_agent_protocol::ai_assistant::validate_target_refs([target.device_id.as_str()])
-            .is_err()
+        if desk_agent_protocol::ai_agent::validate_target_refs([target.device_id.as_str()]).is_err()
             || !selection.tool_names.contains(&target.tool_name)
             || target.object_ref.object_kind != kind
             || !bounded(&target.object_ref.token)

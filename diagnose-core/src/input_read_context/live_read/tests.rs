@@ -367,7 +367,7 @@ fn actual_read_binding_ignores_model_targets_and_preserves_original_source_and_d
             document_preview: None,
         };
         let envelope = crate::model_message_labels::read_result_envelope(
-            &crate::ai_assistant::ai_assistant_provider_registry(),
+            &crate::ai_agent::ai_agent_provider_registry(),
             &call,
             &output,
             crate::model_message_labels::ReadResultLabel {
@@ -446,7 +446,7 @@ fn durable_selection_withdrawal_and_later_reselection_cannot_revive_old_input() 
     };
     use desk_agent_protocol::{AgentScope, ExecutionMode, data_lineage::DestinationIdentity};
 
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let capability = registry
         .capability_for_tool("inspect_live_document")
         .unwrap();
@@ -504,7 +504,7 @@ fn durable_selection_withdrawal_and_later_reselection_cannot_revive_old_input() 
         },
         "2026-08-31T00:00:00Z",
     );
-    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAgent);
     let ids = vec![capability.wire.capability_id.clone()];
     let selected = claim("select", &ids, now());
     reconcile_live_context(&mut session, "device", &selected).unwrap();
@@ -592,7 +592,7 @@ fn all_live_read_grants_survive_readiness_ref_rotation_on_both_servers() {
         data_lineage::DestinationIdentity,
     };
     let original = captured();
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let destination = DestinationIdentity::Model {
         connection_id: "gateway".into(),
         connection_revision: 1,
@@ -603,7 +603,7 @@ fn all_live_read_grants_survive_readiness_ref_rotation_on_both_servers() {
         "run",
         "owner",
         "device",
-        crate::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        crate::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         AgentScope {
             granted: vec![],
             mode: ExecutionMode::ReadOnly,
@@ -614,10 +614,10 @@ fn all_live_read_grants_survive_readiness_ref_rotation_on_both_servers() {
     );
     session.adopt_client_metadata(
         Some("live-read"),
-        crate::session::AgentSessionSurface::AiAssistant,
+        crate::session::AgentSessionSurface::AiAgent,
     );
     session.input_revision = 1;
-    session.bind_assistant_input_targets(&[]).unwrap();
+    session.bind_agent_input_targets(&[]).unwrap();
     session.conversation.push(
         crate::model_message_labels::model_bound_user_message(
             "input".into(),
@@ -721,7 +721,7 @@ fn selected_live_reads_freeze_only_explicit_device_objects() {
         live_context::{LiveContextBuild, build_live_context},
     };
     use desk_agent_protocol::data_lineage::DestinationIdentity;
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let name = "inspect_live_document";
     let capability = registry.capability_for_tool(name).unwrap();
     let id = &capability.wire.capability_id;

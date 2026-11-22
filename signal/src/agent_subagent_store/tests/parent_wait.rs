@@ -28,7 +28,7 @@ async fn parent_with_child_source(
     let label = parent
         .conversation
         .iter()
-        .find(|message| message.message_id == "assistant-calls")
+        .find(|message| message.message_id == "agent-calls")
         .unwrap()
         .data_envelope
         .clone()
@@ -275,16 +275,15 @@ async fn explicit_adjustment_delivers_dependency_changed_instead_of_waiting_for_
             "root",
             "1",
             "1",
-            &desk_agent_protocol::ai_assistant::subagent::AiAssistantSubAgentControl {
+            &desk_agent_protocol::ai_agent::subagent::AiAgentSubAgentControl {
                 client_request_id: "adjust-waited-task".into(),
                 task_id,
                 expected_input_revision: 1,
                 expected_control_revision: 1,
-                action:
-                    desk_agent_protocol::ai_assistant::subagent::SubAgentControlAction::Adjust {
-                        client_timezone: "UTC".into(),
-                        message: "Investigate another symptom".into(),
-                    },
+                action: desk_agent_protocol::ai_agent::subagent::SubAgentControlAction::Adjust {
+                    client_timezone: "UTC".into(),
+                    message: "Investigate another symptom".into(),
+                },
             },
         )
         .await
@@ -292,7 +291,7 @@ async fn explicit_adjustment_delivers_dependency_changed_instead_of_waiting_for_
     let changed_reply = super::issue_replies::read(&db, &child_reply).await;
     assert_eq!(
         changed_reply.state,
-        desk_assistant_data_store::issue_reply::NOT_SENT
+        desk_agent_data_store::issue_reply::NOT_SENT
     );
     assert_eq!(changed_reply.reason.as_deref(), Some("work_changed"));
     assert_eq!(changed_reply.artifact_json, child_reply.artifact_json);

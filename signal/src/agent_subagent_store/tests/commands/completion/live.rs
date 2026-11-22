@@ -39,7 +39,7 @@ async fn live_project_model_subagent_completion() {
         ResponseFormatSpec::None,
     );
     request.tools = vec![
-        desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
+        desk_diagnose_core::ai_agent::ai_agent_provider_registry()
             .capability_for_tool("exec_command")
             .unwrap()
             .tool_spec
@@ -123,7 +123,7 @@ async fn live_project_model_subagent_completion() {
     let heartbeat = crate::agent_runtime::SignalStoreHeartbeat {
         store: sessions.clone(),
     };
-    let model = crate::assistant_model::MeteredModel {
+    let model = crate::agent_model::MeteredModel {
         fresh_task: None,
         inner: crate::model_dial::SignalModelSeam::from_config(&config)
             .unwrap()
@@ -149,7 +149,7 @@ async fn live_project_model_subagent_completion() {
             ))
         }
     }
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let clock = || chrono::Utc::now().to_rfc3339();
     let deps = LoopDeps {
         session_seam: &sessions,
@@ -162,7 +162,7 @@ async fn live_project_model_subagent_completion() {
         capability_permission_candidates: &[],
         capability_catalog_metrics: None,
         response_format: ResponseFormatSpec::None,
-        system_prompt: desk_diagnose_core::ai_assistant::build_ai_assistant_system_message(None),
+        system_prompt: desk_diagnose_core::ai_agent::build_ai_agent_system_message(None),
         response_locale: None,
         interactive_user_home: None,
         interactive_user_home_incarnation: None,
@@ -269,9 +269,8 @@ async fn live_project_model_subagent_concise_result() {
         ..Default::default()
     };
     let model = crate::model_dial::SignalModelSeam::from_config(&config).unwrap();
-    let mut parent_system =
-        desk_diagnose_core::ai_assistant::build_ai_assistant_system_message(None);
-    desk_diagnose_core::ai_assistant::scope_disclosed_instructions(&mut parent_system, &[]);
+    let mut parent_system = desk_diagnose_core::ai_agent::build_ai_agent_system_message(None);
+    desk_diagnose_core::ai_agent::scope_disclosed_instructions(&mut parent_system, &[]);
     let mut request = ModelRequest::text_only(
         vec![
             parent_system,
@@ -333,8 +332,8 @@ async fn live_project_model_subagent_concise_result() {
         &delegated.acceptance_criteria,
     )
     .unwrap();
-    let mut system = desk_diagnose_core::ai_assistant::build_ai_assistant_system_message(None);
-    desk_diagnose_core::ai_assistant::scope_disclosed_instructions(&mut system, &[]);
+    let mut system = desk_diagnose_core::ai_agent::build_ai_agent_system_message(None);
+    desk_diagnose_core::ai_agent::scope_disclosed_instructions(&mut system, &[]);
     system.text.push('\n');
     system.text.push_str(REPORT_INSTRUCTION);
     let input = serde_json::json!({"task":delegated.task,"acceptance_criteria":delegated.acceptance_criteria});

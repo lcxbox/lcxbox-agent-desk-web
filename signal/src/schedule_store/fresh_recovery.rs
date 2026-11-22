@@ -12,7 +12,7 @@ impl ScheduleStore {
             let txn =
                 crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
             let decision = desk_diagnose_core::future::send_phase(|| {
-                desk_assistant_data_store::schedule::recover_action_free_fresh_task_on(
+                desk_agent_data_store::schedule::recover_action_free_fresh_task_on(
                     &super::SignalScheduleHost,
                     &txn,
                     run_id,

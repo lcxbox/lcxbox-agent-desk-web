@@ -159,7 +159,7 @@ pub fn actions(call: &ToolCall) -> Result<Vec<ComputerActionStep>, AgentError> {
         } else {
             return Err(invalid("tool", "not an application batch"));
         };
-        output.push(ComputerActionStep {target,action,before_summary:format!("Observed target for step {}",index+1),after_intent:format!("Execute step {} in order",index+1),verification:"Report native API/event dispatch only. The assistant must read UI or screenshot to verify the application state.".into()});
+        output.push(ComputerActionStep {target,action,before_summary:format!("Observed target for step {}",index+1),after_intent:format!("Execute step {} in order",index+1),verification:"Report native API/event dispatch only. The agent must read UI or screenshot to verify the application state.".into()});
     }
     Ok(output)
 }

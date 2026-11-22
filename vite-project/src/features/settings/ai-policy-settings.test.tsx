@@ -28,15 +28,15 @@ vi.mock("@/services/hooks/aiModelController/useQueryCollectionPolicySettings", (
 vi.mock("@/services/hooks/aiModelController/useUpdateCollectionPolicySettings", () => ({
     useUpdateCollectionPolicySettings: () => ({ mutateAsync: h.collectionMutateAsync, isPending: false }),
 }))
-vi.mock("@/services/hooks/aiModelController/useQueryAiAssistantSettings", () => ({
-    useQueryAiAssistantSettings: () => ({
+vi.mock("@/services/hooks/aiModelController/useQueryAiAgentSettings", () => ({
+    useQueryAiAgentSettings: () => ({
         data: { data: { enabled: true, revision: 1 } },
         isLoading: false,
         refetch: vi.fn(),
     }),
 }))
-vi.mock("@/services/hooks/aiModelController/useUpdateAiAssistantSettings", () => ({
-    useUpdateAiAssistantSettings: () => ({ mutateAsync: vi.fn(), isPending: false }),
+vi.mock("@/services/hooks/aiModelController/useUpdateAiAgentSettings", () => ({
+    useUpdateAiAgentSettings: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 vi.mock("@/services/hooks/aiModelController/useRevokeExecSandboxLabels", () => ({
     useRevokeExecSandboxLabels: () => ({ mutateAsync: h.revokeMutateAsync, isPending: false }),

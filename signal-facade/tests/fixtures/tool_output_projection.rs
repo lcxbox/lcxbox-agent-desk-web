@@ -35,7 +35,7 @@ pub fn request() -> ModelRequest {
         (
             1,
             "search_conversations",
-            json!({"hits":[{"source_id":"src_compact","revision":1,"kind":"assistant_message","locator":{"conversation_id":"private-conversation-marker","root_conversation_id":"private-conversation-marker","content_sha256":"private-source-hash-marker","message_id":"private-message-marker","fragment_index":0,"byte_start":0,"byte_end":42},"snippet":"business-marker","recorded_at_unix_ms":42,"statement_timezone":"Asia/Shanghai","source_device":{"device_ref":"dev_compact","current_name":"Laptop","recorded_name":null,"historical":true}}],"has_more":false,"scope_changed":false,"coverage":{"has_gaps":true,"partial":true,"reasons":["some history unavailable"]}}),
+            json!({"hits":[{"source_id":"src_compact","revision":1,"kind":"agent_message","locator":{"conversation_id":"private-conversation-marker","root_conversation_id":"private-conversation-marker","content_sha256":"private-source-hash-marker","message_id":"private-message-marker","fragment_index":0,"byte_start":0,"byte_end":42},"snippet":"business-marker","recorded_at_unix_ms":42,"statement_timezone":"Asia/Shanghai","source_device":{"device_ref":"dev_compact","current_name":"Laptop","recorded_name":null,"historical":true}}],"has_more":false,"scope_changed":false,"coverage":{"has_gaps":true,"partial":true,"reasons":["some history unavailable"]}}),
         ),
         (
             2,
@@ -44,7 +44,7 @@ pub fn request() -> ModelRequest {
         ),
     ] {
         let call = format!("call-{i}");
-        messages.push(ChatMessage::assistant_tool_calls(
+        messages.push(ChatMessage::agent_tool_calls(
             format!("producer-{i}"),
             "",
             vec![ToolCallRef {

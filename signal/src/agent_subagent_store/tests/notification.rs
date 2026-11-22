@@ -12,7 +12,7 @@ pub(super) async fn release_parent(db: &DatabaseConnection, parent: &mut Persist
     let label = parent
         .conversation
         .iter()
-        .find(|message| message.message_id == "assistant-calls")
+        .find(|message| message.message_id == "agent-calls")
         .unwrap()
         .data_envelope
         .clone()

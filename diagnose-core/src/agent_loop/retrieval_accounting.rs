@@ -1,7 +1,7 @@
 //! One durable read/search account shared by legacy and cross-conversation tools.
 
 use super::*;
-use crate::ai_assistant::history::{
+use crate::ai_agent::history::{
     ReservationAdmission, RetrievalCallKind, serialized_tool_response_bytes,
 };
 use crate::chat::ToolCall;
@@ -155,7 +155,7 @@ fn legacy_error(
 }
 
 pub(super) fn kind(call: &ToolCall) -> Option<RetrievalCallKind> {
-    crate::ai_assistant::data_tools::retrieval_call_kind(call).or({
+    crate::ai_agent::data_tools::retrieval_call_kind(call).or({
         match call.name.as_str() {
             crate::conversation_history::LOAD_CONVERSATION_HISTORY_TOOL_NAME
             | crate::conversation_attachment::READ_ATTACHMENT_TOOL => Some(RetrievalCallKind::Read),
@@ -172,28 +172,27 @@ pub(super) async fn reserve(
 ) -> Result<Admission, AgentError> {
     let kind = kind(call).ok_or_else(|| invalid("tool has no retrieval accounting class"))?;
     let upper_bytes = session
-        .assistant_data
+        .agent_data
         .as_ref()
         .map(|data| data.retrieval_budget.limits.response_bytes)
         .unwrap_or_else(|| {
-            desk_agent_protocol::ai_assistant::limits::RetrievalEpisodeLimits::default()
-                .response_bytes
+            desk_agent_protocol::ai_agent::limits::RetrievalEpisodeLimits::default().response_bytes
         });
-    if session.surface != AgentSessionSurface::AiAssistant || !session.uses_owner_assistant_data() {
+    if session.surface != AgentSessionSurface::AiAgent || !session.uses_owner_agent_data() {
         return Ok(Admission::New(RetrievalCall {
             id: None,
             upper_bytes,
         }));
     }
-    desk_agent_protocol::ai_assistant::source::validate_source_id(&call.id).map_err(invalid)?;
+    desk_agent_protocol::ai_agent::source::validate_source_id(&call.id).map_err(invalid)?;
 
     let now = current_unix_ms(deps.clock)?;
     let data = session
-        .assistant_data
+        .agent_data
         .as_mut()
-        .ok_or_else(|| invalid("assistant retrieval accounting is unavailable"))?;
+        .ok_or_else(|| invalid("agent retrieval accounting is unavailable"))?;
     let id = crate::native_ids::stable(
-        crate::native_ids::Kind::AssistantReadAuthorization,
+        crate::native_ids::Kind::AgentReadAuthorization,
         &(
             &session.actor_id,
             &session.conversation_id,
@@ -277,9 +276,9 @@ pub(super) fn settle(
         ));
     }
     session
-        .assistant_data
+        .agent_data
         .as_mut()
-        .ok_or_else(|| invalid("assistant retrieval accounting is unavailable"))?
+        .ok_or_else(|| invalid("agent retrieval accounting is unavailable"))?
         .retrieval_budget
         .settle(id, actual)
         .map_err(invalid)

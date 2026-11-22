@@ -1,7 +1,7 @@
 import { sessionPath } from '@/features/desk/device-target-paths';
 import { BarChart3, LifeBuoy, Monitor, Settings } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
-import { AiAssistantIcon } from "@/components/ai-assistant-icon"
+import { AiAgentIcon } from "@/components/ai-agent-icon"
 import { startupModeEnum } from "@/services/types"
 import type { StartupMode } from "@/services/types"
 
@@ -9,7 +9,7 @@ export type NavItem = {
     /** i18n key, resolved by the sidebar. */
     title: string
     url: string
-    icon: LucideIcon | typeof AiAssistantIcon
+    icon: LucideIcon | typeof AiAgentIcon
 }
 
 /** What the sidebar entries are derived from. */
@@ -52,7 +52,7 @@ export function buildNavItems({
 
     if (!isDeskServer) {
         items.push({ title: "menu.desk", url: "/desk/list", icon: Monitor })
-        items.push({ title: "pages.aiAssistant.title", url: "/ai-assistant", icon: AiAssistantIcon })
+        items.push({ title: "pages.aiAgent.title", url: "/ai-agent", icon: AiAgentIcon })
     }
 
     // Host-side "ask for remote help": a primary entry so non-technical users

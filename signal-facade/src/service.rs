@@ -1191,13 +1191,13 @@ impl<U: SignalingUser> SignalingHandler<U> {
             // AI host → control-end responses are plain relayed types (no
             // authorization injection on the reply path).
             | SignalingType::AgentCapabilityCompleted
-            | SignalingType::AiAssistantUpdated
-            | SignalingType::AiAssistantCapabilitiesUpdated
-            | SignalingType::AiAssistantContextUpdated
-            | SignalingType::AiAssistantObjectContextUpdated
-            | SignalingType::AiAssistantSessionSelected
+            | SignalingType::AiAgentUpdated
+            | SignalingType::AiAgentCapabilitiesUpdated
+            | SignalingType::AiAgentContextUpdated
+            | SignalingType::AiAgentObjectContextUpdated
+            | SignalingType::AiAgentSessionSelected
             | SignalingType::DocumentPreviewPageUpdated
-            | SignalingType::TerminalAiAssistantUpdated
+            | SignalingType::TerminalAiAgentUpdated
             | SignalingType::TerminalCompletionsGenerated
             | SignalingType::ExecutionPreviewGenerated
             | SignalingType::ExecutionCompleted
@@ -1315,8 +1315,8 @@ impl<U: SignalingUser> SignalingHandler<U> {
             // ResolveExec is relayed unwrapped by the authorizer (`Forward`); with no
             // authorizer (signal server) it relays plainly, exactly like before.
             SignalingType::InvokeAgentCapability
-            | SignalingType::AskTerminalAiAssistant
-            | SignalingType::CancelTerminalAiAssistant
+            | SignalingType::AskTerminalAiAgent
+            | SignalingType::CancelTerminalAiAgent
             | SignalingType::GenerateTerminalCompletions
             | SignalingType::PreviewExecution
             // `ExecControl` acts on a command that is already running, so it goes
@@ -1327,12 +1327,12 @@ impl<U: SignalingUser> SignalingHandler<U> {
             | SignalingType::DispatchComputerAction
             | SignalingType::CancelComputerAction
             | SignalingType::QueryComputerActionState
-            | SignalingType::AskAiAssistant
-            | SignalingType::CancelAiAssistant
-            | SignalingType::GetAiAssistantCapabilities
-            | SignalingType::UpdateAiAssistantContext
-            | SignalingType::UpdateAiAssistantObjectContext
-            | SignalingType::SelectAiAssistantSession
+            | SignalingType::AskAiAgent
+            | SignalingType::CancelAiAgent
+            | SignalingType::GetAiAgentCapabilities
+            | SignalingType::UpdateAiAgentContext
+            | SignalingType::UpdateAiAgentObjectContext
+            | SignalingType::SelectAiAgentSession
             | SignalingType::RequestDocumentPreviewPage
             | SignalingType::ManageScheduledTasks
             | SignalingType::ManageFileRecovery => {
@@ -1509,9 +1509,9 @@ impl<U: SignalingUser> SignalingHandler<U> {
                      not be sent inbound — dropping"
                 );
             }
-            SignalingType::UpdateAiAssistantSettings => {
+            SignalingType::UpdateAiAgentSettings => {
                 log::warn!(
-                    "Received UpdateAiAssistantSettings from a client; it is server-originated \
+                    "Received UpdateAiAgentSettings from a client; it is server-originated \
                      and must not be sent inbound — dropping"
                 );
             }

@@ -33,7 +33,7 @@ fn batch(call: &ToolCall, seam: Arc<dyn ObservabilitySeam>) -> ToolBatch {
             model_name: "Model".into(),
             configuration_revision: "1".into(),
             contract_revision: "1".into(),
-            surface: Surface::Assistant,
+            surface: Surface::Agent,
             purpose: Purpose::Agent,
             origin: Origin::User,
             configuration_scope: ConfigurationScope::Local,
@@ -120,9 +120,9 @@ async fn missing_or_expired_subagent_references_reject_input_without_work_or_bus
         )
         .await;
         if case == "stale_control" {
-            store.control_for_owner("root", "1", "1", &desk_agent_protocol::ai_assistant::subagent::AiAssistantSubAgentControl {
+            store.control_for_owner("root", "1", "1", &desk_agent_protocol::ai_agent::subagent::AiAgentSubAgentControl {
                 client_request_id: "owner-adjustment".into(), task_id: task.task_id.clone(), expected_input_revision: 1, expected_control_revision: 1,
-                action: desk_agent_protocol::ai_assistant::subagent::SubAgentControlAction::Adjust { client_timezone: "UTC".into(), message: "Check the additional symptom".into() },
+                action: desk_agent_protocol::ai_agent::subagent::SubAgentControlAction::Adjust { client_timezone: "UTC".into(), message: "Check the additional symptom".into() },
             }).await.unwrap();
         }
         let before = parent.clone();
@@ -299,7 +299,7 @@ async fn seed_permission_wait(
     let request=desk_diagnose_core::permission_tools::build_permission_request(
         &ToolCall { id:"private-child-provider-call".into(),name:"request_permissions".into(),
             arguments_json:r#"{"items":[{"item_id":"capture","tool_name":"read_current_screen","exact_input":{"display":"private-display"},"suggested_ttl_seconds":300,"suggested_max_uses":1,"reason":"private-permission-reason"}]}"#.into() },
-        &desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+        &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         "server-child-permission".into(),child.input_revision,"1970-01-01T00:00:00Z".into(),
     ).unwrap();
     child.permission_requests.push(request);
@@ -317,8 +317,8 @@ async fn seed_permission_wait(
 
 #[tokio::test]
 async fn prepared_child_controls_end_only_original_waits_after_commit_and_not_on_replay() {
-    use desk_agent_protocol::ai_assistant::subagent::{
-        AiAssistantSubAgentControl, SubAgentControlAction,
+    use desk_agent_protocol::ai_agent::subagent::{
+        AiAgentSubAgentControl, SubAgentControlAction,
     };
     use desk_diagnose_core::model_observability::{ObservationAlias, ObservationRelation};
     for adjust in [false, true] {
@@ -328,7 +328,7 @@ async fn prepared_child_controls_end_only_original_waits_after_commit_and_not_on
         let sibling = seed_task(&db, "b", "goal-b").await;
         let child = seed_permission_wait(&db, &task.child_conversation_id).await;
         let sibling_session = seed_permission_wait(&db, &sibling.child_conversation_id).await;
-        let request = AiAssistantSubAgentControl {
+        let request = AiAgentSubAgentControl {
             client_request_id: "owner-control".into(),
             task_id: task.binding.task_id.clone(),
             expected_input_revision: task.binding.input_revision,

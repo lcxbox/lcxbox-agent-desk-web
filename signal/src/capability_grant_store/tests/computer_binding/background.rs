@@ -1,5 +1,5 @@
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 mod goal_snapshot;
 use super::*;
 use crate::{agent_session_store::SignalAgentSessionStore, entity::agent_exec_task};
@@ -78,7 +78,7 @@ async fn selectable_background_stays_in_the_root_snapshot_and_cancels_the_origin
     );
     let sessions = SignalAgentSessionStore::new(f.store.db.clone());
     let snapshot = sessions
-        .read_assistant_snapshot_for_subject("run-1", "actor-1", "")
+        .read_agent_snapshot_for_subject("run-1", "actor-1", "")
         .await
         .unwrap()
         .unwrap();
@@ -283,14 +283,14 @@ async fn owner_snapshot_advances_on_background_and_result_without_invalidating_e
         .unwrap()
         .unwrap();
     let first = sessions
-        .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+        .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
         .await
         .unwrap()
         .unwrap();
     assert!(first.background_tasks.is_empty());
     assert!(
         sessions
-            .read_assistant_snapshot_for_subject("run-1", "other", "device-1")
+            .read_agent_snapshot_for_subject("run-1", "other", "device-1")
             .await
             .unwrap()
             .is_none()
@@ -298,7 +298,7 @@ async fn owner_snapshot_advances_on_background_and_result_without_invalidating_e
     age(&f, 9).await;
     assert!(promote(&f).await);
     let running = sessions
-        .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+        .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
         .await
         .unwrap()
         .unwrap();
@@ -311,7 +311,7 @@ async fn owner_snapshot_advances_on_background_and_result_without_invalidating_e
     );
     assert!(running.background_tasks[0].supports_cancel);
     let again = sessions
-        .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+        .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
         .await
         .unwrap()
         .unwrap();
@@ -326,7 +326,7 @@ async fn owner_snapshot_advances_on_background_and_result_without_invalidating_e
         .await
         .unwrap();
     let done = sessions
-        .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+        .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
         .await
         .unwrap()
         .unwrap();
@@ -522,7 +522,7 @@ async fn independent_snapshot_connections_converge_without_changing_the_runtime_
         .unwrap();
         jobs.push(tokio::spawn(async move {
             let snapshot = SignalAgentSessionStore::new(db.clone())
-                .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+                .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
                 .await
                 .unwrap()
                 .unwrap();
@@ -611,7 +611,7 @@ async fn expired_background_becomes_reconcilable_unknown_then_accepts_original_l
     );
     let sessions = SignalAgentSessionStore::new(f.store.db.clone());
     let snapshot = sessions
-        .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+        .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
         .await
         .unwrap()
         .unwrap();
@@ -631,7 +631,7 @@ async fn expired_background_becomes_reconcilable_unknown_then_accepts_original_l
         .unwrap();
     f.store.publish_computer_results_once().await.unwrap();
     let done = sessions
-        .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+        .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
         .await
         .unwrap()
         .unwrap();

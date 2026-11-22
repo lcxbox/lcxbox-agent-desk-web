@@ -2,7 +2,7 @@
 
 use desk_agent_protocol::{
     AgentError, AgentErrorKind,
-    ai_assistant::{AiAssistantObjectContextOperation, AiAssistantObjectContextUpdate},
+    ai_agent::{AiAgentObjectContextOperation, AiAgentObjectContextUpdate},
     computer_use::{ObjectKind, ObjectRef},
     data_lineage::{
         ContentRef, DATA_ENVELOPE_SCHEMA_VERSION, DataEnvelope, DataProvenance,
@@ -11,7 +11,7 @@ use desk_agent_protocol::{
 };
 
 use crate::{
-    ai_assistant::*,
+    ai_agent::*,
     context_attachment::*,
     session::{AgentSessionSurface, PersistedAgentSession},
 };
@@ -36,11 +36,11 @@ pub struct ObjectContextBuild<'a> {
 }
 
 pub fn build_object_context_mutation(
-    update: &AiAssistantObjectContextUpdate,
+    update: &AiAgentObjectContextUpdate,
     context: ObjectContextBuild<'_>,
 ) -> Result<ObjectContextMutation, AgentError> {
     update.validate().map_err(|_| invalid())?;
-    use AiAssistantObjectContextOperation::*;
+    use AiAgentObjectContextOperation::*;
     match &update.operation {
         DecideDirectory { .. } | RevokeDirectory { .. } | SelectDirectory { .. } => Err(invalid()),
         Detach { attachment_id } => Ok(ObjectContextMutation::Detach {
@@ -125,7 +125,7 @@ pub fn build_read_attachment(
         client_request_id: client_request_id.into(),
         actor_id: context.actor_id.into(),
         device_id: context.device_id.into(),
-        surface: AgentSessionSurface::AiAssistant,
+        surface: AgentSessionSurface::AiAgent,
         kind,
         object_ref: AttachmentObjectRef {
             opaque_token: serde_json::to_string(object_ref).map_err(|_| invalid())?,

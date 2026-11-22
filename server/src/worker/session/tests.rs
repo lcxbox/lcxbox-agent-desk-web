@@ -403,7 +403,7 @@ fn outbound_dispatch_routes_terminal_closed_to_typed_variant() {
 fn outbound_dispatch_routes_terminal_output_produced_to_typed_variant() {
     let body = TerminalOutputData {
         content: "hello\r\nworld\r\n".to_string(),
-        assistant_object_ref: None,
+        agent_object_ref: None,
     };
     let model = SignalingModel::new_request(
         SignalingType::TerminalOutputProduced,

@@ -1,5 +1,5 @@
 //! Central work names no desktop session: with resident workers only the single
-//! Assistant-ready session takes it, and a stop request reaches only the worker
+//! Agent-ready session takes it, and a stop request reaches only the worker
 //! still running its action.
 use super::resident_request_routes::ExpectedReply;
 use super::*;
@@ -26,7 +26,7 @@ fn key(name: &str) -> WorkerKey {
     }
 }
 
-fn assistant_ready(manager: &WorkerManager, key: &WorkerKey) {
+fn agent_ready(manager: &WorkerManager, key: &WorkerKey) {
     manager.session_targets.upsert(SessionCandidate {
         session: key.session.clone(),
         display_name: key.session.platform_session_id.clone(),
@@ -36,7 +36,7 @@ fn assistant_ready(manager: &WorkerManager, key: &WorkerKey) {
         remote_desktop_ready: false,
         terminal_ready: false,
         file_ready: false,
-        assistant_ready: true,
+        agent_ready: true,
     });
 }
 
@@ -99,7 +99,7 @@ async fn the_single_ready_session_takes_central_work_and_only_its_worker_answers
     let (manager, _messages) = test_manager();
     manager.enable_session_targeting_for_test();
     let only = key("only");
-    assistant_ready(&manager, &only);
+    agent_ready(&manager, &only);
     let (tx, mut rx) = mpsc::unbounded_channel();
     let incarnation = manager.install_resident_for_test(only.clone(), tx).await;
 
@@ -132,7 +132,7 @@ async fn several_ready_sessions_are_refused_rather_than_guessed_between() {
     manager.enable_session_targeting_for_test();
     let mut receivers = Vec::new();
     for name in ["first", "second"] {
-        assistant_ready(&manager, &key(name));
+        agent_ready(&manager, &key(name));
         let (tx, rx) = mpsc::unbounded_channel();
         manager.install_resident_for_test(key(name), tx).await;
         receivers.push(rx);
@@ -159,7 +159,7 @@ async fn a_stop_request_reaches_only_the_worker_still_running_its_action() {
     let (manager, _messages) = test_manager();
     manager.enable_session_targeting_for_test();
     let only = key("only");
-    assistant_ready(&manager, &only);
+    agent_ready(&manager, &only);
     let (tx, mut rx) = mpsc::unbounded_channel();
     let incarnation = manager.install_resident_for_test(only.clone(), tx).await;
     let action = ExpectedReply {

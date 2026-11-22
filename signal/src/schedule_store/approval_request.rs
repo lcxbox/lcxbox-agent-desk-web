@@ -28,7 +28,7 @@ pub(crate) async fn validate_task_permission_on(
     session: &PersistedAgentSession,
     request: &PermissionRequest,
 ) -> Result<(), ScheduleStoreError> {
-    desk_assistant_data_store::schedule::validate_task_permission_on(
+    desk_agent_data_store::schedule::validate_task_permission_on(
         &super::SignalScheduleHost,
         txn,
         session,
@@ -43,7 +43,7 @@ pub(crate) async fn validate_task_directory_on(
     session: &PersistedAgentSession,
     mutation: &desk_diagnose_core::file_scope::transaction::FileScopeMutation,
 ) -> Result<(), ScheduleStoreError> {
-    desk_assistant_data_store::schedule::validate_task_directory_on(
+    desk_agent_data_store::schedule::validate_task_directory_on(
         &super::SignalScheduleHost,
         txn,
         session,

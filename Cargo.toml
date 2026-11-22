@@ -16,7 +16,7 @@ members = [
     "virtual-display-driver-ops",
     "agent-protocol",
     "diagnose-core",
-    "assistant-data-store",
+    "agent-data-store",
     "file-recovery",
     "office-batch",
     "mcp-server",
@@ -52,7 +52,7 @@ desk-virtual-display = { path = "virtual-display" }
 desk-virtual-display-driver-ops = { path = "virtual-display-driver-ops" }
 desk-agent-protocol = { path = "agent-protocol" }
 desk-diagnose-core = { path = "diagnose-core" }
-desk-assistant-data-store = { path = "assistant-data-store" }
+desk-agent-data-store = { path = "agent-data-store" }
 desk-file-recovery = { path = "file-recovery" }
 desk-office-batch = { path = "office-batch" }
 desk-mcp-server = { path = "mcp-server" }
@@ -309,6 +309,6 @@ core-audio-types = "0.2"
 # the reviewed one-line bridge patch local until upstream ships the fix.
 apple-cf = { path = "vendor/apple-cf" }
 
-# Proof hashing dominates debug runs of the assistant; this affects development builds only.
+# Proof hashing dominates debug runs of the agent; this affects development builds only.
 [profile.dev.package.sha2]
 opt-level = 3

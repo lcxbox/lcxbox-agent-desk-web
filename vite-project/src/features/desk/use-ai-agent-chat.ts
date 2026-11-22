@@ -1,0 +1,2461 @@
+import { matchesAgentMessage, mergeAgentMessages } from './agent-message-history';
+import { projectGoalReviewReceipt } from './agent-goal-review-receipt';
+import { decisionPauseResuming, decisionRequestOf, decisionResolver, type AgentDecisionReceipt } from './agent-decision-receipt';
+import type { AgentContextUsage } from './agent-context-meter';
+import type { AgentFileScopeView, AgentDirectoryOperation } from './agent-file-scope';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { agentErrorMessage } from '@/lib/agent-error-i18n';
+import { useToast } from '@/hooks/use-toast';
+import { isTargetGoneCode } from './target-refresh';
+import { v4 } from 'uuid';
+import { agentMessageId } from './agent-native-ids';
+
+import type {
+    AiAgentAsk,
+    IssueSelection,
+    AgentCitation,
+    BackgroundTaskDto,
+    AiAgentDelegationSnapshot,
+    AiAgentStopControl,
+    CommandTaskDto,
+    CapabilityGrantDto,
+    ContextNoticeDto,
+    DecisionPauseDto,
+    PermissionDecisionBody,
+    PermissionRequestDto,
+    AiAgentMainRequestsDto,
+} from '@/services/types';
+import type { SkillProposalView } from '@/services/types';
+import { deskErrorCodeEnum } from '@/services/types';
+import type { AiAgentDocumentPreview, AiAgentDocumentPreviewPageResponse, AiAgentEvent, AiAgentVisualEvidence } from './ai-agent-event';
+import {
+    SIGNALING_TYPE_CODE_ERROR,
+    SIGNALING_TYPE_CODE_ASK_AI_AGENT,
+    SIGNALING_TYPE_CODE_AI_AGENT_CONTEXT_UPDATED,
+    SIGNALING_TYPE_CODE_AI_AGENT_OBJECT_CONTEXT_UPDATED,
+    SIGNALING_TYPE_CODE_AI_AGENT_SESSION_SELECTED,
+    SIGNALING_TYPE_CODE_AI_AGENT_UPDATED,
+    SIGNALING_TYPE_CODE_DOCUMENT_PREVIEW_PAGE_UPDATED,
+    SIGNALING_TYPE_CODE_REQUEST_DOCUMENT_PREVIEW_PAGE,
+    SIGNALING_TYPE_CODE_SELECT_AI_AGENT_SESSION,
+    SIGNALING_TYPE_CODE_UPDATE_AI_AGENT_CONTEXT,
+    SIGNALING_TYPE_CODE_UPDATE_AI_AGENT_OBJECT_CONTEXT,
+} from './constants';
+import type { SignalingMessage, SignalingSubscriber } from './use-desk-signaling';
+import {
+    parseSessionTargetList,
+    type SessionTargetDescriptor,
+} from './session-target-selection';
+
+const PREVIEW_TOOL = 'preview_computer_action';
+
+const SNAPSHOT_TIMEOUT_MS = 30_000;
+/** Earlier pages a source jump may load before giving up. */
+const REVEAL_PAGE_LIMIT = 5;
+type MessagePage = { hasMore: boolean; nextBeforeMessageId: string | null };
+const REQUEST_QUEUE_PATH = '/api/my/ai-agent-session/requests';
+
+export type AiAgentMessage = {
+    citations?: AgentCitation[];
+    citationsIncomplete?: boolean;
+    permissionReason?: string;
+    contextBoundaryIds?: string[];
+    id: string;
+    role: 'user' | 'assistant' | 'tool_result' | 'tool_call' | 'goal_decision';
+    goalDecision?: { status: 'approved' | 'denied' | 'expired'; reviewer: 'approval_ai' | 'system' };
+    toolCallId?: string;
+    turnId?: string | null;
+    text: string;
+    reasoning?: string | null;
+};
+
+/** An owner input waiting outside the saved conversation. */
+export type AiAgentQueuedMessage = {
+    id: string;
+    text: string;
+    requestId: string | null;
+    state: 'queued' | 'activated' | null;
+};
+
+/**
+ * Input sent from this page until the saved conversation contains it.
+ * `busy` places it after running work instead of at the end of the
+ * conversation; `confirmedOrder` is the snapshot order at acknowledgement.
+ */
+type SentInput = {
+    id: string;
+    question: string;
+    conversation: string;
+    streamId: string;
+    busy: boolean;
+    requestId?: string;
+    confirmedOrder?: number;
+};
+
+const isWaitingReceipt = (state: string) => state === 'queued' || state === 'activated';
+
+export type AiAgentToolActivity = {
+    permissionReason?: string;
+    permissionReview?: { state: PermissionRequestDto['state']; source?: NonNullable<PermissionRequestDto['decision']>['source'] };
+    /** A submitted request whose result reaches the agent only after a decision. */
+    decision?: AgentDecisionReceipt;
+    callId: string;
+    name: string;
+    status: 'running' | 'ok' | 'failed' | 'returned';
+    argumentsJson: string;
+    output: string | null;
+};
+
+export type AiAgentContextAttachment = {
+    id: string;
+    deviceRef?: string | null;
+    kind: string;
+    providerId: string;
+    capabilityId: string;
+    displaySummary: string;
+    createdAtUnixMs: number;
+    expiresAtUnixMs: number;
+    state: 'active' | 'stale';
+    staleReason?: string;
+};
+
+export type AiAgentWindowRef = {
+    token: string;
+    snapshot_id: string;
+    object_kind: 'window';
+    expires_at: string;
+};
+
+export type ComputerActionDraftPreview = {
+    schema_version: number;
+    adapter: { kind: string; version: string };
+    risk: string;
+    reversible: boolean;
+    data_egress: boolean;
+    actions: Array<{
+        target: Record<string, unknown>;
+        action: Record<string, unknown>;
+        before_summary: string;
+        after_intent: string;
+        verification: string;
+    }>;
+};
+
+type Props = {
+    deskId: string;
+    targetRefs?: readonly string[];
+    connected?: boolean;
+    queueOnly?: boolean;
+    /// Stable device identity for browser-side conversation intent. The OSS
+    /// connection id changes after a server restart, while client_id does not.
+    conversationStorageScope?: string;
+    initialConversationId?: string | null;
+    subscribe: (handler: SignalingSubscriber) => () => void;
+    sendMessage: (
+        type: number,
+        data: unknown,
+        connectionId?: string,
+        requestId?: string,
+    ) => string;
+};
+
+function storageKey(scope: string) {
+    return `ai-agent-conversation:${scope}`;
+}
+
+function sessionQuery(deskId: string, conversation: string) {
+    const target = deskId ? `connection=${encodeURIComponent(deskId)}&` : '';
+    return `/api/my/ai-agent-session?${target}conversation=${encodeURIComponent(conversation)}`;
+}
+
+function parseDraft(raw: string | null | undefined): ComputerActionDraftPreview | null {
+    if (!raw) return null;
+    try {
+        const value = JSON.parse(raw) as ComputerActionDraftPreview;
+        if (value.schema_version !== 1 || !Array.isArray(value.actions)) return null;
+        return value;
+    } catch {
+        return null;
+    }
+}
+
+function upsertTool(
+    tools: AiAgentToolActivity[],
+    next: AiAgentToolActivity,
+) {
+    const index = tools.findIndex((tool) => tool.callId === next.callId);
+    if (index === -1) return [...tools, next];
+    const existing = tools[index];
+    const merged = next.name === 'unknown' && existing.name !== 'unknown'
+        ? { ...next, name: existing.name, argumentsJson: existing.argumentsJson } : next;
+    return tools.map((tool, current) => current === index ? merged : tool);
+}
+
+function upsertVisualEvidence(
+    current: AiAgentVisualEvidence[],
+    next: AiAgentVisualEvidence,
+) {
+    const existing = current.find((item) => item.evidence_id === next.evidence_id);
+    const merged = existing?.preview_data_url && !next.preview_data_url
+        ? { ...next, status: existing.status, preview_data_url: existing.preview_data_url }
+        : next;
+    const without = current.filter((item) => item.evidence_id !== next.evidence_id);
+    return [...without, merged].slice(-32);
+}
+
+type PersistedToolCall = {
+    id: string;
+    name: string;
+    argumentsJson: string;
+};
+
+export type AiAgentTaskStatusProjection = {
+    schemaVersion: number;
+    revision: number;
+    updatedAt: string;
+    items: Array<{
+        itemId: string;
+        description: string;
+        status: 'todo' | 'in_progress' | 'blocked' | 'done' | 'skipped';
+        note?: string | null;
+        lastUpdatedStepId: string;
+    }>;
+};
+
+type PersistedSnapshotMessage = {
+    citations?: AgentCitation[];
+    citationsIncomplete?: boolean;
+    reasoning?: string | null;
+    id: string;
+    turnId?: string | null;
+    role: string;
+    text: string;
+    toolCallId?: string | null;
+    toolOk?: boolean | null;
+    backgroundTaskId?: string | null;
+    toolCalls?: PersistedToolCall[];
+};
+
+export type AiAgentGoal = {
+    goalId: string;
+    previousCompletedGoalId?: string | null;
+    previousCompletionSummary?: string | null;
+    goalRevision: number;
+    goalText: string;
+    deviceId: string;
+    state: string;
+    stateVersion: number;
+    statusReason?: string | null;
+    pauseReason?: string | null;
+    sliceSeq: number;
+    usedSlices: number;
+    limitSlices: number | null;
+    usedModelTokens: number;
+    limitModelTokens: number | null;
+    usedModelCalls: number;
+    usedToolCalls: number;
+    usedActiveTimeMs: number;
+    limits: AiAgentGoalLimits;
+    createdAtUnixMs: number;
+    deadlineUnixMs: number | null;
+    nextAttemptUnixMs?: number | null;
+    updatedAtUnixMs: number;
+    checkpointSummary?: string | null;
+};
+
+export type AiAgentGoalOpenRequest = {
+    requestId: string;
+    goalText: string;
+    previousCompletedGoalId?: string | null;
+    targetGoalId?: string | null;
+    targetGoalRevision?: number | null;
+    deviceId: string;
+    inputRevision: number;
+    limits: AiAgentGoalLimits;
+    expiresAtUnixMs: number;
+};
+
+export type AiAgentGoalLimits = {
+    activeTimeMs: number | null;
+    modelTokens: number | null;
+    modelCalls: number | null;
+    toolCalls: number | null;
+    slices: number | null;
+    stalledSlices: number | null;
+};
+
+export type AiAgentGoalOwnerAction = 'pause' | 'resume' | 'retry_stalled' | 'cancel';
+
+export type AiAgentApprovalDelegation = {
+    delegationId: string;
+    status: string;
+    reviewsUsed: number;
+    tokensUsed: number;
+    costUsedMicros?: number | null;
+    createdAtUnixMs: number;
+};
+
+export type AiAgentApprovalModelReadiness = {
+    available: boolean;
+    reason?: string | null;
+};
+
+export type PersistedSnapshot = {
+    temporaryConversation?: boolean | null;
+    controlRevision: number;
+    mainStopped: boolean;
+    subagents: AiAgentDelegationSnapshot;
+    actionPermissionReasons?: Record<string, string>;
+    requestId?: string;
+    fileScope?: AgentFileScopeView;
+    terminalError?: { message: string; error_code?: number | null } | null;
+    goal?: AiAgentGoal | null;
+    pendingGoalOpenRequest?: AiAgentGoalOpenRequest | null;
+    approvalDelegation?: AiAgentApprovalDelegation | null;
+    approvalModelReadiness?: AiAgentApprovalModelReadiness | null;
+    skillProposals?: SkillProposalView[];
+    decisionPause?: DecisionPauseDto | null;
+    contextNotices?: ContextNoticeDto[];
+    contextUsage?: AgentContextUsage | null;
+    sessionId: string;
+    seq: number;
+    active: boolean;
+    latestInputSeq?: number;
+    inputRevision?: number;
+    handledInputSeq?: number;
+    mainRequests?: AiAgentMainRequestsDto['items'];
+    taskStatusProjection?: AiAgentTaskStatusProjection | null;
+    permissionRequests?: PermissionRequestDto[];
+    backgroundTasks?: BackgroundTaskDto[];
+    commandTasks?: CommandTaskDto[];
+    capabilityGrants?: CapabilityGrantDto[];
+    messages: PersistedSnapshotMessage[];
+    messagePage?: {
+        hasMore: boolean;
+        nextBeforeMessageId?: string | null;
+        limit: number;
+    };
+    contextAttachments?: AiAgentContextAttachment[];
+    visualEvidence?: AiAgentVisualEvidence[];
+};
+
+export function projectPersistedSnapshot(snapshot: Pick<PersistedSnapshot, 'messages' | 'actionPermissionReasons' | 'contextAttachments' | 'taskStatusProjection' | 'permissionRequests' | 'backgroundTasks' | 'capabilityGrants' | 'latestInputSeq' | 'handledInputSeq' | 'skillProposals' | 'fileScope' | 'decisionPause'>) {
+    const messages: AiAgentMessage[] = [];
+    const resolveDecision = decisionResolver(snapshot);
+    let tools: AiAgentToolActivity[] = [];
+    let draft: ComputerActionDraftPreview | null = null;
+    const permissions = new Map(snapshot.permissionRequests?.map(request => [request.requestId, request]));
+    // A direct call waiting for approval has no result yet; its request item
+    // carries the call id, so the row shows the pending decision instead of
+    // a running tool.
+    const waitingCalls = new Map(snapshot.permissionRequests
+        ?.filter(request => request.state === 'pending' || request.state === 'needs_revalidation')
+        .flatMap(request => request.items.map(item => [item.itemId, request] as const)));
+    for (const message of snapshot.messages) {
+        const goalReceipt = projectGoalReviewReceipt(message);
+        if (goalReceipt) messages.push(goalReceipt);
+        if ((message.role === 'user' || message.role === 'assistant') && (message.text || (message.role === 'assistant' && message.reasoning))) {
+            messages.push({
+                id: message.id,
+                role: message.role,
+                text: message.text,
+                turnId: message.turnId,
+                citations: message.citations,
+                citationsIncomplete: message.citationsIncomplete,
+                reasoning: message.role === 'assistant' ? message.reasoning : undefined,
+            });
+        }
+        for (const call of message.toolCalls ?? []) {
+            messages.push({ id: `tool-call-${call.id}`, role: 'tool_call', toolCallId: call.id, turnId: message.turnId, text: '', contextBoundaryIds: [message.id] });
+            const waiting = waitingCalls.get(call.id);
+            tools = upsertTool(tools, {
+                callId: call.id,
+                name: call.name,
+                ...(waiting && { permissionReview: { state: waiting.state, source: waiting.decision?.source } }),
+                status: 'running',
+                argumentsJson: call.argumentsJson,
+                output: null,
+            });
+            if (call.name === PREVIEW_TOOL) {
+                draft = parseDraft(call.argumentsJson) ?? draft;
+            }
+        }
+        if ((message.role === 'tool' || message.role === 'untrusted_output') && message.toolCallId) {
+            const existing = tools.find((tool) => tool.callId === message.toolCallId);
+            if (!existing) {
+                messages.push({ id: `tool-call-${message.toolCallId}`, role: 'tool_call', toolCallId: message.toolCallId, turnId: message.turnId, text: '', contextBoundaryIds: [message.id] });
+            }
+            let permissionReason: string | undefined;
+            let nativeFailed = false;
+            let nativeVerified = false;
+            let nativeFileResult = false;
+            let permissionReview: AiAgentToolActivity['permissionReview'];
+            let approvalReceipt = false;
+            let decision: AgentDecisionReceipt | undefined;
+            try {
+                const native = JSON.parse(message.text);
+                permissionReason = snapshot.actionPermissionReasons?.[String(native.work_id)];
+                approvalReceipt = native.status === 'pending_user_decision' && typeof native.request_id === 'string';
+                if (approvalReceipt) {
+                    const request = permissions.get(native.request_id);
+                    if (request) permissionReview = { state: request.state, source: request.decision?.source };
+                }
+                // A decision receipt is not the tool result: the agent
+                // receives the decision when the server resumes the turn.
+                const submitted = native && typeof native === 'object' ? decisionRequestOf(native) : null;
+                if (submitted) decision = resolveDecision(submitted.kind, submitted.requestId);
+                nativeFailed = ['definitely_not_started', 'failed'].includes(native.result)
+                    || ['failed', 'error'].includes(native.status)
+                    || native.ok === false || native.success === false
+                    || Boolean(native.error);
+                nativeVerified = native.result === 'verified';
+                nativeFileResult = ['file_artifact', 'batch_document_artifact', 'text_file_mutation'].includes(native.output?.kind);
+            } catch { /* Non-native results have no work binding. */ }
+            const backgroundRunning = /"status"\s*:\s*"background_running"/.test(message.text);
+            tools = upsertTool(tools, {
+                callId: message.toolCallId,
+                permissionReason,
+                ...(permissionReview && { permissionReview }),
+                ...(decision && { decision }),
+                name: existing?.name ?? 'unknown',
+                status: backgroundRunning ? 'running'
+                    : typeof message.toolOk === 'boolean' ? (message.toolOk ? 'ok' : 'failed')
+                    : nativeFailed || /^(tool error:|not executed:|execution failed:|execution did not complete:|wait error:)/i.test(message.text.trimStart())
+                        || (existing?.name === 'exec_command' && /^exit_code=(?!0(?:\n|$))\d+/i.test(message.text)) ? 'failed'
+                        : nativeVerified || (existing?.name === 'exec_command' && /^exit_code=0(?:\n|$)/.test(message.text)) ? 'ok' : 'returned',
+                argumentsJson: existing?.argumentsJson ?? '{}',
+                output: message.text,
+            });
+            // An approval receipt is not command output; the permission card shows it.
+            if (!backgroundRunning && !approvalReceipt && message.text && (existing?.name === 'exec_command' || nativeFileResult || message.backgroundTaskId || (nativeFailed && permissionReason))) {
+                messages.push({ id: message.id, role: 'tool_result', toolCallId: message.toolCallId, turnId: message.turnId, text: message.text, permissionReason });
+            }
+        }
+    }
+    let lastVisible: AiAgentMessage | undefined;
+    for (const raw of snapshot.messages) {
+        lastVisible = messages.find(message => message.id === raw.id || message.contextBoundaryIds?.includes(raw.id)) ?? lastVisible;
+        if (lastVisible && lastVisible.id !== raw.id) {
+            lastVisible.contextBoundaryIds = [...new Set([...(lastVisible.contextBoundaryIds ?? []), raw.id])];
+        }
+    }
+    return {
+        messages,
+        tools,
+        draft,
+        attachments: Array.isArray(snapshot.contextAttachments)
+            ? snapshot.contextAttachments
+            : [],
+        taskStatusProjection: snapshot.taskStatusProjection ?? null,
+        permissionRequests: Array.isArray(snapshot.permissionRequests)
+            ? snapshot.permissionRequests
+            : [],
+        backgroundTasks: Array.isArray(snapshot.backgroundTasks)
+            ? snapshot.backgroundTasks
+            : [],
+        capabilityGrants: Array.isArray(snapshot.capabilityGrants)
+            ? snapshot.capabilityGrants
+            : [],
+        pendingInputCount: Math.max(
+            0,
+            (snapshot.latestInputSeq ?? 0) - (snapshot.handledInputSeq ?? 0),
+        ),
+        decisionResuming: decisionPauseResuming(snapshot),
+    };
+}
+
+export function useAiAgentChat({
+    deskId,
+    targetRefs,
+    connected,
+    queueOnly = false,
+    conversationStorageScope = deskId,
+    initialConversationId,
+    subscribe,
+    sendMessage,
+}: Props) {
+    const { t } = useTranslation();
+    // Changing language must not reset the conversation or its snapshot requests.
+    const translate = useRef(t);
+    const { toast } = useToast();
+    const toastRef = useRef(toast);
+    toastRef.current = toast;
+    translate.current = t;
+    const targetSelectionEnabled = Boolean(deskId) && connected !== undefined;
+    const temporaryConversationRef = useRef(false);
+    const [temporaryConversation, setTemporaryConversation] = useState(false);
+    const [contextUsage, setContextUsage] = useState<AgentContextUsage | null>(null);
+    const [contextNotices, setContextNotices] = useState<ContextNoticeDto[]>([]);
+    const [messages, setMessages] = useState<AiAgentMessage[]>([]);
+    const [tools, setTools] = useState<AiAgentToolActivity[]>([]);
+    const [draft, setDraft] = useState<ComputerActionDraftPreview | null>(null);
+    const [partial, setPartial] = useState('');
+    const [status, setStatus] = useState('idle');
+    const [error, setError] = useState<string | null>(null);
+    const pendingDelivery = useRef<{
+        id: string; question: string; conversation: string; requestId: string;
+        payload: Record<string, unknown>; sentAt: number;
+    } | null>(null);
+    const deliveryFailure = useRef<string | null>(null);
+    // A rejected approval stays visible while its card is still pending; a
+    // snapshot refresh of that pending state must not hide why it failed.
+    const decisionFailure = useRef<{ requestId: string; message: string } | null>(null);
+    const [deliveryState, setDeliveryState] = useState<'sending' | 'unconfirmed' | null>(null);
+    const [acceptedInput, setAcceptedInput] = useState<{ id: string; question: string } | null>(null);
+    const sentInputs = useRef<SentInput[]>([]);
+    const [sentInputView, setSentInputView] = useState<SentInput[]>([]);
+    const updateSentInputs = useCallback((update: (items: SentInput[]) => SentInput[]) => {
+        const next = update(sentInputs.current);
+        if (next.length === sentInputs.current.length && next.every((item, index) => item === sentInputs.current[index])) return;
+        sentInputs.current = next;
+        setSentInputView(next);
+    }, []);
+    const patchSentInput = useCallback((matches: (item: SentInput) => boolean, patch: (item: SentInput) => Partial<SentInput>) =>
+        updateSentInputs(items => items.map(item => matches(item) ? { ...item, ...patch(item) } : item)), [updateSentInputs]);
+    const removeSentInputs = useCallback((matches: (item: SentInput) => boolean) =>
+        updateSentInputs(items => items.filter(item => !matches(item))), [updateSentInputs]);
+    const acknowledgeDelivery = useCallback(() => {
+        const pending = pendingDelivery.current;
+        if (!pending) return;
+        console.info('[agent-input] accepted', { messageId: pending.id, requestId: pending.requestId });
+        const order = snapshotRequestOrder.current;
+        patchSentInput(item => item.id === pending.id && item.confirmedOrder === undefined, () => ({ confirmedOrder: order }));
+        setAcceptedInput({ id: pending.id, question: pending.question });
+        pendingDelivery.current = null;
+        deliveryFailure.current = null;
+        setDeliveryState(null);
+    }, [patchSentInput]);
+    useEffect(() => {
+        if (deliveryState !== 'sending') return;
+        const timer = window.setInterval(() => {
+            const pending = pendingDelivery.current;
+            if (pending && Date.now() - pending.sentAt >= 15_000) {
+                console.warn('[agent-input] receipt timeout', { messageId: pending.id, requestId: pending.requestId });
+                setDeliveryState('unconfirmed');
+            }
+        }, 1_000);
+        return () => window.clearInterval(timer);
+    }, [deliveryState]);
+    const [attachments, setAttachments] = useState<AiAgentContextAttachment[]>([]);
+    const [fileScope, setFileScope] = useState<AgentFileScopeView>({ revision: 0, directories: [] });
+    const directorySelectors = useRef<{ conversationId: string; clientRequestId: string } | null>(null);
+    const [hydrating, setHydrating] = useState(false);
+    const [historyRestoreFailed, setHistoryRestoreFailed] = useState(false);
+    const [remoteActive, setRemoteActive] = useState(false);
+    const [contextUpdating, setContextUpdating] = useState(false);
+    const [approvalInitializing, setApprovalInitializing] = useState(false);
+    const [approvalInitializationFailed, setApprovalInitializationFailed] = useState(false);
+    const approvalInitializationAttempt = useRef<string | null>(null);
+    const approvalContextRequest = useRef<string | null>(null);
+    const [taskStatusProjection, setTaskStatusProjection] =
+        useState<AiAgentTaskStatusProjection | null>(null);
+    const [goal, setGoal] = useState<AiAgentGoal | null>(null);
+    const [goalUpdating, setGoalUpdating] = useState(false);
+    const [pendingGoalOpenRequest, setPendingGoalOpenRequest] = useState<AiAgentGoalOpenRequest | null>(null);
+    const [goalOpenUpdating, setGoalOpenUpdating] = useState(false);
+    const [approvalDelegation, setApprovalDelegation] = useState<AiAgentApprovalDelegation | null>(null);
+    const [approvalModelReadiness, setApprovalModelReadiness] = useState<AiAgentApprovalModelReadiness | null>(null);
+    const [skillProposals, setSkillProposals] = useState<SkillProposalView[]>([]);
+    const [decisionPause, setDecisionPause] = useState<DecisionPauseDto | null>(null);
+    const [approvalUpdating, setApprovalUpdating] = useState(false);
+    const [permissionRequests, setPermissionRequests] = useState<PermissionRequestDto[]>([]);
+    const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTaskDto[]>([]);
+    const [commandTasks, setCommandTasks] = useState<CommandTaskDto[]>([]);
+    const [subagents, setSubagents] = useState<AiAgentDelegationSnapshot>({ active_tasks: [], task: null, tasks: null, parent_session_id: null, attention_tasks: [], attention_count: 0 });
+    const [mainStopped, setMainStopped] = useState(false);
+    const [taskCancelling, setTaskCancelling] = useState<string | null>(null);
+    const [capabilityGrants, setCapabilityGrants] = useState<CapabilityGrantDto[]>([]);
+    const [outcomeDisposing, setOutcomeDisposing] = useState(false);
+    const [permissionUpdating, setPermissionUpdating] = useState(false);
+    const [browserConnectionId, setBrowserConnectionId] = useState<string | null>(null);
+    const permissionSubmission = useRef<{ epoch: number } | null>(null);
+    useEffect(() => {
+        permissionSubmission.current = null;
+        setPermissionUpdating(false);
+        return () => { permissionSubmission.current = null; };
+    }, [deskId, connected]);
+    const [grantRevoking, setGrantRevoking] = useState<string | null>(null);
+    const [pendingInputCount, setPendingInputCount] = useState(0);
+    const [requestQueue, setRequestQueue] = useState<(AiAgentMainRequestsDto & { conversation: string }) | null>(null);
+    const [resumingQueue, setResumingQueue] = useState(false);
+    // Sending reads the latest rendered state, not the one its callback captured.
+    const visibleWork = useRef({ remoteActive, mainStopped, decisionPause, permissionRequests, requestQueue });
+    visibleWork.current = { remoteActive, mainStopped, decisionPause, permissionRequests, requestQueue };
+    const queueReadOrder = useRef(0);
+    const queuedSession = useRef<{ conversation: string; sessionId: string } | null>(null);
+    const queueStreamIds = useRef(new Set<string>());
+    const rememberQueueStream = useCallback((id: string) => {
+        const ids = queueStreamIds.current;
+        ids.add(id);
+        if (ids.size > 64) {
+            const oldest = ids.values().next().value;
+            if (oldest !== undefined) ids.delete(oldest);
+        }
+    }, []);
+    const [messagePage, setMessagePageState] = useState<MessagePage>({ hasMore: false, nextBeforeMessageId: null });
+    // Paging reads the latest cursor before React renders the previous page.
+    const messagePageRef = useRef<MessagePage>(messagePage);
+    const setMessagePage = useCallback((page: MessagePage) => {
+        messagePageRef.current = page;
+        setMessagePageState(page);
+    }, []);
+    // Set while the model summarizes earlier history; any later event ends it.
+    const [contextCompressing, setContextCompressing] = useState(false);
+    const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+    const [visualEvidence, setVisualEvidence] = useState<AiAgentVisualEvidence[]>([]);
+    const [documentPreviews, setDocumentPreviews] = useState<AiAgentDocumentPreview[]>([]);
+    const documentPreviewPageRequests = useRef(new Map<string, { previewId: string; deviceRef?: string; sessionId: string; page: number }>());
+    const [sessionTarget, setSessionTarget] = useState<SessionTargetDescriptor | null>(null);
+    const [sessionTargets, setSessionTargets] = useState<SessionTargetDescriptor[]>([]);
+    const [sessionTargetReady, setSessionTargetReady] = useState(!targetSelectionEnabled);
+    const [sessionTargetResolving, setSessionTargetResolving] = useState(false);
+    const activeRequest = useRef<string | null>(null);
+    const snapshotActiveRequest = useRef<string | null>(null);
+    const [stopping, setStopping] = useState(false);
+    const [stopConfirmation, setStopConfirmation] = useState<{
+        session: string; conversation: string; inputRevision: number; controlRevision: number;
+    } | null>(null);
+    const stopPending = useRef(false);
+    const stopOperation = useRef<object | null>(null);
+    const clearStopping = useCallback((force = false) => {
+        if (stopOperation.current && !force) return;
+        if (force) stopOperation.current = null;
+        stopPending.current = false;
+        setStopping(false);
+    }, []);
+    const contextRequest = useRef<string | null>(null);
+    const contextTimer = useRef<number | null>(null);
+    const conversationId = useRef<string | null>(null);
+    const snapshotEpoch = useRef(0);
+    const snapshotRequestOrder = useRef(0);
+    /**
+     * The local request the server has acknowledged, with the snapshot order
+     * current at that moment. Only a snapshot requested after the
+     * acknowledgement can prove that request ended; an older one may predate it.
+     */
+    const activeRequestAck = useRef<{ requestId: string; order: number } | null>(null);
+    const stoppingRequest = useRef<string | null>(null);
+    const acknowledgeActiveRequest = (requestId: string) => {
+        if (activeRequestAck.current?.requestId !== requestId) {
+            activeRequestAck.current = { requestId, order: snapshotRequestOrder.current };
+        }
+    };
+    const snapshotAcceptanceFloor = useRef(0);
+    const snapshotWatermark = useRef<{
+        conversationId: string;
+        sessionId: string;
+        seq: number;
+        requestOrder: number;
+        inputRevision?: number;
+        controlRevision: number;
+        settledRequestIds: Set<string>;
+    } | null>(null);
+    // Retain only durable snapshots, not optimistic/streaming messages. Once
+    // history is expanded, tail polling must not collapse the loaded window.
+    const historyWindow = useRef<{
+        conversationId: string;
+        sessionId: string;
+        expanded: boolean;
+        messages: AiAgentMessage[];
+        tools: AiAgentToolActivity[];
+        page: { hasMore: boolean; nextBeforeMessageId: string | null };
+    } | null>(null);
+    const olderRequest = useRef<object | null>(null);
+    const lastSeq = useRef(-1);
+    const sessionTargetRequest = useRef<string | null>(null);
+
+    /**
+     * A snapshot (`snapshotOrder` set) replaces the queue view as a whole; a
+     * separate list read only adds or updates receipts, because it can
+     * return after a newer snapshot already settled some of them.
+     */
+    const observeQueue = useCallback((conversation: string, queue: AiAgentMainRequestsDto, snapshotOrder?: number) => {
+        queuedSession.current = { conversation, sessionId: queue.sessionId };
+        setRequestQueue(current => {
+            if (snapshotOrder !== undefined || current?.conversation !== conversation
+                || current.sessionId !== queue.sessionId) return { ...queue, conversation };
+            const items = [...current.items];
+            for (const item of queue.items) {
+                const index = items.findIndex(existing => existing.requestId === item.requestId);
+                if (index === -1) items.push(item);
+                else items[index] = item;
+            }
+            return { ...current, items: items.sort((left, right) => left.acceptedAtMs - right.acceptedAtMs) };
+        });
+        for (const item of queue.items) {
+            if (isWaitingReceipt(item.state)) rememberQueueStream(item.requestId);
+            else queueStreamIds.current.delete(item.requestId);
+        }
+        const pending = pendingDelivery.current;
+        if (pending?.conversation === conversation
+            && queue.items.some(item => item.clientMessageId === pending.id)
+            && !pending.payload.start_goal) {
+            acknowledgeDelivery();
+        }
+        const failed = new Set(queue.items.filter(item => item.state === 'failed').map(item => item.clientMessageId));
+        // Server reads receipts before messages, so a snapshot requested after
+        // the acknowledgement without this input's text has already saved it.
+        const waiting = new Set(queue.items.filter(item => item.question != null).map(item => item.clientMessageId));
+        removeSentInputs(item => item.conversation === conversation && (failed.has(item.id)
+            || (snapshotOrder !== undefined && item.confirmedOrder !== undefined
+                && snapshotOrder > item.confirmedOrder && !waiting.has(item.id))));
+    }, [acknowledgeDelivery, rememberQueueStream, removeSentInputs]);
+
+    const loadRequestQueue = useCallback(async (expectedConversation: string) => {
+        const order = ++queueReadOrder.current;
+        const epoch = snapshotEpoch.current;
+        const saved = queuedSession.current;
+        const query = saved?.conversation === expectedConversation
+            ? new URLSearchParams({ session: saved.sessionId })
+            : new URLSearchParams(deskId
+                ? { connection: deskId, conversation: expectedConversation }
+                : { conversation: expectedConversation });
+        try {
+            const response = await fetch(`${REQUEST_QUEUE_PATH}?${query}`, {
+                credentials: 'include', cache: 'no-store', headers: { Accept: 'application/json' },
+                signal: AbortSignal.timeout(SNAPSHOT_TIMEOUT_MS),
+            });
+            const queue = response.ok ? (await response.json())?.data as AiAgentMainRequestsDto | undefined : undefined;
+            if (conversationId.current !== expectedConversation || epoch !== snapshotEpoch.current
+                || order !== queueReadOrder.current || !Array.isArray(queue?.items)
+                || typeof queue.sessionId !== 'string') return;
+            observeQueue(expectedConversation, queue);
+        } catch { /* Keep the last authoritative queue view on a failed read. */ }
+    }, [deskId, observeQueue]);
+
+    const cancelQueuedRequest = useCallback(async (requestId: string) => {
+        const saved = queuedSession.current;
+        if (!saved || conversationId.current !== saved.conversation) return;
+        try {
+            const response = await fetch(`${REQUEST_QUEUE_PATH}/cancel`, {
+                method: 'POST', credentials: 'include',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ session: saved.sessionId, requestId }),
+                signal: AbortSignal.timeout(SNAPSHOT_TIMEOUT_MS),
+            });
+            const body = response.ok ? await response.json() : null;
+            if (conversationId.current !== saved.conversation) return;
+            if (body?.success !== true) {
+                setError(agentErrorMessage(translate.current, body?.code, body?.message,
+                    'The AI Agent request could not be cancelled.'));
+            } else {
+                // Snapshots and list reads already in flight predate the cancel.
+                queueReadOrder.current += 1;
+                const clientMessageId = visibleWork.current.requestQueue?.items
+                    .find(item => item.requestId === requestId)?.clientMessageId;
+                setRequestQueue(current => current && { ...current,
+                    items: current.items.filter(item => item.requestId !== requestId) });
+                queueStreamIds.current.delete(requestId);
+                removeSentInputs(item => item.requestId === requestId || item.id === clientMessageId);
+            }
+        } catch {
+            if (conversationId.current === saved.conversation) setError('The AI Agent request could not be cancelled.');
+        }
+        if (conversationId.current === saved.conversation) await loadRequestQueue(saved.conversation);
+    }, [loadRequestQueue, removeSentInputs]);
+
+    const selectSessionTarget = useCallback((targetId?: string) => {
+        if (!targetSelectionEnabled || !connected || sessionTargetRequest.current) return false;
+        setSessionTargetResolving(true);
+        setError(null);
+        sessionTargetRequest.current = sendMessage(
+            SIGNALING_TYPE_CODE_SELECT_AI_AGENT_SESSION,
+            targetId ? { session_target_id: targetId } : {},
+            deskId,
+        );
+        return true;
+    }, [connected, deskId, sendMessage, targetSelectionEnabled]);
+
+    const requestDocumentPreviewPage = useCallback((previewId: string, page: number, deviceRef?: string) => {
+        const sessionId = snapshotWatermark.current?.conversationId === conversationId.current
+            ? snapshotWatermark.current.sessionId : undefined;
+        const preview = documentPreviews.find(item => item.descriptor.preview_id === previewId && item.deviceRef === deviceRef);
+        const device = deskId || preview?.deviceRef;
+        if (!device || connected === false || !sessionId || !preview || preview.loading
+            || !Number.isInteger(page) || page < 1 || page > preview.descriptor.page_count) return false;
+        const requestId = sendMessage(
+            SIGNALING_TYPE_CODE_REQUEST_DOCUMENT_PREVIEW_PAGE,
+            { conversation_id: sessionId, conversation_target: deskId ? 'fixed_device' : 'selectable_devices', preview_id: previewId, page, spec_version: 1 },
+            device,
+        );
+        documentPreviewPageRequests.current.set(requestId, { previewId, deviceRef, sessionId, page });
+        setDocumentPreviews(current => current.map(item => item.descriptor.preview_id === previewId && item.deviceRef === deviceRef
+            ? { ...item, loading: true, error: null } : item));
+        return true;
+    }, [connected, deskId, documentPreviews, sendMessage]);
+
+    useEffect(() => {
+        if (!targetSelectionEnabled) return;
+        if (!connected) {
+            sessionTargetRequest.current = null;
+            setSessionTarget(null);
+            setSessionTargets([]);
+            setSessionTargetReady(false);
+            setSessionTargetResolving(false);
+            return;
+        }
+        selectSessionTarget();
+    }, [connected, selectSessionTarget, targetSelectionEnabled]);
+
+    const loadSnapshot = useCallback(async (
+        expectedConversationId: string,
+        showHydrating = false,
+        reportFailure = false,
+        requireApprovalState = false,
+    ): Promise<'ready' | 'missing' | 'ignored' | 'failed'> => {
+        // A workbench root accepts durable requests but has no chat turn of its own.
+        if (queueOnly) return 'missing';
+        const expectedEpoch = snapshotEpoch.current;
+        const expectedRequestOrder = ++snapshotRequestOrder.current;
+        const expectedQueueOrder = queueReadOrder.current;
+        if (showHydrating) setHydrating(true);
+        const failed = () => {
+            if ((reportFailure || showHydrating) && snapshotEpoch.current === expectedEpoch
+                && conversationId.current === expectedConversationId
+                && expectedRequestOrder >= snapshotAcceptanceFloor.current
+                && expectedRequestOrder >= (snapshotWatermark.current?.requestOrder ?? 0)) {
+                setHistoryRestoreFailed(true);
+            }
+            return 'failed' as const;
+        };
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), SNAPSHOT_TIMEOUT_MS);
+        try {
+            const response = await fetch(
+                sessionQuery(deskId, expectedConversationId),
+            { credentials: 'include', cache: 'no-store', headers: { Accept: 'application/json' }, signal: controller.signal },
+            );
+            const body = response.ok ? await response.json() : null;
+            if (
+                snapshotEpoch.current !== expectedEpoch
+                || expectedRequestOrder < snapshotAcceptanceFloor.current
+                || conversationId.current !== expectedConversationId
+            ) return 'ignored';
+            if (!Array.isArray(body?.data?.messages)) {
+                const missing = response.ok && body?.success === false
+                    && body?.code === deskErrorCodeEnum.PERMISSION_ERROR && body.data == null;
+                return missing && !reportFailure ? 'missing' : failed();
+            }
+            const snapshot = body.data as PersistedSnapshot;
+            const pending = pendingDelivery.current;
+            if (pending?.conversation === expectedConversationId
+                && snapshot.messages.some(message => message.id === pending.id && message.role === 'user')) {
+                if (!pending.payload.start_goal && snapshot.requestId !== pending.requestId
+                    && activeRequest.current === pending.requestId) {
+                    activeRequest.current = null;
+                    activeRequestAck.current = null;
+                }
+                acknowledgeDelivery();
+            }
+            if (
+                typeof snapshot.sessionId !== 'string'
+                || snapshot.sessionId.length === 0
+                || !Number.isSafeInteger(snapshot.seq)
+                || snapshot.seq < 0
+                || !Number.isSafeInteger(snapshot.controlRevision) || snapshot.controlRevision < 1
+                || typeof snapshot.mainStopped !== 'boolean'
+                || !snapshot.subagents || !Array.isArray(snapshot.subagents.active_tasks)
+                || !Array.isArray(snapshot.subagents.attention_tasks) || !Number.isSafeInteger(snapshot.subagents.attention_count)
+                || snapshot.subagents.attention_count < 0
+                || snapshot.subagents.task !== null || snapshot.subagents.parent_session_id !== null
+                || (requireApprovalState && typeof snapshot.approvalModelReadiness?.available !== 'boolean')
+            ) return failed();
+            const watermark = snapshotWatermark.current;
+            if (
+                watermark
+                && (
+                    watermark.conversationId !== expectedConversationId
+                    || (
+                        watermark.sessionId === snapshot.sessionId
+                        && (snapshot.seq < watermark.seq || (snapshot.seq === watermark.seq
+                            && expectedRequestOrder <= watermark.requestOrder))
+                    )
+                    || (
+                        watermark.sessionId !== snapshot.sessionId
+                        && expectedRequestOrder <= watermark.requestOrder
+                    )
+                )
+            ) return 'ignored';
+            if (typeof snapshot.temporaryConversation === 'boolean') {
+                temporaryConversationRef.current = snapshot.temporaryConversation;
+                setTemporaryConversation(snapshot.temporaryConversation);
+            }
+            const settledRequestIds = new Set<string>();
+            if (!snapshot.active && snapshot.requestId) settledRequestIds.add(snapshot.requestId);
+            const inputHandled = !snapshot.active && (snapshot.latestInputSeq ?? 0) > 0
+                && snapshot.handledInputSeq === snapshot.latestInputSeq;
+            // A continuation keeps the input revision and uses a new stream ID.
+            if (typeof snapshot.inputRevision === 'number' && Array.isArray(snapshot.mainRequests)) {
+                for (const item of snapshot.mainRequests) {
+                    if (item.state === 'activated' && typeof item.inputRevision === 'number'
+                        && item.inputRevision <= snapshot.inputRevision
+                        && (inputHandled || (snapshot.active && snapshot.requestId && snapshot.requestId !== item.requestId))) {
+                        settledRequestIds.add(item.requestId);
+                    }
+                }
+            }
+            snapshotWatermark.current = {
+                conversationId: expectedConversationId,
+                sessionId: snapshot.sessionId,
+                seq: snapshot.seq,
+                requestOrder: expectedRequestOrder,
+                inputRevision: snapshot.inputRevision,
+                controlRevision: snapshot.controlRevision,
+                settledRequestIds,
+            };
+            if (expectedQueueOrder === queueReadOrder.current && Array.isArray(snapshot.mainRequests)) {
+                queueReadOrder.current += 1;
+                observeQueue(expectedConversationId, { sessionId: snapshot.sessionId, items: snapshot.mainRequests }, expectedRequestOrder);
+            }
+            setHistoryRestoreFailed(false);
+            setStopConfirmation(current => current && (current.session !== snapshot.sessionId
+                || current.inputRevision !== snapshot.inputRevision || current.controlRevision !== snapshot.controlRevision)
+                ? null : current);
+            snapshotActiveRequest.current = snapshot.active ? snapshot.requestId ?? null : null;
+            const local = activeRequest.current;
+            if (local && snapshot.active && snapshot.requestId === local) acknowledgeActiveRequest(local);
+            const ack = activeRequestAck.current;
+            if (local && (settledRequestIds.has(local) || (ack?.requestId === local
+                && expectedRequestOrder > ack.order && (!snapshot.active || snapshot.requestId !== local)))) {
+                // A snapshot newer than the acknowledgement shows the local
+                // request is over (its terminal event was lost). Stop targeting
+                // it: the server's active request, if any, is the current one.
+                activeRequest.current = null;
+                activeRequestAck.current = null;
+                setPartial('');
+                if (stoppingRequest.current === local) clearStopping();
+            }
+            if (!snapshot.active) {
+                if (!stopPending.current) clearStopping();
+            }
+            setContextUsage(snapshot.contextUsage ?? null);
+            setContextNotices([...new Map((snapshot.contextNotices ?? []).map(notice => [notice.id, notice])).values()]);
+            const projected = projectPersistedSnapshot(snapshot);
+            const previous = historyWindow.current;
+            const expanded = previous?.conversationId === expectedConversationId
+                && previous.sessionId === snapshot.sessionId && previous.expanded;
+            const windowMessages = expanded
+                ? mergeAgentMessages(previous.messages, projected.messages) : projected.messages;
+            const windowTools = expanded
+                ? projected.tools.reduce((items, tool) => upsertTool(items, tool), previous.tools) : projected.tools;
+            const page = expanded ? previous.page : {
+                hasMore: Boolean(snapshot.messagePage?.hasMore),
+                nextBeforeMessageId: snapshot.messagePage?.nextBeforeMessageId ?? null,
+            };
+            historyWindow.current = {
+                conversationId: expectedConversationId, sessionId: snapshot.sessionId,
+                expanded: Boolean(expanded), messages: windowMessages, tools: windowTools, page,
+            };
+
+            setAttachments(projected.attachments);
+            setFileScope(snapshot.fileScope ?? { revision: 0, directories: [] });
+            setTaskStatusProjection(projected.taskStatusProjection);
+            setGoal(snapshot.goal ?? null);
+            setPendingGoalOpenRequest(snapshot.pendingGoalOpenRequest ?? null);
+            setApprovalDelegation(snapshot.approvalDelegation ?? null);
+            setApprovalModelReadiness(snapshot.approvalModelReadiness ?? null);
+            setSkillProposals(snapshot.skillProposals ?? []);
+            setDecisionPause(snapshot.decisionPause ?? null);
+            if (typeof snapshot.approvalModelReadiness?.available === 'boolean') setApprovalInitializationFailed(false);
+            setPermissionRequests(projected.permissionRequests);
+            setBackgroundTasks(projected.backgroundTasks);
+            setCommandTasks(snapshot.commandTasks ?? []);
+            setSubagents(snapshot.subagents);
+            setMainStopped(snapshot.mainStopped);
+            setCapabilityGrants(projected.capabilityGrants);
+            setPendingInputCount(projected.pendingInputCount);
+            setMessagePage(page);
+            setVisualEvidence((current) => (snapshot.visualEvidence ?? []).reduce(
+                (items, next) => upsertVisualEvidence(items, next),
+                [] as AiAgentVisualEvidence[],
+            ).map((next) => {
+                const live = current.find((item) => item.evidence_id === next.evidence_id);
+                return live?.preview_data_url && !next.preview_data_url
+                    ? { ...next, status: live.status, preview_data_url: live.preview_data_url }
+                    : next;
+            }));
+            // The stream can preview text, but only the snapshot orders
+            // committed reasoning, tool calls, and results.
+            setMessages(windowMessages);
+            removeSentInputs(item => item.conversation === expectedConversationId
+                && windowMessages.some(message => message.id === item.id));
+            setTools(windowTools);
+            setDraft(projected.draft);
+            if (activeRequest.current) {
+                const previousIds = new Set(previous?.messages.map(message => message.id));
+                const committedText = projected.messages.filter(message => message.role === 'assistant'
+                    && message.text && !previousIds.has(message.id));
+                if (committedText.length) {
+                    setPartial(current => committedText.some(message => message.text.startsWith(current)) ? '' : current);
+                }
+            }
+            setRemoteActive(Boolean(snapshot.active || activeRequest.current));
+            if (!activeRequest.current) {
+                setPartial('');
+                const last = projected.messages.at(-1);
+                if (deliveryFailure.current) {
+                    setStatus('error');
+                    setError(deliveryFailure.current);
+                } else if (snapshot.active) {
+                    setStatus('modeling');
+                    setError(null);
+                } else if (snapshot.terminalError) {
+                    setStatus('error');
+                    setError(agentErrorMessage(translate.current, snapshot.terminalError.error_code,
+                        snapshot.terminalError.message, 'The AI Agent turn could not complete.'));
+
+                } else if (snapshot.mainStopped) {
+                    setStatus('cancelled');
+                    setError(null);
+                } else if (snapshot.decisionPause) {
+                    // The turn ended on a request; a decided one waits for the server to resume.
+                    setStatus(projected.decisionResuming ? 'resuming' : 'decision_required');
+                    setError(null);
+                } else if (snapshot.goal && !['completed', 'failed', 'cancelled'].includes(snapshot.goal.state)) {
+                    setStatus(snapshot.goal.state === 'waiting_approval' ? 'permission_required' : 'done');
+                    setError(null);
+                } else if (projected.permissionRequests.some((request) => request.state === 'pending')
+                    || snapshot.fileScope?.directories.some(directory => directory.state === 'pending')) {
+                    setStatus('permission_required');
+                    const failure = decisionFailure.current;
+                    const failedStillPending = failure && projected.permissionRequests.some((request) =>
+                        request.requestId === failure.requestId && request.state === 'pending');
+                    if (!failedStillPending) decisionFailure.current = null;
+                    setError(failedStillPending ? failure.message : null);
+                } else if (projected.permissionRequests.some((request) =>
+                    request.inputRevision === snapshot.inputRevision
+                    && ['approved', 'partially_approved', 'denied'].includes(request.state),
+                )) {
+                    setStatus('done');
+                    setError(null);
+                } else if (last?.role === 'assistant' || last?.role === 'tool_result') {
+                    setStatus('done');
+                    setError(null);
+                } else if (last?.role === 'user') {
+                    setStatus('error');
+                    // A snapshot has no terminal error payload; keep the more
+                    // specific failure already received for this turn.
+                    setError((current) => current ?? 'The AI Agent turn ended before producing an answer.');
+                } else {
+                    setStatus('idle');
+                    setError(null);
+                }
+            }
+            return 'ready';
+        } catch {
+            // A transient poll failure must not erase the last durable view.
+            return failed();
+        } finally {
+            window.clearTimeout(timeout);
+            if (
+                showHydrating
+                && snapshotEpoch.current === expectedEpoch
+                && conversationId.current === expectedConversationId
+            ) {
+                setHydrating(false);
+            }
+        }
+    }, [acknowledgeDelivery, deskId, observeQueue, queueOnly, removeSentInputs]);
+
+    const timelineRead = useRef<{ conversation: string; epoch: number; invalidated: boolean } | null>(null);
+    const refreshTimeline = useCallback((invalidated = false) => {
+        const conversation = conversationId.current;
+        if (!conversation) return;
+        const epoch = snapshotEpoch.current;
+        const current = timelineRead.current;
+        if (current?.conversation === conversation && current.epoch === epoch) {
+            current.invalidated ||= invalidated;
+            return;
+        }
+        const read = { conversation, epoch, invalidated: false };
+        timelineRead.current = read;
+        void (async () => {
+            try {
+                do {
+                    read.invalidated = false;
+                    const outcome = await loadSnapshot(conversation);
+                    if (timelineRead.current !== read || conversationId.current !== conversation
+                        || snapshotEpoch.current !== epoch) return;
+                    if (outcome === 'missing' || !snapshotWatermark.current) await loadRequestQueue(conversation);
+                } while (read.invalidated && timelineRead.current === read
+                    && conversationId.current === conversation && snapshotEpoch.current === epoch);
+            } finally {
+                if (timelineRead.current === read) timelineRead.current = null;
+            }
+        })();
+    }, [loadRequestQueue, loadSnapshot]);
+
+    const loadOlderMessages = useCallback(async (): Promise<boolean> => {
+        const cursor = messagePageRef.current.nextBeforeMessageId;
+        const expectedConversationId = conversationId.current;
+        const watermark = snapshotWatermark.current;
+        if (!messagePageRef.current.hasMore || !cursor || !expectedConversationId || !watermark || olderRequest.current) {
+            return false;
+        }
+        const expectedEpoch = snapshotEpoch.current;
+        const request = {};
+        olderRequest.current = request;
+        setLoadingOlderMessages(true);
+        try {
+            const response = await fetch(
+                sessionQuery(deskId, expectedConversationId)
+                + `&message_before=${encodeURIComponent(cursor)}&message_limit=100`,
+                { credentials: 'include', headers: { Accept: 'application/json' } },
+            );
+            const body = response.ok ? await response.json() : null;
+            const snapshot = body?.data as PersistedSnapshot | undefined;
+            if (
+                !snapshot
+                || snapshotEpoch.current !== expectedEpoch
+                || olderRequest.current !== request
+                || snapshotWatermark.current?.sessionId !== watermark.sessionId
+                || conversationId.current !== expectedConversationId
+                || snapshot.sessionId !== watermark.sessionId
+                || !Number.isSafeInteger(snapshot.seq) || snapshot.seq < watermark.seq
+                || !Array.isArray(snapshot.messages)
+            ) return false;
+            const projected = projectPersistedSnapshot(snapshot);
+            const current = historyWindow.current;
+            if (!current || current.conversationId !== expectedConversationId
+                || current.sessionId !== snapshot.sessionId) return false;
+            const page = {
+                hasMore: Boolean(snapshot.messagePage?.hasMore),
+                nextBeforeMessageId: snapshot.messagePage?.nextBeforeMessageId ?? null,
+            };
+            historyWindow.current = {
+                ...current, expanded: true, page,
+                messages: mergeAgentMessages(projected.messages, current.messages),
+                tools: current.tools.reduce((items, tool) => upsertTool(items, tool), projected.tools),
+            };
+            setMessages((messages) => mergeAgentMessages(projected.messages, messages));
+            setTools((tools) => tools.reduce((items, tool) => upsertTool(items, tool), projected.tools));
+            setMessagePage(page);
+            return true;
+        } finally {
+            if (olderRequest.current === request) {
+                olderRequest.current = null;
+                setLoadingOlderMessages(false);
+            }
+        }
+    }, [deskId, setMessagePage]);
+
+    /** Loads earlier pages until a message is present, within a small page budget. */
+    const revealMessage = useCallback(async (id: string): Promise<boolean> => {
+        const conversation = conversationId.current;
+        for (let page = 0; ; page += 1) {
+            if (historyWindow.current?.messages.some(message => matchesAgentMessage(message, id))) return true;
+            if (page >= REVEAL_PAGE_LIMIT || conversationId.current !== conversation || !await loadOlderMessages()) return false;
+        }
+    }, [loadOlderMessages]);
+
+    useEffect(() => {
+        let stored: string | null = null;
+        try {
+            stored = initialConversationId
+                ?? localStorage.getItem(storageKey(conversationStorageScope));
+        } catch {
+            stored = null;
+        }
+        snapshotEpoch.current += 1;
+        snapshotWatermark.current = null;
+        queuedSession.current = null;
+        queueStreamIds.current.clear();
+        setRequestQueue(null);
+        historyWindow.current = null;
+        olderRequest.current = null;
+        setContextCompressing(false);
+        pendingDelivery.current = null;
+        deliveryFailure.current = null;
+        setDeliveryState(null);
+        setAcceptedInput(null);
+        removeSentInputs(() => true);
+        conversationId.current = stored;
+        temporaryConversationRef.current = false;
+        setTemporaryConversation(false);
+        setMessages([]);
+        setTools([]);
+        setDraft(null);
+        setPartial('');
+        setStatus('idle');
+        setError(null);
+        setHistoryRestoreFailed(false);
+        setAttachments([]);
+        setFileScope({ revision: 0, directories: [] });
+        directorySelectors.current = null;
+        setVisualEvidence([]);
+        setContextUsage(null);
+        setContextNotices([]);
+        setRemoteActive(false);
+        activeRequest.current = null;
+        snapshotActiveRequest.current = null;
+        clearStopping(true);
+        contextRequest.current = null;
+        if (contextTimer.current !== null) window.clearTimeout(contextTimer.current);
+        contextTimer.current = null;
+        setContextUpdating(false);
+        setTaskStatusProjection(null);
+        setGoal(null);
+        setPendingGoalOpenRequest(null);
+        setApprovalDelegation(null);
+        setApprovalModelReadiness(null);
+        setSkillProposals([]);
+        setDecisionPause(null);
+        setApprovalInitializing(false);
+        setApprovalInitializationFailed(false);
+        approvalInitializationAttempt.current = null;
+        approvalContextRequest.current = null;
+        setPermissionRequests([]);
+        setBackgroundTasks([]);
+        setCommandTasks([]);
+        setSubagents({ active_tasks: [], task: null, tasks: null, parent_session_id: null, attention_tasks: [], attention_count: 0 });
+        setMainStopped(false);
+        setStopConfirmation(null);
+        setCapabilityGrants([]);
+        setOutcomeDisposing(false);
+        setPermissionUpdating(false);
+        setGrantRevoking(null);
+        setPendingInputCount(0);
+        setMessagePage({ hasMore: false, nextBeforeMessageId: null });
+        setLoadingOlderMessages(false);
+        lastSeq.current = -1;
+        if (!stored) return;
+
+        void loadSnapshot(stored, true).then(outcome => {
+            if (outcome === 'missing') return loadRequestQueue(stored);
+        });
+    }, [conversationStorageScope, initialConversationId, loadRequestQueue, loadSnapshot, removeSentInputs]);
+
+    useEffect(() => {
+        const interval = window.setInterval(refreshTimeline, 2_000);
+        return () => {
+            window.clearInterval(interval);
+            timelineRead.current = null;
+        };
+    }, [refreshTimeline]);
+
+    useEffect(() => {
+        const onStorage = (event: StorageEvent) => {
+            if (
+                event.key !== storageKey(conversationStorageScope)
+                || event.newValue === conversationId.current
+            ) {
+                return;
+            }
+            activeRequest.current = null;
+            snapshotActiveRequest.current = null;
+            clearStopping(true);
+            contextRequest.current = null;
+            if (contextTimer.current !== null) window.clearTimeout(contextTimer.current);
+            contextTimer.current = null;
+            setContextUpdating(false);
+            setTaskStatusProjection(null);
+            setGoal(null);
+            setPendingGoalOpenRequest(null);
+            setApprovalDelegation(null);
+            setApprovalModelReadiness(null);
+            setSkillProposals([]);
+            setDecisionPause(null);
+            setApprovalInitializing(false);
+            setApprovalInitializationFailed(false);
+            approvalInitializationAttempt.current = null;
+            approvalContextRequest.current = null;
+            setPermissionRequests([]);
+            setBackgroundTasks([]);
+            setCommandTasks([]);
+            setSubagents({ active_tasks: [], task: null, tasks: null, parent_session_id: null, attention_tasks: [], attention_count: 0 });
+            setMainStopped(false);
+            setStopConfirmation(null);
+            setCapabilityGrants([]);
+            setPermissionUpdating(false);
+            setGrantRevoking(null);
+            setPendingInputCount(0);
+            snapshotEpoch.current += 1;
+            snapshotWatermark.current = null;
+            queuedSession.current = null;
+            queueStreamIds.current.clear();
+            setRequestQueue(null);
+            historyWindow.current = null;
+            olderRequest.current = null;
+            setContextCompressing(false);
+            setMessagePage({ hasMore: false, nextBeforeMessageId: null });
+            setLoadingOlderMessages(false);
+            conversationId.current = event.newValue;
+            temporaryConversationRef.current = false;
+            setTemporaryConversation(false);
+            lastSeq.current = -1;
+            setMessages([]);
+            setTools([]);
+            setDraft(null);
+            setPartial('');
+            setError(null);
+            setHistoryRestoreFailed(false);
+            setAttachments([]);
+            setFileScope({ revision: 0, directories: [] });
+            directorySelectors.current = null;
+            setVisualEvidence([]);
+            setDocumentPreviews([]);
+            documentPreviewPageRequests.current.clear();
+            setContextUsage(null);
+            setContextNotices([]);
+            setRemoteActive(false);
+            setStatus('idle');
+            if (event.newValue) {
+                const selected = event.newValue;
+                void loadSnapshot(selected, true).then(outcome => {
+                    if (outcome === 'missing') return loadRequestQueue(selected);
+                });
+            }
+        };
+        window.addEventListener('storage', onStorage);
+        return () => window.removeEventListener('storage', onStorage);
+    }, [conversationStorageScope, loadRequestQueue, loadSnapshot]);
+
+    useEffect(() => () => {
+        if (contextTimer.current !== null) window.clearTimeout(contextTimer.current);
+    }, []);
+
+    useEffect(() => subscribe((message: SignalingMessage) => {
+        // Inbound frames name this client's own signaling connection; an
+        // interactive command's terminal carrier is bound to it.
+        if (message.to_connection_id) setBrowserConnectionId(message.to_connection_id);
+        // The server refused the input frame itself (for example, the device
+        // reconnected): it will never be accepted, so report it instead of
+        // waiting for a receipt.
+        if (message.signaling_type === SIGNALING_TYPE_CODE_ERROR && message.request_id
+            && pendingDelivery.current?.requestId === message.request_id) {
+            const rejected = pendingDelivery.current;
+            const failure = agentErrorMessage(translate.current, message.response_state?.error_code,
+                message.response_state?.message, 'The message could not be delivered.');
+            deliveryFailure.current = failure;
+            pendingDelivery.current = null;
+            setDeliveryState(null);
+            removeSentInputs(item => item.id === rejected.id);
+            setError(failure);
+            return;
+        }
+        if (message.signaling_type === SIGNALING_TYPE_CODE_DOCUMENT_PREVIEW_PAGE_UPDATED) {
+            if (!message.request_id) return;
+            const pending = documentPreviewPageRequests.current.get(message.request_id);
+            if (!pending) return;
+            documentPreviewPageRequests.current.delete(message.request_id);
+            const response = message.signaling_data as AiAgentDocumentPreviewPageResponse | null;
+            setDocumentPreviews(current => current.map(item => {
+                if (item.descriptor.preview_id !== pending.previewId || item.deviceRef !== pending.deviceRef) return item;
+                if (!response || response.conversation_id !== pending.sessionId || response.preview_id !== pending.previewId
+                    || response.page !== pending.page || !response.frame) {
+                    return { ...item, loading: false,
+                        error: response?.error ?? translate.current('pages.aiAgent.documentPreview.loadFailed') };
+                }
+                return { ...item, page: response.frame.page,
+                    preview_data_url: response.frame.preview_data_url, loading: false, error: null };
+            }));
+            return;
+        }
+        if (
+            message.signaling_type === SIGNALING_TYPE_CODE_AI_AGENT_SESSION_SELECTED
+            && sessionTargetRequest.current
+            && message.request_id === sessionTargetRequest.current
+        ) {
+            sessionTargetRequest.current = null;
+            setSessionTargetResolving(false);
+            const errorCode = message.response_state?.error_code;
+            if (errorCode !== deskErrorCodeEnum.SUCCESS) {
+                const list = parseSessionTargetList(message.signaling_data);
+                setSessionTarget(null);
+                setSessionTargetReady(false);
+                setSessionTargets(list?.targets.filter((target) => target.agent_ready) ?? []);
+                if (!list?.targets.length) {
+                    setError(message.response_state?.message ?? 'No AI Agent desktop session is available.');
+                }
+                return;
+            }
+            const selected = message.signaling_data as {
+                target?: SessionTargetDescriptor | null;
+            } | null;
+            setSessionTarget(selected?.target ?? null);
+            setSessionTargets([]);
+            setSessionTargetReady(true);
+            return;
+        }
+        if (
+            (
+                message.signaling_type === SIGNALING_TYPE_CODE_AI_AGENT_CONTEXT_UPDATED
+                || message.signaling_type ===
+                    SIGNALING_TYPE_CODE_AI_AGENT_OBJECT_CONTEXT_UPDATED
+            )
+            && contextRequest.current
+            && message.request_id === contextRequest.current
+        ) {
+            const ack = message.signaling_data as { error?: string | null; conversation_id?: string; client_request_id?: string };
+            if (directorySelectors.current && (
+                message.signaling_type !== SIGNALING_TYPE_CODE_AI_AGENT_OBJECT_CONTEXT_UPDATED
+                || ack?.conversation_id !== directorySelectors.current.conversationId
+                || ack?.client_request_id !== directorySelectors.current.clientRequestId
+            )) return;
+            directorySelectors.current = null;
+            if (contextTimer.current !== null) window.clearTimeout(contextTimer.current);
+            contextTimer.current = null;
+            contextRequest.current = null;
+            setContextUpdating(false);
+            if (ack.error) setError(ack.error);
+            const initializingApproval = approvalContextRequest.current === message.request_id;
+            if (initializingApproval) approvalContextRequest.current = null;
+            if (conversationId.current) {
+                const selected = conversationId.current;
+                void loadSnapshot(selected, false, false, initializingApproval).then(outcome => {
+                    if (initializingApproval && conversationId.current === selected && outcome !== 'ignored') {
+                        setApprovalInitializationFailed(outcome !== 'ready' || Boolean(ack.error));
+                    }
+                });
+            }
+            return;
+        }
+        if (message.signaling_type !== SIGNALING_TYPE_CODE_AI_AGENT_UPDATED) return;
+        const event = message.signaling_data as AiAgentEvent;
+        if (!event || message.request_id !== event.request_id) return;
+        const pending = pendingDelivery.current;
+        const currentSubmission = pending?.requestId === event.request_id;
+        if (event.kind === 'status' && event.status === 'queued') {
+            // The server's view of whether this input waits decides where it
+            // shows; without it, the guess made at sending stays.
+            const waiting = event.main_request_waiting;
+            patchSentInput(item => item.streamId === event.request_id, item => ({
+                requestId: event.main_request_id ?? item.requestId,
+                busy: typeof waiting === 'boolean' ? waiting : item.busy,
+            }));
+        }
+        if (event.kind === 'status' && event.status === 'queued' && currentSubmission
+            && event.main_request_id && event.main_request_session_id && conversationId.current) {
+            const selected = conversationId.current;
+            queuedSession.current = { conversation: selected, sessionId: event.main_request_session_id };
+            rememberQueueStream(event.main_request_id);
+            // The intake status may have bound the submission stream. A queued
+            // input runs under its durable request id, so release it.
+            if (activeRequest.current === event.request_id) {
+                activeRequest.current = null;
+                activeRequestAck.current = null;
+            }
+            acknowledgeDelivery();
+            if (!activeRequest.current && !snapshotActiveRequest.current) setStatus('queued');
+            void loadRequestQueue(selected);
+            void loadSnapshot(selected);
+            return;
+        }
+        if (currentSubmission && !pending.payload.start_goal
+            && event.kind === 'error' && event.seq <= 1 && !stopPending.current) {
+            const failure = agentErrorMessage(translate.current, event.error?.error_code,
+                event.error?.message, 'The AI Agent turn could not complete.');
+            // The page is about to look the device up again and remount; a
+            // global notice outlives that, and the composer text is kept.
+            if (isTargetGoneCode(event.error?.error_code)) {
+                toastRef.current({ title: translate.current('pages.aiAgent.deviceReconnectedInputKept') });
+            }
+            deliveryFailure.current = failure;
+            pendingDelivery.current = null;
+            setDeliveryState(null);
+            removeSentInputs(item => item.id === pending.id);
+            setError(failure);
+            if (!activeRequest.current && !snapshotActiveRequest.current) setStatus('error');
+            if (conversationId.current) void loadSnapshot(conversationId.current);
+            return;
+        }
+        const currentSession = snapshotWatermark.current?.sessionId ?? queuedSession.current?.sessionId;
+        const streamSettled = snapshotWatermark.current?.settledRequestIds.has(event.request_id);
+        const resumesQueuedStream = !streamSettled && event.kind === 'turn_started'
+            && event.main_request_session_id === currentSession
+            && !!event.main_request_id && queueStreamIds.current.has(event.main_request_id);
+        const beginsQueuedStream = resumesQueuedStream || (!streamSettled && queueStreamIds.current.has(event.request_id)
+            && (event.kind === 'turn_started' || (event.kind === 'status' && event.status === 'accepted')));
+        const observesSnapshotStream = !streamSettled && snapshotActiveRequest.current === event.request_id;
+        if ((!activeRequest.current && (currentSubmission || beginsQueuedStream || observesSnapshotStream))
+            || (resumesQueuedStream && activeRequest.current === event.main_request_id)) {
+            activeRequest.current = event.request_id;
+            lastSeq.current = -1;
+            setPartial('');
+            setRemoteActive(true);
+        }
+        if (message.request_id !== activeRequest.current) return;
+        if (event.seq <= lastSeq.current) return;
+        lastSeq.current = event.seq;
+        // The linked resume starts after the native claim. An ordinary start
+        // and its intake acknowledgement can precede the claim.
+        if (resumesQueuedStream || (event.kind !== 'turn_started' && event.status !== 'accepting'
+            && !(event.status === 'accepted' && queueStreamIds.current.has(event.request_id)))) {
+            acknowledgeActiveRequest(message.request_id);
+        }
+
+        if (event.kind === 'status' && event.status === 'accepted' && currentSubmission) acknowledgeDelivery();
+        if (event.kind === 'error' && event.seq <= 1 && currentSubmission && !stopPending.current) {
+            deliveryFailure.current = agentErrorMessage(translate.current, event.error?.error_code,
+                event.error?.message, 'The AI Agent turn could not complete.');
+            const rejectedId = pending.id;
+            pendingDelivery.current = null;
+            setDeliveryState(null);
+            removeSentInputs(item => item.id === rejectedId);
+        }
+        if ((event.kind === 'error' || event.kind === 'retracted') && currentSubmission && pendingDelivery.current) setDeliveryState('unconfirmed');
+        setContextCompressing(event.kind === 'status' && event.status === 'context_compressing');
+        switch (event.kind) {
+            case 'status':
+                setStatus(event.status ?? 'running');
+                break;
+            case 'partial':
+                setPartial((current) => current + (event.partial_summary ?? ''));
+                break;
+            case 'partial_committed':
+                refreshTimeline(true);
+                break;
+            case 'turn_started':
+                if (resumesQueuedStream) setStatus('modeling');
+                break;
+            case 'tool_started':
+                setPartial('');
+                setStatus(event.awaiting_approval ? 'permission_required' : 'using_tool');
+                refreshTimeline(true);
+                break;
+            case 'tool_finished':
+                setPartial('');
+                refreshTimeline(true);
+                break;
+            case 'visual_evidence':
+                if (event.visual_evidence) {
+                    setVisualEvidence((current) => upsertVisualEvidence(current, event.visual_evidence!));
+                }
+                break;
+            case 'document_preview':
+                if (event.document_preview) {
+                    setDocumentPreviews(current => [
+                        ...current.filter(preview => preview.descriptor.preview_id !== event.document_preview!.descriptor.preview_id
+                            || preview.deviceRef !== (event.document_preview_target_ref ?? undefined)),
+                        { ...event.document_preview!, deviceRef: event.document_preview_target_ref ?? undefined },
+                    ]);
+                }
+                break;
+            case 'answer':
+            case 'permission_required':
+                if (event.kind === 'answer') queueStreamIds.current.delete(event.request_id);
+                snapshotAcceptanceFloor.current = snapshotRequestOrder.current + 1;
+                snapshotActiveRequest.current = null;
+                setPartial('');
+                setStatus(event.kind === 'answer' ? 'done' : 'permission_required');
+                activeRequest.current = null;
+                activeRequestAck.current = null;
+                clearStopping();
+                setRemoteActive(false);
+                refreshTimeline(true);
+                break;
+            case 'error':
+            case 'retracted':
+                queueStreamIds.current.delete(event.request_id);
+                setError(agentErrorMessage(translate.current, event.error?.error_code,
+                    event.error?.message, 'The AI Agent turn could not complete.'));
+                setPartial('');
+                setStatus('error');
+                activeRequest.current = null;
+                clearStopping();
+                setRemoteActive(false);
+                if (conversationId.current) void loadSnapshot(conversationId.current);
+                break;
+        }
+    }), [acknowledgeDelivery, loadRequestQueue, loadSnapshot, patchSentInput, refreshTimeline, rememberQueueStream, removeSentInputs, subscribe]);
+
+    const ensureConversation = useCallback(() => {
+        if (!conversationId.current) {
+            snapshotEpoch.current += 1;
+            snapshotWatermark.current = null;
+            historyWindow.current = null;
+            olderRequest.current = null;
+            setContextCompressing(false);
+            conversationId.current = v4();
+            try {
+                localStorage.setItem(
+                    storageKey(conversationStorageScope),
+                    conversationId.current,
+                );
+            } catch {
+                // Conversation remains valid for this tab.
+            }
+        }
+        return conversationId.current!;
+    }, [conversationStorageScope]);
+
+    const updateContext = useCallback((selectedCapabilityIds: string[], sourceConnection?: string) => {
+        const connection = deskId || sourceConnection;
+        if (!connection) return false;
+        if (activeRequest.current || remoteActive || contextRequest.current) return false;
+        const currentConversationId = ensureConversation();
+        const clientRequestId = v4();
+        setContextUpdating(true);
+        setError(null);
+        contextRequest.current = sendMessage(
+            SIGNALING_TYPE_CODE_UPDATE_AI_AGENT_CONTEXT,
+            {
+                conversation_id: currentConversationId,
+                client_request_id: clientRequestId,
+                selected_capability_ids: [...selectedCapabilityIds],
+                conversation_target: deskId ? 'fixed_device' : 'selectable_devices',
+            },
+            connection,
+        );
+        contextTimer.current = window.setTimeout(() => {
+            contextTimer.current = null;
+            if (approvalContextRequest.current !== null && approvalContextRequest.current === contextRequest.current) {
+                approvalContextRequest.current = null;
+                setApprovalInitializationFailed(true);
+            }
+            contextRequest.current = null;
+            setContextUpdating(false);
+            setError('AI Agent context update timed out.');
+            if (conversationId.current) void loadSnapshot(conversationId.current);
+        }, 10_000);
+        return true;
+    }, [deskId, ensureConversation, loadSnapshot, remoteActive, sendMessage]);
+
+    const initializeApprovalConversation = useCallback(async (retry = false) => {
+        if (connected === false || hydrating || approvalInitializing
+            || activeRequest.current || remoteActive || contextRequest.current) return false;
+        const selected = ensureConversation();
+        if (snapshotWatermark.current?.conversationId === selected && approvalModelReadiness) return true;
+        if (!retry && approvalInitializationAttempt.current === selected) return false;
+        approvalInitializationAttempt.current = selected;
+        setApprovalInitializing(true);
+        setApprovalInitializationFailed(false);
+        setError(null);
+        try {
+            // A client UUID alone is not a persisted conversation. Confirm its
+            // absence before sending an empty selection that could clear context.
+            const outcome = await loadSnapshot(selected, false, false, true);
+            if (conversationId.current !== selected || outcome === 'ignored') return false;
+            if (outcome === 'ready') return true;
+            if (outcome === 'missing' && updateContext([])) {
+                approvalContextRequest.current = contextRequest.current;
+                return true;
+            }
+            setApprovalInitializationFailed(true);
+            return false;
+        } catch {
+            if (conversationId.current === selected) setApprovalInitializationFailed(true);
+            return false;
+        } finally {
+            if (conversationId.current === selected) setApprovalInitializing(false);
+        }
+    }, [connected, hydrating, approvalInitializing, remoteActive,
+        ensureConversation, approvalModelReadiness, loadSnapshot, updateContext]);
+
+    const detachAttachment = useCallback((attachmentId: string) => {
+        if (activeRequest.current || remoteActive || contextRequest.current) return false;
+        const attachmentDevice = deskId || attachments.find(item => item.id === attachmentId)?.deviceRef;
+        if (!attachmentDevice) return false;
+        const currentConversationId = ensureConversation();
+        const clientRequestId = v4();
+        setContextUpdating(true);
+        setError(null);
+        contextRequest.current = sendMessage(
+            SIGNALING_TYPE_CODE_UPDATE_AI_AGENT_OBJECT_CONTEXT,
+            {
+                conversation_id: currentConversationId,
+                client_request_id: clientRequestId,
+                conversation_target: deskId ? 'fixed_device' : 'selectable_devices',
+                operation: {
+                    kind: 'detach',
+                    attachment_id: attachmentId,
+                },
+            },
+            attachmentDevice,
+        );
+        contextTimer.current = window.setTimeout(() => {
+            contextTimer.current = null;
+            contextRequest.current = null;
+            setContextUpdating(false);
+            setError('AI Agent attachment update timed out.');
+            if (conversationId.current) void loadSnapshot(conversationId.current);
+        }, 10_000);
+        return true;
+    }, [attachments, deskId, ensureConversation, loadSnapshot, remoteActive, sendMessage]);
+
+    const updateDirectory = useCallback((operation: AgentDirectoryOperation, timeoutMessage: string, deviceRef?: string,
+        connectionFor?: (deviceId: string) => string | undefined) => {
+        if (contextRequest.current || !connected || hydrating) return false;
+        const device = deskId || (operation.kind === 'select_directory' ? deviceRef
+            : fileScope.directories.find(item => item.requestId === operation.directory_request_id)?.deviceRef);
+        if (!device) return false;
+        // A personal conversation names devices; signaling targets their live connection.
+        const target = deskId || connectionFor?.(device);
+        if (!target) return false;
+        const currentConversationId = ensureConversation();
+        const clientRequestId = v4();
+        directorySelectors.current = { conversationId: currentConversationId, clientRequestId };
+        setContextUpdating(true);
+        setError(null);
+        contextRequest.current = sendMessage(SIGNALING_TYPE_CODE_UPDATE_AI_AGENT_OBJECT_CONTEXT, {
+            conversation_id: currentConversationId, conversation_target: deskId ? 'fixed_device' : 'selectable_devices', client_request_id: clientRequestId, operation,
+        }, target);
+        contextTimer.current = window.setTimeout(() => {
+            directorySelectors.current = null;
+            contextTimer.current = null;
+            contextRequest.current = null;
+            setContextUpdating(false);
+            setError(timeoutMessage);
+            if (conversationId.current) void loadSnapshot(conversationId.current);
+        }, 35_000);
+        return true;
+    }, [connected, deskId, ensureConversation, fileScope.directories, hydrating, loadSnapshot, sendMessage]);
+
+    const attachWindow = useCallback((objectRef: AiAgentWindowRef, displaySummary: string) => {
+        if (activeRequest.current || remoteActive || contextRequest.current) return false;
+        const currentConversationId = ensureConversation();
+        setContextUpdating(true);
+        setError(null);
+        contextRequest.current = sendMessage(
+            SIGNALING_TYPE_CODE_UPDATE_AI_AGENT_OBJECT_CONTEXT,
+            {
+                conversation_id: currentConversationId,
+                client_request_id: v4(),
+                conversation_target: 'fixed_device',
+                operation: {
+                    kind: 'attach_window',
+                    object_ref: objectRef,
+                    display_summary: displaySummary,
+                },
+            },
+            deskId,
+        );
+        contextTimer.current = window.setTimeout(() => {
+            contextTimer.current = null;
+            contextRequest.current = null;
+            setContextUpdating(false);
+            setError('AI Agent window attachment timed out.');
+            if (conversationId.current) void loadSnapshot(conversationId.current);
+        }, 10_000);
+        return true;
+    }, [deskId, ensureConversation, loadSnapshot, remoteActive, sendMessage]);
+
+    const start = useCallback((
+        question: string,
+        locale?: string,
+        selectedCapabilityIds: string[] = [],
+        startGoal = false,
+        previousCompletedGoalId: string | null = null,
+        selectedIssues: IssueSelection[] = [],
+        requestTargetRefs = targetRefs,
+    ) => {
+        const trimmed = question.trim();
+        if (!trimmed || hydrating || historyRestoreFailed || approvalInitializing || contextRequest.current
+            || !sessionTargetReady || pendingDelivery.current || stopPending.current) return false;
+        if (startGoal && !deskId && requestTargetRefs?.length !== 1) {
+            setError('pages.aiAgent.goalSelectDevice');
+            return false;
+        }
+        const nativeTurn = Boolean(startGoal);
+        if (nativeTurn && (activeRequest.current || remoteActive)) return false;
+        const selectedObjects = attachments.filter(attachment =>
+            attachment.state === 'active'
+            && (deskId ? attachment.kind !== 'interactive_session'
+                : attachment.deviceRef && requestTargetRefs?.includes(attachment.deviceRef))
+        );
+        if (selectedObjects.some(attachment => attachment.expiresAtUnixMs <= Date.now())) {
+            deliveryFailure.current = 'selected_context_expired';
+            setError(deliveryFailure.current);
+            return false;
+        }
+        deliveryFailure.current = null;
+        setStopConfirmation(null);
+        snapshotEpoch.current += 1;
+        clearStopping(true);
+        const conversation = ensureConversation();
+        const clientMessageId = agentMessageId();
+        const requestId = v4();
+        if (!queueOnly) {
+            // Placement guess until the server reports whether the input waits.
+            const view = visibleWork.current;
+            const busy = !nativeTurn && (Boolean(activeRequest.current || snapshotActiveRequest.current)
+                || view.remoteActive || view.mainStopped || Boolean(view.decisionPause)
+                || view.permissionRequests.some(request => request.state === 'pending')
+                || (view.requestQueue?.conversation === conversation
+                    && view.requestQueue.items.some(item => isWaitingReceipt(item.state)))
+                || sentInputs.current.some(item => item.conversation === conversation));
+            updateSentInputs(items => [...items, { id: clientMessageId, question: trimmed, conversation, streamId: requestId, busy }]);
+        }
+        if (nativeTurn) {
+            setDraft(null);
+            setPartial('');
+            setRemoteActive(true);
+            documentPreviewPageRequests.current.clear();
+        }
+        setError(null);
+        if (nativeTurn || (!activeRequest.current && !snapshotActiveRequest.current)) setStatus('starting');
+        if (nativeTurn) lastSeq.current = -1;
+        const payload = {
+                question: trimmed,
+                temporary_conversation: temporaryConversationRef.current,
+                client_message_id: clientMessageId,
+                client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                conversation_id: conversationId.current,
+                locale,
+                ...(!deskId && requestTargetRefs?.length ? { target_refs: [...requestTargetRefs] } : {}),
+                selected_capability_ids: deskId ? [...selectedCapabilityIds] : [],
+                start_goal: startGoal,
+                previous_completed_goal_id: startGoal ? previousCompletedGoalId : null,
+                selected_attachment_ids: selectedObjects
+                    .map((attachment) => attachment.id),
+                ...(selectedIssues.length ? { selected_issues: selectedIssues.map(issue => ({ ...issue })) } : {}),
+            } satisfies AiAgentAsk;
+        pendingDelivery.current = { id: clientMessageId, question: trimmed,
+            conversation: conversationId.current!, requestId, payload, sentAt: Date.now() };
+        setDeliveryState('sending');
+        if (nativeTurn) activeRequest.current = requestId;
+        console.info('[agent-input] dispatch', { messageId: clientMessageId, requestId });
+        try {
+            const sent = sendMessage(SIGNALING_TYPE_CODE_ASK_AI_AGENT, payload, deskId || undefined, requestId);
+            if (nativeTurn) activeRequest.current = sent;
+            if (pendingDelivery.current) pendingDelivery.current.requestId = sent;
+            if (sent !== requestId) patchSentInput(item => item.id === clientMessageId, () => ({ streamId: sent }));
+        } catch {
+            setDeliveryState('unconfirmed');
+        }
+        return true;
+    }, [attachments, deskId, targetRefs, ensureConversation, sendMessage, sessionTargetReady, hydrating, historyRestoreFailed,
+        approvalInitializing, remoteActive, queueOnly, updateSentInputs, patchSentInput]);
+
+    const retryDelivery = useCallback(async () => {
+        const pending = pendingDelivery.current;
+        if (!pending || connected === false || !sessionTargetReady || deliveryState === 'sending') return;
+        setDeliveryState('sending');
+        pending.sentAt = Date.now();
+        if (queueOnly) await loadRequestQueue(pending.conversation);
+        else await loadSnapshot(pending.conversation);
+        if (pendingDelivery.current !== pending || conversationId.current !== pending.conversation) return;
+        if (pending.payload.start_goal) {
+            activeRequest.current = pending.requestId;
+            lastSeq.current = -1;
+        }
+        console.info('[agent-input] retry', { messageId: pending.id, requestId: pending.requestId });
+        try {
+            sendMessage(SIGNALING_TYPE_CODE_ASK_AI_AGENT, pending.payload, deskId || undefined, pending.requestId);
+        } catch { setDeliveryState('unconfirmed'); }
+    }, [connected, sessionTargetReady, deliveryState, loadSnapshot, loadRequestQueue, queueOnly, sendMessage, deskId]);
+
+    const submitPermissionDecision = useCallback(async (
+        request: PermissionRequestDto,
+        items: PermissionDecisionBody['items'],
+        carrierId?: string,
+    ) => {
+        const currentConversationId = conversationId.current;
+        if (!currentConversationId || hydrating || permissionUpdating
+            || permissionSubmission.current?.epoch === snapshotEpoch.current) {
+            return false;
+        }
+        if (connected === false || remoteActive || activeRequest.current
+            || request.state !== 'pending'
+            || request.inputRevision !== snapshotWatermark.current?.inputRevision
+            || !permissionRequests.some(current => current.requestId === request.requestId
+                && current.inputRevision === request.inputRevision && current.state === 'pending')) {
+            setError(translate.current('pages.aiAgent.permissionDecisionUnavailable'));
+            return false;
+        }
+        const submission = { epoch: snapshotEpoch.current };
+        permissionSubmission.current = submission;
+        const isCurrent = () => permissionSubmission.current === submission
+            && snapshotEpoch.current === submission.epoch && conversationId.current === currentConversationId;
+        const body: PermissionDecisionBody = {
+            connection: deskId || undefined,
+            conversation: currentConversationId,
+            requestId: request.requestId,
+            items,
+            ...(carrierId ? { carrierId } : {}),
+        };
+        setPermissionUpdating(true);
+        setError(null);
+        decisionFailure.current = null;
+        try {
+            const response = await fetch('/api/my/ai-agent-session/permission-decision', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const result = response.ok ? await response.json() : null;
+            if (!isCurrent()) return false;
+            if (!response.ok || !result?.success || !result?.data?.state) {
+                throw new Error(agentErrorMessage(translate.current, result?.code, result?.message,
+                    'Permission decision was rejected.'));
+            }
+            await loadSnapshot(currentConversationId);
+            return isCurrent();
+        } catch (reason) {
+            if (!isCurrent()) return false;
+            // An uncertain response is not a failed decision. Read durable state
+            // once; never automatically repeat the approval mutation.
+            const message = reason instanceof Error ? reason.message : 'Permission decision failed.';
+            decisionFailure.current = { requestId: request.requestId, message };
+            await loadSnapshot(currentConversationId);
+            if (!isCurrent()) return false;
+            setError(message);
+            return false;
+        } finally {
+            if (isCurrent()) {
+                permissionSubmission.current = null;
+                setPermissionUpdating(false);
+            }
+        }
+    }, [deskId, loadSnapshot, permissionUpdating, permissionRequests, connected, hydrating, remoteActive]);
+
+    const decidePermission = useCallback((
+        request: PermissionRequestDto,
+        approve: boolean | readonly string[],
+    ) => submitPermissionDecision(
+        request,
+        request.items.map((item) => (typeof approve === 'boolean'
+            ? approve
+            : approve.includes(item.itemId))
+            ? {
+                itemId: item.itemId,
+                decision: 'approve',
+                resource_scope: item.resourceScope,
+                operation_scope: item.operationScope,
+                export_destinations: item.exportDestinations,
+                ttl_seconds: item.suggestedTtlSeconds,
+                max_uses: item.suggestedMaxUses,
+            }
+            : { itemId: item.itemId, decision: 'deny' }),
+    ), [submitPermissionDecision]);
+
+    const decidePermissionItems = useCallback((
+        request: PermissionRequestDto,
+        items: PermissionDecisionBody['items'],
+        carrierId?: string,
+    ) => submitPermissionDecision(request, items, carrierId), [submitPermissionDecision]);
+
+    const setAutomaticApproval = useCallback(async (enabled: boolean) => {
+        const selected = conversationId.current;
+        const watermark = snapshotWatermark.current;
+        if (!selected || !watermark || watermark.conversationId !== selected
+            || !Number.isSafeInteger(watermark.inputRevision)
+            || approvalUpdating || (enabled && (!approvalModelReadiness?.available
+                || remoteActive || activeRequest.current !== null))
+            || (!enabled && !approvalDelegation)) return false;
+        setApprovalUpdating(true);
+        setError(null);
+        const endpoint = enabled ? 'open' : 'close';
+        const payload = enabled ? {
+            connection: deskId,
+            conversation: selected,
+            session: watermark.sessionId,
+            expectedInputRevision: watermark.inputRevision,
+            ownerAuthorizationId: v4(),
+        } : {
+            connection: deskId,
+            conversation: selected,
+            session: watermark.sessionId,
+            delegationId: approvalDelegation?.delegationId,
+            ownerDecisionId: v4(),
+        };
+        try {
+            const response = await fetch(`/api/my/ai-agent-session/approval-delegation/${endpoint}`, {
+                method: 'POST', credentials: 'include',
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const result = response.ok ? await response.json() : null;
+            if (!response.ok || !result?.success || !result?.data?.delegationId) {
+                throw new Error(result?.message ?? 'Approval mode change was rejected.');
+            }
+            if (conversationId.current === selected) await loadSnapshot(selected);
+            return true;
+        } catch (reason) {
+            // A lost response may still have committed the owner decision.
+            if (conversationId.current === selected) {
+                await loadSnapshot(selected);
+                setError(reason instanceof Error ? reason.message : 'Approval mode change failed.');
+            }
+            return false;
+        } finally {
+            setApprovalUpdating(false);
+        }
+    }, [deskId, approvalUpdating, approvalModelReadiness, approvalDelegation,
+        remoteActive, loadSnapshot]);
+
+    const controlGoal = useCallback(async (action: AiAgentGoalOwnerAction) => {
+        const selected = conversationId.current;
+        const watermark = snapshotWatermark.current;
+        if (!selected || !watermark || watermark.conversationId !== selected
+            || !goal || !Number.isSafeInteger(goal.stateVersion) || goalUpdating) return false;
+        setGoalUpdating(true);
+        setError(null);
+        try {
+            const response = await fetch('/api/my/ai-agent-session/goal/control', {
+                method: 'POST', credentials: 'include',
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    connection: deskId, conversation: selected, session: watermark.sessionId,
+                    goalId: goal.goalId, expectedStateVersion: goal.stateVersion,
+                    action,
+                }),
+            });
+            const result = response.ok ? await response.json() : null;
+            if (!response.ok || !result?.success || !result?.data?.goalId) {
+                throw new Error(result?.message ?? 'Goal control was rejected.');
+            }
+            if (conversationId.current === selected) {
+                snapshotAcceptanceFloor.current = ++snapshotRequestOrder.current;
+                setGoal(result.data as AiAgentGoal);
+                await loadSnapshot(selected);
+            }
+            return true;
+        } catch (reason) {
+            if (conversationId.current === selected) {
+                await loadSnapshot(selected);
+                setError(reason instanceof Error ? reason.message : 'Goal control failed.');
+            }
+            return false;
+        } finally {
+            setGoalUpdating(false);
+        }
+    }, [deskId, goal, goalUpdating, loadSnapshot]);
+
+    const decideGoalOpen = useCallback(async (approve: boolean) => {
+        const selected = conversationId.current;
+        const watermark = snapshotWatermark.current;
+        const request = pendingGoalOpenRequest;
+        if (!selected || !watermark || watermark.conversationId !== selected
+            || !request || goalOpenUpdating || request.expiresAtUnixMs <= Date.now()) return false;
+        setGoalOpenUpdating(true);
+        setError(null);
+        try {
+            const response = await fetch('/api/my/ai-agent-session/goal/open-decision', {
+                method: 'POST', credentials: 'include',
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    connection: deskId, conversation: selected, session: watermark.sessionId,
+                    requestId: request.requestId, approve,
+                }),
+            });
+            const result = response.ok ? await response.json() : null;
+            if (!response.ok || !result?.success || !result?.data?.requestId) {
+                throw new Error(result?.message ?? 'Goal decision was rejected.');
+            }
+            if (conversationId.current === selected) {
+                snapshotAcceptanceFloor.current = ++snapshotRequestOrder.current;
+                setPendingGoalOpenRequest(null);
+                if (result.data.goal) setGoal(result.data.goal as AiAgentGoal);
+                await loadSnapshot(selected);
+            }
+            return true;
+        } catch (reason) {
+            if (conversationId.current === selected) {
+                await loadSnapshot(selected);
+                setError(reason instanceof Error ? reason.message : 'Goal decision failed.');
+            }
+            return false;
+        } finally {
+            setGoalOpenUpdating(false);
+        }
+    }, [deskId, pendingGoalOpenRequest, goalOpenUpdating, loadSnapshot]);
+
+    const revokeCapabilityGrant = useCallback(async (grantId: string) => {
+        const currentConversationId = conversationId.current;
+        if (!currentConversationId || grantRevoking) return false;
+        setGrantRevoking(grantId);
+        setError(null);
+        try {
+            const response = await fetch('/api/my/ai-agent-session/capability-grant/revoke', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    connection: deskId || undefined,
+                    conversation: currentConversationId,
+                    grantId,
+                    reason: 'revoked_by_owner',
+                }),
+            });
+            const result = response.ok ? await response.json() : null;
+            if (!response.ok || !result?.success || !result?.data?.grantId) {
+                throw new Error(result?.message ?? 'Capability grant revocation was rejected.');
+            }
+            await loadSnapshot(currentConversationId);
+            return true;
+        } catch (reason) {
+            setError(reason instanceof Error ? reason.message : 'Capability grant revocation failed.');
+            return false;
+        } finally {
+            setGrantRevoking(null);
+        }
+    }, [deskId, grantRevoking, loadSnapshot]);
+
+    const cancelTask = useCallback(async (kind: 'command' | 'provider', taskId: string): Promise<void> => {
+        if (!conversationId.current || taskCancelling) throw new Error('Task cancellation is unavailable.');
+        const currentConversationId = conversationId.current;
+        setTaskCancelling(`${kind}:${taskId}`);
+        try {
+            if (kind === 'command') {
+                const task = commandTasks.find(item => item.taskId === taskId);
+                const session = snapshotWatermark.current?.conversationId === currentConversationId
+                    ? snapshotWatermark.current.sessionId : null;
+                if (!session || !task || !['running', 'outcome_unknown'].includes(task.state)) {
+                    throw new Error('Task is no longer cancellable.');
+                }
+                const response = await fetch('/api/my/ai-agent-session/command/cancel', {
+                    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ connection: deskId, session, exec_request_id: task.taskId,
+                    execution_generation: task.executionGeneration,
+                    }),
+                });
+                const body = await response.json();
+                if (!response.ok || body.code !== deskErrorCodeEnum.SUCCESS || typeof body.data !== 'boolean')
+                    throw new Error(body.message || 'Cancellation failed.');
+            } else {
+                const task = backgroundTasks.find(item => item.taskId === taskId);
+                if (!task?.supportsCancel || !['running', 'outcome_unknown'].includes(task.state)) {
+                    throw new Error('Task is no longer cancellable.');
+                }
+                const response = await fetch('/api/my/ai-agent-session/background-task/cancel', {
+                    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ connection: deskId, conversation: currentConversationId,
+                        taskId, requestId: v4(), reason: 'Cancelled by the conversation owner.' }),
+                });
+                const body = await response.json();
+                if (!response.ok || body.code !== deskErrorCodeEnum.SUCCESS) throw new Error(body.message || 'Cancellation failed.');
+            }
+            if (conversationId.current === currentConversationId) await loadSnapshot(currentConversationId);
+        } finally {
+            setTaskCancelling(null);
+        }
+    }, [backgroundTasks, commandTasks, deskId, loadSnapshot, taskCancelling]);
+
+    const submitStop = useCallback(async (selection: NonNullable<typeof stopConfirmation>,
+        choice: AiAgentStopControl['subagent_choice']) => {
+        if (stopPending.current || conversationId.current !== selection.conversation) return false;
+        const epoch = snapshotEpoch.current;
+        const operation = {};
+        stopOperation.current = operation;
+        const isCurrent = () => stopOperation.current === operation && snapshotEpoch.current === epoch
+            && conversationId.current === selection.conversation;
+        const control: AiAgentStopControl = {
+            client_request_id: v4(), expected_input_revision: selection.inputRevision,
+            expected_control_revision: selection.controlRevision, subagent_choice: choice,
+        };
+        stopPending.current = true;
+        stoppingRequest.current = activeRequest.current ?? snapshotActiveRequest.current;
+        setStopping(true);
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), 15_000);
+        try {
+            const response = await fetch('/api/my/ai-agent-session/stop', {
+                method: 'POST', credentials: 'include', signal: controller.signal,
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ connection: deskId || undefined, conversation: selection.conversation,
+                    session: selection.session, control }),
+            });
+            const result = await response.json();
+            if (!isCurrent()) return false;
+            if (!response.ok || result.code !== deskErrorCodeEnum.SUCCESS || !result.data) {
+                throw new Error(result.message || translate.current('pages.aiAgent.stopFailed'));
+            }
+            activeRequest.current = null;
+            snapshotActiveRequest.current = null;
+            activeRequestAck.current = null;
+            setRemoteActive(false);
+            setMainStopped(true);
+            setPartial('');
+            setStatus('cancelled');
+            setStopConfirmation(null);
+            await loadSnapshot(selection.conversation);
+            return true;
+        } catch (reason) {
+            if (!isCurrent()) return false;
+            // A lost reply may follow a committed stop. Refresh facts once;
+            // never automatically repeat an owner control mutation.
+            await loadSnapshot(selection.conversation);
+            if (isCurrent()) setError(reason instanceof Error ? reason.message
+                : translate.current('pages.aiAgent.stopFailed'));
+            return false;
+        } finally {
+            window.clearTimeout(timer);
+            if (isCurrent()) clearStopping(true);
+        }
+    }, [deskId, loadSnapshot, clearStopping]);
+
+    const stop = useCallback(() => {
+        const watermark = snapshotWatermark.current;
+        const selected = conversationId.current;
+        if (!selected || !watermark || watermark.conversationId !== selected || stopPending.current
+            || !Number.isSafeInteger(watermark.inputRevision) || !Number.isSafeInteger(watermark.controlRevision)) return;
+        const selection = { session: watermark.sessionId, conversation: selected,
+            inputRevision: watermark.inputRevision!, controlRevision: watermark.controlRevision };
+        if ((subagents.tasks?.unfinished ?? 0) > 0 || subagents.active_tasks.length > 0) {
+            setStopConfirmation(selection);
+        } else {
+            void submitStop(selection, null);
+        }
+    }, [subagents, submitStop]);
+
+    const confirmStop = useCallback((includeSubagents: boolean) => stopConfirmation
+        ? submitStop(stopConfirmation, includeSubagents ? 'include_sub_agents' : 'main_only')
+        : Promise.resolve(false), [stopConfirmation, submitStop]);
+
+    const reset = useCallback((temporary = false) => {
+        temporaryConversationRef.current = temporary;
+        setTemporaryConversation(temporary);
+        pendingDelivery.current = null;
+        deliveryFailure.current = null;
+        setDeliveryState(null);
+        setAcceptedInput(null);
+        removeSentInputs(() => true);
+        activeRequest.current = null;
+        snapshotActiveRequest.current = null;
+        clearStopping(true);
+        contextRequest.current = null;
+        if (contextTimer.current !== null) window.clearTimeout(contextTimer.current);
+        contextTimer.current = null;
+        snapshotEpoch.current += 1;
+        snapshotWatermark.current = null;
+        queuedSession.current = null;
+        queueStreamIds.current.clear();
+        setRequestQueue(null);
+        historyWindow.current = null;
+        olderRequest.current = null;
+        setContextCompressing(false);
+        conversationId.current = null;
+        lastSeq.current = -1;
+        setMessages([]);
+        setTools([]);
+        setDraft(null);
+        setPartial('');
+        setStatus('idle');
+        setError(null);
+        setHydrating(false);
+        setHistoryRestoreFailed(false);
+        setAttachments([]);
+        setFileScope({ revision: 0, directories: [] });
+        directorySelectors.current = null;
+        setVisualEvidence([]);
+        setDocumentPreviews([]);
+        setContextUsage(null);
+        setContextNotices([]);
+        setRemoteActive(false);
+        setContextUpdating(false);
+        setTaskStatusProjection(null);
+        setGoal(null);
+        setPendingGoalOpenRequest(null);
+        setApprovalDelegation(null);
+        setApprovalModelReadiness(null);
+        setSkillProposals([]);
+        setDecisionPause(null);
+        setApprovalInitializing(false);
+        setApprovalInitializationFailed(false);
+        approvalInitializationAttempt.current = null;
+        approvalContextRequest.current = null;
+        setPermissionRequests([]);
+        setBackgroundTasks([]);
+        setCommandTasks([]);
+        setSubagents({ active_tasks: [], task: null, tasks: null, parent_session_id: null, attention_tasks: [], attention_count: 0 });
+        setMainStopped(false);
+        setStopConfirmation(null);
+        setCapabilityGrants([]);
+        setOutcomeDisposing(false);
+        setPermissionUpdating(false);
+        setGrantRevoking(null);
+        setPendingInputCount(0);
+        setMessagePage({ hasMore: false, nextBeforeMessageId: null });
+        setLoadingOlderMessages(false);
+        try {
+            localStorage.removeItem(storageKey(conversationStorageScope));
+        } catch {
+            // Nothing else to clear.
+        }
+    }, [conversationStorageScope, deskId, removeSentInputs, sendMessage]);
+
+    const forgetConversation = useCallback((id: string | null) => {
+        if (!id || conversationId.current !== id) return false;
+        reset();
+        return true;
+    }, [reset]);
+
+    const selectConversation = useCallback((id: string) => {
+        // Navigation must never cancel a turn or race an in-flight decision.
+        if (!id || contextUpdating || permissionUpdating
+            || grantRevoking || hydrating) return false;
+        reset();
+        conversationId.current = id;
+        try {
+            localStorage.setItem(storageKey(conversationStorageScope), id);
+        } catch { /* Continuation still works without local storage. */ }
+        void loadSnapshot(id, true, true);
+        void loadRequestQueue(id);
+        return true;
+    }, [remoteActive, contextUpdating, permissionUpdating, grantRevoking,
+        hydrating, reset, conversationStorageScope, loadRequestQueue, loadSnapshot]);
+
+    const refreshSnapshot = useCallback(() => {
+        if (conversationId.current) void loadSnapshot(conversationId.current);
+    }, [loadSnapshot]);
+
+    const resumeQueue = useCallback(async () => {
+        const view = snapshotWatermark.current;
+        if (!view || conversationId.current !== view.conversationId || resumingQueue || stopPending.current) return;
+        const epoch = snapshotEpoch.current;
+        setResumingQueue(true);
+        try {
+            const response = await fetch(`${REQUEST_QUEUE_PATH}/resume`, {
+                method: 'POST', credentials: 'include',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ session: view.sessionId, expectedControlRevision: view.controlRevision }),
+                signal: AbortSignal.timeout(SNAPSHOT_TIMEOUT_MS),
+            });
+            const body = response.ok ? await response.json() : null;
+            if (conversationId.current !== view.conversationId || epoch !== snapshotEpoch.current) return;
+            await loadSnapshot(view.conversationId);
+            if (body?.success !== true && conversationId.current === view.conversationId && epoch === snapshotEpoch.current) {
+                setError(agentErrorMessage(translate.current, body?.code, body?.message,
+                    translate.current('pages.aiAgent.resumeQueueFailed')));
+            }
+        } catch {
+            if (conversationId.current === view.conversationId && epoch === snapshotEpoch.current) {
+                setError(translate.current('pages.aiAgent.resumeQueueFailed'));
+            }
+        } finally {
+            setResumingQueue(false);
+        }
+    }, [loadSnapshot, resumingQueue]);
+
+    // Each input shows once: saved messages first, then this page's sends,
+    // then receipts that carry the text of inputs sent elsewhere.
+    const currentConversation = conversationId.current;
+    const { conversationMessages, queuedMessages } = useMemo(() => {
+        // A workbench root has no conversation of its own to place inputs in.
+        if (queueOnly) return { conversationMessages: messages, queuedMessages: [] };
+        const visibleQueue = requestQueue?.conversation === currentConversation ? requestQueue.items : [];
+        const unsavedInputs = sentInputView.filter(item => item.conversation === currentConversation
+            && !messages.some(message => message.id === item.id));
+        const idle = unsavedInputs.filter(item => !item.busy);
+        const queued = [
+            ...unsavedInputs.filter(item => item.busy).flatMap(item => {
+                const receipt = visibleQueue.find(receipt => receipt.clientMessageId === item.id);
+                if (receipt && !isWaitingReceipt(receipt.state)) return [];
+                const message: AiAgentQueuedMessage = { id: item.id, text: item.question,
+                    requestId: receipt?.requestId ?? item.requestId ?? null,
+                    state: receipt ? receipt.state as 'queued' | 'activated' : item.requestId ? 'queued' : null };
+                // An input without a receipt yet was accepted after every shown one.
+                return [{ message, order: receipt?.acceptedAtMs ?? Number.MAX_SAFE_INTEGER }];
+            }),
+            ...visibleQueue.filter(receipt => receipt.question != null && isWaitingReceipt(receipt.state)
+                && !sentInputView.some(item => item.id === receipt.clientMessageId)
+                && !messages.some(message => message.id === receipt.clientMessageId))
+                .map(receipt => ({ order: receipt.acceptedAtMs, message: { id: receipt.clientMessageId, text: receipt.question!,
+                    requestId: receipt.requestId, state: receipt.state as 'queued' | 'activated' } satisfies AiAgentQueuedMessage })),
+        ].sort((left, right) => left.order - right.order).map(entry => entry.message);
+        return {
+            conversationMessages: idle.length ? [...messages, ...idle.map((item): AiAgentMessage =>
+                ({ id: item.id, role: 'user', text: item.question }))] : messages,
+            queuedMessages: queued,
+        };
+    }, [currentConversation, messages, queueOnly, requestQueue, sentInputView]);
+
+    return {
+        temporaryConversation,
+        conversationId: conversationId.current,
+        ensureConversation,
+        sessionId: snapshotWatermark.current?.conversationId === conversationId.current ? snapshotWatermark.current.sessionId : undefined,
+        inputRevision: snapshotWatermark.current?.conversationId === conversationId.current ? snapshotWatermark.current.inputRevision : undefined,
+        controlRevision: snapshotWatermark.current?.conversationId === conversationId.current ? snapshotWatermark.current.controlRevision : undefined,
+        selectConversation,
+        forgetConversation,
+        contextUsage,
+        contextNotices,
+        messages: conversationMessages,
+        queuedMessages,
+        tools,
+        draft,
+        partial,
+        status,
+        error: historyRestoreFailed ? 'history_restore_failed' : error,
+        historyRestoreFailed,
+        attachments,
+        fileScope,
+        updateDirectory,
+        visualEvidence,
+        documentPreviews,
+        requestDocumentPreviewPage,
+        hydrating,
+        contextUpdating,
+        approvalInitializing,
+        approvalInitializationFailed,
+        initializeApprovalConversation,
+        taskStatusProjection,
+        goal,
+        goalUpdating,
+        controlGoal,
+        pendingGoalOpenRequest,
+        goalOpenUpdating,
+        decideGoalOpen,
+        approvalDelegation,
+        approvalModelReadiness,
+        skillProposals,
+        decisionPause,
+        approvalUpdating,
+        setAutomaticApproval,
+        permissionRequests,
+        backgroundTasks,
+        commandTasks,
+        subagents,
+        mainStopped,
+        refreshSnapshot,
+        taskCancelling,
+        cancelTask,
+        capabilityGrants,
+        permissionUpdating,
+        grantRevoking,
+        pendingInputCount: pendingInputCount
+            + (requestQueue?.conversation === conversationId.current ? requestQueue.items.filter(item => item.state === 'queued').length : 0),
+        failedRequests: requestQueue?.conversation === conversationId.current
+            ? requestQueue.items.filter(item => item.state === 'failed') : [],
+        // A send shows as queued from its queued event, before any receipt read
+        // returns; a throttled background tab may first read it as failed.
+        waitingRequestIds: [...new Set([
+            ...queuedMessages.flatMap(item => item.requestId ? [item.requestId] : []),
+            ...(requestQueue?.conversation === conversationId.current
+                ? requestQueue.items.filter(item => isWaitingReceipt(item.state)).map(item => item.requestId) : []),
+        ])],
+        cancelQueuedRequest,
+        resumeQueue,
+        resumingQueue,
+        hasMoreMessages: messagePage.hasMore,
+        loadingOlderMessages,
+        sessionTarget,
+        sessionTargets,
+        sessionTargetReady,
+        sessionTargetResolving,
+        stop,
+        stopping,
+        stopConfirmation,
+        dismissStopConfirmation: () => { if (!stopPending.current) setStopConfirmation(null); },
+        confirmStop,
+        canStop: !hydrating && !!snapshotWatermark.current && (remoteActive || !!(activeRequest.current ?? snapshotActiveRequest.current)
+            || (subagents.tasks?.unfinished ?? 0) > 0 || subagents.active_tasks.length > 0
+            || commandTasks.some(task => task.state === 'running')
+            || backgroundTasks.some(task => task.state === 'running')
+            || (!mainStopped && !!goal && ['queued', 'running', 'waiting_approval', 'waiting_work', 'waiting_device', 'waiting_model'].includes(goal.state))),
+        turnRunning: activeRequest.current !== null || remoteActive,
+        contextCompressing: contextCompressing && (activeRequest.current !== null || remoteActive),
+        revealMessage,
+        running: activeRequest.current !== null || remoteActive || deliveryState === 'sending'
+            || contextUpdating || approvalInitializing || permissionUpdating || outcomeDisposing,
+        start,
+        deliveryState,
+        acceptedInput,
+        retryDelivery,
+        updateContext,
+        attachWindow,
+        detachAttachment,
+        decidePermission,
+        decidePermissionItems,
+        browserConnectionId,
+        runId: snapshotWatermark.current?.sessionId ?? null,
+        revokeCapabilityGrant,
+        loadOlderMessages,
+        selectSessionTarget,
+        reset,
+    };
+}

@@ -225,7 +225,7 @@ pub(super) async fn committed_call(
         name: name.into(),
         arguments_json: arguments.to_string(),
     };
-    let mut message = ChatMessage::assistant_tool_calls(
+    let mut message = ChatMessage::agent_tool_calls(
         format!("caller-{id}"),
         "Read task state",
         vec![ToolCallRef {
@@ -354,7 +354,7 @@ async fn spawn_effect_and_tool_history_commit_once_or_roll_back_together() {
         )
         .await
         .unwrap();
-    let summary: AiAssistantSubAgentSummary = serde_json::from_value(receipt.payload).unwrap();
+    let summary: AiAgentSubAgentSummary = serde_json::from_value(receipt.payload).unwrap();
     assert_eq!(run_row::Entity::find().count(&db).await.unwrap(), 1);
     let stored = session_row::Entity::find()
         .filter(session_row::Column::ConversationId.eq("root"))
@@ -868,7 +868,25 @@ async fn frozen_model_control_survives_session_decode_but_observation_race_keeps
         parent =
             PersistedAgentSession::decode_json(&parent.encode_json_for_storage().unwrap()).unwrap();
         if changed {
-            store.control_for_owner("root", "1", "1", &desk_agent_protocol::ai_assistant::subagent::AiAssistantSubAgentControl { client_request_id: "concurrent-owner-adjustment".into(), task_id: task.task_id.clone(), expected_input_revision: 1, expected_control_revision: 1, action: desk_agent_protocol::ai_assistant::subagent::SubAgentControlAction::Adjust { client_timezone: "UTC".into(), message: "Check the additional symptom".into() } }).await.unwrap();
+            store
+                .control_for_owner(
+                    "root",
+                    "1",
+                    "1",
+                    &desk_agent_protocol::ai_agent::subagent::AiAgentSubAgentControl {
+                        client_request_id: "concurrent-owner-adjustment".into(),
+                        task_id: task.task_id.clone(),
+                        expected_input_revision: 1,
+                        expected_control_revision: 1,
+                        action:
+                            desk_agent_protocol::ai_agent::subagent::SubAgentControlAction::Adjust {
+                                client_timezone: "UTC".into(),
+                                message: "Check the additional symptom".into(),
+                            },
+                    },
+                )
+                .await
+                .unwrap();
         }
         let before = load(&db, &task.task_id).await;
         let operation = tools::parse(&parent, &call).unwrap();
@@ -922,12 +940,12 @@ async fn a_child_finishing_after_observation_refuses_adjustment_with_an_actionab
             &parent.conversation_id,
             &parent.actor_id,
             &parent.device_id,
-            &desk_agent_protocol::ai_assistant::subagent::AiAssistantSubAgentControl {
+            &desk_agent_protocol::ai_agent::subagent::AiAgentSubAgentControl {
                 client_request_id: "owner-cancel-before-followup".into(),
                 task_id: task.task_id.clone(),
                 expected_input_revision: 1,
                 expected_control_revision: 1,
-                action: desk_agent_protocol::ai_assistant::subagent::SubAgentControlAction::Cancel,
+                action: desk_agent_protocol::ai_agent::subagent::SubAgentControlAction::Cancel,
             },
         )
         .await
@@ -1120,7 +1138,7 @@ pub(super) async fn commit_worker_report_call(
         arguments_json: arguments.to_string(),
     };
     let caller_id = format!("caller-{id}");
-    let mut message = desk_diagnose_core::chat::ChatMessage::assistant_tool_calls(
+    let mut message = desk_diagnose_core::chat::ChatMessage::agent_tool_calls(
         &caller_id,
         "Reporting progress",
         vec![ToolCallRef {
@@ -1382,9 +1400,7 @@ async fn question_reply_resumes_only_the_original_request_with_its_budget() {
 
 #[tokio::test]
 async fn owner_reads_worker_report_pages_and_answers_only_the_open_question_once() {
-    use desk_agent_protocol::ai_assistant::subagent::{
-        AiAssistantSubAgentControl, SubAgentControlAction,
-    };
+    use desk_agent_protocol::ai_agent::subagent::{AiAgentSubAgentControl, SubAgentControlAction};
     use desk_diagnose_core::subagent::report::ReportKind;
     let db = database().await;
     let (parent, calls) = super::creation::runnable_parent_with_source(
@@ -1480,7 +1496,7 @@ async fn owner_reads_worker_report_pages_and_answers_only_the_open_question_once
         .await
         .unwrap()
         .unwrap();
-    let request = AiAssistantSubAgentControl {
+    let request = AiAgentSubAgentControl {
         client_request_id: "owner-answer".into(),
         task_id: task.task_id.clone(),
         expected_input_revision: task.input_revision,
@@ -1527,7 +1543,7 @@ async fn owner_reads_worker_report_pages_and_answers_only_the_open_question_once
             .await
             .is_err()
     );
-    let late = AiAssistantSubAgentControl {
+    let late = AiAgentSubAgentControl {
         client_request_id: "late-answer".into(),
         ..request
     };

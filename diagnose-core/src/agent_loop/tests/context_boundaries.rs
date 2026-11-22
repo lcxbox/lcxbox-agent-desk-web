@@ -676,7 +676,7 @@ async fn saving_a_new_permission_request_pauses_without_starting_another_model_o
     initial.latest_input_seq = 1;
     initial.input_revision = 1;
     *session.inner.borrow_mut() = Some(initial);
-    let providers = crate::ai_assistant::ai_assistant_provider_registry();
+    let providers = crate::ai_agent::ai_agent_provider_registry();
     let descriptor = providers
         .capability_for_tool("inspect_desktop_session")
         .unwrap();

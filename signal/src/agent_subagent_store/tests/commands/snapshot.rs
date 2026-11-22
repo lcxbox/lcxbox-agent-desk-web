@@ -36,18 +36,18 @@ pub(super) async fn owner_host_for(
         owner_host("host", &child.device_id, &["bash"], Some(60_000)).await,
     );
     mark_ready("host", "session-1", &[Capability::ShellExecConfirmed]);
-    crate::ai_assistant_gate::enable_test_host();
+    crate::ai_agent_gate::enable_test_host();
     (guard, connections)
 }
 
-pub(super) fn assistant_tools(
+pub(super) fn agent_tools(
     db: &DatabaseConnection,
     child: &PersistedAgentSession,
     connections: Arc<SharedConnectionMap>,
-) -> crate::remote_tool_edge::SignalAiAssistantTools {
-    crate::remote_tool_edge::SignalAiAssistantTools::new(
+) -> crate::remote_tool_edge::SignalAiAgentTools {
+    crate::remote_tool_edge::SignalAiAgentTools::new(
         db.clone(),
-        desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+        desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         connections,
         Arc::new(crate::remote_tool_edge::SignalRemoteToolPendingStore::default()),
         "host".into(),
@@ -78,8 +78,10 @@ pub(super) fn context(child: &PersistedAgentSession, call: &ToolCall) -> ExecCon
     let mut scope = child.scope_snapshot.clone();
     scope.mode = desk_agent_protocol::ExecutionMode::ConfirmEachAction;
     ExecContext {
-        assistant_turn_fence:
-            desk_diagnose_core::action_turn_fence::AssistantTurnFence::from_session(child).unwrap(),
+        agent_turn_fence: desk_diagnose_core::action_turn_fence::AgentTurnFence::from_session(
+            child,
+        )
+        .unwrap(),
         conversation_id: child.conversation_id.clone(),
         turn_id: child.current_turn_id.clone().unwrap(),
         tool_call_id: call.id.clone(),
@@ -132,7 +134,7 @@ async fn an_approved_mutating_command_is_not_sent_after_a_directory_approval_is_
         .push(delegated(&child.device_id, "added-after-approval"));
     save_child_session(&db, &mut child).await.unwrap();
 
-    let error = assistant_tools(&db, &child, connections)
+    let error = agent_tools(&db, &child, connections)
         .confirm_and_exec(&call, &context(&child, &call))
         .await
         .unwrap_err();
@@ -285,7 +287,7 @@ async fn a_device_change_report_is_admitted_only_against_the_claimed_plan_roots(
     };
     let now = chrono::Utc::now().timestamp_millis() as u64;
     let origin = ActionResultOrigin::capture_confirmed_command(
-        &desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+        &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         &child,
         &child.device_id,
         &with_target_ref(&call, &child.device_id),
@@ -365,7 +367,7 @@ fn record_command(session: &mut PersistedAgentSession, call_id: &str, changes: E
         super::super::creation::destination(),
     )
     .unwrap();
-    session.conversation.push(ChatMessage::assistant_tool_calls(
+    session.conversation.push(ChatMessage::agent_tool_calls(
         format!("{call_id}-proposal"),
         "",
         vec![ToolCallRef {
@@ -385,7 +387,7 @@ fn record_command(session: &mut PersistedAgentSession, call_id: &str, changes: E
         false,
     )
     .unwrap();
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let capability = registry.capability_for_tool(tool).unwrap();
     result
         .data_envelope
@@ -414,7 +416,7 @@ fn restore_call(command_result: &str) -> ToolCall {
 async fn restore_command_changes_runs_its_own_preflight() {
     let (db, _, child, _, _) = approved_child().await;
     let call = restore_call("no-such-command");
-    let error = assistant_tools(&db, &child, Arc::new(SharedConnectionMap::new_oss()))
+    let error = agent_tools(&db, &child, Arc::new(SharedConnectionMap::new_oss()))
         .confirm_and_exec(&call, &context(&child, &call))
         .await
         .unwrap_err();
@@ -436,7 +438,7 @@ async fn a_working_directory_restore_follows_the_devices_current_execution_mode(
 
     // Without a current command policy for the device there is no execution
     // mode that admits changes in the command's working directory.
-    let error = assistant_tools(&db, &child, Arc::new(SharedConnectionMap::new_oss()))
+    let error = agent_tools(&db, &child, Arc::new(SharedConnectionMap::new_oss()))
         .confirm_and_exec(&call, &context(&child, &call))
         .await
         .unwrap_err();
@@ -452,7 +454,7 @@ async fn a_working_directory_restore_follows_the_devices_current_execution_mode(
     // preflight and targets the snapshot directory; this host has not
     // reported file mutations as ready.
     let (_host, connections) = owner_host_for(&child).await;
-    let error = assistant_tools(&db, &child, connections)
+    let error = agent_tools(&db, &child, connections)
         .confirm_and_exec(&call, &context(&child, &call))
         .await
         .unwrap_err();

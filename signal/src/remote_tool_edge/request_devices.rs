@@ -2,7 +2,7 @@
 
 use super::*;
 use desk_diagnose_core::{
-    action_turn_fence::AssistantTurnFence,
+    action_turn_fence::AgentTurnFence,
     request_devices::{RequestDevice, selected_read},
     session::PersistedAgentSession,
 };
@@ -10,7 +10,7 @@ use desk_diagnose_core::{
 fn unavailable() -> AgentError {
     error(
         AgentErrorKind::PermissionDenied,
-        "Selected assistant device is unavailable",
+        "Selected agent device is unavailable",
         false,
         true,
     )
@@ -20,12 +20,12 @@ pub(super) fn selected_read_connection(state: &ConnectionState) -> bool {
     !state.lifecycle.is_retired()
         && state
             .model
-            .ai_assistant_settings
+            .ai_agent_settings
             .as_ref()
             .is_some_and(|settings| settings.enabled)
 }
 
-impl SignalAiAssistantTools {
+impl SignalAiAgentTools {
     pub(super) async fn directory_for_request_device(
         &self,
         session: &PersistedAgentSession,
@@ -66,9 +66,9 @@ impl SignalAiAssistantTools {
         &self,
         session: &PersistedAgentSession,
         reference: &str,
-    ) -> Result<(AssistantTurnFence, String), AgentError> {
+    ) -> Result<(AgentTurnFence, String), AgentError> {
         if (!self.target_device_id.is_empty() && self.target_device_id != session.device_id)
-            || !session.has_admitted_assistant_input()
+            || !session.has_admitted_agent_input()
             || session.actor_id != self.actor_id
             || session.conversation_id != self.run_id
             || session.current_turn_id.as_deref() != Some(self.turn_id.as_str())
@@ -84,12 +84,12 @@ impl SignalAiAssistantTools {
         .await
         .map_err(|error| error.into_agent_error())?;
         let target = session
-            .assistant_request_device(reference)
+            .agent_request_device(reference)
             .ok_or_else(unavailable)?;
-        let held = AssistantTurnFence::for_device(session, &target.device_id)
+        let held = AgentTurnFence::for_device(session, &target.device_id)
             .map_err(|_| unavailable())?
             .ok_or_else(unavailable)?;
-        if !desk_assistant_data_store::device_roster::permits_current_target(
+        if !desk_agent_data_store::device_roster::permits_current_target(
             &self.db,
             session,
             &held.device_id,
@@ -109,7 +109,7 @@ impl SignalAiAssistantTools {
             .ok_or_else(|| {
                 error(
                     AgentErrorKind::TargetOffline,
-                    "Selected assistant device is offline or disabled",
+                    "Selected agent device is offline or disabled",
                     true,
                     true,
                 )
@@ -235,7 +235,7 @@ impl SignalAiAssistantTools {
         policy: &desk_diagnose_core::command_confirmation::CommandPolicyContext,
     ) -> Result<ExecOutcome, AgentError> {
         let held = ctx
-            .assistant_turn_fence
+            .agent_turn_fence
             .as_ref()
             .filter(|held| held.device_id == policy.target_device_id)
             .ok_or_else(unavailable)?;
@@ -269,14 +269,14 @@ impl SignalAiAssistantTools {
         let (reference, native) = desk_diagnose_core::request_devices::split_device_call(call)?;
         let session = self.authoritative_session().await?;
         let (held, connection) = self.selected_connection(&session, &reference).await?;
-        if ctx.assistant_turn_fence.as_ref() != Some(&held) {
+        if ctx.agent_turn_fence.as_ref() != Some(&held) {
             return Err(unavailable());
         }
         let current = crate::computer_use_readiness::global_computer_use_readiness_cache()
             .get_fresh(&connection, chrono::Utc::now())
             .ok_or_else(unavailable)?;
         let browser =
-            desk_diagnose_core::ai_assistant::browser_surface_context(Some(&current.readiness));
+            desk_diagnose_core::ai_agent::browser_surface_context(Some(&current.readiness));
         let mut scoped =
             self.scoped_request_device(held, connection, current.readiness.revision, Vec::new(), 0);
         let state = Arc::get_mut(&mut scoped.0).expect("configure selected browser before sharing");
@@ -287,7 +287,7 @@ impl SignalAiAssistantTools {
 
     fn scoped_request_device(
         &self,
-        held: AssistantTurnFence,
+        held: AgentTurnFence,
         connection_id: String,
         readiness_revision: u64,
         available_exec_shells: Vec<String>,
@@ -335,7 +335,7 @@ impl SignalAiAssistantTools {
         &self,
         session: &PersistedAgentSession,
     ) -> Result<Vec<RequestDevice>, AgentError> {
-        if !session.has_admitted_assistant_input()
+        if !session.has_admitted_agent_input()
             || session.actor_id != self.actor_id
             || session.actor_id != crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string()
             || session.conversation_id != self.run_id
@@ -351,11 +351,11 @@ impl SignalAiAssistantTools {
         .await
         {
             Ok(()) => {}
-            Err(desk_assistant_data_store::AssistantStoreError::Inaccessible) => return Ok(vec![]),
+            Err(desk_agent_data_store::AgentStoreError::Inaccessible) => return Ok(vec![]),
             Err(error) => return Err(error.into_agent_error()),
         }
         let selected =
-            desk_assistant_data_store::device_roster::current_request_devices(&self.db, session)
+            desk_agent_data_store::device_roster::current_request_devices(&self.db, session)
                 .await
                 .map_err(|error| error.into_agent_error())?;
         let mut devices = request_device_catalogue(&self.db, &self.connections, &selected).await?;
@@ -402,7 +402,7 @@ pub(crate) async fn request_device_catalogue(
             if connection.is_some_and(|state| {
                 !state
                     .model
-                    .ai_assistant_settings
+                    .ai_agent_settings
                     .as_ref()
                     .is_some_and(|settings| settings.enabled)
             }) {

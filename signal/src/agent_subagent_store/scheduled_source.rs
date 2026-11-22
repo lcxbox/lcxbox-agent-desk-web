@@ -51,7 +51,7 @@ pub(crate) async fn current_scheduled_source_on(
     {
         return Err(invalid());
     }
-    let authority = desk_assistant_data_store::schedule::lock_delegation_source_authority(
+    let authority = desk_agent_data_store::schedule::lock_delegation_source_authority(
         txn,
         group.actor_id.parse().map_err(|_| invalid())?,
         &group.device_id,

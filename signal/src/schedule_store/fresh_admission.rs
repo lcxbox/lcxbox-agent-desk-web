@@ -1,13 +1,13 @@
 //! Single-account runtime checks around atomic fresh occurrence admission.
 use super::{ScheduleStore, ScheduleStoreError, entity};
 use crate::{
-    ai_assistant_gate::AiAssistantGate, control_authorizer::SINGLE_ACCOUNT_USER_ID,
+    ai_agent_gate::AiAgentGate, control_authorizer::SINGLE_ACCOUNT_USER_ID,
     entity::agent_schedule_run,
 };
 #[cfg(test)]
-use desk_agent_protocol::AgentScope;
+use desk_agent_data_store::entity_table::EntityTableExt;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_protocol::AgentScope;
 use desk_diagnose_core::session::PersistedAgentSession;
 #[cfg(test)]
 use desk_signal_facade::model::peer::{
@@ -18,7 +18,7 @@ use desk_signal_facade::model::{
 };
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
-pub use desk_assistant_data_store::schedule::FreshTaskClaim;
+pub use desk_agent_data_store::schedule::FreshTaskClaim;
 
 pub struct ClaimedFreshTask {
     pub target_connection_id: String,
@@ -48,7 +48,7 @@ impl ScheduleStore {
     pub async fn claim_fresh_task(
         &self,
         connections: &SharedConnectionMap,
-        gate: &AiAssistantGate,
+        gate: &AiAgentGate,
         input: FreshTaskClaim<'_>,
     ) -> Result<ClaimedFreshTask, ScheduleStoreError> {
         let settings = gate.snapshot();
@@ -107,7 +107,7 @@ impl ScheduleStore {
         }
         let work =
             Self::claim_queued_on(&txn, input.run_id, input.node_id, input.lease_seconds).await?;
-        let authority = desk_assistant_data_store::schedule::lock_run_authority(
+        let authority = desk_agent_data_store::schedule::lock_run_authority(
             &txn,
             input.owner,
             &task.target_device_id,
@@ -137,7 +137,7 @@ mod tests {
     use super::super::tests::enabled_fresh_task_on;
     use super::*;
     use crate::entity::{agent_session, agent_task_budget_reservation};
-    use desk_agent_protocol::{ExecutionMode, ai_assistant::AiAssistantSettings};
+    use desk_agent_protocol::{ExecutionMode, ai_agent::AiAgentSettings};
     use desk_signal_facade::model::{
         auth_context::AuthContext,
         connection::{ConnectionModel, ConnectionState},
@@ -184,7 +184,7 @@ mod tests {
                         exec_pty_elevation: false,
                         max_ai_command_runtime_ms: None,
                     },
-                    ai_assistant_settings: desk_agent_protocol::ai_assistant::AiAssistantSettings {
+                    ai_agent_settings: desk_agent_protocol::ai_agent::AiAgentSettings {
                         revision: 0,
                         enabled: false,
                     },
@@ -228,7 +228,7 @@ mod tests {
             .unwrap();
         let before = store.read(1, &task.schedule_id).await.unwrap();
         let connections = SharedConnectionMap::new();
-        let gate = AiAssistantGate::default();
+        let gate = AiAgentGate::default();
         for failure in [
             "disabled",
             "offline",
@@ -239,7 +239,7 @@ mod tests {
             "none",
         ] {
             connections.write().await.clear();
-            gate.replace(AiAssistantSettings {
+            gate.replace(AiAgentSettings {
                 revision: 1,
                 enabled: failure != "disabled",
             });

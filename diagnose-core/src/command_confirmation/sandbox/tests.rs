@@ -497,7 +497,7 @@ fn sandboxed_paths_get_advisory_host_checks() {
 
 #[test]
 fn the_sandbox_argument_is_a_strict_boolean_kept_literally_by_canonicalization() {
-    let schema = crate::ai_assistant::ai_assistant_provider_registry()
+    let schema = crate::ai_agent::ai_agent_provider_registry()
         .registered_tools()
         .into_iter()
         .find(|tool| tool.name() == COMMAND_TOOL)

@@ -136,7 +136,7 @@ pub struct DelegatedTaskBinding {
     pub group_id: String,
     pub task_id: String,
     pub source: DelegationSource,
-    pub targets: Vec<crate::dynamic_run::AssistantInputTarget>,
+    pub targets: Vec<crate::dynamic_run::AgentInputTarget>,
     pub objective: String,
     pub acceptance_criteria: Vec<String>,
     pub input_revision: u64,
@@ -160,7 +160,7 @@ impl DelegatedTaskBinding {
         }
         validate_task(&self.objective, &self.acceptance_criteria)?;
         self.source.validate()?;
-        crate::dynamic_run::AssistantInputTarget::validate_all(&self.targets)
+        crate::dynamic_run::AgentInputTarget::validate_all(&self.targets)
     }
 }
 

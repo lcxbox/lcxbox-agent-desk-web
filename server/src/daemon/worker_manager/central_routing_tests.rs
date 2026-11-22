@@ -1,5 +1,5 @@
 //! Central actions use the single worker; with resident workers they need an
-//! Assistant-ready session (see `central_dispatch_tests`) and are refused here,
+//! Agent-ready session (see `central_dispatch_tests`) and are refused here,
 //! where none is registered.
 use super::*;
 

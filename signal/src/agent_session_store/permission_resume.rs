@@ -163,7 +163,7 @@ pub(crate) async fn permission_work_current(
     .await
     {
         Ok(()) => {}
-        Err(desk_assistant_data_store::AssistantStoreError::Inaccessible) => return Ok(false),
+        Err(desk_agent_data_store::AgentStoreError::Inaccessible) => return Ok(false),
         Err(error) => return Err(error.into_agent_error()),
     }
     Ok(true)
@@ -177,7 +177,7 @@ async fn permission_roster_current(
     let Some(device_id) = request.selected_device_id() else {
         return Ok(true);
     };
-    desk_assistant_data_store::device_roster::permits_current_target(txn, session, device_id)
+    desk_agent_data_store::device_roster::permits_current_target(txn, session, device_id)
         .await
         .map_err(|error| error.into_agent_error())
 }
@@ -189,7 +189,7 @@ async fn validate_permission_target_on(
 ) -> Result<(), AgentError> {
     if session.device_id.is_empty()
         && let Some(device_id) = request.selected_device_id()
-        && (!session.admits_assistant_device(device_id)
+        && (!session.admits_agent_device(device_id)
             || crate::agent_run_event_store::eligible_request_device_ids(
                 txn,
                 &[device_id.to_owned()],
@@ -238,7 +238,7 @@ impl SignalAgentSessionStore {
             return Ok(None);
         }
         current_decision(&session, &decision)?;
-        desk_diagnose_core::assistant_policy::require_current_policy(session.policy_revision)?;
+        desk_diagnose_core::agent_policy::require_current_policy(session.policy_revision)?;
         let grants =
             crate::capability_grant_store::SignalCapabilityGrantStore::list_for_subject_on(
                 &txn,
@@ -381,7 +381,7 @@ impl SignalAgentSessionStore {
         if session.turn_state.is_active() {
             return Ok(None);
         }
-        desk_diagnose_core::assistant_policy::require_current_policy(session.policy_revision)?;
+        desk_diagnose_core::agent_policy::require_current_policy(session.policy_revision)?;
         txn.commit().await.map_err(storage)?;
         Ok(Some(*session))
     }
@@ -400,7 +400,7 @@ impl SignalAgentSessionStore {
         };
         if params.trigger_origin != TriggerOrigin::PermissionDecision
             || params.turn_id != turn_id(&params.conversation_id, request_id)
-            || self.surface != AgentSessionSurface::AiAssistant
+            || self.surface != AgentSessionSurface::AiAgent
         {
             return Err(ClaimError::Backend(invalid()));
         }
@@ -496,13 +496,12 @@ impl SignalAgentSessionStore {
         if &current_grants != grants {
             return Err(ClaimError::Busy);
         }
-        if let Err(error) = desk_diagnose_core::assistant_policy::validate_permission_resume_claim(
+        if let Err(error) = desk_diagnose_core::agent_policy::validate_permission_resume_claim(
             &session, &params, &decision,
         ) {
             // Caller parameters may be stale or forged; only a stored decision
             // that cannot authorize this resume ends it.
-            if desk_diagnose_core::assistant_policy::resume_decision_authorized(&session, &decision)
-            {
+            if desk_diagnose_core::agent_policy::resume_decision_authorized(&session, &decision) {
                 return Err(ClaimError::Backend(error));
             }
             // A stored decision that cannot authorize never becomes valid by
@@ -653,7 +652,7 @@ pub(crate) async fn consume_scheduled_decision_on(
     if grants != expected_grants {
         return Err(invalid());
     }
-    desk_diagnose_core::assistant_policy::require_current_policy(session.policy_revision)?;
+    desk_diagnose_core::agent_policy::require_current_policy(session.policy_revision)?;
     transition(txn, &resume, "started", true, now).await?;
     if session.trigger_origin == TriggerOrigin::ScheduledTask {
         let changed = resume::Entity::update_many()

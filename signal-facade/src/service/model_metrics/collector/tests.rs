@@ -24,7 +24,7 @@ fn event(index: usize, runtime: bool) -> ObservationEvent {
             configuration_revision: "1".into(),
             contract_revision: "1".into(),
             purpose: Purpose::Agent,
-            surface: Surface::Assistant,
+            surface: Surface::Agent,
             origin: Origin::User,
             configuration_scope: ConfigurationScope::Local,
             protocol: Protocol::OpenAiChatCompletions,

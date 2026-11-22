@@ -13,7 +13,7 @@ pub use workset::{
     IssueCommentSnapshot, IssueWorkset, is_issue_supplement_label, is_issue_workset_label,
 };
 
-pub use desk_agent_protocol::ai_assistant::issue_subscription::IssueWorkKind;
+pub use desk_agent_protocol::ai_agent::issue_subscription::IssueWorkKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -171,7 +171,7 @@ impl IssueAdmission {
         self.workset.validate(&self.subscription)?;
         if self.authorization_id != Self::id(&self.subscription, &self.event_id)
             || !valid_id(&self.event_id)
-            || !native_ids::is(Kind::AssistantMainRequest, &self.request_id)
+            || !native_ids::is(Kind::AgentMainRequest, &self.request_id)
             || !valid_id(&self.execution_root_id)
             || self.admitted_at_ms < 0
             || self
@@ -320,7 +320,7 @@ mod tests {
             scheduled_source: None,
             original_read_context: Some(selected.clone()),
             model_destination: destination,
-            assistant_seed: None,
+            agent_seed: None,
         };
         creation.validate().unwrap();
         assert_eq!(creation.child_read_context().unwrap(), selected);

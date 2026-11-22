@@ -3,7 +3,7 @@ use super::*;
 use desk_diagnose_core::subagent::{creation::TaskCreationEnvelope, runtime::RuntimeTurn};
 use sea_orm::{ExprTrait, QueryTrait};
 
-pub(super) use desk_assistant_data_store::worker_request::is_worker_head_on;
+pub(super) use desk_agent_data_store::worker_request::is_worker_head_on;
 
 type RootWaitPage = (Vec<group_row::Model>, Option<i64>);
 
@@ -13,7 +13,7 @@ type RootWaitPage = (Vec<group_row::Model>, Option<i64>);
 fn required_terminal_wakes(
     session: &PersistedAgentSession,
     row: &group_row::Model,
-    terminals: &[desk_assistant_data_store::worker_report::PendingTerminal],
+    terminals: &[desk_agent_data_store::worker_report::PendingTerminal],
 ) -> Result<bool, DbErr> {
     // A parent whose last turn failed or was stopped is not revived.
     if session.turn_state != desk_diagnose_core::session::TurnState::Idle
@@ -91,7 +91,7 @@ async fn admit_worker_request_on(
         .unwrap_or_default();
     let watermark = Ord::max(watermark, session.child_request_admission.action_watermark);
     let now = chrono::Utc::now();
-    desk_assistant_data_store::issue_reply::lifecycle::cancel_request_on(
+    desk_agent_data_store::issue_reply::lifecycle::cancel_request_on(
         txn,
         &session.actor_id,
         &session.conversation_id,
@@ -101,7 +101,7 @@ async fn admit_worker_request_on(
     )
     .await
     .map_err(|error| match error {
-        desk_assistant_data_store::AssistantStoreError::Backend(error) => error,
+        desk_agent_data_store::AgentStoreError::Backend(error) => error,
         _ => invalid(),
     })?;
     let before = session.clone();
@@ -203,13 +203,13 @@ impl SubAgentStore {
                 )))
                 .all(&self.db)
                 .await?;
-            let wake_groups = desk_assistant_data_store::worker_report::pending_wake_groups_on(
+            let wake_groups = desk_agent_data_store::worker_report::pending_wake_groups_on(
                 &self.db,
                 rows.iter().map(|row| row.group_id.clone()),
                 chrono::Utc::now().timestamp_millis(),
             )
             .await?;
-            let terminals = desk_assistant_data_store::worker_report::pending_terminal_events_on(
+            let terminals = desk_agent_data_store::worker_report::pending_terminal_events_on(
                 &self.db,
                 rows.iter().map(|row| row.group_id.clone()),
             )
@@ -235,7 +235,7 @@ impl SubAgentStore {
                 let Ok(session) = PersistedAgentSession::decode_json(&parent.state_json) else {
                     continue;
                 };
-                if session.surface == AgentSessionSurface::AiAssistant
+                if session.surface == AgentSessionSurface::AiAgent
                     && session.agent_role.is_main()
                     && session.check_subject(&row.actor_id, &row.device_id).is_ok()
                     && !session.turn_state.is_active()
@@ -326,7 +326,7 @@ impl SubAgentStore {
         .await
         {
             Ok(()) => {}
-            Err(desk_assistant_data_store::AssistantStoreError::Inaccessible) => return Ok(None),
+            Err(desk_agent_data_store::AgentStoreError::Inaccessible) => return Ok(None),
             Err(_) => return Err(invalid()),
         }
         let candidate = RuntimeTurn::Child {
@@ -368,7 +368,7 @@ impl SubAgentStore {
         .await
         {
             Ok(()) => {}
-            Err(desk_assistant_data_store::AssistantStoreError::Inaccessible) => return Ok(None),
+            Err(desk_agent_data_store::AgentStoreError::Inaccessible) => return Ok(None),
             Err(_) => return Err(invalid()),
         }
         let source = if session.ready_subagent_wait.is_some() {

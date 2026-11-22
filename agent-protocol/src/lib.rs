@@ -29,7 +29,7 @@ use utoipa::ToSchema;
 use wincode::{SchemaRead, SchemaWrite};
 
 pub mod agent_event;
-pub mod ai_assistant;
+pub mod ai_agent;
 pub mod application_launch;
 pub mod audit;
 pub mod authz;
@@ -62,7 +62,7 @@ pub mod remote_tool;
 pub mod schedule;
 pub mod service_status;
 pub use service_status::{ServiceEntry, ServiceStatusOutput, ServiceStatusParams};
-pub mod terminal_ai_assistant;
+pub mod terminal_ai_agent;
 pub mod terminal_complete;
 pub mod visual_evidence;
 
@@ -486,8 +486,8 @@ pub enum Capability {
     TerminalOutputRead,
     /// Central-only validation/display of an inert typed action proposal. This
     /// capability never authorizes a device read or mutation transport.
-    #[serde(rename = "assistant.action.preview")]
-    AssistantActionPreview,
+    #[serde(rename = "agent.action.preview")]
+    AgentActionPreview,
     // Execute capabilities are reserved; their wire shape is frozen.
     #[serde(rename = "shell.exec.readonly")]
     ShellExecReadonly,

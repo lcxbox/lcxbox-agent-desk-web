@@ -19,7 +19,7 @@ pub fn raw_input_from_call(call: &ToolCall) -> Result<(ObjectRef, RawInputAction
         target: ObjectRef,
         action: RawInputAction,
     }
-    if call.name != crate::ai_assistant::EXECUTE_CONFIRMED_RAW_INPUT_TOOL
+    if call.name != crate::ai_agent::EXECUTE_CONFIRMED_RAW_INPUT_TOOL
         || call.arguments_json.len() > 64 * 1024
     {
         return Err(unavailable());
@@ -130,7 +130,7 @@ impl RawInputCallPreflight {
         &'a self,
         subject: &'a ProviderCallSubject<'_>,
     ) -> Result<CapabilityGrantCall<'a>, AgentError> {
-        crate::assistant_policy::require_current_policy(subject.policy_revision)?;
+        crate::agent_policy::require_current_policy(subject.policy_revision)?;
         if subject.readiness_revision == 0
             || subject.now_unix_ms == 0
             || subject.now_unix_ms >= self.valid_until_unix_ms

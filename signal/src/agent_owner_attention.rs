@@ -2,7 +2,7 @@
 //! The projection carries no goal text or tool arguments into global UI.
 
 use crate::config::connection::DatabaseConnection;
-use desk_signal_facade::controller::ai_assistant_session::AiAssistantAttentionItemDto;
+use desk_signal_facade::controller::ai_agent_session::AiAgentAttentionItemDto;
 use std::collections::{HashMap, HashSet};
 
 use desk_diagnose_core::dynamic_run::PermissionRequestState;
@@ -17,7 +17,7 @@ pub async fn list_goal_attention(
     db: &DatabaseConnection,
     actor_id: &str,
     now_unix_ms: u64,
-) -> Result<Vec<AiAssistantAttentionItemDto>, DbErr> {
+) -> Result<Vec<AiAgentAttentionItemDto>, DbErr> {
     let goal_rows = agent_goal_run::Entity::find()
         .filter(agent_goal_run::Column::ActorId.eq(actor_id))
         .filter(agent_goal_run::Column::Status.is_not_in(["completed", "failed", "cancelled"]))
@@ -26,7 +26,7 @@ pub async fn list_goal_attention(
     let mut items = Vec::new();
     for row in goal_rows {
         let goal = crate::agent_goal_store::decode(&row)?;
-        items.extend(AiAssistantAttentionItemDto::for_goal(&goal, now_unix_ms));
+        items.extend(AiAgentAttentionItemDto::for_goal(&goal, now_unix_ms));
     }
 
     let now = i64::try_from(now_unix_ms)
@@ -65,7 +65,7 @@ pub async fn list_goal_attention(
             continue;
         }
         let request = crate::agent_goal_open_store::decode(&row)?;
-        items.push(AiAssistantAttentionItemDto::from_goal_open(&request));
+        items.push(AiAgentAttentionItemDto::from_goal_open(&request));
     }
 
     let sessions = agent_session::Entity::find()
@@ -82,7 +82,7 @@ pub async fn list_goal_attention(
         let Ok(session) = PersistedAgentSession::decode_json(&row.state_json) else {
             // Invalid current-format data must not block unrelated conversations.
             log::debug!(
-                "Skipping invalid current-format assistant snapshot in batch scan: {}",
+                "Skipping invalid current-format agent snapshot in batch scan: {}",
                 row.id
             );
             continue;
@@ -91,7 +91,7 @@ pub async fn list_goal_attention(
             row.conversation_id.clone(),
             session.client_conversation_id.clone(),
         );
-        if session.surface != AgentSessionSurface::AiAssistant || session.turn_state.is_active() {
+        if session.surface != AgentSessionSurface::AiAgent || session.turn_state.is_active() {
             continue;
         }
         let automatic = delegated.contains(session.approval_delegation_conversation_id())
@@ -112,7 +112,7 @@ pub async fn list_goal_attention(
             )
             .await?
         {
-            items.push(AiAssistantAttentionItemDto::from_decision(
+            items.push(AiAgentAttentionItemDto::from_decision(
                 &row.conversation_id,
                 &row.device_id,
                 pause,
@@ -125,7 +125,7 @@ pub async fn list_goal_attention(
                 && (!automatic
                     || desk_diagnose_core::approval_review::requires_owner_decision(request))
             {
-                items.push(AiAssistantAttentionItemDto::from_permission(
+                items.push(AiAgentAttentionItemDto::from_permission(
                     &row.conversation_id,
                     &row.device_id,
                     request,
@@ -142,13 +142,12 @@ pub async fn list_goal_attention(
     }
     crate::agent_subagent_store::augment_owner_attention_on(db, actor_id, None, &mut items).await?;
     let deliveries =
-        desk_assistant_data_store::workbench::tasks::delivery_attention_on(db, actor_id, now)
-            .await?;
+        desk_agent_data_store::workbench::tasks::delivery_attention_on(db, actor_id, now).await?;
     items.extend(
         deliveries
             .into_iter()
             .map(|(workbench, request, artifact, updated)| {
-                AiAssistantAttentionItemDto::from_issue_reply(
+                AiAgentAttentionItemDto::from_issue_reply(
                     actor_id, &workbench, &request, &artifact, updated,
                 )
             }),

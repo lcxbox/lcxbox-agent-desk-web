@@ -1,9 +1,9 @@
 {
   "extensionName": {
-    "message": "LCXBOX 浏览器助手"
+    "message": "LCXBOX 浏览器智能体"
   },
   "extensionDescription": {
-    "message": "将本机 LCXBOX AI 助手连接到用户明确允许的浏览器页面。"
+    "message": "将本机 LCXBOX AI 智能体连接到用户明确允许的浏览器页面。"
   },
   "bridgeUrlLabel": {
     "message": "本机桥地址"
@@ -56,7 +56,7 @@
     "message": "可选：允许扩展访问所有 HTTP/HTTPS 网站。AI 操作仍需相应授权。可在 Chrome 扩展设置中管理或撤销网站访问权限。"
   },
   "allWebAllowed": {
-    "message": "已允许所有 HTTP/HTTPS 网站。可返回 AI 助手继续任务。"
+    "message": "已允许所有 HTTP/HTTPS 网站。可返回 AI 智能体继续任务。"
   },
   "webOnly": {
     "message": "只能添加 HTTP 或 HTTPS 站点。"

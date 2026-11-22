@@ -185,7 +185,7 @@ pub fn normalize_turn_tools(turn: &mut crate::chat::ModelTurn, tools: &[crate::c
         if call.name == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME
             && let Some(items) = value.get_mut("items").and_then(Value::as_array_mut)
         {
-            let registry = crate::ai_assistant::ai_assistant_provider_registry_ref();
+            let registry = crate::ai_agent::ai_agent_provider_registry_ref();
             for (index, item) in items.iter_mut().enumerate() {
                 let Some(name) = item["tool_name"].as_str().map(str::to_owned) else {
                     continue;
@@ -234,7 +234,7 @@ fn lenient(name: &str) -> bool {
     use crate::registry::ToolEffect;
     use desk_agent_protocol::capability_provider::CapabilityEffect;
     if let Some(capability) =
-        crate::ai_assistant::ai_assistant_provider_registry_ref().capability_for_tool(name)
+        crate::ai_agent::ai_agent_provider_registry_ref().capability_for_tool(name)
     {
         let effect = capability.wire.effect;
         return !effect.is_side_effecting()
@@ -254,7 +254,7 @@ fn lenient(name: &str) -> bool {
                 | ToolEffect::PermissionPlanning
                 | ToolEffect::CapabilityDiscovery
                 | ToolEffect::ConversationHistory
-                | ToolEffect::AssistantHistory
+                | ToolEffect::AgentHistory
                 | ToolEffect::MemoryQuery
                 | ToolEffect::ScheduleQuery
                 | ToolEffect::SubAgentQuery
@@ -392,7 +392,7 @@ mod turn_tests {
     use serde_json::json;
 
     fn request(names: &[&str]) -> ModelRequest {
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         let mut request = ModelRequest::text_only(vec![], ResponseFormatSpec::None);
         request.tools = names
             .iter()
@@ -543,7 +543,7 @@ mod turn_tests {
         let mut turn = turn_with_extra();
         normalize_model_turn(&mut turn, &request(&["inspect_desktop_ui"]));
         assert!(!turn.provider_meta.normalized_inputs.is_empty());
-        let mut message = crate::chat::ChatMessage::assistant_tool_calls(
+        let mut message = crate::chat::ChatMessage::agent_tool_calls(
             "m",
             turn.text.clone(),
             turn.tool_calls.iter().map(|call| call.to_ref()).collect(),

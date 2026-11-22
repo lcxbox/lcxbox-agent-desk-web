@@ -1,5 +1,5 @@
 {
-    "name": "lcxbox-browser-assistant-extension",
+    "name": "lcxbox-browser-agent-extension",
     "private": true,
     "type": "module",
     "scripts": {

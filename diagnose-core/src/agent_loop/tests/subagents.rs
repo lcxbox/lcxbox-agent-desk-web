@@ -104,9 +104,7 @@ impl ChildSessions {
     fn prepared() -> (Self, PersistedAgentSession) {
         let now = "2026-06-20T00:00:00Z";
         let binding = DelegatedTaskBinding {
-            targets: vec![crate::dynamic_run::AssistantInputTarget::fixed(
-                "device".into(),
-            )],
+            targets: vec![crate::dynamic_run::AgentInputTarget::fixed("device".into())],
             root_conversation_id: "root".into(),
             group_id: "group".into(),
             task_id: "task".into(),
@@ -135,7 +133,7 @@ impl ChildSessions {
         )
         .unwrap();
         let mut parent = PersistedAgentSession::new("root", "actor", "device", 1, scope(), now);
-        parent.surface = crate::session::AgentSessionSurface::AiAssistant;
+        parent.surface = crate::session::AgentSessionSurface::AiAgent;
         parent.input_revision = 1;
         parent.control_revision = 1;
         let source = CreationEnvelope::capture(

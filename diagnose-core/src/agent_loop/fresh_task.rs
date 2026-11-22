@@ -43,7 +43,7 @@ pub async fn resume_claimed_fresh_task_turn(
     definition: &ScheduledTaskDefinition,
     source: &CreationEnvelope,
     run_id: &str,
-    initial_assistant_data: Option<&crate::ai_assistant::data_control::AssistantDataSession>,
+    initial_agent_data: Option<&crate::ai_agent::data_control::AgentDataSession>,
     sink: &mut dyn TurnSink,
 ) -> Result<LoopOutcome, AgentError> {
     let denied = || AgentError {
@@ -78,12 +78,12 @@ pub async fn resume_claimed_fresh_task_turn(
     expected.conversation[0] = source.owner_requirement.clone();
     // This is the native claim's frozen snapshot, captured before publication
     // labels were attached. Never derive it from the candidate being checked.
-    if let Some(data) = initial_assistant_data {
+    if let Some(data) = initial_agent_data {
         data.validate().map_err(|_| denied())?;
         if data.retrieval_task_id.as_deref() != Some(run_id) {
             return Err(denied());
         }
-        expected.assistant_data = Some(Box::new(data.clone()));
+        expected.agent_data = Some(Box::new(data.clone()));
     }
     if session != expected {
         return Err(denied());
@@ -123,7 +123,7 @@ pub async fn resume_claimed_fresh_task_permission_turn(
         || session.lease_token <= 1
         || session.trigger_origin != TriggerOrigin::ScheduledTask
         || !session.agent_role.is_main()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || session.turn_state != TurnState::Running
         || session.execution_state != ExecutionState::None
         || session.conversation_id != run_id
@@ -195,7 +195,7 @@ pub async fn resume_claimed_fresh_task_children_turn(
     if deps.heartbeat.is_none()
         || deps.session_seam.subagents(&session).is_none()
         || !session.agent_role.is_main()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || session.trigger_origin != TriggerOrigin::ScheduledTask
         || session.turn_state != TurnState::Running
         || session.main_stopped
@@ -249,7 +249,7 @@ pub async fn resume_claimed_fresh_task_notification_turn(
     notice.validate().map_err(crate::subagent::invalid)?;
     if deps.heartbeat.is_none()
         || deps.session_seam.subagents(&session).is_none()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || !session.is_subagent_result_turn()
         || session.trigger_origin != TriggerOrigin::ScheduledTask
         || session.turn_state != TurnState::Running

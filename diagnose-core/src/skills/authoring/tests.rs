@@ -16,7 +16,7 @@ fn scope() -> AgentScope {
 }
 
 fn main_session(origin: TriggerOrigin) -> PersistedAgentSession {
-    let mut session = crate::ai_assistant::test_support::personal_session("owner", "run", "device");
+    let mut session = crate::ai_agent::test_support::personal_session("owner", "run", "device");
     session.input_revision = 1;
     session.turn_state = TurnState::Running;
     session.adopt_trigger(origin, "turn");
@@ -31,9 +31,7 @@ fn child_session(source: DelegationSource) -> PersistedAgentSession {
         1,
         scope(),
         DelegatedTaskBinding {
-            targets: vec![crate::dynamic_run::AssistantInputTarget::fixed(
-                "device".into(),
-            )],
+            targets: vec![crate::dynamic_run::AgentInputTarget::fixed("device".into())],
             root_conversation_id: "root".into(),
             group_id: "group".into(),
             task_id: "task".into(),
@@ -48,7 +46,7 @@ fn child_session(source: DelegationSource) -> PersistedAgentSession {
         "2026-09-30T00:00:00Z",
     )
     .unwrap();
-    child.surface = crate::session::AgentSessionSurface::AiAssistant;
+    child.surface = crate::session::AgentSessionSurface::AiAgent;
     child
         .begin_turn("turn", None, None, 1, scope(), "2026-09-30T00:00:00Z")
         .unwrap();
@@ -202,10 +200,7 @@ fn waiting_session() -> PersistedAgentSession {
 fn waiting_session_on(device: &str) -> PersistedAgentSession {
     let mut session =
         PersistedAgentSession::new("run", "owner", device, 1, scope(), "2026-10-15T07:36:10Z");
-    session.adopt_client_metadata(
-        Some("client"),
-        crate::session::AgentSessionSurface::AiAssistant,
-    );
+    session.adopt_client_metadata(Some("client"), crate::session::AgentSessionSurface::AiAgent);
     session.input_revision = 1;
     session.control_revision = 1;
     session.latest_input_seq = 1;
@@ -218,7 +213,7 @@ fn waiting_session_on(device: &str) -> PersistedAgentSession {
         destination(),
     )
     .unwrap();
-    let mut assistant = ChatMessage::assistant_tool_calls(
+    let mut agent = ChatMessage::agent_tool_calls(
         "assistant",
         "I propose a skill",
         vec![ToolCallRef {
@@ -227,9 +222,9 @@ fn waiting_session_on(device: &str) -> PersistedAgentSession {
             arguments_json: json!({"name":"disk-report"}).to_string(),
         }],
     );
-    assistant.turn_id = session.current_turn_id.clone();
-    let bytes = crate::model_egress::message_content_bytes(&assistant).unwrap();
-    assistant.data_envelope = Some(
+    agent.turn_id = session.current_turn_id.clone();
+    let bytes = crate::model_egress::message_content_bytes(&agent).unwrap();
+    agent.data_envelope = Some(
         crate::subagent::projection::envelope(
             "assistant",
             &String::from_utf8(bytes).unwrap(),
@@ -244,13 +239,13 @@ fn waiting_session_on(device: &str) -> PersistedAgentSession {
     receipt.turn_id = session.current_turn_id.clone();
     receipt.data_envelope = crate::model_message_labels::composed_envelope(
         &crate::model_content::ModelContent::server_text(&text),
-        assistant.data_envelope.as_ref(),
+        agent.data_envelope.as_ref(),
         "call-private-id",
         crate::model_message_labels::ServerResultSource::SkillProposal,
         false,
     )
     .unwrap();
-    session.conversation = vec![user, assistant, receipt];
+    session.conversation = vec![user, agent, receipt];
     // The proposing turn ended paused on the proposal.
     session.turn_state = TurnState::Idle;
     session.decision_pause = Some(crate::proposal_review::DecisionPause {
@@ -406,7 +401,7 @@ fn native_source(policy: Option<SourceUsePolicy>) -> NativeDerivedInputPolicy {
         output_label_sha256: "b".repeat(64),
         actor_input_seq: 1,
         input_revision: 1,
-        source_contract_revision: crate::ai_assistant::source_registry::SOURCE_CONTRACT_REVISION,
+        source_contract_revision: crate::ai_agent::source_registry::SOURCE_CONTRACT_REVISION,
         policy_revision: 1,
         text_policy: policy,
     }
@@ -414,7 +409,7 @@ fn native_source(policy: Option<SourceUsePolicy>) -> NativeDerivedInputPolicy {
 
 #[test]
 fn only_retainable_content_can_be_authored() {
-    let retained = crate::ai_assistant::source::owner_text_policy(1, false);
+    let retained = crate::ai_agent::source::owner_text_policy(1, false);
     let source = AuthoredSkillSource::new(
         "owner",
         retained.clone(),
@@ -430,7 +425,7 @@ fn only_retainable_content_can_be_authored() {
     no_copy.no_export = true;
     assert!(AuthoredSkillSource::new("owner", no_copy, native_source(None)).is_err());
     let mut media = retained.clone();
-    media.class = desk_agent_protocol::ai_assistant::source::SourcePolicyClass::Media;
+    media.class = desk_agent_protocol::ai_agent::source::SourcePolicyClass::Media;
     assert!(AuthoredSkillSource::new("owner", media, native_source(None)).is_err());
     let mut transient = retained;
     transient.history_retention_allowed = false;

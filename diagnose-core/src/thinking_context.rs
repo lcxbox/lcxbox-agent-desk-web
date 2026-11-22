@@ -182,7 +182,7 @@ pub fn project_anthropic_prefix(
     })
 }
 
-/// Translate raw-history protections to assistant messages, including tool groups.
+/// Translate raw-history protections to agent messages, including tool groups.
 pub fn protected_replay_ids(session: &crate::session::PersistedAgentSession) -> BTreeSet<String> {
     let protection = session.context_protection_set();
     let mut ids = protection.protected_message_ids.clone();
@@ -309,13 +309,13 @@ mod tests {
         let user_wire = json!({"role":"user","content":"question"});
         let binding =
             project_anthropic_prefix(&mut body(vec![user_wire.clone()]), &first, &source).unwrap();
-        let assistant = bound_message("a", &source);
-        let replay = match &assistant.replay_disposition {
+        let agent = bound_message("a", &source);
+        let replay = match &agent.replay_disposition {
             Some(ReplayDisposition::Present { envelope }) => envelope.payload.clone(),
             _ => unreachable!(),
         };
         let mut request = crate::seam::ModelRequest::text_only(
-            vec![user, assistant.clone()],
+            vec![user, agent.clone()],
             crate::prompt::ResponseFormatSpec::None,
         );
         request.thinking_prefix = Some(ThinkingPrefixState {
@@ -354,7 +354,7 @@ mod tests {
         changed["system"] = json!("changed");
         assert!(project_anthropic_prefix(&mut changed, &request, &source).is_err());
         assert_eq!(
-            request.messages[1], assistant,
+            request.messages[1], agent,
             "opaque history must stay intact"
         );
     }

@@ -88,8 +88,8 @@ pub async fn test_issue_connection(
     })
 }
 
-#[utoipa::path(tag = "AiAssistantSession", responses((status = 200, body = RestResponse<Vec<IssueConnectionChoice>>)))]
-#[get("/my/ai-assistant-session/issue-connections")]
+#[utoipa::path(tag = "AiAgentSession", responses((status = 200, body = RestResponse<Vec<IssueConnectionChoice>>)))]
+#[get("/my/ai-agent-session/issue-connections")]
 pub async fn get_my_issue_connections() -> Result<HttpResponse, DeskSignalError> {
     let actor = crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string();
     Ok(response(

@@ -463,7 +463,7 @@ pub(super) async fn fleet_exec_valid_plan_dispatches_to_worker_and_marks_in_flig
 }
 
 #[tokio::test]
-pub(super) async fn fleet_exec_uses_the_only_ready_assistant_session() {
+pub(super) async fn fleet_exec_uses_the_only_ready_agent_session() {
     let (mut ctx, _rx) = exec_enabled_ctx(ExecutionMode::ConfirmEachAction).await;
     // ServiceDaemon keeps direct browser ConfirmExec disabled, while trusted-
     // central EdgeExec may use its registered resident session workers.
@@ -482,21 +482,21 @@ pub(super) async fn fleet_exec_uses_the_only_ready_assistant_session() {
     );
     ctx.worker_mgr.enable_session_targeting_for_test();
     let session = desk_ipc_protocol::message::SessionKey {
-        platform_session_id: "assistant-session".to_string(),
+        platform_session_id: "agent-session".to_string(),
         session_generation: 5,
     };
     ctx.worker_mgr
         .session_targets()
         .upsert(crate::daemon::session_target::SessionCandidate {
             session: session.clone(),
-            display_name: "Assistant session".to_string(),
+            display_name: "Agent session".to_string(),
             session_type: Some("wayland".to_string()),
             seat: Some("seat0".to_string()),
             foreground: true,
             remote_desktop_ready: true,
             terminal_ready: true,
             file_ready: true,
-            assistant_ready: true,
+            agent_ready: true,
         });
     let (worker_tx, mut worker_rx) = tokio::sync::mpsc::unbounded_channel();
     ctx.worker_mgr
@@ -508,27 +508,27 @@ pub(super) async fn fleet_exec_uses_the_only_ready_assistant_session() {
             worker_tx,
         )
         .await;
-    let plan = fleet_plan(&template, "assistant-single");
+    let plan = fleet_plan(&template, "agent-single");
 
-    handle_edge_exec_request_inbound(&ctx, &fleet_exec_model("assistant-single", &plan))
+    handle_edge_exec_request_inbound(&ctx, &fleet_exec_model("agent-single", &plan))
         .await
         .unwrap();
 
     assert!(matches!(
         worker_rx.recv().await,
         Some(ServiceToWorker::ExecPlan(ExecPlanPayload { request_id, .. }))
-            if request_id == "assistant-single"
+            if request_id == "agent-single"
     ));
     assert!(
         ctx.edge_exec_pending
             .lock()
             .unwrap()
-            .contains("assistant-single")
+            .contains("agent-single")
     );
 }
 
 #[tokio::test]
-pub(super) async fn fleet_exec_multiple_assistant_sessions_reject_before_ledger_claim() {
+pub(super) async fn fleet_exec_multiple_agent_sessions_reject_before_ledger_claim() {
     let (mut ctx, mut rx) = exec_enabled_ctx(ExecutionMode::ConfirmEachAction).await;
     ctx.inbound_authz = Some(authz_block(
         vec![Capability::ShellExecConfirmed],
@@ -548,22 +548,22 @@ pub(super) async fn fleet_exec_multiple_assistant_sessions_reject_before_ledger_
             .session_targets()
             .upsert(crate::daemon::session_target::SessionCandidate {
                 session: desk_ipc_protocol::message::SessionKey {
-                    platform_session_id: format!("assistant-session-{index}"),
+                    platform_session_id: format!("agent-session-{index}"),
                     session_generation: 1,
                 },
-                display_name: format!("Assistant session {index}"),
+                display_name: format!("Agent session {index}"),
                 session_type: Some("wayland".to_string()),
                 seat: Some(format!("seat{index}")),
                 foreground: index == 0,
                 remote_desktop_ready: true,
                 terminal_ready: true,
                 file_ready: true,
-                assistant_ready: true,
+                agent_ready: true,
             });
     }
-    let plan = fleet_plan(&template, "assistant-multiple");
+    let plan = fleet_plan(&template, "agent-multiple");
 
-    handle_edge_exec_request_inbound(&ctx, &fleet_exec_model("assistant-multiple", &plan))
+    handle_edge_exec_request_inbound(&ctx, &fleet_exec_model("agent-multiple", &plan))
         .await
         .unwrap();
 
@@ -579,7 +579,7 @@ pub(super) async fn fleet_exec_multiple_assistant_sessions_reject_before_ledger_
     assert!(ctx.edge_exec_pending.lock().unwrap().is_empty());
     assert!(
         ctx.exec_ledger
-            .get("assistant-multiple")
+            .get("agent-multiple")
             .await
             .unwrap()
             .is_none(),
@@ -601,21 +601,21 @@ pub(super) async fn agentic_exec_inherits_the_users_frozen_connection_target() {
     let mut selected_session = None;
     for index in 0..2 {
         let session = desk_ipc_protocol::message::SessionKey {
-            platform_session_id: format!("assistant-bound-{index}"),
+            platform_session_id: format!("agent-bound-{index}"),
             session_generation: 1,
         };
         ctx.worker_mgr
             .session_targets()
             .upsert(crate::daemon::session_target::SessionCandidate {
                 session: session.clone(),
-                display_name: format!("Assistant bound session {index}"),
+                display_name: format!("Agent bound session {index}"),
                 session_type: Some("wayland".to_string()),
                 seat: Some(format!("seat{index}")),
                 foreground: index == 0,
                 remote_desktop_ready: true,
                 terminal_ready: true,
                 file_ready: true,
-                assistant_ready: true,
+                agent_ready: true,
             });
         let (worker_tx, worker_rx) = tokio::sync::mpsc::unbounded_channel();
         ctx.worker_mgr
@@ -637,15 +637,10 @@ pub(super) async fn agentic_exec_inherits_the_users_frozen_connection_target() {
         .unwrap();
 
     let input = agentic_input("Get-Service -Name Spooler", None, 5_000);
-    let plan = agentic_plan_from_input(&input, &[], "assistant-bound");
+    let plan = agentic_plan_from_input(&input, &[], "agent-bound");
     handle_edge_exec_request_inbound(
         &ctx,
-        &agentic_exec_model_for_session(
-            "assistant-bound",
-            &plan,
-            &input,
-            Some("controller-selected"),
-        ),
+        &agentic_exec_model_for_session("agent-bound", &plan, &input, Some("controller-selected")),
     )
     .await
     .unwrap();
@@ -654,7 +649,7 @@ pub(super) async fn agentic_exec_inherits_the_users_frozen_connection_target() {
     assert!(matches!(
         receivers[1].try_recv(),
         Ok(ServiceToWorker::ExecPlan(ExecPlanPayload { request_id, .. }))
-            if request_id == "assistant-bound"
+            if request_id == "agent-bound"
     ));
 }
 
@@ -683,7 +678,7 @@ pub(super) async fn agentic_exec_with_a_stale_connection_never_falls_back_to_ano
             remote_desktop_ready: true,
             terminal_ready: true,
             file_ready: true,
-            assistant_ready: true,
+            agent_ready: true,
         });
     let (worker_tx, mut worker_rx) = tokio::sync::mpsc::unbounded_channel();
     ctx.worker_mgr
@@ -697,11 +692,11 @@ pub(super) async fn agentic_exec_with_a_stale_connection_never_falls_back_to_ano
         .await;
 
     let input = agentic_input("Get-Service -Name Spooler", None, 5_000);
-    let plan = agentic_plan_from_input(&input, &[], "assistant-stale");
+    let plan = agentic_plan_from_input(&input, &[], "agent-stale");
     handle_edge_exec_request_inbound(
         &ctx,
         &agentic_exec_model_for_session(
-            "assistant-stale",
+            "agent-stale",
             &plan,
             &input,
             Some("disconnected-controller"),
@@ -711,13 +706,7 @@ pub(super) async fn agentic_exec_with_a_stale_connection_never_falls_back_to_ano
     .unwrap();
 
     assert!(worker_rx.try_recv().is_err());
-    assert!(
-        ctx.exec_ledger
-            .get("assistant-stale")
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(ctx.exec_ledger.get("agent-stale").await.unwrap().is_none());
 }
 #[tokio::test]
 pub(super) async fn fleet_exec_valid_plan_without_worker_reports_dispatch_failed() {
@@ -752,9 +741,9 @@ pub(super) async fn fleet_exec_valid_plan_without_worker_reports_dispatch_failed
 }
 
 #[tokio::test]
-pub(super) async fn assistant_switch_rejects_agentic_exec_without_blocking_fleet_exec() {
+pub(super) async fn agent_switch_rejects_agentic_exec_without_blocking_fleet_exec() {
     let (mut ctx, mut rx) = exec_enabled_ctx(ExecutionMode::ConfirmEachAction).await;
-    ctx.settings.write().await.ai_assistant.enabled = false;
+    ctx.settings.write().await.ai_agent.enabled = false;
     ctx.inbound_authz = Some(authz_block(
         vec![Capability::ShellExecConfirmed],
         vec![],
@@ -763,17 +752,17 @@ pub(super) async fn assistant_switch_rejects_agentic_exec_without_blocking_fleet
     ));
 
     let input = agentic_input("Get-Service -Name Spooler", None, 5_000);
-    let plan = agentic_plan_from_input(&input, &[], "assistant-off");
-    handle_edge_exec_request_inbound(&ctx, &agentic_exec_model("assistant-off", &plan, &input))
+    let plan = agentic_plan_from_input(&input, &[], "agent-off");
+    handle_edge_exec_request_inbound(&ctx, &agentic_exec_model("agent-off", &plan, &input))
         .await
         .unwrap();
 
     match read_fleet_result(&mut rx).disposition {
         EdgeExecDisposition::RejectedBeforeDispatch { error } => {
             assert_eq!(error.kind, AgentErrorKind::UnsupportedCapability);
-            assert!(error.message.contains("AI Assistant is disabled"));
+            assert!(error.message.contains("AI Agent is disabled"));
         }
-        other => panic!("expected assistant switch rejection, got {other:?}"),
+        other => panic!("expected agent switch rejection, got {other:?}"),
     }
 
     let template = fleet_template();

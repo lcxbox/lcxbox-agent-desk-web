@@ -58,7 +58,7 @@ This outbound guard is separate from the model-provider SSRF guard (`ProviderSsr
 A host trusts every signaling server it is configured to connect to — the manager in `manager_url`, the signaling server in `signaling_url`, and its embedded signaling server in `default` and `service-daemon` modes — as a central that may start remote desktop, terminal, and AI operations. Configure only servers you control.
 
 - Remote-access, terminal, and AI control frames must carry a central's stamp, which the host validates against its own identity, the request, and the expiry. Unstamped ones are dropped.
-- Command template and blocklist syncs, AI Assistant settings, support codes, and access-grant revocations are accepted only on the manager link.
+- Command template and blocklist syncs, AI Agent settings, support codes, and access-grant revocations are accepted only on the manager link.
 - Put a manager only in `manager_url`. In `signaling_url` it would bypass the credential proof and lease below.
 
 ## Notes

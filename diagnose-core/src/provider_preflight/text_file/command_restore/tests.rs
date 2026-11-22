@@ -91,7 +91,7 @@ fn record(session: &mut PersistedAgentSession, call_id: &str, tool: &str, text: 
         },
     )
     .unwrap();
-    session.conversation.push(ChatMessage::assistant_tool_calls(
+    session.conversation.push(ChatMessage::agent_tool_calls(
         format!("{call_id}-proposal"),
         "",
         vec![ToolCallRef {
@@ -111,7 +111,7 @@ fn record(session: &mut PersistedAgentSession, call_id: &str, tool: &str, text: 
         false,
     )
     .unwrap();
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let capability = registry.capability_for_tool(tool).unwrap();
     result
         .data_envelope
@@ -228,7 +228,7 @@ fn a_granted_root_restores_every_protected_change_by_default() {
     );
     assert_eq!(
         crate::provider_preflight::classify_provider_call(
-            crate::ai_assistant::ai_assistant_provider_registry()
+            crate::ai_agent::ai_agent_provider_registry()
                 .capability_for_tool(COMMAND_RESTORE_TOOL)
                 .unwrap(),
             &call(serde_json::json!({"command_result_call_id":"command-call"})),

@@ -57,7 +57,7 @@ pub enum EdgeExecRequestPayload {
         plan: ExecPlan,
         validation_input: ExecInput,
         /// Control-end connection whose immutable host-side session binding
-        /// anchors this Assistant task. The central brain treats this as opaque;
+        /// anchors this Agent task. The central brain treats this as opaque;
         /// only the edge daemon resolves it through its own connection-to-session
         /// table. Missing keeps the 0/1/N behavior for older callers.
         #[serde(default, skip_serializing_if = "Option::is_none")]

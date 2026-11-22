@@ -211,7 +211,7 @@ pub fn resolve_session_call_with_context(
     crate::model_input::validate_server_metadata(call)?;
     // Data and schedule tools have no desktop/file IDs to expand. Their admission
     // binds the exact model argument bytes, including JSON formatting.
-    if crate::ai_assistant::data_tools::is_data_tool(&call.name)
+    if crate::ai_agent::data_tools::is_data_tool(&call.name)
         || matches!(
             call.name.as_str(),
             crate::schedule::proposal::REQUEST_SCHEDULE
@@ -238,14 +238,14 @@ pub fn resolve_session_call_with_context(
     let mut prepared = call.clone();
     let route = if call.name != "request_permissions"
         && session.uses_request_device_tools()
-        && crate::ai_assistant::ai_assistant_provider_registry_ref()
+        && crate::ai_agent::ai_agent_provider_registry_ref()
             .capability_for_tool(&call.name)
             .is_some_and(|descriptor| {
                 descriptor.target_binding == crate::provider_registry::TargetBinding::RequestDevice
             }) {
         let (reference, native) = crate::request_devices::split_device_call(call)?;
         let target = session
-            .assistant_request_device(&reference)
+            .agent_request_device(&reference)
             .ok_or_else(|| invalid("Select an admitted device"))?;
         prepared = native;
         Some((reference, target.device_id.clone()))
@@ -375,7 +375,7 @@ pub(crate) fn resolve_single_call_with_references(
         }
         object.insert((*internal).into(), serde_json::to_value(reference).unwrap());
     }
-    if call.name == crate::ai_assistant::linux::OUTPUT_TOOL {
+    if call.name == crate::ai_agent::linux::OUTPUT_TOOL {
         let target: ObjectRef = serde_json::from_value(
             object
                 .get("target")
@@ -609,7 +609,7 @@ pub(crate) fn project_arguments(
         *value = result;
         return;
     }
-    if tool == crate::ai_assistant::linux::OUTPUT_TOOL
+    if tool == crate::ai_agent::linux::OUTPUT_TOOL
         && let Some(action) = value.get_mut("action").and_then(Value::as_object_mut)
     {
         action.remove("screen");
@@ -769,7 +769,7 @@ pub(crate) fn project_tool_message(message: &mut ChatMessage) {
     crate::browser_model_ids::project_result_message(message);
     crate::document_model_ids::project_result_message(message);
     crate::result_model_ids::project_result_message(message);
-    crate::assistant_data_model::project_message(message);
+    crate::agent_data_model::project_message(message);
     project_tool_status(message);
     if message.role == ChatRole::Tool
         && let Ok(mut value) = serde_json::from_str::<Value>(&message.text)
@@ -1169,7 +1169,7 @@ pub fn project_tool(tool: &mut crate::chat::ToolSpec) {
             "Native UI permission requires the observed application_id and needed actions. The server supplies all reference metadata. Do not supply exact_input."
         );
     }
-    if tool.name == crate::ai_assistant::linux::OUTPUT_TOOL {
+    if tool.name == crate::ai_agent::linux::OUTPUT_TOOL {
         if let Some(properties) = schema
             .pointer_mut("/properties/action/properties")
             .and_then(Value::as_object_mut)
@@ -1202,7 +1202,7 @@ mod tests {
     #[test]
     fn permission_history_hides_internal_bindings_but_preserves_real_failures_and_source() {
         let original = serde_json::json!({"items":[{"item_id":"internal-item", "tool_name":"read_system_info", "resource_scope":["selected:server_resolved"], "operation_scope":["read"], "reason":"inspect"}]}).to_string();
-        let assistant = ChatMessage::assistant_tool_calls(
+        let agent = ChatMessage::agent_tool_calls(
             "assistant",
             "",
             vec![crate::chat::ToolCallRef {
@@ -1214,7 +1214,7 @@ mod tests {
         let mut result = ChatMessage::tool_result("result", "permission-call", "accepted");
         result.tool_ok = Some(true);
         let request = crate::seam::ModelRequest::text_only(
-            vec![assistant.clone(), result.clone()],
+            vec![agent.clone(), result.clone()],
             crate::prompt::ResponseFormatSpec::None,
         );
         let projected = project_request(&request);
@@ -1226,7 +1226,7 @@ mod tests {
         result.tool_ok = Some(false);
         result.text = "invalid: item_id is not accepted".into();
         let failed = crate::seam::ModelRequest::text_only(
-            vec![assistant, result],
+            vec![agent, result],
             crate::prompt::ResponseFormatSpec::None,
         );
         let projected = project_request(&failed);
@@ -1236,8 +1236,7 @@ mod tests {
 
     #[test]
     fn scheduled_calls_preserve_original_json_bytes_without_desktop_resolution() {
-        let session =
-            crate::ai_assistant::test_support::personal_session("owner", "chat", "device");
+        let session = crate::ai_agent::test_support::personal_session("owner", "chat", "device");
         for (name, arguments) in [
             (
                 crate::schedule::management_tools::LIST,
@@ -1271,7 +1270,7 @@ mod tests {
 
     #[test]
     fn model_tool_contracts_never_require_internal_snapshot_metadata() {
-        let tools = crate::ai_assistant::ai_assistant_provider_registry()
+        let tools = crate::ai_agent::ai_agent_provider_registry()
             .registered_tools()
             .into_iter()
             .chain(crate::permission_tools::permission_planning_tool_registry());
@@ -1292,7 +1291,7 @@ mod tests {
         use crate::{chat::ToolCallRef, prompt::ResponseFormatSpec, seam::ModelRequest};
         let canonical =
             json!({"schema_version":2,"shell":"bash","command":"pwd","timeout_ms":10000});
-        let history = ChatMessage::assistant_tool_calls(
+        let history = ChatMessage::agent_tool_calls(
             "history",
             "",
             vec![ToolCallRef {
@@ -1303,7 +1302,7 @@ mod tests {
                         .to_string(),
             }],
         );
-        let command = ChatMessage::assistant_tool_calls(
+        let command = ChatMessage::agent_tool_calls(
             "command",
             "",
             vec![ToolCallRef {
@@ -1422,7 +1421,7 @@ mod tests {
     fn screenshot_tools_explain_application_to_window_discovery() {
         let tools = crate::read_tools::read_tool_registry()
             .into_iter()
-            .chain(crate::read_tools::ai_assistant_read_tool_registry());
+            .chain(crate::read_tools::ai_agent_read_tool_registry());
         let mut checked = std::collections::HashSet::new();
         for registered in tools {
             let mut tool = registered.spec;
@@ -1468,7 +1467,7 @@ mod tests {
                 arguments_json: "{}".into(),
             })
             .collect();
-        messages.insert(0, ChatMessage::assistant_tool_calls("reads", "", calls));
+        messages.insert(0, ChatMessage::agent_tool_calls("reads", "", calls));
         messages
     }
     fn call(tool: &str, mut input: Value) -> ToolCall {
@@ -1512,7 +1511,7 @@ mod tests {
             &original.arguments_json,
             &wrong.to_string()
         ));
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         crate::provider_preflight::UiCallPreflight::build(
             &registry,
             desk_agent_protocol::capability_provider::ProductSurface::OssPersonalOwner,
@@ -1533,7 +1532,7 @@ mod tests {
             json!({"application_id":"calendar","element_id":"date","action":{"kind":"invoke"}}),
         );
         let resolved = resolve_call(&action, &messages, 2_000_000_000_000).unwrap();
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         crate::provider_preflight::UiCallPreflight::build(
             &registry,
             desk_agent_protocol::capability_provider::ProductSurface::OssPersonalOwner,
@@ -1622,7 +1621,7 @@ mod tests {
         let original = serde_json::to_string(&messages).unwrap();
         let mut request =
             crate::seam::ModelRequest::text_only(messages, crate::prompt::ResponseFormatSpec::None);
-        request.tools = crate::ai_assistant::ai_assistant_provider_registry()
+        request.tools = crate::ai_agent::ai_agent_provider_registry()
             .registered_tools()
             .into_iter()
             .map(|t| t.spec)
@@ -1830,7 +1829,7 @@ mod tests {
             json!({"items":[{"item_id":"calendar","tool_name":"execute_ui_actions","application_scope":{"application_id":"calendar","actions":["invoke"]},"suggested_ttl_seconds":120,"suggested_max_uses":4,"reason":"Create requested event"}]}),
         );
         let resolved = resolve_call(&original, &history(), 1).unwrap();
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         let mut request = crate::permission_tools::build_permission_request(
             &resolved,
             &registry,
@@ -1860,7 +1859,7 @@ mod tests {
     fn background_ids_resolve_and_geometry_is_server_owned() {
         let mut messages = history();
         let window = reference("window", "native", "window", "2000-01-01T00:00:00Z");
-        messages.push(ChatMessage::assistant_tool_calls(
+        messages.push(ChatMessage::agent_tool_calls(
             "windows",
             "",
             vec![ToolCallRef {
@@ -1871,7 +1870,7 @@ mod tests {
         ));
         messages.push(ChatMessage::tool_result("windows-result","windows-call",json!({"ReadContext":{"DesktopUiInspect":{"owner_selectable_windows":[window.clone()]}}}).to_string()));
         let geometry = json!({"width_millipoints":600000,"height_millipoints":400000,"width_pixels":600,"height_pixels":400});
-        messages.push(ChatMessage::assistant_tool_calls(
+        messages.push(ChatMessage::agent_tool_calls(
             "capture",
             "",
             vec![ToolCallRef {
@@ -1939,7 +1938,7 @@ mod tests {
             &original.arguments_json,
             &resolved.arguments_json
         ));
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         for surface in [
             desk_agent_protocol::capability_provider::ProductSurface::OssPersonalOwner,
             desk_agent_protocol::capability_provider::ProductSurface::ManagerPersonalOwner,

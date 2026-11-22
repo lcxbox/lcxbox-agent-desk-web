@@ -1,0 +1,159 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AgentHistory } from './agent-history';
+import { manageDeviceFileRecovery } from '@/services/clients';
+
+vi.mock('@/services/clients', () => ({ manageDeviceFileRecovery: vi.fn().mockRejectedValue(new Error('Offline')) }));
+
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+afterEach(() => vi.unstubAllGlobals());
+describe('agent history', () => {
+    it('lists and deletes personal conversations without a connection or backup lookup', async () => {
+        vi.mocked(manageDeviceFileRecovery).mockClear();
+        const row = { sessionId: 'personal-session', conversationId: 'intent', title: 'Personal note', updatedAt: '' };
+        const fetcher = vi.fn(async (_url: string, options?: RequestInit) => ({ ok: true, json: async () =>
+            options?.method === 'POST' ? { data: { deleted: true } } : { data: { sessions: [row] } } }));
+        vi.stubGlobal('fetch', fetcher);
+        const deleted = vi.fn();
+        render(<AgentHistory deskId="" disabled={false} onSelect={() => true} onDeleted={deleted} onNew={() => {}} />);
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.history.title' }));
+        await screen.findByText('Personal note');
+        expect(fetcher).toHaveBeenCalledWith('/api/my/ai-agent-sessions?limit=100', expect.anything());
+        expect(screen.queryByRole('button', { name: 'pages.aiAgent.temporary.new' })).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.history.delete' }));
+        const dialog = screen.getByRole('dialog', { name: 'pages.aiAgent.history.deleteTitle' });
+        fireEvent.click(within(dialog).getByRole('button', { name: 'pages.aiAgent.history.delete' }));
+        await waitFor(() => expect(deleted).toHaveBeenCalledWith('intent'));
+        expect(fetcher).toHaveBeenCalledWith('/api/my/ai-agent-session/delete', expect.objectContaining({
+            method: 'POST', body: JSON.stringify({ session: 'personal-session' }),
+        }));
+        expect(manageDeviceFileRecovery).not.toHaveBeenCalled();
+    });
+    it('uses the server title in a single line and in deletion confirmation', async () => {
+        const title = 'A generated title describing a question whose original text was much longer';
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { sessions: [
+            { sessionId: 't', conversationId: 'title-conversation', title, updatedAt: '' },
+        ] } }) }));
+        render(<AgentHistory deskId="d" disabled={false} onSelect={() => true} />);
+        fireEvent.click(screen.getByRole('button'));
+        expect((await screen.findByText(title)).classList.contains('truncate')).toBe(true);
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.history.delete' }));
+        expect(within(screen.getByRole('dialog', { name: 'pages.aiAgent.history.deleteTitle' })).getByText(title)).toBeTruthy();
+    });
+    it('queries backups using the server session key even when the client conversation differs', async () => {
+        vi.mocked(manageDeviceFileRecovery).mockResolvedValueOnce({ data: { outcome: { kind: 'page', page: { records: [{ recovery_id: 'backup' }] } } } } as never);
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { sessions: [
+            { sessionId: 'server-session', conversationId: 'client-uuid', title: 'Backup test', updatedAt: '' },
+        ] } }) }));
+        render(<AgentHistory deskId="connection" disabled={false} onSelect={() => true} />);
+        fireEvent.click(screen.getByRole('button'));
+        await screen.findByText('Backup test');
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.history.delete' }));
+        await screen.findByText('pages.fileRecovery.deleteBackup.present');
+        expect(manageDeviceFileRecovery).toHaveBeenLastCalledWith({ connection: 'connection', device_id: undefined,
+            request: { command: { operation: 'query', conversation_id: 'server-session' } } },
+        { signal: expect.any(AbortSignal) });
+    });
+    it('loads device history on demand and resumes the chosen conversation', async () => {
+        const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { sessions: [
+            { sessionId: 's1', conversationId: 'c1', title: 'Old question', updatedAt: '2026-09-05' },
+        ] } }) });
+        vi.stubGlobal('fetch', fetcher);
+        const select = vi.fn().mockReturnValue(true);
+        render(<AgentHistory deskId="device/1" disabled={false} onSelect={select} />);
+        expect(fetcher).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button'));
+        fireEvent.click(await screen.findByText('Old question'));
+        expect(fetcher.mock.calls[0][0]).toContain('connection=device%2F1');
+        expect(select).toHaveBeenCalledWith('c1');
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    });
+
+    it('shows errors instead of an empty list and allows retry', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error()).mockResolvedValue({
+            ok: true, json: async () => ({ data: { sessions: [] } }),
+        }));
+        render(<AgentHistory deskId="d" disabled onSelect={() => false} />);
+        fireEvent.click(screen.getByRole('button'));
+        expect(await screen.findByRole('alert')).toBeTruthy();
+        expect(screen.queryByText('pages.aiAgent.history.empty')).toBeNull();
+        fireEvent.click(screen.getByText('pages.aiAgent.history.retry'));
+        expect(await screen.findByText('pages.aiAgent.history.empty')).toBeTruthy();
+    });
+
+    it('does not switch away from an active task', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { sessions: [
+            { sessionId: 's', conversationId: 'c', title: 'Previous task', updatedAt: '' },
+        ] } }) }));
+        const select = vi.fn();
+        render(<AgentHistory deskId="d" disabled onSelect={select} />);
+        fireEvent.click(screen.getByRole('button'));
+        fireEvent.click(await screen.findByText('Previous task'));
+        expect(select).not.toHaveBeenCalled();
+    });
+});
+
+it('shows a running spinner and confirms deletion before sending the request', async () => {
+    const row = { sessionId: 's', conversationId: 'c', title: 'Running task', updatedAt: '', active: true };
+    const fetcher = vi.fn().mockImplementation(async (_url, options) => ({ ok: true, json: async () =>
+        options?.method === 'POST' ? { data: { deleted: true } } : { data: { sessions: [row] } } }));
+    vi.stubGlobal('fetch', fetcher);
+    const deleted = vi.fn();
+    render(<AgentHistory deskId="d" disabled={false} onSelect={() => true} onDeleted={deleted} />);
+    fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.history.title' }));
+    await screen.findByLabelText('pages.aiAgent.history.running');
+    fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.history.delete' }));
+    const dialog = screen.getByRole('dialog', { name: 'pages.aiAgent.history.deleteTitle' });
+    expect(within(dialog).getByText('pages.aiAgent.history.deleteRunning')).toBeTruthy();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'pages.aiAgent.history.delete' }));
+    await waitFor(() => expect(deleted).toHaveBeenCalledWith('c'));
+    expect(fetcher).toHaveBeenCalledWith('/api/my/ai-agent-session/delete', expect.objectContaining({
+        method: 'POST', body: JSON.stringify({ connection: 'd', session: 's' }),
+    }));
+});
+
+it('can cancel an idle conversation deletion without sending a mutation', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { sessions: [
+        { sessionId: 'idle', conversationId: 'idle-client', title: 'Idle task', updatedAt: '', active: false },
+    ] } }) });
+    vi.stubGlobal('fetch', fetcher);
+    render(<AgentHistory deskId="d" disabled={false} onSelect={() => true} />);
+    fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.history.title' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'pages.aiAgent.history.delete' }));
+    expect(screen.queryByText('pages.aiAgent.history.deleteRunning')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.history.keep' }));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Idle task')).toBeTruthy();
+});
+
+it('keeps the confirmation visible when deletion fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_url, options) => options?.method === 'POST'
+        ? { ok: false } : { ok: true, json: async () => ({ data: { sessions: [
+            { sessionId: 's', conversationId: 'c', title: 'Task', updatedAt: '' },
+        ] } }) }));
+    const deleted = vi.fn();
+    render(<AgentHistory deskId="d" disabled={false} onSelect={() => true} onDeleted={deleted} />);
+    fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.history.title' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'pages.aiAgent.history.delete' }));
+    const dialog = screen.getByRole('dialog', { name: 'pages.aiAgent.history.deleteTitle' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'pages.aiAgent.history.delete' }));
+    await screen.findByText('pages.aiAgent.history.deleteError');
+    expect(deleted).not.toHaveBeenCalled();
+    expect(dialog).toBeTruthy();
+});
+
+it('orders running conversations first and each group by last activity', async () => {
+    const sessions = [
+        { sessionId: '1', conversationId: '1', title: 'Idle newer', updatedAt: '2026-09-09T12:00:00Z', active: false },
+        { sessionId: '2', conversationId: '2', title: 'Running older', updatedAt: '2026-09-09T08:00:00Z', active: true },
+        { sessionId: '3', conversationId: '3', title: 'Idle older', updatedAt: '2026-09-09T09:00:00Z', active: false },
+        { sessionId: '4', conversationId: '4', title: 'Running newer', updatedAt: '2026-09-09T10:00:00Z', active: true },
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { sessions } }) }));
+    render(<AgentHistory deskId="d" disabled={false} onSelect={() => true} />);
+    fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.history.title' }));
+    await screen.findByText('Running newer');
+    expect(screen.getAllByRole('button').filter(button => /^(Idle|Running) /.test(button.textContent ?? '')).map(button => button.querySelector('span')?.textContent))
+        .toEqual(['Running newer', 'Running older', 'Idle newer', 'Idle older']);
+});

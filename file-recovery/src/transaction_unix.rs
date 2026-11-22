@@ -12,7 +12,7 @@ pub(super) fn clean(tx: &Transaction) -> io::Result<()> {
     };
     let dir_name =
         CString::new(tx.directory.as_bytes()).map_err(|_| invalid("invalid transaction name"))?;
-    if !tx.directory.starts_with(".assistant-transaction-")
+    if !tx.directory.starts_with(".agent-transaction-")
         || tx.directory.contains('/')
         || tx.directory.contains('\\')
     {

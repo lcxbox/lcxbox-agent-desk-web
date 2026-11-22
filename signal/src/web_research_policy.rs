@@ -1,6 +1,6 @@
 //! File-owned OSS bound on the bytes one public web page read may take.
 use crate::config::{ConfigConnection, connection::DatabaseConnection};
-use desk_agent_protocol::ai_assistant::web_research_policy::{
+use desk_agent_protocol::ai_agent::web_research_policy::{
     UpdateWebResearchPolicy, WebResearchPolicy,
 };
 

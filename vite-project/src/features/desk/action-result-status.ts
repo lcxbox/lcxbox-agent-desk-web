@@ -1,4 +1,4 @@
-import { isOutcomeUnknownText } from './assistant-result-summary';
+import { isOutcomeUnknownText } from './agent-result-summary';
 
 /** Display-only projection; this never authorizes retry or further execution. */
 export function hasUnknownActionResult(text: string | null, expectedCallId?: string): boolean {

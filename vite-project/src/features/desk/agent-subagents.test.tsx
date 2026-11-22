@@ -1,0 +1,388 @@
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useState, type ReactNode } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AgentSubagentApprovalNotice, AgentSubagents, AgentConversationTabs } from './agent-subagents';
+import type { useAiAgentSubagents } from './use-ai-agent-subagents';
+import type { PersistedSnapshot, AiAgentMessage } from './use-ai-agent-chat';
+import type { AiAgentSubAgentSummary, PermissionRequestDto } from '@/services/types';
+
+const lifecycle = vi.hoisted(() => ({ attachments: [] as string[], images: [] as string[] }));
+vi.mock('react-i18next', () => import('@/test-utils/i18n-mock').then(m => m.reactI18nextMock()));
+vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false }));
+vi.mock('./agent-attachments', async () => {
+    const { useEffect } = await import('react');
+    return {
+        AgentAttachments: ({ sessionId }: { sessionId: string }) => {
+            useEffect(() => () => { lifecycle.attachments.push(sessionId); }, [sessionId]);
+            return <div data-testid="child-materials" data-session={sessionId} />;
+        },
+        AgentResultAttachments: ({ sessionId }: { sessionId: string }) =>
+            <div data-testid="child-result-materials" data-session={sessionId} />,
+    };
+});
+vi.mock('./agent-images', async () => {
+    const { useEffect } = await import('react');
+    return { AgentImages: ({ sessionId, messages, renderMessage }: { sessionId: string;
+        messages: AiAgentMessage[]; renderMessage: (message: AiAgentMessage) => ReactNode }) => {
+        useEffect(() => () => { lifecycle.images.push(sessionId); }, [sessionId]);
+        return <div data-testid="child-images" data-session={sessionId}>{messages.map(renderMessage)}</div>;
+    } };
+});
+
+function agentsFor(childId: string): ReturnType<typeof useAiAgentSubagents> {
+    const task: AiAgentSubAgentSummary = { task_id: `task-${childId}`, worker_id: "worker-1", child_session_id: childId,
+        group_id: 'original-group', name: `Research ${childId}`, state: 'running', input_revision: 1,
+        control_revision: 1, state_revision: 2, source_goal_id: null,
+        source: { kind: 'user_input', input_revision: 1 }, wait_reason: null,
+        created_at: '2026-09-30T00:00:00Z', updated_at: '2026-09-30T00:00:01Z' };
+    const session: PersistedSnapshot = { sessionId: childId, seq: 1, active: false, inputRevision: 1,
+        controlRevision: 1, mainStopped: false, messages: [],
+        contextAttachments: [{ id: 'context', kind: 'interactive_session', capabilityId: 'desktop.ui.inspect',
+            providerId: 'desktop.ui', state: 'active', expiresAtUnixMs: 100, createdAtUnixMs: 1,
+            displaySummary: `Context ${childId}` }],
+        subagents: { parent_session_id: 'root', task, active_tasks: [], tasks: null, attention_tasks: [], attention_count: 0 } };
+    return {
+        tasks: [task], total: 1, attentionCount: 0, unfinished: 1, hasMore: false, loading: false,
+        loadMore: vi.fn(), selected: task, detail: { result: { task, objective: 'Read original evidence',
+            acceptance_criteria: ['Cite the source'], report: null, failure_reason: null,
+            reports: { items: [], next_before_seq: null }, open_question: null }, session },
+        detailLoading: false, openDetail: vi.fn(), closeDetail: vi.fn(), updating: false, error: null,
+        control: vi.fn(), decidePermission: vi.fn(), updateDirectory: vi.fn(), revokeGrant: vi.fn(),
+        cancelProviderTask: vi.fn(), cancelCommandTask: vi.fn(), historyLoading: false, hasMoreMessages: false,
+        reports: undefined, viewingOlderReports: false, reportsLoading: false, loadOlderReports: vi.fn(), showLatestReports: vi.fn(),
+        loadOlderMessages: vi.fn(), childTools: [], childMessages: [{ id: `receipt-${childId}`,
+            role: 'tool_result', text: `Original output ${childId}` }],
+    };
+}
+
+afterEach(() => { cleanup(); lifecycle.attachments.length = 0; lifecycle.images.length = 0; vi.clearAllMocks(); vi.restoreAllMocks(); });
+it('shows child approval in the composer status area and clears it when switching to an inactive child', () => {
+    const agents = agentsFor('child-1');
+    agents.detail!.session.approvalDelegation = { delegationId: 'child-approval', status: 'active',
+        reviewsUsed: 0, tokensUsed: 0, createdAtUnixMs: 1 };
+    const onApprovalSettings = vi.fn();
+    const view = render(<AgentSubagents agents={agents} connected canDecide mainStopped={false} onApprovalSettings={onApprovalSettings} />);
+    const status = screen.getByTestId('agent-composer-status');
+    expect(status.closest('form')).toHaveClass('agent-composer');
+    fireEvent.click(within(status).getByRole('button', { name: 'AI approval is on' }));
+    expect(onApprovalSettings).toHaveBeenCalledOnce();
+    expect(agents.control).not.toHaveBeenCalled();
+    view.rerender(<AgentSubagents agents={agentsFor('child-2')} connected canDecide mainStopped={false} onApprovalSettings={onApprovalSettings} />);
+    expect(screen.queryByText('AI approval is on')).toBeNull();
+});
+it('keeps the + menu available for a completed child and opens its context panel', async () => {
+    const agents = agentsFor('child-1');
+    const task = { ...agents.selected!, state: 'completed' as const };
+    agents.selected = task; agents.tasks = [task]; agents.detail!.result.task = task;
+    render(<AgentSubagents agents={agents} connected canDecide mainStopped={false} />);
+    expect(screen.queryByRole('textbox')).toBeNull();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Conversation actions' }), { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Conversation context' }));
+    expect(await screen.findByText('Context child-1')).toBeVisible();
+    expect(agents.control).not.toHaveBeenCalled();
+});
+it('submits a large UTF-8 adjustment unchanged and keeps the draft after server rejection', async () => {
+    const agents = agentsFor('child-1');
+    render(<AgentSubagents agents={agents} connected canDecide mainStopped={false} />);
+    const input = screen.getByRole('textbox', { name: 'New requirements for this subtask' });
+    vi.mocked(agents.control).mockResolvedValue(false);
+    const message = '中'.repeat(6_000);
+    fireEvent.change(input, { target: { value: message } });
+    const submit = screen.getByRole('button', { name: 'Apply adjustment' });
+    expect(submit).toBeEnabled();
+    expect(input).not.toHaveAttribute('maxlength');
+    fireEvent.click(submit);
+    await waitFor(() => expect(agents.control).toHaveBeenCalledOnce());
+    expect(agents.control).toHaveBeenCalledWith(agents.selected, { kind: 'adjust', message });
+    expect(input).toHaveValue(message);
+});
+it('submits a child adjustment with Enter and keeps the draft when the server rejects it', async () => {
+    localStorage.removeItem('ai-agent-send-shortcut');
+    const agents = agentsFor('child-1');
+    vi.mocked(agents.control).mockResolvedValue(false);
+    render(<AgentSubagents agents={agents} connected canDecide mainStopped={false} />);
+    const input = screen.getByRole('textbox', { name: 'New requirements for this subtask' });
+    fireEvent.change(input, { target: { value: 'Check the logs first' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+    expect(agents.control).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(agents.control).toHaveBeenCalledExactlyOnceWith(agents.selected,
+        { kind: 'adjust', message: 'Check the logs first' }));
+    expect(input).toHaveValue('Check the logs first');
+});
+it('answers the exact Worker question and keeps the adjustment draft separate', async () => {
+    const agents = agentsFor('child-1');
+    agents.detail!.result.open_question = { question_id: 'original-question', text: 'Which environment should I verify?' };
+    vi.mocked(agents.control).mockResolvedValue(true);
+    render(<AgentSubagents agents={agents} connected canDecide mainStopped={false} adjustment="Existing adjustment" />);
+    expect(screen.getByText('Which environment should I verify?')).toBeVisible();
+    const input = screen.getByRole('textbox', { name: 'Answer the Worker' });
+    expect(input).toHaveValue('');
+    fireEvent.change(input, { target: { value: 'Use staging.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }));
+    await waitFor(() => expect(agents.control).toHaveBeenCalledExactlyOnceWith(agents.selected,
+        { kind: 'reply', question_id: 'original-question', message: 'Use staging.' }));
+    await waitFor(() => expect(input).toHaveValue(''));
+});
+describe('subagent approval notice', () => {
+    it('shows pending approvals outside the collapsed task list and opens the original child', () => {
+        const agents = agentsFor('child-1');
+        agents.tasks[0] = { ...agents.tasks[0], state: 'waiting_approval', wait_reason: 'owner_approval' };
+        agents.selected = null; agents.detail = null;
+        render(<><AgentSubagentApprovalNotice agents={agents} />
+            <AgentSubagents agents={agents} connected canDecide mainStopped={false} /></>);
+        expect(screen.getByRole('status')).toHaveTextContent('1 subtasks awaiting approval');
+        const entry = screen.getByRole('button', { name: 'View approval · Research child-1' });
+        expect(entry).toBeVisible();
+        fireEvent.click(entry);
+        expect(agents.openDetail).toHaveBeenCalledExactlyOnceWith(agents.tasks[0]);
+        expect(agents.decidePermission).not.toHaveBeenCalled();
+    });
+
+    it('counts waiting tasks independently of unread updates and removes resolved approvals', () => {
+        const agents = agentsFor('child-1');
+        agents.tasks = ['child-1', 'child-2'].map(id => ({ ...agentsFor(id).tasks[0], state: 'waiting_approval' }));
+        const view = render(<AgentSubagentApprovalNotice agents={agents} />);
+        expect(screen.getByRole('status')).toHaveTextContent('2 subtasks awaiting approval');
+        agents.tasks[0] = { ...agents.tasks[0], state: 'running' };
+        view.rerender(<AgentSubagentApprovalNotice agents={agents} />);
+        expect(screen.getByRole('status')).toHaveTextContent('1 subtasks awaiting approval');
+        expect(screen.queryByRole('button', { name: /Research child-1/ })).toBeNull();
+        agents.tasks[1] = { ...agents.tasks[1], state: 'completed' };
+        agents.attentionCount = 2;
+        view.rerender(<AgentSubagentApprovalNotice agents={agents} />);
+        expect(screen.queryByRole('status')).toBeNull();
+    });
+});
+
+describe('subagent material ownership', () => {
+    it('binds process images, text references and stored materials to the original child after main stop', () => {
+        render(<AgentSubagents agents={agentsFor('child-1')} connected canDecide mainStopped />);
+        for (const name of ['child-materials', 'child-result-materials', 'child-images'])
+            expect(screen.getByTestId(name)).toHaveAttribute('data-session', 'child-1');
+        expect(screen.queryByText('Context child-1')).toBeNull();
+        expect(screen.queryByText('Read original evidence')).toBeNull();
+        expect(screen.queryByRole('textbox', { name: 'Working directory path' })).toBeNull();
+        expect(screen.getByText('Original output child-1')).toBeInTheDocument();
+        expect(lifecycle.attachments).toEqual([]);
+        expect(lifecycle.images).toEqual([]);
+    });
+
+    it('unmounts prior material viewers when switching child details within the same root', () => {
+        const view = render(<AgentSubagents agents={agentsFor('child-1')} connected canDecide mainStopped={false} />);
+        view.rerender(<AgentSubagents agents={agentsFor('child-2')} connected canDecide mainStopped={false} />);
+        for (const name of ['child-materials', 'child-result-materials', 'child-images'])
+            expect(screen.getByTestId(name)).toHaveAttribute('data-session', 'child-2');
+        expect(screen.queryByText('Context child-1')).toBeNull();
+        expect(screen.queryByText('Original output child-1')).toBeNull();
+        expect(lifecycle.attachments).toEqual(['child-1']);
+        expect(lifecycle.images).toEqual(['child-1']);
+    });
+});
+
+
+describe('conversation tabs', () => {
+    it('preserves separate adjustment drafts across tabs and keeps a rejected adjustment', async () => {
+        const control = vi.fn().mockResolvedValue(false);
+        function Workspace() {
+            const [id, setId] = useState('child-1');
+            const [drafts, setDrafts] = useState<Record<string, string>>({});
+            const agents = agentsFor(id); agents.control = control;
+            return <><button onClick={() => setId(id === 'child-1' ? 'child-2' : 'child-1')}>Switch</button>
+                <AgentSubagents key={id} agents={agents} connected canDecide mainStopped={false}
+                    adjustment={drafts[id] ?? ''} onAdjustmentChange={text => setDrafts(previous => ({ ...previous, [id]: text }))} /></>;
+        }
+        render(<Workspace />);
+        const input = () => screen.getByRole('textbox', { name: 'New requirements for this subtask' });
+        fireEvent.change(input(), { target: { value: 'First draft' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Switch' }));
+        expect(input()).toHaveValue('');
+        fireEvent.change(input(), { target: { value: 'Second draft' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Switch' }));
+        expect(input()).toHaveValue('First draft');
+        fireEvent.click(screen.getByRole('button', { name: 'Apply adjustment' }));
+        await waitFor(() => expect(control).toHaveBeenCalledOnce());
+        expect(input()).toHaveValue('First draft');
+    });
+    it('keeps the conversation tabs hidden before, during and after main approval when there are no children', () => {
+        const agents = agentsFor('child-1'); agents.tasks = []; agents.selected = null; agents.detail = null;
+        const view = render(<AgentConversationTabs agents={agents} />);
+        expect(screen.queryByRole('tablist')).toBeNull();
+        view.rerender(<AgentConversationTabs agents={agents} mainNeedsApproval />);
+        expect(screen.queryByRole('tablist')).toBeNull();
+        expect(screen.queryByRole('tab', { name: /Main conversation/ })).toBeNull();
+        view.rerender(<AgentConversationTabs agents={agents} />);
+        expect(screen.queryByRole('tablist')).toBeNull();
+    });
+    it('keeps earlier child conversations reachable when only pagination remains', () => {
+        const agents = agentsFor('child-1'); agents.tasks = []; agents.selected = null; agents.detail = null; agents.hasMore = true;
+        render(<AgentConversationTabs agents={agents} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Load earlier subtasks' }));
+        expect(agents.loadMore).toHaveBeenCalledOnce();
+    });
+    it('uses the matching child snapshot for revalidation attention and ignores terminal tasks', () => {
+        const agents = agentsFor('child-1');
+        agents.detail!.session.permissionRequests = [{ state: 'needs_revalidation' } as PermissionRequestDto];
+        const view = render(<AgentConversationTabs agents={agents} />);
+        expect(screen.getByText('Research child-1')).toHaveClass('agent-approval-tab-title');
+        agents.detail!.result.task = { ...agents.detail!.result.task, task_id: 'another-task' };
+        view.rerender(<AgentConversationTabs agents={agents} />);
+        expect(screen.getByText('Research child-1')).not.toHaveClass('agent-approval-tab-title');
+        agents.tasks[0] = { ...agents.tasks[0], state: 'completed' };
+        agents.detail!.result.task = agents.tasks[0];
+        view.rerender(<AgentConversationTabs agents={agents} />);
+        expect(screen.getByText('Research child-1')).not.toHaveClass('agent-approval-tab-title');
+    });
+    it('blinks main and child titles until approval resolves, independently of selection and unread status', () => {
+        const agents = agentsFor('child-1');
+        agents.tasks[0] = { ...agents.tasks[0], state: 'waiting_approval' };
+        const view = render(<AgentConversationTabs agents={agents} mainNeedsApproval />);
+        expect(screen.getByText('Main conversation')).toHaveAttribute('data-approval-pending', 'true');
+        expect(screen.getByText('Research child-1')).toHaveClass('agent-approval-tab-title');
+        agents.selected = null;
+        view.rerender(<AgentConversationTabs agents={agents} mainNeedsApproval attentionTasks={[]} />);
+        expect(screen.getByText('Research child-1')).toHaveClass('agent-approval-tab-title');
+        agents.tasks[0] = { ...agents.tasks[0], state: 'completed' };
+        view.rerender(<AgentConversationTabs agents={agents} />);
+        expect(screen.getByText('Main conversation')).not.toHaveAttribute('data-approval-pending');
+        expect(screen.getByText('Research child-1')).not.toHaveClass('agent-approval-tab-title');
+    });
+
+    it('opens shared child details and context on demand without putting them in the transcript', () => {
+        const agents = agentsFor('child-1');
+        render(<AgentSubagents agents={agents} connected canDecide mainStopped={false} />);
+        expect(screen.queryByText('Read original evidence')).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Task details' }));
+        expect(screen.getByRole('dialog')).toHaveTextContent('Read original evidence');
+        expect(screen.getByTestId('agent-shared-transcript')).not.toHaveTextContent('Read original evidence');
+        fireEvent.click(screen.getByRole('button', { name: 'Current context' }));
+        expect(screen.getByRole('dialog')).toHaveTextContent('Context child-1');
+    });
+    it('switches to the original child and returns to main without a task control action', () => {
+        const agents = agentsFor('child-1');
+        render(<AgentConversationTabs agents={agents} attentionTasks={agents.tasks} />);
+        expect(screen.getByRole('tab', { name: 'Main conversation' })).toHaveAttribute('aria-selected', 'false');
+        expect(screen.getByLabelText('Unread update')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('tab', { name: 'Main conversation' }));
+        expect(agents.closeDetail).toHaveBeenCalledOnce();
+        expect(agents.control).not.toHaveBeenCalled();
+    });
+
+    it('moves ended tasks behind unfinished tasks and supports keyboard selection', () => {
+        const agents = agentsFor('child-1');
+        const first = { ...agents.tasks[0], created_at: '2026-10-05T01:00:00Z', state: 'completed' as const };
+        const second = { ...agentsFor('child-2').tasks[0], created_at: '2026-10-05T02:00:00Z' };
+        agents.tasks = [second, first]; agents.selected = null;
+        const view = render(<AgentConversationTabs agents={agents} />);
+        expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual([
+            'Main conversation', expect.stringContaining('Research child-2'), expect.stringContaining('Research child-1')]);
+        const main = screen.getByRole('tab', { name: 'Main conversation' }); main.focus();
+        fireEvent.keyDown(main, { key: 'ArrowRight' });
+        expect(agents.openDetail).toHaveBeenCalledWith(second);
+        agents.tasks = [{ ...second, state: 'completed' }, first];
+        view.rerender(<AgentConversationTabs agents={agents} />);
+        expect(screen.getAllByRole('tab')[1]).toHaveTextContent('Research child-1');
+    });
+
+    it('puts approvals first and all terminal states last without changing selection or unread state', () => {
+        const agents = agentsFor('child-1');
+        const task = (id: string, state: AiAgentSubAgentSummary['state'], date: string) => ({ ...agentsFor(id).tasks[0], state, created_at: date });
+        const running = task('running', 'running', '02');
+        const pending = task('pending', 'waiting_approval', '05');
+        agents.tasks = [task('failed', 'failed', '04'), task('cancelled', 'cancelled', '03'),
+            pending, task('finished', 'completed', '01'), task('queued', 'queued', '06'), running];
+        agents.selected = running; agents.detail = null;
+        const view = render(<AgentConversationTabs agents={agents} attentionTasks={[{ task_id: 'task-finished' }]} />);
+        const order = () => screen.getAllByRole('tab').map(tab => tab.id);
+        expect(order()).toEqual(['agent-tab-main', 'agent-tab-task-pending', 'agent-tab-task-running',
+            'agent-tab-task-queued', 'agent-tab-task-finished', 'agent-tab-task-cancelled', 'agent-tab-task-failed']);
+        expect(screen.getByRole('tab', { name: /Research running/ })).toHaveAttribute('aria-selected', 'true');
+        agents.tasks = agents.tasks.map(task => task.task_id === pending.task_id ? { ...task, state: 'running' } : task);
+        view.rerender(<AgentConversationTabs agents={agents} />);
+        expect(order().slice(1, 4)).toEqual(['agent-tab-task-running', 'agent-tab-task-pending', 'agent-tab-task-queued']);
+        expect(screen.getByRole('tab', { name: /Research running/ })).toHaveAttribute('aria-selected', 'true');
+        expect(agents.openDetail).not.toHaveBeenCalled();
+        expect(agents.control).not.toHaveBeenCalled();
+    });
+
+    it('shows a worker waiting for the main agent before finished requests', () => {
+        const agents = agentsFor('child-1');
+        const waiting: AiAgentSubAgentSummary = { ...agents.tasks[0], state: 'waiting_input', wait_reason: 'main_agent_reply' };
+        agents.tasks = [{ ...agentsFor('finished').tasks[0], state: 'completed' }, waiting];
+        agents.selected = waiting;
+        agents.detail = null;
+        render(<AgentConversationTabs agents={agents} />);
+        const tab = screen.getAllByRole('tab')[1];
+        expect(tab).toHaveTextContent('Waiting for the main agent');
+        expect(tab).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('promotes a running child with matching pending revalidation above another unfinished child', () => {
+        const agents = agentsFor('child-1');
+        agents.tasks = [{ ...agentsFor('child-2').tasks[0], created_at: '01' }, { ...agents.tasks[0], created_at: '02' }];
+        agents.detail!.session.permissionRequests = [{ state: 'needs_revalidation' } as PermissionRequestDto];
+        render(<AgentConversationTabs agents={agents} />);
+        expect(screen.getAllByRole('tab')[1]).toHaveTextContent('Research child-1');
+    });
+
+    it('keeps pagination outside the scroll viewport and reaches the last child through the switch menu', async () => {
+        const agents = agentsFor('child-1');
+        agents.tasks = Array.from({ length: 32 }, (_, index) => agentsFor(`child-${index.toString().padStart(2, '0')}`).tasks[0]);
+        agents.selected = null; agents.detail = null; agents.hasMore = true;
+        render(<AgentConversationTabs agents={agents} />);
+        const viewport = screen.getByTestId('agent-tab-viewport');
+        const more = screen.getByRole('button', { name: 'Load earlier subtasks' });
+        expect(viewport).not.toContainElement(more);
+        expect(viewport).not.toContainElement(screen.getByRole('tab', { name: 'Main conversation' }));
+        fireEvent.click(more); expect(agents.loadMore).toHaveBeenCalledOnce();
+        fireEvent.pointerDown(screen.getByRole('button', { name: 'Switch conversation' }), { button: 0, ctrlKey: false, pointerType: 'mouse' });
+        fireEvent.click(await screen.findByRole('menuitem', { name: /Research child-31/ }));
+        expect(agents.openDetail).toHaveBeenCalledExactlyOnceWith(agents.tasks[31]);
+        expect(agents.control).not.toHaveBeenCalled();
+    });
+
+    it('scrolls overflowing tabs with buttons, mouse wheel and keyboard, then reveals selection after reorder', () => {
+        const agents = agentsFor('child-1');
+        agents.tasks = [agents.tasks[0], agentsFor('child-2').tasks[0]];
+        agents.selected = null; agents.detail = null;
+        const view = render(<AgentConversationTabs agents={agents} />);
+        const viewport = screen.getByTestId('agent-tab-viewport');
+        Object.defineProperties(viewport, { clientWidth: { configurable: true, value: 100 }, scrollWidth: { configurable: true, value: 800 } });
+        const scrollBy = vi.fn(); Object.defineProperty(viewport, 'scrollBy', { configurable: true, value: scrollBy });
+        const reveal = vi.fn(); screen.getByRole('tab', { name: /Research child-2/ }).scrollIntoView = reveal;
+        fireEvent.scroll(viewport);
+        fireEvent.click(screen.getByRole('button', { name: 'Scroll conversation tabs right' }));
+        expect(scrollBy).toHaveBeenCalledWith({ left: 80, behavior: 'smooth' });
+        fireEvent.wheel(viewport, { deltaY: 200, deltaX: 0 }); expect(viewport.scrollLeft).toBe(200);
+        const main = screen.getByRole('tab', { name: 'Main conversation' }); main.focus();
+        fireEvent.keyDown(main, { key: 'End' });
+        expect(agents.openDetail).toHaveBeenCalledWith(agents.tasks[1]);
+        expect(reveal).toHaveBeenCalled();
+        reveal.mockClear(); agents.selected = agents.tasks[1];
+        agents.tasks[1] = { ...agents.tasks[1], state: 'waiting_approval' };
+        view.rerender(<AgentConversationTabs agents={agents} />);
+        expect(reveal).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+    });
+
+    it('reveals the start of an oversized selected tab so its title stays visible in a narrow viewport', () => {
+        const agents = agentsFor('child-1'); agents.selected = null;
+        const view = render(<AgentConversationTabs agents={agents} />);
+        const viewport = screen.getByTestId('agent-tab-viewport');
+        const tab = screen.getByRole('tab', { name: /Research child-1/ });
+        Object.defineProperty(viewport, 'clientWidth', { configurable: true, value: 100 });
+        Object.defineProperty(tab, 'offsetWidth', { configurable: true, value: 256 });
+        const reveal = vi.fn(); tab.scrollIntoView = reveal;
+        agents.selected = agents.tasks[0]; view.rerender(<AgentConversationTabs agents={agents} />);
+        expect(reveal).toHaveBeenCalledWith({ block: 'nearest', inline: 'start' });
+    });
+
+    it('renders child conversation directly with shared reasoning and no details dialog', () => {
+        const agents = agentsFor('child-1');
+        agents.childMessages = [{ id: 'thinking', role: 'assistant', text: 'Answer', reasoning: 'Independent reasoning' }];
+        render(<AgentSubagents agents={agents} connected canDecide mainStopped={false} />);
+        expect(screen.getByTestId('agent-shared-transcript')).toBeInTheDocument();
+        expect(screen.getByText('Answer')).toBeInTheDocument();
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(screen.getByRole('textbox', { name: 'New requirements for this subtask' })).toBeInTheDocument();
+    });
+});

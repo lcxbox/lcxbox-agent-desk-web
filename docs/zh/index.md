@@ -19,12 +19,12 @@ hero:
 features:
   - icon: 🤖
     title: AI 原生设计
-    details: 内置AI 助手可以读取设备状态并提出命令建议。只有设备所有者逐条确认后，命令才会执行；权限与风险等级始终由服务端判断。
+    details: 内置AI 智能体可以读取设备状态并提出命令建议。只有设备所有者逐条确认后，命令才会执行；权限与风险等级始终由服务端判断。
     link: /zh/features/ai-diagnostics
     linkText: AI 诊断
   - icon: 🔌
     title: 只读 MCP 服务
-    details: 通过 Model Context Protocol 把设备的只读能力开放给本地 AI 助手——静态白名单，无执行 / 写入 / 控制类工具。
+    details: 通过 Model Context Protocol 把设备的只读能力开放给本地 AI 智能体——静态白名单，无执行 / 写入 / 控制类工具。
     link: /zh/features/mcp-server
     linkText: MCP 服务
   - icon: ⚡

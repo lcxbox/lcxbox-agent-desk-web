@@ -13,7 +13,7 @@ impl ScheduleStore {
         threshold: u32,
     ) -> Result<entity::Model, ScheduleStoreError> {
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
-        let result = desk_assistant_data_store::schedule::set_failure_threshold_on(
+        let result = desk_agent_data_store::schedule::set_failure_threshold_on(
             &txn, owner, id, expected, threshold,
         )
         .await?;
@@ -28,7 +28,7 @@ impl ScheduleStore {
         expected: i64,
         title: &str,
     ) -> Result<entity::Model, ScheduleStoreError> {
-        desk_assistant_data_store::schedule::rename(&self.db, owner, id, expected, title).await
+        desk_agent_data_store::schedule::rename(&self.db, owner, id, expected, title).await
     }
 
     pub async fn change_time(
@@ -78,7 +78,7 @@ impl ScheduleStore {
         delete: bool,
     ) -> Result<entity::Model, ScheduleStoreError> {
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
-        let result = desk_assistant_data_store::schedule::edit_on(
+        let result = desk_agent_data_store::schedule::edit_on(
             &super::session_host::SignalScheduleHost,
             &txn,
             owner,

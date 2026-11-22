@@ -3,7 +3,7 @@ use super::*;
 use crate::entity::{
     agent_action_item, agent_attachment, agent_capability_dispatch_outbox, agent_schedule,
 };
-use desk_assistant_data_store::main_request;
+use desk_agent_data_store::main_request;
 use desk_diagnose_core::goal::GoalRemovalReason;
 use desk_diagnose_core::model_observability::permission::PendingEnds;
 use sea_orm::{ExprTrait, QuerySelect, QueryTrait};
@@ -36,9 +36,7 @@ impl SignalAgentSessionStore {
         let Some(row) = row else {
             let now_ms = chrono::Utc::now().timestamp_millis();
             let removed = desk_diagnose_core::future::boxed(|| {
-                crate::assistant_data_store::delete_retained_root_on(
-                    &txn, actor, device, id, now_ms,
-                )
+                crate::agent_data_store::delete_retained_root_on(&txn, actor, device, id, now_ms)
             })
             .await
             .map_err(|error| error.into_agent_error())?;
@@ -80,7 +78,7 @@ impl SignalAgentSessionStore {
                         delete_live_session_on(&txn, &work, Some(&session), now_ms).await?;
                     permission_ends.extend(ends);
                     removed.push(work_id);
-                } else if crate::assistant_data_store::delete_retained_root_on(
+                } else if crate::agent_data_store::delete_retained_root_on(
                     &txn, actor, "", &work_id, now_ms,
                 )
                 .await
@@ -157,7 +155,7 @@ fn current_deletion_session(
         .check_subject(&row.actor_id, &row.device_id)
         .map_err(|_| internal("Conversation not accessible"))?;
     session
-        .check_surface(AgentSessionSurface::AiAssistant)
+        .check_surface(AgentSessionSurface::AiAgent)
         .map_err(|_| internal("Conversation not accessible"))?;
     if session.conversation_id != row.conversation_id
         || !session.agent_role.is_main()
@@ -199,7 +197,7 @@ async fn delete_live_session_on(
         if device.is_empty()
             || !metadata.matches_subject(id, actor, device)
             || !metadata.is_main()
-            || metadata.surface != AgentSessionSurface::AiAssistant
+            || metadata.surface != AgentSessionSurface::AiAgent
         {
             return Err(internal("Conversation not accessible"));
         }
@@ -260,7 +258,7 @@ async fn delete_live_session_on(
         .await
         .map_err(save_backend)?;
     desk_diagnose_core::future::boxed(|| {
-        crate::assistant_data_store::mark_manual_delete_on(txn, actor, device, id, now_ms)
+        crate::agent_data_store::mark_manual_delete_on(txn, actor, device, id, now_ms)
     })
     .await
     .map_err(|error| error.into_agent_error())?;

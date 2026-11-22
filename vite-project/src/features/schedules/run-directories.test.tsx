@@ -1,13 +1,13 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RunDirectories } from './run-directories';
-import { AssistantFileScope } from '../desk/assistant-file-scope';
+import { AgentFileScope } from '../desk/agent-file-scope';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 type Props = Parameters<typeof RunDirectories>[0];
 const baseTime = Date.parse('2026-09-14T12:00:00Z');
-const approve = () => screen.getByRole('button', { name: 'pages.aiAssistant.directories.approve' });
-const reject = () => screen.getByRole('button', { name: 'pages.aiAssistant.directories.reject' });
+const approve = () => screen.getByRole('button', { name: 'pages.aiAgent.directories.approve' });
+const reject = () => screen.getByRole('button', { name: 'pages.aiAgent.directories.reject' });
 function props(path: string): Props {
     return { scheduleId: 'task-1', runId: 'run-1', connected: true, loading: false,
         snapshot: { sessionId: 'session-1', requestId: 'run-1', fileScope: { revision: 7, directories: [{
@@ -26,11 +26,11 @@ describe.each(['C:\\用户资料\\季度 报告', '/Users/owner/季度 报告'])
         const input = props(path);
         const update = vi.fn(() => true);
         if (surface === 'scheduled') render(<RunDirectories {...input} />);
-        else render(<AssistantFileScope scope={input.snapshot.fileScope} open onOpenChange={() => {}} disabled={false} onUpdate={update} />);
+        else render(<AgentFileScope scope={input.snapshot.fileScope} open onOpenChange={() => {}} disabled={false} onUpdate={update} />);
         expect(approve()).toBeEnabled();
         await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
         expect(approve()).toBeEnabled();
-        expect(screen.queryByText('pages.aiAssistant.directories.expired')).toBeNull();
+        expect(screen.queryByText('pages.aiAgent.directories.expired')).toBeNull();
         await act(async () => { fireEvent.click(approve()); });
         if (surface === 'scheduled') expect(input.client.request).toHaveBeenCalledWith(expect.objectContaining({ approve: true, expected_scope_revision: 7 }));
         else expect(update).toHaveBeenCalledWith(expect.objectContaining({ approve: true, expected_revision: 7 }), expect.any(String), undefined);
@@ -69,7 +69,7 @@ describe.each(['C:\\用户资料\\季度 报告', '/Users/owner/季度 报告'])
         render(<RunDirectories {...input} />);
         await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
         expect(screen.getByText('schedules.directoryState.approved')).toBeInTheDocument();
-        const remove = screen.getByRole('button', { name: 'pages.aiAssistant.directories.remove' });
+        const remove = screen.getByRole('button', { name: 'pages.aiAgent.directories.remove' });
         expect(remove).toBeEnabled();
         await act(async () => { fireEvent.click(remove); });
         expect(input.client.request).toHaveBeenCalledWith(expect.objectContaining({ operation: 'revoke_run_directory', expected_scope_revision: 7 }));

@@ -3,11 +3,11 @@ use crate::{
     entity::{agent_exec_task, agent_schedule, agent_schedule_run},
     schedule_store::{ContinuationClaim, ScheduleStore},
 };
+#[cfg(test)]
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_agent_protocol::schedule::{
     ScheduleCreation, ScheduleCreationSource, ScheduleRule, ScheduleSpec, ScheduledTaskKind,
 };
-#[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
 use desk_diagnose_core::{
     seam::SessionSeam,
     session::{TurnState, WorkKind},
@@ -16,7 +16,7 @@ use desk_diagnose_core::{
 mod commands;
 
 /// Accept the original requirement through the native input ledger before
-/// claiming its owner turn. Fixtures cannot acquire assistant data by changing
+/// claiming its owner turn. Fixtures cannot acquire agent data by changing
 /// an already accepted source's counters or by copying its scope labels.
 pub(in crate::capability_grant_store::tests::computer_binding) async fn owner_session(
     db: &DatabaseConnection,
@@ -25,7 +25,7 @@ pub(in crate::capability_grant_store::tests::computer_binding) async fn owner_se
     use crate::agent_run_event_store::{AppendUserFollowupParams, SignalAgentRunEventStore};
     use desk_diagnose_core::seam::ClaimTurnParams;
     use desk_diagnose_core::session::TriggerOrigin;
-    let policy_revision = desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
+    let policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
     let scope = desk_agent_protocol::AgentScope {
         granted: vec![],
         mode: desk_agent_protocol::ExecutionMode::SuggestOnly,
@@ -43,7 +43,7 @@ pub(in crate::capability_grant_store::tests::computer_binding) async fn owner_se
             client_conversation_id: None,
             actor_id: "1".into(),
             device_id: "device-1".into(),
-            surface: AgentSessionSurface::AiAssistant,
+            surface: AgentSessionSurface::AiAgent,
             policy_revision,
             current_scope: scope.clone(),
             read_context: None,
@@ -53,7 +53,7 @@ pub(in crate::capability_grant_store::tests::computer_binding) async fn owner_se
         .await
         .unwrap();
     crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
-        .with_client_metadata(None, AgentSessionSurface::AiAssistant)
+        .with_client_metadata(None, AgentSessionSurface::AiAgent)
         .claim_turn(ClaimTurnParams {
             conversation_id: "run-1".into(),
             actor_id: "1".into(),

@@ -111,7 +111,7 @@ pub async fn handle_signaling(
     };
 
     // The central-brain injection point authorizes the single-account Device
-    // Assistant and execution surfaces.
+    // Agent and execution surfaces.
     let computer_use_readiness =
         crate::computer_use_readiness::global_computer_use_readiness_cache();
     let _central_pending_guard = CentralPendingConnectionGuard {
@@ -125,7 +125,7 @@ pub async fn handle_signaling(
         std::sync::Arc::new(crate::control_authorizer::SignalControlAuthorizer::new(
             crate::db::get_db().clone(),
             connection_map.clone(),
-            crate::ai_assistant_gate::global_ai_assistant_gate(),
+            crate::ai_agent_gate::global_ai_agent_gate(),
         ));
     let edge_exec_observer = std::sync::Arc::new(crate::agent_exec::SignalEdgeExecObserver::new(
         crate::agent_exec::global_agent_exec_pending(),

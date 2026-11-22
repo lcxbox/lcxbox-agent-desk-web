@@ -15,7 +15,7 @@ impl ScheduleStore {
         conversation: Option<&str>,
         attention: bool,
     ) -> Result<(Vec<entity::Model>, u64, u64), ScheduleStoreError> {
-        desk_assistant_data_store::schedule::search(
+        desk_agent_data_store::schedule::search(
             &self.db,
             owner,
             after,

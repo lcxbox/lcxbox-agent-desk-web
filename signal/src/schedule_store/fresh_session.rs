@@ -2,9 +2,9 @@
 use super::{CurrentTaskAuthority, ScheduleStore, ScheduleStoreError, entity};
 use crate::config::connection::DatabaseTransaction;
 use crate::entity::{agent_schedule_run, agent_session};
-use desk_agent_protocol::AgentScope;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
+use desk_agent_protocol::AgentScope;
 use desk_diagnose_core::{
     schedule::fresh_session::{FreshSessionInput, initial_session},
     session::PersistedAgentSession,
@@ -19,7 +19,7 @@ impl ScheduleStore {
     ) -> Result<String, ScheduleStoreError> {
         let policy = {
             use crate::config::ConfigConnection;
-            db.config_read().await.assistant_data_policy.clone()
+            db.config_read().await.agent_data_policy.clone()
         };
         let proof = desk_diagnose_core::schedule::published_input::TaskPromptRetention::owner(
             actor,
@@ -40,17 +40,17 @@ impl ScheduleStore {
         parent: &desk_diagnose_core::chat::ChatMessage,
     ) -> Result<
         Option<(
-            desk_agent_protocol::ai_assistant::source::SourceUsePolicy,
-            desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy,
+            desk_agent_protocol::ai_agent::source::SourceUsePolicy,
+            desk_diagnose_core::ai_agent::source_registry::NativeDerivedInputPolicy,
         )>,
         ScheduleStoreError,
     > {
         // Temporary and ineligible conversations keep no retained output.
-        if !desk_diagnose_core::ai_assistant::data_access::eligible_origin(session) {
+        if !desk_diagnose_core::ai_agent::data_access::eligible_origin(session) {
             return Ok(None);
         }
-        use crate::assistant_data_store as data;
-        let result: Result<_, data::AssistantStoreError> = async {
+        use crate::agent_data_store as data;
+        let result: Result<_, data::AgentStoreError> = async {
             let Some(label) = &parent.data_envelope else {
                 return Ok(None);
             };
@@ -59,26 +59,26 @@ impl ScheduleStore {
                 return Ok(None);
             };
             if archive.proof.source_set.actor_id != session.actor_id
-                || session.assistant_data.as_ref().is_none_or(|state| {
+                || session.agent_data.as_ref().is_none_or(|state| {
                     archive.proof.source_set.source_device_ref != state.source_device_ref
                 })
             {
-                return Err(data::AssistantStoreError::Inaccessible);
+                return Err(data::AgentStoreError::Inaccessible);
             }
             archive
                 .proof
                 .bind_visible_message(parent)
-                .map_err(data::AssistantStoreError::Invalid)?;
+                .map_err(data::AgentStoreError::Invalid)?;
             let Some(retained) = data::retained_native_sources(&archive.proof) else {
                 return Ok(None);
             };
-            let source = desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy::from_archive(&archive.proof)
-                .map_err(data::AssistantStoreError::Invalid)?;
+            let source = desk_diagnose_core::ai_agent::source_registry::NativeDerivedInputPolicy::from_archive(&archive.proof)
+                .map_err(data::AgentStoreError::Invalid)?;
             Ok(Some((retained.policy, source)))
         }
         .await;
         result.map_err(|error| match error {
-            data::AssistantStoreError::Backend(error) => ScheduleStoreError::Backend(error),
+            data::AgentStoreError::Backend(error) => ScheduleStoreError::Backend(error),
             _ => ScheduleStoreError::Conflict,
         })
     }
@@ -93,34 +93,34 @@ impl ScheduleStore {
     ) -> Result<(), ScheduleStoreError> {
         if task.kind != "fresh_task"
             || task.prompt_retention_json.is_some()
-            || !desk_diagnose_core::ai_assistant::data_access::eligible_origin(session)
+            || !desk_diagnose_core::ai_agent::data_access::eligible_origin(session)
         {
             return Ok(());
         }
-        use crate::assistant_data_store as data;
-        let result: Result<Option<String>, data::AssistantStoreError> = async {
+        use crate::agent_data_store as data;
+        let result: Result<Option<String>, data::AgentStoreError> = async {
             let Some(label) = &parent.data_envelope else { return Ok(None); };
             let Some(archive) = data::find_output_on(db, &session.conversation_id, label).await? else { return Ok(None); };
             if archive.proof.source_set.actor_id != session.actor_id
-                || session.assistant_data.as_ref().is_none_or(|state| archive.proof.source_set.source_device_ref != state.source_device_ref)
-                || task.owner_user_id.to_string() != session.actor_id || !session.admits_assistant_device(&task.target_device_id) {
-                return Err(data::AssistantStoreError::Inaccessible);
+                || session.agent_data.as_ref().is_none_or(|state| archive.proof.source_set.source_device_ref != state.source_device_ref)
+                || task.owner_user_id.to_string() != session.actor_id || !session.admits_agent_device(&task.target_device_id) {
+                return Err(data::AgentStoreError::Inaccessible);
             }
-            archive.proof.bind_visible_message(parent).map_err(data::AssistantStoreError::Invalid)?;
+            archive.proof.bind_visible_message(parent).map_err(data::AgentStoreError::Invalid)?;
             let Some(retained) = data::retained_native_sources(&archive.proof) else { return Ok(None); };
             let mut source_policy = retained.policy;
             source_policy.independent_fact_allowed = false;
             let dependencies = Vec::new();
             let proof = desk_diagnose_core::schedule::published_input::TaskPromptRetention {
                 actor_id: session.actor_id.clone(), target_device_id: task.target_device_id.clone(), policy: source_policy, dependencies,
-                model_source: Some(desk_diagnose_core::ai_assistant::source_registry::NativeDerivedInputPolicy::from_archive(&archive.proof)
-                    .map_err(data::AssistantStoreError::Invalid)?),
+                model_source: Some(desk_diagnose_core::ai_agent::source_registry::NativeDerivedInputPolicy::from_archive(&archive.proof)
+                    .map_err(data::AgentStoreError::Invalid)?),
             };
-            proof.validate(&session.actor_id, &task.target_device_id).map_err(data::AssistantStoreError::Invalid)?;
-            Ok(Some(serde_json::to_string(&proof).map_err(|_| data::AssistantStoreError::Invalid("invalid task prompt proof"))?))
+            proof.validate(&session.actor_id, &task.target_device_id).map_err(data::AgentStoreError::Invalid)?;
+            Ok(Some(serde_json::to_string(&proof).map_err(|_| data::AgentStoreError::Invalid("invalid task prompt proof"))?))
         }.await;
         let proof = result.map_err(|error| match error {
-            data::AssistantStoreError::Backend(error) => ScheduleStoreError::Backend(error),
+            data::AgentStoreError::Backend(error) => ScheduleStoreError::Backend(error),
             _ => ScheduleStoreError::Conflict,
         })?;
         let Some(proof) = proof else {
@@ -186,11 +186,11 @@ impl ScheduleStore {
             use crate::config::ConfigConnection;
             let config = db.config_read().await;
             desk_diagnose_core::native_ids::stable(
-                desk_diagnose_core::native_ids::Kind::AssistantDeviceBinding,
+                desk_diagnose_core::native_ids::Kind::AgentDeviceBinding,
                 &(&config.metadata.instance, &task.target_device_id),
             )
         };
-        let consent = desk_assistant_data_store::schedule::retrieval_consent(&task)?
+        let consent = desk_agent_data_store::schedule::retrieval_consent(&task)?
             .ok_or(ScheduleStoreError::Invalid)?;
         if consent
             .source_device_ref
@@ -278,7 +278,7 @@ impl ScheduleStore {
             .ok_or(ScheduleStoreError::Conflict)?;
         let current = Box::new(
             desk_diagnose_core::future::send_phase(|| {
-                desk_assistant_data_store::schedule::lock_run_authority(
+                desk_agent_data_store::schedule::lock_run_authority(
                     txn,
                     work.owner_user_id,
                     &authority.definition().target_device_id,
@@ -306,7 +306,7 @@ impl ScheduleStore {
         {
             return Err(ScheduleStoreError::Conflict);
         }
-        desk_assistant_data_store::schedule::reserve_run_budget(txn, &current).await?;
+        desk_agent_data_store::schedule::reserve_run_budget(txn, &current).await?;
         let task: entity::Model = serde_json::from_str(&work.task_snapshot_json)
             .map_err(|_| ScheduleStoreError::Invalid)?;
         let now = chrono::DateTime::from_timestamp_millis(current.verified_at())
@@ -331,7 +331,7 @@ impl ScheduleStore {
             .map_err(|_| ScheduleStoreError::Conflict)?,
         );
         desk_diagnose_core::future::send_phase(|| {
-            Self::initialize_fresh_assistant_on(txn, &current, &task, &mut session)
+            Self::initialize_fresh_agent_on(txn, &current, &task, &mut session)
         })
         .await?;
         session.version = 1;
@@ -358,7 +358,7 @@ impl ScheduleStore {
         // Inserting can wait on a uniqueness lock; recheck expiry before returning.
         let after = Box::new(
             desk_diagnose_core::future::send_phase(|| {
-                desk_assistant_data_store::schedule::lock_run_authority(
+                desk_agent_data_store::schedule::lock_run_authority(
                     txn,
                     work.owner_user_id,
                     &session.device_id,
@@ -381,7 +381,7 @@ impl ScheduleStore {
         Ok(*session)
     }
 
-    async fn initialize_fresh_assistant_on(
+    async fn initialize_fresh_agent_on(
         txn: &DatabaseTransaction,
         authority: &CurrentTaskAuthority,
         task: &entity::Model,
@@ -389,17 +389,17 @@ impl ScheduleStore {
     ) -> Result<(), ScheduleStoreError> {
         use crate::config::ConfigConnection;
         use desk_diagnose_core::{
-            ai_assistant::scheduled_retrieval::{RetrievalOccurrence, ScheduledRetrievalKind},
+            ai_agent::scheduled_retrieval::{RetrievalOccurrence, ScheduledRetrievalKind},
             native_ids::{self, Kind},
         };
-        let consent = desk_assistant_data_store::schedule::retrieval_consent(task)?
+        let consent = desk_agent_data_store::schedule::retrieval_consent(task)?
             .ok_or(ScheduleStoreError::Conflict)?;
-        let Some(_) = &consent.assistant_seed else {
+        let Some(_) = &consent.agent_seed else {
             return Ok(());
         };
         let config = txn.config_read().await;
         let device_ref = native_ids::stable(
-            Kind::AssistantDeviceBinding,
+            Kind::AgentDeviceBinding,
             &(&config.metadata.instance, &session.device_id),
         );
         let deadline = authority
@@ -436,7 +436,7 @@ impl ScheduleStore {
                     .map_err(|_| ScheduleStoreError::Invalid)?,
             ),
         };
-        let limits = config.assistant_data_policy.limits.as_ref();
+        let limits = config.agent_data_policy.limits.as_ref();
         consent
             .bind_fresh_task(session, &occurrence, limits)
             .map_err(|_| ScheduleStoreError::Conflict)
@@ -463,7 +463,7 @@ pub(crate) mod tests {
         assert!(source.device_id.is_empty());
         assert!(
             source
-                .assistant_data
+                .agent_data
                 .as_ref()
                 .unwrap()
                 .source_device_ref
@@ -490,9 +490,9 @@ pub(crate) mod tests {
         agent_schedule_run::Model,
     ) {
         use crate::config::ConfigConnection;
-        use desk_agent_protocol::ai_assistant::user_instructions::UserInstructions;
+        use desk_agent_protocol::ai_agent::user_instructions::UserInstructions;
         use sea_orm::ActiveModelTrait;
-        let db = crate::assistant_data_store::tests::recovery_database().await;
+        let db = crate::agent_data_store::tests::recovery_database().await;
         let store = ScheduleStore::new(db.clone());
         let mut source = super::super::tests::retrieval_source(&store, true).await;
         source.device_id = "device-1".into();
@@ -501,13 +501,13 @@ pub(crate) mod tests {
             .begin_focus_epoch(source.input_revision, Vec::<String>::new())
             .unwrap();
         let device_ref = desk_diagnose_core::native_ids::stable(
-            desk_diagnose_core::native_ids::Kind::AssistantDeviceBinding,
+            desk_diagnose_core::native_ids::Kind::AgentDeviceBinding,
             &(
                 &store.db.config_read().await.metadata.instance,
                 &source.device_id,
             ),
         );
-        crate::entity::agent_assistant_device_binding::ActiveModel {
+        crate::entity::agent_device_binding::ActiveModel {
             binding_id: Set(device_ref.clone()),
             instance_id: Set(store.db.config_read().await.metadata.instance.clone()),
             audience: Set(source.device_id.clone()),
@@ -522,19 +522,17 @@ pub(crate) mod tests {
         if selectable {
             source.device_id.clear();
             source
-                .bind_assistant_input_targets(&[
-                    desk_diagnose_core::dynamic_run::AssistantInputTarget {
-                        reference: device_ref.clone(),
-                        device_id: "device-1".into(),
-                        member_generation: None,
-                    },
-                ])
+                .bind_agent_input_targets(&[desk_diagnose_core::dynamic_run::AgentInputTarget {
+                    reference: device_ref.clone(),
+                    device_id: "device-1".into(),
+                    member_generation: None,
+                }])
                 .unwrap();
         }
         if !selectable {
-            source.bind_assistant_input_targets(&[]).unwrap();
+            source.bind_agent_input_targets(&[]).unwrap();
         }
-        let data = source.assistant_data.as_mut().unwrap();
+        let data = source.agent_data.as_mut().unwrap();
         data.source_device_ref = if selectable {
             String::new()
         } else {
@@ -553,10 +551,10 @@ pub(crate) mod tests {
             data.history_access_scope = None;
             let memory = data.memory_access_scope.as_mut().unwrap();
             memory.device_rule =
-                desk_agent_protocol::ai_assistant::history::AssistantDeviceScope::CurrentDevice;
+                desk_agent_protocol::ai_agent::history::AgentDeviceScope::CurrentDevice;
             memory.request_device_refs = vec![device_ref.clone()];
         }
-        data.instructions = desk_diagnose_core::ai_assistant::settings::freeze_instructions(
+        data.instructions = desk_diagnose_core::ai_agent::settings::freeze_instructions(
             &UserInstructions {
                 revision: 7,
                 content: "SOURCE_FROZEN_PERSONALIZATION".into(),
@@ -569,7 +567,7 @@ pub(crate) mod tests {
             .reserve(
                 "original-spent-call",
                 &"b".repeat(64),
-                desk_diagnose_core::ai_assistant::history::RetrievalCallKind::Relevance,
+                desk_diagnose_core::ai_agent::history::RetrievalCallKind::Relevance,
                 4096,
                 100,
             )
@@ -641,7 +639,7 @@ pub(crate) mod tests {
                 )
                 .unwrap();
             let original = task.prompt_retention_json.clone().unwrap();
-            let data = source.assistant_data.as_ref().unwrap();
+            let data = source.agent_data.as_ref().unwrap();
             let device_ref = data.source_device_ref.clone();
             let current_revision = store.read(1, &task.schedule_id).await.unwrap().revision;
             store
@@ -732,7 +730,7 @@ pub(crate) mod tests {
         let work = ScheduleStore::claim_queued_on(&txn, &queued.run_id, "node", 90)
             .await
             .unwrap();
-        let authority = desk_assistant_data_store::schedule::lock_run_authority(
+        let authority = desk_agent_data_store::schedule::lock_run_authority(
             &txn,
             1,
             &task.target_device_id,
@@ -751,16 +749,16 @@ pub(crate) mod tests {
         let session = ScheduleStore::insert_fresh_session_on(&txn, &authority, 1, scope)
             .await
             .unwrap();
-        let data = session.assistant_data.as_ref().unwrap();
+        let data = session.agent_data.as_ref().unwrap();
         assert_eq!(
             data.instructions,
-            source.assistant_data.as_ref().unwrap().instructions
+            source.agent_data.as_ref().unwrap().instructions
         );
         assert_eq!(data.retrieval_budget.relevance_calls, 0);
         assert_ne!(
             data.retrieval_budget.episode_id,
             source
-                .assistant_data
+                .agent_data
                 .as_ref()
                 .unwrap()
                 .retrieval_budget
@@ -810,7 +808,7 @@ pub(crate) mod tests {
 
     #[test]
     fn fresh_occurrence_context_fits_small_stacks() {
-        const STACK: &str = "LAD_TEST_FRESH_ASSISTANT_STACK_BYTES";
+        const STACK: &str = "LAD_TEST_FRESH_AGENT_STACK_BYTES";
         if let Some(bytes) = std::env::var_os(STACK) {
             let bytes: usize = bytes.to_str().unwrap().parse().unwrap();
             assert!([1024 * 1024, 2 * 1024 * 1024].contains(&bytes));
@@ -818,11 +816,11 @@ pub(crate) mod tests {
                 let (store, task, source, queued) = source_fixture().await;
                 let (done, ready) = tokio::sync::oneshot::channel();
                 let thread = std::thread::Builder::new()
-                    .name("fresh-assistant-stack".into())
+                    .name("fresh-agent-stack".into())
                     .stack_size(bytes)
                     .spawn(move || {
                         actix_web::rt::System::new().block_on(async move {
-                            eprintln!("fresh assistant occurrence running on {bytes} byte thread");
+                            eprintln!("fresh agent occurrence running on {bytes} byte thread");
                             Box::pin(exercise_source_context(store, task, source, queued)).await;
                             let _ = done.send(());
                         });
@@ -879,7 +877,7 @@ pub(crate) mod tests {
             let work = ScheduleStore::claim_queued_on(&txn, &queued.run_id, "fresh-node", 90)
                 .await
                 .unwrap();
-            let authority = desk_assistant_data_store::schedule::lock_run_authority(
+            let authority = desk_agent_data_store::schedule::lock_run_authority(
                 &txn,
                 1,
                 &task.target_device_id,
@@ -954,7 +952,7 @@ pub(crate) mod tests {
         let work = ScheduleStore::claim_queued_on(&txn, &queued.run_id, "fresh-node", 90)
             .await
             .unwrap();
-        let authority = desk_assistant_data_store::schedule::lock_run_authority(
+        let authority = desk_agent_data_store::schedule::lock_run_authority(
             &txn,
             1,
             &task.target_device_id,

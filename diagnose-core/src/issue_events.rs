@@ -129,7 +129,7 @@ pub fn work_id(actor: &str, subscription: &str, repository: u64, issue: u64) -> 
 }
 
 pub fn request_id(work: &str, event: &str) -> String {
-    native_ids::stable(Kind::AssistantMainRequest, &(work, event))
+    native_ids::stable(Kind::AgentMainRequest, &(work, event))
 }
 
 #[cfg(test)]

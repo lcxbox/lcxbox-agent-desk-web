@@ -127,8 +127,7 @@ pub(crate) fn command_changes(
             continue;
         }
         let changes = if call.name == COMMAND_RESTORE_TOOL {
-            if envelope.provenance.source_provider_id != crate::ai_assistant::TEXT_FILE_PROVIDER_ID
-            {
+            if envelope.provenance.source_provider_id != crate::ai_agent::TEXT_FILE_PROVIDER_ID {
                 continue;
             }
             let Ok(completed) = serde_json::from_str::<ComputerActionCompleted>(&result.text)
@@ -309,7 +308,7 @@ pub(super) fn build(
     execution_mode: Option<ExecutionMode>,
     now_unix_ms: u64,
 ) -> Result<TextMutationPreflight, AgentError> {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let capability = registry
         .capability_for_tool(COMMAND_RESTORE_TOOL)
         .ok_or_else(unavailable)?;

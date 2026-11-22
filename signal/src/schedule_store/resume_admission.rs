@@ -14,7 +14,7 @@ pub(crate) fn lock_action_session<'a>(
             + 'a,
     >,
 > {
-    desk_assistant_data_store::schedule::lock_action_session(
+    desk_agent_data_store::schedule::lock_action_session(
         &super::SignalScheduleHost,
         txn,
         conversation_id,
@@ -26,7 +26,7 @@ pub(crate) async fn fresh_action_authority_on(
     txn: &crate::config::connection::DatabaseTransaction,
     session: &PersistedAgentSession,
 ) -> Result<super::CurrentTaskAuthority, DbErr> {
-    desk_assistant_data_store::schedule::fresh_action_authority_on(txn, session).await
+    desk_agent_data_store::schedule::fresh_action_authority_on(txn, session).await
 }
 
 impl super::ScheduleStore {
@@ -41,17 +41,17 @@ impl super::ScheduleStore {
         )>,
         DbErr,
     > {
-        desk_assistant_data_store::schedule::scheduled_context_on(txn, session).await
+        desk_agent_data_store::schedule::scheduled_context_on(txn, session).await
     }
 
     /// Metadata consent never substitutes for the native task and both live
     /// leases. Call before operation/quota locks, and repeat before dispatch.
-    pub(crate) async fn assistant_retrieval_deadline_on(
+    pub(crate) async fn agent_retrieval_deadline_on(
         txn: &crate::config::connection::DatabaseTransaction,
         expected: &PersistedAgentSession,
     ) -> Result<u64, DbErr> {
         desk_diagnose_core::future::send_phase(|| {
-            desk_assistant_data_store::schedule::assistant_retrieval_deadline_on(
+            desk_agent_data_store::schedule::agent_retrieval_deadline_on(
                 &super::SignalScheduleHost,
                 txn,
                 expected,
@@ -310,10 +310,7 @@ mod tests {
             let txn = store.db.begin().await.unwrap();
             assert!(
                 desk_diagnose_core::future::send_phase(|| {
-                    super::super::ScheduleStore::assistant_retrieval_deadline_on(
-                        &txn,
-                        &held.session,
-                    )
+                    super::super::ScheduleStore::agent_retrieval_deadline_on(&txn, &held.session)
                 })
                 .await
                 .is_err(),

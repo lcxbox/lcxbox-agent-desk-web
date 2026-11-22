@@ -14,7 +14,7 @@ async fn goal_only_changes_advance_coherent_snapshot_without_changing_execution_
         .unwrap()
         .unwrap();
     let first = store
-        .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+        .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
         .await
         .unwrap()
         .unwrap();
@@ -29,7 +29,7 @@ async fn goal_only_changes_advance_coherent_snapshot_without_changing_execution_
         "goal-snapshot".into(),
         "run-1".into(),
         "actor-1".into(),
-        desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("device-1".into()),
+        desk_diagnose_core::dynamic_run::AgentInputTarget::fixed("device-1".into()),
         "device-1".into(),
         "Calculate 6+8".into(),
         "input".into(),
@@ -46,7 +46,7 @@ async fn goal_only_changes_advance_coherent_snapshot_without_changing_execution_
         .unwrap();
     txn.commit().await.unwrap();
     let with_goal = store
-        .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+        .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
         .await
         .unwrap()
         .unwrap();
@@ -54,7 +54,7 @@ async fn goal_only_changes_advance_coherent_snapshot_without_changing_execution_
     assert_eq!(with_goal.goal, Some(goal));
     assert_eq!(
         (store
-            .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+            .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
             .await
             .unwrap()
             .unwrap())
@@ -66,7 +66,7 @@ async fn goal_only_changes_advance_coherent_snapshot_without_changing_execution_
         "proposal-snapshot".into(),
         "run-1".into(),
         "actor-1".into(),
-        desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("device-1".into()),
+        desk_diagnose_core::dynamic_run::AgentInputTarget::fixed("device-1".into()),
         "device-1".into(),
         "input".into(),
         1,
@@ -82,7 +82,7 @@ async fn goal_only_changes_advance_coherent_snapshot_without_changing_execution_
         .unwrap();
     txn.commit().await.unwrap();
     let with_request = store
-        .read_assistant_snapshot_for_subject("run-1", "actor-1", "device-1")
+        .read_agent_snapshot_for_subject("run-1", "actor-1", "device-1")
         .await
         .unwrap()
         .unwrap();

@@ -177,7 +177,7 @@ mod tests {
             name: "read".into(),
             arguments_json: "{}".into(),
         };
-        let message = ChatMessage::assistant_tool_calls_with_replay(
+        let message = ChatMessage::agent_tool_calls_with_replay(
             "assistant",
             "",
             vec![call],

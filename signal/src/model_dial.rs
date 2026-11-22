@@ -6,7 +6,7 @@
 //! The manager has its own seam (its model dialect); signal's is separate.
 //!
 //! The dial **streams** the provider response over Server-Sent Events: each text
-//! delta is forwarded to the [`TurnSink`] as it arrives (so the Terminal AI Assistant
+//! delta is forwarded to the [`TurnSink`] as it arrives (so the Terminal AI Agent
 //! can render the explanation live), while the call still assembles and returns the
 //! complete, normalized [`ModelTurn`] (the structured answer parse runs on the full
 //! text). A caller that does not want streaming passes a no-op sink.
@@ -386,9 +386,9 @@ impl SignalModelSeam {
         request: &ModelRequest,
         sink: &mut dyn TurnSink,
         permit: crate::model_admission::ModelPermit,
-        assistant_data_deadline: Option<u64>,
+        agent_data_deadline: Option<u64>,
     ) -> Result<ModelTurn, AgentError> {
-        self.call_admitted_until_authorized(request, sink, permit, assistant_data_deadline)
+        self.call_admitted_until_authorized(request, sink, permit, agent_data_deadline)
             .await
     }
 
@@ -397,7 +397,7 @@ impl SignalModelSeam {
         request: &ModelRequest,
         sink: &mut dyn TurnSink,
         _permit: crate::model_admission::ModelPermit,
-        assistant_data_deadline: Option<u64>,
+        agent_data_deadline: Option<u64>,
     ) -> Result<ModelTurn, AgentError> {
         use desk_diagnose_core::model_observability::{
             Origin, OutputOutcome, RequestObservation, RequestOutcome,
@@ -420,7 +420,7 @@ impl SignalModelSeam {
             biased;
             _ = self.cancel.cancelled() => Err(cancelled()),
 
-            result = desk_diagnose_core::future::boxed(|| self.call_uncancelled(request, sink, &mut observation, assistant_data_deadline)) => {
+            result = desk_diagnose_core::future::boxed(|| self.call_uncancelled(request, sink, &mut observation, agent_data_deadline)) => {
                 if self.cancel.is_cancelled() { Err(cancelled()) } else { result }
             },
         };
@@ -454,7 +454,7 @@ impl SignalModelSeam {
         request: &ModelRequest,
         sink: &mut dyn TurnSink,
         observation: &mut Option<desk_diagnose_core::model_observability::RequestObservation>,
-        assistant_data_deadline: Option<u64>,
+        agent_data_deadline: Option<u64>,
     ) -> Result<ModelTurn, AgentError> {
         use futures_util::StreamExt;
         self.retry_after_unix_ms.set(None);
@@ -624,8 +624,8 @@ impl SignalModelSeam {
                 .max_context_bytes()
                 .map_err(|error| config_error(error.to_string()))?,
         )?;
-        desk_diagnose_core::schedule::model_admission::check_assistant_data_deadline(
-            assistant_data_deadline,
+        desk_diagnose_core::schedule::model_admission::check_agent_data_deadline(
+            agent_data_deadline,
             chrono::Utc::now().timestamp_millis(),
         )
         .inspect_err(|_| {
@@ -980,7 +980,7 @@ impl ModelSeam for SignalModelSeam {
                 desk_diagnose_core::model_profile::ModelUseCase::FleetNaturalLanguage => {
                     Surface::Fleet
                 }
-                _ => Surface::Assistant,
+                _ => Surface::Agent,
             },
             purpose: use_case.into(),
             origin,
@@ -1246,7 +1246,7 @@ impl StreamState {
 
 // ============================ OpenAI dialect ============================
 
-/// Map one [`ChatMessage`] to OpenAI message JSON, including assistant tool calls
+/// Map one [`ChatMessage`] to OpenAI message JSON, including agent tool calls
 /// and their tool-result replies.
 fn openai_message_to_json(m: &ChatMessage) -> Value {
     if m.role == ChatRole::Tool {
@@ -1332,7 +1332,7 @@ fn openai_tool_image_to_json(m: &ChatMessage) -> Option<Value> {
 }
 
 /// Keep a consecutive batch of tool results contiguous. OpenAI-compatible
-/// providers require every call from one assistant turn to be answered before a
+/// providers require every call from one agent turn to be answered before a
 /// non-tool message, so tool image attachments follow the batch.
 fn openai_messages_to_json(messages: &[ChatMessage]) -> Vec<Value> {
     let mut rendered = Vec::with_capacity(messages.len());
@@ -2060,7 +2060,7 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn expired_assistant_source_deadline_prevents_the_actual_http_connection() {
+    async fn expired_agent_source_deadline_prevents_the_actual_http_connection() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let config = ModelProviderConfig {
@@ -2087,7 +2087,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error.error_code,
-            Some(desk_utils::error::DeskErrorCode::AI_ASSISTANT_DATA_CHANGED.code())
+            Some(desk_utils::error::DeskErrorCode::AI_AGENT_DATA_CHANGED.code())
         );
         assert!(
             tokio::time::timeout(std::time::Duration::from_millis(20), listener.accept())
@@ -2176,7 +2176,7 @@ mod tests {
             "os":"macos","interactive_session_incarnation":"worker",
             "active_application":{"token":"calendar-id","snapshot_id":"private-snapshot","object_kind":"application","expires_at":"2030-01-01T00:00:00Z"},"active_application_name":"Calendar"
         }}}).to_string())], ResponseFormatSpec::None);
-        request.tools = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
+        request.tools = desk_diagnose_core::ai_agent::ai_agent_provider_registry()
             .registered_tools()
             .into_iter()
             .filter(|tool| {
@@ -2189,7 +2189,7 @@ mod tests {
             .collect();
         request.messages.insert(
             0,
-            ChatMessage::assistant_tool_calls(
+            ChatMessage::agent_tool_calls(
                 "read-proposal",
                 "",
                 vec![desk_diagnose_core::chat::ToolCallRef {
@@ -2203,7 +2203,7 @@ mod tests {
             desk_diagnose_core::native_ids::Kind::Task,
             &"creation",
         );
-        request.messages.push(ChatMessage::assistant_tool_calls(
+        request.messages.push(ChatMessage::agent_tool_calls(
             "status-proposal",
             "",
             vec![desk_diagnose_core::chat::ToolCallRef {
@@ -2273,7 +2273,7 @@ mod tests {
                 model_name: "test".into(),
                 configuration_revision: "1".into(),
                 contract_revision: "1".into(),
-                surface: Surface::Assistant,
+                surface: Surface::Agent,
                 purpose,
                 origin: Origin::User,
                 configuration_scope: ConfigurationScope::Local,
@@ -2694,7 +2694,7 @@ mod tests {
             messages: vec![
                 ChatMessage::public_system("s", "you are a diagnostician"),
                 ChatMessage::text("u", ChatRole::User, "inspect the system"),
-                ChatMessage::assistant_tool_calls(
+                ChatMessage::agent_tool_calls(
                     "a",
                     "",
                     vec![ToolCallRef {
@@ -2726,7 +2726,7 @@ mod tests {
             previous_cache_projection: None,
             delegation_call: None,
             preparation: None,
-            assistant_data: None,
+            agent_data: None,
             compression_identity: None,
             issue_reply: None,
             caller_output_hard_cap: None,
@@ -3268,7 +3268,7 @@ mod tests {
         let image = "data:image/jpeg;base64,AQID";
         let request = ModelRequest::text_only(
             vec![
-                ChatMessage::assistant_tool_calls(
+                ChatMessage::agent_tool_calls(
                     "a",
                     "",
                     vec![
@@ -3683,7 +3683,7 @@ mod tests {
     }
 
     async fn run_progressive_disclosure_fixed_eval(seam: &SignalModelSeam, provider: &str) {
-        use desk_diagnose_core::ai_assistant::ai_assistant_provider_registry;
+        use desk_diagnose_core::ai_agent::ai_agent_provider_registry;
         use desk_diagnose_core::capability_availability::CapabilityAvailability;
         use desk_diagnose_core::capability_disclosure::{
             CapabilityDisclosureState, CapabilityLoadContext, apply_load_call,
@@ -3718,7 +3718,7 @@ mod tests {
                 previous_cache_projection: None,
                 delegation_call: None,
                 preparation: None,
-                assistant_data: None,
+                agent_data: None,
                 compression_identity: None,
                 issue_reply: None,
                 caller_output_hard_cap: Some(1024),
@@ -3739,7 +3739,7 @@ mod tests {
             })
         }
 
-        let registry = ai_assistant_provider_registry();
+        let registry = ai_agent_provider_registry();
         let inventory = registry
             .providers()
             .flat_map(|provider| {
@@ -4107,7 +4107,7 @@ mod tests {
         provider: &str,
         wire_protocol: WireProtocol,
     ) {
-        use desk_diagnose_core::ai_assistant::ai_assistant_provider_registry;
+        use desk_diagnose_core::ai_agent::ai_agent_provider_registry;
         use desk_diagnose_core::capability_availability::CapabilityAvailability;
         use desk_diagnose_core::capability_disclosure::{
             CapabilityDisclosureState, CapabilityLoadContext, apply_load_call,
@@ -4138,7 +4138,7 @@ mod tests {
                 previous_cache_projection: None,
                 delegation_call: None,
                 preparation: None,
-                assistant_data: None,
+                agent_data: None,
                 compression_identity: None,
                 issue_reply: None,
                 caller_output_hard_cap: Some(1024),
@@ -4147,7 +4147,7 @@ mod tests {
             seam.call(request, &mut sink).await.unwrap()
         }
 
-        let registry = ai_assistant_provider_registry();
+        let registry = ai_agent_provider_registry();
         let inventory = registry
             .providers()
             .flat_map(|provider| {
@@ -4193,7 +4193,7 @@ mod tests {
             vec![
                 ChatMessage::text("short-user-1", ChatRole::User, "Help me inspect this Mac."),
                 ChatMessage::text(
-                    "short-assistant-1",
+                    "short-agent-1",
                     ChatRole::Assistant,
                     "I can inspect its system information when requested.",
                 ),
@@ -4365,7 +4365,7 @@ mod tests {
             // is measured as extra discovery/model work rather than misreported
             // as a permission attempt or an immediate task failure.
             let mut retry_messages = long_messages;
-            retry_messages.push(ChatMessage::assistant_tool_calls(
+            retry_messages.push(ChatMessage::agent_tool_calls(
                 "long-redundant-discovery",
                 long_turns[0].text.clone(),
                 vec![desk_diagnose_core::chat::ToolCallRef {
@@ -4650,8 +4650,8 @@ mod tests {
             vec![
                 ChatMessage::text("u1", ChatRole::User, "first user"),
                 ChatMessage::text("u2", ChatRole::User, "retry user"),
-                ChatMessage::text("a1", ChatRole::Assistant, "first assistant"),
-                ChatMessage::text("a2", ChatRole::Assistant, "second assistant"),
+                ChatMessage::text("a1", ChatRole::Assistant, "first agent"),
+                ChatMessage::text("a2", ChatRole::Assistant, "second agent"),
             ],
             ResponseFormatSpec::None,
         );

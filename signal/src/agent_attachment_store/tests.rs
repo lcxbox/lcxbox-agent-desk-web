@@ -1,7 +1,7 @@
 use super::*;
-use desk_agent_protocol::{AgentScope, ExecutionMode};
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
+use desk_agent_protocol::{AgentScope, ExecutionMode};
 use desk_diagnose_core::{
     conversation_attachment::batch::{DeliveryIdentity, OutputPart, PartContent, prepare_delivery},
     session::AgentSessionSurface,
@@ -35,7 +35,7 @@ async fn local_attachments_are_durable_scoped_atomic_and_do_not_resurrect() {
     };
     let mut session =
         PersistedAgentSession::new("conversation", "owner", "device", 1, scope, "now");
-    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAgent);
     agent_session::ActiveModel {
         conversation_id: Set(session.conversation_id.clone()),
         actor_id: Set(session.actor_id.clone()),

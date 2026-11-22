@@ -424,7 +424,7 @@ pub fn registry() -> Vec<RegisteredTool> {
             "Report progress, ask for input, or report completion or failure for the current request. Progress leaves the request running. Call needs_input, completed, or failed alone. Completion and failure require settled native dependencies. The runtime binds the request and validates evidence and device receipts.",
             json!({"type":"object","additionalProperties":false,"required":["kind","summary"],"properties":{
                 "kind":{"type":"string","enum":["progress","needs_input","completed","failed"]},
-                "summary":{"type":"string","minLength":1,"maxLength":desk_agent_protocol::ai_assistant::subagent::MAX_SUBAGENT_REPORT_BYTES},
+                "summary":{"type":"string","minLength":1,"maxLength":desk_agent_protocol::ai_agent::subagent::MAX_SUBAGENT_REPORT_BYTES},
                 "question":{"type":"string","minLength":1,"maxLength":MAX_QUESTION_BYTES,"description":"The focused question to answer. Required for needs_input."},
                 "evidence_refs":{"type":"array","maxItems":16,"uniqueItems":true,"items":id.clone()}
             }}),
@@ -512,7 +512,7 @@ pub fn parse_observed(
     })?;
     let outside_scope = !session.agent_role.allows_effect(effect)
         || !available_for_session(&call.name, session)
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || !session.turn_state.is_active()
         || session.input_revision == 0
         || session.actor_id.is_empty()

@@ -1,10 +1,10 @@
 import { canPairLocalDevice } from "./local-device-pairing"
 import { useDeskFileUpload } from './use-desk-file-upload';
-import { AiAssistantWorkspace } from "./ai-assistant-page"
-import { DeskAssistantPanel } from "./desk-assistant-panel"
-import { hasAiAssistantBrowserEntry, type AiAssistantFeatureProfile } from "./ai-assistant-features"
+import { AiAgentWorkspace } from "./ai-agent-page"
+import { DeskAgentPanel } from "./desk-agent-panel"
+import { hasAiAgentBrowserEntry, type AiAgentFeatureProfile } from "./ai-agent-features"
 import { useQueryServerInfo } from "@/services/hooks/systemController/useQueryServerInfo"
-import { isAiAssistantEnabled } from "./ai-assistant-switch"
+import { isAiAgentEnabled } from "./ai-agent-switch"
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
@@ -152,8 +152,8 @@ const SETTINGS_EFFECT_KEYS: Record<string, string> = {
  *  (via a static wrapper); the open-source standalone app renders `<DeskSession/>`
  *  with no props, keeping the AI model selection personal-scoped. */
 type DeskSessionProps = {
-    showAssistant?: boolean
-    assistantFeatureProfile?: AiAssistantFeatureProfile | null
+    showAgent?: boolean
+    agentFeatureProfile?: AiAgentFeatureProfile | null
     orgId?: number
     /** Manager injects `u:<user_id>`; standalone omits it for its fixed owner. */
     preferenceOwnerKey?: string | null
@@ -163,21 +163,21 @@ type DeskSessionProps = {
 
 export default function DeskSession({
     orgId,
-    showAssistant = import.meta.env.BASE_URL !== "/console/",
-    assistantFeatureProfile: suppliedAssistantFeatureProfile,
+    showAgent = import.meta.env.BASE_URL !== "/console/",
+    agentFeatureProfile: suppliedAgentFeatureProfile,
     preferenceOwnerKey,
     preferenceOwnerLoading = false,
 }: DeskSessionProps = {}) {
-    const serverInfo = useQueryServerInfo({ query: { enabled: suppliedAssistantFeatureProfile === undefined } })
-    const assistantFeatureProfile = suppliedAssistantFeatureProfile === undefined
-        ? serverInfo.data?.data?.ai_assistant ?? null
-        : suppliedAssistantFeatureProfile
+    const serverInfo = useQueryServerInfo({ query: { enabled: suppliedAgentFeatureProfile === undefined } })
+    const agentFeatureProfile = suppliedAgentFeatureProfile === undefined
+        ? serverInfo.data?.data?.ai_agent ?? null
+        : suppliedAgentFeatureProfile
     const target = useDeviceTarget()
     const deskId = target.connectionId
     const navigate = useNavigate()
-    const [assistantOpen, setAssistantOpen] = useState(false)
-    const [assistantMounted, setAssistantMounted] = useState(false)
-    const assistantConnection = target.connection
+    const [agentOpen, setAgentOpen] = useState(false)
+    const [agentMounted, setAgentMounted] = useState(false)
+    const agentConnection = target.connection
     const { t } = useTranslation()
     const { toast } = useToast()
 
@@ -216,13 +216,13 @@ export default function DeskSession({
 
     // Restriction state derived from the redeemed grant (if any) for this target.
     const restricted = useRestrictedSession(deskId);
-    const assistantAvailable = showAssistant && restricted.ownerPlaneVisible
-        && isAiAssistantEnabled(assistantConnection?.ai_assistant_settings)
-        && hasAiAssistantBrowserEntry(assistantFeatureProfile);
+    const agentAvailable = showAgent && restricted.ownerPlaneVisible
+        && isAiAgentEnabled(agentConnection?.ai_agent_settings)
+        && hasAiAgentBrowserEntry(agentFeatureProfile);
     useEffect(() => {
-        setAssistantOpen(false);
-        setAssistantMounted(false);
-    }, [deskId, assistantAvailable]);
+        setAgentOpen(false);
+        setAgentMounted(false);
+    }, [deskId, agentAvailable]);
     const grantSessionId = restricted.grantSessionId;
     // Grant classification happens before resolving any persistent device key.
     // Restricted sessions are always memory-only even if the target itself has
@@ -2183,17 +2183,17 @@ export default function DeskSession({
                             <ResolutionStatusToast toast={resolutionToast} />
                         )}
 
-                        {assistantAvailable && assistantMounted && deskId && assistantConnection && assistantFeatureProfile && (
-                            <DeskAssistantPanel open={assistantOpen}
-                                onClose={() => setAssistantOpen(false)} onFocus={releaseAllInputs}>
-                                <AiAssistantWorkspace key={deskId}
+                        {agentAvailable && agentMounted && deskId && agentConnection && agentFeatureProfile && (
+                            <DeskAgentPanel open={agentOpen}
+                                onClose={() => setAgentOpen(false)} onFocus={releaseAllInputs}>
+                                <AiAgentWorkspace key={deskId}
                                     deskId={deskId}
-                                    stableDeviceId={assistantConnection.device_id ?? ''}
-                                    localPairingAvailable={canPairLocalDevice(assistantConnection.device_id, serverInfo)}
-                                    featureProfile={assistantFeatureProfile}
-                                    assistantEnabled={true}
+                                    stableDeviceId={agentConnection.device_id ?? ''}
+                                    localPairingAvailable={canPairLocalDevice(agentConnection.device_id, serverInfo)}
+                                    featureProfile={agentFeatureProfile}
+                                    agentEnabled={true}
                                     />
-                            </DeskAssistantPanel>
+                            </DeskAgentPanel>
                         )}
 
                         </div>
@@ -2201,11 +2201,11 @@ export default function DeskSession({
                             <DeskControlBar
                                 toolbar={toolbar}
                                 connectionAvailable={isConnected}
-                                assistantOpen={assistantOpen}
-                                onToggleAssistant={assistantAvailable ? () => {
+                                agentOpen={agentOpen}
+                                onToggleAgent={agentAvailable ? () => {
                                     releaseAllInputs();
-                                    setAssistantMounted(true);
-                                    setAssistantOpen(open => !open);
+                                    setAgentMounted(true);
+                                    setAgentOpen(open => !open);
                                 } : undefined}
                                 audioVolume={audioVolume}
                                 clipboardEnabled={clipboardEnabled}

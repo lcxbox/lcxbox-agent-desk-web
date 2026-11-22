@@ -1,6 +1,6 @@
 use super::*;
 use crate::agent_session_store::SignalAgentSessionStore;
-use crate::controller::ai_assistant_session::recovery::resolve;
+use crate::controller::ai_agent_session::recovery::resolve;
 use desk_signal_facade::model::connection::SharedConnectionMap;
 
 #[tokio::test]
@@ -65,7 +65,7 @@ async fn offline_recovery_reads_original_snapshot_and_stops_only_the_original_ta
     .unwrap();
     assert_eq!((&run[..], &device[..]), ("run-1", "device-1"));
     let snapshot = sessions
-        .read_assistant_snapshot_for_subject(&run, "1", &device)
+        .read_agent_snapshot_for_subject(&run, "1", &device)
         .await
         .unwrap()
         .unwrap();

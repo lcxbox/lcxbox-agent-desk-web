@@ -101,7 +101,7 @@ pub(super) async fn issue_on(
         }
     };
     let allocation = desk_diagnose_core::future::boxed(|| async {
-        desk_assistant_data_store::schedule::reserve_task_budget(
+        desk_agent_data_store::schedule::reserve_task_budget(
             txn,
             &TaskBudgetRequest {
                 owner: authority.run().owner_user_id,

@@ -56,7 +56,7 @@ impl ReadContextSelection {
                 .live_targets
                 .iter()
                 .any(|target| target.tool_name == name))
-            && crate::ai_assistant::ai_assistant_provider_registry_ref()
+            && crate::ai_agent::ai_agent_provider_registry_ref()
                 .capability_for_tool(name)
                 .is_some_and(crate::request_devices::selected_read_descriptor)
     }
@@ -65,7 +65,7 @@ impl ReadContextSelection {
         if self.object_attachments.is_empty() {
             return;
         }
-        for descriptor in crate::ai_assistant::ai_assistant_provider_registry_ref()
+        for descriptor in crate::ai_agent::ai_agent_provider_registry_ref()
             .providers()
             .flat_map(|provider| &provider.capabilities)
             .filter(|descriptor| crate::request_devices::selected_read_descriptor(descriptor))
@@ -93,7 +93,7 @@ impl ReadContextSelection {
 
     pub fn validate_object_devices(
         &self,
-        targets: &[crate::dynamic_run::AssistantInputTarget],
+        targets: &[crate::dynamic_run::AgentInputTarget],
     ) -> Result<(), AgentError> {
         if self.object_attachments.iter().any(|attachment| {
             !targets
@@ -155,7 +155,7 @@ impl ReadContextSelection {
         }
         validate_objects(&self.object_attachments)?;
         live_read::validate_targets(self)?;
-        let providers = crate::ai_assistant::ai_assistant_provider_registry_ref();
+        let providers = crate::ai_agent::ai_agent_provider_registry_ref();
         if self.tool_names.len() > MAX_READ_TOOLS
             || self.tool_names.windows(2).any(|pair| pair[0] >= pair[1])
             || self.tool_names.iter().any(|name| {
@@ -178,7 +178,7 @@ fn selectable_live_metadata(object: &ContextAttachment) -> bool {
     let provenance = &object.envelope.provenance;
     object.kind == ContextAttachmentKind::InteractiveSession
         && live_read::target_kind(&provenance.source_tool_name).is_some()
-        && crate::ai_assistant::ai_assistant_provider_registry_ref()
+        && crate::ai_agent::ai_agent_provider_registry_ref()
             .capability_for_tool(&provenance.source_tool_name)
             .is_some_and(|descriptor| {
                 descriptor.wire.capability_id == object.object_ref.source_capability_id

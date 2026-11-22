@@ -58,7 +58,7 @@ async fn published_parent_on(
     let work = ScheduleStore::claim_queued_on(&txn, &queued.run_id, "source-node", 90)
         .await
         .unwrap();
-    let authority = desk_assistant_data_store::schedule::lock_run_authority(
+    let authority = desk_agent_data_store::schedule::lock_run_authority(
         &txn,
         1,
         "1",
@@ -436,7 +436,7 @@ async fn source_initialization_is_fenced_and_keeps_one_original_group() {
     limits.max_task_duration_minutes = 1;
     crate::subagent_policy::update(
         &db,
-        &desk_agent_protocol::ai_assistant::subagent_policy::UpdateSubAgentPolicy {
+        &desk_agent_protocol::ai_agent::subagent_policy::UpdateSubAgentPolicy {
             expected_revision: policy.revision,
             limits,
         },
@@ -678,7 +678,7 @@ async fn child_claim_and_quota_survive_parent_holder_release_but_not_source_canc
         name: desk_diagnose_core::subagent::tools::SPAWN.into(),
         arguments_json: serde_json::to_string(&request).unwrap(),
     };
-    let mut caller = ChatMessage::assistant_tool_calls(
+    let mut caller = ChatMessage::agent_tool_calls(
         "published-model-call",
         "Investigate independently",
         vec![ToolCallRef {

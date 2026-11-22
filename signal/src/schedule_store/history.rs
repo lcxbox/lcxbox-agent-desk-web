@@ -1,6 +1,6 @@
 //! Owner-scoped, newest-first occurrence history for management projections.
 use super::{ScheduleStore, ScheduleStoreError};
-use desk_assistant_data_store::schedule::{self as shared, RunHistoryPage};
+use desk_agent_data_store::schedule::{self as shared, RunHistoryPage};
 
 impl ScheduleStore {
     /// Resolve a public occurrence selector. The snapshot reader must still

@@ -47,7 +47,7 @@ Use this when the controlled device has no public IP and you want to own the who
 
 3. Harden the endpoint before relying on it: TLS on a reverse proxy, TURN interfaces and relay ports, and the `LAD_*` variables are all covered in [Deployment](/guide/deployment).
 
-4. Copy the token from the signaling server's **Signaling Access Token** page. Run the host as in Option 1, then on its **Outbound Connection** settings page set the signaling URL to `wss://<your-domain>/api/desk/signaling` and paste that token. The host then treats this server as its central: remote desktop, the terminal, and the AI Assistant all run through it.
+4. Copy the token from the signaling server's **Signaling Access Token** page. Run the host as in Option 1, then on its **Outbound Connection** settings page set the signaling URL to `wss://<your-domain>/api/desk/signaling` and paste that token. The host then treats this server as its central: remote desktop, the terminal, and the AI Agent all run through it.
 
 ::: warning
 Hosts refuse plaintext `ws://` dials to **public** signaling addresses by default (`require_secure_signaling` in the [config.toml reference](/config/config-toml)). Loopback, private, and LAN addresses are exempt, so a LAN-only deployment without TLS can use `ws://<vps-address>:8081/api/desk/signaling`.
@@ -107,4 +107,4 @@ OSS signaling distinguishes a registered device that is offline from an unknown 
 
 Code redemption opens a limited session bound to one connection. Redeem a still-valid code again after a reconnect; that session address is not a permanent device entry.
 
-Android and iOS device pages also retain the stable device identity. Once the device is online again, use the page’s refresh button. A terminal on a new connection shows the shell list for you to choose again. Assistant sessions from the previous connection remain available through recovery; their pending operations do not automatically continue on the new connection.
+Android and iOS device pages also retain the stable device identity. Once the device is online again, use the page’s refresh button. A terminal on a new connection shows the shell list for you to choose again. Agent sessions from the previous connection remain available through recovery; their pending operations do not automatically continue on the new connection.

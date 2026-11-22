@@ -286,7 +286,7 @@ describe('independent OSS approval model configuration', () => {
         fireEvent.click(screen.getByRole('switch', { name: 'Enable approval model' }));
         await save();
         await screen.findByText('Ready. Eligible requests in conversations using AI review will be reviewed automatically.');
-        await expectToast('Open + → AI approval in an AI Assistant conversation');
+        await expectToast('Open + → AI approval in an AI Agent conversation');
         expect(screen.getByRole('switch', { name: 'Enable approval model' })).toBeChecked();
         expect(h.test).not.toHaveBeenCalled();
         expect(h.update).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ enabled: true,

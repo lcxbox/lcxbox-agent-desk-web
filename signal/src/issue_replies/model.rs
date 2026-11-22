@@ -51,7 +51,7 @@ pub(crate) async fn authorize_model_on(
         name: call.name.clone(),
         arguments_json: call.arguments_json.clone(),
     };
-    let prepared = desk_assistant_data_store::issue_reply::preparation::prepare_on(
+    let prepared = desk_agent_data_store::issue_reply::preparation::prepare_on(
         txn,
         &current,
         &original,
@@ -61,7 +61,7 @@ pub(crate) async fn authorize_model_on(
     )
     .await
     .map_err(|_| denied())?;
-    let desk_assistant_data_store::issue_reply::preparation::Preparation::Generate(work) = prepared
+    let desk_agent_data_store::issue_reply::preparation::Preparation::Generate(work) = prepared
     else {
         return Err(denied());
     };

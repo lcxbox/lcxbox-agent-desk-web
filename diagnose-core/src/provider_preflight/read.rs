@@ -44,7 +44,7 @@ impl ReadCallPreflight {
             || call.id.is_empty()
             || call.id.len() > 512
             || !(binding.original.tool_names.contains(&call.name)
-                || (session.has_admitted_assistant_input()
+                || (session.has_admitted_agent_input()
                     && crate::request_devices::selected_read_descriptor(capability)))
             || call.arguments_json.len() > capability.wire.limits.max_input_bytes as usize
         {
@@ -137,7 +137,7 @@ impl ReadCallPreflight {
             // preflight derives bounds only; the runtime must consume the R1
             // grant before dispatch, even when no object was attached.
             || (!selected_device && !binding.original.tool_names.contains(&call.name)
-                && !crate::ai_assistant::is_requestable_desktop_read(&call.name))
+                && !crate::ai_agent::is_requestable_desktop_read(&call.name))
             || call.id.trim().is_empty()
             || call.id.len() > 512
             || call.arguments_json.len() > capability.wire.limits.max_input_bytes as usize
@@ -341,7 +341,7 @@ impl ReadCallPreflight {
         &'a self,
         subject: &'a ProviderCallSubject<'_>,
     ) -> Result<CapabilityGrantCall<'a>, AgentError> {
-        crate::assistant_policy::require_current_policy(subject.policy_revision)?;
+        crate::agent_policy::require_current_policy(subject.policy_revision)?;
         if subject.readiness_revision == 0
             || subject.now_unix_ms == 0
             || subject.now_unix_ms >= self.valid_until_unix_ms

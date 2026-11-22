@@ -2044,8 +2044,8 @@ mod tests {
         let old = source("old");
         let conversation = vec![
             user("old-user", 4500),
-            ChatMessage::assistant_tool_calls_with_replay(
-                "old-assistant",
+            ChatMessage::agent_tool_calls_with_replay(
+                "old-agent",
                 "",
                 vec![ToolCallRef {
                     id: "call-1".into(),
@@ -2064,7 +2064,7 @@ mod tests {
             plan.input
                 .summarize_prefix
                 .iter()
-                .any(|message| message.message_id == "old-assistant")
+                .any(|message| message.message_id == "old-agent")
         );
         assert!(
             plan.input
@@ -2082,8 +2082,8 @@ mod tests {
             serde_json::json!("not-an-array"),
         );
         let conversation = vec![
-            ChatMessage::assistant_tool_calls_with_replay(
-                "bad-assistant",
+            ChatMessage::agent_tool_calls_with_replay(
+                "bad-agent",
                 "",
                 vec![ToolCallRef {
                     id: "call-1".into(),
@@ -2245,7 +2245,7 @@ mod tests {
         ));
 
         let conversation = vec![
-            ChatMessage::assistant_tool_calls_with_replay(
+            ChatMessage::agent_tool_calls_with_replay(
                 "assistant",
                 "",
                 vec![ToolCallRef {
@@ -2575,7 +2575,7 @@ mod tests {
                 ChatRole::User,
                 format!("api_key=supersecret {}", "x".repeat(5000)),
             ),
-            ChatMessage::assistant_tool_calls_with_replay(
+            ChatMessage::agent_tool_calls_with_replay(
                 "assistant",
                 "",
                 vec![ToolCallRef {

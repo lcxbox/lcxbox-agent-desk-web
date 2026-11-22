@@ -1,18 +1,18 @@
 //! Resolve one frozen event without a browser or model call.
 
 use super::*;
-use desk_agent_protocol::data_lineage::DestinationIdentity;
-use desk_assistant_data_store::{
+use desk_agent_data_store::{
     device_roster,
     entity::agent_issue_event,
     issue_events::routing::{self, FrozenIssueHeader, PendingEvent},
 };
-use desk_diagnose_core::{dynamic_run::AssistantInputTarget, external_tools::IssueAccess};
+use desk_agent_protocol::data_lineage::DestinationIdentity;
+use desk_diagnose_core::{dynamic_run::AgentInputTarget, external_tools::IssueAccess};
 use futures_util::{StreamExt, stream};
 
 pub async fn scan_routing_once(
     db: &DatabaseConnection,
-    gate: &AiAssistantGate,
+    gate: &AiAgentGate,
     after: i64,
 ) -> Result<i64, AgentError> {
     if !gate.is_enabled() {
@@ -38,7 +38,7 @@ pub async fn scan_routing_once(
 
 pub(super) async fn route_event(
     db: &DatabaseConnection,
-    gate: &AiAssistantGate,
+    gate: &AiAgentGate,
     row: agent_issue_event::Model,
 ) -> Result<(), AgentError> {
     if row.actor_id != crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string() {
@@ -86,7 +86,7 @@ pub(super) async fn route_event(
 
 async fn persist_header(
     db: &DatabaseConnection,
-    gate: &AiAssistantGate,
+    gate: &AiAgentGate,
     hint: &agent_issue_event::Model,
     connection: &IssueConnectionConfig,
     header: Option<&FrozenIssueHeader>,
@@ -120,7 +120,7 @@ async fn persist_header(
 
 pub(super) async fn commit_route(
     db: &DatabaseConnection,
-    gate: &AiAssistantGate,
+    gate: &AiAgentGate,
     hint: &agent_issue_event::Model,
     connection: &IssueConnectionConfig,
     destination: Option<&DestinationIdentity>,
@@ -174,7 +174,7 @@ pub(super) async fn commit_route(
 
 async fn recheck_on(
     txn: &DatabaseTransaction,
-    gate: &AiAssistantGate,
+    gate: &AiAgentGate,
     hint: &agent_issue_event::Model,
     connection: &IssueConnectionConfig,
 ) -> Result<Option<(PendingEvent, Box<PersistedAgentSession>)>, AgentError> {
@@ -258,7 +258,7 @@ async fn model_destination(
 async fn targets_on(
     txn: &DatabaseTransaction,
     root: &PersistedAgentSession,
-) -> Result<Vec<AssistantInputTarget>, AgentError> {
+) -> Result<Vec<AgentInputTarget>, AgentError> {
     let Some(roster) = device_roster::load(txn, &root.actor_id, &root.conversation_id)
         .await
         .map_err(store)?
@@ -271,7 +271,7 @@ async fn targets_on(
     let mut targets = references
         .into_iter()
         .filter(|reference| allowed.contains(reference))
-        .map(|reference| AssistantInputTarget {
+        .map(|reference| AgentInputTarget {
             device_id: reference.clone(),
             reference,
             member_generation: None,

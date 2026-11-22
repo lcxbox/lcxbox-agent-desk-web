@@ -1,6 +1,6 @@
 //! Delegated input, owner approval and command dispatch share the same fence.
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 mod completion;
 mod sandbox;
 mod snapshot;
@@ -15,7 +15,7 @@ use crate::{
 };
 use desk_agent_protocol::{
     RiskLevel,
-    ai_assistant::subagent::{AiAssistantSubAgentControl, SubAgentControlAction},
+    ai_agent::subagent::{AiAgentSubAgentControl, SubAgentControlAction},
     authz::ExecAdmissionPolicy,
     capability_grant::{CapabilityGrant, CapabilityRiskTier},
     capability_provider::ProductSurface,
@@ -114,8 +114,7 @@ async fn approved_child_with_source_on(
         panic!("child claim required")
     };
     let mut child = claimed.session;
-    child.policy_revision =
-        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
+    child.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
     save_child_session(&db, &mut child).await.unwrap();
     let mut call = proposed.unwrap_or_else(|| ToolCall {
         id: "child-command".into(),
@@ -130,7 +129,7 @@ async fn approved_child_with_source_on(
             serde_json::from_str(&call.arguments_json).unwrap(),
         )
         .unwrap();
-    let mut proposal = ChatMessage::assistant_tool_calls(
+    let mut proposal = ChatMessage::agent_tool_calls(
         "child-command-proposal",
         "Run the requested check",
         vec![ToolCallRef {
@@ -184,7 +183,7 @@ async fn approved_child_with_source_on(
             "linux",
         ),
     };
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry()
         .with_command_policy(policy.clone());
     let capability = registry.capability_for_tool(&call.name).unwrap();
     let provider = registry
@@ -369,7 +368,7 @@ async fn newly_created_child_owner_approval_prepares_and_claims_command_once() {
     };
     let now = chrono::Utc::now().timestamp_millis() as u64;
     let origin = ActionResultOrigin::capture_confirmed_command(
-        &desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+        &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         &child,
         &child.device_id,
         &with_target_ref(&call, &child.device_id),
@@ -438,7 +437,7 @@ async fn adjusting_approved_child_before_dispatch_rejects_the_old_input() {
             "root",
             "1",
             "1",
-            &AiAssistantSubAgentControl {
+            &AiAgentSubAgentControl {
                 client_request_id: "adjust-before-dispatch".into(),
                 task_id: run.binding.task_id.clone(),
                 expected_input_revision: run.binding.input_revision,
@@ -475,9 +474,9 @@ async fn missing_child_input_fails_before_command_authorization_or_device_send()
     let (db, _, mut child, call, _) = approved_child().await;
     child.latest_input_seq = 0;
     save_child_session(&db, &mut child).await.unwrap();
-    let tools = crate::remote_tool_edge::SignalAiAssistantTools::new(
+    let tools = crate::remote_tool_edge::SignalAiAgentTools::new(
         db.clone(),
-        desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+        desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         std::sync::Arc::new(desk_signal_facade::model::connection::SharedConnectionMap::default()),
         std::sync::Arc::new(crate::remote_tool_edge::SignalRemoteToolPendingStore::default()),
         "host".into(),
@@ -503,8 +502,10 @@ async fn missing_child_input_fails_before_command_authorization_or_device_send()
         60000,
     );
     let ctx = ExecContext {
-        assistant_turn_fence:
-            desk_diagnose_core::action_turn_fence::AssistantTurnFence::from_session(&child).unwrap(),
+        agent_turn_fence: desk_diagnose_core::action_turn_fence::AgentTurnFence::from_session(
+            &child,
+        )
+        .unwrap(),
         conversation_id: child.conversation_id.clone(),
         turn_id: child.current_turn_id.clone().unwrap(),
         tool_call_id: call.id.clone(),
@@ -549,7 +550,7 @@ async fn live_project_model_subagent_command() {
         ..Default::default()
     };
     let seam = crate::model_dial::SignalModelSeam::from_config(&config).unwrap();
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let mut request = ModelRequest::text_only(
         vec![
             ChatMessage::text(
@@ -638,7 +639,7 @@ async fn live_project_model_subagent_command() {
         .validate_claimed_dispatch(&dispatch_id, prepared(&child, &call, &grant))
         .await
         .unwrap();
-    let mut proposal = ChatMessage::assistant_tool_calls(
+    let mut proposal = ChatMessage::agent_tool_calls(
         "real-proposal",
         first.text.clone(),
         first.tool_calls.iter().map(ToolCall::to_ref).collect(),

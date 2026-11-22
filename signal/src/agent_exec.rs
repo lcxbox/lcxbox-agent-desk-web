@@ -669,7 +669,7 @@ impl SignalAgentTools {
                     &ctx.conversation_id,
                     &ctx.tool_call_id,
                     &self.target_connection_id,
-                    ctx.assistant_turn_fence
+                    ctx.agent_turn_fence
                         .as_ref()
                         .map(|held| held.device_id.as_str())
                         .or(target.client_id.as_deref())

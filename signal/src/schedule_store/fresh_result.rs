@@ -1,7 +1,7 @@
 //! Settle fresh runs from persisted terminal state and original effect evidence.
 use super::{FreshTaskLease, ScheduleStore, ScheduleStoreError};
 use crate::entity::agent_schedule_run as run;
-use desk_assistant_data_store::schedule::FreshResult;
+use desk_agent_data_store::schedule::FreshResult;
 
 impl ScheduleStore {
     pub async fn finish_answered_fresh_task(
@@ -49,7 +49,7 @@ impl ScheduleStore {
         result: FreshResult<'_>,
     ) -> Result<run::Model, ScheduleStoreError> {
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
-        let decision = desk_assistant_data_store::schedule::finish_fresh_result_on(
+        let decision = desk_agent_data_store::schedule::finish_fresh_result_on(
             &super::SignalScheduleHost,
             &txn,
             lease,

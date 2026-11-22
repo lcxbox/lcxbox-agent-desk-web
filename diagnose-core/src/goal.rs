@@ -2,7 +2,7 @@
 
 use crate::dynamic_run::{AGENT_RUN_EVENT_SCHEMA_VERSION, AgentRunEvent, AgentRunEventKind};
 use crate::session::PersistedAgentSession;
-use desk_agent_protocol::ai_assistant::goal_budget::{GoalBudgetLimits, GoalBudgetPolicy};
+use desk_agent_protocol::ai_agent::goal_budget::{GoalBudgetLimits, GoalBudgetPolicy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -11,9 +11,9 @@ pub const GOAL_SCHEMA_VERSION: u16 = 5;
 
 fn validate_execution_target(
     device: &str,
-    target: &crate::dynamic_run::AssistantInputTarget,
+    target: &crate::dynamic_run::AgentInputTarget,
 ) -> Result<(), GoalError> {
-    crate::dynamic_run::AssistantInputTarget::validate_all(std::slice::from_ref(target))
+    crate::dynamic_run::AgentInputTarget::validate_all(std::slice::from_ref(target))
         .map_err(|_| GoalError::InvalidIdentity)?;
     if !device.is_empty() {
         valid_id(device)?;
@@ -147,7 +147,7 @@ pub struct GoalOpenRequest {
     pub conversation_id: String,
     pub owner_id: String,
     pub device_id: String,
-    pub execution_target: crate::dynamic_run::AssistantInputTarget,
+    pub execution_target: crate::dynamic_run::AgentInputTarget,
     pub source_message_id: String,
     pub input_revision: u64,
     pub goal_text: String,
@@ -170,7 +170,7 @@ pub struct GoalOpenRequest {
     pub text_source: Option<crate::model_content::StoredTextSource>,
 }
 
-/// The latest assistant message that called `tool`: the model output whose
+/// The latest agent message that called `tool`: the model output whose
 /// arguments a goal proposal or control carries.
 pub fn latest_call_output<'a>(
     conversation: &'a [crate::chat::ChatMessage],
@@ -333,7 +333,7 @@ impl GoalOpenRequest {
         request_id: String,
         conversation_id: String,
         owner_id: String,
-        execution_target: crate::dynamic_run::AssistantInputTarget,
+        execution_target: crate::dynamic_run::AgentInputTarget,
         device_id: String,
         source_message_id: String,
         input_revision: u64,
@@ -1077,7 +1077,7 @@ pub struct GoalRun {
     pub conversation_id: String,
     pub owner_id: String,
     pub device_id: String,
-    pub execution_target: crate::dynamic_run::AssistantInputTarget,
+    pub execution_target: crate::dynamic_run::AgentInputTarget,
     pub goal_text: String,
     pub source_message_id: String,
     /// Immutable owner-approved opening text and its original evidence.
@@ -1088,7 +1088,7 @@ pub struct GoalRun {
     pub model_binding: GoalModelBinding,
     pub input_revision: u64,
     pub goal_revision: u64,
-    /// Input revision at which the assistant stopped to ask for clarification.
+    /// Input revision at which the agent stopped to ask for clarification.
     /// A proposal requires a later, persisted owner message.
     pub user_reply_floor_revision: Option<u64>,
     pub state: GoalState,
@@ -1353,7 +1353,7 @@ impl GoalRun {
         goal_id: String,
         conversation_id: String,
         owner_id: String,
-        execution_target: crate::dynamic_run::AssistantInputTarget,
+        execution_target: crate::dynamic_run::AgentInputTarget,
         device_id: String,
         goal_text: String,
         source_message_id: String,
@@ -2275,7 +2275,7 @@ impl GoalRun {
         if self.state == GoalState::Waiting(GoalWaitReason::User)
             && prior_state != GoalState::Waiting(GoalWaitReason::User)
         {
-            // An unsolicited message stops work, then the assistant asks what
+            // An unsolicited message stops work, then the agent asks what
             // should change. This message alone is not a goal revision request.
             self.user_reply_floor_revision = Some(next_revision);
         }
@@ -2792,7 +2792,7 @@ mod tests {
     fn personal_goal_approval_and_storage_keep_the_exact_execution_target() {
         let mut request = open_request();
         request.device_id.clear();
-        request.execution_target = crate::dynamic_run::AssistantInputTarget {
+        request.execution_target = crate::dynamic_run::AgentInputTarget {
             reference: "public-mac".into(),
             device_id: "physical-mac".into(),
             member_generation: Some(7),
@@ -2818,10 +2818,10 @@ mod tests {
         };
         let mut session =
             crate::session::PersistedAgentSession::new("run", "owner", "", 1, scope.clone(), "now");
-        session.surface = crate::session::AgentSessionSurface::AiAssistant;
+        session.surface = crate::session::AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session
-            .bind_assistant_input_targets(std::slice::from_ref(&target))
+            .bind_agent_input_targets(std::slice::from_ref(&target))
             .unwrap();
         let claim = crate::seam::ClaimTurnParams {
             conversation_id: "run".into(),
@@ -2835,10 +2835,10 @@ mod tests {
             trigger_origin: crate::session::TriggerOrigin::GoalContinuation,
             now: "now".into(),
         };
-        crate::assistant_policy::validate_goal_claim(&session, &goal, &claim).unwrap();
+        crate::agent_policy::validate_goal_claim(&session, &goal, &claim).unwrap();
         let mut changed = goal.clone();
         changed.execution_target.member_generation = Some(8);
-        assert!(crate::assistant_policy::validate_goal_claim(&session, &changed, &claim).is_err());
+        assert!(crate::agent_policy::validate_goal_claim(&session, &changed, &claim).is_err());
         let stored = serde_json::to_value(&goal).unwrap();
         let restored: GoalRun = serde_json::from_value(stored.clone()).unwrap();
         restored.validate().unwrap();
@@ -2864,7 +2864,7 @@ mod tests {
             "request".into(),
             "run".into(),
             "owner".into(),
-            crate::dynamic_run::AssistantInputTarget::fixed("device".into()),
+            crate::dynamic_run::AgentInputTarget::fixed("device".into()),
             "device".into(),
             "message".into(),
             1,
@@ -3047,7 +3047,7 @@ mod tests {
             "goal".into(),
             "run".into(),
             "owner".into(),
-            crate::dynamic_run::AssistantInputTarget::fixed("device".into()),
+            crate::dynamic_run::AgentInputTarget::fixed("device".into()),
             "device".into(),
             "Finish the report".into(),
             "message".into(),

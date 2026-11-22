@@ -15,7 +15,7 @@ describe("parseSessionTargetList", () => {
                 remote_desktop_ready: true,
                 terminal_ready: true,
                 file_ready: true,
-                assistant_ready: true,
+                agent_ready: true,
             }],
         })?.targets[0].target_id).toBe("opaque-id")
     })

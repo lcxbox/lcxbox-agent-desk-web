@@ -410,7 +410,7 @@ pub fn terminal_error_for(outcome: &LoopOutcome) -> Option<AgentError> {
             message: "the model reached its output token limit; increase the model output budget or request a shorter response".into(),
             retryable: true,
             safe_for_model: true,
-            error_code: Some(DeskErrorCode::AI_ASSISTANT_RESPONSE_TRUNCATED.code()),
+            error_code: Some(DeskErrorCode::AI_AGENT_RESPONSE_TRUNCATED.code()),
         },
         LoopOutcome::ContextWindowExceeded => AgentError {
             kind: AgentErrorKind::InvalidInput,
@@ -423,11 +423,11 @@ pub fn terminal_error_for(outcome: &LoopOutcome) -> Option<AgentError> {
         LoopOutcome::CircuitBreak(reason) => {
             let (message, error_code) = match reason {
                 CircuitBreakReason::StepBudget => (
-                    "the assistant stopped after too many steps without reaching an answer",
-                    DeskErrorCode::AI_ASSISTANT_STEP_LIMIT_EXCEEDED,
+                    "the agent stopped after too many steps without reaching an answer",
+                    DeskErrorCode::AI_AGENT_STEP_LIMIT_EXCEEDED,
                 ),
                 CircuitBreakReason::SameToolRepeat => (
-                    "the assistant stopped after repeating the same action too many times",
+                    "the agent stopped after repeating the same action too many times",
                     DeskErrorCode::AGENT_SAME_TOOL_REPEAT_LIMIT,
                 ),
             };
@@ -444,21 +444,21 @@ pub fn terminal_error_for(outcome: &LoopOutcome) -> Option<AgentError> {
             message: "the model returned an invalid response".into(),
             retryable: true,
             safe_for_model: true,
-            error_code: Some(DeskErrorCode::AI_ASSISTANT_PROTOCOL_VIOLATION.code()),
+            error_code: Some(DeskErrorCode::AI_AGENT_PROTOCOL_VIOLATION.code()),
         },
         LoopOutcome::TurnBusy => AgentError {
             kind: AgentErrorKind::SessionUnavailable,
             message: "a diagnosis is already running for this conversation".into(),
             retryable: true,
             safe_for_model: true,
-            error_code: Some(DeskErrorCode::AI_ASSISTANT_TURN_BUSY.code()),
+            error_code: Some(DeskErrorCode::AI_AGENT_TURN_BUSY.code()),
         },
         LoopOutcome::SubjectRejected(_) => AgentError {
             kind: AgentErrorKind::PermissionDenied,
             message: "this conversation belongs to a different user".into(),
             retryable: false,
             safe_for_model: true,
-            error_code: Some(DeskErrorCode::AI_ASSISTANT_SUBJECT_MISMATCH.code()),
+            error_code: Some(DeskErrorCode::AI_AGENT_SUBJECT_MISMATCH.code()),
         },
     };
     Some(err)
@@ -752,7 +752,7 @@ mod tests {
         assert!(truncated.retryable);
         assert_eq!(
             truncated.error_code,
-            Some(DeskErrorCode::AI_ASSISTANT_RESPONSE_TRUNCATED.code())
+            Some(DeskErrorCode::AI_AGENT_RESPONSE_TRUNCATED.code())
         );
 
         let context = terminal_error_for(&LoopOutcome::ContextWindowExceeded).unwrap();
@@ -768,7 +768,7 @@ mod tests {
         assert!(busy.retryable);
         assert_eq!(
             busy.error_code,
-            Some(DeskErrorCode::AI_ASSISTANT_TURN_BUSY.code())
+            Some(DeskErrorCode::AI_AGENT_TURN_BUSY.code())
         );
 
         let breaker =
@@ -777,7 +777,7 @@ mod tests {
         assert!(!breaker.retryable);
         assert_eq!(
             breaker.error_code,
-            Some(DeskErrorCode::AI_ASSISTANT_STEP_LIMIT_EXCEEDED.code())
+            Some(DeskErrorCode::AI_AGENT_STEP_LIMIT_EXCEEDED.code())
         );
 
         let repeat = terminal_error_for(&LoopOutcome::CircuitBreak(
@@ -795,7 +795,7 @@ mod tests {
         assert!(!subject.retryable);
         assert_eq!(
             subject.error_code,
-            Some(DeskErrorCode::AI_ASSISTANT_SUBJECT_MISMATCH.code())
+            Some(DeskErrorCode::AI_AGENT_SUBJECT_MISMATCH.code())
         );
     }
 

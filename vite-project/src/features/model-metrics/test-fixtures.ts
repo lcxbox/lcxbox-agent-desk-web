@@ -36,7 +36,7 @@ export function recordFixture(): ObservationRecord {
         id: 'private-observation-id', call_id: 'private-call-id', tool_observation_id: 'private-input-id', kind: 'tool',
         started_at: '2026-10-08T00:00:00Z', updated_at: '2026-10-08T00:00:01Z',
         provider_id: 'provider-1', model_id: 'model-1', model_name: 'Selected model',
-        purpose: 'agent', surface: 'assistant', origin: 'user', configuration_scope: 'local',
+        purpose: 'agent', surface: 'agent', origin: 'user', configuration_scope: 'local',
         configuration_revision: '9007199254740993', contract_revision: '1', protocol: 'open_ai_chat_completions',
         outcome: 'rejected', not_started_reason: null, output: null, tool: 'read_file', ordinal: 0,
         input_conclusion: 'rejected', input_issue: 'type', schema_path: '$.items[].count',
@@ -55,7 +55,7 @@ export function apiFixture(): MetricsApi {
         available_from: '2026-10-07T00:00:00Z', settings_revision: '1', settings_effective: true,
         last_persisted: null, last_aggregated: null, as_of: '2026-10-09T00:00:00Z',
         backlog: '0', oldest_pending: null, dropped_events: '0', discarded_events: '0', unassociated_records: '0',
-        instrumented_surfaces: ['assistant'], unsupported_surfaces: [], gaps: [], retention: null, storage: null, reason: null,
+        instrumented_surfaces: ['agent'], unsupported_surfaces: [], gaps: [], retention: null, storage: null, reason: null,
     };
     return {
         status: vi.fn(async () => status),

@@ -35,16 +35,16 @@ export const APPROVAL_MODEL_ERROR_KEYS: ErrorCodeKeyMap = {
 
 /** Skill management; other codes (such as a rejected package) show the backend reason. */
 export const SKILL_ERROR_KEYS: ErrorCodeKeyMap = {
-    [deskErrorCodeEnum.REVISION_CONFLICT]: 'pages.assistantSkills.conflict',
+    [deskErrorCodeEnum.REVISION_CONFLICT]: 'pages.agentSkills.conflict',
     [deskErrorCodeEnum.SERVICE_RESTARTING]: 'pages.agentError.serviceRestarting',
-    [deskErrorCodeEnum.SYSTEM_ERROR]: 'pages.assistantSkills.failed',
+    [deskErrorCodeEnum.SYSTEM_ERROR]: 'pages.agentSkills.failed',
 };
 
 /** Deciding an AI skill proposal; a stale proposal is read again by the caller. */
 export const SKILL_PROPOSAL_ERROR_KEYS: ErrorCodeKeyMap = {
-    [deskErrorCodeEnum.REVISION_CONFLICT]: 'pages.assistantSkills.proposal.changed',
-    [deskErrorCodeEnum.PRECONDITION_FAILED]: 'pages.assistantSkills.proposal.changed',
-    [deskErrorCodeEnum.SYSTEM_ERROR]: 'pages.assistantSkills.failed',
+    [deskErrorCodeEnum.REVISION_CONFLICT]: 'pages.agentSkills.proposal.changed',
+    [deskErrorCodeEnum.PRECONDITION_FAILED]: 'pages.agentSkills.proposal.changed',
+    [deskErrorCodeEnum.SYSTEM_ERROR]: 'pages.agentSkills.failed',
 };
 
 /**

@@ -218,11 +218,11 @@ OSS saves AI gateways, search and global policies in the same `config.toml` as h
 | `[ai_gateway]` | `wire_protocol`, `base_url`, `model`, `api_key`, `supports_image_input`; `profile_schema_version`, `reasoning_contract`, `anthropic_prefix_binding`, `request_options_json`, `output_limit_field`, `runtime_max_output_tokens`, `max_context_bytes`; `response_format`, `execution_mode`, `max_steps_per_turn`, `max_same_tool_calls_per_turn`, `exec_approval_timeout_secs` (seconds) |
 | `[approval_gateway]` | `enabled`; its independent model settings are in `[approval_gateway.gateway]`, with the same fields as the main gateway. OSS has no price, currency or accounting settings |
 | `[web_search]` | `schema_version`, `provider` (`duck_duck_go`, `brave`, `tavily`), optional `api_key` |
-| `[assistant_bundled_skills]` | `revision`, `disabled`: names of bundled skills turned off for this server, for example `["issue-analysis"]`; default empty. Unknown names reject loading. Editable on **Settings → Platform skills** |
+| `[agent_bundled_skills]` | `revision`, `disabled`: names of bundled skills turned off for this server, for example `["issue-analysis"]`; default empty. Unknown names reject loading. Editable on **Settings → Platform skills** |
 | `[context_management]` | `schema_version`, `strategy` (`window`, `checkpoint_summary`) |
 | `[subagent_policy.limits]` | `maxUnfinishedPerRoot` limits unfinished tasks per main conversation. `maxTaskDurationMinutes` sets the maximum duration for new tasks and accepts positive whole minutes, default 120 |
 | `[automation_policy]` | `schemaVersion`, `revision`, `maxAutoTurnsPerChain` (automatic continuations per request, `1–50`, default 20). Editable under **Settings → Automatic continuation limit** |
-| `[web_research_policy]` | `schemaVersion`, `revision`, `maxFetchBytes` (text returned to the assistant from one page or document read, 16 KiB–1 MiB, default 128 KiB; longer text is truncated). Editable under **Settings → Web page read limit** |
+| `[web_research_policy]` | `schemaVersion`, `revision`, `maxFetchBytes` (text returned to the agent from one page or document read, 16 KiB–1 MiB, default 128 KiB; longer text is truncated). Editable under **Settings → Web page read limit** |
 | `[goal_budget_policy]` | `schemaVersion`, `deviceUnavailableMaxMs` (milliseconds, cannot be disabled); `[goal_budget_policy.limits]` contains `activeTimeMs`, `deadlineMs` (milliseconds), `modelTokens`, `modelCalls`, `toolCalls`, `slices`, `stalledSlices` |
 | `[schedule_budget_policy.maximum]` | `max_runs_per_utc_day`, `max_calls_per_run`, `max_model_tokens_per_run`, `max_runtime_seconds` (seconds) |
 | `[usage_retention]` | `turn_days`, `agent_session_days` (days) |
@@ -290,11 +290,11 @@ max_output_tokens = 512
 
 The current profile schema is `2`. Set `reasoning_contract` explicitly to `conservative`, `openai_chat`, `deepseek_chat` or `anthropic_messages`, matching `wire_protocol`. `anthropic_prefix_binding` defaults to `false`; enable it only for an Anthropic endpoint that binds signed thinking to the request prefix. Thinking effort and optional native clearing remain inside `request_options_json`; see [AI diagnostics](../features/ai-diagnostics.md#thinking-replay-clearing-and-short-references). Both the main and approval gateways use these fields.
 
-Assistant data policy files use the same field checks as the management API. Invalid values report their fields; startup and successful policy updates log only matching warnings. See [AI Assistant memory and history policy](#assistant-data-policy) for warning semantics and shared read budgets.
+Agent data policy files use the same field checks as the management API. Invalid values report their fields; startup and successful policy updates log only matching warnings. See [AI Agent memory and history policy](#agent-data-policy) for warning semantics and shared read budgets.
 
-## AI Assistant memory and history policy {#assistant-data-policy}
+## AI Agent memory and history policy {#agent-data-policy}
 
-`AssistantDataPolicy.limits` controls memory content and retrieval work. After signing in with the open-source Signal management account, `GET /api/admin/system/ai-assistant-data` returns `data.policy` and `data.issues`. Submit the edited complete policy with `expected_revision` and `policy` using `POST`, keeping the revision that was read. A successful save returns the committed policy and its matching issues. Reload after a revision conflict. Signal atomically saves the active `config.toml`.
+`AgentDataPolicy.limits` controls memory content and retrieval work. After signing in with the open-source Signal management account, `GET /api/admin/system/ai-agent-data` returns `data.policy` and `data.issues`. Submit the edited complete policy with `expected_revision` and `policy` using `POST`, keeping the revision that was read. A successful save returns the committed policy and its matching issues. Reload after a revision conflict. Signal atomically saves the active `config.toml`.
 
 Valid configurations return an empty `issues` list. Each issue contains `level` (`error` or `warning`), a stable `code`, related configuration `fields`, a fallback `message`, and `effective_limit` when applicable. Hard errors use HTTP 200 with `success=false` and `INVALID_PARAMS`, without applying the save. Warnings retain `success=true` and allow saving. Revision conflicts keep `REVISION_CONFLICT` and `current_revision`.
 
@@ -302,7 +302,7 @@ Warnings cover only limits proven by the configuration: relevance page size exce
 
 New reads stop when the episode has zero remaining bytes. Positive allowances use the smaller of the per-response cap and the remaining total. Actual JSON and tool-message framing determine whether required metadata and whole sources fit. Call counts, actual settlement and original-call replay retain their existing budgets. History, memory and retained versions simultaneously consume their count, body, index and metadata quotas. Reaching the retained-version count limit still blocks updates until version cleanup frees capacity.
 
-Chat, subassistant and manually scheduled task text is submitted intact. The server validates text size, memory counts and data-result quotas. All three clients display server-provided memory, history, citations and processing status while checking types, identities, versions, source bindings, duplicates and cursor consistency. Personalization and keyword prechecks read the current server policy, and ordinary lists keep their chosen page sizes. A refused submission reports the failure and preserves the editable draft; chat input clears after acceptance is confirmed.
+Chat, subagent and manually scheduled task text is submitted intact. The server validates text size, memory counts and data-result quotas. All three clients display server-provided memory, history, citations and processing status while checking types, identities, versions, source bindings, duplicates and cursor consistency. Personalization and keyword prechecks read the current server policy, and ordinary lists keep their chosen page sizes. A refused submission reports the failure and preserves the editable draft; chat input clears after acceptance is confirmed.
 
 
 Ordinary chat input, citations and status display use the same platform policy. Paths below are relative to `policy.limits`:
@@ -339,18 +339,18 @@ New ordinary-input and task retrieval episodes freeze their allowances. Approval
 Query snapshots/cursors (`retrieval.episode.query_ttl_ms`) and unused read results (`retrieval.episode.unused_projection_ttl_ms`) each default to 1,800,000 ms (30 minutes). Positive durations freeze with the original retrieval episode; new ordinary inputs or a task occurrence’s first claim read the current policy. Recovery, approval and Goal corrections keep the original values. Query and tool-result deadlines start at the original reservation, while an automatically injected memory block starts at preparation; earlier task, source and execution-lease deadlines still apply. Pagination and retries retain the stored absolute deadline. Results saved in the current conversation follow that conversation’s lifecycle; temporary current-memory blocks retain per-request authorization checks. Policy revision checks continue to apply.
 
 ```toml
-[assistant_data_policy.limits.memory]
+[agent_data_policy.limits.memory]
 user_instructions_bytes = 16384
 source_refs = 12
 
-[assistant_data_policy.limits.retrieval]
+[agent_data_policy.limits.retrieval]
 query_groups = 6
 query_chars = 512
 search_window_days = 120
 history_keyword_scan_ms = 5000
 owner_scan_documents = 256
 
-[assistant_data_policy.limits.retrieval.episode]
+[agent_data_policy.limits.retrieval.episode]
 relevance_calls = 6
 time_pages = 12
 read_calls = 10
@@ -378,7 +378,7 @@ GC intervals and working batches are configured through `policy.limits.processin
 | `processing.current_memory_page_size` | 64 | Database page for current-memory selection |
 
 ```toml
-[assistant_data_policy.limits.processing]
+[agent_data_policy.limits.processing]
 output_gc_interval_ms = 300000
 output_gc_actor_batch_size = 32
 output_gc_batch_size = 64
@@ -392,4 +392,4 @@ current_memory_page_size = 64
 
 Add a Gitea or GitHub connection on the standalone server's **Issue connections** page. Enter HTTPS URLs for the instance and MCP service, provide a token with access to the intended issues, and enable the connection. Test it to check the account and the available read and comment tools. The server stores connections under `issue_connections` in `config.toml` and keeps subscription and task state in its runtime database.
 
-Create an agent under **AI Assistant → Super Agent**. Under **Subscriptions**, select a connection, repository, and eligible accounts. You can limit a subscription to one issue and authorize automatic replies to the original issue with the account shown on the form. Choose devices for investigations under **Settings**. **Tasks** shows progress and delivery receipts. **Attention** opens questions and approvals.
+Create an agent under **AI Agent → Super Agent**. Under **Subscriptions**, select a connection, repository, and eligible accounts. You can limit a subscription to one issue and authorize automatic replies to the original issue with the account shown on the form. Choose devices for investigations under **Settings**. **Tasks** shows progress and delivery receipts. **Attention** opens questions and approvals.

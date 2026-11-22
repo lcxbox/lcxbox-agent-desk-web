@@ -23,7 +23,7 @@ impl SignalAgentSessionStore {
         client_conversation_id: &str,
         client_request_id: &str,
     ) -> Result<Option<FileScopeReceipt>, AgentError> {
-        if self.surface != AgentSessionSurface::AiAssistant
+        if self.surface != AgentSessionSurface::AiAgent
             || self.client_conversation_id.as_deref() != Some(client_conversation_id)
         {
             return Err(failure());
@@ -132,7 +132,7 @@ impl SignalAgentSessionStore {
         held: Option<(i64, u64)>,
     ) -> Result<FileScopeReceipt, AgentError> {
         update.validate().map_err(|_| failure())?;
-        if self.surface != AgentSessionSurface::AiAssistant
+        if self.surface != AgentSessionSurface::AiAgent
             || (held.is_none()
                 && self.client_conversation_id.as_deref()
                     != Some(update.client_conversation_id.as_str()))
@@ -192,7 +192,7 @@ impl SignalAgentSessionStore {
                 );
                 session.adopt_client_metadata(
                     Some(&update.client_conversation_id),
-                    AgentSessionSurface::AiAssistant,
+                    AgentSessionSurface::AiAgent,
                 );
                 session.version = -1;
                 session
@@ -275,7 +275,7 @@ impl SignalAgentSessionStore {
                 return Ok(receipt);
             }
             if session.device_id.is_empty() && update.grants_directory() {
-                use desk_assistant_data_store::device_roster::{lock, personal_selection_key};
+                use desk_agent_data_store::device_roster::{lock, personal_selection_key};
                 if crate::agent_run_event_store::eligible_request_device_ids(
                     &txn,
                     std::slice::from_ref(&update.subject.device_id),
@@ -283,7 +283,7 @@ impl SignalAgentSessionStore {
                 .await?
                 .is_empty()
                     || if held.is_some() || session.agent_role.binding().is_some() {
-                        !desk_assistant_data_store::device_roster::permits_current_target(
+                        !desk_agent_data_store::device_roster::permits_current_target(
                             &txn,
                             &session,
                             &update.subject.device_id,
@@ -325,7 +325,7 @@ impl SignalAgentSessionStore {
                     None,
                 )?
             {
-                desk_assistant_data_store::decision_resume::insert_on(
+                desk_agent_data_store::decision_resume::insert_on(
                     &txn,
                     &session,
                     &session.device_id,

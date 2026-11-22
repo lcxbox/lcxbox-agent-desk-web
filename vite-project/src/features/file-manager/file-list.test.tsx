@@ -22,7 +22,7 @@ vi.mock("@/services/hooks/connectionController/useListConnections", () => ({
     useListConnections: () => ({
         data: [{
             connection_id: "connection-1",
-            version_info: null, peer: { remote_desk_type:'server', operation_system:'Other', display_name:null }, exec_capabilities: { available_exec_shells: [], exec_pty:false, exec_pty_elevation:false, max_ai_command_runtime_ms:null }, ai_assistant_settings: null, device_id: "stable-device-1",
+            version_info: null, peer: { remote_desk_type:'server', operation_system:'Other', display_name:null }, exec_capabilities: { available_exec_shells: [], exec_pty:false, exec_pty_elevation:false, max_ai_command_runtime_ms:null }, ai_agent_settings: null, device_id: "stable-device-1",
         }],
     }),
 }))
@@ -86,7 +86,7 @@ describe("FileList manual refresh", () => {
         const goUp = screen.getByRole("button", { name: "Up one directory" })
         expect(goUp).toHaveAttribute("title", "Up one directory")
         expect(goUp).toBeDisabled()
-        expect(screen.queryByTitle("添加到 AI 助手")).toBeNull()
+        expect(screen.queryByTitle("添加到 AI 智能体")).toBeNull()
 
         fireEvent.click(refreshButton)
         fireEvent.click(refreshButton)

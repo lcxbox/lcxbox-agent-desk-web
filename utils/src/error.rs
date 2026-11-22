@@ -209,7 +209,7 @@ desk_error_codes! {
     INVALID_OR_EXPIRED_TOKEN = 38,
 
     /// A request was throttled by a per-subject quota (e.g. too many terminal
-    /// assistant asks in the window). Carried in `RestResponse.code` / streamed in a
+    /// agent asks in the window). Carried in `RestResponse.code` / streamed in a
     /// terminal AI error event, never an HTTP status; the client backs off and
     /// retries.
     RATE_LIMITED = 39,
@@ -276,11 +276,11 @@ desk_error_codes! {
     /// never an HTTP status.
     PLAN_IN_USE = 49,
 
-    /// The Terminal AI Assistant is turned off for this deployment (the fleet-wide
-    /// enable flag is unset), so a assistant ask is refused. The control end maps
+    /// The Terminal AI Agent is turned off for this deployment (the fleet-wide
+    /// enable flag is unset), so a agent ask is refused. The control end maps
     /// this code to a localized message; the backend never sends a localized
     /// string. Rides the agent-error wire, not an HTTP status.
-    TERMINAL_AI_ASSISTANT_DISABLED = 50,
+    TERMINAL_AI_AGENT_DISABLED = 50,
     /// No AI model provider is configured on the manager (provider / model /
     /// base URL / API key unset), so an agentic ask cannot dial a model. The
     /// control end maps this code to a localized "configure a model" message.
@@ -317,27 +317,27 @@ desk_error_codes! {
     /// `RestResponse.code`, never an HTTP status.
     BILLING_ACCOUNT_NOT_FOUND = 56,
 
-    /// The agentic Terminal AI Assistant exhausted its per-turn step budget before
+    /// The agentic Terminal AI Agent exhausted its per-turn step budget before
     /// producing an answer (the loop's step circuit-breaker tripped). The control
     /// end maps this code to a localized "ran out of steps" message. Rides the
     /// agent-error wire, not an HTTP status.
-    AI_ASSISTANT_STEP_LIMIT_EXCEEDED = 57,
-    /// The Terminal AI Assistant's response was truncated before it completed. The
+    AI_AGENT_STEP_LIMIT_EXCEEDED = 57,
+    /// The Terminal AI Agent's response was truncated before it completed. The
     /// control end maps this code to a localized message. Rides the agent-error
     /// wire, not an HTTP status.
-    AI_ASSISTANT_RESPONSE_TRUNCATED = 58,
-    /// The model violated the assistant response contract (unparseable / malformed
+    AI_AGENT_RESPONSE_TRUNCATED = 58,
+    /// The model violated the agent response contract (unparseable / malformed
     /// tool or answer envelope). The control end maps this code to a localized
     /// message. Rides the agent-error wire, not an HTTP status.
-    AI_ASSISTANT_PROTOCOL_VIOLATION = 59,
-    /// Another assistant turn is already in progress for this conversation, so the
+    AI_AGENT_PROTOCOL_VIOLATION = 59,
+    /// Another agent turn is already in progress for this conversation, so the
     /// new ask is refused. The control end maps this code to a localized message.
     /// Rides the agent-error wire, not an HTTP status.
-    AI_ASSISTANT_TURN_BUSY = 60,
-    /// The assistant conversation belongs to a different session subject than the
+    AI_AGENT_TURN_BUSY = 60,
+    /// The agent conversation belongs to a different session subject than the
     /// caller (a stale or cross-session continuation). The control end maps this
     /// code to a localized message. Rides the agent-error wire, not an HTTP status.
-    AI_ASSISTANT_SUBJECT_MISMATCH = 61,
+    AI_AGENT_SUBJECT_MISMATCH = 61,
     /// The agent stopped a turn because the model requested the same tool more
     /// times than the per-turn repeat circuit breaker permits. The control end
     /// maps this code to a localized loop-prevention message. Rides the
@@ -530,7 +530,7 @@ desk_error_codes! {
     /// incomplete checkpoint is committed; the original history is retained.
     AI_CONTEXT_SUMMARY_OUTPUT_TRUNCATED = 111,
     /// Memory or cross-conversation context requires a fresh source projection.
-    AI_ASSISTANT_DATA_CHANGED = 112,
+    AI_AGENT_DATA_CHANGED = 112,
 
     /// The authorized device has reconnected since this operation was prepared.
     TARGET_CONNECTION_CHANGED = 113,
@@ -856,16 +856,16 @@ mod tests {
         assert_eq!(DeskErrorCode::DEVICE_CLIENT_ID_REQUIRED.code(), 47);
         assert_eq!(DeskErrorCode::API_TOKEN_QUOTA_EXCEEDED.code(), 48);
         assert_eq!(DeskErrorCode::PLAN_IN_USE.code(), 49);
-        assert_eq!(DeskErrorCode::TERMINAL_AI_ASSISTANT_DISABLED.code(), 50);
+        assert_eq!(DeskErrorCode::TERMINAL_AI_AGENT_DISABLED.code(), 50);
         assert_eq!(DeskErrorCode::AI_MODEL_NOT_CONFIGURED.code(), 51);
         assert_eq!(DeskErrorCode::PLAN_NO_PRICE.code(), 52);
         assert_eq!(DeskErrorCode::PLAN_PRICE_REQUIRED.code(), 53);
         assert_eq!(DeskErrorCode::AI_MODEL_NOT_AUTHORIZED.code(), 54);
-        assert_eq!(DeskErrorCode::AI_ASSISTANT_STEP_LIMIT_EXCEEDED.code(), 57);
-        assert_eq!(DeskErrorCode::AI_ASSISTANT_RESPONSE_TRUNCATED.code(), 58);
-        assert_eq!(DeskErrorCode::AI_ASSISTANT_PROTOCOL_VIOLATION.code(), 59);
-        assert_eq!(DeskErrorCode::AI_ASSISTANT_TURN_BUSY.code(), 60);
-        assert_eq!(DeskErrorCode::AI_ASSISTANT_SUBJECT_MISMATCH.code(), 61);
+        assert_eq!(DeskErrorCode::AI_AGENT_STEP_LIMIT_EXCEEDED.code(), 57);
+        assert_eq!(DeskErrorCode::AI_AGENT_RESPONSE_TRUNCATED.code(), 58);
+        assert_eq!(DeskErrorCode::AI_AGENT_PROTOCOL_VIOLATION.code(), 59);
+        assert_eq!(DeskErrorCode::AI_AGENT_TURN_BUSY.code(), 60);
+        assert_eq!(DeskErrorCode::AI_AGENT_SUBJECT_MISMATCH.code(), 61);
         assert_eq!(DeskErrorCode::AGENT_SAME_TOOL_REPEAT_LIMIT.code(), 70);
         assert_eq!(DeskErrorCode::SHARED_STORE_UNAVAILABLE.code(), 109);
         assert_eq!(DeskErrorCode::TARGET_CONNECTION_CHANGED.code(), 113);

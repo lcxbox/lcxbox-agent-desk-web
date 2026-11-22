@@ -800,7 +800,7 @@ mod tests {
 
     #[test]
     fn model_schemas_use_short_ids_and_omit_derived_fields() {
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         for name in [
             "browser_navigate_page",
             "browser_take_snapshot",

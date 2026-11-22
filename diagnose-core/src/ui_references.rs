@@ -492,7 +492,7 @@ impl UiReferenceState {
                     .find(|(call, _)| call.id == *id)
                     .map(|(call, _)| call.name.as_str())
             });
-            let data_tool = crate::assistant_data_model::tool(source).filter(|tool| {
+            let data_tool = crate::agent_data_model::tool(source).filter(|tool| {
                 history.iter().flat_map(|m| &m.tool_calls).any(|call| {
                     Some(&call.id) == message.tool_call_id.as_ref() && call.name == *tool
                 })
@@ -759,7 +759,7 @@ impl UiReferenceState {
         source: ReferenceSource,
     ) -> Result<(), AgentError> {
         let mut ids = BTreeSet::new();
-        crate::assistant_data_model::conversations(value, &mut |id| {
+        crate::agent_data_model::conversations(value, &mut |id| {
             ids.insert(id.to_owned());
         });
         for id in ids {
@@ -776,9 +776,8 @@ impl UiReferenceState {
     /// Resolve only the query selector; the original model call and its digest stay intact.
     pub fn resolve_conversation_request(
         &self,
-        request: &desk_agent_protocol::ai_assistant::history::ConversationSearchRequest,
-    ) -> Result<desk_agent_protocol::ai_assistant::history::ConversationSearchRequest, AgentError>
-    {
+        request: &desk_agent_protocol::ai_agent::history::ConversationSearchRequest,
+    ) -> Result<desk_agent_protocol::ai_agent::history::ConversationSearchRequest, AgentError> {
         let mut request = request.clone();
         for id in &mut request.conversation_ids {
             if id.strip_prefix("cv").is_some_and(|digits| {
@@ -865,7 +864,7 @@ impl UiReferenceState {
         if let Some(error) = error {
             return Err(error);
         }
-        if crate::ai_assistant::data_tools::is_data_tool(&envelope.provenance.source_tool_name) {
+        if crate::ai_agent::data_tools::is_data_tool(&envelope.provenance.source_tool_name) {
             self.observe_conversations(&value, source.clone())?;
         }
         self.observe_cursors(&envelope.provenance.source_tool_name, &value, source)?;
@@ -1348,7 +1347,7 @@ impl UiReferenceState {
 
     /// Presents current memory facts with their record aliases.
     pub(crate) fn project_current_memories(&self, message: &mut ChatMessage) {
-        if !crate::ai_assistant::current_memory::is_projection(message) {
+        if !crate::ai_agent::current_memory::is_projection(message) {
             return;
         }
         let Ok(mut value) = serde_json::from_str::<Value>(&message.text) else {
@@ -1805,7 +1804,7 @@ impl UiReferenceState {
                 return;
             }
             crate::ui_model_output::expand_value(&mut value);
-            if crate::assistant_data_model::tool(message).is_some() {
+            if crate::agent_data_model::tool(message).is_some() {
                 self.project_records(&mut value, &source);
                 self.project_conversations(&mut value, &source);
             }
@@ -2109,10 +2108,9 @@ mod tests {
     }
 
     fn exercise_recorded_call_inputs() {
-        let mut session =
-            crate::ai_assistant::test_support::personal_session("owner", "run", "device");
+        let mut session = crate::ai_agent::test_support::personal_session("owner", "run", "device");
         session.input_revision = 1;
-        session.bind_assistant_input_targets(&[]).unwrap();
+        session.bind_agent_input_targets(&[]).unwrap();
         let native = reference("native-application", "recorded-snapshot");
         session.ui_references.register(&native, "source").unwrap();
         let original = ToolCall {
@@ -2141,7 +2139,7 @@ mod tests {
             canonical(&executed)
         );
         session.conversation.extend([
-            ChatMessage::assistant_tool_calls(
+            ChatMessage::agent_tool_calls(
                 "proposal",
                 "",
                 vec![crate::chat::ToolCallRef {
@@ -2384,7 +2382,7 @@ mod reference_lifecycle_tests {
         state
             .register(&document("device-token"), "observation")
             .unwrap();
-        let history = vec![ChatMessage::assistant_tool_calls(
+        let history = vec![ChatMessage::agent_tool_calls(
             "call",
             "",
             vec![crate::chat::ToolCallRef {
@@ -2573,12 +2571,12 @@ mod record_tests {
                 .register_records("memory_id", std::iter::once(native.as_str()))
                 .unwrap()
         );
-        let call = ChatMessage::assistant_tool_calls(
+        let call = ChatMessage::agent_tool_calls(
             "caller",
             "",
             vec![crate::chat::ToolCallRef {
                 id: "search".into(),
-                name: crate::ai_assistant::data_tools::SEARCH_MEMORIES.into(),
+                name: crate::ai_agent::data_tools::SEARCH_MEMORIES.into(),
                 arguments_json: "{}".into(),
             }],
         );
@@ -2592,7 +2590,7 @@ mod record_tests {
                 .build(),
             result.data_envelope.as_ref(),
             "found",
-            crate::ai_assistant::data_tools::SEARCH_MEMORIES,
+            crate::ai_agent::data_tools::SEARCH_MEMORIES,
             false,
         )
         .unwrap();
@@ -2724,7 +2722,7 @@ mod record_tests {
 
         // An in-flight read keeps its alias after the result leaves the history.
         let call = read("att1");
-        let pending = ChatMessage::assistant_tool_calls(
+        let pending = ChatMessage::agent_tool_calls(
             "pending",
             "",
             vec![crate::chat::ToolCallRef {
@@ -2846,7 +2844,7 @@ mod record_tests {
         assert!(before(&state, "sc1").is_err());
 
         // An in-flight page request keeps its alias after the page leaves.
-        let pending = ChatMessage::assistant_tool_calls(
+        let pending = ChatMessage::agent_tool_calls(
             "pending",
             "",
             vec![crate::chat::ToolCallRef {

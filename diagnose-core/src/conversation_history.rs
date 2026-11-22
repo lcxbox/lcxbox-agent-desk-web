@@ -1,7 +1,7 @@
 //! Bounded, explicit retrieval of older user-visible turns from the same session.
 //!
 //! The complete transcript remains durable for the owner UI, but it is not sent
-//! wholesale to the model. This BaseTool pages backward through user/assistant
+//! wholesale to the model. This BaseTool pages backward through user/agent
 //! text only, omits tool inputs/results and internal control messages, and keeps
 //! the source envelopes needed for the ordinary model-egress authorizer.
 
@@ -80,7 +80,7 @@ pub fn conversation_history_tool_registry() -> Vec<RegisteredTool> {
     }, RegisteredTool {
         spec: ToolSpec {
             name: LOAD_CONVERSATION_HISTORY_TOOL_NAME.into(),
-            description: "Load one bounded page of older user/assistant text from this same conversation. The first call omits the current user requirement; pass next_before_message_id to page farther backward. Tool calls, permission authority, schemas, attachments, and raw evidence are never returned.".into(),
+            description: "Load one bounded page of older user/agent text from this same conversation. The first call omits the current user requirement; pass next_before_message_id to page farther backward. Tool calls, permission authority, schemas, attachments, and raw evidence are never returned.".into(),
             parameters_schema: json!({
                 "type": "object",
                 "properties": {

@@ -1,4 +1,4 @@
-# LCXBOX Browser Assistant extension
+# LCXBOX Browser Agent extension
 
 This Manifest V3 extension is the default controlled-edge Browser Provider for LCXBOX. It connects only to the device-local authenticated bridge, exposes a closed typed action set, and never exposes arbitrary script execution, cookies, storage, history, network logs, or raw DOM access to the model.
 

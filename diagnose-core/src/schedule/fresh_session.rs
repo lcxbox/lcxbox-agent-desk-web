@@ -37,7 +37,7 @@ pub fn initial_session(
     {
         return Err("invalid fresh task session identity");
     }
-    crate::assistant_policy::require_current_policy(input.policy_revision)
+    crate::agent_policy::require_current_policy(input.policy_revision)
         .map_err(|_| "task policy is not current")?;
     let turn_id = format!("{}-turn", input.run_id);
     let mut session = PersistedAgentSession::new(
@@ -51,12 +51,12 @@ pub fn initial_session(
     // This server-authored display identity belongs only to this occurrence.
     // Task management still resolves the session through the owner-bound run.
     let client_id = format!("task_{:x}", Sha256::digest(input.run_id.as_bytes()));
-    session.adopt_client_metadata(Some(&client_id), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some(&client_id), AgentSessionSurface::AiAgent);
     session.response_locale = input.locale.map(str::to_owned);
     session.begin_focus_epoch(1, Vec::<String>::new())?;
     session.input_revision = 1;
     session.latest_input_seq = 1;
-    session.bind_assistant_input_targets(&[])?;
+    session.bind_agent_input_targets(&[])?;
     session
         .begin_turn(
             &turn_id,

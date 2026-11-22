@@ -1,4 +1,4 @@
-use desk_agent_protocol::ai_assistant::AiAssistantSettings;
+use desk_agent_protocol::ai_agent::AiAgentSettings;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -26,7 +26,7 @@ pub struct HostExecCapabilities {
 pub struct ServerRegistration {
     pub client_id: String,
     pub exec_capabilities: HostExecCapabilities,
-    pub ai_assistant_settings: AiAssistantSettings,
+    pub ai_agent_settings: AiAgentSettings,
 }
 
 /// Inputs to the shared handler after the host controller adjudicates identity.
@@ -59,8 +59,8 @@ pub struct PeerQuery {
     pub exec_pty: Option<bool>,
     pub exec_pty_elevation: Option<bool>,
     pub max_ai_command_runtime_ms: Option<u32>,
-    pub ai_assistant_revision: Option<u64>,
-    pub ai_assistant_enabled: Option<bool>,
+    pub ai_agent_revision: Option<u64>,
+    pub ai_agent_enabled: Option<bool>,
 }
 
 impl PeerQuery {
@@ -110,11 +110,9 @@ impl PeerQuery {
                             .ok_or("Missing node limits")?,
                     ),
                 },
-                ai_assistant_settings: AiAssistantSettings {
-                    revision: self
-                        .ai_assistant_revision
-                        .ok_or("Missing device settings")?,
-                    enabled: self.ai_assistant_enabled.ok_or("Missing device settings")?,
+                ai_agent_settings: AiAgentSettings {
+                    revision: self.ai_agent_revision.ok_or("Missing device settings")?,
+                    enabled: self.ai_agent_enabled.ok_or("Missing device settings")?,
                 },
             })
         } else {
@@ -144,8 +142,8 @@ impl SignalingPeer {
             exec_pty_elevation: server.map(|s| s.exec_capabilities.exec_pty_elevation),
             max_ai_command_runtime_ms: server
                 .and_then(|s| s.exec_capabilities.max_ai_command_runtime_ms),
-            ai_assistant_revision: server.map(|s| s.ai_assistant_settings.revision),
-            ai_assistant_enabled: server.map(|s| s.ai_assistant_settings.enabled),
+            ai_agent_revision: server.map(|s| s.ai_agent_settings.revision),
+            ai_agent_enabled: server.map(|s| s.ai_agent_settings.enabled),
         };
         let peer = serde_urlencoded::to_string(&query)?;
         match &self.version_info {
@@ -162,11 +160,11 @@ impl SignalingPeer {
         connection_id: String,
         ip: Option<String>,
     ) -> (Option<String>, super::connection::ConnectionModel) {
-        let (client_id, exec_capabilities, ai_assistant_settings) = match self.server {
+        let (client_id, exec_capabilities, ai_agent_settings) = match self.server {
             Some(server) => (
                 Some(server.client_id),
                 server.exec_capabilities,
-                Some(server.ai_assistant_settings),
+                Some(server.ai_agent_settings),
             ),
             None => (None, HostExecCapabilities::default(), None),
         };
@@ -176,7 +174,7 @@ impl SignalingPeer {
             version_info: self.version_info,
             peer: self.peer,
             exec_capabilities,
-            ai_assistant_settings,
+            ai_agent_settings,
             device_id: client_id.clone(),
             owner_node_id: None,
         };
@@ -188,7 +186,7 @@ impl SignalingPeer {
 mod tests {
     use super::*;
 
-    const HOST: &str = "remote_desk_type=server&operation_system=Linux&display_name=Desk&client_id=stable-host&available_exec_shells=bash,zsh&exec_pty=true&exec_pty_elevation=true&max_ai_command_runtime_ms=12345&ai_assistant_revision=8&ai_assistant_enabled=true";
+    const HOST: &str = "remote_desk_type=server&operation_system=Linux&display_name=Desk&client_id=stable-host&available_exec_shells=bash,zsh&exec_pty=true&exec_pty_elevation=true&max_ai_command_runtime_ms=12345&ai_agent_revision=8&ai_agent_enabled=true";
     fn version() -> VersionInfo {
         VersionInfo {
             api_version: 17,
@@ -225,8 +223,8 @@ mod tests {
             Some(12345)
         );
         assert_eq!(
-            model.ai_assistant_settings,
-            Some(AiAssistantSettings {
+            model.ai_agent_settings,
+            Some(AiAgentSettings {
                 revision: 8,
                 enabled: true
             })
@@ -272,8 +270,8 @@ mod tests {
             "exec_pty",
             "exec_pty_elevation",
             "max_ai_command_runtime_ms",
-            "ai_assistant_revision",
-            "ai_assistant_enabled",
+            "ai_agent_revision",
+            "ai_agent_enabled",
         ] {
             let fields = HOST
                 .split('&')

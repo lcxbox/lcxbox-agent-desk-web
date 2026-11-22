@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::document_conversion::{DocumentPreviewFrame, DocumentPreviewPageFrame};
 use crate::{AgentError, AgentOutcome, ReadonlyAgentEnvelope};
 
-/// Signaling WebSocket frame ceiling shared by AI Assistant RPCs.
+/// Signaling WebSocket frame ceiling shared by AI Agent RPCs.
 pub const SIGNALING_FRAME_LIMIT: usize = 1024 * 1024;
 
 /// Hard upper bound on the total (pre-base64) byte length of a reassembled remote

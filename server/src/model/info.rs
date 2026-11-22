@@ -1,4 +1,4 @@
-pub use desk_signal_facade::model::ai_assistant::AiAssistantClientCapabilities;
+pub use desk_signal_facade::model::ai_agent::AiAgentClientCapabilities;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -246,10 +246,10 @@ pub struct ServerInfo {
     pub macos_permissions: Option<MacosPermissions>,
     /// Wayland Portal readiness; `None` outside a Wayland desktop session.
     pub wayland_portal: Option<WaylandPortalInfo>,
-    /// Optional control-end feature profile for the AI Assistant surface.
+    /// Optional control-end feature profile for the AI Agent surface.
     /// Absence means unsupported so a newer client fails closed against an
     /// older server instead of inferring support from Provider inventory.
-    pub ai_assistant: Option<AiAssistantClientCapabilities>,
+    pub ai_agent: Option<AiAgentClientCapabilities>,
 }
 
 /// Runtime backend diagnostics.
@@ -349,7 +349,7 @@ mod tests {
                 background_start: None,
                 macos_permissions: None,
                 wayland_portal: None,
-                ai_assistant: Some(AiAssistantClientCapabilities::oss()),
+                ai_agent: Some(AiAgentClientCapabilities::oss()),
             };
             assert_eq!(
                 serde_json::to_value(&info).unwrap()["startup_mode"],
@@ -363,8 +363,8 @@ mod tests {
     }
 
     #[test]
-    fn ai_assistant_profile_is_explicit_and_complete_for_oss() {
-        let value = serde_json::to_value(AiAssistantClientCapabilities::oss()).unwrap();
+    fn ai_agent_profile_is_explicit_and_complete_for_oss() {
+        let value = serde_json::to_value(AiAgentClientCapabilities::oss()).unwrap();
         assert_eq!(value["schema_version"], 1);
         assert!(value.get("unknown_outcome_disposition").is_none());
         for field in [

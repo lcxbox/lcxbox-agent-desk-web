@@ -30,7 +30,7 @@ async fn model_ids_resolve_for_execution_without_rewriting_original_proposal() {
             broad.clone(),
             "2026-09-11T00:00:00Z",
         );
-        initial.conversation.push(ChatMessage::assistant_tool_calls(
+        initial.conversation.push(ChatMessage::agent_tool_calls(
             "prior-call",
             "",
             vec![crate::chat::ToolCallRef {

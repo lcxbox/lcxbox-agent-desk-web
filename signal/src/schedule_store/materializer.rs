@@ -1,11 +1,11 @@
 //! Central calendar pump. Queuing is not authorization to execute a model or tool.
 use super::{ScheduleStore, ScheduleStoreError};
 use crate::entity::agent_schedule_run as run;
-pub use desk_assistant_data_store::schedule::ScheduleScanReport;
+pub use desk_agent_data_store::schedule::ScheduleScanReport;
 use std::time::Duration;
 
 #[async_trait::async_trait]
-impl desk_assistant_data_store::schedule::ScheduleScanOps for ScheduleStore {
+impl desk_agent_data_store::schedule::ScheduleScanOps for ScheduleStore {
     type Conn = crate::config::connection::DatabaseConnection;
 
     fn connection(&self) -> &Self::Conn {
@@ -68,13 +68,12 @@ impl ScheduleStore {
         self,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
         desk_diagnose_core::future::send_phase(move || async move {
-            let mut cursors = desk_assistant_data_store::schedule::ScanCursors::default();
+            let mut cursors = desk_agent_data_store::schedule::ScanCursors::default();
             let mut tick = tokio::time::interval(Duration::from_secs(1));
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tick.tick().await;
-                for warning in
-                    desk_assistant_data_store::schedule::scan_tick(&self, &mut cursors).await
+                for warning in desk_agent_data_store::schedule::scan_tick(&self, &mut cursors).await
                 {
                     log::warn!("{warning}");
                 }
@@ -90,8 +89,8 @@ mod tests {
         tests::{draft, store},
     };
     use super::*;
+    use desk_agent_data_store::schedule::database_now;
     use desk_agent_protocol::schedule::ScheduleRule;
-    use desk_assistant_data_store::schedule::database_now;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
     #[tokio::test]
@@ -123,26 +122,24 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let first = desk_assistant_data_store::schedule::scan_calendar_once(&store, 0)
+        let first = desk_agent_data_store::schedule::scan_calendar_once(&store, 0)
             .await
             .unwrap();
         assert_eq!(
             (first.scanned, first.materialized, first.failed),
             (32, 31, 1)
         );
-        let second = desk_assistant_data_store::schedule::scan_calendar_once(
-            &store,
-            first.next_cursor.unwrap(),
-        )
-        .await
-        .unwrap();
+        let second =
+            desk_agent_data_store::schedule::scan_calendar_once(&store, first.next_cursor.unwrap())
+                .await
+                .unwrap();
         assert_eq!(
             (second.scanned, second.materialized, second.failed),
             (3, 3, 0)
         );
         assert_eq!(second.next_cursor, None);
         let restarted = ScheduleStore::new(store.db.clone());
-        let replay = desk_assistant_data_store::schedule::scan_calendar_once(&restarted, 0)
+        let replay = desk_agent_data_store::schedule::scan_calendar_once(&restarted, 0)
             .await
             .unwrap();
         assert_eq!(
@@ -178,11 +175,11 @@ mod tests {
             .exec(&store.db)
             .await
             .unwrap();
-        let first = desk_assistant_data_store::schedule::scan_pending_expiry_once(&restarted, 0)
+        let first = desk_agent_data_store::schedule::scan_pending_expiry_once(&restarted, 0)
             .await
             .unwrap();
         assert_eq!((first.scanned, first.expired, first.failed), (32, 32, 0));
-        let second = desk_assistant_data_store::schedule::scan_pending_expiry_once(
+        let second = desk_agent_data_store::schedule::scan_pending_expiry_once(
             &restarted,
             first.next_cursor.unwrap(),
         )
@@ -190,7 +187,7 @@ mod tests {
         .unwrap();
         assert_eq!((second.scanned, second.expired, second.failed), (1, 1, 0));
         assert_eq!(
-            desk_assistant_data_store::schedule::scan_pending_expiry_once(&restarted, 0)
+            desk_agent_data_store::schedule::scan_pending_expiry_once(&restarted, 0)
                 .await
                 .unwrap()
                 .scanned,

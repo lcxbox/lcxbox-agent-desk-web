@@ -78,7 +78,7 @@ async fn scheduled_approval_claim_consumes_original_receipt_and_preserves_occurr
     // The continuation paused on the call the request covers.
     session
         .conversation
-        .push(desk_diagnose_core::chat::ChatMessage::assistant_tool_calls(
+        .push(desk_diagnose_core::chat::ChatMessage::agent_tool_calls(
             "paused-call",
             "",
             vec![desk_diagnose_core::chat::ToolCallRef {

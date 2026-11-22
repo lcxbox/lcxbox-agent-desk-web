@@ -1,6 +1,6 @@
 # Agent 栈预算检查
 
-本次 AI 助手记忆任务按 2026-10-24 用户更新的顺序执行：先完成主链路开发，期间只做快速编译和必要的功能小测；本文全部栈门禁集中到主链路开发完成后，不在开发中反复采样。限制值和最终验收要求不变。
+本次 AI 智能体记忆任务按 2026-10-24 用户更新的顺序执行：先完成主链路开发，期间只做快速编译和必要的功能小测；本文全部栈门禁集中到主链路开发完成后，不在开发中反复采样。限制值和最终验收要求不变。
 
 检查目标是实际生成的构造、poll、visitor 和 drop 单帧，不能用 `size_of::<Box<_>>()` 或单次业务测试替代。共享循环按准备、上下文、模型和工具阶段驱动；宿主准备阶段返回拥有状态的执行 future，上一阶段返回后再 poll 下一阶段。继续使用原有任务所有者，不增加生产任务或线程，也不扩大栈。
 
@@ -9,14 +9,14 @@
 ```bash
 python3 -m unittest discover -s scripts/agent-stack -p test_report.py
 python3 scripts/agent-stack/run.py --package desk-diagnose-core --output target/agent-stack/core-debug.json
-python3 scripts/agent-stack/run.py --package desk-signal-facade --output target/agent-stack/assistant-pages-debug.json
-python3 scripts/agent-stack/run.py --package desk-signal-facade --profile release --output target/agent-stack/assistant-pages-release.json
+python3 scripts/agent-stack/run.py --package desk-signal-facade --output target/agent-stack/agent-pages-debug.json
+python3 scripts/agent-stack/run.py --package desk-signal-facade --profile release --output target/agent-stack/agent-pages-release.json
 python3 scripts/agent-stack/run.py --package desk-signal --output target/agent-stack/signal-debug.json
 python3 scripts/agent-stack/run.py --package desk-signal --profile release --output target/agent-stack/signal-release.json
-cargo test -p desk-diagnose-core -p desk-signal --lib --features desk-diagnose-core/stack-budget -- --skip assistant_data_store::tests::retrieval_native::memory_mutation:: --skip ai_assistant_orchestrator::tests::desktop_permission:: --skip ai_assistant_orchestrator::tests::permission_object::
-cargo test -p desk-signal --lib --features desk-diagnose-core/stack-budget ai_assistant_orchestrator::tests::desktop_permission:: -- --test-threads=1
-cargo test -p desk-signal --lib --features desk-diagnose-core/stack-budget ai_assistant_orchestrator::tests::permission_object:: -- --test-threads=1
-cargo test -p desk-signal --lib --features desk-diagnose-core/stack-budget assistant_data_store::tests::retrieval_native::memory_mutation:: -- --test-threads=1
+cargo test -p desk-diagnose-core -p desk-signal --lib --features desk-diagnose-core/stack-budget -- --skip agent_data_store::tests::retrieval_native::memory_mutation:: --skip ai_agent_orchestrator::tests::desktop_permission:: --skip ai_agent_orchestrator::tests::permission_object::
+cargo test -p desk-signal --lib --features desk-diagnose-core/stack-budget ai_agent_orchestrator::tests::desktop_permission:: -- --test-threads=1
+cargo test -p desk-signal --lib --features desk-diagnose-core/stack-budget ai_agent_orchestrator::tests::permission_object:: -- --test-threads=1
+cargo test -p desk-signal --lib --features desk-diagnose-core/stack-budget agent_data_store::tests::retrieval_native::memory_mutation:: -- --test-threads=1
 cargo test -p desk-signal --lib --release command_history -- --nocapture
 ```
 
@@ -24,11 +24,11 @@ cargo test -p desk-signal --lib --release command_history -- --nocapture
 
 ```bash
 python3 web/scripts/agent-stack/run.py --workspace . --package desk-diagnose-core --output target/agent-stack/core-debug.json
-python3 web/scripts/agent-stack/run.py --workspace . --package desk-signal-facade --output target/agent-stack/assistant-pages-debug.json
-python3 web/scripts/agent-stack/run.py --workspace . --package desk-signal-facade --profile release --output target/agent-stack/assistant-pages-release.json
+python3 web/scripts/agent-stack/run.py --workspace . --package desk-signal-facade --output target/agent-stack/agent-pages-debug.json
+python3 web/scripts/agent-stack/run.py --workspace . --package desk-signal-facade --profile release --output target/agent-stack/agent-pages-release.json
 python3 web/scripts/agent-stack/run.py --workspace . --package lcxbox-agent-desk-manager --output target/agent-stack/manager-debug.json
-cargo test -p lcxbox-agent-desk-manager --lib --features desk-diagnose-core/stack-budget -- --skip assistant_data_store::tests::retrieval_native::memory_mutation::
-cargo test -p lcxbox-agent-desk-manager --lib --features desk-diagnose-core/stack-budget assistant_data_store::tests::retrieval_native::memory_mutation:: -- --test-threads=1
+cargo test -p lcxbox-agent-desk-manager --lib --features desk-diagnose-core/stack-budget -- --skip agent_data_store::tests::retrieval_native::memory_mutation::
+cargo test -p lcxbox-agent-desk-manager --lib --features desk-diagnose-core/stack-budget agent_data_store::tests::retrieval_native::memory_mutation:: -- --test-threads=1
 LADM_TEST_REDIS_URL=redis://127.0.0.1:6379/15 cargo test -p lcxbox-agent-desk-manager --lib --features desk-diagnose-core/stack-budget automatic_ui_review_with_command_history_fits_small_stacks -- --ignored --nocapture
 ```
 
@@ -38,7 +38,7 @@ Redis 必须为隔离测试实例。Manager 的并发事务证明测试另使用
 
 ## 报告与硬限制
 
-`check.py` 先编译一个已知超过 128 KiB 的局部数组，确认当前 rustc 支持栈报告。它只给指定 crate 注入 LLVM remark；未使用的唯一 cfg 强制该目标重新 codegen，不清空依赖缓存。解析流只保留紧凑报告。构建未成功、产物仍为 fresh、零记录、符号格式不支持、关键族缺失都会失败。编译备注不包含 prompt、会话或凭据。保护范围还包含共享 Facade 的会话分页、定位及引用装配，必须采到三个入口的实际函数帧，不能以 DTO 转换或析构帧替代；两个依赖上下文分别采集 debug/release。保护范围包含共享 `ai_assistant` 纯逻辑、`ContextProtectionSet::validate_references`、两个宿主的全部 `assistant_data_store` 与原输入台账 `agent_run_event_store`。报告必须实际包含保护引用校验、记忆提炼、worker、Goal 原收尾与当前会话快照接纳。新增记忆路径同样受单帧上限约束；旧范围的报告不能证明新路径通过。 后台记忆 worker 必须包含 `advance_one_inner` 的实际 poll；元数据 GC 必须包含原事务、收录清理及原生授权/发布查询的实际 poll 帧。只有 future 构造帧或析构帧不算覆盖，解析器包含两者的失败反证。GC 以调用方持有的执行阶段返回，保留原事务、Send 和取消所有权，不新增运行时任务；阶段擦除前仍检查 16 KiB 原始 future。
+`check.py` 先编译一个已知超过 128 KiB 的局部数组，确认当前 rustc 支持栈报告。它只给指定 crate 注入 LLVM remark；未使用的唯一 cfg 强制该目标重新 codegen，不清空依赖缓存。解析流只保留紧凑报告。构建未成功、产物仍为 fresh、零记录、符号格式不支持、关键族缺失都会失败。编译备注不包含 prompt、会话或凭据。保护范围还包含共享 Facade 的会话分页、定位及引用装配，必须采到三个入口的实际函数帧，不能以 DTO 转换或析构帧替代；两个依赖上下文分别采集 debug/release。保护范围包含共享 `ai_agent` 纯逻辑、`ContextProtectionSet::validate_references`、两个宿主的全部 `agent_data_store` 与原输入台账 `agent_run_event_store`。报告必须实际包含保护引用校验、记忆提炼、worker、Goal 原收尾与当前会话快照接纳。新增记忆路径同样受单帧上限约束；旧范围的报告不能证明新路径通过。 后台记忆 worker 必须包含 `advance_one_inner` 的实际 poll；元数据 GC 必须包含原事务、收录清理及原生授权/发布查询的实际 poll 帧。只有 future 构造帧或析构帧不算覆盖，解析器包含两者的失败反证。GC 以调用方持有的执行阶段返回，保留原事务、Send 和取消所有权，不新增运行时任务；阶段擦除前仍检查 16 KiB 原始 future。
 
 `run.py` 对当前构建只施加 `report.HARD_FRAME_LIMIT` 定义的 128 KiB 单帧硬上限及必检执行覆盖。阶段原始 future 上限为 16 KiB；默认线程栈保持 2 MiB，显式 1 MiB/2 MiB 组合回归仍须通过。不要求新代码比旧代码使用更少的栈，不执行单函数、调用族、提取谱系、历史基线或 HEAD 的相对预算比较。
 
@@ -59,7 +59,7 @@ Redis 必须为隔离测试实例。Manager 的并发事务证明测试另使用
 
 定时检索期限沿用原生运行边界：会话续跑没有固定运行截止时，保留已有范围期限；独立定时任务必须提供已发布合同的运行时限。范围中的可选期限不替代实际任务、当前租约及来源校验；Goal 的原生截止仍须单独生效，不把 `start_deadline` 当作运行截止。
 
-会话续跑的首次领取和读取必须覆盖 `claim_continuation_on`、`assistant_retrieval_deadline_on` 及原任务/会话锁的实际 poll。首次真实领取只创建一份实例检索预算，审批续跑不重置账本。实际领取、写入失败回滚、重复检查及取消在显式 1 MiB/2 MiB 线程上组合验证，阶段原始 future 仍检查 16 KiB；模型编排回归另外验证审批消费后保留原预算。计算中的 `context_usage_basis` 不替代原生授权，其余原始会话字段、快照和配对租约继续校验。这不表示定时空闲恢复或完整三端流程已完成。
+会话续跑的首次领取和读取必须覆盖 `claim_continuation_on`、`agent_retrieval_deadline_on` 及原任务/会话锁的实际 poll。首次真实领取只创建一份实例检索预算，审批续跑不重置账本。实际领取、写入失败回滚、重复检查及取消在显式 1 MiB/2 MiB 线程上组合验证，阶段原始 future 仍检查 16 KiB；模型编排回归另外验证审批消费后保留原预算。计算中的 `context_usage_basis` 不替代原生授权，其余原始会话字段、快照和配对租约继续校验。这不表示定时空闲恢复或完整三端流程已完成。
 
 原任务/会话锁按现有锁序在同模块分为独立任务锁定、会话续跑校验两个执行阶段，`lock_fresh_action_session_on` 和 `validate_continuation_action_on` 同样必须出现实际 poll；保留原 SELECT、完整解码及双次 authority 检查。领取入口以立即构造并拥有执行 future 的工厂暴露真实 poll，不能只检查未被实际 codegen 的 async 构造函数。阶段不增加线程或任务，取消仍由原调用方持有。
 
@@ -71,7 +71,7 @@ Redis 必须为隔离测试实例。Manager 的并发事务证明测试另使用
 
 ## 小栈与原始 future
 
-两宿主的资料请求清单还须采到 `SessionSeam::assistant_data_request_manifest` 的实际 future poll。Release 可能将私有清单准备代码内联到这个入口；只有构造或 drop 帧不能代替执行覆盖。
+两宿主的资料请求清单还须采到 `SessionSeam::agent_data_request_manifest` 的实际 future poll。Release 可能将私有清单准备代码内联到这个入口；只有构造或 drop 帧不能代替执行覆盖。
 
 压力测试使用独立测试子进程，在显式 1 MiB 和 2 MiB 线程上运行真实编排及审批链，启动时移除继承的 `RUST_MIN_STACK`。交互记忆用例另在同样的两档栈上执行原任务拨付、两次原文提炼调用、发布和结算，回环网关与原主会话夹具在限定线程之外准备，作业拨付、worker 和结果断言在限定线程顺序驱动，测试自身的大 poll 不叠加在 worker 调用之上。检查点核实实际执行线程；沿用生产已有任务边界，避免大型 fixture 叠加，也不能把产品 poll 转移到未限定线程来通过。原代码在 macOS ARM64 的 2 MiB 组合上有失败反证；其他平台不要求原代码稳定溢出。
 
@@ -88,7 +88,7 @@ Signal 原始回执收尾还须包含原生会话完整读取、原命令核验�
 
 Manager 目录授权更新还须覆盖 `file_scope::update_file_scope_guarded`、`load_session_on` 和 `persist_update_on` 的实际 poll，入口、完整加载和持久化阶段均在类型擦除前检查 16 KiB 原始 future。原会话与准备后会话保持完整内容并有明确的堆所有权；owner/root/conversation 锁、原版本/租约、子任务准入、任务合同、回执指纹和时间校验保留。显式 1 MiB/2 MiB 组合覆盖选择/撤销/重放、批准与拒绝、旧模型版本和伪造任务来源拒绝，以及新/已有会话的事件失败回滚；只有原事务提交后才通知，冲突仍按原入口回滚重试。
 
-共享 `desk-assistant-data-store` 单独采集 debug/release 报告，分别使用 Manager 和 OSS 的 lockfile、特性及构建上下文；宿主报告继续覆盖在宿主中实例化的共享泛型存储函数。共享包的非泛型快照解码、查询解码和控制回执投影必须实际出现在报告中。移动模块后仍检查实际执行帧和固定硬上限。共享包单测由两个宿主 CI 执行。
+共享 `desk-agent-data-store` 单独采集 debug/release 报告，分别使用 Manager 和 OSS 的 lockfile、特性及构建上下文；宿主报告继续覆盖在宿主中实例化的共享泛型存储函数。共享包的非泛型快照解码、查询解码和控制回执投影必须实际出现在报告中。移动模块后仍检查实际执行帧和固定硬上限。共享包单测由两个宿主 CI 执行。
 
 同一实体通过宿主重新导出后，宿主帧报告继续使用原实体路径作为稳定报告身份，并在 `entity_symbol_relocations` 记录实际新符号。测量字节数保持；两份不同实体映射到同一预算身份会失败。Signal 的本机配额游标扩展与共享计数视图是不同实体，不合并身份。
 
@@ -97,7 +97,7 @@ Manager 目录授权更新还须覆盖 `file_scope::update_file_scope_guarded`�
 
 
 
-独立快照须覆盖共享 `ReadProjectionProof::snapshot_envelope`、`AssistantModelDataManifest::validate_for` 和两宿主 `visible_history::snapshot::prepare_on`、`native::resolve_policy_on`、`native::inputs::owner_text_on`、`prior_outputs::validate_on`、`model_gate::authorize_on`、`model_gate::output::validate_on` 的实际执行帧。异步入口必须采到 poll，构造或 drop 不算覆盖。快照在原会话 CAS 和事务中首次接纳，保存当前会话自己的内容与静态保存策略；后续只核验当前会话、原生调用和内容硬期限。原会话删除、普通留存到期或内容更新不触发上下文剔除、摘要撤回或专用恢复。显式 1 MiB/2 MiB 组合覆盖接纳前后删除、同调用重放、在途回答、后续读取和篡改拒绝，当前会话及原操作围栏继续生效。
+独立快照须覆盖共享 `ReadProjectionProof::snapshot_envelope`、`AgentModelDataManifest::validate_for` 和两宿主 `visible_history::snapshot::prepare_on`、`native::resolve_policy_on`、`native::inputs::owner_text_on`、`prior_outputs::validate_on`、`model_gate::authorize_on`、`model_gate::output::validate_on` 的实际执行帧。异步入口必须采到 poll，构造或 drop 不算覆盖。快照在原会话 CAS 和事务中首次接纳，保存当前会话自己的内容与静态保存策略；后续只核验当前会话、原生调用和内容硬期限。原会话删除、普通留存到期或内容更新不触发上下文剔除、摘要撤回或专用恢复。显式 1 MiB/2 MiB 组合覆盖接纳前后删除、同调用重放、在途回答、后续读取和篡改拒绝，当前会话及原操作围栏继续生效。
 
 共享维护单轮 `MaintenanceSweep::run_once_on` 以及 GC 的 `due_actors_on`、`claim_on`、`finish_quota_on` 须在两个宿主采到真实 poll。宿主保留定时器、原事务和取消所有者；共享单轮只合并分页、游标及回调顺序。配置的批次及领取上限不改变原生调用身份和结算；计数准入与已保存回执验证分开。共享单轮及 GC 游标提交的原始 future 检查 16 KiB，并在显式 1 MiB/2 MiB 线程上组合执行。
 
@@ -119,7 +119,7 @@ Manager 目录授权更新还须覆盖 `file_scope::update_file_scope_guarded`�
 
 记忆写入来源档案重验、回答引用读取及实际消费来源的定位恢复也须采到两宿主的实际 poll。重验保留原始档案、父链接和原生回执查询；只有原始行完整相等时才复用已解码证明。引用元数据读取使用原有线程和调用方 poll，阶段擦除前检查 16 KiB future；显式 1 MiB/2 MiB 组合须覆盖缺少正文留存策略及可选引用存储失败的实际恢复。
 
-同步记忆写入覆盖两宿主 `assistant_data_store::memory_write::write`、`write_on` 及共享 `memory_write::apply_on`、`sources::load_on`、`receipts::collect_on` 的实际 poll；显式 1 MiB/2 MiB 组合执行真实更新、提交与幂等重放。原始 future 在类型擦除前检查 16 KiB。模型提炼与关系维护 worker 已移除，相关旧符号不作为现行门禁目标；正常对话、审批、来源围栏及输出清理继续覆盖。
+同步记忆写入覆盖两宿主 `agent_data_store::memory_write::write`、`write_on` 及共享 `memory_write::apply_on`、`sources::load_on`、`receipts::collect_on` 的实际 poll；显式 1 MiB/2 MiB 组合执行真实更新、提交与幂等重放。原始 future 在类型擦除前检查 16 KiB。模型提炼与关系维护 worker 已移除，相关旧符号不作为现行门禁目标；正常对话、审批、来源围栏及输出清理继续覆盖。
 
 同步写入的 `sources::load_on` 与提交回执 GC 的 `receipts::collect_on` 在 debug 中要求独立的实际 poll；release 将其内联时，分别要求原宿主 `memory_write::write_on` 和 `output_archive::gc::collect_actor_transaction` 的实际 poll，并将内联后的完整调用者帧纳入 128 KiB 上限。构造和析构帧均不能代替执行证据；独立原始 future 与真实小栈行为检查继续适用，不改变优化级别或生产任务边界。
 

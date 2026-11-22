@@ -293,7 +293,7 @@ mod tests {
         let mut unresolved = snapshot;
         unresolved.attribution = Some(Attribution::unresolved(
             desk_diagnose_core::model_observability::Purpose::Agent,
-            desk_diagnose_core::model_observability::Surface::Assistant,
+            desk_diagnose_core::model_observability::Surface::Agent,
             desk_diagnose_core::model_observability::Origin::Unknown,
         ));
         assert!(unresolved.record(40_000).original_model.is_none());

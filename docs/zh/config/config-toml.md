@@ -161,11 +161,11 @@ OSS 的 AI 网关、审批网关、搜索和策略配置与主机设置保存在
 | `[ai_gateway]` | `wire_protocol`、`base_url`、`model`、`api_key`、`supports_image_input`；`profile_schema_version`、`reasoning_contract`、`anthropic_prefix_binding`、`request_options_json`、`output_limit_field`、`runtime_max_output_tokens`、`max_context_bytes`；`response_format`、`execution_mode`、`max_steps_per_turn`、`max_same_tool_calls_per_turn`、`exec_approval_timeout_secs`（秒） |
 | `[approval_gateway]` | `enabled`；独立模型配置位于 `[approval_gateway.gateway]`，字段沿用主网关。OSS 不包含价格、货币或记账配置 |
 | `[web_search]` | `schema_version`、`provider`（`duck_duck_go` / `brave` / `tavily`）、可选 `api_key` |
-| `[assistant_bundled_skills]` | `revision`、`disabled`：本服务停用的随产品 Skill 名称，例如 `["issue-analysis"]`，默认为空；名称未知时拒绝加载。可在 **设置 → 平台 Skill** 修改 |
+| `[agent_bundled_skills]` | `revision`、`disabled`：本服务停用的随产品 Skill 名称，例如 `["issue-analysis"]`，默认为空；名称未知时拒绝加载。可在 **设置 → 平台 Skill** 修改 |
 | `[context_management]` | `schema_version`、`strategy`（`window` / `checkpoint_summary`） |
 | `[subagent_policy.limits]` | `maxUnfinishedPerRoot` 为每个主会话未结束子任务数上限。 `maxTaskDurationMinutes` 为新任务的最长时长，默认 120 分钟，接受正整数 |
 | `[automation_policy]` | `schemaVersion`、`revision`、`maxAutoTurnsPerChain`（一次请求最多自动继续的次数，`1–50`，默认 20）。可在 **设置 → 自动续跑上限** 修改 |
-| `[web_research_policy]` | `schemaVersion`、`revision`、`maxFetchBytes`（单次读取网页或文档时返回给助手的文本字节数上限，16 KiB–1 MiB，默认 128 KiB；超过时截断）。可在 **设置 → 网页读取上限** 修改 |
+| `[web_research_policy]` | `schemaVersion`、`revision`、`maxFetchBytes`（单次读取网页或文档时返回给智能体的文本字节数上限，16 KiB–1 MiB，默认 128 KiB；超过时截断）。可在 **设置 → 网页读取上限** 修改 |
 | `[goal_budget_policy]` | `schemaVersion`、`deviceUnavailableMaxMs`（毫秒，不可禁用）；`[goal_budget_policy.limits]` 包含 `activeTimeMs`、`deadlineMs`（毫秒）、`modelTokens`、`modelCalls`、`toolCalls`、`slices`、`stalledSlices` |
 | `[schedule_budget_policy.maximum]` | `max_runs_per_utc_day`、`max_calls_per_run`、`max_model_tokens_per_run`、`max_runtime_seconds`（秒） |
 | `[usage_retention]` | `turn_days`、`agent_session_days`（天） |
@@ -233,11 +233,11 @@ max_output_tokens = 512
 
 当前 profile schema 为 `2`。`reasoning_contract` 显式选择 `conservative`、`openai_chat`、`deepseek_chat` 或 `anthropic_messages`，并与 `wire_protocol` 匹配。`anthropic_prefix_binding` 默认 `false`，只在端点将签名思考绑定到请求前缀时启用。思考强度和可选原生清理保存在 `request_options_json`；详见 [AI 诊断](../features/ai-diagnostics.md)。主模型与审批模型使用相同字段。
 
-AI 助手资料策略文件与管理 API 使用相同字段规则。无效值会指出字段；启动与成功保存策略时仅记录实际命中的提示。提示语义及共享读取预算见[AI 助手记忆与历史策略](#assistant-data-policy)。
+AI 智能体资料策略文件与管理 API 使用相同字段规则。无效值会指出字段；启动与成功保存策略时仅记录实际命中的提示。提示语义及共享读取预算见[AI 智能体记忆与历史策略](#agent-data-policy)。
 
-## AI 助手记忆与历史策略 {#assistant-data-policy}
+## AI 智能体记忆与历史策略 {#agent-data-policy}
 
-平台通过 `AssistantDataPolicy.limits` 配置记忆内容与检索工作量。登录当前开源 Signal 的管理账号后，`GET /api/admin/system/ai-assistant-data` 返回 `data.policy` 与 `data.issues`。修改完整策略后，以 `expected_revision` 和 `policy` 提交 `POST`，保留读取时的 `policy.revision`；成功后返回实际保存的策略及本次命中的问题。版本冲突时重新读取。配置原子写回实际使用的 `config.toml`。
+平台通过 `AgentDataPolicy.limits` 配置记忆内容与检索工作量。登录当前开源 Signal 的管理账号后，`GET /api/admin/system/ai-agent-data` 返回 `data.policy` 与 `data.issues`。修改完整策略后，以 `expected_revision` 和 `policy` 提交 `POST`，保留读取时的 `policy.revision`；成功后返回实际保存的策略及本次命中的问题。版本冲突时重新读取。配置原子写回实际使用的 `config.toml`。
 
 正常配置的 `issues` 为空。每个问题包含 `level`（`error` 或 `warning`）、稳定 `code`、相关配置字段 `fields`、兜底说明 `message`，以及适用时的 `effective_limit`。硬错误使用 HTTP 200、`success=false` 和 `INVALID_PARAMS`，保存不生效；仅有提示时 `success=true`，保存照常完成。版本冲突继续使用 `REVISION_CONFLICT` 与 `current_revision`。
 
@@ -245,7 +245,7 @@ AI 助手资料策略文件与管理 API 使用相同字段规则。无效值会
 
 本轮读取剩余额度为零时停止新的读取；正数额度按单次响应上限与剩余总量的较小值尝试。是否装得下必要元数据和完整来源，由实际 JSON 与工具消息封装容量检查决定。调用次数、实际结算及原调用重放继续受原预算约束。历史、记忆及旧版本的数量、正文、索引与元数据配额同时生效；旧版本数量达到上限时，更新仍会返回容量不足，直至版本清理释放容量。
 
-聊天、子助手和手动定时任务的正文按原文提交；正文容量、记忆总数及资料结果的业务额度由服务端统一校验。三端按服务端结果展示记忆、历史、引用和处理状态，保留类型、身份、版本、来源对应、去重与游标一致性校验。个性化与关键词的界面预检读取当前服务端策略，普通列表仍按界面选定的数量分页。服务端拒绝提交时显示错误并保留可编辑草稿；发送中的聊天输入在确认接纳后清空。
+聊天、子智能体和手动定时任务的正文按原文提交；正文容量、记忆总数及资料结果的业务额度由服务端统一校验。三端按服务端结果展示记忆、历史、引用和处理状态，保留类型、身份、版本、来源对应、去重与游标一致性校验。个性化与关键词的界面预检读取当前服务端策略，普通列表仍按界面选定的数量分页。服务端拒绝提交时显示错误并保留可编辑草稿；发送中的聊天输入在确认接纳后清空。
 
 
 普通聊天输入、引用和状态展示也由同一平台策略配置，路径相对于 `policy.limits`：
@@ -282,18 +282,18 @@ AI 助手资料策略文件与管理 API 使用相同字段规则。无效值会
 查询快照/游标（`retrieval.episode.query_ttl_ms`）与未使用读取结果（`retrieval.episode.unused_projection_ttl_ms`）均默认 1,800,000 毫秒（30 分钟），可设为正整数。时限随原检索批次冻结，普通新输入或任务实例首次领取读取当前策略，恢复、审批及 Goal 纠正沿用原值。查询与工具结果从原预留时刻计时，自动注入的记忆块从准备时计时；更早的任务、来源和执行租约截止继续生效。翻页和重试沿用已保存的绝对截止时间；已保存到当前会话的结果随该会话保留；临时注入的当前记忆继续按本轮授权处理，原策略版本检查继续生效。
 
 ```toml
-[assistant_data_policy.limits.memory]
+[agent_data_policy.limits.memory]
 user_instructions_bytes = 16384
 source_refs = 12
 
-[assistant_data_policy.limits.retrieval]
+[agent_data_policy.limits.retrieval]
 query_groups = 6
 query_chars = 512
 search_window_days = 120
 history_keyword_scan_ms = 5000
 owner_scan_documents = 256
 
-[assistant_data_policy.limits.retrieval.episode]
+[agent_data_policy.limits.retrieval.episode]
 relevance_calls = 6
 time_pages = 12
 read_calls = 10
@@ -321,7 +321,7 @@ GC 周期及处理批次通过 `policy.limits.processing` 配置。Manager 使�
 | `processing.current_memory_page_size` | 64 | 当前记忆选择的数据库扫描页 |
 
 ```toml
-[assistant_data_policy.limits.processing]
+[agent_data_policy.limits.processing]
 output_gc_interval_ms = 300000
 output_gc_actor_batch_size = 32
 output_gc_batch_size = 64
@@ -331,8 +331,8 @@ history_scan_page_size = 128
 current_memory_page_size = 64
 ```
 
-## Super Agent 工单订阅
+## 超级智能体工单订阅
 
 在开源服务的 **工单连接** 页面添加 Gitea 或 GitHub 连接。填写 HTTPS 实例和 MCP 服务地址，提供可访问目标工单的令牌并启用。测试连接时核对读工单、发评论工具及实际账号。保存的连接位于 `config.toml` 的 `issue_connections` 配置，订阅及任务状态保存在运行数据库。
 
-从 **AI 助手 → Super Agent** 创建主 Agent，再在 **订阅** 选择连接、仓库和可触发的人员账号。可限定一个工单，并授权以表单展示的账号自动回复原工单。**设置** 中的设备列表供需要设备的任务使用。**任务** 显示处理进展和送达回执，**待处理** 提供答复和审批入口。
+从 **AI 智能体 → 超级智能体** 创建主 Agent，再在 **订阅** 选择连接、仓库和可触发的人员账号。可限定一个工单，并授权以表单展示的账号自动回复原工单。**设置** 中的设备列表供需要设备的任务使用。**任务** 显示处理进展和送达回执，**待处理** 提供答复和审批入口。

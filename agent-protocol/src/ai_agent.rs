@@ -1,0 +1,680 @@
+//! AI Agent orchestration wire types (control end to central brain).
+//!
+//! The agent owns a distinct signaling surface and persisted session from
+//! Diagnose. Its event stream deliberately reuses the neutral agent-loop event
+//! shape: status, tool activity, final answer, and structured error. Computer
+//! Use observation still travels over the read-only remote-tool RPC; no action
+//! plan or approval can be carried by this request.
+
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+use wincode::{SchemaRead, SchemaWrite};
+
+use crate::computer_use::{ObjectKind, ObjectRef};
+
+pub mod approval_mode;
+pub mod automation_policy;
+pub mod goal_budget;
+pub mod history;
+pub mod history_window;
+pub mod issue_subscription;
+pub mod memory;
+pub mod owner_history;
+pub mod policy;
+pub mod processing;
+pub mod skill;
+pub mod source;
+pub mod source_ref;
+pub mod subagent;
+pub mod subagent_policy;
+pub mod user_instructions;
+pub mod web_research_policy;
+pub mod workbench;
+
+/// Owner-visible queue state. Native turn and approval state live in the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MainRequestState {
+    Queued,
+    Activated,
+    Cancelled,
+    Superseded,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MainRequestFailure {
+    SourceUnavailable,
+    DestinationChanged,
+    CoordinationExhausted,
+    /// Activation failed before native admission on every bounded retry.
+    ActivationFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MainRequestReceipt {
+    pub request_id: String,
+    pub client_message_id: String,
+    pub state: MainRequestState,
+    pub failure: Option<MainRequestFailure>,
+    pub input_revision: Option<i64>,
+    pub accepted_at_ms: i64,
+    /// The `DeskErrorCode` of a failed activation, when one was available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<i32>,
+    /// The owner's own text while the request has not reached the conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
+}
+
+/// Device-owned product switch projected to trusted central orchestrators.
+///
+/// The device is the only authority for this value. Central services may cache
+/// the latest observed snapshot for routing and UI, but may never synthesize a
+/// newer revision or treat their cache as desired state.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    Serialize,
+    Deserialize,
+    SchemaWrite,
+    SchemaRead,
+    ToSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct AiAgentSettings {
+    /// Monotonic device-local revision. Revision zero is the initial state.
+    pub revision: u64,
+    /// The one product-level AI Agent switch. Defaults fail closed.
+    pub enabled: bool,
+}
+
+/// Compare-and-set request accepted by the device-local settings endpoint.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct AiAgentSettingsUpdate {
+    /// Revision returned by the most recent authoritative device read.
+    pub expected_revision: u64,
+    /// Exact desired product-switch value.
+    pub enabled: bool,
+}
+
+/// Browser to central brain: one owner-authenticated AI Agent turn.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
+)]
+pub struct AiAgentAsk {
+    /// Optional first-input choice; an existing conversation keeps its frozen mode.
+    pub temporary_conversation: Option<bool>,
+    /// The owner's natural-language request.
+    pub question: String,
+    /// Stable idempotency identity for this user message. It is distinct from
+    /// the transport request id so reconnect/retry cannot duplicate input.
+    pub client_message_id: String,
+    /// IANA time zone observed by the sending client for this exact input.
+    pub client_timezone: String,
+    /// Stable client intent for multi-turn continuity. The server validates and
+    /// subject-namespaces it before using it as a persistence key.
+    #[serde(default)]
+    pub conversation_id: Option<String>,
+    /// BCP-47 response locale (for example `zh-CN`).
+    #[serde(default)]
+    pub locale: Option<String>,
+    /// Stable device references selected for this personal-conversation input.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub target_refs: Vec<String>,
+    /// Exact user-selected read contexts for this turn. Empty means the model
+    /// receives the question but no device/Office read tool. The server matches
+    /// these ids against the current Provider Registry and live readiness.
+    #[serde(default)]
+    pub selected_capability_ids: Vec<String>,
+    /// Exact durable object attachments frozen for this turn. The server
+    /// resolves these ids from the subject-scoped session and never accepts an
+    /// ObjectRef directly from model arguments.
+    #[serde(default)]
+    pub selected_attachment_ids: Vec<String>,
+    /// The owner explicitly asks the server to open a durable, bounded goal
+    /// with server-selected limits. This is not permission for device actions.
+    #[serde(default)]
+    pub start_goal: bool,
+    /// Explicitly continue one completed goal. Valid only with start_goal.
+    pub previous_completed_goal_id: Option<String>,
+    /// Exact external issues selected for this input. The host resolves their
+    /// account and native identities before durable admission.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_issues: Vec<crate::external_tools::IssueSelection>,
+}
+
+/// Browser to central brain: independently reconcile the durable context
+/// selection for one AI Agent conversation. The outer signaling
+/// request id provides transport correlation; `client_request_id` provides
+/// persistence idempotency across reconnect/retry.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
+)]
+pub struct AiAgentContextUpdate {
+    pub conversation_id: String,
+    pub conversation_target: AiAgentConversationTarget,
+    pub client_request_id: String,
+    #[serde(default)]
+    pub selected_capability_ids: Vec<String>,
+}
+
+impl AiAgentContextUpdate {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.conversation_id.trim().is_empty() || self.conversation_id.len() > 256 {
+            return Err("invalid AI Agent conversation id");
+        }
+        if self.client_request_id.trim().is_empty() || self.client_request_id.len() > 256 {
+            return Err("invalid AI Agent context client request id");
+        }
+        validate_selected_capability_ids(&self.selected_capability_ids)
+    }
+}
+
+/// Central brain acknowledgement for a durable context reconciliation. The
+/// browser reads attachment metadata from the normal session snapshot, so this
+/// acknowledgement cannot expose opaque refs or egress metadata.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
+)]
+pub struct AiAgentContextUpdated {
+    pub conversation_id: String,
+    pub client_request_id: String,
+    pub changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Explicit mutation of one object-level attachment. The browser may only pass
+/// an edge-issued reference obtained from the corresponding first-party
+/// surface; native paths, terminal identifiers, and raw content are
+/// intentionally absent from this contract.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
+)]
+pub struct AiAgentObjectContextUpdate {
+    pub conversation_id: String,
+    pub conversation_target: AiAgentConversationTarget,
+    pub client_request_id: String,
+    pub operation: AiAgentObjectContextOperation,
+}
+
+/// Whether the agent keeps one fixed device or accepts a selection.
+/// The authenticated signaling route supplies the physical device.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum AiAgentConversationTarget {
+    FixedDevice,
+    SelectableDevices,
+}
+
+impl AiAgentConversationTarget {
+    pub fn is_selectable(self) -> bool {
+        self == Self::SelectableDevices
+    }
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema,
+)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AiAgentObjectContextOperation {
+    AttachTerminalOutput {
+        object_ref: ObjectRef,
+        display_summary: String,
+    },
+    AttachWindow {
+        object_ref: ObjectRef,
+        display_summary: String,
+    },
+    Detach {
+        attachment_id: String,
+    },
+    DecideDirectory {
+        directory_request_id: String,
+        expected_revision: u64,
+        approve: bool,
+    },
+    SelectDirectory {
+        path: String,
+        purpose: String,
+        expected_revision: u64,
+    },
+    RevokeDirectory {
+        directory_request_id: String,
+        expected_revision: u64,
+    },
+}
+
+impl AiAgentObjectContextUpdate {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        validate_wire_id(&self.conversation_id, "invalid AI Agent conversation id")?;
+        validate_wire_id(
+            &self.client_request_id,
+            "invalid AI Agent object context client request id",
+        )?;
+        match &self.operation {
+            AiAgentObjectContextOperation::SelectDirectory { path, purpose, .. } => {
+                if path.trim().is_empty()
+                    || path.len() > 4096
+                    || path.chars().any(char::is_control)
+                    || purpose.trim().is_empty()
+                    || purpose.len() > 2048
+                    || purpose.chars().any(char::is_control)
+                {
+                    Err("invalid AI Agent directory selection")
+                } else {
+                    Ok(())
+                }
+            }
+            AiAgentObjectContextOperation::DecideDirectory {
+                directory_request_id,
+                ..
+            }
+            | AiAgentObjectContextOperation::RevokeDirectory {
+                directory_request_id,
+                ..
+            } => validate_wire_id(
+                directory_request_id,
+                "invalid AI Agent directory request id",
+            ),
+            AiAgentObjectContextOperation::AttachTerminalOutput {
+                object_ref,
+                display_summary,
+            } => validate_terminal_selection(object_ref, display_summary),
+            AiAgentObjectContextOperation::AttachWindow {
+                object_ref,
+                display_summary,
+            } => validate_window_selection(object_ref, display_summary),
+            AiAgentObjectContextOperation::Detach { attachment_id } => {
+                validate_wire_id(attachment_id, "invalid AI Agent attachment id")
+            }
+        }
+    }
+}
+
+fn validate_window_selection(
+    object_ref: &ObjectRef,
+    display_summary: &str,
+) -> Result<(), &'static str> {
+    if object_ref.object_kind != ObjectKind::Window {
+        return Err("AI Agent window selection requires an edge-issued window reference");
+    }
+    validate_wire_id(&object_ref.token, "invalid AI Agent window reference token")?;
+    validate_wire_id(
+        &object_ref.snapshot_id,
+        "invalid AI Agent window snapshot id",
+    )?;
+    validate_wire_id(
+        &object_ref.expires_at,
+        "invalid AI Agent window reference expiry",
+    )?;
+    if display_summary.trim().is_empty() || display_summary.len() > 512 {
+        return Err("invalid AI Agent window display summary");
+    }
+    Ok(())
+}
+
+fn validate_terminal_selection(
+    object_ref: &ObjectRef,
+    display_summary: &str,
+) -> Result<(), &'static str> {
+    if object_ref.object_kind != ObjectKind::TerminalOutput {
+        return Err("AI Agent terminal selection requires a terminal output reference");
+    }
+    validate_wire_id(
+        &object_ref.token,
+        "invalid AI Agent terminal reference token",
+    )?;
+    validate_wire_id(
+        &object_ref.snapshot_id,
+        "invalid AI Agent terminal snapshot id",
+    )?;
+    validate_wire_id(
+        &object_ref.expires_at,
+        "invalid AI Agent terminal reference expiry",
+    )?;
+    if display_summary.trim().is_empty() || display_summary.len() > 512 {
+        return Err("invalid AI Agent terminal display summary");
+    }
+    Ok(())
+}
+
+fn validate_wire_id(value: &str, error: &'static str) -> Result<(), &'static str> {
+    if value.trim().is_empty() || value.len() > 512 {
+        Err(error)
+    } else {
+        Ok(())
+    }
+}
+
+pub type AiAgentObjectContextUpdated = AiAgentContextUpdated;
+
+impl AiAgentAsk {
+    pub fn validate_with_limits(
+        &self,
+        limits: &limits::AgentConversationLimits,
+    ) -> Result<(), &'static str> {
+        if self.question.trim().len() > limits.question_bytes as usize {
+            return Err("AI Agent question exceeds the configured byte limit");
+        }
+        self.validate()
+    }
+    pub fn validate(&self) -> Result<(), &'static str> {
+        let question = self.question.trim();
+        crate::external_tools::validate_selections(&self.selected_issues)?;
+        if question.is_empty() {
+            return Err("AI Agent question must not be empty");
+        }
+        validate_wire_id(
+            &self.client_message_id,
+            "invalid AI Agent client message id",
+        )?;
+        if let Some(goal_id) = &self.previous_completed_goal_id {
+            if !self.start_goal {
+                return Err("previous completed goal requires start_goal");
+            }
+            validate_wire_id(goal_id, "invalid previous completed goal id")?;
+        }
+        validate_selected_capability_ids(&self.selected_capability_ids)
+            .and_then(|_| validate_attachment_ids(&self.selected_attachment_ids))
+            .and_then(|_| validate_target_refs(self.target_refs.iter().map(String::as_str)))
+    }
+}
+
+pub fn validate_target_refs<'a>(
+    refs: impl IntoIterator<Item = &'a str>,
+) -> Result<(), &'static str> {
+    let mut unique = std::collections::BTreeSet::new();
+    for reference in refs {
+        if reference.is_empty()
+            || reference.len() > 256
+            || reference.trim() != reference
+            || reference.chars().any(char::is_control)
+            || !unique.insert(reference)
+        {
+            return Err("invalid or duplicate AI Agent target reference");
+        }
+    }
+    Ok(())
+}
+
+fn validate_selected_capability_ids(
+    selected_capability_ids: &[String],
+) -> Result<(), &'static str> {
+    if selected_capability_ids.len() > 16 {
+        return Err("too many selected AI Agent capabilities");
+    }
+    let mut unique = std::collections::BTreeSet::new();
+    for capability_id in selected_capability_ids {
+        if capability_id.trim().is_empty()
+            || capability_id.len() > 256
+            || !unique.insert(capability_id.as_str())
+        {
+            return Err("invalid or duplicate selected AI Agent capability");
+        }
+    }
+    Ok(())
+}
+
+fn validate_attachment_ids(attachment_ids: &[String]) -> Result<(), &'static str> {
+    if attachment_ids.len() > 32 {
+        return Err("too many selected AI Agent attachments");
+    }
+    let mut unique = std::collections::BTreeSet::new();
+    for attachment_id in attachment_ids {
+        if attachment_id.trim().is_empty()
+            || attachment_id.len() > 512
+            || !unique.insert(attachment_id.as_str())
+        {
+            return Err("invalid or duplicate selected AI Agent attachment");
+        }
+    }
+    Ok(())
+}
+
+/// AI Agent streams the shared agent-loop event contract over its own
+/// signaling discriminant.
+pub type AiAgentEvent = crate::agent_event::AgentEvent;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn activation_failure_receipt_carries_its_wire_reason_and_error_code() {
+        let receipt = MainRequestReceipt {
+            request_id: "request-1".into(),
+            client_message_id: "message-1".into(),
+            state: MainRequestState::Failed,
+            failure: Some(MainRequestFailure::ActivationFailed),
+            input_revision: None,
+            accepted_at_ms: 7,
+            error_code: Some(5203),
+            question: None,
+        };
+        let value = serde_json::to_value(&receipt).unwrap();
+        assert_eq!(value["failure"], "activation_failed");
+        assert_eq!(value["errorCode"], 5203);
+        assert_eq!(
+            serde_json::from_value::<MainRequestReceipt>(value).unwrap(),
+            receipt
+        );
+        let without_code = MainRequestReceipt {
+            error_code: None,
+            ..receipt
+        };
+        let value = serde_json::to_value(&without_code).unwrap();
+        assert!(value.get("errorCode").is_none());
+        assert_eq!(
+            serde_json::from_value::<MainRequestReceipt>(value).unwrap(),
+            without_code
+        );
+    }
+
+    #[test]
+    fn owner_inputs_require_an_explicit_client_timezone() {
+        let missing = serde_json::json!({"question":"昨天做了什么", "client_message_id":"input"});
+        assert!(serde_json::from_value::<AiAgentAsk>(missing.clone()).is_err());
+        for timezone in ["Asia/Shanghai", "America/Los_Angeles"] {
+            let mut value = missing.clone();
+            value["client_timezone"] = timezone.into();
+            let ask: AiAgentAsk = serde_json::from_value(value).unwrap();
+            assert_eq!(ask.client_timezone, timezone);
+        }
+    }
+
+    #[test]
+    fn ask_round_trips_without_any_mutation_payload() {
+        let ask = AiAgentAsk {
+            target_refs: Vec::new(),
+            client_timezone: "UTC".into(),
+            temporary_conversation: None,
+            question: "Inspect the active application and suggest a safe change.".into(),
+            client_message_id: "message-1".into(),
+            conversation_id: Some("agent-1".into()),
+            locale: Some("en-US".into()),
+            selected_capability_ids: vec!["desktop.session.inspect".into()],
+            selected_attachment_ids: Vec::new(),
+            start_goal: false,
+            previous_completed_goal_id: None,
+            selected_issues: Vec::new(),
+        };
+        let value = serde_json::to_value(&ask).unwrap();
+        assert!(value.get("action").is_none());
+        assert!(value.get("approval").is_none());
+        let back: AiAgentAsk = serde_json::from_value(value).unwrap();
+        assert_eq!(back, ask);
+    }
+
+    #[test]
+    fn ask_round_trips_stable_target_references_and_rejects_duplicates() {
+        let mut ask: AiAgentAsk = serde_json::from_value(serde_json::json!({
+            "question": "Compare these devices",
+            "client_message_id": "message-1",
+            "client_timezone": "UTC",
+            "target_refs": ["mac", "linux"]
+        }))
+        .unwrap();
+        assert!(ask.validate().is_ok());
+        assert_eq!(
+            serde_json::to_value(&ask).unwrap()["target_refs"],
+            serde_json::json!(["mac", "linux"])
+        );
+        ask.target_refs.push("mac".into());
+        assert!(ask.validate().is_err());
+    }
+
+    #[test]
+    fn explicit_goal_intent_is_distinct_from_tool_approval() {
+        let mut ask: AiAgentAsk = serde_json::from_value(serde_json::json!({
+            "question": "Keep working on the report",
+            "client_message_id": "message-2",
+            "client_timezone": "Asia/Shanghai"
+        }))
+        .unwrap();
+        assert!(!ask.start_goal);
+        ask.start_goal = true;
+        let wire = serde_json::to_value(&ask).unwrap();
+        assert_eq!(wire["start_goal"], true);
+        assert!(wire.get("approval").is_none());
+        assert_eq!(serde_json::from_value::<AiAgentAsk>(wire).unwrap(), ask);
+    }
+
+    #[test]
+    fn previous_completed_goal_requires_explicit_goal_start() {
+        let mut ask = AiAgentAsk {
+            client_timezone: "UTC".into(),
+            temporary_conversation: None,
+            question: "Continue unfinished work".into(),
+            client_message_id: "message-1".into(),
+            previous_completed_goal_id: Some("goal-1".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            ask.validate(),
+            Err("previous completed goal requires start_goal")
+        );
+        ask.start_goal = true;
+        assert!(ask.validate().is_ok());
+    }
+
+    #[test]
+    fn context_update_is_bounded_and_ack_contains_no_attachment_secret() {
+        let update = AiAgentContextUpdate {
+            conversation_target: crate::ai_agent::AiAgentConversationTarget::FixedDevice,
+            conversation_id: "agent-1".into(),
+            client_request_id: "context-change-1".into(),
+            selected_capability_ids: vec!["desktop.session.inspect".into()],
+        };
+        update.validate().unwrap();
+        let back: AiAgentContextUpdate =
+            serde_json::from_value(serde_json::to_value(&update).unwrap()).unwrap();
+        assert_eq!(back, update);
+        let mut missing_target = serde_json::to_value(&update).unwrap();
+        missing_target
+            .as_object_mut()
+            .unwrap()
+            .remove("conversation_target");
+        assert!(serde_json::from_value::<AiAgentContextUpdate>(missing_target).is_err());
+
+        let ack = serde_json::to_value(AiAgentContextUpdated {
+            conversation_id: "agent-1".into(),
+            client_request_id: "context-change-1".into(),
+            changed: true,
+            error: None,
+        })
+        .unwrap();
+        assert!(ack.get("opaque_token").is_none());
+        assert!(ack.get("envelope").is_none());
+    }
+
+    #[test]
+    fn removed_file_context_operations_are_rejected() {
+        for kind in ["attach_file", "refresh_file"] {
+            let value = serde_json::json!({"kind":kind,"object_ref":{"token":"file","snapshot_id":"snapshot","object_kind":"file","expires_at":"2030-01-01T00:00:00Z"},"display_summary":"file","stale_attachment_id":"old"});
+            assert!(serde_json::from_value::<AiAgentObjectContextOperation>(value).is_err());
+        }
+    }
+
+    #[test]
+    fn terminal_attachment_update_accepts_only_an_edge_terminal_reference() {
+        let object_ref = ObjectRef {
+            token: "edge-terminal-token".into(),
+            snapshot_id: "worker-1:9".into(),
+            object_kind: ObjectKind::TerminalOutput,
+            expires_at: "2026-08-25T20:00:00Z".into(),
+        };
+        let update = AiAgentObjectContextUpdate {
+            conversation_target: crate::ai_agent::AiAgentConversationTarget::FixedDevice,
+            conversation_id: "agent-1".into(),
+            client_request_id: "terminal-change-1".into(),
+            operation: AiAgentObjectContextOperation::AttachTerminalOutput {
+                object_ref: object_ref.clone(),
+                display_summary: "recent terminal output".into(),
+            },
+        };
+        update.validate().unwrap();
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["operation"]["kind"], "attach_terminal_output");
+        assert!(value["operation"].get("terminal_id").is_none());
+        assert!(value["operation"].get("content").is_none());
+
+        let mut invalid_kind = update;
+        invalid_kind.operation = AiAgentObjectContextOperation::AttachTerminalOutput {
+            object_ref: ObjectRef {
+                object_kind: ObjectKind::File,
+                ..object_ref
+            },
+            display_summary: "not terminal output".into(),
+        };
+        assert!(invalid_kind.validate().is_err());
+    }
+
+    #[test]
+    fn window_attachment_update_accepts_only_an_edge_window_reference() {
+        let object_ref = ObjectRef {
+            token: "edge-window-token".into(),
+            snapshot_id: "worker-1:10".into(),
+            object_kind: ObjectKind::Window,
+            expires_at: "2026-08-25T20:00:00Z".into(),
+        };
+        let update = AiAgentObjectContextUpdate {
+            conversation_target: crate::ai_agent::AiAgentConversationTarget::FixedDevice,
+            conversation_id: "agent-1".into(),
+            client_request_id: "window-change-1".into(),
+            operation: AiAgentObjectContextOperation::AttachWindow {
+                object_ref: object_ref.clone(),
+                display_summary: "Calculator — Main Window".into(),
+            },
+        };
+        update.validate().unwrap();
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["operation"]["kind"], "attach_window");
+        assert!(value["operation"].get("window_handle").is_none());
+        assert!(value["operation"].get("process_id").is_none());
+
+        let mut invalid_kind = update;
+        invalid_kind.operation = AiAgentObjectContextOperation::AttachWindow {
+            object_ref: ObjectRef {
+                object_kind: ObjectKind::UiElement,
+                ..object_ref
+            },
+            display_summary: "not a window".into(),
+        };
+        assert!(invalid_kind.validate().is_err());
+    }
+}
+
+pub mod limits;

@@ -85,6 +85,606 @@ export type AdaptiveResolutionParams = {
     min_delta_px?: number;
 };
 
+export const agentApprovalModeEnum = {
+    ai_review: "ai_review",
+    manual: "manual",
+    no_review: "no_review"
+} as const;
+
+export type AgentApprovalModeEnumKey = (typeof agentApprovalModeEnum)[keyof typeof agentApprovalModeEnum];
+
+export type AgentApprovalMode = AgentApprovalModeEnumKey;
+
+export type AgentApprovalModeView = {
+    /**
+     * @type boolean
+    */
+    aiReviewAvailable: boolean;
+    /**
+     * @type string
+    */
+    mode: AgentApprovalMode;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    revision: number;
+};
+
+export type AgentSourceDevice = {
+    /**
+     * @type string,null
+    */
+    current_name?: string | null;
+    /**
+     * @type string
+    */
+    device_ref: string;
+    /**
+     * @type boolean
+    */
+    historical: boolean;
+    /**
+     * @type string,null
+    */
+    recorded_name?: string | null;
+};
+
+export type AgentCitation = {
+    /**
+     * @type string
+    */
+    answer_message_id: string;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    answer_revision: number;
+    source_device?: (null | AgentSourceDevice);
+    /**
+     * @type string
+    */
+    source_id: string;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    source_revision: number;
+};
+
+/**
+ * @description Input admission and answer-reference projection, separate from stored quotas.
+*/
+export type AgentConversationLimits = {
+    /**
+     * @minLength 0
+     * @default 8192
+     * @type integer | undefined, int32
+    */
+    citation_bytes?: number;
+    /**
+     * @minLength 0
+     * @default 100
+     * @type integer | undefined, int32
+    */
+    citation_page_answers?: number;
+    /**
+     * @minLength 0
+     * @default 64
+     * @type integer | undefined, int32
+    */
+    citations?: number;
+    /**
+     * @description Owner-facing page target; one indivisible entry may exceed this value.
+     * @minLength 0
+     * @default 262144
+     * @type integer | undefined, int32
+    */
+    page_bytes?: number;
+    /**
+     * @minLength 0
+     * @default 16384
+     * @type integer | undefined, int32
+    */
+    question_bytes?: number;
+};
+
+export const dataControlOutcomeEnum = {
+    applied: "applied",
+    already_applied: "already_applied",
+    stale_target: "stale_target"
+} as const;
+
+export type DataControlOutcomeEnumKey = (typeof dataControlOutcomeEnum)[keyof typeof dataControlOutcomeEnum];
+
+export type DataControlOutcome = DataControlOutcomeEnumKey;
+
+export const dataControlReasonEnum = {
+    memory_forget: "memory_forget",
+    memory_clear: "memory_clear",
+    history_restricted: "history_restricted"
+} as const;
+
+export type DataControlReasonEnumKey = (typeof dataControlReasonEnum)[keyof typeof dataControlReasonEnum];
+
+export type DataControlReason = DataControlReasonEnumKey;
+
+export type AgentDataControlReceipt = {
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    affected_count: number;
+    /**
+     * @type boolean
+    */
+    cleanup_pending: boolean;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    control_generation: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    memory_state_generation: number;
+    /**
+     * @type string
+    */
+    operation_id: string;
+    /**
+     * @type string
+    */
+    outcome: DataControlOutcome;
+    /**
+     * @type string
+    */
+    reason: DataControlReason;
+};
+
+export type AgentMemoryLimits = {
+    /**
+     * @minLength 0
+     * @default 8
+     * @type integer | undefined, int32
+    */
+    current_facts?: number;
+    /**
+     * @minLength 0
+     * @default 2048
+     * @type integer | undefined, int32
+    */
+    draft_bytes?: number;
+    /**
+     * @minLength 0
+     * @default 8
+     * @type integer | undefined, int32
+    */
+    source_refs?: number;
+    /**
+     * @minLength 0
+     * @default 8192
+     * @type integer | undefined, int32
+    */
+    user_instructions_bytes?: number;
+};
+
+/**
+ * @description Working batches and background cadence, independent of stored-content quotas.
+*/
+export type AgentProcessingLimits = {
+    /**
+     * @minLength 0
+     * @default 64
+     * @type integer | undefined, int32
+    */
+    current_memory_page_size?: number;
+    /**
+     * @minLength 0
+     * @default 64
+     * @type integer | undefined, int32
+    */
+    history_capture_batch_size?: number;
+    /**
+     * @minLength 0
+     * @default 128
+     * @type integer | undefined, int32
+    */
+    history_scan_page_size?: number;
+    /**
+     * @minLength 0
+     * @default 64
+     * @type integer | undefined, int32
+    */
+    native_retention_page_size?: number;
+    /**
+     * @minLength 0
+     * @default 24
+     * @type integer | undefined, int32
+    */
+    native_status_items?: number;
+    /**
+     * @minLength 0
+     * @default 3
+     * @type integer | undefined, int32
+    */
+    native_status_model_items?: number;
+    /**
+     * @minLength 0
+     * @default 25
+     * @type integer | undefined, int32
+    */
+    native_status_rows?: number;
+    /**
+     * @minLength 0
+     * @default 4
+     * @type integer | undefined, int32
+    */
+    native_status_source_refs?: number;
+    /**
+     * @minLength 0
+     * @default 32
+     * @type integer | undefined, int32
+    */
+    output_gc_actor_batch_size?: number;
+    /**
+     * @minLength 0
+     * @default 64
+     * @type integer | undefined, int32
+    */
+    output_gc_batch_size?: number;
+    /**
+     * @minLength 0
+     * @default 300000
+     * @type integer | undefined, int64
+    */
+    output_gc_interval_ms?: number;
+    /**
+     * @minLength 0
+     * @default 50
+     * @type integer | undefined, int32
+    */
+    status_coverage?: number;
+};
+
+export type RetrievalEpisodeLimits = {
+    /**
+     * @minLength 0
+     * @default 32
+     * @type integer | undefined, int32
+    */
+    query_cursors?: number;
+    /**
+     * @minLength 0
+     * @default 32
+     * @type integer | undefined, int32
+    */
+    query_delivered_calls?: number;
+    /**
+     * @minLength 0
+     * @default 10000
+     * @type integer | undefined, int32
+    */
+    query_devices?: number;
+    /**
+     * @minLength 0
+     * @default 500
+     * @type integer | undefined, int32
+    */
+    query_seen_sources?: number;
+    /**
+     * @minLength 0
+     * @default 1048576
+     * @type integer | undefined, int32
+    */
+    query_state_bytes?: number;
+    /**
+     * @minLength 0
+     * @default 1800000
+     * @type integer | undefined, int64
+    */
+    query_ttl_ms?: number;
+    /**
+     * @minLength 0
+     * @default 131072
+     * @type integer | undefined, int64
+    */
+    read_bytes?: number;
+    /**
+     * @minLength 0
+     * @default 8
+     * @type integer | undefined, int32
+    */
+    read_calls?: number;
+    /**
+     * @minLength 0
+     * @default 4
+     * @type integer | undefined, int32
+    */
+    relevance_calls?: number;
+    /**
+     * @minLength 0
+     * @default 32768
+     * @type integer | undefined, int32
+    */
+    response_bytes?: number;
+    /**
+     * @minLength 0
+     * @default 10
+     * @type integer | undefined, int32
+    */
+    time_pages?: number;
+    /**
+     * @minLength 0
+     * @default 1800000
+     * @type integer | undefined, int64
+    */
+    unused_projection_ttl_ms?: number;
+};
+
+export type AgentRetrievalLimits = {
+    /**
+     * @minLength 0
+     * @default 3000
+     * @type integer | undefined, int64
+    */
+    current_memory_selection_ms?: number;
+    /**
+     * @default [object Object]
+    */
+    episode?: RetrievalEpisodeLimits;
+    /**
+     * @minLength 0
+     * @default 3
+     * @type integer | undefined, int32
+    */
+    fragments_per_root?: number;
+    /**
+     * @minLength 0
+     * @default 3000
+     * @type integer | undefined, int64
+    */
+    history_keyword_scan_ms?: number;
+    /**
+     * @minLength 0
+     * @default 3000
+     * @type integer | undefined, int64
+    */
+    history_time_scan_ms?: number;
+    /**
+     * @minLength 0
+     * @default 3000
+     * @type integer | undefined, int64
+    */
+    memory_keyword_scan_ms?: number;
+    /**
+     * @minLength 0
+     * @default 128
+     * @type integer | undefined, int32
+    */
+    owner_scan_documents?: number;
+    /**
+     * @minLength 0
+     * @default 3000
+     * @type integer | undefined, int64
+    */
+    owner_scan_ms?: number;
+    /**
+     * @minLength 0
+     * @default 40
+     * @type integer | undefined, int32
+    */
+    query_candidates?: number;
+    /**
+     * @description Unicode scalar values, matching JSON Schema maxLength.
+     * @minLength 0
+     * @default 256
+     * @type integer | undefined, int32
+    */
+    query_chars?: number;
+    /**
+     * @minLength 0
+     * @default 4
+     * @type integer | undefined, int32
+    */
+    query_groups?: number;
+    /**
+     * @minLength 0
+     * @default 20
+     * @type integer | undefined, int32
+    */
+    read_messages?: number;
+    /**
+     * @minLength 0
+     * @default 10
+     * @type integer | undefined, int32
+    */
+    relevance_hits?: number;
+    /**
+     * @minLength 0
+     * @default 20
+     * @type integer | undefined, int32
+    */
+    relevance_roots?: number;
+    /**
+     * @minLength 0
+     * @default 8
+     * @type integer | undefined, int32
+    */
+    search_conversations?: number;
+    /**
+     * @minLength 0
+     * @default 90
+     * @type integer | undefined, int32
+    */
+    search_window_days?: number;
+    /**
+     * @minLength 0
+     * @default 512
+     * @type integer | undefined, int32
+    */
+    snippet_bytes?: number;
+    /**
+     * @minLength 0
+     * @default 50
+     * @type integer | undefined, int32
+    */
+    time_hits?: number;
+};
+
+export type AgentDataLimits = {
+    /**
+     * @default [object Object]
+    */
+    conversation?: AgentConversationLimits;
+    /**
+     * @default [object Object]
+    */
+    memory?: AgentMemoryLimits;
+    /**
+     * @default [object Object]
+    */
+    processing?: AgentProcessingLimits;
+    /**
+     * @default [object Object]
+    */
+    retrieval?: AgentRetrievalLimits;
+};
+
+export type AgentDataPolicy = {
+    /**
+     * @description Presentation policy stays outside persisted execution limits.
+     * @minLength 0
+     * @type integer | undefined, int32
+    */
+    conversation_title_max_chars?: number;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    history_retention_days: number;
+    /**
+     * @type object | undefined
+    */
+    limits?: AgentDataLimits;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    max_history_body_bytes: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    max_history_records: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    max_memory_body_bytes: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    max_memory_records: number;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    max_memory_revisions_per_fact: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    max_metadata_bytes: number;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    max_retrieval_document_visits: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    max_term_records: number;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    old_memory_revision_days: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    revision: number;
+};
+
+export type AgentDataPolicyUpdate = {
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    expected_revision: number;
+    /**
+     * @type object
+    */
+    policy: AgentDataPolicy;
+};
+
+export type AgentDataSettings = {
+    /**
+     * @type boolean
+    */
+    automatic_memory_enabled: boolean;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    explanation_version: number;
+    /**
+     * @type boolean
+    */
+    model_history_search_enabled: boolean;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    revision: number;
+};
+
+export type AgentDataSettingsUpdate = {
+    /**
+     * @type boolean
+    */
+    automatic_memory_enabled: boolean;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    expected_revision: number;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    explanation_version: number;
+    /**
+     * @type boolean
+    */
+    model_history_search_enabled: boolean;
+};
+
+export type AgentDataSettingsView = {
+    /**
+     * @type object
+    */
+    policy: AgentDataPolicy;
+    /**
+     * @type object
+    */
+    settings: AgentDataSettings;
+};
+
 export const agentErrorKindEnum = {
     permission_denied: "permission_denied",
     approval_required: "approval_required",
@@ -137,6 +737,344 @@ export type AgentError = {
     safe_for_model: boolean;
 };
 
+export const sourceAvailabilityEnum = {
+    available: "available",
+    evidence_only: "evidence_only",
+    partial: "partial",
+    redacted: "redacted",
+    unavailable: "unavailable"
+} as const;
+
+export type SourceAvailabilityEnumKey = (typeof sourceAvailabilityEnum)[keyof typeof sourceAvailabilityEnum];
+
+export type SourceAvailability = SourceAvailabilityEnumKey;
+
+export type AgentSourceLocator = {
+    /**
+     * @type string,null
+    */
+    action_id?: string | null;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    byte_end: number;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    byte_start: number;
+    /**
+     * @type string
+    */
+    conversation_id: string;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    fragment_index: number;
+    /**
+     * @type string,null
+    */
+    input_event_id?: string | null;
+    /**
+     * @type string,null
+    */
+    message_id?: string | null;
+    /**
+     * @type string,null
+    */
+    result_id?: string | null;
+    /**
+     * @type string
+    */
+    root_conversation_id: string;
+};
+
+export type AgentSourceResolution = {
+    /**
+     * @type string
+    */
+    availability: SourceAvailability;
+    /**
+     * @type string,null
+    */
+    content?: string | null;
+    locator?: (null | AgentSourceLocator);
+    /**
+     * @type string,null
+    */
+    notice?: string | null;
+    /**
+     * @minLength 0
+     * @type integer,null, int64
+    */
+    recorded_at_unix_ms?: number | null;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    revision: number;
+    source_device?: (null | AgentSourceDevice);
+    /**
+     * @type string
+    */
+    source_id: string;
+    /**
+     * @type string,null
+    */
+    statement_timezone?: string | null;
+};
+
+export type AgentHistoryConversation = {
+    /**
+     * @type boolean
+    */
+    active: boolean;
+    /**
+     * @type string
+    */
+    conversation_id: string;
+    /**
+     * @type boolean
+    */
+    execution_available: boolean;
+    /**
+     * @type object
+    */
+    source: AgentSourceResolution;
+};
+
+export type AgentHistoryConversations = {
+    /**
+     * @type array
+    */
+    conversations: AgentHistoryConversation[];
+    /**
+     * @type string,null
+    */
+    next_cursor?: string | null;
+    /**
+     * @type boolean
+    */
+    partial: boolean;
+};
+
+export type AgentHistoryCoverageStatus = {
+    /**
+     * @type string,null
+    */
+    conversation_id?: string | null;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    first_recorded_at_unix_ms: number;
+    /**
+     * @minLength 0
+     * @type integer,null, int64
+    */
+    indexed_through_unix_ms?: number | null;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    last_recorded_at_unix_ms: number;
+    /**
+     * @type string
+    */
+    reason: string;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    source_count: number;
+};
+
+export const agentSourceKindEnum = {
+    input: "input",
+    agent_message: "agent_message",
+    receipt: "receipt",
+    native_status: "native_status",
+    previous_memory: "previous_memory"
+} as const;
+
+export type AgentSourceKindEnumKey = (typeof agentSourceKindEnum)[keyof typeof agentSourceKindEnum];
+
+export type AgentSourceKind = AgentSourceKindEnumKey;
+
+export type AgentHistoryFragment = {
+    /**
+     * @type string
+    */
+    kind: AgentSourceKind;
+    /**
+     * @type string
+    */
+    role: string;
+    /**
+     * @type object
+    */
+    source: AgentSourceResolution;
+};
+
+export const historySortEnum = {
+    relevance: "relevance",
+    time: "time"
+} as const;
+
+export type HistorySortEnumKey = (typeof historySortEnum)[keyof typeof historySortEnum];
+
+export type HistorySort = HistorySortEnumKey;
+
+export type HistoryTimeRange = {
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    from_unix_ms: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    until_unix_ms: number;
+};
+
+export type AgentHistorySearchRequest = {
+    /**
+     * @type string,null
+    */
+    conversation_id?: string | null;
+    /**
+     * @type string,null
+    */
+    cursor?: string | null;
+    /**
+     * @type string,null
+    */
+    device_ref?: string | null;
+    /**
+     * @minLength 0
+     * @type integer | undefined, int32
+    */
+    limit?: number;
+    /**
+     * @type array | undefined
+    */
+    queries?: string[];
+    /**
+     * @type string | undefined
+    */
+    sort?: HistorySort;
+    /**
+     * @type array | undefined
+    */
+    source_kinds?: AgentSourceKind[];
+    time_range?: (null | HistoryTimeRange);
+};
+
+export type AgentHistorySearchResult = {
+    /**
+     * @type array
+    */
+    fragments: AgentHistoryFragment[];
+    /**
+     * @type string,null
+    */
+    next_cursor?: string | null;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    observed_through_generation: number;
+    /**
+     * @type boolean
+    */
+    partial: boolean;
+    /**
+     * @type array
+    */
+    reasons: string[];
+};
+
+export type AgentHistoryWindow = {
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    anchor_revision: number;
+    /**
+     * @type string
+    */
+    anchor_source_id: string;
+    /**
+     * @type string
+    */
+    conversation_id: string;
+    /**
+     * @type array
+    */
+    fragments: AgentHistoryFragment[];
+    /**
+     * @type string,null
+    */
+    next_cursor?: string | null;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    observed_through_generation: number;
+    /**
+     * @type boolean
+    */
+    partial: boolean;
+    /**
+     * @type string,null
+    */
+    previous_cursor?: string | null;
+};
+
+/**
+ * @description Raw image response; the HTTP body contains bytes rather than a JSON array.
+*/
+export type AgentImageBytes = Blob;
+
+export type AgentProcessingStatus = {
+    /**
+     * @type array
+    */
+    coverage: AgentHistoryCoverageStatus[];
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    history_generation: number;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    history_retention_days: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    indexed_terms: number;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    observed_at_unix_ms: number;
+    /**
+     * @type boolean
+    */
+    partial: boolean;
+    /**
+     * @minLength 0
+     * @type integer, int64
+    */
+    stored_history_fragments: number;
+};
+
 export type IssueSelection = {
     /**
      * @type string
@@ -158,9 +1096,9 @@ export type IssueSelection = {
 };
 
 /**
- * @description Browser to central brain: one owner-authenticated AI Assistant turn.
+ * @description Browser to central brain: one owner-authenticated AI Agent turn.
 */
-export type AiAssistantAsk = {
+export type AiAgentAsk = {
     /**
      * @description Stable idempotency identity for this user message. It is distinct from\nthe transport request id so reconnect/retry cannot duplicate input.
      * @type string
@@ -223,7 +1161,7 @@ export type AiAssistantAsk = {
     temporary_conversation?: boolean | null;
 };
 
-export const aiAssistantAttentionReasonEnum = {
+export const aiAgentAttentionReasonEnum = {
     goal_open_approval: "goal_open_approval",
     permission_approval: "permission_approval",
     decision_approval: "decision_approval",
@@ -237,14 +1175,14 @@ export const aiAssistantAttentionReasonEnum = {
     issue_reply_needs_attention: "issue_reply_needs_attention"
 } as const;
 
-export type AiAssistantAttentionReasonEnumKey = (typeof aiAssistantAttentionReasonEnum)[keyof typeof aiAssistantAttentionReasonEnum];
+export type AiAgentAttentionReasonEnumKey = (typeof aiAgentAttentionReasonEnum)[keyof typeof aiAgentAttentionReasonEnum];
 
 /**
  * @description Durable owner action needed outside the currently open conversation. The\nidentifier changes with the authoritative state version, so clients can\ndeduplicate reminders without persisting a second copy of session content.
 */
-export type AiAssistantAttentionReason = AiAssistantAttentionReasonEnumKey;
+export type AiAgentAttentionReason = AiAgentAttentionReasonEnumKey;
 
-export type AiAssistantAttentionWorkRef = {
+export type AiAgentAttentionWorkRef = {
     /**
      * @type string
     */
@@ -259,7 +1197,7 @@ export type AiAssistantAttentionWorkRef = {
     workerTaskId?: string | null;
 };
 
-export type AiAssistantAttentionItemDto = {
+export type AiAgentAttentionItemDto = {
     /**
      * @type string
     */
@@ -285,7 +1223,7 @@ export type AiAssistantAttentionItemDto = {
      * @description Durable owner action needed outside the currently open conversation. The\nidentifier changes with the authoritative state version, so clients can\ndeduplicate reminders without persisting a second copy of session content.
      * @type string
     */
-    reason: AiAssistantAttentionReason;
+    reason: AiAgentAttentionReason;
     /**
      * @type string,null
     */
@@ -304,10 +1242,10 @@ export type AiAssistantAttentionItemDto = {
      * @type integer, int64
     */
     updatedAtUnixMs: number;
-    workbench?: (null | AiAssistantAttentionWorkRef);
+    workbench?: (null | AiAgentAttentionWorkRef);
 };
 
-export type AiAssistantAttentionListDto = {
+export type AiAgentAttentionListDto = {
     /**
      * @type boolean
     */
@@ -315,7 +1253,7 @@ export type AiAssistantAttentionListDto = {
     /**
      * @type array
     */
-    items: AiAssistantAttentionItemDto[];
+    items: AiAgentAttentionItemDto[];
     /**
      * @type boolean
     */
@@ -323,9 +1261,9 @@ export type AiAssistantAttentionListDto = {
 };
 
 /**
- * @description AI Assistant product features implemented by one server target.\n\nAuthentication, ownership, target readiness and grants remain request-time\nchecks. Clients gate every optional control independently and treat an absent\nprofile as unsupported.
+ * @description AI Agent product features implemented by one server target.\n\nAuthentication, ownership, target readiness and grants remain request-time\nchecks. Clients gate every optional control independently and treat an absent\nprofile as unsupported.
 */
-export type AiAssistantClientCapabilities = {
+export type AiAgentClientCapabilities = {
     /**
      * @type boolean
     */
@@ -339,7 +1277,7 @@ export type AiAssistantClientCapabilities = {
     */
     capability_inventory: boolean;
     /**
-     * @description This HTTP host exposes compare-and-set device AI Assistant settings.
+     * @description This HTTP host exposes compare-and-set device AI Agent settings.
      * @type boolean
     */
     device_settings: boolean;
@@ -378,7 +1316,7 @@ export type AiAssistantClientCapabilities = {
 /**
  * @description Idempotency is the immutable native request/generation pair, not the latest turn.
 */
-export type AiAssistantCommandCancelBody = {
+export type AiAgentCommandCancelBody = {
     /**
      * @type string
     */
@@ -456,7 +1394,7 @@ export type ContextSummaryContentDto = {
     sections: ContextSummarySectionDto[];
 };
 
-export type AiAssistantContextSummaryDto = {
+export type AiAgentContextSummaryDto = {
     /**
      * @type string
     */
@@ -571,7 +1509,7 @@ export type SubAgentWaitReasonEnumKey = (typeof subAgentWaitReasonEnum)[keyof ty
 
 export type SubAgentWaitReason = SubAgentWaitReasonEnumKey;
 
-export type AiAssistantSubAgentSummary = {
+export type AiAgentSubAgentSummary = {
     /**
      * @description Recovery selector for this child; every read and decision rechecks ownership.
      * @type string
@@ -628,7 +1566,7 @@ export type AiAssistantSubAgentSummary = {
     worker_id: string;
 };
 
-export type AiAssistantSubAgentPage = {
+export type AiAgentSubAgentPage = {
     /**
      * @type boolean
     */
@@ -636,7 +1574,7 @@ export type AiAssistantSubAgentPage = {
     /**
      * @type array
     */
-    items: AiAssistantSubAgentSummary[];
+    items: AiAgentSubAgentSummary[];
     /**
      * @type string,null
     */
@@ -653,12 +1591,12 @@ export type AiAssistantSubAgentPage = {
     unfinished: number;
 };
 
-export type AiAssistantDelegationSnapshot = {
+export type AiAgentDelegationSnapshot = {
     /**
      * @description Include every unfinished child, even when it is outside the recent page.
      * @type array
     */
-    active_tasks: AiAssistantSubAgentSummary[];
+    active_tasks: AiAgentSubAgentSummary[];
     /**
      * @minLength 0
      * @type integer, int64
@@ -668,16 +1606,16 @@ export type AiAssistantDelegationSnapshot = {
      * @description Bounded oldest unread tasks needing owner attention, including old groups.
      * @type array
     */
-    attention_tasks: AiAssistantSubAgentSummary[];
+    attention_tasks: AiAgentSubAgentSummary[];
     /**
      * @type string,null
     */
     parent_session_id?: string | null;
-    task?: (null | AiAssistantSubAgentSummary);
-    tasks?: (null | AiAssistantSubAgentPage);
+    task?: (null | AiAgentSubAgentSummary);
+    tasks?: (null | AiAgentSubAgentPage);
 };
 
-export type AiAssistantDeviceRosterBody = {
+export type AiAgentDeviceRosterBody = {
     /**
      * @type string
     */
@@ -693,7 +1631,7 @@ export type AiAssistantDeviceRosterBody = {
     targetRefs: string[];
 };
 
-export type AiAssistantDeviceRosterDto = {
+export type AiAgentDeviceRosterDto = {
     /**
      * @minLength 0
      * @type integer, int64
@@ -709,25 +1647,25 @@ export type AiAssistantDeviceRosterDto = {
     targetRefs: string[];
 };
 
-export const aiAssistantDirectoryControlActionKindEnum = {
+export const aiAgentDirectoryControlActionKindEnum = {
     select_directory: "select_directory"
 } as const;
 
-export type AiAssistantDirectoryControlActionKindEnumKey = (typeof aiAssistantDirectoryControlActionKindEnum)[keyof typeof aiAssistantDirectoryControlActionKindEnum];
+export type AiAgentDirectoryControlActionKindEnumKey = (typeof aiAgentDirectoryControlActionKindEnum)[keyof typeof aiAgentDirectoryControlActionKindEnum];
 
-export const aiAssistantDirectoryControlActionKindEnum2 = {
+export const aiAgentDirectoryControlActionKindEnum2 = {
     decide_directory: "decide_directory"
 } as const;
 
-export type AiAssistantDirectoryControlActionKindEnum2Key = (typeof aiAssistantDirectoryControlActionKindEnum2)[keyof typeof aiAssistantDirectoryControlActionKindEnum2];
+export type AiAgentDirectoryControlActionKindEnum2Key = (typeof aiAgentDirectoryControlActionKindEnum2)[keyof typeof aiAgentDirectoryControlActionKindEnum2];
 
-export const aiAssistantDirectoryControlActionKindEnum3 = {
+export const aiAgentDirectoryControlActionKindEnum3 = {
     revoke_directory: "revoke_directory"
 } as const;
 
-export type AiAssistantDirectoryControlActionKindEnum3Key = (typeof aiAssistantDirectoryControlActionKindEnum3)[keyof typeof aiAssistantDirectoryControlActionKindEnum3];
+export type AiAgentDirectoryControlActionKindEnum3Key = (typeof aiAgentDirectoryControlActionKindEnum3)[keyof typeof aiAgentDirectoryControlActionKindEnum3];
 
-export type AiAssistantDirectoryControlAction = ({
+export type AiAgentDirectoryControlAction = ({
     /**
      * @minLength 0
      * @type integer, int64
@@ -736,7 +1674,7 @@ export type AiAssistantDirectoryControlAction = ({
     /**
      * @type string
     */
-    kind: AiAssistantDirectoryControlActionKindEnumKey;
+    kind: AiAgentDirectoryControlActionKindEnumKey;
     /**
      * @type string
     */
@@ -762,7 +1700,7 @@ export type AiAssistantDirectoryControlAction = ({
     /**
      * @type string
     */
-    kind: AiAssistantDirectoryControlActionKindEnum2Key;
+    kind: AiAgentDirectoryControlActionKindEnum2Key;
 } | {
     /**
      * @type string
@@ -776,10 +1714,10 @@ export type AiAssistantDirectoryControlAction = ({
     /**
      * @type string
     */
-    kind: AiAssistantDirectoryControlActionKindEnum3Key;
+    kind: AiAgentDirectoryControlActionKindEnum3Key;
 });
 
-export type AiAssistantDirectoryControlBody = {
+export type AiAgentDirectoryControlBody = {
     /**
      * @type string
     */
@@ -788,29 +1726,29 @@ export type AiAssistantDirectoryControlBody = {
      * @type string
     */
     connection: string;
-    operation: AiAssistantDirectoryControlAction;
+    operation: AiAgentDirectoryControlAction;
     /**
      * @type string
     */
     session: string;
 };
 
-export const aiAssistantGoalOwnerActionEnum = {
+export const aiAgentGoalOwnerActionEnum = {
     pause: "pause",
     resume: "resume",
     retry_stalled: "retry_stalled",
     cancel: "cancel"
 } as const;
 
-export type AiAssistantGoalOwnerActionEnumKey = (typeof aiAssistantGoalOwnerActionEnum)[keyof typeof aiAssistantGoalOwnerActionEnum];
+export type AiAgentGoalOwnerActionEnumKey = (typeof aiAgentGoalOwnerActionEnum)[keyof typeof aiAgentGoalOwnerActionEnum];
 
-export type AiAssistantGoalOwnerAction = AiAssistantGoalOwnerActionEnumKey;
+export type AiAgentGoalOwnerAction = AiAgentGoalOwnerActionEnumKey;
 
-export type AiAssistantGoalControlBody = {
+export type AiAgentGoalControlBody = {
     /**
      * @type string
     */
-    action: AiAssistantGoalOwnerAction;
+    action: AiAgentGoalOwnerAction;
     /**
      * @type string
     */
@@ -834,7 +1772,7 @@ export type AiAssistantGoalControlBody = {
     session?: string | null;
 };
 
-export type AiAssistantGoalLimitsDto = {
+export type AiAgentGoalLimitsDto = {
     /**
      * @minLength 0
      * @type integer,null, int64
@@ -867,7 +1805,7 @@ export type AiAssistantGoalLimitsDto = {
     toolCalls: number | null;
 };
 
-export type AiAssistantGoalDto = {
+export type AiAgentGoalDto = {
     /**
      * @type string,null
     */
@@ -912,7 +1850,7 @@ export type AiAssistantGoalDto = {
     /**
      * @type object
     */
-    limits: AiAssistantGoalLimitsDto;
+    limits: AiAgentGoalLimitsDto;
     /**
      * @minLength 0
      * @type integer,null, int64
@@ -980,7 +1918,7 @@ export type AiAssistantGoalDto = {
     usedToolCalls: number;
 };
 
-export type AiAssistantGoalOpenDecisionBody = {
+export type AiAgentGoalOpenDecisionBody = {
     /**
      * @type boolean
     */
@@ -1003,8 +1941,8 @@ export type AiAssistantGoalOpenDecisionBody = {
     session?: string | null;
 };
 
-export type AiAssistantGoalOpenDecisionDto = {
-    goal?: (null | AiAssistantGoalDto);
+export type AiAgentGoalOpenDecisionDto = {
+    goal?: (null | AiAgentGoalDto);
     /**
      * @type string
     */
@@ -1015,7 +1953,7 @@ export type AiAssistantGoalOpenDecisionDto = {
     state: string;
 };
 
-export type AiAssistantGoalOpenRequestDto = {
+export type AiAgentGoalOpenRequestDto = {
     /**
      * @type string
     */
@@ -1037,7 +1975,7 @@ export type AiAssistantGoalOpenRequestDto = {
     /**
      * @type object
     */
-    limits: AiAssistantGoalLimitsDto;
+    limits: AiAgentGoalLimitsDto;
     /**
      * @type string,null
     */
@@ -1057,7 +1995,7 @@ export type AiAssistantGoalOpenRequestDto = {
     targetGoalRevision?: number | null;
 };
 
-export type AiAssistantMainRequestCancelBody = {
+export type AiAgentMainRequestCancelBody = {
     /**
      * @type string
     */
@@ -1068,7 +2006,7 @@ export type AiAssistantMainRequestCancelBody = {
     session: string;
 };
 
-export type AiAssistantMainRequestResumeBody = {
+export type AiAgentMainRequestResumeBody = {
     /**
      * @minLength 0
      * @type integer, int64
@@ -1080,7 +2018,7 @@ export type AiAssistantMainRequestResumeBody = {
     session: string;
 };
 
-export type AiAssistantMainRequestResumeDto = {
+export type AiAgentMainRequestResumeDto = {
     /**
      * @minLength 0
      * @type integer, int64
@@ -1149,7 +2087,7 @@ export type MainRequestReceipt = {
     state: MainRequestState;
 };
 
-export type AiAssistantMainRequestsDto = {
+export type AiAgentMainRequestsDto = {
     /**
      * @type array
     */
@@ -1160,7 +2098,7 @@ export type AiAssistantMainRequestsDto = {
     sessionId: string;
 };
 
-export type AiAssistantSessionSummaryDto = {
+export type AiAgentSessionSummaryDto = {
     /**
      * @type boolean
     */
@@ -1194,11 +2132,11 @@ export type AiAssistantSessionSummaryDto = {
     updatedAt: string;
 };
 
-export type AiAssistantSessionListDto = {
+export type AiAgentSessionListDto = {
     /**
      * @type array
     */
-    sessions: AiAssistantSessionSummaryDto[];
+    sessions: AiAgentSessionSummaryDto[];
 };
 
 export type ApprovalDelegationDto = {
@@ -1888,47 +2826,6 @@ export type SnapshotMessagePageDto = {
     nextBeforeMessageId?: string | null;
 };
 
-export type AssistantSourceDevice = {
-    /**
-     * @type string,null
-    */
-    current_name?: string | null;
-    /**
-     * @type string
-    */
-    device_ref: string;
-    /**
-     * @type boolean
-    */
-    historical: boolean;
-    /**
-     * @type string,null
-    */
-    recorded_name?: string | null;
-};
-
-export type AssistantCitation = {
-    /**
-     * @type string
-    */
-    answer_message_id: string;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    answer_revision: number;
-    source_device?: (null | AssistantSourceDevice);
-    /**
-     * @type string
-    */
-    source_id: string;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    source_revision: number;
-};
-
 export type SnapshotToolCallDto = {
     /**
      * @type string
@@ -1953,7 +2850,7 @@ export type SnapshotMessageDto = {
     /**
      * @type array | undefined
     */
-    citations?: AssistantCitation[];
+    citations?: AgentCitation[];
     /**
      * @type boolean | undefined
     */
@@ -3657,7 +4554,7 @@ export type VisualEvidenceFrame = {
     turn_id: string;
 };
 
-export type AiAssistantSessionSnapshotDto = {
+export type AiAgentSessionSnapshotDto = {
     /**
      * @description Original permission request reasons, keyed by the server-bound work ID.
      * @type object
@@ -3721,7 +4618,7 @@ export type AiAssistantSessionSnapshotDto = {
      * @type object
     */
     fileScope: FileScopeDto;
-    goal?: (null | AiAssistantGoalDto);
+    goal?: (null | AiAgentGoalDto);
     /**
      * @minLength 0
      * @type integer, int64
@@ -3757,14 +4654,14 @@ export type AiAssistantSessionSnapshotDto = {
      * @type array
     */
     messages: SnapshotMessageDto[];
-    pendingGoalOpenRequest?: (null | AiAssistantGoalOpenRequestDto);
+    pendingGoalOpenRequest?: (null | AiAgentGoalOpenRequestDto);
     /**
      * @description Model-proposed, server-normalized requests. Pending is approvable;\nNeedsRevalidation is display-only until the model replaces/reissues it.
      * @type array
     */
     permissionRequests: PermissionRequestDto[];
     /**
-     * @description AI Assistant request currently represented by the persisted turn.
+     * @description AI Agent request currently represented by the persisted turn.
      * @type string,null
     */
     requestId?: string | null;
@@ -3786,7 +4683,7 @@ export type AiAssistantSessionSnapshotDto = {
     /**
      * @type object
     */
-    subagents: AiAssistantDelegationSnapshot;
+    subagents: AiAgentDelegationSnapshot;
     taskStatusProjection?: (null | TaskStatusProjectionDto);
     /**
      * @description None until the first owner input freezes this conversation\'s mode.
@@ -3805,9 +4702,9 @@ export type AiAssistantSessionSnapshotDto = {
 /**
  * @description Device-owned product switch projected to trusted central orchestrators.\n\nThe device is the only authority for this value. Central services may cache\nthe latest observed snapshot for routing and UI, but may never synthesize a\nnewer revision or treat their cache as desired state.
 */
-export type AiAssistantSettings = {
+export type AiAgentSettings = {
     /**
-     * @description The one product-level AI Assistant switch. Defaults fail closed.
+     * @description The one product-level AI Agent switch. Defaults fail closed.
      * @type boolean
     */
     enabled: boolean;
@@ -3822,7 +4719,7 @@ export type AiAssistantSettings = {
 /**
  * @description Compare-and-set request accepted by the device-local settings endpoint.
 */
-export type AiAssistantSettingsUpdate = {
+export type AiAgentSettingsUpdate = {
     /**
      * @description Exact desired product-switch value.
      * @type boolean
@@ -3848,7 +4745,7 @@ export type SubAgentStopChoice = SubAgentStopChoiceEnumKey;
 /**
  * @description Absence of a choice is valid only if the transaction finds no unfinished child.
 */
-export type AiAssistantStopControl = {
+export type AiAgentStopControl = {
     /**
      * @type string
     */
@@ -3866,7 +4763,7 @@ export type AiAssistantStopControl = {
     subagent_choice?: (null | SubAgentStopChoice);
 };
 
-export type AiAssistantStopBody = {
+export type AiAgentStopBody = {
     /**
      * @description Omit for an owner conversation without a device target.
      * @type string,null
@@ -3876,7 +4773,7 @@ export type AiAssistantStopBody = {
      * @description Absence of a choice is valid only if the transaction finds no unfinished child.
      * @type object
     */
-    control: AiAssistantStopControl;
+    control: AiAgentStopControl;
     /**
      * @type string,null
     */
@@ -3887,7 +4784,7 @@ export type AiAssistantStopBody = {
     session?: string | null;
 };
 
-export type AiAssistantStopResult = {
+export type AiAgentStopResult = {
     /**
      * @minLength 0
      * @type integer, int64
@@ -3901,7 +4798,7 @@ export type AiAssistantStopResult = {
     /**
      * @type array
     */
-    stopped_subagents: AiAssistantSubAgentSummary[];
+    stopped_subagents: AiAgentSubAgentSummary[];
 };
 
 export const subAgentControlActionKindEnum = {
@@ -3958,7 +4855,7 @@ export type SubAgentControlAction = ({
 /**
  * @description Owner controls use input/control fencing; progress revisions are observational.
 */
-export type AiAssistantSubAgentControl = {
+export type AiAgentSubAgentControl = {
     action: SubAgentControlAction;
     /**
      * @type string
@@ -3980,7 +4877,7 @@ export type AiAssistantSubAgentControl = {
     task_id: string;
 };
 
-export type AiAssistantSubAgentControlBody = {
+export type AiAgentSubAgentControlBody = {
     /**
      * @type string
     */
@@ -3989,7 +4886,7 @@ export type AiAssistantSubAgentControlBody = {
      * @description Owner controls use input/control fencing; progress revisions are observational.
      * @type object
     */
-    control: AiAssistantSubAgentControl;
+    control: AiAgentSubAgentControl;
     /**
      * @type string,null
     */
@@ -4000,7 +4897,7 @@ export type AiAssistantSubAgentControlBody = {
     session?: string | null;
 };
 
-export type AiAssistantSubAgentQuestion = {
+export type AiAgentSubAgentQuestion = {
     /**
      * @type string
     */
@@ -4011,7 +4908,7 @@ export type AiAssistantSubAgentQuestion = {
     text: string;
 };
 
-export type AiAssistantSubAgentReadBody = {
+export type AiAgentSubAgentReadBody = {
     /**
      * @type string
     */
@@ -4047,7 +4944,7 @@ export type SubAgentReportKindEnumKey = (typeof subAgentReportKindEnum)[keyof ty
 
 export type SubAgentReportKind = SubAgentReportKindEnumKey;
 
-export type AiAssistantSubAgentReport = {
+export type AiAgentSubAgentReport = {
     /**
      * @type array
     */
@@ -4079,11 +4976,11 @@ export type AiAssistantSubAgentReport = {
     summary: string;
 };
 
-export type AiAssistantSubAgentReports = {
+export type AiAgentSubAgentReports = {
     /**
      * @type array
     */
-    items: AiAssistantSubAgentReport[];
+    items: AiAgentSubAgentReport[];
     /**
      * @minLength 0
      * @type integer,null, int64
@@ -4139,7 +5036,7 @@ export type TaskFinalReport = {
     summary: string;
 };
 
-export type AiAssistantSubAgentResult = {
+export type AiAgentSubAgentResult = {
     /**
      * @type array
     */
@@ -4152,19 +5049,19 @@ export type AiAssistantSubAgentResult = {
      * @type string
     */
     objective: string;
-    open_question?: (null | AiAssistantSubAgentQuestion);
+    open_question?: (null | AiAgentSubAgentQuestion);
     report?: (null | TaskFinalReport);
     /**
      * @type object
     */
-    reports: AiAssistantSubAgentReports;
+    reports: AiAgentSubAgentReports;
     /**
      * @type object
     */
-    task: AiAssistantSubAgentSummary;
+    task: AiAgentSubAgentSummary;
 };
 
-export type AiAssistantWorkbenchDelivery = {
+export type AiAgentWorkbenchDelivery = {
     /**
      * @type string
     */
@@ -4204,11 +5101,11 @@ export type AiAssistantWorkbenchDelivery = {
     updatedAtMs: number;
 };
 
-export type AiAssistantWorkbenchTask = {
+export type AiAgentWorkbenchTask = {
     /**
      * @type array
     */
-    deliveries: AiAssistantWorkbenchDelivery[];
+    deliveries: AiAgentWorkbenchDelivery[];
     /**
      * @type string,null
     */
@@ -4231,18 +5128,18 @@ export type AiAssistantWorkbenchTask = {
     workerStates: string[];
 };
 
-export type AiAssistantWorkbenchTasks = {
+export type AiAgentWorkbenchTasks = {
     /**
      * @type array
     */
-    items: AiAssistantWorkbenchTask[];
+    items: AiAgentWorkbenchTask[];
     /**
      * @type string,null
     */
     nextBefore?: string | null;
 };
 
-export type AiAssistantWorkbenchView = {
+export type AiAgentWorkbenchView = {
     /**
      * @type string
     */
@@ -5048,7 +5945,7 @@ export type ApprovalReviewDto = {
      * @type string,null
     */
     stop_reason?: string | null;
-    task?: (null | AiAssistantSubAgentSummary);
+    task?: (null | AiAgentSubAgentSummary);
     /**
      * @type array
     */
@@ -5143,903 +6040,6 @@ export type ApprovalTraceSettings = {
      * @type string
     */
     storage_budget_bytes: string;
-};
-
-export const assistantApprovalModeEnum = {
-    ai_review: "ai_review",
-    manual: "manual",
-    no_review: "no_review"
-} as const;
-
-export type AssistantApprovalModeEnumKey = (typeof assistantApprovalModeEnum)[keyof typeof assistantApprovalModeEnum];
-
-export type AssistantApprovalMode = AssistantApprovalModeEnumKey;
-
-export type AssistantApprovalModeView = {
-    /**
-     * @type boolean
-    */
-    aiReviewAvailable: boolean;
-    /**
-     * @type string
-    */
-    mode: AssistantApprovalMode;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    revision: number;
-};
-
-/**
- * @description Input admission and answer-reference projection, separate from stored quotas.
-*/
-export type AssistantConversationLimits = {
-    /**
-     * @minLength 0
-     * @default 8192
-     * @type integer | undefined, int32
-    */
-    citation_bytes?: number;
-    /**
-     * @minLength 0
-     * @default 100
-     * @type integer | undefined, int32
-    */
-    citation_page_answers?: number;
-    /**
-     * @minLength 0
-     * @default 64
-     * @type integer | undefined, int32
-    */
-    citations?: number;
-    /**
-     * @description Owner-facing page target; one indivisible entry may exceed this value.
-     * @minLength 0
-     * @default 262144
-     * @type integer | undefined, int32
-    */
-    page_bytes?: number;
-    /**
-     * @minLength 0
-     * @default 16384
-     * @type integer | undefined, int32
-    */
-    question_bytes?: number;
-};
-
-export const dataControlOutcomeEnum = {
-    applied: "applied",
-    already_applied: "already_applied",
-    stale_target: "stale_target"
-} as const;
-
-export type DataControlOutcomeEnumKey = (typeof dataControlOutcomeEnum)[keyof typeof dataControlOutcomeEnum];
-
-export type DataControlOutcome = DataControlOutcomeEnumKey;
-
-export const dataControlReasonEnum = {
-    memory_forget: "memory_forget",
-    memory_clear: "memory_clear",
-    history_restricted: "history_restricted"
-} as const;
-
-export type DataControlReasonEnumKey = (typeof dataControlReasonEnum)[keyof typeof dataControlReasonEnum];
-
-export type DataControlReason = DataControlReasonEnumKey;
-
-export type AssistantDataControlReceipt = {
-    /**
-     * @minLength 0
-     * @type integer, int32
-    */
-    affected_count: number;
-    /**
-     * @type boolean
-    */
-    cleanup_pending: boolean;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    control_generation: number;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    memory_state_generation: number;
-    /**
-     * @type string
-    */
-    operation_id: string;
-    /**
-     * @type string
-    */
-    outcome: DataControlOutcome;
-    /**
-     * @type string
-    */
-    reason: DataControlReason;
-};
-
-export type AssistantMemoryLimits = {
-    /**
-     * @minLength 0
-     * @default 8
-     * @type integer | undefined, int32
-    */
-    current_facts?: number;
-    /**
-     * @minLength 0
-     * @default 2048
-     * @type integer | undefined, int32
-    */
-    draft_bytes?: number;
-    /**
-     * @minLength 0
-     * @default 8
-     * @type integer | undefined, int32
-    */
-    source_refs?: number;
-    /**
-     * @minLength 0
-     * @default 8192
-     * @type integer | undefined, int32
-    */
-    user_instructions_bytes?: number;
-};
-
-/**
- * @description Working batches and background cadence, independent of stored-content quotas.
-*/
-export type AssistantProcessingLimits = {
-    /**
-     * @minLength 0
-     * @default 64
-     * @type integer | undefined, int32
-    */
-    current_memory_page_size?: number;
-    /**
-     * @minLength 0
-     * @default 64
-     * @type integer | undefined, int32
-    */
-    history_capture_batch_size?: number;
-    /**
-     * @minLength 0
-     * @default 128
-     * @type integer | undefined, int32
-    */
-    history_scan_page_size?: number;
-    /**
-     * @minLength 0
-     * @default 64
-     * @type integer | undefined, int32
-    */
-    native_retention_page_size?: number;
-    /**
-     * @minLength 0
-     * @default 24
-     * @type integer | undefined, int32
-    */
-    native_status_items?: number;
-    /**
-     * @minLength 0
-     * @default 3
-     * @type integer | undefined, int32
-    */
-    native_status_model_items?: number;
-    /**
-     * @minLength 0
-     * @default 25
-     * @type integer | undefined, int32
-    */
-    native_status_rows?: number;
-    /**
-     * @minLength 0
-     * @default 4
-     * @type integer | undefined, int32
-    */
-    native_status_source_refs?: number;
-    /**
-     * @minLength 0
-     * @default 32
-     * @type integer | undefined, int32
-    */
-    output_gc_actor_batch_size?: number;
-    /**
-     * @minLength 0
-     * @default 64
-     * @type integer | undefined, int32
-    */
-    output_gc_batch_size?: number;
-    /**
-     * @minLength 0
-     * @default 300000
-     * @type integer | undefined, int64
-    */
-    output_gc_interval_ms?: number;
-    /**
-     * @minLength 0
-     * @default 50
-     * @type integer | undefined, int32
-    */
-    status_coverage?: number;
-};
-
-export type RetrievalEpisodeLimits = {
-    /**
-     * @minLength 0
-     * @default 32
-     * @type integer | undefined, int32
-    */
-    query_cursors?: number;
-    /**
-     * @minLength 0
-     * @default 32
-     * @type integer | undefined, int32
-    */
-    query_delivered_calls?: number;
-    /**
-     * @minLength 0
-     * @default 10000
-     * @type integer | undefined, int32
-    */
-    query_devices?: number;
-    /**
-     * @minLength 0
-     * @default 500
-     * @type integer | undefined, int32
-    */
-    query_seen_sources?: number;
-    /**
-     * @minLength 0
-     * @default 1048576
-     * @type integer | undefined, int32
-    */
-    query_state_bytes?: number;
-    /**
-     * @minLength 0
-     * @default 1800000
-     * @type integer | undefined, int64
-    */
-    query_ttl_ms?: number;
-    /**
-     * @minLength 0
-     * @default 131072
-     * @type integer | undefined, int64
-    */
-    read_bytes?: number;
-    /**
-     * @minLength 0
-     * @default 8
-     * @type integer | undefined, int32
-    */
-    read_calls?: number;
-    /**
-     * @minLength 0
-     * @default 4
-     * @type integer | undefined, int32
-    */
-    relevance_calls?: number;
-    /**
-     * @minLength 0
-     * @default 32768
-     * @type integer | undefined, int32
-    */
-    response_bytes?: number;
-    /**
-     * @minLength 0
-     * @default 10
-     * @type integer | undefined, int32
-    */
-    time_pages?: number;
-    /**
-     * @minLength 0
-     * @default 1800000
-     * @type integer | undefined, int64
-    */
-    unused_projection_ttl_ms?: number;
-};
-
-export type AssistantRetrievalLimits = {
-    /**
-     * @minLength 0
-     * @default 3000
-     * @type integer | undefined, int64
-    */
-    current_memory_selection_ms?: number;
-    /**
-     * @default [object Object]
-    */
-    episode?: RetrievalEpisodeLimits;
-    /**
-     * @minLength 0
-     * @default 3
-     * @type integer | undefined, int32
-    */
-    fragments_per_root?: number;
-    /**
-     * @minLength 0
-     * @default 3000
-     * @type integer | undefined, int64
-    */
-    history_keyword_scan_ms?: number;
-    /**
-     * @minLength 0
-     * @default 3000
-     * @type integer | undefined, int64
-    */
-    history_time_scan_ms?: number;
-    /**
-     * @minLength 0
-     * @default 3000
-     * @type integer | undefined, int64
-    */
-    memory_keyword_scan_ms?: number;
-    /**
-     * @minLength 0
-     * @default 128
-     * @type integer | undefined, int32
-    */
-    owner_scan_documents?: number;
-    /**
-     * @minLength 0
-     * @default 3000
-     * @type integer | undefined, int64
-    */
-    owner_scan_ms?: number;
-    /**
-     * @minLength 0
-     * @default 40
-     * @type integer | undefined, int32
-    */
-    query_candidates?: number;
-    /**
-     * @description Unicode scalar values, matching JSON Schema maxLength.
-     * @minLength 0
-     * @default 256
-     * @type integer | undefined, int32
-    */
-    query_chars?: number;
-    /**
-     * @minLength 0
-     * @default 4
-     * @type integer | undefined, int32
-    */
-    query_groups?: number;
-    /**
-     * @minLength 0
-     * @default 20
-     * @type integer | undefined, int32
-    */
-    read_messages?: number;
-    /**
-     * @minLength 0
-     * @default 10
-     * @type integer | undefined, int32
-    */
-    relevance_hits?: number;
-    /**
-     * @minLength 0
-     * @default 20
-     * @type integer | undefined, int32
-    */
-    relevance_roots?: number;
-    /**
-     * @minLength 0
-     * @default 8
-     * @type integer | undefined, int32
-    */
-    search_conversations?: number;
-    /**
-     * @minLength 0
-     * @default 90
-     * @type integer | undefined, int32
-    */
-    search_window_days?: number;
-    /**
-     * @minLength 0
-     * @default 512
-     * @type integer | undefined, int32
-    */
-    snippet_bytes?: number;
-    /**
-     * @minLength 0
-     * @default 50
-     * @type integer | undefined, int32
-    */
-    time_hits?: number;
-};
-
-export type AssistantDataLimits = {
-    /**
-     * @default [object Object]
-    */
-    conversation?: AssistantConversationLimits;
-    /**
-     * @default [object Object]
-    */
-    memory?: AssistantMemoryLimits;
-    /**
-     * @default [object Object]
-    */
-    processing?: AssistantProcessingLimits;
-    /**
-     * @default [object Object]
-    */
-    retrieval?: AssistantRetrievalLimits;
-};
-
-export type AssistantDataPolicy = {
-    /**
-     * @description Presentation policy stays outside persisted execution limits.
-     * @minLength 0
-     * @type integer | undefined, int32
-    */
-    conversation_title_max_chars?: number;
-    /**
-     * @minLength 0
-     * @type integer, int32
-    */
-    history_retention_days: number;
-    /**
-     * @type object | undefined
-    */
-    limits?: AssistantDataLimits;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    max_history_body_bytes: number;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    max_history_records: number;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    max_memory_body_bytes: number;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    max_memory_records: number;
-    /**
-     * @minLength 0
-     * @type integer, int32
-    */
-    max_memory_revisions_per_fact: number;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    max_metadata_bytes: number;
-    /**
-     * @minLength 0
-     * @type integer, int32
-    */
-    max_retrieval_document_visits: number;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    max_term_records: number;
-    /**
-     * @minLength 0
-     * @type integer, int32
-    */
-    old_memory_revision_days: number;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    revision: number;
-};
-
-export type AssistantDataPolicyUpdate = {
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    expected_revision: number;
-    /**
-     * @type object
-    */
-    policy: AssistantDataPolicy;
-};
-
-export type AssistantDataSettings = {
-    /**
-     * @type boolean
-    */
-    automatic_memory_enabled: boolean;
-    /**
-     * @minLength 0
-     * @type integer, int32
-    */
-    explanation_version: number;
-    /**
-     * @type boolean
-    */
-    model_history_search_enabled: boolean;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    revision: number;
-};
-
-export type AssistantDataSettingsUpdate = {
-    /**
-     * @type boolean
-    */
-    automatic_memory_enabled: boolean;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    expected_revision: number;
-    /**
-     * @minLength 0
-     * @type integer, int32
-    */
-    explanation_version: number;
-    /**
-     * @type boolean
-    */
-    model_history_search_enabled: boolean;
-};
-
-export type AssistantDataSettingsView = {
-    /**
-     * @type object
-    */
-    policy: AssistantDataPolicy;
-    /**
-     * @type object
-    */
-    settings: AssistantDataSettings;
-};
-
-export const sourceAvailabilityEnum = {
-    available: "available",
-    evidence_only: "evidence_only",
-    partial: "partial",
-    redacted: "redacted",
-    unavailable: "unavailable"
-} as const;
-
-export type SourceAvailabilityEnumKey = (typeof sourceAvailabilityEnum)[keyof typeof sourceAvailabilityEnum];
-
-export type SourceAvailability = SourceAvailabilityEnumKey;
-
-export type AssistantSourceLocator = {
-    /**
-     * @type string,null
-    */
-    action_id?: string | null;
-    /**
-     * @minLength 0
-     * @type integer, int32
-    */
-    byte_end: number;
-    /**
-     * @minLength 0
-     * @type integer, int32
-    */
-    byte_start: number;
-    /**
-     * @type string
-    */
-    conversation_id: string;
-    /**
-     * @minLength 0
-     * @type integer, int32
-    */
-    fragment_index: number;
-    /**
-     * @type string,null
-    */
-    input_event_id?: string | null;
-    /**
-     * @type string,null
-    */
-    message_id?: string | null;
-    /**
-     * @type string,null
-    */
-    result_id?: string | null;
-    /**
-     * @type string
-    */
-    root_conversation_id: string;
-};
-
-export type AssistantSourceResolution = {
-    /**
-     * @type string
-    */
-    availability: SourceAvailability;
-    /**
-     * @type string,null
-    */
-    content?: string | null;
-    locator?: (null | AssistantSourceLocator);
-    /**
-     * @type string,null
-    */
-    notice?: string | null;
-    /**
-     * @minLength 0
-     * @type integer,null, int64
-    */
-    recorded_at_unix_ms?: number | null;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    revision: number;
-    source_device?: (null | AssistantSourceDevice);
-    /**
-     * @type string
-    */
-    source_id: string;
-    /**
-     * @type string,null
-    */
-    statement_timezone?: string | null;
-};
-
-export type AssistantHistoryConversation = {
-    /**
-     * @type boolean
-    */
-    active: boolean;
-    /**
-     * @type string
-    */
-    conversation_id: string;
-    /**
-     * @type boolean
-    */
-    execution_available: boolean;
-    /**
-     * @type object
-    */
-    source: AssistantSourceResolution;
-};
-
-export type AssistantHistoryConversations = {
-    /**
-     * @type array
-    */
-    conversations: AssistantHistoryConversation[];
-    /**
-     * @type string,null
-    */
-    next_cursor?: string | null;
-    /**
-     * @type boolean
-    */
-    partial: boolean;
-};
-
-export type AssistantHistoryCoverageStatus = {
-    /**
-     * @type string,null
-    */
-    conversation_id?: string | null;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    first_recorded_at_unix_ms: number;
-    /**
-     * @minLength 0
-     * @type integer,null, int64
-    */
-    indexed_through_unix_ms?: number | null;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    last_recorded_at_unix_ms: number;
-    /**
-     * @type string
-    */
-    reason: string;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    source_count: number;
-};
-
-export const assistantSourceKindEnum = {
-    input: "input",
-    assistant_message: "assistant_message",
-    receipt: "receipt",
-    native_status: "native_status",
-    previous_memory: "previous_memory"
-} as const;
-
-export type AssistantSourceKindEnumKey = (typeof assistantSourceKindEnum)[keyof typeof assistantSourceKindEnum];
-
-export type AssistantSourceKind = AssistantSourceKindEnumKey;
-
-export type AssistantHistoryFragment = {
-    /**
-     * @type string
-    */
-    kind: AssistantSourceKind;
-    /**
-     * @type string
-    */
-    role: string;
-    /**
-     * @type object
-    */
-    source: AssistantSourceResolution;
-};
-
-export const historySortEnum = {
-    relevance: "relevance",
-    time: "time"
-} as const;
-
-export type HistorySortEnumKey = (typeof historySortEnum)[keyof typeof historySortEnum];
-
-export type HistorySort = HistorySortEnumKey;
-
-export type HistoryTimeRange = {
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    from_unix_ms: number;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    until_unix_ms: number;
-};
-
-export type AssistantHistorySearchRequest = {
-    /**
-     * @type string,null
-    */
-    conversation_id?: string | null;
-    /**
-     * @type string,null
-    */
-    cursor?: string | null;
-    /**
-     * @type string,null
-    */
-    device_ref?: string | null;
-    /**
-     * @minLength 0
-     * @type integer | undefined, int32
-    */
-    limit?: number;
-    /**
-     * @type array | undefined
-    */
-    queries?: string[];
-    /**
-     * @type string | undefined
-    */
-    sort?: HistorySort;
-    /**
-     * @type array | undefined
-    */
-    source_kinds?: AssistantSourceKind[];
-    time_range?: (null | HistoryTimeRange);
-};
-
-export type AssistantHistorySearchResult = {
-    /**
-     * @type array
-    */
-    fragments: AssistantHistoryFragment[];
-    /**
-     * @type string,null
-    */
-    next_cursor?: string | null;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    observed_through_generation: number;
-    /**
-     * @type boolean
-    */
-    partial: boolean;
-    /**
-     * @type array
-    */
-    reasons: string[];
-};
-
-export type AssistantHistoryWindow = {
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    anchor_revision: number;
-    /**
-     * @type string
-    */
-    anchor_source_id: string;
-    /**
-     * @type string
-    */
-    conversation_id: string;
-    /**
-     * @type array
-    */
-    fragments: AssistantHistoryFragment[];
-    /**
-     * @type string,null
-    */
-    next_cursor?: string | null;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    observed_through_generation: number;
-    /**
-     * @type boolean
-    */
-    partial: boolean;
-    /**
-     * @type string,null
-    */
-    previous_cursor?: string | null;
-};
-
-/**
- * @description Raw image response; the HTTP body contains bytes rather than a JSON array.
-*/
-export type AssistantImageBytes = Blob;
-
-export type AssistantProcessingStatus = {
-    /**
-     * @type array
-    */
-    coverage: AssistantHistoryCoverageStatus[];
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    history_generation: number;
-    /**
-     * @minLength 0
-     * @type integer, int32
-    */
-    history_retention_days: number;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    indexed_terms: number;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    observed_at_unix_ms: number;
-    /**
-     * @type boolean
-    */
-    partial: boolean;
-    /**
-     * @minLength 0
-     * @type integer, int64
-    */
-    stored_history_fragments: number;
 };
 
 export const associationGapKindEnum = {
@@ -6935,7 +6935,7 @@ export type VersionInfo = {
  * @description Connection information
 */
 export type ConnectionModel = {
-    ai_assistant_settings?: (null | AiAssistantSettings);
+    ai_agent_settings?: (null | AiAgentSettings);
     /**
      * @description Connection ID
      * @type string
@@ -7189,7 +7189,7 @@ export type CpuInfo = {
     vendor_id: string;
 };
 
-export type CreateAiAssistantWorkbench = {
+export type CreateAiAgentWorkbench = {
     /**
      * @description Stable client-generated id for retrying this creation.
      * @type string
@@ -7252,7 +7252,7 @@ export type CurrentUserDto = {
     user_id?: number | null;
 };
 
-export type DeleteAiAssistantSessionBody = {
+export type DeleteAiAgentSessionBody = {
     /**
      * @type string,null
     */
@@ -7263,7 +7263,7 @@ export type DeleteAiAssistantSessionBody = {
     session: string;
 };
 
-export type DeleteAiAssistantSessionResponse = {
+export type DeleteAiAgentSessionResponse = {
     /**
      * @description Cleanup intent is durable; physical removal awaits a device acknowledgment.
      * @type boolean
@@ -7330,18 +7330,18 @@ export const deskErrorCodeEnum = {
     DEVICE_CLIENT_ID_REQUIRED: 47,
     API_TOKEN_QUOTA_EXCEEDED: 48,
     PLAN_IN_USE: 49,
-    TERMINAL_AI_ASSISTANT_DISABLED: 50,
+    TERMINAL_AI_AGENT_DISABLED: 50,
     AI_MODEL_NOT_CONFIGURED: 51,
     AI_MODEL_NOT_AUTHORIZED: 54,
     PLAN_NO_PRICE: 52,
     PLAN_PRICE_REQUIRED: 53,
     SETTLEMENT_DEBT_OUTSTANDING: 55,
     BILLING_ACCOUNT_NOT_FOUND: 56,
-    AI_ASSISTANT_STEP_LIMIT_EXCEEDED: 57,
-    AI_ASSISTANT_RESPONSE_TRUNCATED: 58,
-    AI_ASSISTANT_PROTOCOL_VIOLATION: 59,
-    AI_ASSISTANT_TURN_BUSY: 60,
-    AI_ASSISTANT_SUBJECT_MISMATCH: 61,
+    AI_AGENT_STEP_LIMIT_EXCEEDED: 57,
+    AI_AGENT_RESPONSE_TRUNCATED: 58,
+    AI_AGENT_PROTOCOL_VIOLATION: 59,
+    AI_AGENT_TURN_BUSY: 60,
+    AI_AGENT_SUBJECT_MISMATCH: 61,
     AGENT_SAME_TOOL_REPEAT_LIMIT: 70,
     AI_EXEC_SHELL_UNSUPPORTED: 71,
     ACCOUNT_PENDING_DELETION: 62,
@@ -7392,7 +7392,7 @@ export const deskErrorCodeEnum = {
     SHARED_STORE_UNAVAILABLE: 109,
     AI_APPROVAL_PROBE_OUTPUT_TRUNCATED: 110,
     AI_CONTEXT_SUMMARY_OUTPUT_TRUNCATED: 111,
-    AI_ASSISTANT_DATA_CHANGED: 112,
+    AI_AGENT_DATA_CHANGED: 112,
     TARGET_CONNECTION_CHANGED: 113,
     SERVICE_RESTARTING: 114,
     ACTION_NEED_RETRY: 1001,
@@ -9825,7 +9825,7 @@ export type MemoryRecord = {
      * @type string
     */
     scope: MemoryScope;
-    source_device?: (null | AssistantSourceDevice);
+    source_device?: (null | AgentSourceDevice);
     /**
      * @type array
     */
@@ -11382,7 +11382,7 @@ export type PolicyView = {
     /**
      * @type object
     */
-    policy: AssistantDataPolicy;
+    policy: AgentDataPolicy;
 };
 
 export type PolicyWriteData = (PolicyView | PolicyAssessment | {
@@ -12028,7 +12028,351 @@ export type RestResponseAccessCodeProtectionSettings = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantAttentionListDto = {
+export type RestResponseAgentApprovalModeView = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type boolean
+        */
+        aiReviewAvailable: boolean;
+        /**
+         * @type string
+        */
+        mode: AgentApprovalMode;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        revision: number;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseAgentDataControlReceipt = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @minLength 0
+         * @type integer, int32
+        */
+        affected_count: number;
+        /**
+         * @type boolean
+        */
+        cleanup_pending: boolean;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        control_generation: number;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        memory_state_generation: number;
+        /**
+         * @type string
+        */
+        operation_id: string;
+        /**
+         * @type string
+        */
+        outcome: DataControlOutcome;
+        /**
+         * @type string
+        */
+        reason: DataControlReason;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseAgentDataSettingsView = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type object
+        */
+        policy: AgentDataPolicy;
+        /**
+         * @type object
+        */
+        settings: AgentDataSettings;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseAgentHistoryConversations = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type array
+        */
+        conversations: AgentHistoryConversation[];
+        /**
+         * @type string,null
+        */
+        next_cursor?: string | null;
+        /**
+         * @type boolean
+        */
+        partial: boolean;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseAgentHistorySearchResult = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type array
+        */
+        fragments: AgentHistoryFragment[];
+        /**
+         * @type string,null
+        */
+        next_cursor?: string | null;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        observed_through_generation: number;
+        /**
+         * @type boolean
+        */
+        partial: boolean;
+        /**
+         * @type array
+        */
+        reasons: string[];
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseAgentHistoryWindow = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        anchor_revision: number;
+        /**
+         * @type string
+        */
+        anchor_source_id: string;
+        /**
+         * @type string
+        */
+        conversation_id: string;
+        /**
+         * @type array
+        */
+        fragments: AgentHistoryFragment[];
+        /**
+         * @type string,null
+        */
+        next_cursor?: string | null;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        observed_through_generation: number;
+        /**
+         * @type boolean
+        */
+        partial: boolean;
+        /**
+         * @type string,null
+        */
+        previous_cursor?: string | null;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseAgentProcessingStatus = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type array
+        */
+        coverage: AgentHistoryCoverageStatus[];
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        history_generation: number;
+        /**
+         * @minLength 0
+         * @type integer, int32
+        */
+        history_retention_days: number;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        indexed_terms: number;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        observed_at_unix_ms: number;
+        /**
+         * @type boolean
+        */
+        partial: boolean;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        stored_history_fragments: number;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseAgentSourceResolution = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type string
+        */
+        availability: SourceAvailability;
+        /**
+         * @type string,null
+        */
+        content?: string | null;
+        locator?: (null | AgentSourceLocator);
+        /**
+         * @type string,null
+        */
+        notice?: string | null;
+        /**
+         * @minLength 0
+         * @type integer,null, int64
+        */
+        recorded_at_unix_ms?: number | null;
+        /**
+         * @minLength 0
+         * @type integer, int64
+        */
+        revision: number;
+        source_device?: (null | AgentSourceDevice);
+        /**
+         * @type string
+        */
+        source_id: string;
+        /**
+         * @type string,null
+        */
+        statement_timezone?: string | null;
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseAiAgentAttentionListDto = {
     /**
      * @type integer, int32
     */
@@ -12044,7 +12388,7 @@ export type RestResponseAiAssistantAttentionListDto = {
         /**
          * @type array
         */
-        items: AiAssistantAttentionItemDto[];
+        items: AiAgentAttentionItemDto[];
         /**
          * @type boolean
         */
@@ -12060,7 +12404,7 @@ export type RestResponseAiAssistantAttentionListDto = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantContextSummaryDto = {
+export type RestResponseAiAgentContextSummaryDto = {
     /**
      * @type integer, int32
     */
@@ -12085,7 +12429,7 @@ export type RestResponseAiAssistantContextSummaryDto = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantDeviceRosterDto = {
+export type RestResponseAiAgentDeviceRosterDto = {
     /**
      * @type integer, int32
     */
@@ -12118,7 +12462,7 @@ export type RestResponseAiAssistantDeviceRosterDto = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantGoalDto = {
+export type RestResponseAiAgentGoalDto = {
     /**
      * @type integer, int32
     */
@@ -12171,7 +12515,7 @@ export type RestResponseAiAssistantGoalDto = {
         /**
          * @type object
         */
-        limits: AiAssistantGoalLimitsDto;
+        limits: AiAgentGoalLimitsDto;
         /**
          * @minLength 0
          * @type integer,null, int64
@@ -12248,7 +12592,7 @@ export type RestResponseAiAssistantGoalDto = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantGoalOpenDecisionDto = {
+export type RestResponseAiAgentGoalOpenDecisionDto = {
     /**
      * @type integer, int32
     */
@@ -12257,7 +12601,7 @@ export type RestResponseAiAssistantGoalOpenDecisionDto = {
      * @type object | undefined
     */
     data?: {
-        goal?: (null | AiAssistantGoalDto);
+        goal?: (null | AiAgentGoalDto);
         /**
          * @type string
         */
@@ -12277,7 +12621,7 @@ export type RestResponseAiAssistantGoalOpenDecisionDto = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantMainRequestResumeDto = {
+export type RestResponseAiAgentMainRequestResumeDto = {
     /**
      * @type integer, int32
     */
@@ -12302,7 +12646,7 @@ export type RestResponseAiAssistantMainRequestResumeDto = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantMainRequestsDto = {
+export type RestResponseAiAgentMainRequestsDto = {
     /**
      * @type integer, int32
     */
@@ -12330,7 +12674,7 @@ export type RestResponseAiAssistantMainRequestsDto = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantSessionListDto = {
+export type RestResponseAiAgentSessionListDto = {
     /**
      * @type integer, int32
     */
@@ -12342,7 +12686,7 @@ export type RestResponseAiAssistantSessionListDto = {
         /**
          * @type array
         */
-        sessions: AiAssistantSessionSummaryDto[];
+        sessions: AiAgentSessionSummaryDto[];
     };
     /**
      * @type string,null
@@ -12354,7 +12698,7 @@ export type RestResponseAiAssistantSessionListDto = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantSessionSnapshotDto = {
+export type RestResponseAiAgentSessionSnapshotDto = {
     /**
      * @type integer, int32
     */
@@ -12426,7 +12770,7 @@ export type RestResponseAiAssistantSessionSnapshotDto = {
          * @type object
         */
         fileScope: FileScopeDto;
-        goal?: (null | AiAssistantGoalDto);
+        goal?: (null | AiAgentGoalDto);
         /**
          * @minLength 0
          * @type integer, int64
@@ -12462,14 +12806,14 @@ export type RestResponseAiAssistantSessionSnapshotDto = {
          * @type array
         */
         messages: SnapshotMessageDto[];
-        pendingGoalOpenRequest?: (null | AiAssistantGoalOpenRequestDto);
+        pendingGoalOpenRequest?: (null | AiAgentGoalOpenRequestDto);
         /**
          * @description Model-proposed, server-normalized requests. Pending is approvable;\nNeedsRevalidation is display-only until the model replaces/reissues it.
          * @type array
         */
         permissionRequests: PermissionRequestDto[];
         /**
-         * @description AI Assistant request currently represented by the persisted turn.
+         * @description AI Agent request currently represented by the persisted turn.
          * @type string,null
         */
         requestId?: string | null;
@@ -12491,7 +12835,7 @@ export type RestResponseAiAssistantSessionSnapshotDto = {
         /**
          * @type object
         */
-        subagents: AiAssistantDelegationSnapshot;
+        subagents: AiAgentDelegationSnapshot;
         taskStatusProjection?: (null | TaskStatusProjectionDto);
         /**
          * @description None until the first owner input freezes this conversation\'s mode.
@@ -12516,7 +12860,7 @@ export type RestResponseAiAssistantSessionSnapshotDto = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantSettings = {
+export type RestResponseAiAgentSettings = {
     /**
      * @type integer, int32
     */
@@ -12527,7 +12871,7 @@ export type RestResponseAiAssistantSettings = {
     */
     data?: {
         /**
-         * @description The one product-level AI Assistant switch. Defaults fail closed.
+         * @description The one product-level AI Agent switch. Defaults fail closed.
          * @type boolean
         */
         enabled: boolean;
@@ -12548,7 +12892,7 @@ export type RestResponseAiAssistantSettings = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantStopResult = {
+export type RestResponseAiAgentStopResult = {
     /**
      * @type integer, int32
     */
@@ -12570,7 +12914,7 @@ export type RestResponseAiAssistantStopResult = {
         /**
          * @type array
         */
-        stopped_subagents: AiAssistantSubAgentSummary[];
+        stopped_subagents: AiAgentSubAgentSummary[];
     };
     /**
      * @type string,null
@@ -12582,7 +12926,7 @@ export type RestResponseAiAssistantStopResult = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantSubAgentPage = {
+export type RestResponseAiAgentSubAgentPage = {
     /**
      * @type integer, int32
     */
@@ -12598,7 +12942,7 @@ export type RestResponseAiAssistantSubAgentPage = {
         /**
          * @type array
         */
-        items: AiAssistantSubAgentSummary[];
+        items: AiAgentSubAgentSummary[];
         /**
          * @type string,null
         */
@@ -12624,7 +12968,7 @@ export type RestResponseAiAssistantSubAgentPage = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantSubAgentResult = {
+export type RestResponseAiAgentSubAgentResult = {
     /**
      * @type integer, int32
     */
@@ -12645,16 +12989,16 @@ export type RestResponseAiAssistantSubAgentResult = {
          * @type string
         */
         objective: string;
-        open_question?: (null | AiAssistantSubAgentQuestion);
+        open_question?: (null | AiAgentSubAgentQuestion);
         report?: (null | TaskFinalReport);
         /**
          * @type object
         */
-        reports: AiAssistantSubAgentReports;
+        reports: AiAgentSubAgentReports;
         /**
          * @type object
         */
-        task: AiAssistantSubAgentSummary;
+        task: AiAgentSubAgentSummary;
     };
     /**
      * @type string,null
@@ -12666,7 +13010,7 @@ export type RestResponseAiAssistantSubAgentResult = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantSubAgentSummary = {
+export type RestResponseAiAgentSubAgentSummary = {
     /**
      * @type integer, int32
     */
@@ -12740,7 +13084,7 @@ export type RestResponseAiAssistantSubAgentSummary = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantWorkbenchTasks = {
+export type RestResponseAiAgentWorkbenchTasks = {
     /**
      * @type integer, int32
     */
@@ -12752,7 +13096,7 @@ export type RestResponseAiAssistantWorkbenchTasks = {
         /**
          * @type array
         */
-        items: AiAssistantWorkbenchTask[];
+        items: AiAgentWorkbenchTask[];
         /**
          * @type string,null
         */
@@ -12768,7 +13112,7 @@ export type RestResponseAiAssistantWorkbenchTasks = {
     success: boolean;
 };
 
-export type RestResponseAiAssistantWorkbenchView = {
+export type RestResponseAiAgentWorkbenchView = {
     /**
      * @type integer, int32
     */
@@ -13206,7 +13550,7 @@ export type RestResponseApprovalReviewDto = {
          * @type string,null
         */
         stop_reason?: string | null;
-        task?: (null | AiAssistantSubAgentSummary);
+        task?: (null | AiAgentSubAgentSummary);
         /**
          * @type array
         */
@@ -13344,350 +13688,6 @@ export type RestResponseApprovalTraceSettings = {
          * @type string
         */
         storage_budget_bytes: string;
-    };
-    /**
-     * @type string,null
-    */
-    message?: string | null;
-    /**
-     * @type boolean
-    */
-    success: boolean;
-};
-
-export type RestResponseAssistantApprovalModeView = {
-    /**
-     * @type integer, int32
-    */
-    code: number;
-    /**
-     * @type object | undefined
-    */
-    data?: {
-        /**
-         * @type boolean
-        */
-        aiReviewAvailable: boolean;
-        /**
-         * @type string
-        */
-        mode: AssistantApprovalMode;
-        /**
-         * @minLength 0
-         * @type integer, int64
-        */
-        revision: number;
-    };
-    /**
-     * @type string,null
-    */
-    message?: string | null;
-    /**
-     * @type boolean
-    */
-    success: boolean;
-};
-
-export type RestResponseAssistantDataControlReceipt = {
-    /**
-     * @type integer, int32
-    */
-    code: number;
-    /**
-     * @type object | undefined
-    */
-    data?: {
-        /**
-         * @minLength 0
-         * @type integer, int32
-        */
-        affected_count: number;
-        /**
-         * @type boolean
-        */
-        cleanup_pending: boolean;
-        /**
-         * @minLength 0
-         * @type integer, int64
-        */
-        control_generation: number;
-        /**
-         * @minLength 0
-         * @type integer, int64
-        */
-        memory_state_generation: number;
-        /**
-         * @type string
-        */
-        operation_id: string;
-        /**
-         * @type string
-        */
-        outcome: DataControlOutcome;
-        /**
-         * @type string
-        */
-        reason: DataControlReason;
-    };
-    /**
-     * @type string,null
-    */
-    message?: string | null;
-    /**
-     * @type boolean
-    */
-    success: boolean;
-};
-
-export type RestResponseAssistantDataSettingsView = {
-    /**
-     * @type integer, int32
-    */
-    code: number;
-    /**
-     * @type object | undefined
-    */
-    data?: {
-        /**
-         * @type object
-        */
-        policy: AssistantDataPolicy;
-        /**
-         * @type object
-        */
-        settings: AssistantDataSettings;
-    };
-    /**
-     * @type string,null
-    */
-    message?: string | null;
-    /**
-     * @type boolean
-    */
-    success: boolean;
-};
-
-export type RestResponseAssistantHistoryConversations = {
-    /**
-     * @type integer, int32
-    */
-    code: number;
-    /**
-     * @type object | undefined
-    */
-    data?: {
-        /**
-         * @type array
-        */
-        conversations: AssistantHistoryConversation[];
-        /**
-         * @type string,null
-        */
-        next_cursor?: string | null;
-        /**
-         * @type boolean
-        */
-        partial: boolean;
-    };
-    /**
-     * @type string,null
-    */
-    message?: string | null;
-    /**
-     * @type boolean
-    */
-    success: boolean;
-};
-
-export type RestResponseAssistantHistorySearchResult = {
-    /**
-     * @type integer, int32
-    */
-    code: number;
-    /**
-     * @type object | undefined
-    */
-    data?: {
-        /**
-         * @type array
-        */
-        fragments: AssistantHistoryFragment[];
-        /**
-         * @type string,null
-        */
-        next_cursor?: string | null;
-        /**
-         * @minLength 0
-         * @type integer, int64
-        */
-        observed_through_generation: number;
-        /**
-         * @type boolean
-        */
-        partial: boolean;
-        /**
-         * @type array
-        */
-        reasons: string[];
-    };
-    /**
-     * @type string,null
-    */
-    message?: string | null;
-    /**
-     * @type boolean
-    */
-    success: boolean;
-};
-
-export type RestResponseAssistantHistoryWindow = {
-    /**
-     * @type integer, int32
-    */
-    code: number;
-    /**
-     * @type object | undefined
-    */
-    data?: {
-        /**
-         * @minLength 0
-         * @type integer, int64
-        */
-        anchor_revision: number;
-        /**
-         * @type string
-        */
-        anchor_source_id: string;
-        /**
-         * @type string
-        */
-        conversation_id: string;
-        /**
-         * @type array
-        */
-        fragments: AssistantHistoryFragment[];
-        /**
-         * @type string,null
-        */
-        next_cursor?: string | null;
-        /**
-         * @minLength 0
-         * @type integer, int64
-        */
-        observed_through_generation: number;
-        /**
-         * @type boolean
-        */
-        partial: boolean;
-        /**
-         * @type string,null
-        */
-        previous_cursor?: string | null;
-    };
-    /**
-     * @type string,null
-    */
-    message?: string | null;
-    /**
-     * @type boolean
-    */
-    success: boolean;
-};
-
-export type RestResponseAssistantProcessingStatus = {
-    /**
-     * @type integer, int32
-    */
-    code: number;
-    /**
-     * @type object | undefined
-    */
-    data?: {
-        /**
-         * @type array
-        */
-        coverage: AssistantHistoryCoverageStatus[];
-        /**
-         * @minLength 0
-         * @type integer, int64
-        */
-        history_generation: number;
-        /**
-         * @minLength 0
-         * @type integer, int32
-        */
-        history_retention_days: number;
-        /**
-         * @minLength 0
-         * @type integer, int64
-        */
-        indexed_terms: number;
-        /**
-         * @minLength 0
-         * @type integer, int64
-        */
-        observed_at_unix_ms: number;
-        /**
-         * @type boolean
-        */
-        partial: boolean;
-        /**
-         * @minLength 0
-         * @type integer, int64
-        */
-        stored_history_fragments: number;
-    };
-    /**
-     * @type string,null
-    */
-    message?: string | null;
-    /**
-     * @type boolean
-    */
-    success: boolean;
-};
-
-export type RestResponseAssistantSourceResolution = {
-    /**
-     * @type integer, int32
-    */
-    code: number;
-    /**
-     * @type object | undefined
-    */
-    data?: {
-        /**
-         * @type string
-        */
-        availability: SourceAvailability;
-        /**
-         * @type string,null
-        */
-        content?: string | null;
-        locator?: (null | AssistantSourceLocator);
-        /**
-         * @type string,null
-        */
-        notice?: string | null;
-        /**
-         * @minLength 0
-         * @type integer,null, int64
-        */
-        recorded_at_unix_ms?: number | null;
-        /**
-         * @minLength 0
-         * @type integer, int64
-        */
-        revision: number;
-        source_device?: (null | AssistantSourceDevice);
-        /**
-         * @type string
-        */
-        source_id: string;
-        /**
-         * @type string,null
-        */
-        statement_timezone?: string | null;
     };
     /**
      * @type string,null
@@ -14242,7 +14242,7 @@ export type RestResponseConnectionModel = {
      * @type object | undefined
     */
     data?: {
-        ai_assistant_settings?: (null | AiAssistantSettings);
+        ai_agent_settings?: (null | AiAgentSettings);
         /**
          * @description Connection ID
          * @type string
@@ -14460,7 +14460,7 @@ export type RestResponseCurrentUserDto = {
     success: boolean;
 };
 
-export type RestResponseDeleteAiAssistantSessionResponse = {
+export type RestResponseDeleteAiAgentSessionResponse = {
     /**
      * @type integer, int32
     */
@@ -15895,7 +15895,7 @@ export type RestResponsePolicyView = {
         /**
          * @type object
         */
-        policy: AssistantDataPolicy;
+        policy: AgentDataPolicy;
     };
     /**
      * @type string,null
@@ -16310,7 +16310,7 @@ export type RestResponseServerInfo = {
      * @type object | undefined
     */
     data?: {
-        ai_assistant?: (null | AiAssistantClientCapabilities);
+        ai_agent?: (null | AiAgentClientCapabilities);
         /**
          * @description Current API version supported by the server
          * @type integer, int32
@@ -17687,7 +17687,7 @@ export type RestResponseUserInstructions = {
     success: boolean;
 };
 
-export type RestResponseVecAiAssistantWorkbenchView = {
+export type RestResponseVecAiAgentWorkbenchView = {
     /**
      * @type integer, int32
     */
@@ -17728,7 +17728,7 @@ export type RestResponseVecConnectionModel = {
      * @type array | undefined
     */
     data?: {
-        ai_assistant_settings?: (null | AiAssistantSettings);
+        ai_agent_settings?: (null | AiAgentSettings);
         /**
          * @description Connection ID
          * @type string
@@ -19572,7 +19572,7 @@ export type SecurityApprovalSubmitParams = {
  * @description Server information
 */
 export type ServerInfo = {
-    ai_assistant?: (null | AiAssistantClientCapabilities);
+    ai_agent?: (null | AiAgentClientCapabilities);
     /**
      * @description Current API version supported by the server
      * @type integer, int32
@@ -19656,7 +19656,7 @@ export type SessionTargetDescriptor = {
     /**
      * @type boolean
     */
-    assistant_ready: boolean;
+    agent_ready: boolean;
     /**
      * @type string
     */
@@ -20302,7 +20302,7 @@ export type TerminalList = {
 };
 
 export type TerminalOutputData = {
-    assistant_object_ref?: (null | ObjectRef);
+    agent_object_ref?: (null | ObjectRef);
     /**
      * @type string
     */
@@ -20462,7 +20462,7 @@ export type UpdateAccessCodeProtectionSettings = {
     policy: AccessCodeProtectionPolicy;
 };
 
-export type UpdateAssistantApprovalMode = {
+export type UpdateAgentApprovalMode = {
     /**
      * @minLength 0
      * @type integer, int64
@@ -20471,7 +20471,7 @@ export type UpdateAssistantApprovalMode = {
     /**
      * @type string
     */
-    mode: AssistantApprovalMode;
+    mode: AgentApprovalMode;
     /**
      * @type string,null
     */
@@ -20818,48 +20818,6 @@ export type UpdateAccessCodeProtectionMutation = {
     Errors: any;
 };
 
-export type GetAssistantDataPolicy200 = RestResponsePolicyView;
-
-export type GetAssistantDataPolicyQueryResponse = GetAssistantDataPolicy200;
-
-export type GetAssistantDataPolicyQuery = {
-    Response: GetAssistantDataPolicy200;
-    Errors: any;
-};
-
-export type UpdateAssistantDataPolicy200 = RestResponsePolicyWriteData;
-
-export type UpdateAssistantDataPolicyMutationRequest = AssistantDataPolicyUpdate;
-
-export type UpdateAssistantDataPolicyMutationResponse = UpdateAssistantDataPolicy200;
-
-export type UpdateAssistantDataPolicyMutation = {
-    Response: UpdateAssistantDataPolicy200;
-    Request: UpdateAssistantDataPolicyMutationRequest;
-    Errors: any;
-};
-
-export type GetContextManagement200 = RestResponseContextManagementDto;
-
-export type GetContextManagementQueryResponse = GetContextManagement200;
-
-export type GetContextManagementQuery = {
-    Response: GetContextManagement200;
-    Errors: any;
-};
-
-export type UpdateContextManagement200 = RestResponseContextManagementDto;
-
-export type UpdateContextManagementMutationRequest = UpdateContextManagementRequest;
-
-export type UpdateContextManagementMutationResponse = UpdateContextManagement200;
-
-export type UpdateContextManagementMutation = {
-    Response: UpdateContextManagement200;
-    Request: UpdateContextManagementMutationRequest;
-    Errors: any;
-};
-
 export type ListBundledSkills200 = RestResponseBundledSkillList;
 
 export type ListBundledSkillsQueryResponse = ListBundledSkills200;
@@ -21033,6 +20991,48 @@ export type GetPlatformSkillVersionQueryResponse = GetPlatformSkillVersion200;
 export type GetPlatformSkillVersionQuery = {
     Response: GetPlatformSkillVersion200;
     PathParams: GetPlatformSkillVersionPathParams;
+    Errors: any;
+};
+
+export type GetAgentDataPolicy200 = RestResponsePolicyView;
+
+export type GetAgentDataPolicyQueryResponse = GetAgentDataPolicy200;
+
+export type GetAgentDataPolicyQuery = {
+    Response: GetAgentDataPolicy200;
+    Errors: any;
+};
+
+export type UpdateAgentDataPolicy200 = RestResponsePolicyWriteData;
+
+export type UpdateAgentDataPolicyMutationRequest = AgentDataPolicyUpdate;
+
+export type UpdateAgentDataPolicyMutationResponse = UpdateAgentDataPolicy200;
+
+export type UpdateAgentDataPolicyMutation = {
+    Response: UpdateAgentDataPolicy200;
+    Request: UpdateAgentDataPolicyMutationRequest;
+    Errors: any;
+};
+
+export type GetContextManagement200 = RestResponseContextManagementDto;
+
+export type GetContextManagementQueryResponse = GetContextManagement200;
+
+export type GetContextManagementQuery = {
+    Response: GetContextManagement200;
+    Errors: any;
+};
+
+export type UpdateContextManagement200 = RestResponseContextManagementDto;
+
+export type UpdateContextManagementMutationRequest = UpdateContextManagementRequest;
+
+export type UpdateContextManagementMutationResponse = UpdateContextManagement200;
+
+export type UpdateContextManagementMutation = {
+    Response: UpdateContextManagement200;
+    Request: UpdateContextManagementMutationRequest;
     Errors: any;
 };
 
@@ -21757,27 +21757,27 @@ export type UpdateSettingsMutation = {
 /**
  * @description Current device-owned switch and revision
 */
-export type QueryAiAssistantSettings200 = RestResponseAiAssistantSettings;
+export type QueryAiAgentSettings200 = RestResponseAiAgentSettings;
 
-export type QueryAiAssistantSettingsQueryResponse = QueryAiAssistantSettings200;
+export type QueryAiAgentSettingsQueryResponse = QueryAiAgentSettings200;
 
-export type QueryAiAssistantSettingsQuery = {
-    Response: QueryAiAssistantSettings200;
+export type QueryAiAgentSettingsQuery = {
+    Response: QueryAiAgentSettings200;
     Errors: any;
 };
 
 /**
  * @description Updated snapshot, or REVISION_CONFLICT carrying the current snapshot
 */
-export type UpdateAiAssistantSettings200 = RestResponseAiAssistantSettings;
+export type UpdateAiAgentSettings200 = RestResponseAiAgentSettings;
 
-export type UpdateAiAssistantSettingsMutationRequest = AiAssistantSettingsUpdate;
+export type UpdateAiAgentSettingsMutationRequest = AiAgentSettingsUpdate;
 
-export type UpdateAiAssistantSettingsMutationResponse = UpdateAiAssistantSettings200;
+export type UpdateAiAgentSettingsMutationResponse = UpdateAiAgentSettings200;
 
-export type UpdateAiAssistantSettingsMutation = {
-    Response: UpdateAiAssistantSettings200;
-    Request: UpdateAiAssistantSettingsMutationRequest;
+export type UpdateAiAgentSettingsMutation = {
+    Response: UpdateAiAgentSettings200;
+    Request: UpdateAiAgentSettingsMutationRequest;
     Errors: any;
 };
 
@@ -22084,11 +22084,11 @@ export type OpenSignalingHandleQueryParams = {
      * @minLength 0
      * @type integer | undefined, int64
     */
-    ai_assistant_revision?: number;
+    ai_agent_revision?: number;
     /**
      * @type boolean | undefined
     */
-    ai_assistant_enabled?: boolean;
+    ai_agent_enabled?: boolean;
     /**
      * @description Node credential, accepted only for Server role; omit for Cookie-authenticated browsers
      * @type string | undefined
@@ -23263,7 +23263,7 @@ export type GetModelUsageQuery = {
     Errors: any;
 };
 
-export type ListAiAssistantAttentionQueryParams = {
+export type ListAiAgentAttentionQueryParams = {
     /**
      * @description Rows to skip
      * @minLength 0
@@ -23278,17 +23278,17 @@ export type ListAiAssistantAttentionQueryParams = {
     limit?: number;
 };
 
-export type ListAiAssistantAttention200 = RestResponseAiAssistantAttentionListDto;
+export type ListAiAgentAttention200 = RestResponseAiAgentAttentionListDto;
 
-export type ListAiAssistantAttentionQueryResponse = ListAiAssistantAttention200;
+export type ListAiAgentAttentionQueryResponse = ListAiAgentAttention200;
 
-export type ListAiAssistantAttentionQuery = {
-    Response: ListAiAssistantAttention200;
-    QueryParams: ListAiAssistantAttentionQueryParams;
+export type ListAiAgentAttentionQuery = {
+    Response: ListAiAgentAttention200;
+    QueryParams: ListAiAgentAttentionQueryParams;
     Errors: any;
 };
 
-export type ListRetainedAssistantConversationsQueryParams = {
+export type ListRetainedAgentConversationsQueryParams = {
     /**
      * @minLength 0
      * @type integer | undefined, int32
@@ -23300,29 +23300,29 @@ export type ListRetainedAssistantConversationsQueryParams = {
     cursor?: string;
 };
 
-export type ListRetainedAssistantConversations200 = RestResponseAssistantHistoryConversations;
+export type ListRetainedAgentConversations200 = RestResponseAgentHistoryConversations;
 
-export type ListRetainedAssistantConversationsQueryResponse = ListRetainedAssistantConversations200;
+export type ListRetainedAgentConversationsQueryResponse = ListRetainedAgentConversations200;
 
-export type ListRetainedAssistantConversationsQuery = {
-    Response: ListRetainedAssistantConversations200;
-    QueryParams: ListRetainedAssistantConversationsQueryParams;
+export type ListRetainedAgentConversationsQuery = {
+    Response: ListRetainedAgentConversations200;
+    QueryParams: ListRetainedAgentConversationsQueryParams;
     Errors: any;
 };
 
-export type SearchAssistantHistory200 = RestResponseAssistantHistorySearchResult;
+export type SearchAgentHistory200 = RestResponseAgentHistorySearchResult;
 
-export type SearchAssistantHistoryMutationRequest = AssistantHistorySearchRequest;
+export type SearchAgentHistoryMutationRequest = AgentHistorySearchRequest;
 
-export type SearchAssistantHistoryMutationResponse = SearchAssistantHistory200;
+export type SearchAgentHistoryMutationResponse = SearchAgentHistory200;
 
-export type SearchAssistantHistoryMutation = {
-    Response: SearchAssistantHistory200;
-    Request: SearchAssistantHistoryMutationRequest;
+export type SearchAgentHistoryMutation = {
+    Response: SearchAgentHistory200;
+    Request: SearchAgentHistoryMutationRequest;
     Errors: any;
 };
 
-export type GetAssistantHistoryWindowQueryParams = {
+export type GetAgentHistoryWindowQueryParams = {
     /**
      * @type string
     */
@@ -23342,17 +23342,17 @@ export type GetAssistantHistoryWindowQueryParams = {
     cursor?: string;
 };
 
-export type GetAssistantHistoryWindow200 = RestResponseAssistantHistoryWindow;
+export type GetAgentHistoryWindow200 = RestResponseAgentHistoryWindow;
 
-export type GetAssistantHistoryWindowQueryResponse = GetAssistantHistoryWindow200;
+export type GetAgentHistoryWindowQueryResponse = GetAgentHistoryWindow200;
 
-export type GetAssistantHistoryWindowQuery = {
-    Response: GetAssistantHistoryWindow200;
-    QueryParams: GetAssistantHistoryWindowQueryParams;
+export type GetAgentHistoryWindowQuery = {
+    Response: GetAgentHistoryWindow200;
+    QueryParams: GetAgentHistoryWindowQueryParams;
     Errors: any;
 };
 
-export type GetAssistantMemoriesQueryParams = {
+export type GetAgentMemoriesQueryParams = {
     /**
      * @minLength 0
      * @type integer | undefined, int32
@@ -23382,50 +23382,50 @@ export type GetAssistantMemoriesQueryParams = {
     control_generation?: number;
 };
 
-export type GetAssistantMemories200 = RestResponseMemoryListResult;
+export type GetAgentMemories200 = RestResponseMemoryListResult;
 
-export type GetAssistantMemoriesQueryResponse = GetAssistantMemories200;
+export type GetAgentMemoriesQueryResponse = GetAgentMemories200;
 
-export type GetAssistantMemoriesQuery = {
-    Response: GetAssistantMemories200;
-    QueryParams: GetAssistantMemoriesQueryParams;
+export type GetAgentMemoriesQuery = {
+    Response: GetAgentMemories200;
+    QueryParams: GetAgentMemoriesQueryParams;
     Errors: any;
 };
 
-export type ClearAssistantMemories200 = RestResponseAssistantDataControlReceipt;
+export type ClearAgentMemories200 = RestResponseAgentDataControlReceipt;
 
-export type ClearAssistantMemoriesMutationRequest = MemoryClearRequest;
+export type ClearAgentMemoriesMutationRequest = MemoryClearRequest;
 
-export type ClearAssistantMemoriesMutationResponse = ClearAssistantMemories200;
+export type ClearAgentMemoriesMutationResponse = ClearAgentMemories200;
 
-export type ClearAssistantMemoriesMutation = {
-    Response: ClearAssistantMemories200;
-    Request: ClearAssistantMemoriesMutationRequest;
+export type ClearAgentMemoriesMutation = {
+    Response: ClearAgentMemories200;
+    Request: ClearAgentMemoriesMutationRequest;
     Errors: any;
 };
 
-export type DeleteAssistantMemory200 = RestResponseAssistantDataControlReceipt;
+export type DeleteAgentMemory200 = RestResponseAgentDataControlReceipt;
 
-export type DeleteAssistantMemoryMutationRequest = MemoryDeleteRequest;
+export type DeleteAgentMemoryMutationRequest = MemoryDeleteRequest;
 
-export type DeleteAssistantMemoryMutationResponse = DeleteAssistantMemory200;
+export type DeleteAgentMemoryMutationResponse = DeleteAgentMemory200;
 
-export type DeleteAssistantMemoryMutation = {
-    Response: DeleteAssistantMemory200;
-    Request: DeleteAssistantMemoryMutationRequest;
+export type DeleteAgentMemoryMutation = {
+    Response: DeleteAgentMemory200;
+    Request: DeleteAgentMemoryMutationRequest;
     Errors: any;
 };
 
-export type GetAssistantProcessing200 = RestResponseAssistantProcessingStatus;
+export type GetAgentProcessing200 = RestResponseAgentProcessingStatus;
 
-export type GetAssistantProcessingQueryResponse = GetAssistantProcessing200;
+export type GetAgentProcessingQueryResponse = GetAgentProcessing200;
 
-export type GetAssistantProcessingQuery = {
-    Response: GetAssistantProcessing200;
+export type GetAgentProcessingQuery = {
+    Response: GetAgentProcessing200;
     Errors: any;
 };
 
-export type GetAiAssistantSessionQueryParams = {
+export type GetAiAgentSessionQueryParams = {
     /**
      * @description Target connection id
      * @type string | undefined
@@ -23472,66 +23472,66 @@ export type GetAiAssistantSessionQueryParams = {
 /**
  * @description Conversation snapshot, or a uniform not-found/not-accessible response
 */
-export type GetAiAssistantSession200 = RestResponseAiAssistantSessionSnapshotDto;
+export type GetAiAgentSession200 = RestResponseAiAgentSessionSnapshotDto;
 
-export type GetAiAssistantSessionQueryResponse = GetAiAssistantSession200;
+export type GetAiAgentSessionQueryResponse = GetAiAgentSession200;
 
-export type GetAiAssistantSessionQuery = {
-    Response: GetAiAssistantSession200;
-    QueryParams: GetAiAssistantSessionQueryParams;
+export type GetAiAgentSessionQuery = {
+    Response: GetAiAgentSession200;
+    QueryParams: GetAiAgentSessionQueryParams;
     Errors: any;
 };
 
-export type CloseAiAssistantApprovalDelegation200 = RestResponseApprovalDelegationDto;
+export type CloseAiAgentApprovalDelegation200 = RestResponseApprovalDelegationDto;
 
-export type CloseAiAssistantApprovalDelegationMutationRequest = ApprovalDelegationCloseBody;
+export type CloseAiAgentApprovalDelegationMutationRequest = ApprovalDelegationCloseBody;
 
-export type CloseAiAssistantApprovalDelegationMutationResponse = CloseAiAssistantApprovalDelegation200;
+export type CloseAiAgentApprovalDelegationMutationResponse = CloseAiAgentApprovalDelegation200;
 
-export type CloseAiAssistantApprovalDelegationMutation = {
-    Response: CloseAiAssistantApprovalDelegation200;
-    Request: CloseAiAssistantApprovalDelegationMutationRequest;
+export type CloseAiAgentApprovalDelegationMutation = {
+    Response: CloseAiAgentApprovalDelegation200;
+    Request: CloseAiAgentApprovalDelegationMutationRequest;
     Errors: any;
 };
 
-export type OpenAiAssistantApprovalDelegation200 = RestResponseApprovalDelegationDto;
+export type OpenAiAgentApprovalDelegation200 = RestResponseApprovalDelegationDto;
 
-export type OpenAiAssistantApprovalDelegationMutationRequest = ApprovalDelegationOpenBody;
+export type OpenAiAgentApprovalDelegationMutationRequest = ApprovalDelegationOpenBody;
 
-export type OpenAiAssistantApprovalDelegationMutationResponse = OpenAiAssistantApprovalDelegation200;
+export type OpenAiAgentApprovalDelegationMutationResponse = OpenAiAgentApprovalDelegation200;
 
-export type OpenAiAssistantApprovalDelegationMutation = {
-    Response: OpenAiAssistantApprovalDelegation200;
-    Request: OpenAiAssistantApprovalDelegationMutationRequest;
+export type OpenAiAgentApprovalDelegationMutation = {
+    Response: OpenAiAgentApprovalDelegation200;
+    Request: OpenAiAgentApprovalDelegationMutationRequest;
     Errors: any;
 };
 
-export type GetAiAssistantApprovalModeQueryParams = {
+export type GetAiAgentApprovalModeQueryParams = {
     /**
      * @type string
     */
     session: string;
 };
 
-export type GetAiAssistantApprovalMode200 = RestResponseAssistantApprovalModeView;
+export type GetAiAgentApprovalMode200 = RestResponseAgentApprovalModeView;
 
-export type GetAiAssistantApprovalModeQueryResponse = GetAiAssistantApprovalMode200;
+export type GetAiAgentApprovalModeQueryResponse = GetAiAgentApprovalMode200;
 
-export type GetAiAssistantApprovalModeQuery = {
-    Response: GetAiAssistantApprovalMode200;
-    QueryParams: GetAiAssistantApprovalModeQueryParams;
+export type GetAiAgentApprovalModeQuery = {
+    Response: GetAiAgentApprovalMode200;
+    QueryParams: GetAiAgentApprovalModeQueryParams;
     Errors: any;
 };
 
-export type UpdateAiAssistantApprovalMode200 = RestResponseAssistantApprovalModeView;
+export type UpdateAiAgentApprovalMode200 = RestResponseAgentApprovalModeView;
 
-export type UpdateAiAssistantApprovalModeMutationRequest = UpdateAssistantApprovalMode;
+export type UpdateAiAgentApprovalModeMutationRequest = UpdateAgentApprovalMode;
 
-export type UpdateAiAssistantApprovalModeMutationResponse = UpdateAiAssistantApprovalMode200;
+export type UpdateAiAgentApprovalModeMutationResponse = UpdateAiAgentApprovalMode200;
 
-export type UpdateAiAssistantApprovalModeMutation = {
-    Response: UpdateAiAssistantApprovalMode200;
-    Request: UpdateAiAssistantApprovalModeMutationRequest;
+export type UpdateAiAgentApprovalModeMutation = {
+    Response: UpdateAiAgentApprovalMode200;
+    Request: UpdateAiAgentApprovalModeMutationRequest;
     Errors: any;
 };
 
@@ -23616,7 +23616,7 @@ export type ListApprovalReviewsQuery = {
     Errors: any;
 };
 
-export type GetAssistantAttachmentQueryParams = {
+export type GetAgentAttachmentQueryParams = {
     /**
      * @type string
     */
@@ -23630,29 +23630,29 @@ export type GetAssistantAttachmentQueryParams = {
 /**
  * @description Attachment bytes or a JSON business error
 */
-export type GetAssistantAttachment200 = AttachmentBytes;
+export type GetAgentAttachment200 = AttachmentBytes;
 
-export type GetAssistantAttachmentQueryResponse = GetAssistantAttachment200;
+export type GetAgentAttachmentQueryResponse = GetAgentAttachment200;
 
-export type GetAssistantAttachmentQuery = {
-    Response: GetAssistantAttachment200;
-    QueryParams: GetAssistantAttachmentQueryParams;
+export type GetAgentAttachmentQuery = {
+    Response: GetAgentAttachment200;
+    QueryParams: GetAgentAttachmentQueryParams;
     Errors: any;
 };
 
-export type ReadAssistantAttachment200 = RestResponseAttachmentPageDto;
+export type ReadAgentAttachment200 = RestResponseAttachmentPageDto;
 
-export type ReadAssistantAttachmentMutationRequest = ReadAttachment;
+export type ReadAgentAttachmentMutationRequest = ReadAttachment;
 
-export type ReadAssistantAttachmentMutationResponse = ReadAssistantAttachment200;
+export type ReadAgentAttachmentMutationResponse = ReadAgentAttachment200;
 
-export type ReadAssistantAttachmentMutation = {
-    Response: ReadAssistantAttachment200;
-    Request: ReadAssistantAttachmentMutationRequest;
+export type ReadAgentAttachmentMutation = {
+    Response: ReadAgentAttachment200;
+    Request: ReadAgentAttachmentMutationRequest;
     Errors: any;
 };
 
-export type ListAssistantAttachmentsQueryParams = {
+export type ListAgentAttachmentsQueryParams = {
     /**
      * @type string
     */
@@ -23663,71 +23663,71 @@ export type ListAssistantAttachmentsQueryParams = {
     before?: string;
 };
 
-export type ListAssistantAttachments200 = RestResponseAttachmentListDto;
+export type ListAgentAttachments200 = RestResponseAttachmentListDto;
 
-export type ListAssistantAttachmentsQueryResponse = ListAssistantAttachments200;
+export type ListAgentAttachmentsQueryResponse = ListAgentAttachments200;
 
-export type ListAssistantAttachmentsQuery = {
-    Response: ListAssistantAttachments200;
-    QueryParams: ListAssistantAttachmentsQueryParams;
+export type ListAgentAttachmentsQuery = {
+    Response: ListAgentAttachments200;
+    QueryParams: ListAgentAttachmentsQueryParams;
     Errors: any;
 };
 
-export type DeleteAssistantAttachments200 = RestResponseBool;
+export type DeleteAgentAttachments200 = RestResponseBool;
 
-export type DeleteAssistantAttachmentsMutationRequest = DeleteAttachments;
+export type DeleteAgentAttachmentsMutationRequest = DeleteAttachments;
 
-export type DeleteAssistantAttachmentsMutationResponse = DeleteAssistantAttachments200;
+export type DeleteAgentAttachmentsMutationResponse = DeleteAgentAttachments200;
 
-export type DeleteAssistantAttachmentsMutation = {
-    Response: DeleteAssistantAttachments200;
-    Request: DeleteAssistantAttachmentsMutationRequest;
+export type DeleteAgentAttachmentsMutation = {
+    Response: DeleteAgentAttachments200;
+    Request: DeleteAgentAttachmentsMutationRequest;
     Errors: any;
 };
 
 /**
  * @description Durable cancellation intent; Provider delivery is asynchronous
 */
-export type CancelAiAssistantBackgroundTask200 = RestResponseBackgroundTaskDto;
+export type CancelAiAgentBackgroundTask200 = RestResponseBackgroundTaskDto;
 
-export type CancelAiAssistantBackgroundTaskMutationRequest = BackgroundCancelBody;
+export type CancelAiAgentBackgroundTaskMutationRequest = BackgroundCancelBody;
 
-export type CancelAiAssistantBackgroundTaskMutationResponse = CancelAiAssistantBackgroundTask200;
+export type CancelAiAgentBackgroundTaskMutationResponse = CancelAiAgentBackgroundTask200;
 
-export type CancelAiAssistantBackgroundTaskMutation = {
-    Response: CancelAiAssistantBackgroundTask200;
-    Request: CancelAiAssistantBackgroundTaskMutationRequest;
+export type CancelAiAgentBackgroundTaskMutation = {
+    Response: CancelAiAgentBackgroundTask200;
+    Request: CancelAiAgentBackgroundTaskMutationRequest;
     Errors: any;
 };
 
 /**
  * @description Revoked grant metadata; no work is dispatched
 */
-export type RevokeAiAssistantCapabilityGrant200 = RestResponseCapabilityGrantDto;
+export type RevokeAiAgentCapabilityGrant200 = RestResponseCapabilityGrantDto;
 
-export type RevokeAiAssistantCapabilityGrantMutationRequest = CapabilityGrantRevokeBody;
+export type RevokeAiAgentCapabilityGrantMutationRequest = CapabilityGrantRevokeBody;
 
-export type RevokeAiAssistantCapabilityGrantMutationResponse = RevokeAiAssistantCapabilityGrant200;
+export type RevokeAiAgentCapabilityGrantMutationResponse = RevokeAiAgentCapabilityGrant200;
 
-export type RevokeAiAssistantCapabilityGrantMutation = {
-    Response: RevokeAiAssistantCapabilityGrant200;
-    Request: RevokeAiAssistantCapabilityGrantMutationRequest;
+export type RevokeAiAgentCapabilityGrantMutation = {
+    Response: RevokeAiAgentCapabilityGrant200;
+    Request: RevokeAiAgentCapabilityGrantMutationRequest;
     Errors: any;
 };
 
-export type CancelAiAssistantCommand200 = RestResponseBool;
+export type CancelAiAgentCommand200 = RestResponseBool;
 
-export type CancelAiAssistantCommandMutationRequest = AiAssistantCommandCancelBody;
+export type CancelAiAgentCommandMutationRequest = AiAgentCommandCancelBody;
 
-export type CancelAiAssistantCommandMutationResponse = CancelAiAssistantCommand200;
+export type CancelAiAgentCommandMutationResponse = CancelAiAgentCommand200;
 
-export type CancelAiAssistantCommandMutation = {
-    Response: CancelAiAssistantCommand200;
-    Request: CancelAiAssistantCommandMutationRequest;
+export type CancelAiAgentCommandMutation = {
+    Response: CancelAiAgentCommand200;
+    Request: CancelAiAgentCommandMutationRequest;
     Errors: any;
 };
 
-export type GetAiAssistantContextSummaryQueryParams = {
+export type GetAiAgentContextSummaryQueryParams = {
     /**
      * @description Opaque session id from the snapshot
      * @type string
@@ -23749,29 +23749,29 @@ export type GetAiAssistantContextSummaryQueryParams = {
 /**
  * @description Summary state, or a uniform not-found/not-accessible response
 */
-export type GetAiAssistantContextSummary200 = RestResponseAiAssistantContextSummaryDto;
+export type GetAiAgentContextSummary200 = RestResponseAiAgentContextSummaryDto;
 
-export type GetAiAssistantContextSummaryQueryResponse = GetAiAssistantContextSummary200;
+export type GetAiAgentContextSummaryQueryResponse = GetAiAgentContextSummary200;
 
-export type GetAiAssistantContextSummaryQuery = {
-    Response: GetAiAssistantContextSummary200;
-    QueryParams: GetAiAssistantContextSummaryQueryParams;
+export type GetAiAgentContextSummaryQuery = {
+    Response: GetAiAgentContextSummary200;
+    QueryParams: GetAiAgentContextSummaryQueryParams;
     Errors: any;
 };
 
-export type DeleteAiAssistantSession200 = RestResponseDeleteAiAssistantSessionResponse;
+export type DeleteAiAgentSession200 = RestResponseDeleteAiAgentSessionResponse;
 
-export type DeleteAiAssistantSessionMutationRequest = DeleteAiAssistantSessionBody;
+export type DeleteAiAgentSessionMutationRequest = DeleteAiAgentSessionBody;
 
-export type DeleteAiAssistantSessionMutationResponse = DeleteAiAssistantSession200;
+export type DeleteAiAgentSessionMutationResponse = DeleteAiAgentSession200;
 
-export type DeleteAiAssistantSessionMutation = {
-    Response: DeleteAiAssistantSession200;
-    Request: DeleteAiAssistantSessionMutationRequest;
+export type DeleteAiAgentSessionMutation = {
+    Response: DeleteAiAgentSession200;
+    Request: DeleteAiAgentSessionMutationRequest;
     Errors: any;
 };
 
-export type GetAiAssistantDeviceRosterQueryParams = {
+export type GetAiAgentDeviceRosterQueryParams = {
     /**
      * @description Personal conversation intent
      * @type string
@@ -23779,37 +23779,37 @@ export type GetAiAssistantDeviceRosterQueryParams = {
     conversation: string;
 };
 
-export type GetAiAssistantDeviceRoster200 = RestResponseAiAssistantDeviceRosterDto;
+export type GetAiAgentDeviceRoster200 = RestResponseAiAgentDeviceRosterDto;
 
-export type GetAiAssistantDeviceRosterQueryResponse = GetAiAssistantDeviceRoster200;
+export type GetAiAgentDeviceRosterQueryResponse = GetAiAgentDeviceRoster200;
 
-export type GetAiAssistantDeviceRosterQuery = {
-    Response: GetAiAssistantDeviceRoster200;
-    QueryParams: GetAiAssistantDeviceRosterQueryParams;
+export type GetAiAgentDeviceRosterQuery = {
+    Response: GetAiAgentDeviceRoster200;
+    QueryParams: GetAiAgentDeviceRosterQueryParams;
     Errors: any;
 };
 
-export type UpdateAiAssistantDeviceRoster200 = RestResponseAiAssistantDeviceRosterDto;
+export type UpdateAiAgentDeviceRoster200 = RestResponseAiAgentDeviceRosterDto;
 
-export type UpdateAiAssistantDeviceRosterMutationRequest = AiAssistantDeviceRosterBody;
+export type UpdateAiAgentDeviceRosterMutationRequest = AiAgentDeviceRosterBody;
 
-export type UpdateAiAssistantDeviceRosterMutationResponse = UpdateAiAssistantDeviceRoster200;
+export type UpdateAiAgentDeviceRosterMutationResponse = UpdateAiAgentDeviceRoster200;
 
-export type UpdateAiAssistantDeviceRosterMutation = {
-    Response: UpdateAiAssistantDeviceRoster200;
-    Request: UpdateAiAssistantDeviceRosterMutationRequest;
+export type UpdateAiAgentDeviceRosterMutation = {
+    Response: UpdateAiAgentDeviceRoster200;
+    Request: UpdateAiAgentDeviceRosterMutationRequest;
     Errors: any;
 };
 
-export type ControlAiAssistantDirectory200 = RestResponseBool;
+export type ControlAiAgentDirectory200 = RestResponseBool;
 
-export type ControlAiAssistantDirectoryMutationRequest = AiAssistantDirectoryControlBody;
+export type ControlAiAgentDirectoryMutationRequest = AiAgentDirectoryControlBody;
 
-export type ControlAiAssistantDirectoryMutationResponse = ControlAiAssistantDirectory200;
+export type ControlAiAgentDirectoryMutationResponse = ControlAiAgentDirectory200;
 
-export type ControlAiAssistantDirectoryMutation = {
-    Response: ControlAiAssistantDirectory200;
-    Request: ControlAiAssistantDirectoryMutationRequest;
+export type ControlAiAgentDirectoryMutation = {
+    Response: ControlAiAgentDirectory200;
+    Request: ControlAiAgentDirectoryMutationRequest;
     Errors: any;
 };
 
@@ -23822,31 +23822,31 @@ export type GetMyGoalBudgetPolicyQuery = {
     Errors: any;
 };
 
-export type ControlAiAssistantGoal200 = RestResponseAiAssistantGoalDto;
+export type ControlAiAgentGoal200 = RestResponseAiAgentGoalDto;
 
-export type ControlAiAssistantGoalMutationRequest = AiAssistantGoalControlBody;
+export type ControlAiAgentGoalMutationRequest = AiAgentGoalControlBody;
 
-export type ControlAiAssistantGoalMutationResponse = ControlAiAssistantGoal200;
+export type ControlAiAgentGoalMutationResponse = ControlAiAgentGoal200;
 
-export type ControlAiAssistantGoalMutation = {
-    Response: ControlAiAssistantGoal200;
-    Request: ControlAiAssistantGoalMutationRequest;
+export type ControlAiAgentGoalMutation = {
+    Response: ControlAiAgentGoal200;
+    Request: ControlAiAgentGoalMutationRequest;
     Errors: any;
 };
 
-export type DecideAiAssistantGoalOpen200 = RestResponseAiAssistantGoalOpenDecisionDto;
+export type DecideAiAgentGoalOpen200 = RestResponseAiAgentGoalOpenDecisionDto;
 
-export type DecideAiAssistantGoalOpenMutationRequest = AiAssistantGoalOpenDecisionBody;
+export type DecideAiAgentGoalOpenMutationRequest = AiAgentGoalOpenDecisionBody;
 
-export type DecideAiAssistantGoalOpenMutationResponse = DecideAiAssistantGoalOpen200;
+export type DecideAiAgentGoalOpenMutationResponse = DecideAiAgentGoalOpen200;
 
-export type DecideAiAssistantGoalOpenMutation = {
-    Response: DecideAiAssistantGoalOpen200;
-    Request: DecideAiAssistantGoalOpenMutationRequest;
+export type DecideAiAgentGoalOpenMutation = {
+    Response: DecideAiAgentGoalOpen200;
+    Request: DecideAiAgentGoalOpenMutationRequest;
     Errors: any;
 };
 
-export type GetAssistantImageQueryParams = {
+export type GetAgentImageQueryParams = {
     /**
      * @type string
     */
@@ -23860,19 +23860,19 @@ export type GetAssistantImageQueryParams = {
 /**
  * @description Stored image bytes
 */
-export type GetAssistantImage200 = AssistantImageBytes;
+export type GetAgentImage200 = AgentImageBytes;
 
-export type GetAssistantImage404 = any;
+export type GetAgentImage404 = any;
 
-export type GetAssistantImageQueryResponse = GetAssistantImage200;
+export type GetAgentImageQueryResponse = GetAgentImage200;
 
-export type GetAssistantImageQuery = {
-    Response: GetAssistantImage200;
-    QueryParams: GetAssistantImageQueryParams;
-    Errors: GetAssistantImage404;
+export type GetAgentImageQuery = {
+    Response: GetAgentImage200;
+    QueryParams: GetAgentImageQueryParams;
+    Errors: GetAgentImage404;
 };
 
-export type DeleteAssistantImageQueryParams = {
+export type DeleteAgentImageQueryParams = {
     /**
      * @type string
     */
@@ -23883,17 +23883,17 @@ export type DeleteAssistantImageQueryParams = {
     attachment: string;
 };
 
-export type DeleteAssistantImage200 = RestResponseBool;
+export type DeleteAgentImage200 = RestResponseBool;
 
-export type DeleteAssistantImageMutationResponse = DeleteAssistantImage200;
+export type DeleteAgentImageMutationResponse = DeleteAgentImage200;
 
-export type DeleteAssistantImageMutation = {
-    Response: DeleteAssistantImage200;
-    QueryParams: DeleteAssistantImageQueryParams;
+export type DeleteAgentImageMutation = {
+    Response: DeleteAgentImage200;
+    QueryParams: DeleteAgentImageQueryParams;
     Errors: any;
 };
 
-export type ListAssistantImagesQueryParams = {
+export type ListAgentImagesQueryParams = {
     /**
      * @type string
     */
@@ -23904,13 +23904,13 @@ export type ListAssistantImagesQueryParams = {
     before?: string;
 };
 
-export type ListAssistantImages200 = RestResponseVecVisualEvidenceFrame;
+export type ListAgentImages200 = RestResponseVecVisualEvidenceFrame;
 
-export type ListAssistantImagesQueryResponse = ListAssistantImages200;
+export type ListAgentImagesQueryResponse = ListAgentImages200;
 
-export type ListAssistantImagesQuery = {
-    Response: ListAssistantImages200;
-    QueryParams: ListAssistantImagesQueryParams;
+export type ListAgentImagesQuery = {
+    Response: ListAgentImages200;
+    QueryParams: ListAgentImagesQueryParams;
     Errors: any;
 };
 
@@ -23923,36 +23923,36 @@ export type GetMyIssueConnectionsQuery = {
     Errors: any;
 };
 
-export type ListAiAssistantIssueSubscriptionsQueryParams = {
+export type ListAiAgentIssueSubscriptionsQueryParams = {
     /**
      * @type string
     */
     workbench: string;
 };
 
-export type ListAiAssistantIssueSubscriptions200 = RestResponseVecIssueSubscriptionView;
+export type ListAiAgentIssueSubscriptions200 = RestResponseVecIssueSubscriptionView;
 
-export type ListAiAssistantIssueSubscriptionsQueryResponse = ListAiAssistantIssueSubscriptions200;
+export type ListAiAgentIssueSubscriptionsQueryResponse = ListAiAgentIssueSubscriptions200;
 
-export type ListAiAssistantIssueSubscriptionsQuery = {
-    Response: ListAiAssistantIssueSubscriptions200;
-    QueryParams: ListAiAssistantIssueSubscriptionsQueryParams;
+export type ListAiAgentIssueSubscriptionsQuery = {
+    Response: ListAiAgentIssueSubscriptions200;
+    QueryParams: ListAiAgentIssueSubscriptionsQueryParams;
     Errors: any;
 };
 
-export type SaveAiAssistantIssueSubscription200 = RestResponseIssueSubscriptionView;
+export type SaveAiAgentIssueSubscription200 = RestResponseIssueSubscriptionView;
 
-export type SaveAiAssistantIssueSubscriptionMutationRequest = IssueSubscriptionSave;
+export type SaveAiAgentIssueSubscriptionMutationRequest = IssueSubscriptionSave;
 
-export type SaveAiAssistantIssueSubscriptionMutationResponse = SaveAiAssistantIssueSubscription200;
+export type SaveAiAgentIssueSubscriptionMutationResponse = SaveAiAgentIssueSubscription200;
 
-export type SaveAiAssistantIssueSubscriptionMutation = {
-    Response: SaveAiAssistantIssueSubscription200;
-    Request: SaveAiAssistantIssueSubscriptionMutationRequest;
+export type SaveAiAgentIssueSubscriptionMutation = {
+    Response: SaveAiAgentIssueSubscription200;
+    Request: SaveAiAgentIssueSubscriptionMutationRequest;
     Errors: any;
 };
 
-export type GetAiAssistantIssueSubscriptionAccountsQueryParams = {
+export type GetAiAgentIssueSubscriptionAccountsQueryParams = {
     /**
      * @type string
     */
@@ -23967,52 +23967,52 @@ export type GetAiAssistantIssueSubscriptionAccountsQueryParams = {
     login?: string;
 };
 
-export type GetAiAssistantIssueSubscriptionAccounts200 = RestResponseIssueSubscriptionAccounts;
+export type GetAiAgentIssueSubscriptionAccounts200 = RestResponseIssueSubscriptionAccounts;
 
-export type GetAiAssistantIssueSubscriptionAccountsQueryResponse = GetAiAssistantIssueSubscriptionAccounts200;
+export type GetAiAgentIssueSubscriptionAccountsQueryResponse = GetAiAgentIssueSubscriptionAccounts200;
 
-export type GetAiAssistantIssueSubscriptionAccountsQuery = {
-    Response: GetAiAssistantIssueSubscriptionAccounts200;
-    QueryParams: GetAiAssistantIssueSubscriptionAccountsQueryParams;
+export type GetAiAgentIssueSubscriptionAccountsQuery = {
+    Response: GetAiAgentIssueSubscriptionAccounts200;
+    QueryParams: GetAiAgentIssueSubscriptionAccountsQueryParams;
     Errors: any;
 };
 
-export type SetAiAssistantIssueSubscriptionEnabledPathParams = {
+export type SetAiAgentIssueSubscriptionEnabledPathParams = {
     /**
      * @type string
     */
     subscription_id: string;
 };
 
-export type SetAiAssistantIssueSubscriptionEnabled200 = RestResponseIssueSubscriptionView;
+export type SetAiAgentIssueSubscriptionEnabled200 = RestResponseIssueSubscriptionView;
 
-export type SetAiAssistantIssueSubscriptionEnabledMutationRequest = IssueSubscriptionEnable;
+export type SetAiAgentIssueSubscriptionEnabledMutationRequest = IssueSubscriptionEnable;
 
-export type SetAiAssistantIssueSubscriptionEnabledMutationResponse = SetAiAssistantIssueSubscriptionEnabled200;
+export type SetAiAgentIssueSubscriptionEnabledMutationResponse = SetAiAgentIssueSubscriptionEnabled200;
 
-export type SetAiAssistantIssueSubscriptionEnabledMutation = {
-    Response: SetAiAssistantIssueSubscriptionEnabled200;
-    Request: SetAiAssistantIssueSubscriptionEnabledMutationRequest;
-    PathParams: SetAiAssistantIssueSubscriptionEnabledPathParams;
+export type SetAiAgentIssueSubscriptionEnabledMutation = {
+    Response: SetAiAgentIssueSubscriptionEnabled200;
+    Request: SetAiAgentIssueSubscriptionEnabledMutationRequest;
+    PathParams: SetAiAgentIssueSubscriptionEnabledPathParams;
     Errors: any;
 };
 
 /**
  * @description Durable decision projection; no tool is dispatched
 */
-export type DecideAiAssistantPermission200 = RestResponsePermissionDecisionResponse;
+export type DecideAiAgentPermission200 = RestResponsePermissionDecisionResponse;
 
-export type DecideAiAssistantPermissionMutationRequest = PermissionDecisionBody;
+export type DecideAiAgentPermissionMutationRequest = PermissionDecisionBody;
 
-export type DecideAiAssistantPermissionMutationResponse = DecideAiAssistantPermission200;
+export type DecideAiAgentPermissionMutationResponse = DecideAiAgentPermission200;
 
-export type DecideAiAssistantPermissionMutation = {
-    Response: DecideAiAssistantPermission200;
-    Request: DecideAiAssistantPermissionMutationRequest;
+export type DecideAiAgentPermissionMutation = {
+    Response: DecideAiAgentPermission200;
+    Request: DecideAiAgentPermissionMutationRequest;
     Errors: any;
 };
 
-export type ListAiAssistantMainRequestsQueryParams = {
+export type ListAiAgentMainRequestsQueryParams = {
     /**
      * @description Device connection for an original conversation intent
      * @type string | undefined
@@ -24024,7 +24024,7 @@ export type ListAiAssistantMainRequestsQueryParams = {
     */
     conversation?: string;
     /**
-     * @description Opaque assistant session id
+     * @description Opaque agent session id
      * @type string | undefined
     */
     session?: string;
@@ -24035,70 +24035,70 @@ export type ListAiAssistantMainRequestsQueryParams = {
     request?: string;
 };
 
-export type ListAiAssistantMainRequests200 = RestResponseAiAssistantMainRequestsDto;
+export type ListAiAgentMainRequests200 = RestResponseAiAgentMainRequestsDto;
 
-export type ListAiAssistantMainRequestsQueryResponse = ListAiAssistantMainRequests200;
+export type ListAiAgentMainRequestsQueryResponse = ListAiAgentMainRequests200;
 
-export type ListAiAssistantMainRequestsQuery = {
-    Response: ListAiAssistantMainRequests200;
-    QueryParams: ListAiAssistantMainRequestsQueryParams;
+export type ListAiAgentMainRequestsQuery = {
+    Response: ListAiAgentMainRequests200;
+    QueryParams: ListAiAgentMainRequestsQueryParams;
     Errors: any;
 };
 
-export type CancelAiAssistantMainRequest200 = RestResponseMainRequestReceipt;
+export type CancelAiAgentMainRequest200 = RestResponseMainRequestReceipt;
 
-export type CancelAiAssistantMainRequestMutationRequest = AiAssistantMainRequestCancelBody;
+export type CancelAiAgentMainRequestMutationRequest = AiAgentMainRequestCancelBody;
 
-export type CancelAiAssistantMainRequestMutationResponse = CancelAiAssistantMainRequest200;
+export type CancelAiAgentMainRequestMutationResponse = CancelAiAgentMainRequest200;
 
-export type CancelAiAssistantMainRequestMutation = {
-    Response: CancelAiAssistantMainRequest200;
-    Request: CancelAiAssistantMainRequestMutationRequest;
+export type CancelAiAgentMainRequestMutation = {
+    Response: CancelAiAgentMainRequest200;
+    Request: CancelAiAgentMainRequestMutationRequest;
     Errors: any;
 };
 
-export type ResumeAiAssistantMainRequests200 = RestResponseAiAssistantMainRequestResumeDto;
+export type ResumeAiAgentMainRequests200 = RestResponseAiAgentMainRequestResumeDto;
 
-export type ResumeAiAssistantMainRequestsMutationRequest = AiAssistantMainRequestResumeBody;
+export type ResumeAiAgentMainRequestsMutationRequest = AiAgentMainRequestResumeBody;
 
-export type ResumeAiAssistantMainRequestsMutationResponse = ResumeAiAssistantMainRequests200;
+export type ResumeAiAgentMainRequestsMutationResponse = ResumeAiAgentMainRequests200;
 
-export type ResumeAiAssistantMainRequestsMutation = {
-    Response: ResumeAiAssistantMainRequests200;
-    Request: ResumeAiAssistantMainRequestsMutationRequest;
+export type ResumeAiAgentMainRequestsMutation = {
+    Response: ResumeAiAgentMainRequests200;
+    Request: ResumeAiAgentMainRequestsMutationRequest;
     Errors: any;
 };
 
-export type DecideAiAssistantSkillProposal200 = RestResponseSkillProposalView;
+export type DecideAiAgentSkillProposal200 = RestResponseSkillProposalView;
 
-export type DecideAiAssistantSkillProposalMutationRequest = SkillProposalDecision;
+export type DecideAiAgentSkillProposalMutationRequest = SkillProposalDecision;
 
-export type DecideAiAssistantSkillProposalMutationResponse = DecideAiAssistantSkillProposal200;
+export type DecideAiAgentSkillProposalMutationResponse = DecideAiAgentSkillProposal200;
 
-export type DecideAiAssistantSkillProposalMutation = {
-    Response: DecideAiAssistantSkillProposal200;
-    Request: DecideAiAssistantSkillProposalMutationRequest;
+export type DecideAiAgentSkillProposalMutation = {
+    Response: DecideAiAgentSkillProposal200;
+    Request: DecideAiAgentSkillProposalMutationRequest;
     Errors: any;
 };
 
-export type ListAiAssistantSkillProposals200 = RestResponseVecSkillProposalView;
+export type ListAiAgentSkillProposals200 = RestResponseVecSkillProposalView;
 
-export type ListAiAssistantSkillProposalsQueryResponse = ListAiAssistantSkillProposals200;
+export type ListAiAgentSkillProposalsQueryResponse = ListAiAgentSkillProposals200;
 
-export type ListAiAssistantSkillProposalsQuery = {
-    Response: ListAiAssistantSkillProposals200;
+export type ListAiAgentSkillProposalsQuery = {
+    Response: ListAiAgentSkillProposals200;
     Errors: any;
 };
 
-export type StopAiAssistantSession200 = RestResponseAiAssistantStopResult;
+export type StopAiAgentSession200 = RestResponseAiAgentStopResult;
 
-export type StopAiAssistantSessionMutationRequest = AiAssistantStopBody;
+export type StopAiAgentSessionMutationRequest = AiAgentStopBody;
 
-export type StopAiAssistantSessionMutationResponse = StopAiAssistantSession200;
+export type StopAiAgentSessionMutationResponse = StopAiAgentSession200;
 
-export type StopAiAssistantSessionMutation = {
-    Response: StopAiAssistantSession200;
-    Request: StopAiAssistantSessionMutationRequest;
+export type StopAiAgentSessionMutation = {
+    Response: StopAiAgentSession200;
+    Request: StopAiAgentSessionMutationRequest;
     Errors: any;
 };
 
@@ -24111,7 +24111,7 @@ export type GetMySubagentPolicyQuery = {
     Errors: any;
 };
 
-export type ListAiAssistantSubagentsQueryParams = {
+export type ListAiAgentSubagentsQueryParams = {
     /**
      * @description Original target connection
      * @type string
@@ -24140,41 +24140,41 @@ export type ListAiAssistantSubagentsQueryParams = {
     limit?: number;
 };
 
-export type ListAiAssistantSubagents200 = RestResponseAiAssistantSubAgentPage;
+export type ListAiAgentSubagents200 = RestResponseAiAgentSubAgentPage;
 
-export type ListAiAssistantSubagentsQueryResponse = ListAiAssistantSubagents200;
+export type ListAiAgentSubagentsQueryResponse = ListAiAgentSubagents200;
 
-export type ListAiAssistantSubagentsQuery = {
-    Response: ListAiAssistantSubagents200;
-    QueryParams: ListAiAssistantSubagentsQueryParams;
+export type ListAiAgentSubagentsQuery = {
+    Response: ListAiAgentSubagents200;
+    QueryParams: ListAiAgentSubagentsQueryParams;
     Errors: any;
 };
 
-export type ControlAiAssistantSubagent200 = RestResponseAiAssistantSubAgentSummary;
+export type ControlAiAgentSubagent200 = RestResponseAiAgentSubAgentSummary;
 
-export type ControlAiAssistantSubagentMutationRequest = AiAssistantSubAgentControlBody;
+export type ControlAiAgentSubagentMutationRequest = AiAgentSubAgentControlBody;
 
-export type ControlAiAssistantSubagentMutationResponse = ControlAiAssistantSubagent200;
+export type ControlAiAgentSubagentMutationResponse = ControlAiAgentSubagent200;
 
-export type ControlAiAssistantSubagentMutation = {
-    Response: ControlAiAssistantSubagent200;
-    Request: ControlAiAssistantSubagentMutationRequest;
+export type ControlAiAgentSubagentMutation = {
+    Response: ControlAiAgentSubagent200;
+    Request: ControlAiAgentSubagentMutationRequest;
     Errors: any;
 };
 
-export type MarkAiAssistantSubagentRead200 = RestResponseBool;
+export type MarkAiAgentSubagentRead200 = RestResponseBool;
 
-export type MarkAiAssistantSubagentReadMutationRequest = AiAssistantSubAgentReadBody;
+export type MarkAiAgentSubagentReadMutationRequest = AiAgentSubAgentReadBody;
 
-export type MarkAiAssistantSubagentReadMutationResponse = MarkAiAssistantSubagentRead200;
+export type MarkAiAgentSubagentReadMutationResponse = MarkAiAgentSubagentRead200;
 
-export type MarkAiAssistantSubagentReadMutation = {
-    Response: MarkAiAssistantSubagentRead200;
-    Request: MarkAiAssistantSubagentReadMutationRequest;
+export type MarkAiAgentSubagentReadMutation = {
+    Response: MarkAiAgentSubagentRead200;
+    Request: MarkAiAgentSubagentReadMutationRequest;
     Errors: any;
 };
 
-export type ReadAiAssistantSubagentResultQueryParams = {
+export type ReadAiAgentSubagentResultQueryParams = {
     /**
      * @type string
     */
@@ -24198,17 +24198,17 @@ export type ReadAiAssistantSubagentResultQueryParams = {
     before_report_seq?: number;
 };
 
-export type ReadAiAssistantSubagentResult200 = RestResponseAiAssistantSubAgentResult;
+export type ReadAiAgentSubagentResult200 = RestResponseAiAgentSubAgentResult;
 
-export type ReadAiAssistantSubagentResultQueryResponse = ReadAiAssistantSubagentResult200;
+export type ReadAiAgentSubagentResultQueryResponse = ReadAiAgentSubagentResult200;
 
-export type ReadAiAssistantSubagentResultQuery = {
-    Response: ReadAiAssistantSubagentResult200;
-    QueryParams: ReadAiAssistantSubagentResultQueryParams;
+export type ReadAiAgentSubagentResultQuery = {
+    Response: ReadAiAgentSubagentResult200;
+    QueryParams: ReadAiAgentSubagentResultQueryParams;
     Errors: any;
 };
 
-export type GetAiAssistantSubagentStatusQueryParams = {
+export type GetAiAgentSubagentStatusQueryParams = {
     /**
      * @type string
     */
@@ -24227,17 +24227,17 @@ export type GetAiAssistantSubagentStatusQueryParams = {
     task_id: string;
 };
 
-export type GetAiAssistantSubagentStatus200 = RestResponseAiAssistantSubAgentSummary;
+export type GetAiAgentSubagentStatus200 = RestResponseAiAgentSubAgentSummary;
 
-export type GetAiAssistantSubagentStatusQueryResponse = GetAiAssistantSubagentStatus200;
+export type GetAiAgentSubagentStatusQueryResponse = GetAiAgentSubagentStatus200;
 
-export type GetAiAssistantSubagentStatusQuery = {
-    Response: GetAiAssistantSubagentStatus200;
-    QueryParams: GetAiAssistantSubagentStatusQueryParams;
+export type GetAiAgentSubagentStatusQuery = {
+    Response: GetAiAgentSubagentStatus200;
+    QueryParams: GetAiAgentSubagentStatusQueryParams;
     Errors: any;
 };
 
-export type ListAiAssistantSessionsQueryParams = {
+export type ListAiAgentSessionsQueryParams = {
     /**
      * @description Target connection id; omit for personal conversations without a device
      * @type string | undefined
@@ -24252,36 +24252,36 @@ export type ListAiAssistantSessionsQueryParams = {
 };
 
 /**
- * @description Authorized recent AI Assistant sessions
+ * @description Authorized recent AI Agent sessions
 */
-export type ListAiAssistantSessions200 = RestResponseAiAssistantSessionListDto;
+export type ListAiAgentSessions200 = RestResponseAiAgentSessionListDto;
 
-export type ListAiAssistantSessionsQueryResponse = ListAiAssistantSessions200;
+export type ListAiAgentSessionsQueryResponse = ListAiAgentSessions200;
 
-export type ListAiAssistantSessionsQuery = {
-    Response: ListAiAssistantSessions200;
-    QueryParams: ListAiAssistantSessionsQueryParams;
+export type ListAiAgentSessionsQuery = {
+    Response: ListAiAgentSessions200;
+    QueryParams: ListAiAgentSessionsQueryParams;
     Errors: any;
 };
 
-export type GetAssistantDataSettings200 = RestResponseAssistantDataSettingsView;
+export type GetAgentDataSettings200 = RestResponseAgentDataSettingsView;
 
-export type GetAssistantDataSettingsQueryResponse = GetAssistantDataSettings200;
+export type GetAgentDataSettingsQueryResponse = GetAgentDataSettings200;
 
-export type GetAssistantDataSettingsQuery = {
-    Response: GetAssistantDataSettings200;
+export type GetAgentDataSettingsQuery = {
+    Response: GetAgentDataSettings200;
     Errors: any;
 };
 
-export type UpdateAssistantDataSettings200 = RestResponseAssistantDataSettingsView;
+export type UpdateAgentDataSettings200 = RestResponseAgentDataSettingsView;
 
-export type UpdateAssistantDataSettingsMutationRequest = AssistantDataSettingsUpdate;
+export type UpdateAgentDataSettingsMutationRequest = AgentDataSettingsUpdate;
 
-export type UpdateAssistantDataSettingsMutationResponse = UpdateAssistantDataSettings200;
+export type UpdateAgentDataSettingsMutationResponse = UpdateAgentDataSettings200;
 
-export type UpdateAssistantDataSettingsMutation = {
-    Response: UpdateAssistantDataSettings200;
-    Request: UpdateAssistantDataSettingsMutationRequest;
+export type UpdateAgentDataSettingsMutation = {
+    Response: UpdateAgentDataSettings200;
+    Request: UpdateAgentDataSettingsMutationRequest;
     Errors: any;
 };
 
@@ -24432,73 +24432,73 @@ export type GetMySkillVersionQuery = {
     Errors: any;
 };
 
-export type GetAssistantSourceQueryParams = {
+export type GetAgentSourceQueryParams = {
     /**
      * @type string
     */
     source_id: string;
 };
 
-export type GetAssistantSource200 = RestResponseAssistantSourceResolution;
+export type GetAgentSource200 = RestResponseAgentSourceResolution;
 
-export type GetAssistantSourceQueryResponse = GetAssistantSource200;
+export type GetAgentSourceQueryResponse = GetAgentSource200;
 
-export type GetAssistantSourceQuery = {
-    Response: GetAssistantSource200;
-    QueryParams: GetAssistantSourceQueryParams;
+export type GetAgentSourceQuery = {
+    Response: GetAgentSource200;
+    QueryParams: GetAgentSourceQueryParams;
     Errors: any;
 };
 
-export type GetAssistantUserInstructions200 = RestResponseUserInstructions;
+export type GetAgentUserInstructions200 = RestResponseUserInstructions;
 
-export type GetAssistantUserInstructionsQueryResponse = GetAssistantUserInstructions200;
+export type GetAgentUserInstructionsQueryResponse = GetAgentUserInstructions200;
 
-export type GetAssistantUserInstructionsQuery = {
-    Response: GetAssistantUserInstructions200;
+export type GetAgentUserInstructionsQuery = {
+    Response: GetAgentUserInstructions200;
     Errors: any;
 };
 
-export type UpdateAssistantUserInstructions200 = RestResponseUserInstructions;
+export type UpdateAgentUserInstructions200 = RestResponseUserInstructions;
 
-export type UpdateAssistantUserInstructionsMutationRequest = UserInstructionsUpdate;
+export type UpdateAgentUserInstructionsMutationRequest = UserInstructionsUpdate;
 
-export type UpdateAssistantUserInstructionsMutationResponse = UpdateAssistantUserInstructions200;
+export type UpdateAgentUserInstructionsMutationResponse = UpdateAgentUserInstructions200;
 
-export type UpdateAssistantUserInstructionsMutation = {
-    Response: UpdateAssistantUserInstructions200;
-    Request: UpdateAssistantUserInstructionsMutationRequest;
+export type UpdateAgentUserInstructionsMutation = {
+    Response: UpdateAgentUserInstructions200;
+    Request: UpdateAgentUserInstructionsMutationRequest;
     Errors: any;
 };
 
-export type ListAiAssistantWorkbenches200 = RestResponseVecAiAssistantWorkbenchView;
+export type ListAiAgentWorkbenches200 = RestResponseVecAiAgentWorkbenchView;
 
-export type ListAiAssistantWorkbenchesQueryResponse = ListAiAssistantWorkbenches200;
+export type ListAiAgentWorkbenchesQueryResponse = ListAiAgentWorkbenches200;
 
-export type ListAiAssistantWorkbenchesQuery = {
-    Response: ListAiAssistantWorkbenches200;
+export type ListAiAgentWorkbenchesQuery = {
+    Response: ListAiAgentWorkbenches200;
     Errors: any;
 };
 
-export type CreateAiAssistantWorkbench200 = RestResponseAiAssistantWorkbenchView;
+export type CreateAiAgentWorkbench200 = RestResponseAiAgentWorkbenchView;
 
-export type CreateAiAssistantWorkbenchMutationRequest = CreateAiAssistantWorkbench;
+export type CreateAiAgentWorkbenchMutationRequest = CreateAiAgentWorkbench;
 
-export type CreateAiAssistantWorkbenchMutationResponse = CreateAiAssistantWorkbench200;
+export type CreateAiAgentWorkbenchMutationResponse = CreateAiAgentWorkbench200;
 
-export type CreateAiAssistantWorkbenchMutation = {
-    Response: CreateAiAssistantWorkbench200;
-    Request: CreateAiAssistantWorkbenchMutationRequest;
+export type CreateAiAgentWorkbenchMutation = {
+    Response: CreateAiAgentWorkbench200;
+    Request: CreateAiAgentWorkbenchMutationRequest;
     Errors: any;
 };
 
-export type ListAiAssistantWorkbenchTasksPathParams = {
+export type ListAiAgentWorkbenchTasksPathParams = {
     /**
      * @type string
     */
     workbench_id: string;
 };
 
-export type ListAiAssistantWorkbenchTasksQueryParams = {
+export type ListAiAgentWorkbenchTasksQueryParams = {
     /**
      * @type string | undefined
     */
@@ -24509,14 +24509,14 @@ export type ListAiAssistantWorkbenchTasksQueryParams = {
     before?: string;
 };
 
-export type ListAiAssistantWorkbenchTasks200 = RestResponseAiAssistantWorkbenchTasks;
+export type ListAiAgentWorkbenchTasks200 = RestResponseAiAgentWorkbenchTasks;
 
-export type ListAiAssistantWorkbenchTasksQueryResponse = ListAiAssistantWorkbenchTasks200;
+export type ListAiAgentWorkbenchTasksQueryResponse = ListAiAgentWorkbenchTasks200;
 
-export type ListAiAssistantWorkbenchTasksQuery = {
-    Response: ListAiAssistantWorkbenchTasks200;
-    PathParams: ListAiAssistantWorkbenchTasksPathParams;
-    QueryParams: ListAiAssistantWorkbenchTasksQueryParams;
+export type ListAiAgentWorkbenchTasksQuery = {
+    Response: ListAiAgentWorkbenchTasks200;
+    PathParams: ListAiAgentWorkbenchTasksPathParams;
+    QueryParams: ListAiAgentWorkbenchTasksQueryParams;
     Errors: any;
 };
 

@@ -4,10 +4,10 @@
 
 use crate::config::connection::DatabaseConnection;
 use crate::entity::{agent_approval_review, agent_session};
-use desk_agent_protocol::ai_assistant::{
-    AiAssistantAsk, approval_mode::AssistantApprovalMode, skill::SkillProposalView,
+use desk_agent_data_store::{decision_resume, entity::agent_decision_resume};
+use desk_agent_protocol::ai_agent::{
+    AiAgentAsk, approval_mode::AgentApprovalMode, skill::SkillProposalView,
 };
-use desk_assistant_data_store::{decision_resume, entity::agent_decision_resume};
 use desk_diagnose_core::{
     approval_review::{APPROVAL_REVIEW_STATUS_EXPIRED, APPROVAL_REVIEW_STATUS_UNAVAILABLE},
     proposal_review::{DecisionKind, OwnerDecisionFacts, awaiting_owner},
@@ -37,8 +37,8 @@ pub async fn awaiting_owner_on(
 ) -> Result<bool, DbErr> {
     let manual = crate::agent_approval_store::preference_for_session_on(db, session)
         .await?
-        .is_some_and(|preference| preference.mode == AssistantApprovalMode::Manual);
-    let reviewer_available = crate::ai_assistant_gate::global_ai_assistant_gate().is_enabled()
+        .is_some_and(|preference| preference.mode == AgentApprovalMode::Manual);
+    let reviewer_available = crate::ai_agent_gate::global_ai_agent_gate().is_enabled()
         && crate::approval_model_provider::load(db)
             .await
             .is_ok_and(|config| config.destination_identity().is_ok());
@@ -67,7 +67,7 @@ pub async fn pause_view_on(
     conversation_id: &str,
     actor_id: &str,
     pause: &desk_diagnose_core::proposal_review::DecisionPause,
-) -> Result<desk_signal_facade::controller::ai_assistant_session::DecisionPauseDto, DbErr> {
+) -> Result<desk_signal_facade::controller::ai_agent_session::DecisionPauseDto, DbErr> {
     let row = agent_session::Entity::find()
         .filter(agent_session::Column::ConversationId.eq(conversation_id))
         .filter(agent_session::Column::ActorId.eq(actor_id))
@@ -84,11 +84,7 @@ pub async fn pause_view_on(
         pause.requested_at_unix_ms,
     )
     .await?;
-    Ok(
-        desk_signal_facade::controller::ai_assistant_session::DecisionPauseDto::new(
-            pause, awaiting,
-        ),
-    )
+    Ok(desk_signal_facade::controller::ai_agent_session::DecisionPauseDto::new(pause, awaiting))
 }
 
 /// Fills `awaiting_owner` of the pending proposals among `views`.
@@ -96,7 +92,7 @@ pub async fn mark_skill_views_on(
     db: &DatabaseConnection,
     views: &mut [SkillProposalView],
 ) -> Result<(), DbErr> {
-    use desk_agent_protocol::ai_assistant::skill::SkillProposalStatus;
+    use desk_agent_protocol::ai_agent::skill::SkillProposalStatus;
     for view in views
         .iter_mut()
         .filter(|view| view.status == SkillProposalStatus::Pending)
@@ -154,19 +150,19 @@ pub async fn withdraw_on(
 pub struct DecisionResumeExecutor {
     db: DatabaseConnection,
     connections: actix_web::web::Data<SharedConnectionMap>,
-    ai_assistant_gate: std::sync::Arc<crate::ai_assistant_gate::AiAssistantGate>,
+    ai_agent_gate: std::sync::Arc<crate::ai_agent_gate::AiAgentGate>,
 }
 
 impl DecisionResumeExecutor {
     pub fn new(
         db: DatabaseConnection,
         connections: actix_web::web::Data<SharedConnectionMap>,
-        ai_assistant_gate: std::sync::Arc<crate::ai_assistant_gate::AiAssistantGate>,
+        ai_agent_gate: std::sync::Arc<crate::ai_agent_gate::AiAgentGate>,
     ) -> Self {
         Self {
             db,
             connections,
-            ai_assistant_gate,
+            ai_agent_gate,
         }
     }
 
@@ -208,7 +204,7 @@ impl DecisionResumeExecutor {
     }
 
     async fn process(&self, record: agent_decision_resume::Model) -> Result<(), DbErr> {
-        if !self.ai_assistant_gate.is_enabled()
+        if !self.ai_agent_gate.is_enabled()
             || record.actor_id != crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string()
         {
             return Ok(());
@@ -277,7 +273,7 @@ impl DecisionResumeExecutor {
             .as_ref()
             .and_then(|creation| creation.response_locale.clone());
         let resume_id = format!("decision-resume:{}", record.id);
-        crate::ai_assistant_orchestrator::resume_after_decision(
+        crate::ai_agent_orchestrator::resume_after_decision(
             self.connections.clone(),
             self.db.clone(),
             resume_id.clone(),
@@ -288,7 +284,7 @@ impl DecisionResumeExecutor {
             kind,
             record.request_id.clone(),
             input_revision,
-            AiAssistantAsk {
+            AiAgentAsk {
                 temporary_conversation: None,
                 question,
                 locale,
@@ -340,9 +336,9 @@ impl DecisionResumeExecutor {
     }
 }
 
-fn store_error(error: desk_assistant_data_store::schedule::ScheduleStoreError) -> DbErr {
+fn store_error(error: desk_agent_data_store::schedule::ScheduleStoreError) -> DbErr {
     match error {
-        desk_assistant_data_store::schedule::ScheduleStoreError::Backend(error) => error,
+        desk_agent_data_store::schedule::ScheduleStoreError::Backend(error) => error,
         other => DbErr::Custom(format!("{other:?}")),
     }
 }

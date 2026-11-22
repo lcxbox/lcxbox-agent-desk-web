@@ -20,7 +20,7 @@ pub fn has_device_receipt(
         };
         if message.tool_ok != Some(true)
             || envelope.provenance.source_provider_id
-                != crate::ai_assistant::DOCUMENT_PREVIEW_PROVIDER_ID
+                != crate::ai_agent::DOCUMENT_PREVIEW_PROVIDER_ID
             || envelope.provenance.source_tool_name != crate::tool_names::PREVIEW_DOCUMENT
             || envelope.provenance.source_object_id.as_deref()
                 != Some(&format!("{device_id}:{call_id}"))
@@ -73,7 +73,7 @@ mod tests {
             document_preview: None,
         };
         let label = read_result_envelope(
-            crate::ai_assistant::ai_assistant_provider_registry_ref(),
+            crate::ai_agent::ai_agent_provider_registry_ref(),
             &call,
             &output,
             ReadResultLabel {

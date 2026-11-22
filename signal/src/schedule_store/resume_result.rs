@@ -5,10 +5,10 @@ use super::{ContinuationLease, ScheduleStore, ScheduleStoreError};
 #[cfg(test)]
 use crate::entity::{agent_action_item, agent_exec_task};
 use crate::entity::{agent_schedule_run as run, agent_session};
-use desk_agent_protocol::AgentError;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
-use desk_assistant_data_store::schedule::{CommittedResult, SettlementLease, committed_result};
+use desk_agent_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::schedule::{CommittedResult, SettlementLease, committed_result};
+use desk_agent_protocol::AgentError;
 use desk_diagnose_core::session::PersistedAgentSession;
 #[cfg(test)]
 use desk_diagnose_core::{
@@ -140,7 +140,7 @@ impl ScheduleStore {
         settlement_lease: SettlementLease,
     ) -> Result<run::Model, ScheduleStoreError> {
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
-        let decision = desk_assistant_data_store::schedule::record_committed_continuation_on(
+        let decision = desk_agent_data_store::schedule::record_committed_continuation_on(
             &super::SignalScheduleHost,
             &txn,
             lease,

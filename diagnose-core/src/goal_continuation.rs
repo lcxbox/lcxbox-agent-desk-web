@@ -224,7 +224,7 @@ mod tests {
             "goal".into(),
             "run".into(),
             "owner".into(),
-            crate::dynamic_run::AssistantInputTarget::fixed("device".into()),
+            crate::dynamic_run::AgentInputTarget::fixed("device".into()),
             "device".into(),
             "Complete work".into(),
             "input".into(),
@@ -309,7 +309,7 @@ mod tests {
         let mut session = session();
         session.input_revision = 1;
         session.focus_epoch.input_revision = 1;
-        session.surface = crate::session::AgentSessionSurface::AiAssistant;
+        session.surface = crate::session::AgentSessionSurface::AiAgent;
         session
             .begin_goal_segment("goal", "input", 1, 1, 1)
             .unwrap();

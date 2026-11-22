@@ -1,7 +1,7 @@
 //! Device-code allocation; unique indexes arbitrate concurrent registrations.
 use crate::{config::ConfigConnection, entity::device_code};
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use desk_signal_facade::device_code::MAX_ATTEMPTS;
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, Set, SqlErr};
 

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    action_turn_fence::AssistantTurnFence,
+    action_turn_fence::AgentTurnFence,
     chat::{ChatRole, ToolCall},
     provider_registry::ProviderRegistry,
     seam::ToolRunOutput,
@@ -25,7 +25,7 @@ pub struct ActionResultOrigin {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command_completion: Option<crate::command_completion::CommandCompletionContext>,
     pub schema_version: u16,
-    pub turn_fence: AssistantTurnFence,
+    pub turn_fence: AgentTurnFence,
     pub tool_call_id: String,
     pub provider_id: String,
     pub tool_name: String,
@@ -51,7 +51,7 @@ impl ActionResultOrigin {
             return Err(invalid());
         }
         let (_, canonical) =
-            crate::request_devices::command_input(call, session.has_admitted_assistant_input())?;
+            crate::request_devices::command_input(call, session.has_admitted_agent_input())?;
         let (_, confirmation) =
             crate::command_confirmation::CommandConfirmation::approved_request_for_call(
                 session,
@@ -119,22 +119,20 @@ impl ActionResultOrigin {
         let provider = registry
             .provider_for_capability(&capability.wire.capability_id)
             .ok_or_else(invalid)?;
-        let selected = session.has_admitted_assistant_input()
+        let selected = session.has_admitted_agent_input()
             && crate::request_devices::selected_action_descriptor(capability);
         let recorded_native = |raw: &str| {
             let mut arguments: serde_json::Value = serde_json::from_str(raw).ok()?;
             let explicit = match arguments.as_object_mut()?.remove("target_ref") {
                 Some(value) => Some(
                     session
-                        .assistant_request_device(value.as_str()?)?
+                        .agent_request_device(value.as_str()?)?
                         .device_id
                         .as_str(),
                 ),
                 None => None,
             };
-            let actual = session
-                .resolve_assistant_action_device(explicit, None)
-                .ok()?;
+            let actual = session.resolve_agent_action_device(explicit, None).ok()?;
             (actual == target_device_id).then(|| arguments.to_string())
         };
         let parent = session
@@ -230,7 +228,7 @@ impl ActionResultOrigin {
         let origin = Self {
             command_completion: None,
             schema_version: 1,
-            turn_fence: AssistantTurnFence::for_device(session, target_device_id)?
+            turn_fence: AgentTurnFence::for_device(session, target_device_id)?
                 .ok_or_else(invalid)?,
             tool_call_id: call.id.clone(),
             provider_id: provider.wire.provider_id.clone(),
@@ -436,7 +434,7 @@ mod tests {
             },
             "now",
         );
-        session.surface = crate::session::AgentSessionSurface::AiAssistant;
+        session.surface = crate::session::AgentSessionSurface::AiAgent;
         session.input_revision = 1;
         session.latest_input_seq = 1;
         session
@@ -459,7 +457,7 @@ mod tests {
             name: "browser_open_page".into(),
             arguments_json: "{}".into(),
         };
-        let mut proposal = ChatMessage::assistant_tool_calls(
+        let mut proposal = ChatMessage::agent_tool_calls(
             "proposal",
             "proposal",
             vec![ToolCallRef {
@@ -492,17 +490,17 @@ mod tests {
 
     #[test]
     fn selected_action_origin_preserves_the_model_calls_exact_device() {
-        use crate::dynamic_run::AssistantInputTarget;
+        use crate::dynamic_run::AgentInputTarget;
         let (mut session, mut native) = prepared();
         session.device_id.clear();
         session
-            .bind_assistant_input_targets(&[
-                AssistantInputTarget {
+            .bind_agent_input_targets(&[
+                AgentInputTarget {
                     reference: "public-mac".into(),
                     device_id: "42".into(),
                     member_generation: None,
                 },
-                AssistantInputTarget {
+                AgentInputTarget {
                     reference: "other-mac".into(),
                     device_id: "43".into(),
                     member_generation: None,
@@ -515,7 +513,7 @@ mod tests {
         original["target_ref"] = serde_json::json!("public-mac");
         session.conversation.last_mut().unwrap().tool_calls[0].arguments_json =
             original.to_string();
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         let origin =
             ActionResultOrigin::capture_for_device(&registry, &session, "42", &native).unwrap();
         assert_eq!(origin.turn_fence.device_id, "42");
@@ -565,7 +563,7 @@ mod tests {
             arguments_json: call.arguments_json.clone(),
         }];
         let old_envelope = proposal.data_envelope.clone();
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         assert!(
             ActionResultOrigin::capture_confirmed_command(
                 &registry,
@@ -618,7 +616,7 @@ mod tests {
         let mut personal = session.clone();
         let approved_target = std::mem::take(&mut personal.device_id);
         personal
-            .bind_assistant_request_targets(vec![approved_target.clone(), "other".into()])
+            .bind_agent_request_targets(vec![approved_target.clone(), "other".into()])
             .unwrap();
         let mut selected_call = call.clone();
         let mut args: serde_json::Value = serde_json::from_str(&call.arguments_json).unwrap();
@@ -689,7 +687,7 @@ mod tests {
     #[test]
     fn origin_freezes_registered_provider_and_original_input_retention_without_authority() {
         let (mut session, call) = prepared();
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         let origin = ActionResultOrigin::capture(&registry, &session, &call).unwrap();
         let reformatted = ToolCall {
             arguments_json: " {\n } ".into(),
@@ -725,7 +723,7 @@ mod tests {
     fn receipt_is_exact_generation_and_bytes_bound_and_replay_cannot_extend_expiry() {
         let (session, call) = prepared();
         let origin = ActionResultOrigin::capture(
-            &crate::ai_assistant::ai_assistant_provider_registry(),
+            &crate::ai_agent::ai_agent_provider_registry(),
             &session,
             &call,
         )
@@ -801,7 +799,7 @@ mod tests {
     fn expired_origin_is_not_renewed_and_unknown_contract_fields_fail_closed() {
         let (session, call) = prepared();
         let origin = ActionResultOrigin::capture(
-            &crate::ai_assistant::ai_assistant_provider_registry(),
+            &crate::ai_agent::ai_agent_provider_registry(),
             &session,
             &call,
         )

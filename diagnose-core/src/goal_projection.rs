@@ -28,7 +28,7 @@ pub(crate) const GOAL_TEXT_FIELD: &str = "goal_text";
 
 crate::const_piece!(
     crate::goal::GoalUsage,
-    desk_agent_protocol::ai_assistant::goal_budget::GoalBudgetLimits
+    desk_agent_protocol::ai_agent::goal_budget::GoalBudgetLimits
 );
 
 /// A checkpoint, attributed by where its summary came from.
@@ -105,7 +105,7 @@ crate::model_receipt! {
         previous_completed_goal_id: Option<ServerId>,
         previous_completion_event_seq: Option<u64>,
         segment_seq: u32,
-        limits: desk_agent_protocol::ai_assistant::goal_budget::GoalBudgetLimits,
+        limits: desk_agent_protocol::ai_agent::goal_budget::GoalBudgetLimits,
         used: crate::goal::GoalUsage,
         reserved: crate::goal::GoalUsage,
         checkpoint: Option<CheckpointPiece>,

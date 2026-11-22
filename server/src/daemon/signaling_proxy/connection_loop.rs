@@ -101,7 +101,7 @@ pub(super) async fn maintain_proxy_connection(
     let (
         advertised_ai_command_runtime_ms,
         advertised_exec_pty_capabilities,
-        advertised_ai_assistant_settings,
+        advertised_ai_agent_settings,
     ) = {
         let settings = settings.read().await;
         (
@@ -110,7 +110,7 @@ pub(super) async fn maintain_proxy_connection(
                 .max_command_runtime_seconds
                 .saturating_mul(1_000),
             crate::worker::exec_pty::effective_capabilities(&settings.ai_policy),
-            settings.ai_assistant,
+            settings.ai_agent,
         )
     };
     let shells = crate::exec_shells::available_exec_shells();
@@ -135,7 +135,7 @@ pub(super) async fn maintain_proxy_connection(
                 exec_pty_elevation: advertised_exec_pty_capabilities.exec_pty_elevation,
                 max_ai_command_runtime_ms: Some(advertised_ai_command_runtime_ms),
             },
-            ai_assistant_settings: advertised_ai_assistant_settings,
+            ai_agent_settings: advertised_ai_agent_settings,
         }),
     };
     let report_query = peer
@@ -680,7 +680,7 @@ pub(super) async fn maintain_proxy_connection(
             // authoritative settings change so new work never observes stale
             // connection-time capabilities.
             _ = agent_capability_reconcile.tick() => {
-                let (current_runtime_ms, current_pty_capabilities, current_ai_assistant) = {
+                let (current_runtime_ms, current_pty_capabilities, current_ai_agent) = {
                     let settings = settings.read().await;
                     (
                         settings
@@ -688,21 +688,21 @@ pub(super) async fn maintain_proxy_connection(
                             .max_command_runtime_seconds
                             .saturating_mul(1_000),
                         crate::worker::exec_pty::effective_capabilities(&settings.ai_policy),
-                        settings.ai_assistant,
+                        settings.ai_agent,
                     )
                 };
                 if current_runtime_ms != advertised_ai_command_runtime_ms
                     || current_pty_capabilities != advertised_exec_pty_capabilities
-                    || current_ai_assistant != advertised_ai_assistant_settings
+                    || current_ai_agent != advertised_ai_agent_settings
                 {
                     info!(
-                        "[agent-exec] registration metadata changed from {}ms/{:?}/assistant={:?} to {}ms/{:?}/assistant={:?}; reconnecting {}",
+                        "[agent-exec] registration metadata changed from {}ms/{:?}/agent={:?} to {}ms/{:?}/agent={:?}; reconnecting {}",
                         advertised_ai_command_runtime_ms,
                         advertised_exec_pty_capabilities,
-                        advertised_ai_assistant_settings,
+                        advertised_ai_agent_settings,
                         current_runtime_ms,
                         current_pty_capabilities,
-                        current_ai_assistant,
+                        current_ai_agent,
                         redact_token_in_url(&signaling_url)
                     );
                     let _ = sink.send(awc::ws::Message::Close(None)).await;

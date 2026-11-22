@@ -188,10 +188,10 @@ pub fn read_tool_registry() -> Vec<RegisteredTool> {
     ]
 }
 
-/// The read-only tools reserved for the AI Assistant surface. They are kept
+/// The read-only tools reserved for the AI Agent surface. They are kept
 /// out of [`read_tool_registry`] so Diagnose can never acquire Computer Use by a
 /// broad scope or a future default-set change.
-pub fn ai_assistant_read_tool_registry() -> Vec<RegisteredTool> {
+pub fn ai_agent_read_tool_registry() -> Vec<RegisteredTool> {
     vec![
         read(
             "list_applications",
@@ -736,7 +736,7 @@ pub fn build_read_operation(call: &ToolCall) -> Result<(Capability, OperationInp
             })
         }
         "inspect_excel_cell" => {
-            let args = serde_json::from_str::<crate::ai_assistant::windows_excel::InspectArgs>(
+            let args = serde_json::from_str::<crate::ai_agent::windows_excel::InspectArgs>(
                 &call.arguments_json,
             )
             .map_err(bad_arguments)?;
@@ -1170,7 +1170,7 @@ mod tests {
     }
 
     #[test]
-    fn ai_assistant_registry_is_isolated_and_maps_to_computer_use_reads() {
+    fn ai_agent_registry_is_isolated_and_maps_to_computer_use_reads() {
         let diagnostic_names: Vec<_> = read_tool_registry()
             .into_iter()
             .map(|tool| tool.spec.name)
@@ -1179,7 +1179,7 @@ mod tests {
         assert!(!diagnostic_names.contains(&"inspect_desktop_ui".to_string()));
         assert!(!diagnostic_names.contains(&"inspect_office_selection".to_string()));
 
-        let tools = ai_assistant_read_tool_registry();
+        let tools = ai_agent_read_tool_registry();
         assert_eq!(tools.len(), 10);
         for tool in tools {
             assert_eq!(tool.effect, ToolEffect::ReadOnly);
@@ -1191,7 +1191,7 @@ mod tests {
                 "{}"
             };
             let (cap, _) = build_read_operation(&ToolCall {
-                id: "assistant-call".into(),
+                id: "agent-call".into(),
                 name: tool.name().into(),
                 arguments_json: arguments_json.into(),
             })
@@ -1214,7 +1214,7 @@ mod tests {
 
         assert!(
             build_read_operation(&ToolCall {
-                id: "assistant-call".into(),
+                id: "agent-call".into(),
                 name: "inspect_files".into(),
                 arguments_json: r#"{"path":"C:\\\\secret.txt"}"#.into(),
             })
@@ -1222,7 +1222,7 @@ mod tests {
             "the model-facing file tool must not accept paths or object references",
         );
         let (_, filtered_input) = build_read_operation(&ToolCall {
-            id: "assistant-filter-call".into(),
+            id: "agent-filter-call".into(),
             name: "inspect_files".into(),
             arguments_json: r#"{"file_extensions":[".CSV"],"min_file_bytes":4,"max_file_bytes":16,"modified_after":"2026-08-25T00:00:00Z","modified_before":"2026-08-27T00:00:00Z"}"#.into(),
         })
@@ -1247,7 +1247,7 @@ mod tests {
         );
         assert!(
             build_read_operation(&ToolCall {
-                id: "assistant-terminal-call".into(),
+                id: "agent-terminal-call".into(),
                 name: "read_terminal_output".into(),
                 arguments_json: r#"{"terminal_id":"other-terminal"}"#.into(),
             })

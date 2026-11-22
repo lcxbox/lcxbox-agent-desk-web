@@ -1,5 +1,5 @@
 //! Owner-scoped switch to ask an independent model to review
-//! pending AI Assistant actions. A delegation is never a capability grant.
+//! pending AI Agent actions. A delegation is never a capability grant.
 
 use crate::dynamic_run::{AgentRunEvent, AgentRunEventKind};
 use serde::{Deserialize, Serialize};

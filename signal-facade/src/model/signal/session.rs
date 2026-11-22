@@ -137,7 +137,7 @@ pub struct SessionTargetDescriptor {
     pub remote_desktop_ready: bool,
     pub terminal_ready: bool,
     pub file_ready: bool,
-    pub assistant_ready: bool,
+    pub agent_ready: bool,
 }
 
 /// Error response data returned when a request needs an explicit session.
@@ -147,11 +147,11 @@ pub struct SessionTargetListData {
     pub targets: Vec<SessionTargetDescriptor>,
 }
 
-/// Owner control end → host: resolve and freeze the AI Assistant desktop
+/// Owner control end → host: resolve and freeze the AI Agent desktop
 /// session for this signaling connection. Omitting the target applies the same
 /// fail-closed 0/1/N rule as the other session-scoped entry points.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
-pub struct SelectAiAssistantSessionData {
+pub struct SelectAiAgentSessionData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_target_id: Option<String>,
 }
@@ -160,7 +160,7 @@ pub struct SelectAiAssistantSessionData {
 /// signaling connection. The id is daemon-generation-bound and opaque outside
 /// the host.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
-pub struct AiAssistantSessionSelectedData {
+pub struct AiAgentSessionSelectedData {
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<SessionTargetDescriptor>,

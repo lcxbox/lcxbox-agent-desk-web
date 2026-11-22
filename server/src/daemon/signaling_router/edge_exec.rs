@@ -54,7 +54,7 @@ pub(super) async fn handle_edge_exec_request_inbound(
         }
     };
     if matches!(&payload, EdgeExecRequestPayload::Agentic { .. })
-        && !ctx.settings.read().await.ai_assistant.enabled
+        && !ctx.settings.read().await.ai_agent.enabled
     {
         send_edge_execution_completed(
             &ctx.outbound_tx,
@@ -62,7 +62,7 @@ pub(super) async fn handle_edge_exec_request_inbound(
             EdgeExecDisposition::RejectedBeforeDispatch {
                 error: agent_error(
                     AgentErrorKind::UnsupportedCapability,
-                    "AI Assistant is disabled on this device",
+                    "AI Agent is disabled on this device",
                     false,
                     true,
                 ),
@@ -346,7 +346,7 @@ pub(super) async fn dispatch_fleet_exec_plan(
     // poison this execution generation. Portable/DeskServer keep returning
     // `None` here and use their anonymous single-worker adapter.
     let selected_session = match ctx.worker_mgr.resolve_session_target_for_connection(
-        crate::daemon::session_target::SessionCapability::Assistant,
+        crate::daemon::session_target::SessionCapability::Agent,
         session_connection_id,
     ) {
         Ok(session) => session,
@@ -357,7 +357,7 @@ pub(super) async fn dispatch_fleet_exec_plan(
                 EdgeExecDisposition::RejectedBeforeDispatch {
                     error: agent_error(
                         AgentErrorKind::SessionUnavailable,
-                        &format!("assistant session target unavailable: {error}"),
+                        &format!("agent session target unavailable: {error}"),
                         true,
                         true,
                     ),
@@ -860,13 +860,13 @@ pub(super) async fn handle_invoke_agent_capability_inbound(
     ctx: &RouterContext,
     model: &SignalingModel,
 ) -> Result<(), RouterError> {
-    if !ctx.settings.read().await.ai_assistant.enabled {
+    if !ctx.settings.read().await.ai_agent.enabled {
         emit_agent_error(
             ctx,
             model,
             agent_error(
                 AgentErrorKind::UnsupportedCapability,
-                "AI Assistant is disabled on this device",
+                "AI Agent is disabled on this device",
                 false,
                 true,
             ),
@@ -1009,7 +1009,7 @@ pub(super) async fn handle_invoke_agent_capability_inbound(
             model,
             agent_error(
                 AgentErrorKind::TargetOffline,
-                "AI Assistant request has no selected desktop session",
+                "AI Agent request has no selected desktop session",
                 false,
                 true,
             ),
@@ -1051,8 +1051,8 @@ pub(super) async fn handle_computer_action_inbound(
     let reject = |ctx: &RouterContext, model: &SignalingModel, message: String| {
         emit_computer_action_rejected(ctx, model, &message);
     };
-    if !ctx.settings.read().await.ai_assistant.enabled {
-        reject(ctx, model, "AI Assistant is disabled on this device".into());
+    if !ctx.settings.read().await.ai_agent.enabled {
+        reject(ctx, model, "AI Agent is disabled on this device".into());
         return Ok(());
     }
     let Some(authz) = ctx.inbound_authz.as_ref() else {

@@ -54,7 +54,7 @@ async fn signaling_authentication_performance() {
                     desk_agent_protocol::exec_policy::DEFAULT_TIMEOUT_MS,
                 ),
             },
-            ai_assistant_settings: desk_agent_protocol::ai_assistant::AiAssistantSettings {
+            ai_agent_settings: desk_agent_protocol::ai_agent::AiAgentSettings {
                 revision: 0,
                 enabled: false,
             },

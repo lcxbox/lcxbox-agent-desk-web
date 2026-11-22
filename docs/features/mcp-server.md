@@ -1,16 +1,16 @@
 # MCP Server
 
-Running `--startup-mode mcp-stdio` turns the device into a [Model Context Protocol](https://modelcontextprotocol.io/) server, offering a **static whitelist of read-only tools** to local AI assistants.
+Running `--startup-mode mcp-stdio` turns the device into a [Model Context Protocol](https://modelcontextprotocol.io/) server, offering a **static whitelist of read-only tools** to local AI agents.
 
 ## Design
 
 - Built on the official `rmcp` SDK over **stdio**.
 - Exposes a **static whitelist** of read-only context tools — by construction, there are **no execute, write, or control tools** ("undefined means unreachable").
-- There is **no `lcxbox_diagnose` tool**: full AI diagnosis is orchestrated by the central signaling brain, not by a device. The MCP surface is purely read-only context for a local AI assistant; it never dials a model or captures the screen.
+- There is **no `lcxbox_diagnose` tool**: full AI diagnosis is orchestrated by the central signaling brain, not by a device. The MCP surface is purely read-only context for a local AI agent; it never dials a model or captures the screen.
 
 ## Why a Separate Mode?
 
-The MCP surface is intentionally narrower than the in-session AI assistant. Model inference, screen capturing, and any control/execution tools are completely excluded to keep the attack surface minimal for local AI assistants.
+The MCP surface is intentionally narrower than the in-session AI agent. Model inference, screen capturing, and any control/execution tools are completely excluded to keep the attack surface minimal for local AI agents.
 
 ## Running It
 
@@ -22,7 +22,7 @@ cargo run -- --startup-mode mcp-stdio
 In `mcp-stdio` mode, stdin/stdout carry MCP JSON-RPC. The server **must never log to stdout** in this mode — doing so corrupts the protocol stream.
 :::
 
-## Connecting an AI Assistant
+## Connecting an AI Agent
 
 Point any MCP-capable client at the command above as a stdio server. The client will discover the read-only context-tool whitelist; no additional configuration grants write, execute, or diagnosis access, because those tools do not exist.
 

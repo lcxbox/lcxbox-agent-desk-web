@@ -181,10 +181,8 @@ pub fn bind_ai_permission_grants(
     grants: &mut Vec<CapabilityGrant>,
 ) -> Result<(), AgentError> {
     use crate::dynamic_run::{PermissionDecisionSource, PermissionItemDecision};
-    if session.surface != crate::session::AgentSessionSurface::AiAssistant {
-        return Err(internal(
-            "AI permission grant requires an AI Assistant session",
-        ));
+    if session.surface != crate::session::AgentSessionSurface::AiAgent {
+        return Err(internal("AI permission grant requires an AI Agent session"));
     }
     decided
         .validate()
@@ -305,7 +303,7 @@ pub fn requires_original_read_context(
 
 pub fn bind_no_review_command_grant(
     session: &PersistedAgentSession,
-    preference: &crate::assistant_approval_mode::AssistantApprovalPreference,
+    preference: &crate::agent_approval_mode::AgentApprovalPreference,
     decided: &crate::dynamic_run::PermissionDecidedEvent,
     grants: &mut [CapabilityGrant],
 ) -> Result<(), AgentError> {
@@ -349,14 +347,14 @@ pub fn build_permission_grants(
     context: &PermissionGrantIssuanceContext<'_>,
     original_reads: Option<&ReadContextSelection>,
 ) -> Result<Vec<CapabilityGrant>, AgentError> {
-    crate::assistant_policy::require_current_policy(session.policy_revision)?;
+    crate::agent_policy::require_current_policy(session.policy_revision)?;
     request
         .validate()
         .map_err(|error| internal(format!("invalid permission request: {error}")))?;
     if request.input_revision != session.input_revision {
         return Err(internal("permission request needs revalidation"));
     }
-    if !crate::assistant_policy::permits_permission_request(session, request) {
+    if !crate::agent_policy::permits_permission_request(session, request) {
         return Err(internal(
             "permission request is outside the conversation authority",
         ));
@@ -1108,7 +1106,7 @@ pub fn permission_request_can_renew(
 ) -> bool {
     request.state == crate::dynamic_run::PermissionRequestState::Approved
         && request.input_revision == session.input_revision
-        && crate::assistant_policy::permits_permission_request(session, request)
+        && crate::agent_policy::permits_permission_request(session, request)
         && !request.items.is_empty()
         && request.items.iter().all(|item| {
             let id = permission_item_grant_id(&session.conversation_id, request, &item.item_id);

@@ -2776,20 +2776,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "desk-agent-protocol"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
- "sha2",
- "url",
- "utoipa",
- "wincode",
-]
-
-[[package]]
-name = "desk-assistant-data-store"
+name = "desk-agent-data-store"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -2806,6 +2793,19 @@ dependencies = [
  "uuid",
  "yaml-rust2",
  "zip",
+]
+
+[[package]]
+name = "desk-agent-protocol"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "sha2",
+ "url",
+ "utoipa",
+ "wincode",
 ]
 
 [[package]]
@@ -3019,8 +3019,8 @@ dependencies = [
  "bytes",
  "bytestring",
  "chrono",
+ "desk-agent-data-store",
  "desk-agent-protocol",
- "desk-assistant-data-store",
  "desk-diagnose-core",
  "desk-server-user",
  "desk-server-version",

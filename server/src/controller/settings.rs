@@ -11,10 +11,9 @@ use crate::daemon::manager_link_gate::ManagerLinkGate;
 use crate::daemon::signaling_proxy::manager_link_should_connect;
 use crate::host_control::{ApprovalResponse, HostControlHub};
 use crate::model::settings::{
-    AiAssistantSettings, AiAssistantSettingsUpdate, AiAssistantSettingsUpdateError,
-    AiExecutionPolicyPublic, AiExecutionPolicyUpdate, CollectionPolicySettings,
-    CollectionPolicySettingsUpdate, LogSettings, Settings, SharedSettings, SystemSettings,
-    TurnClientSettings, apply_ai_assistant_settings_update,
+    AiAgentSettings, AiAgentSettingsUpdate, AiAgentSettingsUpdateError, AiExecutionPolicyPublic,
+    AiExecutionPolicyUpdate, CollectionPolicySettings, CollectionPolicySettingsUpdate, LogSettings,
+    Settings, SharedSettings, SystemSettings, TurnClientSettings, apply_ai_agent_settings_update,
 };
 use crate::model::settings_coordinator::SettingsCoordinator;
 use crate::service::auto_start::update_auto_start_status;
@@ -235,78 +234,76 @@ pub async fn update_collection_policy_settings(
 
 #[utoipa::path(
     tag = "AiModel",
-    summary = "Query the authoritative device-owned AI Assistant switch",
+    summary = "Query the authoritative device-owned AI Agent switch",
     responses(
-        (status = 200, description = "Current device-owned switch and revision", body=RestResponse<AiAssistantSettings>),
+        (status = 200, description = "Current device-owned switch and revision", body=RestResponse<AiAgentSettings>),
     ),
 )]
-#[get("/settings/ai-assistant")]
-pub async fn query_ai_assistant_settings(
+#[get("/settings/ai-agent")]
+pub async fn query_ai_agent_settings(
     settings: web::Data<SharedSettings>,
 ) -> Result<HttpResponse, AWError> {
     Ok(HttpResponse::Ok().json(RestResponse::succeed_with_data(
-        settings.read().await.ai_assistant,
+        settings.read().await.ai_agent,
     )))
 }
 
 #[utoipa::path(
     tag = "AiModel",
-    summary = "Compare-and-set the authoritative device-owned AI Assistant switch",
-    request_body(content = AiAssistantSettingsUpdate),
+    summary = "Compare-and-set the authoritative device-owned AI Agent switch",
+    request_body(content = AiAgentSettingsUpdate),
     responses(
-        (status = 200, description = "Updated snapshot, or REVISION_CONFLICT carrying the current snapshot", body=RestResponse<AiAssistantSettings>),
+        (status = 200, description = "Updated snapshot, or REVISION_CONFLICT carrying the current snapshot", body=RestResponse<AiAgentSettings>),
     ),
 )]
-#[post("/settings/ai-assistant")]
-pub async fn update_ai_assistant_settings(
-    request_json: web::Json<AiAssistantSettingsUpdate>,
+#[post("/settings/ai-agent")]
+pub async fn update_ai_agent_settings(
+    request_json: web::Json<AiAgentSettingsUpdate>,
     coordinator: web::Data<SettingsCoordinator>,
 ) -> Result<HttpResponse, AWError> {
     let update = request_json.into_inner();
     let conflict = Arc::new(std::sync::Mutex::new(None));
     let conflict_for_commit = conflict.clone();
-    let gate = desk_signal::ai_assistant_gate::global_ai_assistant_gate();
+    let gate = desk_signal::ai_agent_gate::global_ai_agent_gate();
     let result = coordinator
         .commit_with_effect(
             move |settings| {
-                settings.ai_assistant = match apply_ai_assistant_settings_update(
-                    settings.ai_assistant,
-                    update,
-                ) {
+                settings.ai_agent = match apply_ai_agent_settings_update(settings.ai_agent, update)
+                {
                     Ok(next) => next,
-                    Err(AiAssistantSettingsUpdateError::RevisionConflict(current)) => {
+                    Err(AiAgentSettingsUpdateError::RevisionConflict(current)) => {
                         *conflict_for_commit
                             .lock()
-                            .expect("AI assistant conflict snapshot") = Some(current);
+                            .expect("AI agent conflict snapshot") = Some(current);
                         return crate::error::DeskError::custom_error(
                             DeskErrorCode::REVISION_CONFLICT,
-                            "AI Assistant settings were modified concurrently; re-read and retry",
+                            "AI Agent settings were modified concurrently; re-read and retry",
                         );
                     }
-                    Err(AiAssistantSettingsUpdateError::RevisionExhausted) => {
+                    Err(AiAgentSettingsUpdateError::RevisionExhausted) => {
                         return crate::error::DeskError::custom_error(
                             DeskErrorCode::PRECONDITION_FAILED,
-                            "AI Assistant settings revision is exhausted",
+                            "AI Agent settings revision is exhausted",
                         );
                     }
                 };
                 Ok(())
             },
-            move |settings| gate.replace(settings.ai_assistant),
+            move |settings| gate.replace(settings.ai_agent),
         )
         .await;
 
-    if let Some(current) = *conflict.lock().expect("AI assistant conflict snapshot") {
+    if let Some(current) = *conflict.lock().expect("AI agent conflict snapshot") {
         return Ok(HttpResponse::Ok().json(RestResponse::failed_with_data(
             DeskErrorCode::REVISION_CONFLICT,
-            Some("AI Assistant settings were modified concurrently; re-read and retry".into()),
+            Some("AI Agent settings were modified concurrently; re-read and retry".into()),
             Some(current),
         )));
     }
     result?;
-    let current = desk_signal::ai_assistant_gate::global_ai_assistant_gate().snapshot();
+    let current = desk_signal::ai_agent_gate::global_ai_agent_gate().snapshot();
     info!(
-        "Updated AI Assistant product switch: revision={}, enabled={}",
+        "Updated AI Agent product switch: revision={}, enabled={}",
         current.revision, current.enabled
     );
     Ok(HttpResponse::Ok().json(RestResponse::succeed_with_data(current)))

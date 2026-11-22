@@ -37,7 +37,7 @@ describe('exec PTY wire', () => {
 
 
 describe('exec PTY device routing', () => {
-    it('routes assistant carriers by their original permission instead of a page device', () => {
+    it('routes agent carriers by their original permission instead of a page device', () => {
         const url = new URL(websocketUrl({ deviceId: 'current-device-b', permission: { runId: 'original-run', requestId: 'original-request' } }));
         expect(url.searchParams.get('device_id')).toBeNull();
         expect(url.searchParams.get('permission_run_id')).toBe('original-run');

@@ -58,7 +58,7 @@ fn build_for_device(
     device_id: &str,
     request_id: &str,
 ) -> Result<ContextSelectionClaim, AgentError> {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let inventory = ids
         .iter()
         .map(|id| CapabilityAvailability {
@@ -103,7 +103,7 @@ fn build_with(
     ready: impl Fn(&str) -> bool,
     skip_unready: bool,
 ) -> Result<ContextSelectionClaim, AgentError> {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let inventory = ids
         .iter()
         .map(|id| CapabilityAvailability {
@@ -159,7 +159,7 @@ fn session() -> PersistedAgentSession {
         },
         "2026-08-31T00:00:01Z",
     );
-    session.adopt_client_metadata(Some("client-1"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("client-1"), AgentSessionSurface::AiAgent);
     session
 }
 
@@ -223,7 +223,7 @@ fn live_metadata_uses_matching_edge_reference_expiry_beyond_readiness_heartbeat(
         },
     }];
     let selection = build(
-        &[crate::ai_assistant::PRESENTATION_BATCH_INSPECT_CAPABILITY_ID.into()],
+        &[crate::ai_agent::PRESENTATION_BATCH_INSPECT_CAPABILITY_ID.into()],
         Some(&readiness),
         true,
     )
@@ -316,7 +316,7 @@ fn worker_change_replaces_live_metadata_without_rebinding_the_old_reference() {
 #[test]
 fn screen_is_ephemeral_and_invalid_or_unready_context_is_rejected() {
     let screen = build(
-        &[crate::ai_assistant::CURRENT_SCREEN_CAPABILITY_ID.into()],
+        &[crate::ai_agent::CURRENT_SCREEN_CAPABILITY_ID.into()],
         Some(&readiness()),
         true,
     )
@@ -395,17 +395,16 @@ fn an_unready_read_in_a_resume_is_marked_unavailable_not_detached() {
 
 #[test]
 fn durable_selection_validation_rejects_screen_unknown_and_duplicate_ids() {
-    use desk_agent_protocol::ai_assistant::AiAssistantContextUpdate;
-    let mut update = AiAssistantContextUpdate {
-        conversation_target:
-            desk_agent_protocol::ai_assistant::AiAssistantConversationTarget::FixedDevice,
+    use desk_agent_protocol::ai_agent::AiAgentContextUpdate;
+    let mut update = AiAgentContextUpdate {
+        conversation_target: desk_agent_protocol::ai_agent::AiAgentConversationTarget::FixedDevice,
         conversation_id: "client-1".into(),
         client_request_id: "request-1".into(),
         selected_capability_ids: vec![],
     };
     assert!(validate_durable_update(&update).is_ok());
     for ids in [
-        vec![crate::ai_assistant::CURRENT_SCREEN_CAPABILITY_ID.into()],
+        vec![crate::ai_agent::CURRENT_SCREEN_CAPABILITY_ID.into()],
         vec!["unknown".into()],
         vec!["desktop.ui.inspect".into(), "desktop.ui.inspect".into()],
     ] {

@@ -5,7 +5,7 @@ use desk_agent_protocol::schedule::management::ResumeConversationSource;
 use desk_diagnose_core::{
     chat::ChatRole,
     conversation_key::{
-        AssistantConversationScope, derive_assistant_conversation_key, derive_conversation_key,
+        AgentConversationScope, derive_agent_conversation_key, derive_conversation_key,
         is_valid_client_conversation_id,
     },
     session::{AgentSessionSurface, PersistedAgentSession, TriggerOrigin},
@@ -57,21 +57,16 @@ pub(super) async fn list(
             || session.version != row.version
             || session.conversation_id != row.conversation_id
             || if session.device_id.is_empty() {
-                derive_assistant_conversation_key(
-                    &actor,
-                    AssistantConversationScope::Personal,
-                    client,
-                ) != row.conversation_id
+                derive_agent_conversation_key(&actor, AgentConversationScope::Personal, client)
+                    != row.conversation_id
             } else {
                 derive_conversation_key(&actor, &device, Some(client), "") != row.conversation_id
             }
             || session.check_subject(&actor, &row.device_id).is_err()
             || !session
-                .admitted_assistant_request_targets()
+                .admitted_agent_request_targets()
                 .is_some_and(|targets| targets.iter().any(|target| target.device_id == device))
-            || session
-                .check_surface(AgentSessionSurface::AiAssistant)
-                .is_err()
+            || session.check_surface(AgentSessionSurface::AiAgent).is_err()
             || session.input_revision == 0
             || session.input_revision > i64::MAX as u64
             || session.turn_state.is_active()

@@ -5,15 +5,15 @@ import { MarkdownContent } from './markdown-content';
 
 const id = 'src_h42i';
 it('keeps complete but unbound and streaming markers inert without exposing partial IDs', () => {
-    render(<MemoryRouter><MarkdownContent disableLinks assistantSources={[]}>{`Result 〔来源:${id}〕 and 〔来源:src_incomplete`}</MarkdownContent></MemoryRouter>);
+    render(<MemoryRouter><MarkdownContent disableLinks agentSources={[]}>{`Result 〔来源:${id}〕 and 〔来源:src_incomplete`}</MarkdownContent></MemoryRouter>);
     expect(screen.queryByRole('link')).toBeNull();
     expect(document.body.textContent).not.toContain(id);
     expect(document.body.textContent).not.toContain('src_incomplete');
 });
 it('opens only source markers as internal owner history links while keeping model URLs inert', () => {
-    render(<MemoryRouter><MarkdownContent disableLinks assistantSources={[{source_id:id,source_revision:1}]}>{`Answer 〔来源:${id}〕. [external](https://example.com) ![image](https://example.com/pixel)`}</MarkdownContent></MemoryRouter>);
+    render(<MemoryRouter><MarkdownContent disableLinks agentSources={[{source_id:id,source_revision:1}]}>{`Answer 〔来源:${id}〕. [external](https://example.com) ![image](https://example.com/pixel)`}</MarkdownContent></MemoryRouter>);
     const link = screen.getByRole('link');
-    expect(link).toHaveAttribute('href', `/ai-assistant/conversation?source=${id}&revision=1`);
+    expect(link).toHaveAttribute('href', `/ai-agent/conversation?source=${id}&revision=1`);
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(screen.getByText('external').tagName).toBe('SPAN');
@@ -21,7 +21,7 @@ it('opens only source markers as internal owner history links while keeping mode
 });
 
 it('does not activate code, existing link labels, malformed markers or other Markdown surfaces', () => {
-    const view = render(<MemoryRouter><MarkdownContent disableLinks assistantSources={[{source_id:id,source_revision:1}]}>{`\`〔来源:${id}〕\` [〔来源:${id}〕](https://example.com) 〔来源:src_fake〕\n\n\`\`\`\n〔来源:${id}〕\n\`\`\``}</MarkdownContent></MemoryRouter>);
+    const view = render(<MemoryRouter><MarkdownContent disableLinks agentSources={[{source_id:id,source_revision:1}]}>{`\`〔来源:${id}〕\` [〔来源:${id}〕](https://example.com) 〔来源:src_fake〕\n\n\`\`\`\n〔来源:${id}〕\n\`\`\``}</MarkdownContent></MemoryRouter>);
     expect(screen.queryByRole('link')).toBeNull();
     view.rerender(<MemoryRouter><MarkdownContent disableLinks>{`〔来源:${id}〕`}</MarkdownContent></MemoryRouter>);
     expect(screen.queryByRole('link')).toBeNull();

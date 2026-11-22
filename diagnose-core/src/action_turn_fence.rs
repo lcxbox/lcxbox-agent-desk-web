@@ -1,4 +1,4 @@
-//! Frozen turn identity for a AI Assistant action. This is concurrency
+//! Frozen turn identity for a AI Agent action. This is concurrency
 //! evidence, never a capability grant or permission to execute an operation.
 
 use desk_agent_protocol::{AgentError, AgentErrorKind};
@@ -8,7 +8,7 @@ use crate::session::{AgentSessionSurface, PersistedAgentSession};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AssistantTurnFence {
+pub struct AgentTurnFence {
     pub schema_version: u16,
     pub conversation_id: String,
     pub turn_id: String,
@@ -29,7 +29,7 @@ pub struct DelegatedActionFence {
     pub source_epoch: u64,
 }
 
-impl AssistantTurnFence {
+impl AgentTurnFence {
     /// Never adopt a newer persisted turn on behalf of an older tool call.
     pub fn computer_action_scope_for_session(
         held: Option<&Self>,
@@ -69,10 +69,10 @@ impl AssistantTurnFence {
         session: &PersistedAgentSession,
         device_id: &str,
     ) -> Result<Option<Self>, AgentError> {
-        if session.surface != AgentSessionSurface::AiAssistant {
+        if session.surface != AgentSessionSurface::AiAgent {
             return Ok(None);
         }
-        if !session.turn_state.is_active() || !session.admits_assistant_device(device_id) {
+        if !session.turn_state.is_active() || !session.admits_agent_device(device_id) {
             return Err(invalid());
         }
         let fence = Self {
@@ -132,7 +132,7 @@ impl AssistantTurnFence {
 fn invalid() -> AgentError {
     AgentError {
         kind: AgentErrorKind::SessionUnavailable,
-        message: "invalid AI Assistant action turn fence".into(),
+        message: "invalid AI Agent action turn fence".into(),
         retryable: false,
         safe_for_model: false,
         error_code: None,
@@ -143,8 +143,8 @@ fn invalid() -> AgentError {
 mod tests {
     use super::*;
 
-    fn valid() -> AssistantTurnFence {
-        AssistantTurnFence {
+    fn valid() -> AgentTurnFence {
+        AgentTurnFence {
             schema_version: 1,
             control_revision: 1,
             delegation: None,
@@ -177,30 +177,30 @@ mod tests {
         original.validate().unwrap();
         let json = serde_json::to_string(&original).unwrap();
         assert_eq!(
-            serde_json::from_str::<AssistantTurnFence>(&json).unwrap(),
+            serde_json::from_str::<AgentTurnFence>(&json).unwrap(),
             original
         );
         let mut unknown = serde_json::to_value(&original).unwrap();
         unknown["grant"] = serde_json::json!("not a grant");
-        assert!(serde_json::from_value::<AssistantTurnFence>(unknown).is_err());
+        assert!(serde_json::from_value::<AgentTurnFence>(unknown).is_err());
         for bad in [
-            AssistantTurnFence {
+            AgentTurnFence {
                 schema_version: 2,
                 ..valid()
             },
-            AssistantTurnFence {
+            AgentTurnFence {
                 input_revision: 0,
                 ..valid()
             },
-            AssistantTurnFence {
+            AgentTurnFence {
                 lease_token: u64::MAX,
                 ..valid()
             },
-            AssistantTurnFence {
+            AgentTurnFence {
                 turn_id: "x".repeat(257),
                 ..valid()
             },
-            AssistantTurnFence {
+            AgentTurnFence {
                 actor_id: "\n".into(),
                 ..valid()
             },
@@ -210,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn freezing_requires_active_assistant_input_and_never_tracks_later_changes() {
+    fn freezing_requires_active_agent_input_and_never_tracks_later_changes() {
         let mut session = PersistedAgentSession::new(
             "run",
             "actor",
@@ -224,26 +224,22 @@ mod tests {
             },
             "now",
         );
-        assert!(
-            AssistantTurnFence::from_session(&session)
-                .unwrap()
-                .is_none()
-        );
-        session.surface = AgentSessionSurface::AiAssistant;
-        assert!(AssistantTurnFence::from_session(&session).is_err());
+        assert!(AgentTurnFence::from_session(&session).unwrap().is_none());
+        session.surface = AgentSessionSurface::AiAgent;
+        assert!(AgentTurnFence::from_session(&session).is_err());
         session.input_revision = 1;
         session.latest_input_seq = 1;
         session
-            .bind_assistant_request_targets(vec!["device".into()])
+            .bind_agent_request_targets(vec!["device".into()])
             .unwrap();
-        assert!(session.bind_assistant_request_targets(vec![]).is_err());
+        assert!(session.bind_agent_request_targets(vec![]).is_err());
         session
             .begin_turn("turn", None, None, 1, session.scope_snapshot.clone(), "now")
             .unwrap();
-        let frozen = AssistantTurnFence::from_session(&session).unwrap().unwrap();
-        assert!(AssistantTurnFence::computer_action_scope_for_session(None, &session).is_err());
+        let frozen = AgentTurnFence::from_session(&session).unwrap().unwrap();
+        assert!(AgentTurnFence::computer_action_scope_for_session(None, &session).is_err());
         assert_eq!(
-            AssistantTurnFence::computer_action_scope_for_session(Some(&frozen), &session).unwrap(),
+            AgentTurnFence::computer_action_scope_for_session(Some(&frozen), &session).unwrap(),
             Some(frozen.computer_action_scope().unwrap())
         );
         for field in 0..6 {
@@ -257,36 +253,35 @@ mod tests {
                 _ => stale.lease_token += 1,
             }
             assert!(
-                AssistantTurnFence::computer_action_scope_for_session(Some(&stale), &session)
-                    .is_err()
+                AgentTurnFence::computer_action_scope_for_session(Some(&stale), &session).is_err()
             );
         }
         session.input_revision += 1;
         session.lease_token += 1;
         assert!(
-            AssistantTurnFence::computer_action_scope_for_session(Some(&frozen), &session).is_err()
+            AgentTurnFence::computer_action_scope_for_session(Some(&frozen), &session).is_err()
         );
         assert_eq!(frozen.input_revision, 1);
-        assert!(AssistantTurnFence::from_session(&session).is_err());
+        assert!(AgentTurnFence::from_session(&session).is_err());
         assert!(
             session
-                .bind_assistant_request_targets(vec!["device".into(), "device".into()])
+                .bind_agent_request_targets(vec!["device".into(), "device".into()])
                 .is_err()
         );
-        assert!(session.bind_assistant_request_targets(vec![]).is_err());
-        assert!(!session.admits_assistant_device("device"));
-        assert!(AssistantTurnFence::from_session(&session).is_err());
-        session.bind_assistant_input_targets(&[]).unwrap();
-        assert!(AssistantTurnFence::from_session(&session).is_ok());
+        assert!(session.bind_agent_request_targets(vec![]).is_err());
+        assert!(!session.admits_agent_device("device"));
+        assert!(AgentTurnFence::from_session(&session).is_err());
+        session.bind_agent_input_targets(&[]).unwrap();
+        assert!(AgentTurnFence::from_session(&session).is_ok());
     }
 
     #[test]
     fn personal_conversation_fences_each_admitted_device_independently() {
-        let mut session = crate::ai_assistant::test_support::personal_session("actor", "run", "");
+        let mut session = crate::ai_agent::test_support::personal_session("actor", "run", "");
         session.input_revision = 1;
         session.latest_input_seq = 1;
         session
-            .bind_assistant_request_targets(vec!["mac".into(), "linux".into()])
+            .bind_agent_request_targets(vec!["mac".into(), "linux".into()])
             .unwrap();
         session.begin_focus_epoch(1, []).unwrap();
         session
@@ -298,10 +293,10 @@ mod tests {
         assert!(session.device_id.is_empty());
         assert!(!session.has_admitted_targetless_input());
 
-        let mac = AssistantTurnFence::for_device(&session, "mac")
+        let mac = AgentTurnFence::for_device(&session, "mac")
             .unwrap()
             .unwrap();
-        let linux = AssistantTurnFence::for_device(&session, "linux")
+        let linux = AgentTurnFence::for_device(&session, "linux")
             .unwrap()
             .unwrap();
         assert_eq!(mac.device_id, "mac");
@@ -309,23 +304,23 @@ mod tests {
         assert_eq!(mac.conversation_id, linux.conversation_id);
         assert_eq!(mac.input_revision, linux.input_revision);
         assert_ne!(mac, linux);
-        assert!(AssistantTurnFence::for_device(&session, "windows").is_err());
-        assert!(AssistantTurnFence::from_session(&session).is_err());
+        assert!(AgentTurnFence::for_device(&session, "windows").is_err());
+        assert!(AgentTurnFence::from_session(&session).is_err());
 
         session.input_revision += 1;
         session
-            .bind_assistant_request_targets(vec!["linux".into()])
+            .bind_agent_request_targets(vec!["linux".into()])
             .unwrap();
-        assert!(AssistantTurnFence::for_device(&session, &mac.device_id).is_err());
+        assert!(AgentTurnFence::for_device(&session, &mac.device_id).is_err());
         assert_ne!(
-            AssistantTurnFence::for_device(&session, &linux.device_id).unwrap(),
+            AgentTurnFence::for_device(&session, &linux.device_id).unwrap(),
             Some(linux)
         );
     }
 
     #[test]
     fn fixed_and_selectable_inputs_share_the_same_action_target_contract() {
-        use crate::dynamic_run::AssistantInputTarget;
+        use crate::dynamic_run::AgentInputTarget;
 
         for (fixed, selection, implicit) in [
             ("a", &[][..], Some("a")),
@@ -334,12 +329,12 @@ mod tests {
             ("", &[][..], None),
         ] {
             let mut session =
-                crate::ai_assistant::test_support::personal_session("actor", "run", fixed);
+                crate::ai_agent::test_support::personal_session("actor", "run", fixed);
             session.input_revision = 1;
             session.latest_input_seq = 1;
             let targets = selection
                 .iter()
-                .map(|&device_id| AssistantInputTarget {
+                .map(|&device_id| AgentInputTarget {
                     reference: format!("public-{device_id}"),
                     device_id: device_id.into(),
                     member_generation: None,
@@ -348,7 +343,7 @@ mod tests {
             if !fixed.is_empty() {
                 assert!(
                     session
-                        .bind_assistant_input_targets(&[AssistantInputTarget {
+                        .bind_agent_input_targets(&[AgentInputTarget {
                             reference: "public-b".into(),
                             device_id: "b".into(),
                             member_generation: None,
@@ -356,7 +351,7 @@ mod tests {
                         .is_err()
                 );
             }
-            session.bind_assistant_input_targets(&targets).unwrap();
+            session.bind_agent_input_targets(&targets).unwrap();
             session.begin_focus_epoch(1, []).unwrap();
             session
                 .begin_turn("turn", None, None, 1, session.scope_snapshot.clone(), "now")
@@ -365,36 +360,31 @@ mod tests {
                 PersistedAgentSession::decode_json(&session.encode_json_for_storage().unwrap())
                     .unwrap();
             assert_eq!(
-                restored.resolve_assistant_action_device(None, None).ok(),
+                restored.resolve_agent_action_device(None, None).ok(),
                 implicit
             );
             let admits_a = fixed == "a" || selection.contains(&"a");
             assert_eq!(
-                restored
-                    .resolve_assistant_action_device(None, Some("a"))
-                    .ok(),
+                restored.resolve_agent_action_device(None, Some("a")).ok(),
                 admits_a.then_some("a")
             );
+            assert_eq!(AgentTurnFence::for_device(&restored, "a").is_ok(), admits_a);
             assert_eq!(
-                AssistantTurnFence::for_device(&restored, "a").is_ok(),
-                admits_a
-            );
-            assert_eq!(
-                AssistantTurnFence::for_device(&restored, "b").is_ok(),
+                AgentTurnFence::for_device(&restored, "b").is_ok(),
                 selection.contains(&"b")
             );
             assert!(
                 restored
-                    .resolve_assistant_action_device(Some("a"), Some("b"))
+                    .resolve_agent_action_device(Some("a"), Some("b"))
                     .is_err()
             );
             assert!(
                 restored
-                    .resolve_assistant_action_device(Some("public-a"), None)
+                    .resolve_agent_action_device(Some("public-a"), None)
                     .is_err()
             );
             restored.input_revision += 1;
-            assert!(AssistantTurnFence::for_device(&restored, "a").is_err());
+            assert!(AgentTurnFence::for_device(&restored, "a").is_err());
         }
     }
 }

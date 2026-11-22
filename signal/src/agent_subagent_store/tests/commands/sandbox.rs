@@ -3,7 +3,7 @@
 //! change of sandbox support, execution identity or worker incarnation needs a
 //! new approval while an unchanged readiness keeps it.
 use super::snapshot::{
-    PLAN_CHANGED, approved, assert_still_current, assistant_tools, context, owner_host_for,
+    PLAN_CHANGED, agent_tools, approved, assert_still_current, context, owner_host_for,
 };
 use super::*;
 use crate::command_policy::tests::{STANDARD_USER, mark_ready_with};
@@ -59,7 +59,7 @@ async fn the_command_edge_refuses_an_approval_after_a_readiness_change() {
             support,
             identity,
         );
-        let error = assistant_tools(&db, &child, connections.clone())
+        let error = agent_tools(&db, &child, connections.clone())
             .confirm_and_exec(&call, &context(&child, &call))
             .await
             .unwrap_err();

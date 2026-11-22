@@ -22,9 +22,9 @@ import type { ScheduleManagementRequest, ScheduleSpec, ScheduleView, ScheduleTim
 import { ScheduleClient, ScheduleRequestError, scheduleErrorMessage } from './client';
 import { formatTime, ruleTimes, validTimezone, projectRule } from './time';
 import { RunHistory } from './run-history';
-import { AiAssistantHubLayout } from '@/features/desk/ai-assistant-hub-layout';
+import { AiAgentHubLayout } from '@/features/desk/ai-agent-hub-layout';
 
-export type ScheduleDevice = { id: string; name: string; connectionId?: string; assistantPath?: string };
+export type ScheduleDevice = { id: string; name: string; connectionId?: string; agentPath?: string };
 type ResumeSource = { conversation: string; device?: string; devices?: string[]; revision: number };
 type Editor = { resume?: ResumeSource; kind: 'create' | 'time' | 'rename' | 'delete' | 'editPrompt' | 'failureThreshold'; task?: ScheduleView; key: string };
 const selectClass = 'h-10 w-full rounded-md border bg-background px-3 text-sm';
@@ -112,7 +112,7 @@ export default function SchedulePage({ devices, loadingDevices = false }: { devi
     const visible = tasks.filter(task => task.kind === tab);
     const allDevices = [...devices];
     for (const task of tasks) if (task.target_device_id && !allDevices.some(d => d.id === task.target_device_id)) allDevices.push({ id: task.target_device_id, name: task.target_device_id });
-    return <AiAssistantHubLayout>
+    return <AiAgentHubLayout>
         <div className="flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-xl font-semibold">{t('schedules.title')}</h1>
             <div className="flex flex-wrap gap-2">
@@ -220,7 +220,7 @@ export default function SchedulePage({ devices, loadingDevices = false }: { devi
             <DialogHeader><DialogTitle>{editor && t(editor.resume ? 'schedules.createResume' : `schedules.${editor.kind}`)}</DialogTitle></DialogHeader>
             {editor && <ScheduleEditor key={editor.key} editor={editor} devices={allDevices} zone={zone} disabled={!available || !validZone} client={client} submit={mutate} report={report} close={() => setEditor(null)} />}
         </DialogContent></Dialog>
-    </AiAssistantHubLayout>;
+    </AiAgentHubLayout>;
 }
 
 function ScheduleEditor({ editor, devices, zone, disabled, client, submit, report, close }: { close: () => void; editor: Editor; devices: ScheduleDevice[]; zone: string; disabled: boolean; client: ScheduleClient; submit: (request: ScheduleManagementRequest) => Promise<void>; report: (error: unknown) => void }) {

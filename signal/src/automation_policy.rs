@@ -1,8 +1,6 @@
 //! File-owned OSS bound on automatic follow-up turns per chain.
 use crate::config::{ConfigConnection, connection::DatabaseConnection};
-use desk_agent_protocol::ai_assistant::automation_policy::{
-    AutomationPolicy, UpdateAutomationPolicy,
-};
+use desk_agent_protocol::ai_agent::automation_policy::{AutomationPolicy, UpdateAutomationPolicy};
 
 #[derive(Debug)]
 pub enum WriteError {

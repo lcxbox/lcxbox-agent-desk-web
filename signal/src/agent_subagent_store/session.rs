@@ -15,7 +15,7 @@ pub(crate) async fn save_child_session(
     .await?;
 
     let history = desk_diagnose_core::future::boxed(|| {
-        crate::assistant_data_store::native_scope_on(
+        crate::agent_data_store::native_scope_on(
             &txn,
             &session.actor_id,
             &session.device_id,

@@ -303,13 +303,13 @@ A: Modify the `port` setting in `config.toml`.
 **Q: WebRTC connection failed.**
 A: Check STUN/TURN server configuration and ensure network connectivity. For external access, verify the signaling server mode is correctly started and ports are mapped.
 
-### Linux AI Assistant development
+### Linux AI Agent development
 
 The Linux desktop adapter targets a logged-in GNOME Wayland user session. It uses logind on the system bus and the user session bus, xdg-desktop-portal with the GNOME backend, PipeWire, and the existing AT-SPI accessibility bus. Headless builds do not prove any of these runtime capabilities. Do not run the desktop worker as root, add it to the input group, or enable accessibility settings automatically.
 
 File changes use Linux openat2 and renameat2 without a weaker syscall fallback; runtime checks also constrain filesystem support and file ownership. No extra native AT-SPI development library is required: this adapter uses zbus directly. Retain the general capture build dependencies above even though this AI desktop scope excludes X11.
 
-The browser extension uses WebCrypto primitives and has dependency-free Node tests (`cd browser-extension && npm test`, Node 22.16.0). `Browser Assistant Contract` runs these tests with mocked Chrome APIs; it does not perform a live pairing or page action. The parent workspace contains opt-in GNOME probes in `pocs/poc-linux-wayland-assistant`; their README documents Python/GStreamer runtime dependencies and external timeouts. Keep live Portal tests separate from ordinary CI and never run all ignored tests indiscriminately.
+The browser extension uses WebCrypto primitives and has dependency-free Node tests (`cd browser-extension && npm test`, Node 22.16.0). `Browser Agent Contract` runs these tests with mocked Chrome APIs; it does not perform a live pairing or page action. The parent workspace contains opt-in GNOME probes in `pocs/poc-linux-wayland-assistant`; their README documents Python/GStreamer runtime dependencies and external timeouts. Keep live Portal tests separate from ordinary CI and never run all ignored tests indiscriminately.
 
 Linux AI desktop writes remain gated pending GNOME input-ownership and fresh-target evidence. A successful build or generated client is not desktop acceptance.
 

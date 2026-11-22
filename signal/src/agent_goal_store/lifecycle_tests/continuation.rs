@@ -961,7 +961,7 @@ async fn orphan_goal_uses_current_time_policy_before_deciding_whether_to_continu
             policy.limits.deadline_ms = Some(86_400_000);
             crate::goal_budget_policy::update(
                 &db,
-                &desk_agent_protocol::ai_assistant::goal_budget::UpdateGoalBudgetPolicy {
+                &desk_agent_protocol::ai_agent::goal_budget::UpdateGoalBudgetPolicy {
                     expected_revision: revision,
                     limits: policy.limits,
                     device_unavailable_max_ms: policy.device_unavailable_max_ms,

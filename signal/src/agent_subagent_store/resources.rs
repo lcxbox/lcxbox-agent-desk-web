@@ -11,10 +11,10 @@ use desk_diagnose_core::subagent::{
 pub(super) async fn device_wait_authorized_on(
     txn: &DatabaseTransaction,
     session: &PersistedAgentSession,
-    target: &desk_diagnose_core::dynamic_run::AssistantInputTarget,
+    target: &desk_diagnose_core::dynamic_run::AgentInputTarget,
 ) -> Result<bool, DbErr> {
-    if !session.admits_assistant_device(&target.device_id)
-        || !desk_assistant_data_store::device_roster::permits_current_target(
+    if !session.admits_agent_device(&target.device_id)
+        || !desk_agent_data_store::device_roster::permits_current_target(
             txn,
             session,
             &target.device_id,

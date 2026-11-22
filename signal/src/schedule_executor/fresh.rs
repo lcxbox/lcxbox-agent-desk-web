@@ -56,7 +56,7 @@ impl SignalScheduleExecutor {
             .await
             .map_err(|_| ScheduleStoreError::Conflict)?;
         let (providers, inventory, _, readiness) =
-            crate::ai_assistant_orchestrator::current_capability_projection(
+            crate::ai_agent_orchestrator::current_capability_projection(
                 &self.db,
                 self.connections.get_ref(),
                 Some(&target),
@@ -72,9 +72,7 @@ impl SignalScheduleExecutor {
         // every device action is approved on its own.
         let mut tools =
             callable_tools(&providers, &inventory).map_err(|_| ScheduleStoreError::Invalid)?;
-        tools.retain(|tool| {
-            !desk_diagnose_core::ai_assistant::is_interactive_only_tool(tool.name())
-        });
+        tools.retain(|tool| !desk_diagnose_core::ai_agent::is_interactive_only_tool(tool.name()));
         let mut granted = Vec::new();
         for capability in tools
             .iter()
@@ -90,7 +88,7 @@ impl SignalScheduleExecutor {
                 .execution_mode
                 .restrict_to(ExecutionMode::ConfirmEachAction),
             expires_at: None,
-            policy_name: Some("oss-ai-assistant-provider".into()),
+            policy_name: Some("oss-ai-agent-provider".into()),
         };
         let claimed = desk_diagnose_core::future::boxed(|| {
             store.claim_fresh_task(
@@ -103,7 +101,7 @@ impl SignalScheduleExecutor {
                     lease_seconds: LEASE_SECONDS,
                     scope,
                     policy_revision:
-                        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+                        desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
                 },
             )
         })
@@ -158,7 +156,7 @@ impl FreshDispatchHost for FreshHost<'_> {
     }
 
     async fn run_turn(&self, claimed: ClaimedFreshTask) -> TurnRun {
-        match owned_task::run(crate::ai_assistant_orchestrator::resume_fresh_task(
+        match owned_task::run(crate::ai_agent_orchestrator::resume_fresh_task(
             self.0.connections.clone(),
             self.0.db.clone(),
             self.0.gate.clone(),

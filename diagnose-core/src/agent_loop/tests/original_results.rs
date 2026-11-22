@@ -3,11 +3,11 @@ use crate::session::ActionIdentity;
 use desk_agent_protocol::data_lineage::{RetentionBoundary, Sensitivity};
 
 pub(super) fn original(output: &ToolRunOutput, ephemeral: bool) -> DataEnvelope {
-    use crate::{action_result::ActionResultOrigin, action_turn_fence::AssistantTurnFence};
+    use crate::{action_result::ActionResultOrigin, action_turn_fence::AgentTurnFence};
     ActionResultOrigin {
         command_completion: None,
         schema_version: 1,
-        turn_fence: AssistantTurnFence {
+        turn_fence: AgentTurnFence {
             schema_version: 1,
             control_revision: 1,
             delegation: None,
@@ -49,7 +49,7 @@ fn model() -> ScriptModel {
 
 #[tokio::test]
 async fn original_result_preserves_label_without_factory_or_new_input_binding() {
-    // A diagnostic turn isolates the shared transport from strict Assistant
+    // A diagnostic turn isolates the shared transport from strict Agent
     // egress policy. Preserving an expired label is not permission to export it.
     for ephemeral in [false, true] {
         let sess = MemSession::default();

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    ai_assistant::source_registry::{
+    ai_agent::source_registry::{
         NativeInputPolicyRegistration, RegisteredSourceContract, SOURCE_CONTRACT_REVISION,
     },
     goal::{GoalLimits, GoalModelBinding, GoalOpening},
@@ -21,7 +21,7 @@ fn goal() -> GoalRun {
         "goal".into(),
         "run".into(),
         "owner".into(),
-        crate::dynamic_run::AssistantInputTarget::fixed("device".into()),
+        crate::dynamic_run::AgentInputTarget::fixed("device".into()),
         "device".into(),
         "Finish the report".into(),
         "message".into(),

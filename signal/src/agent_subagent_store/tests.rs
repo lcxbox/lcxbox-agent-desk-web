@@ -1,6 +1,6 @@
 use super::*;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 mod candidates;
 mod commands;
 mod compaction_races;
@@ -250,13 +250,11 @@ async fn recent_presentation_keeps_an_unfinished_task_that_is_outside_the_page()
 
 #[tokio::test]
 async fn explicit_child_adjustment_is_idempotent_and_never_resets_source_limits() {
-    use desk_agent_protocol::ai_assistant::subagent::{
-        AiAssistantSubAgentControl, SubAgentControlAction,
-    };
+    use desk_agent_protocol::ai_agent::subagent::{AiAgentSubAgentControl, SubAgentControlAction};
     let db = database().await;
     seed_parent(&db).await;
     let original = seed_task(&db, "a", "goal-a").await;
-    let request = AiAssistantSubAgentControl {
+    let request = AiAgentSubAgentControl {
         client_request_id: "adjust-1".into(),
         task_id: original.binding.task_id.clone(),
         expected_input_revision: 1,
@@ -312,14 +310,12 @@ async fn explicit_child_adjustment_is_idempotent_and_never_resets_source_limits(
 
 #[tokio::test]
 async fn terminal_cancellation_cannot_be_reopened_and_controls_do_not_change_siblings() {
-    use desk_agent_protocol::ai_assistant::subagent::{
-        AiAssistantSubAgentControl, SubAgentControlAction,
-    };
+    use desk_agent_protocol::ai_agent::subagent::{AiAgentSubAgentControl, SubAgentControlAction};
     let db = source_isolation_database().await;
     seed_parent(&db).await;
     let first = seed_task(&db, "a", "goal-a").await;
     let sibling = seed_task(&db, "b", "goal-b").await;
-    let request = AiAssistantSubAgentControl {
+    let request = AiAgentSubAgentControl {
         client_request_id: "cancel-1".into(),
         task_id: first.binding.task_id.clone(),
         expected_input_revision: 1,
@@ -336,7 +332,7 @@ async fn terminal_cancellation_cannot_be_reopened_and_controls_do_not_change_sib
     assert_eq!(load(&db, &sibling.binding.task_id).await, sibling);
     let txn = db.begin().await.unwrap();
     let parent = parent_on(&txn, "root", "1", "1").await.unwrap();
-    let adjust = AiAssistantSubAgentControl {
+    let adjust = AiAgentSubAgentControl {
         client_request_id: "adjust-cancelled".into(),
         expected_control_revision: result.task.control_revision,
         action: SubAgentControlAction::Adjust {
@@ -386,10 +382,9 @@ async fn source_pause_rotates_child_session_fence_but_preserves_approval_recordi
         .exec(&db)
         .await
         .unwrap();
-    let original_fence =
-        desk_diagnose_core::action_turn_fence::AssistantTurnFence::from_session(&old)
-            .unwrap()
-            .unwrap();
+    let original_fence = desk_diagnose_core::action_turn_fence::AgentTurnFence::from_session(&old)
+        .unwrap()
+        .unwrap();
     assert!(
         check_child_action_on(&db, &old, &original_fence, 90)
             .await
@@ -576,11 +571,11 @@ async fn insert_session(db: &DatabaseConnection, session: &PersistedAgentSession
 async fn seed_parent(db: &DatabaseConnection) {
     let mut session =
         PersistedAgentSession::new("root", "1", "1", 1, scope(), "1970-01-01T00:00:00Z");
-    session.surface = AgentSessionSurface::AiAssistant;
+    session.surface = AgentSessionSurface::AiAgent;
     session.begin_focus_epoch(1, Vec::new()).unwrap();
     session.input_revision = 1;
     session
-        .bind_assistant_request_targets(vec![session.device_id.clone()])
+        .bind_agent_request_targets(vec![session.device_id.clone()])
         .unwrap();
     insert_session(db, &session).await;
 }
@@ -591,7 +586,7 @@ async fn seed_task(db: &DatabaseConnection, group_id: &str, goal_id: &str) -> Su
         goal_id.into(),
         "root".into(),
         "1".into(),
-        desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("1".into()),
+        desk_diagnose_core::dynamic_run::AgentInputTarget::fixed("1".into()),
         "1".into(),
         "Investigate".into(),
         format!("owner-{group_id}"),
@@ -614,7 +609,9 @@ async fn seed_task(db: &DatabaseConnection, group_id: &str, goal_id: &str) -> Su
     txn.commit().await.unwrap();
     let task_id = format!("task-{group_id}");
     let binding = DelegatedTaskBinding {
-        targets: vec![desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("1".into())],
+        targets: vec![desk_diagnose_core::dynamic_run::AgentInputTarget::fixed(
+            "1".into(),
+        )],
         root_conversation_id: "root".into(),
         group_id: group_id.into(),
         task_id: task_id.clone(),
@@ -642,7 +639,9 @@ async fn seed_task(db: &DatabaseConnection, group_id: &str, goal_id: &str) -> Su
     .unwrap();
     let source = desk_diagnose_core::subagent::creation::CreationEnvelope {
         main_request_id: None,
-        targets: vec![desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("1".into())],
+        targets: vec![desk_diagnose_core::dynamic_run::AgentInputTarget::fixed(
+            "1".into(),
+        )],
         root_conversation_id: "root".into(),
         actor_id: "1".into(),
         device_id: "1".into(),
@@ -653,7 +652,7 @@ async fn seed_task(db: &DatabaseConnection, group_id: &str, goal_id: &str) -> Su
         scheduled_source: None,
         original_read_context: None,
         model_destination: destination.clone(),
-        assistant_seed: None,
+        agent_seed: None,
     };
     let inputs = vec![owner.data_envelope.unwrap()];
     let payload = serde_json::json!({"delegated_task": binding.objective, "acceptance_criteria": binding.acceptance_criteria});
@@ -982,7 +981,7 @@ async fn seed_unreadable_session(db: &DatabaseConnection) -> session_row::Model 
         .unwrap()
         .unwrap();
     let mut json: serde_json::Value = serde_json::from_str(&original.state_json).unwrap();
-    json["assistant_data"] = serde_json::json!({"model_history_exclusions": []});
+    json["agent_data"] = serde_json::json!({"model_history_exclusions": []});
     let mut row = original.into_active_model();
     row.id = sea_orm::ActiveValue::NotSet;
     row.conversation_id = Set("unreadable-session".into());

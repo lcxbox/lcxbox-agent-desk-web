@@ -10,7 +10,7 @@ async fn seed(db: DatabaseConnection) -> (SignalAgentSessionStore, Vec<Permissio
     crate::db::initialize_schema(&db).await.unwrap();
     let store = SignalAgentSessionStore::new(db).with_client_metadata(
         Some("client-conversation-1".into()),
-        AgentSessionSurface::AiAssistant,
+        AgentSessionSurface::AiAgent,
     );
     SignalAgentRunEventStore::new(store.db.clone())
         .append_user_followup(&followup("input-1", "user-1", "inspect the target"))
@@ -251,7 +251,7 @@ async fn decide_target(
     expected: Option<&str>,
     stale: Option<desk_diagnose_core::permission_grant::StaleApprovalTarget>,
 ) -> Result<PermissionDecisionOutcome, AgentError> {
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let inventory = [CapabilityAvailability {
         provider_id: "desktop.session".into(),
         capability_id: "desktop.session.inspect".into(),

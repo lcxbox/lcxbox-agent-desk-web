@@ -33,11 +33,11 @@ fn decision_fixture() -> (
         },
         "2026-08-30T00:00:00Z",
     );
-    session.surface = AgentSessionSurface::AiAssistant;
+    session.surface = AgentSessionSurface::AiAgent;
     session.input_revision = 1;
     session.begin_focus_epoch(1, Vec::new()).unwrap();
     session
-        .bind_assistant_request_targets(vec![session.device_id.clone()])
+        .bind_agent_request_targets(vec![session.device_id.clone()])
         .unwrap();
     let request = PermissionRequest {
         input_source: None,
@@ -96,7 +96,7 @@ fn fixture_session(device: &str) -> PersistedAgentSession {
         },
         "2026-08-30T00:00:00Z",
     );
-    session.surface = AgentSessionSurface::AiAssistant;
+    session.surface = AgentSessionSurface::AiAgent;
     session.input_revision = 1;
     session.begin_focus_epoch(1, Vec::new()).unwrap();
     session
@@ -132,7 +132,7 @@ fn bind_fixture_device(request: &mut PermissionRequest, readiness_revision: u64)
 #[test]
 fn web_host_grants_reuse_urls_until_expiry_on_both_surfaces() {
     let (session, _, _) = decision_fixture();
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let request = fixture_request(
         &crate::chat::ToolCall {
             id: "permission".into(), name: crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME.into(),
@@ -202,9 +202,9 @@ fn web_host_grants_reuse_urls_until_expiry_on_both_surfaces() {
         assert_eq!(grant.resource_scope, ["external_web_host:example.com"]);
 
         let mut targetless = fixture_session("");
-        targetless.surface = AgentSessionSurface::AiAssistant;
+        targetless.surface = AgentSessionSurface::AiAgent;
         targetless.begin_focus_epoch(2, Vec::new()).unwrap();
-        targetless.bind_assistant_input_targets(&[]).unwrap();
+        targetless.bind_agent_input_targets(&[]).unwrap();
         let targetless_grant =
             build_permission_grants(&targetless, &request, &decisions, &context, Some(&original))
                 .unwrap()
@@ -287,7 +287,7 @@ fn web_host_grants_reuse_urls_until_expiry_on_both_surfaces() {
             );
         }
         let (_, device_request, device_decisions) = decision_fixture();
-        assert!(!crate::assistant_policy::permits_permission_request(
+        assert!(!crate::agent_policy::permits_permission_request(
             &targetless,
             &device_request
         ));
@@ -396,13 +396,13 @@ fn child_ai_permission_grant_uses_the_root_delegation_and_child_identity() {
 
 fn check_ai_permission_grant(child: bool) {
     let (mut session, request, decisions) = decision_fixture();
-    session.surface = AgentSessionSurface::AiAssistant;
+    session.surface = AgentSessionSurface::AiAgent;
     let root_conversation_id = session.conversation_id.clone();
     if child {
         session.conversation_id = "child".into();
         session.agent_role = crate::subagent::AgentRole::SubAgent {
             binding: Box::new(crate::subagent::DelegatedTaskBinding {
-                targets: vec![crate::dynamic_run::AssistantInputTarget::fixed(
+                targets: vec![crate::dynamic_run::AgentInputTarget::fixed(
                     session.device_id.clone(),
                 )],
                 root_conversation_id: root_conversation_id.clone(),
@@ -421,7 +421,7 @@ fn check_ai_permission_grant(child: bool) {
         };
     }
 
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let capability = registry
         .capability_for_tool(&request.items[0].tool_name)
         .unwrap();
@@ -524,7 +524,7 @@ fn check_ai_permission_grant(child: bool) {
 fn desktop_action_bundle_issues_only_owner_selected_bounded_reads_on_both_surfaces() {
     let (mut session, _, _) = decision_fixture();
     session.scope_snapshot.mode = ExecutionMode::ConfirmEachAction;
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let call = crate::chat::ToolCall { id: "click-request".into(),
         name: crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME.into(),
         arguments_json: serde_json::json!({"items":[{
@@ -653,7 +653,7 @@ fn owner_freeform_approval_is_exact_one_shot_and_rechecks_the_frozen_policy() {
     .to_string();
     let snapshot = policy.prepare(&canonical, 1).unwrap();
     let registry =
-        crate::ai_assistant::ai_assistant_provider_registry().with_command_policy(policy.clone());
+        crate::ai_agent::ai_agent_provider_registry().with_command_policy(policy.clone());
     let capability = registry
         .capability_for_tool(crate::command_confirmation::COMMAND_TOOL)
         .unwrap();
@@ -720,11 +720,11 @@ fn owner_freeform_approval_is_exact_one_shot_and_rechecks_the_frozen_policy() {
         assert_eq!(grants[0].resource_scope, request.items[0].resource_scope);
         let mut personal = fixture_session("");
         personal.actor_id = session.actor_id.clone();
-        personal.surface = AgentSessionSurface::AiAssistant;
+        personal.surface = AgentSessionSurface::AiAgent;
         personal.scope_snapshot.mode = ExecutionMode::ReadOnly;
         personal.begin_focus_epoch(2, Vec::new()).unwrap();
         personal
-            .bind_assistant_request_targets(vec![policy.target_device_id.clone(), "other".into()])
+            .bind_agent_request_targets(vec![policy.target_device_id.clone(), "other".into()])
             .unwrap();
         let selected = build_for(&personal, &registry, &request).unwrap();
         assert_eq!(selected, grants);
@@ -741,7 +741,7 @@ fn owner_freeform_approval_is_exact_one_shot_and_rechecks_the_frozen_policy() {
         personal.input_revision += 1;
         personal.begin_focus_epoch(2, Vec::new()).unwrap();
         personal
-            .bind_assistant_request_targets(vec!["other".into()])
+            .bind_agent_request_targets(vec!["other".into()])
             .unwrap();
         assert!(build_for(&personal, &registry, &request).is_err());
         let mut changed = policy.clone();
@@ -815,7 +815,7 @@ fn compile(
     decisions: &[PermissionDecisionItem],
     ready: bool,
 ) -> Result<Vec<CapabilityGrant>, AgentError> {
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let inventory = vec![CapabilityAvailability {
         provider_id: "desktop.session".into(),
         capability_id: "desktop.session.inspect".into(),
@@ -847,7 +847,7 @@ fn approved_ui_root_id_matches_resolved_read_on_both_surfaces() {
     use crate::chat::{ChatMessage, ToolCall, ToolCallRef};
     use crate::provider_preflight::{ProviderCallSubject, read::ReadCallPreflight};
     let (session, _, _) = decision_fixture();
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let input = serde_json::json!({"root_id":"session-id","queries":["计算器","Calculator"]});
     let request = fixture_request(
         &ToolCall { id: "request".into(), name: "request_permissions".into(), arguments_json: serde_json::json!({"items":[{"item_id":"inspect","tool_name":"inspect_desktop_ui","exact_input":input,"reason":"Find Calculator"}]}).to_string() },
@@ -875,7 +875,7 @@ fn approved_ui_root_id_matches_resolved_read_on_both_surfaces() {
         reason: None,
     }];
     let history = vec![
-        ChatMessage::assistant_tool_calls("observation-call", "", vec![ToolCallRef { id: "observe".into(), name: "inspect_desktop_session".into(), arguments_json: "{}".into() }]),
+        ChatMessage::agent_tool_calls("observation-call", "", vec![ToolCallRef { id: "observe".into(), name: "inspect_desktop_session".into(), arguments_json: "{}".into() }]),
         ChatMessage::tool_result("observation", "observe", serde_json::json!({"ReadContext":{"DesktopSessionInspect":{"session":{"token":"session-id","snapshot_id":"identity-1","object_kind":"desktop_session","expires_at":""}}}}).to_string()),
     ];
     let original = ReadContextSelection {
@@ -1001,7 +1001,7 @@ fn compiler_rejects_stale_policy_for_approval_and_denial_on_both_servers() {
             assert!(compile(surface, &session, &request, &denied, false).is_err());
             assert_eq!(session, before);
         }
-        session.policy_revision = crate::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
+        session.policy_revision = crate::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
         let grants = compile(surface, &session, &request, &decisions, true).unwrap();
         assert_eq!(grants[0].policy_revision, session.policy_revision);
         grants[0].validate().unwrap();
@@ -1100,7 +1100,7 @@ fn exact_external_grant_never_restores_removed_scopes_or_destinations() {
     item.resource_scope = crate::capability_grant::exact_external_query_resource_scope(&digest);
     item.operation_scope = vec!["search_public_web".into()];
     item.export_destinations = vec![DestinationIdentity::WebResearch {
-        connector_id: crate::ai_assistant::BRAVE_WEB_SEARCH_CONNECTOR_ID.into(),
+        connector_id: crate::ai_agent::BRAVE_WEB_SEARCH_CONNECTOR_ID.into(),
     }];
     item.canonical_input_json = Some(canonical);
     item.canonical_input_digest_sha256 = Some(digest);
@@ -1111,7 +1111,7 @@ fn exact_external_grant_never_restores_removed_scopes_or_destinations() {
         ttl_seconds: 30,
         max_uses: 1,
     };
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let capability = registry
         .provider("web.search")
         .unwrap()
@@ -1162,7 +1162,7 @@ fn context_attachment(
         client_request_id: client_request_id.into(),
         actor_id: "1".into(),
         device_id: "device-1".into(),
-        surface: AgentSessionSurface::AiAssistant,
+        surface: AgentSessionSurface::AiAgent,
         kind: ContextAttachmentKind::InteractiveSession,
         object_ref: AttachmentObjectRef {
             opaque_token: format!("opaque-{id}"),
@@ -1319,7 +1319,7 @@ fn application_scope_is_reusable_but_cannot_cross_actions_apps_or_expiry() {
     use crate::provider_preflight::{ProviderCallSubject, UiCallPreflight};
     let (mut session, _, _) = decision_fixture();
     session.scope_snapshot.mode = ExecutionMode::ConfirmEachAction;
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let app = serde_json::json!({"token":"calendar","snapshot_id":"apps","object_kind":"application","expires_at":"2026-09-11T03:10:00Z"});
     let planning = crate::chat::ToolCall { id:"request".into(), name:crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME.into(), arguments_json:serde_json::json!({"items":[{"item_id":"calendar", "tool_name":"execute_ui_actions", "application_scope":{"application":app,"actions":["invoke","set_value"]}, "suggested_ttl_seconds":900,"suggested_max_uses":12,"reason":"Create the meeting"}]}).to_string() };
     let request = fixture_request(
@@ -1448,7 +1448,7 @@ fn scroll_approval_keeps_semantic_and_background_authority_separate() {
     use crate::provider_preflight::{ProviderCallSubject, UiCallPreflight};
     let (mut session, _, _) = decision_fixture();
     session.scope_snapshot.mode = ExecutionMode::ConfirmEachAction;
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let app = serde_json::json!({"token":"app","snapshot_id":"apps","object_kind":"application","expires_at":"2026-09-11T03:10:00Z"});
     let now = chrono::DateTime::parse_from_rfc3339("2026-09-11T03:09:00Z")
         .unwrap()
@@ -1548,7 +1548,7 @@ fn background_scope_is_reusable_but_cannot_cross_actions_apps_or_expiry() {
     use crate::provider_preflight::{BackgroundInputCallPreflight, ProviderCallSubject};
     let (mut session, _, _) = decision_fixture();
     session.scope_snapshot.mode = ExecutionMode::ConfirmEachAction;
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     let app = serde_json::json!({"token":"calendar","snapshot_id":"apps","object_kind":"application","expires_at":"2026-09-11T03:10:00Z"});
     let planning = crate::chat::ToolCall { id:"request".into(), name:crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME.into(), arguments_json:serde_json::json!({"items":[{"item_id":"calendar", "tool_name":"send_background_input", "application_scope":{"application":app,"actions":["key_press","type_text"]}, "suggested_ttl_seconds":900,"suggested_max_uses":12,"reason":"Create the meeting"}]}).to_string() };
     let request = fixture_request(
@@ -1687,14 +1687,14 @@ fn conversion_permission_freezes_source_and_directory_for_manual_and_ai_on_both_
     use desk_agent_protocol::computer_use::{FileContentReadOutput, ObjectKind, ObjectRef};
     use desk_agent_protocol::{OperationOutput, ReadContextOutput};
     const NOW: u64 = 1_800_000_000_000;
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     for surface in [
         ProductSurface::OssPersonalOwner,
         ProductSurface::ManagerPersonalOwner,
     ] {
         let (mut session, _, _) = decision_fixture();
-        session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAssistant);
-        session.policy_revision = crate::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
+        session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAgent);
+        session.policy_revision = crate::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
         session.conversation.push(
             crate::model_message_labels::model_bound_user_message(
                 "owner-requirement".into(),
@@ -1795,7 +1795,7 @@ fn conversion_permission_freezes_source_and_directory_for_manual_and_ai_on_both_
                 delete_with_run: true,
             },
         });
-        session.conversation.push(ChatMessage::assistant_tool_calls(
+        session.conversation.push(ChatMessage::agent_tool_calls(
             "source-call",
             "",
             vec![ToolCallRef {

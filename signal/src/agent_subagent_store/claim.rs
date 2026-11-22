@@ -73,9 +73,9 @@ impl SubAgentStore {
             .await
         })
         .await?;
-        let owner_targets = owner.assistant_request_targets().map(<[_]>::to_vec);
+        let owner_targets = owner.agent_request_targets().map(<[_]>::to_vec);
         let history = desk_diagnose_core::future::boxed(|| {
-            crate::assistant_data_store::native_scope_on(
+            crate::agent_data_store::native_scope_on(
                 &txn,
                 &params.actor_id,
                 &params.device_id,
@@ -165,7 +165,7 @@ impl SubAgentStore {
             .await
             {
                 Ok(()) => {}
-                Err(desk_assistant_data_store::AssistantStoreError::Inaccessible) => {
+                Err(desk_agent_data_store::AgentStoreError::Inaccessible) => {
                     return Ok(SubAgentClaimOutcome::Blocked(
                         SubAgentClaimBlock::SourcePaused,
                     ));
@@ -263,7 +263,7 @@ impl SubAgentStore {
                     desk_diagnose_core::future::boxed(|| crate::subagent_policy::read(&txn))
                         .await?;
                 if !desk_diagnose_core::future::boxed(|| {
-                    desk_assistant_data_store::worker_request::workbench_has_slot_on(
+                    desk_agent_data_store::worker_request::workbench_has_slot_on(
                         &txn,
                         &row,
                         policy.limits.max_unfinished_per_root,

@@ -1,5 +1,5 @@
 use super::*;
-use desk_assistant_data_store::entity::agent_issue_event;
+use desk_agent_data_store::entity::agent_issue_event;
 use desk_diagnose_core::{
     issue_authority::IssueWorkKind,
     native_ids::{self, Kind},
@@ -9,8 +9,8 @@ use desk_diagnose_core::{
 use desk_signal_facade::mcp_client::{settings::IssuePlatform, test_support::IssueFixture};
 use sea_orm::{ActiveModelTrait, Set, TransactionTrait};
 
-fn enabled_gate() -> AiAssistantGate {
-    AiAssistantGate::new(desk_agent_protocol::ai_assistant::AiAssistantSettings {
+fn enabled_gate() -> AiAgentGate {
+    AiAgentGate::new(desk_agent_protocol::ai_agent::AiAgentSettings {
         revision: 1,
         enabled: true,
     })
@@ -21,9 +21,9 @@ const CLIENT_ROOT: &str = "subscription-test-root";
 
 fn root_id() -> String {
     use desk_diagnose_core::conversation_key::{
-        AssistantConversationScope, derive_assistant_conversation_key,
+        AgentConversationScope, derive_agent_conversation_key,
     };
-    derive_assistant_conversation_key(ACTOR, AssistantConversationScope::Personal, CLIENT_ROOT)
+    derive_agent_conversation_key(ACTOR, AgentConversationScope::Personal, CLIENT_ROOT)
 }
 
 async fn database() -> DatabaseConnection {
@@ -47,9 +47,9 @@ async fn database() -> DatabaseConnection {
             },
             &chrono::Utc::now().to_rfc3339(),
         );
-        held.surface = AgentSessionSurface::AiAssistant;
+        held.surface = AgentSessionSurface::AiAgent;
         if conversation == root_id {
-            held.adopt_client_metadata(Some(CLIENT_ROOT), AgentSessionSurface::AiAssistant);
+            held.adopt_client_metadata(Some(CLIENT_ROOT), AgentSessionSurface::AiAgent);
             held.agent_role = AgentRole::Coordinator {
                 workbench_id: conversation.into(),
                 issue_source: None,
@@ -213,15 +213,15 @@ async fn connection_revoked_after_read_prevents_late_page_admission() {
 #[actix_web::test]
 async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
     use crate::agent_run_event_store::{AppendUserFollowupParams, SignalAgentRunEventStore};
-    use desk_agent_protocol::{AgentScope, ExecutionMode, data_lineage::DestinationIdentity};
-    use desk_assistant_data_store::{
+    use desk_agent_data_store::{
         entity::agent_main_request,
         issue_events::routing::candidates_on,
         main_request::{FrozenRequestInput, OwnerAdmission},
     };
+    use desk_agent_protocol::{AgentScope, ExecutionMode, data_lineage::DestinationIdentity};
     use desk_diagnose_core::seam::SessionSeam;
     use desk_diagnose_core::{
-        assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION, seam::ClaimTurnParams,
+        agent_policy::PERSONAL_AGENT_POLICY_REVISION, seam::ClaimTurnParams,
         session::TriggerOrigin, subagent::DelegationSource,
     };
 
@@ -314,8 +314,8 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         client_conversation_id: frozen.ask.conversation_id.clone(),
         client_timezone: frozen.ask.client_timezone.clone(),
         temporary_conversation: None,
-        surface: AgentSessionSurface::AiAssistant,
-        policy_revision: PERSONAL_ASSISTANT_POLICY_REVISION,
+        surface: AgentSessionSurface::AiAgent,
+        policy_revision: PERSONAL_AGENT_POLICY_REVISION,
         current_scope: scope.clone(),
         read_context: Some(frozen.reads.clone()),
         message,
@@ -366,7 +366,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
     let sessions = crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
         .with_client_metadata(
             input.client_conversation_id.clone(),
-            AgentSessionSurface::AiAssistant,
+            AgentSessionSurface::AiAgent,
         )
         .with_expected_input_revision(receipt.input_revision)
         .with_queued_input(queued.request_id.clone(), input.message.message_id.clone());
@@ -390,13 +390,13 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
     );
     assert_eq!(creation.owner_requirement, input.message);
 
-    use crate::controller::ai_assistant_session::issue_subscriptions::set_enabled;
-    use desk_agent_protocol::ai_assistant::{
+    use crate::controller::ai_agent_session::issue_subscriptions::set_enabled;
+    use desk_agent_data_store::{
+        entity::agent_subagent_run, issue_authority::settings::WriteResult,
+    };
+    use desk_agent_protocol::ai_agent::{
         issue_subscription::{IssueSourceAccess, IssueSubscriptionEnable},
         subagent::SubAgentState,
-    };
-    use desk_assistant_data_store::{
-        entity::agent_subagent_run, issue_authority::settings::WriteResult,
     };
     use desk_diagnose_core::{
         chat::{ChatMessage, ToolCall},
@@ -418,7 +418,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         arguments_json: serde_json::to_string(&worker_request).unwrap(),
     };
     let requirement_label = input.message.data_envelope.clone().unwrap();
-    let mut caller = ChatMessage::assistant_tool_calls(
+    let mut caller = ChatMessage::agent_tool_calls(
         "subscribed-spawn",
         "Delegate issue analysis",
         vec![spawn_call.to_ref()],
@@ -465,7 +465,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         permission_tools::{REQUEST_CAPABILITY_GRANTS_TOOL_NAME, build_permission_request},
         session::TurnState,
     };
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let now = chrono::Utc::now().to_rfc3339();
     let request = build_permission_request(
         &ToolCall {
@@ -589,7 +589,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
     let paused_worker = worker_row().await;
     assert_eq!(paused_worker.state, SubAgentState::WaitingSource.as_str());
     assert_eq!(paused_worker.input_revision, worker.input_revision as i64);
-    let work = desk_assistant_data_store::workbench::tasks::list_on(
+    let work = desk_agent_data_store::workbench::tasks::list_on(
         &db,
         ACTOR,
         &policy.conversation_id,
@@ -697,7 +697,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         resumed.authorization_requirement(),
         held.authorization_requirement()
     );
-    let materials = desk_assistant_data_store::issue_events::supplements::model_material_on(
+    let materials = desk_agent_data_store::issue_events::supplements::model_material_on(
         &db,
         &resumed,
         &destination,
@@ -711,12 +711,12 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
             .text
             .contains("A second report during the same round")
     );
-    let stop = desk_agent_protocol::ai_assistant::subagent::AiAssistantStopControl {
+    let stop = desk_agent_protocol::ai_agent::subagent::AiAgentStopControl {
         client_request_id: "stop-current-issue-round".into(),
         expected_input_revision: resumed.input_revision,
         expected_control_revision: resumed.control_revision,
         subagent_choice: Some(
-            desk_agent_protocol::ai_assistant::subagent::SubAgentStopChoice::IncludeSubAgents,
+            desk_agent_protocol::ai_agent::subagent::SubAgentStopChoice::IncludeSubAgents,
         ),
     };
     let outcome = crate::agent_subagent_store::SubAgentStore::new(db.clone())
@@ -724,9 +724,9 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         .await
         .unwrap();
     assert_eq!(outcome.result.stopped_subagents[0].task_id, worker.task_id);
-    let row = desk_assistant_data_store::entity::agent_issue_admission::Entity::find()
+    let row = desk_agent_data_store::entity::agent_issue_admission::Entity::find()
         .filter(
-            desk_assistant_data_store::entity::agent_issue_admission::Column::RequestId
+            desk_agent_data_store::entity::agent_issue_admission::Column::RequestId
                 .eq(&queued.request_id),
         )
         .one(&db)
@@ -755,11 +755,11 @@ async fn assert_source_rejection_at_admission(
     db: &DatabaseConnection,
     store: &crate::agent_run_event_store::SignalAgentRunEventStore,
     input: &crate::agent_run_event_store::AppendUserFollowupParams,
-    queued: &desk_assistant_data_store::entity::agent_main_request::Model,
+    queued: &desk_agent_data_store::entity::agent_main_request::Model,
     source: &desk_diagnose_core::issue_authority::IssueWorkSource,
     policy: &desk_diagnose_core::issue_authority::IssueSubscription,
 ) -> u64 {
-    use desk_assistant_data_store::{
+    use desk_agent_data_store::{
         entity::agent_issue_admission as admission,
         issue_authority,
         main_request::{OwnerAdmission, OwnerAdmissionResult},
@@ -844,13 +844,13 @@ async fn assert_source_rejection_at_admission(
 
 #[actix_web::test]
 async fn issue_subscription_settings_bind_native_identity_and_pause_without_connection() {
-    use crate::controller::ai_assistant_session::issue_subscriptions::{save, set_enabled};
-    use desk_agent_protocol::ai_assistant::issue_subscription::{
-        IssueSubscriptionEnable, IssueSubscriptionSave,
-    };
-    use desk_assistant_data_store::{
-        AssistantStoreError,
+    use crate::controller::ai_agent_session::issue_subscriptions::{save, set_enabled};
+    use desk_agent_data_store::{
+        AgentStoreError,
         issue_authority::settings::{self, WriteResult},
+    };
+    use desk_agent_protocol::ai_agent::issue_subscription::{
+        IssueSubscriptionEnable, IssueSubscriptionSave,
     };
 
     let db = database().await;
@@ -887,19 +887,19 @@ async fn issue_subscription_settings_bind_native_identity_and_pause_without_conn
     assert_eq!(accounts.sender.unwrap().id, 7);
     assert!(matches!(
         save(&db, "foreign-owner", input.clone()).await,
-        Err(AssistantStoreError::Inaccessible)
+        Err(AgentStoreError::Inaccessible)
     ));
     let mut invalid = input.clone();
     invalid.workbench_id = "work-a".into();
     assert!(matches!(
         save(&db, ACTOR, invalid).await,
-        Err(AssistantStoreError::Inaccessible)
+        Err(AgentStoreError::Inaccessible)
     ));
     let mut changed_account = input.clone();
     changed_account.expected_outbound_account_id = Some(77);
     assert!(matches!(
         save(&db, ACTOR, changed_account).await,
-        Err(AssistantStoreError::SourceUnavailable)
+        Err(AgentStoreError::SourceUnavailable)
     ));
     let WriteResult::Saved {
         view: saved,
@@ -962,7 +962,7 @@ async fn issue_subscription_settings_bind_native_identity_and_pause_without_conn
             }
         )
         .await,
-        Err(AssistantStoreError::Stale {
+        Err(AgentStoreError::Stale {
             current_revision: 2
         }),
     ));
@@ -977,7 +977,7 @@ async fn issue_subscription_settings_bind_native_identity_and_pause_without_conn
             }
         )
         .await,
-        Err(AssistantStoreError::SourceUnavailable),
+        Err(AgentStoreError::SourceUnavailable),
     ));
     assert_eq!(
         settings::list_on(&db, ACTOR, &root_id()).await.unwrap(),
@@ -990,14 +990,12 @@ async fn issue_subscription_settings_bind_native_identity_and_pause_without_conn
 async fn queued_subscription() -> (
     DatabaseConnection,
     IssueSubscription,
-    desk_assistant_data_store::entity::agent_main_request::Model,
-    crate::ai_assistant_orchestrator::main_requests::SignalMainRequestExecutor,
+    desk_agent_data_store::entity::agent_main_request::Model,
+    crate::ai_agent_orchestrator::main_requests::SignalMainRequestExecutor,
     IssueFixture,
 ) {
-    use desk_assistant_data_store::{
-        entity::agent_main_request, issue_events::routing::candidates_on,
-    };
-    crate::ai_assistant_gate::enable_test_host();
+    use desk_agent_data_store::{entity::agent_main_request, issue_events::routing::candidates_on};
+    crate::ai_agent_gate::enable_test_host();
     let db = database().await;
     let gate = enabled_gate();
     let fixture = IssueFixture::start_for(IssuePlatform::Gitea).await;
@@ -1046,7 +1044,7 @@ async fn queued_subscription() -> (
         .await
         .unwrap()
         .unwrap();
-    let executor = crate::ai_assistant_orchestrator::main_requests::SignalMainRequestExecutor::new(
+    let executor = crate::ai_agent_orchestrator::main_requests::SignalMainRequestExecutor::new(
         db.clone(),
         actix_web::web::Data::new(
             desk_signal_facade::model::connection::SharedConnectionMap::new_oss(),
@@ -1058,10 +1056,10 @@ async fn queued_subscription() -> (
 
 async fn reload_request(
     db: &DatabaseConnection,
-    row: &desk_assistant_data_store::entity::agent_main_request::Model,
-) -> desk_assistant_data_store::entity::agent_main_request::Model {
+    row: &desk_agent_data_store::entity::agent_main_request::Model,
+) -> desk_agent_data_store::entity::agent_main_request::Model {
     use sea_orm::EntityTrait;
-    desk_assistant_data_store::entity::agent_main_request::Entity::find_by_id(row.id)
+    desk_agent_data_store::entity::agent_main_request::Entity::find_by_id(row.id)
         .one(db)
         .await
         .unwrap()
@@ -1073,12 +1071,12 @@ async fn reload_request(
 /// admitted.
 #[actix_web::test]
 async fn executor_defers_a_source_paused_before_admission_then_admits_it() {
-    use desk_assistant_data_store::entity::agent_main_request as request;
+    use desk_agent_data_store::entity::agent_main_request as request;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
     let (db, policy, row, executor, _fixture) = queued_subscription().await;
     let pause_db = db.clone();
     let subscription = policy.subscription_id.clone();
-    crate::ai_assistant_orchestrator::activation_faults::run_before_admission(
+    crate::ai_agent_orchestrator::activation_faults::run_before_admission(
         &row.request_id,
         move || async move {
             let current = issue_authority::current(&pause_db, ACTOR, &subscription)
@@ -1128,7 +1126,7 @@ async fn executor_defers_a_source_paused_before_admission_then_admits_it() {
     assert_eq!(admitted.state, "activated");
     assert_eq!(admitted.activation_attempts, 0);
     // The admitted input keeps exactly the read scope routing enqueued.
-    let frozen = desk_assistant_data_store::main_request::FrozenRequestInput::decode(&row).unwrap();
+    let frozen = desk_agent_data_store::main_request::FrozenRequestInput::decode(&row).unwrap();
     let work =
         native_ids::workbench_work_conversation(ACTOR, &row.conversation_id, &row.request_id);
     let stored = crate::agent_run_event_store::SignalAgentRunEventStore::new(db.clone())
@@ -1152,10 +1150,10 @@ async fn executor_defers_a_source_paused_before_admission_then_admits_it() {
 /// closes the request instead of holding the queue head.
 #[actix_web::test]
 async fn executor_charges_unreadable_authority_until_the_request_fails() {
-    use desk_agent_protocol::ai_assistant::MainRequestFailure;
-    use desk_assistant_data_store::entity::{
+    use desk_agent_data_store::entity::{
         agent_issue_admission as admission, agent_main_request as request,
     };
+    use desk_agent_protocol::ai_agent::MainRequestFailure;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
     let (db, _, row, executor, _fixture) = queued_subscription().await;
     admission::Entity::update_many()
@@ -1164,7 +1162,7 @@ async fn executor_charges_unreadable_authority_until_the_request_fails() {
         .exec(&db)
         .await
         .unwrap();
-    for attempt in 1..desk_assistant_data_store::main_request::MAX_ACTIVATION_ATTEMPTS {
+    for attempt in 1..desk_agent_data_store::main_request::MAX_ACTIVATION_ATTEMPTS {
         executor.scan_once(0).await.unwrap();
         let saved = reload_request(&db, &row).await;
         assert_eq!(saved.state, "queued");

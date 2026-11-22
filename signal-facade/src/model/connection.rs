@@ -17,7 +17,7 @@ pub struct ConnectionModel {
     pub version_info: Option<VersionInfo>,
     pub peer: PeerInfo,
     pub exec_capabilities: HostExecCapabilities,
-    pub ai_assistant_settings: Option<desk_agent_protocol::ai_assistant::AiAssistantSettings>,
+    pub ai_agent_settings: Option<desk_agent_protocol::ai_agent::AiAgentSettings>,
     /// Stable public target: the OSS client identity or Manager device UUID.
     /// Browser connections have no device handle. This value grants no authority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -508,7 +508,7 @@ mod tests {
                 display_name: None,
             },
             exec_capabilities: Default::default(),
-            ai_assistant_settings: None,
+            ai_agent_settings: None,
             device_id: None,
             owner_node_id: None,
         };
@@ -532,7 +532,7 @@ mod tests {
                 display_name: None,
             },
             exec_capabilities: Default::default(),
-            ai_assistant_settings: None,
+            ai_agent_settings: None,
             device_id: Some("11111111-1111-4111-8111-111111111111".into()),
             owner_node_id: Some("node-a".into()),
         };

@@ -45,7 +45,7 @@ impl ScheduleStore {
         let txn = crate::db::begin_write(&self.db, entity::Entity).await?;
         let subject_withdrawn = false;
         let decision = desk_diagnose_core::future::send_phase(|| {
-            desk_assistant_data_store::schedule::settle_fresh_children_wait_on(
+            desk_agent_data_store::schedule::settle_fresh_children_wait_on(
                 &super::SignalScheduleHost,
                 &txn,
                 peek,
@@ -88,7 +88,7 @@ impl ScheduleStore {
             .map_err(|_| ScheduleStoreError::Invalid)?;
         let txn = crate::db::begin_write(&self.db, entity::Entity).await?;
         let decision = desk_diagnose_core::future::send_phase(|| {
-            desk_assistant_data_store::schedule::reconcile_fresh_children_receipts_on(
+            desk_agent_data_store::schedule::reconcile_fresh_children_receipts_on(
                 &super::SignalScheduleHost,
                 &txn,
                 peek,
@@ -108,7 +108,7 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../signal-facade/tests/fixtures/model_metrics_scheduled_permissions.rs"
     ));
-    use desk_agent_protocol::ai_assistant::subagent::{AiAssistantStopControl, SubAgentStopChoice};
+    use desk_agent_protocol::ai_agent::subagent::{AiAgentStopControl, SubAgentStopChoice};
 
     async fn original_run(
         db: &crate::config::connection::DatabaseConnection,
@@ -210,7 +210,7 @@ mod tests {
                 &parent.conversation_id,
                 &parent.actor_id,
                 &parent.device_id,
-                &AiAssistantStopControl {
+                &AiAgentStopControl {
                     client_request_id: "scheduled-main-only".into(),
                     expected_input_revision: parent.input_revision,
                     expected_control_revision: parent.control_revision,
@@ -320,7 +320,7 @@ mod tests {
                     &parent.conversation_id,
                     &parent.actor_id,
                     &parent.device_id,
-                    &AiAssistantStopControl {
+                    &AiAgentStopControl {
                         client_request_id: "stop-context-with-original-native-work".into(),
                         expected_input_revision: parent.input_revision,
                         expected_control_revision: parent.control_revision,

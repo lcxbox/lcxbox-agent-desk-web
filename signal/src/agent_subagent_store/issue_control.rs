@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::config::connection::DatabaseTransaction;
-use desk_assistant_data_store::issue_authority::settings::AffectedWork;
+use desk_agent_data_store::issue_authority::settings::AffectedWork;
 use desk_diagnose_core::{
     model_observability::permission::PendingEnds, subagent::DelegationSource,
 };

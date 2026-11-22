@@ -25,7 +25,7 @@ async fn actual_authorizer_snapshot_records_original_export_sources_and_does_not
         document_preview: None,
     };
     let mut source = read_result_envelope(
-        desk_diagnose_core::ai_assistant::ai_assistant_provider_registry_ref(),
+        desk_diagnose_core::ai_agent::ai_agent_provider_registry_ref(),
         &ToolCall {
             id: "read".into(),
             name: tool.into(),

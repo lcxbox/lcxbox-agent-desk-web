@@ -13,7 +13,7 @@ vi.mock('@/features/desk/device-target-context', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/features/desk/device-target-context')>()),
     useDeviceTarget: () => ({ connectionId: 'connection-1', basePath: '/desk/device/device-1', connection: {
         device_id: 'device-1',
-        version_info: null, peer: { remote_desk_type:'server', operation_system:'Mac', display_name:null }, exec_capabilities: { available_exec_shells: [], exec_pty:false, exec_pty_elevation:false, max_ai_command_runtime_ms:null }, ai_assistant_settings: null,
+        version_info: null, peer: { remote_desk_type:'server', operation_system:'Mac', display_name:null }, exec_capabilities: { available_exec_shells: [], exec_pty:false, exec_pty_elevation:false, max_ai_command_runtime_ms:null }, ai_agent_settings: null,
     } }),
 }));
 

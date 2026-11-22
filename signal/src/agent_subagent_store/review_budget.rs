@@ -115,8 +115,8 @@ async fn validate_review_session_on(
 ) -> Result<(), DbErr> {
     let txn = read.txn();
     if (authority.review_device_id != session.device_id
-        && !session.admits_assistant_device(&authority.review_device_id))
-        || session.surface != AgentSessionSurface::AiAssistant
+        && !session.admits_agent_device(&authority.review_device_id))
+        || session.surface != AgentSessionSurface::AiAgent
         || session.main_stopped
         || session.input_revision != authority.input_revision
         || session.control_revision != authority.control_revision
@@ -346,7 +346,7 @@ pub(crate) async fn reserve_review_attempt_on(
             && (!matches!(
                 candidate.source,
                 desk_diagnose_core::approval_review::ApprovalSource::ConcreteCall { .. }
-            ) || !session.admits_assistant_device(&candidate.device_id)))
+            ) || !session.admits_agent_device(&candidate.device_id)))
     {
         return Err(invalid());
     }

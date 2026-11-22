@@ -1,0 +1,83 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { AgentCommandResult, parseCommandReceipt } from './agent-command-result';
+
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'en' }, t: (key: string, options?: { value: string }) => options ? `${key}: ${options.value}` : key }) }));
+
+const receipt = {
+    exit_code: 1, duration_ms: 1234,
+    streams: { type: 'split', stdout: '12G\t/example\n', stderr: 'Permission denied', stdout_truncated: true, stderr_truncated: false },
+    redactions: ['secret removed'],
+};
+const wire = (value: unknown) => JSON.stringify({ Exec: value });
+
+describe('command receipt presentation', () => {
+    it('shows a failed start without fabricating an exit code and retains output', () => {
+        const failed = { ...receipt, exit_code: null, started: false, failure: { kind: 'Internal', message: 'CreateProcess: elevation required (740)' } };
+        expect(parseCommandReceipt(wire(failed))?.exit_code).toBeNull();
+        render(<AgentCommandResult text={wire(failed)} />);
+        expect(screen.getByRole('alert').textContent).toContain('elevation required (740)');
+        expect(screen.getByText('Permission denied')).toBeTruthy();
+    });
+    it('identifies a late timeout by its original command and supports locating that call', () => {
+        const locate = vi.fn();
+        render(<AgentCommandResult text={wire({ ...receipt, duration_ms: 300054 })}
+            tool={{ callId: 'search', name: 'exec_command', status: 'failed', output: null,
+                argumentsJson: JSON.stringify({ shell: 'powershell', command: "Get-ChildItem C:/ -Recurse\nWrite-Output done" }) }} onLocateCall={locate} />);
+        expect(screen.getByText('powershell')).toBeTruthy();
+        expect(screen.getByText('Get-ChildItem C:/ -Recurse')).toBeTruthy();
+        expect(screen.getByText('pages.aiAgent.commandReceipt.minutes: 5')).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'pages.aiAgent.commandReceipt.locate' }));
+        expect(locate).toHaveBeenCalledOnce();
+    });
+
+    it('parses the actual tagged device receipt without altering its output', () => {
+        expect(parseCommandReceipt(wire(receipt))).toEqual({ ...receipt, fileChanges: null, sandboxNote: null });
+    });
+
+    it.each(['execution failed: timeout', '{bad json', 'null', '[]', '{}', '{"Exec":null}', wire({ ...receipt, duration_ms: -1 }), wire({ ...receipt, exit_code: '0' }), wire({ ...receipt, streams: { type: 'unknown' } }), wire({ ...receipt, redactions: [123] })])('preserves unrecognized content: %s', text => {
+        expect(parseCommandReceipt(text)).toBeNull();
+        const { container } = render(<AgentCommandResult text={text} />);
+        expect(container.querySelector('[data-slot="disclosure"]')?.getAttribute('data-state') === 'open').toBe(false);
+        const displayed = container.querySelector('pre')?.textContent;
+        if (text.startsWith('{') && text !== '{bad json') {
+            expect(JSON.parse(displayed!)).toEqual(JSON.parse(text));
+        } else expect(displayed).toBe(text);
+    });
+
+    it('is collapsed initially and expands into labeled fields with independently collapsed raw data', () => {
+        const text = wire(receipt);
+        const { container, rerender } = render(<AgentCommandResult text={text} />);
+        const details = container.querySelector('[data-slot="disclosure"]')!;
+        expect(details.getAttribute('data-state') === 'open').toBe(false);
+        fireEvent.click(details.querySelector('button[aria-expanded]')!);
+        expect(details.getAttribute('data-state') === 'open').toBe(true);
+        expect(screen.getByText('pages.aiAgent.commandReceipt.exitCode')).toBeTruthy();
+        expect(screen.getByText('1', { selector: 'dd' })).toBeTruthy();
+        expect(screen.getByText('pages.aiAgent.commandReceipt.seconds: 1.23')).toBeTruthy();
+        expect(screen.getByText('Permission denied')).toBeTruthy();
+        expect(screen.getByText('pages.aiAgent.commandReceipt.truncated')).toBeTruthy();
+        expect(screen.getByText('secret removed')).toBeTruthy();
+        expect(details.querySelector('[data-slot="disclosure"]')?.getAttribute('data-state') === 'open').toBe(false);
+        rerender(<AgentCommandResult text={text} />);
+        expect(details.getAttribute('data-state') === 'open').toBe(true);
+        fireEvent.click(details.querySelector('button[aria-expanded]')!);
+        expect(details.getAttribute('data-state') === 'open').toBe(false);
+    });
+
+    it('keeps PTY output combined and renders device text without interpreting HTML or Markdown', () => {
+        const terminal = '<img src=x onerror=alert(1)>\n[link](https://example.com)';
+        const { container } = render(<AgentCommandResult text={wire({ exit_code: 0, duration_ms: 0, streams: { type: 'pty_combined', terminal, truncated: true } })} />);
+        expect(screen.getByText('pages.aiAgent.commandReceipt.terminal')).toBeTruthy();
+        expect(screen.queryByText('pages.aiAgent.commandReceipt.stderr')).toBeNull();
+        expect(container.querySelector('pre')?.textContent).toBe(terminal);
+        expect(container.querySelector('img, a')).toBeNull();
+    });
+
+    it('shows empty streams explicitly and no truncation warning when complete', () => {
+        render(<AgentCommandResult text={wire({ ...receipt, redactions: [], streams: { type: 'split', stdout: '', stderr: '', stdout_truncated: false, stderr_truncated: false } })} />);
+        expect(screen.getAllByText('pages.aiAgent.commandReceipt.empty')).toHaveLength(2);
+        expect(screen.queryByText('pages.aiAgent.commandReceipt.truncated')).toBeNull();
+        expect(screen.queryByText('pages.aiAgent.commandReceipt.redactions')).toBeNull();
+    });
+});

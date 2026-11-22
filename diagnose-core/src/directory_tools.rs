@@ -40,7 +40,7 @@ pub fn scope_prompt(
     now_unix_ms: u64,
 ) -> crate::model_content::ModelContent {
     use crate::model_content::{ModelContent, ServerText, StoredSpec};
-    if session.surface != crate::session::AgentSessionSurface::AiAssistant
+    if session.surface != crate::session::AgentSessionSurface::AiAgent
         || session.device_id.is_empty()
     {
         return ModelContent::constant("");
@@ -182,7 +182,7 @@ pub(crate) fn parse_for_request(
         .and_then(|input| input.remove("target_ref"))
         .and_then(|value| value.as_str().map(str::to_owned))
         .ok_or_else(unavailable)?;
-    desk_agent_protocol::ai_assistant::validate_target_refs([reference.as_str()])
+    desk_agent_protocol::ai_agent::validate_target_refs([reference.as_str()])
         .map_err(|_| unavailable())?;
     let input = parse(&ToolCall {
         arguments_json: value.to_string(),

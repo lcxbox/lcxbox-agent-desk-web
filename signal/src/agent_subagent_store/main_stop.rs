@@ -2,21 +2,21 @@
 use super::*;
 use crate::config::connection::DatabaseTransaction;
 use crate::entity::agent_delegation_reservation as receipt_row;
-use desk_agent_protocol::ai_assistant::subagent::{
-    AiAssistantStopControl, AiAssistantStopResult, SubAgentStopChoice,
+use desk_agent_protocol::ai_agent::subagent::{
+    AiAgentStopControl, AiAgentStopResult, SubAgentStopChoice,
 };
 use sea_orm::{ActiveModelTrait, ExprTrait, QuerySelect, sea_query::Expr};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use desk_assistant_data_store::main_request::{self, is_workbench_root};
+use desk_agent_data_store::main_request::{self, is_workbench_root};
 use desk_diagnose_core::model_observability::{PermissionOutcome, permission::PendingEnds};
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MainStopOutcome {
-    pub result: AiAssistantStopResult,
+    pub result: AiAgentStopResult,
     pub cancel_request_ids: Vec<String>,
 }
 
@@ -53,7 +53,7 @@ impl SubAgentStore {
         }
         let now = chrono::Utc::now();
         let before = parent.clone();
-        if desk_assistant_data_store::main_request::resume_queue_control(
+        if desk_agent_data_store::main_request::resume_queue_control(
             &mut parent,
             expected_control_revision,
             &now.to_rfc3339(),
@@ -121,7 +121,7 @@ impl SubAgentStore {
         root: &str,
         actor: &str,
         device: &str,
-        control: &AiAssistantStopControl,
+        control: &AiAgentStopControl,
     ) -> Result<MainStopOutcome, DbErr> {
         validate(control)?;
         let txn = desk_diagnose_core::future::boxed(|| async {
@@ -175,7 +175,7 @@ impl SubAgentStore {
         }
         let children = desk_diagnose_core::future::boxed(|| async {
             let query = if workbench {
-                desk_assistant_data_store::worker_request::unfinished_in_scope(
+                desk_agent_data_store::worker_request::unfinished_in_scope(
                     actor,
                     device,
                     root,
@@ -213,18 +213,16 @@ impl SubAgentStore {
                 parent.agent_role.workbench_id(),
                 parent.agent_role.workbench_request_id(),
             ) {
-                desk_assistant_data_store::workbench::tasks::stop_issue_round_on(
+                desk_agent_data_store::workbench::tasks::stop_issue_round_on(
                     &txn, actor, workbench, request, now,
                 )
                 .await
                 .map_err(|_| invalid())?;
             } else {
-                desk_assistant_data_store::issue_authority::stop_conversation(
-                    &txn, actor, root, now,
-                )
-                .await
-                .map_err(|_| invalid())?;
-                desk_assistant_data_store::issue_reply::lifecycle::cancel_conversation_on(
+                desk_agent_data_store::issue_authority::stop_conversation(&txn, actor, root, now)
+                    .await
+                    .map_err(|_| invalid())?;
+                desk_agent_data_store::issue_reply::lifecycle::cancel_conversation_on(
                     &txn, actor, root, now,
                 )
                 .await
@@ -251,7 +249,7 @@ impl SubAgentStore {
         effects.cancel_request_ids.sort();
         effects.cancel_request_ids.dedup();
         let outcome = MainStopOutcome {
-            result: AiAssistantStopResult {
+            result: AiAgentStopResult {
                 input_revision: parent.input_revision,
                 control_revision: revision,
                 stopped_subagents: effects.stopped_subagents,
@@ -301,7 +299,7 @@ struct StopScope<'a> {
 #[derive(Default)]
 struct StopEffects {
     cancel_request_ids: Vec<String>,
-    stopped_subagents: Vec<AiAssistantSubAgentSummary>,
+    stopped_subagents: Vec<AiAgentSubAgentSummary>,
     permission_ends: PendingEnds,
 }
 
@@ -540,7 +538,7 @@ async fn stop_native_parent_on(
     Ok(stopped.control_revision)
 }
 
-fn validate(control: &AiAssistantStopControl) -> Result<(), DbErr> {
+fn validate(control: &AiAgentStopControl) -> Result<(), DbErr> {
     if !desk_diagnose_core::subagent::valid_id(&control.client_request_id)
         || control.expected_control_revision == 0
         || control.expected_input_revision > i64::MAX as u64

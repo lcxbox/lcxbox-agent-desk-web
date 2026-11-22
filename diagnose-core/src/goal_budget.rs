@@ -4,7 +4,7 @@ use crate::goal::{
     DEFAULT_MODEL_CALLS, DEFAULT_MODEL_TOKENS, DEFAULT_SLICES, DEFAULT_STALLED_SLICES,
     DEFAULT_TOOL_CALLS, GoalError, GoalLimits,
 };
-use desk_agent_protocol::ai_assistant::goal_budget::{GoalBudgetLimits, GoalBudgetPolicy};
+use desk_agent_protocol::ai_agent::goal_budget::{GoalBudgetLimits, GoalBudgetPolicy};
 
 pub const SCHEMA_VERSION: u16 = 1;
 const MAX_DEADLINE_MS: u64 = 30 * 24 * 60 * 60 * 1_000;

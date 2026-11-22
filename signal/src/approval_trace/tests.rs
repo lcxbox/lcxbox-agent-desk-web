@@ -1,6 +1,6 @@
 use super::*;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use sea_orm::{ActiveModelTrait, Schema};
 async fn database() -> DatabaseConnection {
     let db = crate::config::test_support::Database::connect("sqlite::memory:")
@@ -36,7 +36,7 @@ async fn session(db: &DatabaseConnection, id: &str, owner: &str) {
         },
         "2026-10-12T00:00:00Z",
     );
-    session.surface = desk_diagnose_core::session::AgentSessionSurface::AiAssistant;
+    session.surface = desk_diagnose_core::session::AgentSessionSurface::AiAgent;
     let now = chrono::Utc::now();
     agent_session::ActiveModel {
         conversation_id: Set(id.into()),

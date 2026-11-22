@@ -464,7 +464,7 @@ pub fn validate_summary_derivations(
         // Every retained checkpoint parent must have its own earlier derivation.
         // Removing the oldest record must not silently turn a summary into a root.
         for source in &step.compression_sources {
-            if source.provenance.source_provider_id == "ai-assistant-context"
+            if source.provenance.source_provider_id == "ai-agent-context"
                 && source.provenance.source_tool_name
                     == crate::model_message_labels::sources::CHECKPOINT_SUMMARY
                 && !lineage
@@ -662,7 +662,7 @@ fn derive_projection_metadata(
         ConservativeDerivation {
             output_envelope_id: &format!("context-lineage:{binding}"),
             content,
-            source_provider_id: "ai-assistant-context",
+            source_provider_id: "ai-agent-context",
             source_tool_name: tool,
             source_object_id: Some(&binding),
         },

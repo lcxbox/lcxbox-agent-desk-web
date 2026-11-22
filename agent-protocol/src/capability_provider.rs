@@ -551,7 +551,7 @@ pub struct CapabilityInventoryEntry {
     pub provider_version: u16,
     pub capability: CapabilityWireDescriptor,
     /// Whether a control end may place this capability id in
-    /// `AiAssistantAsk.selected_capability_ids`. This server-authored bit
+    /// `AiAgentAsk.selected_capability_ids`. This server-authored bit
     /// is metadata, not a grant or readiness claim.
     #[serde(default)]
     pub context_selectable: bool,
@@ -898,7 +898,7 @@ mod tests {
         CapabilityWireDescriptor {
             capability_id: "desktop.session.inspect".into(),
             tool_name: "inspect_desktop_session".into(),
-            display_name_key: "assistant.capability.desktopSession".into(),
+            display_name_key: "agent.capability.desktopSession".into(),
             input_schema_version: 1,
             output_schema_version: 1,
             effect: CapabilityEffect::ReadDevice,
@@ -976,7 +976,7 @@ mod tests {
         let provider = ProviderWireDescriptor {
             schema_version: CAPABILITY_PROVIDER_SCHEMA_VERSION,
             provider_id: "desktop".into(),
-            display_name_key: "assistant.provider.desktop".into(),
+            display_name_key: "agent.provider.desktop".into(),
             provider_version: 1,
             capabilities: vec![first, second],
         };
@@ -1014,7 +1014,7 @@ mod tests {
     fn browser_inventory_is_secret_free_and_validates_status() {
         let entry = CapabilityInventoryEntry {
             provider_id: "desktop".into(),
-            provider_display_name_key: "assistant.provider.desktop".into(),
+            provider_display_name_key: "agent.provider.desktop".into(),
             provider_version: 1,
             capability: capability(ExecutionPolicy::InlineOnly),
             context_selectable: true,

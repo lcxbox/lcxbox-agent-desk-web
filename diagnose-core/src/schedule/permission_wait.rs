@@ -495,7 +495,7 @@ mod held_call_tests {
         })).unwrap());
         session
             .conversation
-            .push(crate::chat::ChatMessage::assistant_tool_calls(
+            .push(crate::chat::ChatMessage::agent_tool_calls(
                 "assistant",
                 "",
                 vec![crate::chat::ToolCallRef {

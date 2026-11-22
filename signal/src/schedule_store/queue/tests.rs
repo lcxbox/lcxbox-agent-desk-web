@@ -1,8 +1,8 @@
 use super::super::*;
 use crate::entity::agent_schedule_run as run;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
-use desk_assistant_data_store::schedule::*;
+use desk_agent_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::schedule::*;
 use desk_diagnose_core::schedule::parse_json;
 use sea_orm::{ConnectionTrait, TransactionTrait};
 
@@ -513,7 +513,7 @@ async fn fixture(rule: ScheduleRule, next: i64) -> (ScheduleStore, entity::Model
         .await
         .unwrap();
     let schema = Schema::new(db.get_database_backend());
-    db.execute(&schema.entity_table(crate::entity::agent_assistant_runtime::Entity))
+    db.execute(&schema.entity_table(crate::entity::agent_runtime::Entity))
         .await
         .unwrap();
     db.execute(&schema.entity_table(entity::Entity))

@@ -59,7 +59,7 @@ pub(super) async fn run<F: FnMut() -> String>(
     };
     let completion = if pure_preview {
         crate::seam::ReadCompletion {
-            outcome: crate::ai_assistant::validate_preview_call(call).and_then(|content| {
+            outcome: crate::ai_agent::validate_preview_call(call).and_then(|content| {
                 // The preview is the model's own validated arguments.
                 let data_envelope = crate::model_message_labels::named_envelope(
                     &crate::model_content::ModelContent::builder()
@@ -104,12 +104,12 @@ pub(super) async fn run<F: FnMut() -> String>(
         let ctx = ExecContext {
             // Central web reads use the host's original input and lease
             // checks. A device action fence always needs a real device.
-            assistant_turn_fence: if session.uses_request_device_tools()
+            agent_turn_fence: if session.uses_request_device_tools()
                 && crate::web_research::is_web_tool(&call.name)
             {
                 None
             } else {
-                crate::action_turn_fence::AssistantTurnFence::for_device(
+                crate::action_turn_fence::AgentTurnFence::for_device(
                     session,
                     browser_device.as_deref().unwrap_or(&session.device_id),
                 )?
@@ -280,7 +280,7 @@ pub(super) async fn run<F: FnMut() -> String>(
     // next call. On a crash, the OSS recovery layer can then
     // distinguish the still-unstarted calls from any later
     // durable mutating task instead of treating the whole
-    // assistant batch as an unknown execution.
+    // agent batch as an unknown execution.
     deps.session_seam.save(session).await?;
     if let Some(preview) = document_preview.as_ref() {
         let target_ref = selected_device_read

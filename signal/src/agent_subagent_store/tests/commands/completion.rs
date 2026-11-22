@@ -1,6 +1,6 @@
 //! Exercise original command export after a real delegated approval and dispatch.
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 mod live;
 use super::*;
 use crate::agent_exec_store::SignalAgentExecStore;
@@ -253,7 +253,7 @@ async fn completed_fixture_with_delivery(
         desk_agent_protocol::data_lineage::Sensitivity::Sensitive,
     ))
     .await;
-    crate::ai_assistant_gate::enable_test_host();
+    crate::ai_agent_gate::enable_test_host();
     let now = chrono::Utc::now().timestamp_millis() as u64;
     let policy = ModelEgressPolicy {
         destination: destination.clone(),
@@ -307,7 +307,7 @@ async fn completed_fixture_with_delivery(
         panic!("one original dispatch required")
     };
     let mut origin = ActionResultOrigin::capture_confirmed_command(
-        &desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+        &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         &child,
         &child.device_id,
         &super::with_target_ref(&call, &child.device_id),

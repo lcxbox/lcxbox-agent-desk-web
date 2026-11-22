@@ -1,8 +1,8 @@
 //! Enable tasks: owner creation, AI proposal decisions and resumes. Enabling
 //! schedules the calendar only and never grants a tool or device permission.
 use super::{ScheduleStore, ScheduleStoreError, entity};
-pub use desk_assistant_data_store::schedule::ProposalDecider;
-use desk_assistant_data_store::schedule::{find_task, record_decision_on};
+pub use desk_agent_data_store::schedule::ProposalDecider;
+use desk_agent_data_store::schedule::{find_task, record_decision_on};
 
 const HOST: super::session_host::SignalScheduleHost = super::session_host::SignalScheduleHost;
 
@@ -18,7 +18,7 @@ impl ScheduleStore {
             return Err(ScheduleStoreError::Invalid);
         }
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
-        let now = desk_assistant_data_store::schedule::authority_now(&txn).await?;
+        let now = desk_agent_data_store::schedule::authority_now(&txn).await?;
         let task = desk_diagnose_core::future::send_phase(|| {
             Self::create_task_on(&txn, owner, request, now, None)
         })
@@ -96,7 +96,7 @@ impl ScheduleStore {
         approve: bool,
         decider: &ProposalDecider,
     ) -> Result<entity::Model, ScheduleStoreError> {
-        desk_assistant_data_store::schedule::decide_proposal_on(
+        desk_agent_data_store::schedule::decide_proposal_on(
             &HOST,
             txn,
             owner,
@@ -115,7 +115,7 @@ impl ScheduleStore {
         task: &entity::Model,
         resume: bool,
     ) -> Result<entity::Model, ScheduleStoreError> {
-        desk_assistant_data_store::schedule::activate_on(&HOST, txn, owner, task, resume).await
+        desk_agent_data_store::schedule::activate_on(&HOST, txn, owner, task, resume).await
     }
 }
 

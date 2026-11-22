@@ -11,7 +11,7 @@ import { RecoveryFailure, recoveryErrorKey, requireRecoveryZip } from '@/lib/fil
 import { formatLocalTime } from '@/lib/local-time';
 import { queryLocalFileRecovery, updateLocalFileRecoveryPolicy, retryLocalFileRecoveryCleanup, exportLocalFileRecovery, discardLocalFileRecovery, confirmLocalFileRecoveryClock, manageDeviceFileRecovery, exportDeviceFileRecovery } from '@/services/clients';
 import type { FileRecoveryPageDto, FileRecoveryCommand } from '@/services/types';
-import { AssistantBackupCleanup } from '@/features/desk/assistant-backup-cleanup';
+import { AgentBackupCleanup } from '@/features/desk/agent-backup-cleanup';
 
 type RecoverySettingsProps = { target?: { connection: string; device_id?: string | null } };
 
@@ -178,7 +178,7 @@ function ScopedFileRecoverySettings({ target }: RecoverySettingsProps) {
                 </>}
                 {status && <p role="status" className="text-sm">{t(`pages.fileRecovery.${status}`)}</p>}
             </div>
-        </Disclosure><div className="mt-4"><AssistantBackupCleanup /></div></CardContent>
+        </Disclosure><div className="mt-4"><AgentBackupCleanup /></div></CardContent>
         <AlertDialog open={confirm} onOpenChange={setConfirm}><AlertDialogContent>
             <AlertDialogHeader><AlertDialogTitle>{t('pages.fileRecovery.shortenTitle')}</AlertDialogTitle><AlertDialogDescription>{t('pages.fileRecovery.shortenBody')}</AlertDialogDescription></AlertDialogHeader>
             <AlertDialogFooter><AlertDialogCancel>{t('pages.fileRecovery.cancel')}</AlertDialogCancel><AlertDialogAction onClick={() => void save()}>{t('pages.fileRecovery.save')}</AlertDialogAction></AlertDialogFooter>

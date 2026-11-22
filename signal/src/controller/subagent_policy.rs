@@ -4,7 +4,7 @@ use crate::{
     subagent_policy::{self, WriteError},
 };
 use actix_web::{HttpResponse, get, put, web};
-use desk_agent_protocol::ai_assistant::subagent_policy::{SubAgentPolicy, UpdateSubAgentPolicy};
+use desk_agent_protocol::ai_agent::subagent_policy::{SubAgentPolicy, UpdateSubAgentPolicy};
 use desk_utils::{error::DeskErrorCode, rest::RestResponse};
 
 fn db() -> Result<&'static crate::config::connection::DatabaseConnection, DeskSignalError> {
@@ -32,8 +32,8 @@ pub async fn get_subagent_policy() -> Result<HttpResponse, DeskSignalError> {
     Ok(response(config))
 }
 
-#[utoipa::path(tag = "AiAssistant", responses((status = 200, body = RestResponse<SubAgentPolicy>)))]
-#[get("/my/ai-assistant-session/subagent-policy")]
+#[utoipa::path(tag = "AiAgent", responses((status = 200, body = RestResponse<SubAgentPolicy>)))]
+#[get("/my/ai-agent-session/subagent-policy")]
 pub async fn get_my_subagent_policy() -> Result<HttpResponse, DeskSignalError> {
     let config = subagent_policy::read(db()?).await.map_err(|_| {
         DeskSignalError::new_custom_error(

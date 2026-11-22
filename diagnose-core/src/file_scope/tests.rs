@@ -12,8 +12,8 @@ fn subject() -> FileScopeSubject {
 fn proposal() -> DirectoryProposal {
     DirectoryProposal {
         request_id: "directory-request".into(),
-        requested_path: "/private/tmp/assistant-test".into(),
-        canonical_path: "/private/tmp/assistant-test".into(),
+        requested_path: "/private/tmp/agent-test".into(),
+        canonical_path: "/private/tmp/agent-test".into(),
         directory: ObjectRef {
             token: "device-reference".into(),
             snapshot_id: "device-generation".into(),
@@ -72,7 +72,7 @@ fn artifact_boundary_requires_exact_current_directory_without_granting_tools() {
         },
         "2026-09-05T00:00:00Z",
     );
-    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAgent);
     let tool = "create_text_file";
     let resources = crate::capability_grant::fresh_object_resource_scope(&[proposal().directory]);
     assert!(validate_artifact_scope(&session, tool, &resources, 1).is_err());
@@ -129,7 +129,7 @@ fn all_native_file_writes_require_a_current_directory_but_live_edits_do_not() {
         },
         "2026-09-05T00:00:00Z",
     );
-    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAgent);
     session.file_scope = approved();
     let root = crate::capability_grant::fresh_object_resource_scope(&[proposal().directory]);
     let resources = vec!["object:exact-source".into(), root[0].clone()];
@@ -222,10 +222,9 @@ fn cross_actor_device_and_conversation_cannot_read_or_mutate_scope() {
 
 #[test]
 fn selectable_scope_round_trips_same_path_with_independent_device_authority() {
-    use crate::conversation_key::{AssistantConversationScope, derive_assistant_conversation_key};
+    use crate::conversation_key::{AgentConversationScope, derive_agent_conversation_key};
     let client_id = "selectable";
-    let run =
-        derive_assistant_conversation_key("owner", AssistantConversationScope::Personal, client_id);
+    let run = derive_agent_conversation_key("owner", AgentConversationScope::Personal, client_id);
     let mut session = PersistedAgentSession::new(
         &run,
         "owner",
@@ -239,7 +238,7 @@ fn selectable_scope_round_trips_same_path_with_independent_device_authority() {
         },
         "2026-09-05T00:00:00Z",
     );
-    session.adopt_client_metadata(Some(client_id), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some(client_id), AgentSessionSurface::AiAgent);
     let a = session
         .file_scope_subject("owner", "device-a", &run)
         .unwrap();
@@ -263,9 +262,9 @@ fn selectable_scope_round_trips_same_path_with_independent_device_authority() {
     let mut session = PersistedAgentSession::decode_json(&json).unwrap();
     session.input_revision = 1;
     session
-        .bind_assistant_request_targets(vec!["device-a".into(), "device-b".into()])
+        .bind_agent_request_targets(vec!["device-a".into(), "device-b".into()])
         .unwrap();
-    let registry = crate::ai_assistant::ai_assistant_provider_registry();
+    let registry = crate::ai_agent::ai_agent_provider_registry();
     for (device, selected, other) in [
         (&a, "directory-0", "directory-1"),
         (&b, "directory-1", "directory-0"),
@@ -498,7 +497,7 @@ fn conversation_storage_preserves_scope_without_putting_it_in_model_messages() {
         session.file_scope_subject("owner", "device", "conversation"),
         Err(FileScopeError::WrongSubject)
     );
-    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAgent);
     assert_eq!(
         session.file_scope_subject("owner", "device", "browser-intent"),
         Err(FileScopeError::WrongSubject)
@@ -524,23 +523,22 @@ fn conversation_storage_preserves_scope_without_putting_it_in_model_messages() {
 #[test]
 fn canonical_path_changes_require_confirmation_and_retries_bind_original_intent() {
     use super::transaction::*;
-    use desk_agent_protocol::ai_assistant::{
-        AiAssistantObjectContextOperation, AiAssistantObjectContextUpdate,
+    use desk_agent_protocol::ai_agent::{
+        AiAgentObjectContextOperation, AiAgentObjectContextUpdate,
     };
     use desk_agent_protocol::computer_use::FileDirectoryResolveOutput;
-    let wire = AiAssistantObjectContextUpdate {
-        conversation_target:
-            desk_agent_protocol::ai_assistant::AiAssistantConversationTarget::FixedDevice,
+    let wire = AiAgentObjectContextUpdate {
+        conversation_target: desk_agent_protocol::ai_agent::AiAgentConversationTarget::FixedDevice,
         conversation_id: "browser-intent".into(),
         client_request_id: "directory-request".into(),
-        operation: AiAssistantObjectContextOperation::SelectDirectory {
-            path: "/tmp/assistant-test".into(),
+        operation: AiAgentObjectContextOperation::SelectDirectory {
+            path: "/tmp/agent-test".into(),
             purpose: "test".into(),
             expected_revision: 0,
         },
     };
     let resolved = FileDirectoryResolveOutput {
-        canonical_path: "/private/tmp/assistant-test".into(),
+        canonical_path: "/private/tmp/agent-test".into(),
         directory: proposal().directory,
     };
     let selection = owner_selection(&wire, subject(), resolved).unwrap();
@@ -561,7 +559,7 @@ fn canonical_path_changes_require_confirmation_and_retries_bind_original_intent(
         },
         "2026-09-05T00:00:00Z",
     );
-    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAgent);
     let (mut stored, receipt) = prepare(&session, &selection, 1).unwrap();
     assert_eq!(
         stored.file_scope.records()[0].state,
@@ -569,8 +567,7 @@ fn canonical_path_changes_require_confirmation_and_retries_bind_original_intent(
     );
     assert!(match_owner_selection(&receipt, &wire, &subject()).is_ok());
     let mut changed = wire.clone();
-    if let AiAssistantObjectContextOperation::SelectDirectory { path, .. } = &mut changed.operation
-    {
+    if let AiAgentObjectContextOperation::SelectDirectory { path, .. } = &mut changed.operation {
         *path = "/other".into();
     }
     assert_eq!(
@@ -589,16 +586,15 @@ fn canonical_path_changes_require_confirmation_and_retries_bind_original_intent(
 #[test]
 fn windows_prefix_conversion_keeps_owner_selection_but_not_target_changes() {
     use super::transaction::*;
-    use desk_agent_protocol::ai_assistant::{
-        AiAssistantObjectContextOperation, AiAssistantObjectContextUpdate,
+    use desk_agent_protocol::ai_agent::{
+        AiAgentObjectContextOperation, AiAgentObjectContextUpdate,
     };
     use desk_agent_protocol::computer_use::FileDirectoryResolveOutput;
-    let wire = AiAssistantObjectContextUpdate {
-        conversation_target:
-            desk_agent_protocol::ai_assistant::AiAssistantConversationTarget::FixedDevice,
+    let wire = AiAgentObjectContextUpdate {
+        conversation_target: desk_agent_protocol::ai_agent::AiAgentConversationTarget::FixedDevice,
         conversation_id: "browser-intent".into(),
         client_request_id: "directory-request".into(),
-        operation: AiAssistantObjectContextOperation::SelectDirectory {
+        operation: AiAgentObjectContextOperation::SelectDirectory {
             path: r"D:\测试 输入".into(),
             purpose: "test".into(),
             expected_revision: 0,
@@ -631,7 +627,7 @@ fn windows_prefix_conversion_keeps_owner_selection_but_not_target_changes() {
             },
             "2026-09-05T00:00:00Z",
         );
-        session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAssistant);
+        session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAgent);
         let (stored, receipt) = prepare(&session, &selection, 1).unwrap();
         assert_eq!(
             stored.file_scope.records()[0].state == DirectoryConsentState::Approved,
@@ -640,8 +636,7 @@ fn windows_prefix_conversion_keeps_owner_selection_but_not_target_changes() {
         assert!(stored.scope_snapshot.granted.is_empty());
         match_owner_selection(&receipt, &wire, &subject()).unwrap();
         let mut changed = wire.clone();
-        let AiAssistantObjectContextOperation::SelectDirectory { path, .. } =
-            &mut changed.operation
+        let AiAgentObjectContextOperation::SelectDirectory { path, .. } = &mut changed.operation
         else {
             panic!()
         };
@@ -666,7 +661,7 @@ fn owner_selection_transaction_is_atomic_and_does_not_grant_tool_execution() {
         },
         "2026-09-05T00:00:00Z",
     );
-    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAgent);
     let mut directory = proposal();
     directory.source = DirectoryConsentSource::OwnerSelection;
     let update = FileScopeUpdate {
@@ -708,7 +703,7 @@ fn only_an_owner_selection_can_select_a_directory_directly() {
         },
         "2026-09-05T00:00:00Z",
     );
-    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAgent);
     // A scheduled run proposes a directory like any model; it cannot select one.
     session.trigger_origin = crate::session::TriggerOrigin::ScheduledTask;
     session.turn_state = crate::session::TurnState::Running;
@@ -746,7 +741,7 @@ fn conversion_directory_boundary_accepts_two_exact_resources_and_still_rejects_w
         },
         "now",
     );
-    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAgent);
     session.file_scope = approved();
     let directory = proposal().directory;
     let mut source = directory.clone();
@@ -778,7 +773,7 @@ fn a_child_uses_the_directories_its_owner_approved_in_the_main_conversation() {
     };
     let mut root =
         PersistedAgentSession::new("conversation", "owner", "device", 1, scope.clone(), "now");
-    root.surface = AgentSessionSurface::AiAssistant;
+    root.surface = AgentSessionSurface::AiAgent;
     root.file_scope = approved();
     let mut child = PersistedAgentSession::new_subagent(
         "sa_child",
@@ -787,9 +782,7 @@ fn a_child_uses_the_directories_its_owner_approved_in_the_main_conversation() {
         1,
         scope,
         crate::subagent::DelegatedTaskBinding {
-            targets: vec![crate::dynamic_run::AssistantInputTarget::fixed(
-                "device".into(),
-            )],
+            targets: vec![crate::dynamic_run::AgentInputTarget::fixed("device".into())],
             root_conversation_id: "conversation".into(),
             group_id: "group".into(),
             task_id: "task".into(),
@@ -804,7 +797,7 @@ fn a_child_uses_the_directories_its_owner_approved_in_the_main_conversation() {
         "now",
     )
     .unwrap();
-    child.surface = AgentSessionSurface::AiAssistant;
+    child.surface = AgentSessionSurface::AiAgent;
     let named = crate::chat::ToolCall {
         id: "write".into(),
         name: "create_text_file".into(),
@@ -867,7 +860,7 @@ fn trusted_directory_grants_follow_current_approvals_and_delegations() {
         },
         "2026-09-05T00:00:00Z",
     );
-    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("browser-intent"), AgentSessionSurface::AiAgent);
     let device = session.device_id.clone();
     assert!(
         TrustedDirectoryGrants::from_session(&session, &device, 1)

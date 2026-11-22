@@ -65,7 +65,7 @@ async fn connect_with_payload(
         .await
         .unwrap();
     let (response, session, stream) = actix_ws::handle(&req, payload).unwrap();
-    let query: PeerQuery = serde_urlencoded::from_str(&format!("remote_desk_type=server&client_id={client}&available_exec_shells=&exec_pty=false&exec_pty_elevation=false&max_ai_command_runtime_ms=60000&ai_assistant_revision=0&ai_assistant_enabled=false")).unwrap();
+    let query: PeerQuery = serde_urlencoded::from_str(&format!("remote_desk_type=server&client_id={client}&available_exec_shells=&exec_pty=false&exec_pty_elevation=false&max_ai_command_runtime_ms=60000&ai_agent_revision=0&ai_agent_enabled=false")).unwrap();
     let peer = query
         .into_peer(
             Some(VersionInfo {

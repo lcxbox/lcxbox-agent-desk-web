@@ -82,7 +82,7 @@ fn reasoning_output_budget_error() -> AgentError {
         retryable: false,
         safe_for_model: true,
         error_code: Some(
-            desk_utils::error::DeskErrorCode::AI_ASSISTANT_RESPONSE_TRUNCATED.code(),
+            desk_utils::error::DeskErrorCode::AI_AGENT_RESPONSE_TRUNCATED.code(),
         ),
     }
 }
@@ -94,7 +94,7 @@ fn empty_end_turn_recovery_error() -> AgentError {
         retryable: false,
         safe_for_model: true,
         error_code: Some(
-            desk_utils::error::DeskErrorCode::AI_ASSISTANT_PROTOCOL_VIOLATION.code(),
+            desk_utils::error::DeskErrorCode::AI_AGENT_PROTOCOL_VIOLATION.code(),
         ),
     }
 }
@@ -380,7 +380,7 @@ pub struct LoopDeps<'a> {
     /// are not necessarily callable under the current grant scope.
     pub capability_permission_candidates: &'a [RegisteredTool],
     /// Content-free measurements captured when the caller built the current
-    /// capability catalog. Non-AI-Assistant callers leave this unset.
+    /// capability catalog. Non-AI-Agent callers leave this unset.
     pub capability_catalog_metrics: Option<crate::permission_tools::CapabilityCatalogMetrics>,
     pub response_format: crate::prompt::ResponseFormatSpec,
     /// The system message prepended to the (trimmed) conversation on every model
@@ -397,7 +397,7 @@ pub struct LoopDeps<'a> {
     /// Worker incarnation that reported `interactive_user_home`.
     pub interactive_user_home_incarnation: Option<&'a str>,
     /// Per-turn model→tool step budget (circuit breaker). Diagnose passes
-    /// [`crate::MAX_STEPS_PER_TURN`]; the latency-sensitive Terminal AI Assistant
+    /// [`crate::MAX_STEPS_PER_TURN`]; the latency-sensitive Terminal AI Agent
     /// passes a tighter bound.
     pub max_steps_per_turn: u32,
     /// Per-turn cap for calls to the same tool. Kept independent of the total
@@ -437,8 +437,8 @@ pub async fn resume_agent_turn(
     run_or_resume(deps, claim, None, sink).await
 }
 
+mod agent_data;
 mod artifact_registry;
-mod assistant_data;
 mod call_budget;
 mod fresh_task;
 mod goal_control;
@@ -494,7 +494,7 @@ async fn resume_claimed_scheduled(
         || scheduled_run_id.len() > 256
         || session.trigger_origin != crate::session::TriggerOrigin::ScheduledContinuation
         || !session.agent_role.is_main()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || session.turn_state != TurnState::Running
         || session.input_revision == 0
         || session.lease_token == 0
@@ -648,7 +648,7 @@ pub async fn run_preclaimed_subagent_turn(
 ) -> Result<LoopOutcome, AgentError> {
     if session.agent_role.binding().is_none()
         || session.trigger_origin != TriggerOrigin::DelegatedTask
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || !session.turn_state.is_active()
         || session.lease_token == 0
         || deps.heartbeat.is_none()
@@ -705,7 +705,7 @@ pub async fn run_preclaimed_subagent_completion(
 ) -> Result<LoopOutcome, AgentError> {
     if !session.agent_role.is_main()
         || session.trigger_origin != TriggerOrigin::SubAgentCompletion
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || !session.turn_state.is_active()
         || !session.has_ready_subagent_completion()
         || session.subagent_wait.is_some()
@@ -1466,7 +1466,7 @@ async fn append_reviewed_tool_result_inner(
         // session image already satisfies the one-image invariant.
         let mut message = ChatMessage::tool_result(message_id, call_id, content);
         message.set_label(data_envelope);
-        if session.surface == AgentSessionSurface::AiAssistant {
+        if session.surface == AgentSessionSurface::AiAgent {
             let policy = deps.model.model_egress_policy()?;
             message = match crate::future::boxed(|| {
                 crate::conversation_attachment::delivery::externalize(
@@ -1502,7 +1502,7 @@ async fn append_reviewed_tool_result_inner(
             message.set_label(data_envelope);
             session.conversation.push(message);
             retain_latest_session_image(session)?;
-            if session.surface == AgentSessionSurface::AiAssistant {
+            if session.surface == AgentSessionSurface::AiAgent {
                 let image_data_url = session
                     .conversation
                     .last()
@@ -1727,7 +1727,7 @@ async fn deliver_pending_results(
     deps: &LoopDeps<'_>,
     session: &mut PersistedAgentSession,
 ) -> Result<(), AgentError> {
-    if session.surface != AgentSessionSurface::AiAssistant {
+    if session.surface != AgentSessionSurface::AiAgent {
         return Ok(());
     }
     let policy = deps.model.model_egress_policy()?;
@@ -1817,8 +1817,8 @@ fn assemble_context_request(
             .is_some_and(|message| message.role == ChatRole::System),
     );
     while request.messages.get(at).is_some_and(|message| {
-        crate::ai_assistant::settings::is_personalization_projection(message)
-            || crate::ai_assistant::current_memory::is_projection(message)
+        crate::ai_agent::settings::is_personalization_projection(message)
+            || crate::ai_agent::current_memory::is_projection(message)
             || crate::skills::is_projection(message)
     }) {
         at += 1;
@@ -2687,8 +2687,7 @@ fn requested_artifact_registry_projection(
                     }
                 }
                 && latest_user.text.contains(&output.original_file_name)
-                && source.provenance.source_provider_id
-                    == crate::ai_assistant::TEXT_FILE_PROVIDER_ID
+                && source.provenance.source_provider_id == crate::ai_agent::TEXT_FILE_PROVIDER_ID
                 && source.provenance.source_tool_name == tool
                 && source.content.size_bytes() == message.text.len() as u64
                 && let Some(call_id) = &message.tool_call_id
@@ -2771,7 +2770,7 @@ fn requested_artifact_registry_projection(
 }
 
 /// Re-project only the bounded opaque references needed to continue a tool
-/// chain on every AI Assistant model request. This must also run for an
+/// chain on every AI Agent model request. This must also run for an
 /// ordinary user follow-up: context compression or a new turn can otherwise
 /// retain the requirement while dropping the worker-issued BrowserPageRef.
 /// Historical raw Provider results deliberately are not replayed across the
@@ -3325,7 +3324,7 @@ fn interactive_user_home_projection(
     turn_id: &str,
     now_unix_ms: u64,
 ) -> Result<Option<ChatMessage>, AgentError> {
-    let text = crate::ai_assistant::interactive_user_home_prompt(home);
+    let text = crate::ai_agent::interactive_user_home_prompt(home);
     let Some(worker_incarnation) = worker_incarnation.filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
@@ -3565,7 +3564,7 @@ pub(crate) fn bind_tool_input_envelopes(
     let mut preview_ids = HashSet::new();
     collect_identity_values(&arguments, &mut artifact_ids, &mut preview_ids);
     let mut source_ids = envelope.provenance.source_envelope_ids.clone();
-    if session.surface == AgentSessionSurface::AiAssistant {
+    if session.surface == AgentSessionSurface::AiAgent {
         source_ids.extend(crate::result_model_ids::input_envelope_ids(
             &call.name,
             &arguments,
@@ -3587,7 +3586,7 @@ pub(crate) fn bind_tool_input_envelopes(
             .and_then(|source| source.strip_suffix(&suffix))
             .ok_or_else(crate::directory_tools::unavailable)?;
         session
-            .resolve_assistant_action_device(None, Some(device))
+            .resolve_agent_action_device(None, Some(device))
             .map_err(|_| crate::directory_tools::unavailable())
     };
 
@@ -3643,7 +3642,7 @@ pub(crate) fn bind_tool_input_envelopes(
         source_ids.push(web_source.envelope_id.clone());
     }
 
-    // A tool call is an output of the immediately persisted assistant model
+    // A tool call is an output of the immediately persisted agent model
     // turn. That response envelope is the authoritative transitive link to
     // every user/tool/Web envelope projected into that model request. Bind it
     // by the server-owned tool-call id; the model never supplies an envelope id.
@@ -3879,7 +3878,7 @@ async fn run_mutating<F: FnMut() -> String>(
     observation: &crate::model_observability::tool::ToolObservation,
 ) -> Result<Option<LoopOutcome>, AgentError> {
     // Repeated reviewer refusals of one tool need the owner, not another attempt.
-    // Other tools stay available, so the assistant may pursue a different method.
+    // Other tools stay available, so the agent may pursue a different method.
     if session.review_denials.get(&call.name).copied().unwrap_or(0) >= MAX_REVIEW_DENIALS_PER_TOOL {
         observation.permission(crate::model_observability::PermissionOutcome::PolicyRejected);
         let note = format!(
@@ -3975,9 +3974,7 @@ async fn run_mutating<F: FnMut() -> String>(
         scope.granted = vec![desk_agent_protocol::Capability::ShellExecConfirmed];
     }
     let ctx = ExecContext {
-        assistant_turn_fence: crate::action_turn_fence::AssistantTurnFence::for_device(
-            session, &device,
-        )?,
+        agent_turn_fence: crate::action_turn_fence::AgentTurnFence::for_device(session, &device)?,
         conversation_id: session.conversation_id.clone(),
         turn_id: turn_id.to_string(),
         tool_call_id: call.id.clone(),
@@ -4477,7 +4474,7 @@ async fn run_wait<F: FnMut() -> String>(
                 &call.name,
             )?;
             // Close the wait call before any appended untrusted completion so
-            // the model's assistant/tool-result group remains contiguous.
+            // the model's agent/tool-result group remains contiguous.
             session.conversation.insert(completion_position, message);
             ack_event_id = Some(event_id);
             finish_tool(session, &call.id, !failed, sink);
@@ -4722,7 +4719,7 @@ async fn read_conversation_attachment(
         return Err(invalid("Insufficient model context for attachment reading"));
     }
     if let Some(maximum) = maximum_response_bytes {
-        let framed = crate::ai_assistant::history::serialized_tool_response_bytes(
+        let framed = crate::ai_agent::history::serialized_tool_response_bytes(
             &call.id,
             &message.text,
             message.image_data_url.as_deref(),

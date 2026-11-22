@@ -1,7 +1,7 @@
 //! Worker-lifetime references for explicitly attached terminal output.
 //!
 //! The PTY reader keeps only a bounded recent suffix in memory and issues an
-//! immutable short-lived reference with each output update. The Assistant can
+//! immutable short-lived reference with each output update. The Agent can
 //! later resolve only a reference the browser explicitly attached; raw output
 //! is never persisted in the Agent session and is redacted before it leaves the
 //! edge.

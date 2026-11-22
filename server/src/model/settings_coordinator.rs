@@ -517,14 +517,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ai_assistant_switch_is_durable_without_moving_security_policy() {
+    async fn ai_agent_switch_is_durable_without_moving_security_policy() {
         let dir = tempfile::tempdir().unwrap();
         let coordinator = coordinator_at(&dir.path().join("config"));
         let seq = coordinator.seq();
 
         coordinator
             .commit(|settings| {
-                settings.ai_assistant = desk_agent_protocol::ai_assistant::AiAssistantSettings {
+                settings.ai_agent = desk_agent_protocol::ai_agent::AiAgentSettings {
                     revision: 1,
                     enabled: true,
                 };
@@ -536,8 +536,8 @@ mod tests {
         assert_eq!(coordinator.seq(), seq);
         let args = coordinator.settings.read().await.args.clone();
         assert_eq!(
-            Settings::load_readonly(&args).unwrap().ai_assistant,
-            desk_agent_protocol::ai_assistant::AiAssistantSettings {
+            Settings::load_readonly(&args).unwrap().ai_agent,
+            desk_agent_protocol::ai_agent::AiAgentSettings {
                 revision: 1,
                 enabled: true,
             }

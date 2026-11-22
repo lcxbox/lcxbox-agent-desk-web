@@ -15,9 +15,9 @@ fn params() -> UpdateLiveContext {
         run_id: "conversation-1".into(),
         actor_id: "1".into(),
         device_id: "device-1".into(),
-        update: AiAssistantContextUpdate {
+        update: AiAgentContextUpdate {
             conversation_target:
-                desk_agent_protocol::ai_assistant::AiAssistantConversationTarget::FixedDevice,
+                desk_agent_protocol::ai_agent::AiAgentConversationTarget::FixedDevice,
             conversation_id: "client-conversation".into(),
             client_request_id: "request-1".into(),
             selected_capability_ids: selection.selected_capability_ids.clone(),
@@ -34,7 +34,7 @@ async fn store(url: &str) -> SignalAgentSessionStore {
     crate::db::initialize_schema(&db).await.unwrap();
     SignalAgentSessionStore::new(db).with_client_metadata(
         Some("client-conversation".into()),
-        AgentSessionSurface::AiAssistant,
+        AgentSessionSurface::AiAgent,
     )
 }
 
@@ -52,7 +52,7 @@ async fn rows(
 
 fn clear(original: &UpdateLiveContext) -> UpdateLiveContext {
     UpdateLiveContext {
-        update: AiAssistantContextUpdate {
+        update: AiAgentContextUpdate {
             selected_capability_ids: vec![],
             client_request_id: "clear-1".into(),
             ..original.update.clone()
@@ -206,14 +206,14 @@ async fn active_turn_even_with_expired_lease_and_stale_preparation_cannot_be_ove
 
 #[tokio::test]
 async fn selectable_live_context_requires_roster_and_keeps_the_physical_source() {
-    use desk_agent_protocol::ai_assistant::AiAssistantConversationTarget::SelectableDevices;
-    use desk_assistant_data_store::device_roster::{personal_selection_key, replace};
+    use desk_agent_data_store::device_roster::{personal_selection_key, replace};
+    use desk_agent_protocol::ai_agent::AiAgentConversationTarget::SelectableDevices;
 
     let store = store("sqlite::memory:").await;
     let mut original = params();
     original.update.conversation_target = SelectableDevices;
     let tool = "inspect_office_selection";
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry_ref();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry_ref();
     let capability = registry.capability_for_tool(tool).unwrap();
     let provider = registry
         .provider_for_capability(&capability.wire.capability_id)
@@ -243,7 +243,7 @@ async fn selectable_live_context_requires_roster_and_keeps_the_physical_source()
         .update
         .selected_capability_ids
         .clone_from(&selection.selected_capability_ids);
-    original.run_id = desk_diagnose_core::conversation_key::AssistantConversationScope::Personal
+    original.run_id = desk_diagnose_core::conversation_key::AgentConversationScope::Personal
         .context_key(
             &original.actor_id,
             &original.device_id,

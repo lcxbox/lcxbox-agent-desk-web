@@ -32,19 +32,19 @@ function Main() {
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); get.mockReset(); account.mockReset(); Socket.instances=[]; });
 
-function renderOwnerAssistant() {
-    return render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/desk/device/device/assistant']}>
+function renderOwnerAgent() {
+    return render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/desk/device/device/agent']}>
         <Routes><Route path="/desk/device/:deviceId" element={<OwnerDeviceTarget />}>
-            <Route path="assistant" element={<Main />} />
+            <Route path="agent" element={<Main />} />
         </Route></Routes>
     </MemoryRouter></QueryClientProvider>);
 }
 
-it('opens the AI Assistant route for the signed-in OSS owner without a numeric user ID', async () => {
+it('opens the AI Agent route for the signed-in OSS owner without a numeric user ID', async () => {
     vi.stubGlobal('WebSocket', Socket);
     account.mockReturnValue({ data: { data: { access: 'admin', user_id: null } } });
     get.mockResolvedValue({ success: true, code: 0, data: { connection_id: 'owner-connection', device_id: 'device' } });
-    renderOwnerAssistant();
+    renderOwnerAgent();
 
     expect(await screen.findByText('owner-connection:false')).toBeInTheDocument();
     expect(get).toHaveBeenCalledExactlyOnceWith('device', { scope: 'personal' }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
@@ -53,7 +53,7 @@ it('opens the AI Assistant route for the signed-in OSS owner without a numeric u
 it('does not start owner discovery for a device-code account', () => {
     vi.stubGlobal('WebSocket', Socket);
     account.mockReturnValue({ data: { data: { access: 'device_user', user_id: null, target_connection_id: 'fixed' } } });
-    renderOwnerAssistant();
+    renderOwnerAgent();
 
     expect(get).not.toHaveBeenCalled();
     expect(Socket.instances).toHaveLength(0);

@@ -375,7 +375,7 @@ pub struct UiInspectOutput {
     pub adapter: ComputerUseAdapterRef,
     pub nodes: Vec<UiNodeProjection>,
     /// macOS AX windows that the owner may explicitly attach to Device
-    /// Assistant context. Empty on adapters that do not implement a window
+    /// Agent context. Empty on adapters that do not implement a window
     /// selector.
     #[serde(default)]
     pub owner_selectable_windows: Vec<UiWindowProjection>,
@@ -2731,7 +2731,7 @@ pub struct ComputerUseCapabilityReadiness {
 }
 
 /// Edge-issued object references that freeze an otherwise dynamic capability
-/// target for one bounded Assistant turn. They remain internal to the
+/// target for one bounded Agent turn. They remain internal to the
 /// signal/manager control plane and are never projected into the browser
 /// capability directory.
 #[derive(
@@ -2753,7 +2753,7 @@ pub struct ComputerUseReadiness {
     pub server_api_version: i32,
     pub os: String,
     /// Absolute Home directory of the OS user that owns this interactive
-    /// worker. This is runtime guidance for the Assistant, never authority.
+    /// worker. This is runtime guidance for the Agent, never authority.
     pub interactive_user_home: Option<String>,
     pub interactive_session_incarnation: String,
     pub local_ceiling_revision: u64,

@@ -198,7 +198,7 @@ async fn a_permission_plan_the_server_cannot_build_is_reported_as_server_text() 
         scope(),
         "2026-06-19T00:00:00Z",
     );
-    existing.surface = crate::session::AgentSessionSurface::AiAssistant;
+    existing.surface = crate::session::AgentSessionSurface::AiAgent;
     existing.input_revision = 1;
     existing.latest_input_seq = 1;
     *sess.inner.borrow_mut() = Some(existing);
@@ -232,7 +232,7 @@ async fn a_permission_plan_the_server_cannot_build_is_reported_as_server_text() 
         calls: Rc::new(RefCell::new(vec![])),
         reply: "must not run".into(),
     };
-    let providers = crate::ai_assistant::ai_assistant_provider_registry();
+    let providers = crate::ai_agent::ai_agent_provider_registry();
     let registry = crate::permission_tools::permission_planning_tool_registry();
     let clock = || "2026-06-20T00:00:01Z".into();
     let mut loop_deps = deps(&sess, &model, &tools, &registry, &clock);

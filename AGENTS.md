@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-`lcxbox-agent-desk` 是一个 **AI 原生（AI-Native）** 的开源 WebRTC 远程桌面解决方案，把 AI 当作与浏览器并列的一等控制端。后端使用 Rust (Actix-Web)，前端使用 React + TypeScript (Vite)。除了浏览器远程控制，它还内置了一个**设备诊断 AI Agent**（模型无关：OpenAI 兼容 / Anthropic），可读取设备状态排障，或在设备策略允许且取得逐项批准后执行命令（见 `agent-protocol/src/exec.rs` 与 `signal/src/agent_exec.rs`）。项目同时以一个**只读 MCP 服务**把设备的只读能力开放给外部 AI 助手。
+`lcxbox-agent-desk` 是一个 **AI 原生（AI-Native）** 的开源 WebRTC 远程桌面解决方案，把 AI 当作与浏览器并列的一等控制端。后端使用 Rust (Actix-Web)，前端使用 React + TypeScript (Vite)。除了浏览器远程控制，它还内置了一个**设备诊断 AI Agent**（模型无关：OpenAI 兼容 / Anthropic），可读取设备状态排障，或在设备策略允许且取得逐项批准后执行命令（见 `agent-protocol/src/exec.rs` 与 `signal/src/agent_exec.rs`）。项目同时以一个**只读 MCP 服务**把设备的只读能力开放给外部 AI 智能体。
 
 > 诊断 Agent 可执行按当前设备策略及审批模式获准的操作。**对外 MCP 服务保持只读**（静态白名单，不含 exec / write / control 工具）。写文档或对外文案时不要再复述“只读诊断 AI Agent”。
 
@@ -12,7 +12,7 @@
 
 ## Agent 执行栈约束
 
-本次 AI 助手记忆任务的执行顺序：先完成主链路开发，期间允许快速编译和必要的小范围功能测试；编译单帧采样、原始 future 与小栈组合门禁统一留到主链路开发完成后执行，不在开发中反复运行。以下限制值及最终验收要求保持。
+本次 AI 智能体记忆任务的执行顺序：先完成主链路开发，期间允许快速编译和必要的小范围功能测试；编译单帧采样、原始 future 与小栈组合门禁统一留到主链路开发完成后执行，不在开发中反复运行。以下限制值及最终验收要求保持。
 
 现行限制：单帧硬上限 128 KiB，阶段原始 future 上限 16 KiB，默认线程栈维持 2 MiB，显式 1 MiB/2 MiB 小栈组合回归必须通过。不要求新代码的栈用量低于旧代码，不再执行单函数、调用族、历史基线或 HEAD 的相对预算比较；历史测量仅供分析。
 
@@ -67,13 +67,13 @@ sudo apt install -y build-essential pkg-config libssl-dev libasound2-dev \
 
 | 模块 | 角色 |
 |---|---|
-| `server/` | Desk server: REST API (Actix-Web), WebRTC, 设置, 文件/终端管理（支持 ServiceDaemon 和 SessionWorker 模式）；AI Assistant 的共享编排契约在 `diagnose-core/`，中心模型适配分别位于 `signal/src/model_dial.rs`（OSS）与父仓 `backend/manager/src/service/model_dialect.rs`（Manager） |
+| `server/` | Desk server: REST API (Actix-Web), WebRTC, 设置, 文件/终端管理（支持 ServiceDaemon 和 SessionWorker 模式）；AI Agent 的共享编排契约在 `diagnose-core/`，中心模型适配分别位于 `signal/src/model_dial.rs`（OSS）与父仓 `backend/manager/src/service/model_dialect.rs`（Manager） |
 | `signal/` | 信令服务器 + TURN (核心文件: `signal/src/service.rs`) |
-| `vite-project/` | React 19 + TanStack Query 前端 — 包含管理 UI、Web 控制端客户端与独立 AI Assistant 页面 |
+| `vite-project/` | React 19 + TanStack Query 前端 — 包含管理 UI、Web 控制端客户端与独立 AI Agent 页面 |
 | `tauri-app/` | Tauri 壳程序，用于在被控机本地渲染防窥屏/白板功能 |
 | `agent-protocol/` | 设备能力协议（`desk-agent-protocol`）：AI 调用的 wire 类型 + `DeviceAgent` trait + 审计 / 诊断 / exec 协议。纯协议、无平台实现；**服务端是所有受信字段的唯一可信源** |
 | `mcp-server/` | 只读 MCP 服务（`desk-mcp-server`）：基于官方 `rmcp` SDK + stdio，暴露只读工具静态白名单（无 exec/write/control 工具）。具体读 agent 与诊断编排器由 `server` 注入 |
-| `assistant-data-store/` | 个人 AI 助手共用的 SeaORM 实体、快照、检索、存储规则与 Skill 包导入校验；宿主保留事务、配置、权限和计费 |
+| `agent-data-store/` | 个人 AI 智能体共用的 SeaORM 实体、快照、检索、存储规则与 Skill 包导入校验；宿主保留事务、配置、权限和计费 |
 | `signal-facade/` | 共享的信令协议模型 (供 `signal` 和 `manager` 使用) |
 | `capture-engine/`| 屏幕/音频捕获与编码逻辑 |
 | `input-injection/`| 鼠标/键盘输入注入与剪贴板控制 |

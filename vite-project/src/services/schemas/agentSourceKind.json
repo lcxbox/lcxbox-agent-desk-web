@@ -1,0 +1,1 @@
+{"type":"string","enum":["input","agent_message","receipt","native_status","previous_memory"],"x-readme-ref-name":"AgentSourceKind"}

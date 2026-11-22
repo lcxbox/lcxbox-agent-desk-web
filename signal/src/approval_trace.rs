@@ -112,7 +112,7 @@ impl Store {
             .await?
             .ok_or_else(invalid)?;
         let session = PersistedAgentSession::decode_json(&row.state_json).map_err(|_| invalid())?;
-        if session.surface != desk_diagnose_core::session::AgentSessionSurface::AiAssistant
+        if session.surface != desk_diagnose_core::session::AgentSessionSurface::AiAgent
             || session.actor_id != owner
             || session.device_id != row.device_id
             || session.conversation_id != conversation
@@ -132,7 +132,7 @@ impl Store {
                 PersistedAgentSession::decode_json(&parent.state_json).map_err(|_| invalid())?;
             if parent.actor_id != owner
                 || parent.device_id != row.device_id
-                || parent.surface != desk_diagnose_core::session::AgentSessionSurface::AiAssistant
+                || parent.surface != desk_diagnose_core::session::AgentSessionSurface::AiAgent
             {
                 return Err(invalid());
             }
@@ -343,10 +343,8 @@ impl Store {
         &self,
         session: &str,
         owner: &str,
-    ) -> Result<
-        Option<desk_agent_protocol::ai_assistant::subagent::AiAssistantSubAgentSummary>,
-        DbErr,
-    > {
+    ) -> Result<Option<desk_agent_protocol::ai_agent::subagent::AiAgentSubAgentSummary>, DbErr>
+    {
         let row = agent_subagent_run::Entity::find()
             .filter(agent_subagent_run::Column::ChildConversationId.eq(session))
             .filter(agent_subagent_run::Column::ActorId.eq(owner))

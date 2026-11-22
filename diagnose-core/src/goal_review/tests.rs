@@ -32,7 +32,7 @@ fn fixture() -> (
         },
         "2026-10-15T07:36:10Z",
     );
-    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAssistant);
+    session.adopt_client_metadata(Some("client"), AgentSessionSurface::AiAgent);
     session.input_revision = 1;
     session.control_revision = 1;
     session.latest_input_seq = 1;
@@ -46,7 +46,7 @@ fn fixture() -> (
     )
     .unwrap();
     let goal_text = "Finish the requested report";
-    let mut assistant = ChatMessage::assistant_tool_calls(
+    let mut agent = ChatMessage::agent_tool_calls(
         "assistant",
         "I propose this goal",
         vec![ToolCallRef {
@@ -55,9 +55,9 @@ fn fixture() -> (
             arguments_json: json!({"goal_text":goal_text}).to_string(),
         }],
     );
-    assistant.turn_id = session.current_turn_id.clone();
-    let bytes = crate::model_egress::message_content_bytes(&assistant).unwrap();
-    assistant.data_envelope = Some(
+    agent.turn_id = session.current_turn_id.clone();
+    let bytes = crate::model_egress::message_content_bytes(&agent).unwrap();
+    agent.data_envelope = Some(
         crate::subagent::projection::envelope(
             "assistant",
             &String::from_utf8(bytes).unwrap(),
@@ -66,12 +66,12 @@ fn fixture() -> (
         )
         .unwrap(),
     );
-    session.conversation = vec![user, assistant];
+    session.conversation = vec![user, agent];
     let request = GoalOpenRequest::new(
         "request-private-id".into(),
         "run".into(),
         "owner".into(),
-        crate::dynamic_run::AssistantInputTarget::fixed("device".into()),
+        crate::dynamic_run::AgentInputTarget::fixed("device".into()),
         "device".into(),
         "user".into(),
         1,

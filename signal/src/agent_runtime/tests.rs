@@ -36,7 +36,7 @@ async fn agent_turns_are_normalized_before_the_loop_sees_them() {
     let model = MeteredSignalModel {
         inner: SignalModelSeam::from_config(&config).unwrap(),
     };
-    let tool = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
+    let tool = desk_diagnose_core::ai_agent::ai_agent_provider_registry()
         .capability_for_tool("inspect_desktop_ui")
         .unwrap()
         .registered_tool();
@@ -68,7 +68,7 @@ async fn agent_turns_are_normalized_before_the_loop_sees_them() {
 }
 
 fn tool_for_requirements() -> desk_diagnose_core::registry::RegisteredTool {
-    desk_diagnose_core::ai_assistant::ai_assistant_provider_registry()
+    desk_diagnose_core::ai_agent::ai_agent_provider_registry()
         .capability_for_tool("inspect_desktop_ui")
         .unwrap()
         .registered_tool()

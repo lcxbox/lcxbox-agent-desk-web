@@ -312,12 +312,12 @@ pub(crate) fn complete_device_input(
     device_id: &str,
     now: u64,
 ) -> Result<(), AgentError> {
-    if session.surface != crate::session::AgentSessionSurface::AiAssistant {
+    if session.surface != crate::session::AgentSessionSurface::AiAgent {
         return Ok(());
     }
     // The request-device planner resolves the target before completing its
     // device-specific directory choices.
-    if session.has_admitted_assistant_input()
+    if session.has_admitted_agent_input()
         && value.get("target_ref").is_some()
         && (tool == "request_permissions" || is_read(tool))
     {

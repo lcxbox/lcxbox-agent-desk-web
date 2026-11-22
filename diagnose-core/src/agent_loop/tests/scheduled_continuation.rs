@@ -5,12 +5,12 @@ use std::cell::Cell;
 struct PreclaimedStore<'a>(&'a MemSession);
 #[async_trait(?Send)]
 impl SessionSeam for PreclaimedStore<'_> {
-    async fn assistant_data_access(
+    async fn agent_data_access(
         &self,
         session: &PersistedAgentSession,
         now: u64,
-    ) -> Result<Option<crate::ai_assistant::data_access::AssistantDataToolAccess>, AgentError> {
-        self.0.assistant_data_access(session, now).await
+    ) -> Result<Option<crate::ai_agent::data_access::AgentDataToolAccess>, AgentError> {
+        self.0.agent_data_access(session, now).await
     }
 
     async fn claim_turn(&self, _: ClaimTurnParams) -> Result<PersistedAgentSession, ClaimError> {
@@ -108,7 +108,7 @@ fn claimed() -> PersistedAgentSession {
         scope(),
         "2026-09-06T00:00:00Z",
     );
-    session.surface = AgentSessionSurface::AiAssistant;
+    session.surface = AgentSessionSurface::AiAgent;
     session.begin_focus_epoch(1, Vec::<String>::new()).unwrap();
     session.input_revision = 1;
     session.chain_id = "original-chain".into();

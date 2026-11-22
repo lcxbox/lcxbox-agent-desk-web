@@ -2,7 +2,7 @@
 use super::*;
 use crate::entity::agent_capability_grant as grant_row;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use sea_orm::{QueryOrder, QuerySelect, Set};
 
 pub(super) async fn consume(

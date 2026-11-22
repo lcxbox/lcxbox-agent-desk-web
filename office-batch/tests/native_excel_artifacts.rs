@@ -8,10 +8,10 @@ use desk_office_batch::{
 };
 
 #[test]
-#[ignore = "requires ASSISTANT_EXCEL_ARTIFACT_DIR from the native validation script"]
+#[ignore = "requires AGENT_EXCEL_ARTIFACT_DIR from the native validation script"]
 fn real_excel_save_preserves_calculation_inputs() {
     let directory = std::path::PathBuf::from(
-        std::env::var_os("ASSISTANT_EXCEL_ARTIFACT_DIR").expect("native artifact directory"),
+        std::env::var_os("AGENT_EXCEL_ARTIFACT_DIR").expect("native artifact directory"),
     );
     let before = std::fs::read(directory.join("source.xlsx")).unwrap();
     let after = std::fs::read(directory.join("calculated.xlsx")).unwrap();
@@ -19,10 +19,10 @@ fn real_excel_save_preserves_calculation_inputs() {
 }
 
 #[test]
-#[ignore = "requires ASSISTANT_EXCEL_ARTIFACT_DIR from the native validation script"]
+#[ignore = "requires AGENT_EXCEL_ARTIFACT_DIR from the native validation script"]
 fn real_excel_save_passes_publication_validators() {
     let directory = std::path::PathBuf::from(
-        std::env::var_os("ASSISTANT_EXCEL_ARTIFACT_DIR").expect("native artifact directory"),
+        std::env::var_os("AGENT_EXCEL_ARTIFACT_DIR").expect("native artifact directory"),
     );
     let before = std::fs::read(directory.join("source.xlsx")).unwrap();
     let after = std::fs::read(directory.join("calculated.xlsx")).unwrap();

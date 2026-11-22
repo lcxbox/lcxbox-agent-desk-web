@@ -9,7 +9,7 @@ mod tests;
 
 use async_trait::async_trait;
 use desk_agent_protocol::{
-    ai_assistant::{
+    ai_agent::{
         automation_policy::AutomationPolicy, goal_budget::GoalBudgetPolicy,
         subagent_policy::SubAgentPolicy, web_research_policy::WebResearchPolicy,
     },
@@ -36,10 +36,10 @@ pub const SECTION_NAMES: [&str; 22] = [
     "web_search",
     "issue_connections",
     "context_management",
-    "assistant_data_policy",
-    "assistant_data_settings",
-    "assistant_user_instructions",
-    "assistant_bundled_skills",
+    "agent_data_policy",
+    "agent_data_settings",
+    "agent_user_instructions",
+    "agent_bundled_skills",
     "terminal_completion",
     "device_codes",
     "access_code_protection",
@@ -73,14 +73,11 @@ pub struct GlobalConfig {
     pub web_search: SearchConfig,
     pub issue_connections: desk_signal_facade::mcp_client::settings::IssueConnectionsConfig,
     pub context_management: PlatformContextPolicy,
-    pub assistant_data_policy:
-        desk_agent_protocol::ai_assistant::user_instructions::AssistantDataPolicy,
-    pub assistant_data_settings:
-        desk_agent_protocol::ai_assistant::user_instructions::AssistantDataSettings,
-    pub assistant_user_instructions:
-        desk_agent_protocol::ai_assistant::user_instructions::UserInstructions,
+    pub agent_data_policy: desk_agent_protocol::ai_agent::user_instructions::AgentDataPolicy,
+    pub agent_data_settings: desk_agent_protocol::ai_agent::user_instructions::AgentDataSettings,
+    pub agent_user_instructions: desk_agent_protocol::ai_agent::user_instructions::UserInstructions,
     /// Bundled skills disabled for this deployment.
-    pub assistant_bundled_skills: desk_agent_protocol::ai_assistant::skill::BundledSkillSettings,
+    pub agent_bundled_skills: desk_agent_protocol::ai_agent::skill::BundledSkillSettings,
     pub terminal_completion:
         desk_diagnose_core::terminal_completion_policy::TerminalCompletionPolicy,
     pub subagent_policy: SubAgentPolicy,
@@ -106,13 +103,12 @@ impl Default for GlobalConfig {
             web_search: SearchConfig::default(),
             issue_connections: Default::default(),
             context_management: PlatformContextPolicy::default(),
-            assistant_data_policy:
-                desk_agent_protocol::ai_assistant::user_instructions::AssistantDataPolicy::default(),
-            assistant_data_settings:
-                desk_agent_protocol::ai_assistant::user_instructions::AssistantDataSettings::default(
-                ),
-            assistant_user_instructions: Default::default(),
-            assistant_bundled_skills: Default::default(),
+            agent_data_policy:
+                desk_agent_protocol::ai_agent::user_instructions::AgentDataPolicy::default(),
+            agent_data_settings:
+                desk_agent_protocol::ai_agent::user_instructions::AgentDataSettings::default(),
+            agent_user_instructions: Default::default(),
+            agent_bundled_skills: Default::default(),
             terminal_completion: Default::default(),
             subagent_policy: desk_diagnose_core::subagent::policy::initial(),
             automation_policy: AutomationPolicy::default(),
@@ -159,41 +155,39 @@ impl GlobalConfig {
             .validate()
             .map_err(|_| invalid("issue_connections"))?;
         if self
-            .assistant_bundled_skills
+            .agent_bundled_skills
             .disabled
             .iter()
             .any(|name| !desk_diagnose_core::skills::bundled_names().contains(&name.as_str()))
         {
-            return Err(invalid("assistant_bundled_skills"));
+            return Err(invalid("agent_bundled_skills"));
         }
         self.context_management
             .validate()
             .map_err(|_| invalid("context_management"))?;
-        desk_diagnose_core::ai_assistant::settings::validate(
-            &self.assistant_data_policy,
-            &self.assistant_data_settings,
-            &self.assistant_user_instructions,
+        desk_diagnose_core::ai_agent::settings::validate(
+            &self.agent_data_policy,
+            &self.agent_data_settings,
+            &self.agent_user_instructions,
         )
         .map_err(|_| {
-            let report =
-                desk_diagnose_core::ai_assistant::policy::assess(&self.assistant_data_policy);
+            let report = desk_diagnose_core::ai_agent::policy::assess(&self.agent_data_policy);
             let fields = report
                 .issues
                 .iter()
                 .filter(|issue| {
-                    issue.level
-                        == desk_agent_protocol::ai_assistant::policy::PolicyIssueLevel::Error
+                    issue.level == desk_agent_protocol::ai_agent::policy::PolicyIssueLevel::Error
                 })
                 .flat_map(|issue| issue.fields.iter().map(String::as_str))
                 .collect::<Vec<_>>();
             if fields.is_empty() {
-                invalid("assistant_data")
+                invalid("agent_data")
             } else {
                 invalid(&fields.join(", "))
             }
         })?;
         if let Some(issue) =
-            desk_diagnose_core::ai_assistant::policy::response_issue(&self.assistant_data_policy)
+            desk_diagnose_core::ai_agent::policy::response_issue(&self.agent_data_policy)
         {
             return Err(DbErr::Custom(format!(
                 "invalid OSS configuration field {}: {}",
@@ -363,9 +357,9 @@ impl ConfigContext {
         if initial.metadata.instance.is_empty() {
             return Err(invalid("oss_config_metadata.instance"));
         }
-        crate::assistant_data_config::log_warnings(
-            &desk_diagnose_core::ai_assistant::policy::warnings(&initial.assistant_data_policy),
-        );
+        crate::agent_data_config::log_warnings(&desk_diagnose_core::ai_agent::policy::warnings(
+            &initial.agent_data_policy,
+        ));
         Ok(Arc::new(Self {
             state: Arc::new(RwLock::new(initial)),
             persistence,

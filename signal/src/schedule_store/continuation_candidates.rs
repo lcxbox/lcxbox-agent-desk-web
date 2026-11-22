@@ -1,7 +1,7 @@
 //! Advisory dispatcher candidates; only a paired claim can authorize execution.
 use super::{ScheduleStore, ScheduleStoreError};
 use crate::entity::agent_schedule_run as run;
-use desk_assistant_data_store::schedule as shared;
+use desk_agent_data_store::schedule as shared;
 
 impl ScheduleStore {
     pub async fn expired_continuation_candidates(

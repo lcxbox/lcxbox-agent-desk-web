@@ -674,7 +674,7 @@ pub fn admitted_issue_for(
             }],
         },
         issue,
-        request_id: native_ids::stable(Kind::AssistantMainRequest, &(actor, root, "comment-1")),
+        request_id: native_ids::stable(Kind::AgentMainRequest, &(actor, root, "comment-1")),
         execution_root_id: root.into(),
         admitted_at_ms: 0,
         expires_at_ms: None,

@@ -4,7 +4,7 @@
 */
 
 import fetch from "@/lib/kubb-client";
-import type { AckSecurityApprovalMutationRequest, AckSecurityApprovalMutationResponse, BatchDeleteDeviceCodesMutationRequest, BatchDeleteDeviceCodesMutationResponse, ChangePasswordMutationRequest, ChangePasswordMutationResponse, ChangePassword401, ChangePassword403, CreatePlatformSkillMutationRequest, CreatePlatformSkillMutationResponse, GetAccessCodeProtectionQueryResponse, GetApprovalRuntimeSettingsQueryResponse, UpdateApprovalRuntimeSettingsMutationRequest, UpdateApprovalRuntimeSettingsMutationResponse, GetApprovalTraceSettingsQueryResponse, UpdateApprovalTraceSettingsMutationRequest, UpdateApprovalTraceSettingsMutationResponse, UpdateAccessCodeProtectionMutationRequest, UpdateAccessCodeProtectionMutationResponse, GetAssistantDataPolicyQueryResponse, UpdateAssistantDataPolicyMutationRequest, UpdateAssistantDataPolicyMutationResponse, GetContextManagementQueryResponse, UpdateContextManagementMutationRequest, UpdateContextManagementMutationResponse, ListBundledSkillsQueryResponse, SetBundledSkillMutationRequest, SetBundledSkillMutationResponse, SetBundledSkillPathParams, GetPlatformSkillScanQueryResponse, ListPlatformSkillsQueryResponse, PreviewPlatformSkillMutationRequest, PreviewPlatformSkillMutationResponse, GetPlatformSkillQueryResponse, GetPlatformSkillPathParams, UpdatePlatformSkillMutationRequest, UpdatePlatformSkillMutationResponse, UpdatePlatformSkillPathParams, DeletePlatformSkillMutationResponse, DeletePlatformSkillPathParams, DeletePlatformSkillQueryParams, PreviewPlatformSkillVersionMutationRequest, PreviewPlatformSkillVersionMutationResponse, PreviewPlatformSkillVersionPathParams, GetPlatformSkillVersionQueryResponse, GetPlatformSkillVersionPathParams, GetAutomationPolicyQueryResponse, UpdateAutomationPolicyMutationRequest, UpdateAutomationPolicyMutationResponse, GetDeviceCodeSettingsQueryResponse, UpdateDeviceCodeSettingsMutationRequest, UpdateDeviceCodeSettingsMutationResponse, GetGoalBudgetPolicyQueryResponse, UpdateGoalBudgetPolicyMutationRequest, UpdateGoalBudgetPolicyMutationResponse, GetIssueConnectionsQueryResponse, UpdateIssueConnectionsMutationRequest, UpdateIssueConnectionsMutationResponse, TestIssueConnectionMutationResponse, TestIssueConnectionPathParams, GetScheduleBudgetPolicyQueryResponse, UpdateScheduleBudgetPolicyMutationRequest, UpdateScheduleBudgetPolicyMutationResponse, GetSubagentPolicyQueryResponse, UpdateSubagentPolicyMutationRequest, UpdateSubagentPolicyMutationResponse, GetTerminalCompletionQueryResponse, UpdateTerminalCompletionMutationRequest, UpdateTerminalCompletionMutationResponse, GetWebResearchPolicyQueryResponse, UpdateWebResearchPolicyMutationRequest, UpdateWebResearchPolicyMutationResponse, GetWebSearchQueryResponse, UpdateWebSearchMutationRequest, UpdateWebSearchMutationResponse, TestWebSearchMutationRequest, TestWebSearchMutationResponse, LoginAccountMutationRequest, LoginAccountMutationResponse, LogoutAccountMutationResponse, GetCurrentUserQueryResponse, GetCurrentUser401, LoginTauriMutationResponse, LoginTauriQueryParams, VerifyConnectionMutationRequest, VerifyConnectionMutationResponse, QueryBackendInfoQueryResponse, CreateBrowserExtensionPairingMutationRequest, CreateBrowserExtensionPairingMutationResponse, CreateBrowserExtensionPairing500, ListConnectionsQueryResponse, ListDeviceCodesQueryResponse, ListDeviceCodesQueryParams, CreateDeviceCodeMutationRequest, CreateDeviceCodeMutationResponse, UpdateDeviceCodeMutationRequest, UpdateDeviceCodeMutationResponse, UpdateDeviceCodePathParams, DeleteDeviceCodeMutationResponse, DeleteDeviceCodePathParams, GetDeviceConnectionQueryResponse, GetDeviceConnectionPathParams, GetDeviceConnectionQueryParams, OpenExecPtyCarrierQueryResponse, RetryLocalFileRecoveryCleanupMutationResponse, ConfirmLocalFileRecoveryClockMutationRequest, ConfirmLocalFileRecoveryClockMutationResponse, DiscardLocalFileRecoveryMutationRequest, DiscardLocalFileRecoveryMutationResponse, ExportLocalFileRecoveryMutationRequest, ExportLocalFileRecoveryMutationResponse, UpdateLocalFileRecoveryPolicyMutationRequest, UpdateLocalFileRecoveryPolicyMutationResponse, QueryLocalFileRecoveryMutationRequest, QueryLocalFileRecoveryMutationResponse, QueryMacosAutologinQueryResponse, RetryManagerLinkMutationResponse, QueryManagerLinkStatusQueryResponse, RedeemCodeMutationRequest, RedeemCodeMutationResponse, QuerySecuritySettingsQueryResponse, UpdateSecuritySettingsMutationRequest, UpdateSecuritySettingsMutationResponse, SubmitSecurityApprovalMutationRequest, SubmitSecurityApprovalMutationResponse, QuerySettingsQueryResponse, UpdateSettingsMutationRequest, UpdateSettingsMutationResponse, QueryAiAssistantSettingsQueryResponse, UpdateAiAssistantSettingsMutationRequest, UpdateAiAssistantSettingsMutationResponse, QueryAiPolicySettingsQueryResponse, UpdateAiPolicySettingsMutationRequest, UpdateAiPolicySettingsMutationResponse, QueryCollectionPolicySettingsQueryResponse, UpdateCollectionPolicySettingsMutationRequest, UpdateCollectionPolicySettingsMutationResponse, UpdateComputerUseSwitchesMutationRequest, UpdateComputerUseSwitchesMutationResponse, UpdateComputerUseApplicationPolicyMutationRequest, UpdateComputerUseApplicationPolicyMutationResponse, QueryComputerUseApplicationPolicyMutationResponse, UpdateComputerUseCommunicationPolicyMutationRequest, UpdateComputerUseCommunicationPolicyMutationResponse, QueryComputerUseCommunicationPolicyMutationResponse, QueryComputerUseSwitchesMutationResponse, RevokeExecSandboxLabelsMutationResponse, QueryLogSettingsQueryResponse, UpdateLogSettingsMutationRequest, UpdateLogSettingsMutationResponse, QueryTurnSettingsQueryResponse, UpdateTurnSettingsMutationRequest, UpdateTurnSettingsMutationResponse, QueryTurnClientSettingsQueryResponse, UpdateTurnClientSettingsMutationRequest, UpdateTurnClientSettingsMutationResponse, RegenerateTurnSecretMutationResponse, QueryVirtualDisplaySettingsQueryResponse, UpdateVirtualDisplaySettingsMutationRequest, UpdateVirtualDisplaySettingsMutationResponse, OpenSignalingHandleQueryResponse, OpenSignalingHandleQueryParams, StartSupportMutationResponse, SupportStatusQueryResponse, StopSupportMutationResponse, QuerySysinfoQueryResponse, UpdateTelemetryConsentMutationRequest, UpdateTelemetryConsentMutationResponse, QueryTelemetryStatusQueryResponse, OpenTerminalSessionQueryResponse, OpenTerminalSessionPathParams, OpenTerminalSessionQueryParams, ListTerminalQueryResponse, ListTerminalPathParams, ListTerminalQueryParams, RequestMacosPermissionsMutationResponse, AuthorizeWaylandMutationRequest, AuthorizeWaylandMutationResponse, CancelWaylandMutationRequest, CancelWaylandMutationResponse, InitSystemMutationRequest, InitSystemMutationResponse, InitSystem403, InitRequirementsQueryResponse, GetApprovalModelProviderQueryResponse, UpdateApprovalModelProviderMutationRequest, UpdateApprovalModelProviderMutationResponse, ReuseAiGatewayForApprovalMutationRequest, ReuseAiGatewayForApprovalMutationResponse, TestApprovalModelProviderMutationRequest, TestApprovalModelProviderMutationResponse, GetApprovalMetricsOverviewQueryResponse, GetApprovalMetricsOverviewQueryParams, GetModelMetricsCallsQueryResponse, GetModelMetricsCallsQueryParams, GetModelMetricsCallQueryResponse, GetModelMetricsCallPathParams, GetModelMetricsModelsQueryResponse, GetModelMetricsModelsQueryParams, GetModelMetricsOverviewQueryResponse, GetModelMetricsOverviewQueryParams, GetModelMetricsRuntimeQueryResponse, GetModelMetricsRuntimeQueryParams, GetModelMetricsSeriesQueryResponse, GetModelMetricsSeriesQueryParams, GetModelMetricsSettingsQueryResponse, UpdateModelMetricsSettingsMutationRequest, UpdateModelMetricsSettingsMutationResponse, GetModelMetricsStatusQueryResponse, GetModelMetricsToolsQueryResponse, GetModelMetricsToolsQueryParams, GetModelMetricsUnassociatedQueryResponse, GetModelMetricsUnassociatedQueryParams, GetModelProviderQueryResponse, UpdateModelProviderMutationRequest, UpdateModelProviderMutationResponse, TestModelProviderMutationRequest, TestModelProviderMutationResponse, GetModelUsageQueryResponse, GetModelUsageQueryParams, ListAiAssistantAttentionQueryResponse, ListAiAssistantAttentionQueryParams, ListRetainedAssistantConversationsQueryResponse, ListRetainedAssistantConversationsQueryParams, SearchAssistantHistoryMutationRequest, SearchAssistantHistoryMutationResponse, GetAssistantHistoryWindowQueryResponse, GetAssistantHistoryWindowQueryParams, GetAssistantMemoriesQueryResponse, GetAssistantMemoriesQueryParams, ClearAssistantMemoriesMutationRequest, ClearAssistantMemoriesMutationResponse, DeleteAssistantMemoryMutationRequest, DeleteAssistantMemoryMutationResponse, GetAssistantProcessingQueryResponse, GetAiAssistantSessionQueryResponse, GetAiAssistantSessionQueryParams, CloseAiAssistantApprovalDelegationMutationRequest, CloseAiAssistantApprovalDelegationMutationResponse, OpenAiAssistantApprovalDelegationMutationRequest, OpenAiAssistantApprovalDelegationMutationResponse, GetAiAssistantApprovalModeQueryResponse, GetAiAssistantApprovalModeQueryParams, UpdateAiAssistantApprovalModeMutationRequest, UpdateAiAssistantApprovalModeMutationResponse, GetApprovalReviewQueryResponse, GetApprovalReviewQueryParams, GetApprovalReviewPartsQueryResponse, GetApprovalReviewPartsQueryParams, ListApprovalReviewsQueryResponse, ListApprovalReviewsQueryParams, GetAssistantAttachmentQueryResponse, GetAssistantAttachmentQueryParams, ReadAssistantAttachmentMutationRequest, ReadAssistantAttachmentMutationResponse, ListAssistantAttachmentsQueryResponse, ListAssistantAttachmentsQueryParams, DeleteAssistantAttachmentsMutationRequest, DeleteAssistantAttachmentsMutationResponse, CancelAiAssistantBackgroundTaskMutationRequest, CancelAiAssistantBackgroundTaskMutationResponse, RevokeAiAssistantCapabilityGrantMutationRequest, RevokeAiAssistantCapabilityGrantMutationResponse, CancelAiAssistantCommandMutationRequest, CancelAiAssistantCommandMutationResponse, GetAiAssistantContextSummaryQueryResponse, GetAiAssistantContextSummaryQueryParams, DeleteAiAssistantSessionMutationRequest, DeleteAiAssistantSessionMutationResponse, GetAiAssistantDeviceRosterQueryResponse, GetAiAssistantDeviceRosterQueryParams, UpdateAiAssistantDeviceRosterMutationRequest, UpdateAiAssistantDeviceRosterMutationResponse, ControlAiAssistantDirectoryMutationRequest, ControlAiAssistantDirectoryMutationResponse, GetMyGoalBudgetPolicyQueryResponse, ControlAiAssistantGoalMutationRequest, ControlAiAssistantGoalMutationResponse, DecideAiAssistantGoalOpenMutationRequest, DecideAiAssistantGoalOpenMutationResponse, GetAssistantImageQueryResponse, GetAssistantImageQueryParams, GetAssistantImage404, DeleteAssistantImageMutationResponse, DeleteAssistantImageQueryParams, ListAssistantImagesQueryResponse, ListAssistantImagesQueryParams, GetMyIssueConnectionsQueryResponse, ListAiAssistantIssueSubscriptionsQueryResponse, ListAiAssistantIssueSubscriptionsQueryParams, SaveAiAssistantIssueSubscriptionMutationRequest, SaveAiAssistantIssueSubscriptionMutationResponse, GetAiAssistantIssueSubscriptionAccountsQueryResponse, GetAiAssistantIssueSubscriptionAccountsQueryParams, SetAiAssistantIssueSubscriptionEnabledMutationRequest, SetAiAssistantIssueSubscriptionEnabledMutationResponse, SetAiAssistantIssueSubscriptionEnabledPathParams, DecideAiAssistantPermissionMutationRequest, DecideAiAssistantPermissionMutationResponse, ListAiAssistantMainRequestsQueryResponse, ListAiAssistantMainRequestsQueryParams, CancelAiAssistantMainRequestMutationRequest, CancelAiAssistantMainRequestMutationResponse, ResumeAiAssistantMainRequestsMutationRequest, ResumeAiAssistantMainRequestsMutationResponse, DecideAiAssistantSkillProposalMutationRequest, DecideAiAssistantSkillProposalMutationResponse, ListAiAssistantSkillProposalsQueryResponse, StopAiAssistantSessionMutationRequest, StopAiAssistantSessionMutationResponse, GetMySubagentPolicyQueryResponse, ListAiAssistantSubagentsQueryResponse, ListAiAssistantSubagentsQueryParams, ControlAiAssistantSubagentMutationRequest, ControlAiAssistantSubagentMutationResponse, MarkAiAssistantSubagentReadMutationRequest, MarkAiAssistantSubagentReadMutationResponse, ReadAiAssistantSubagentResultQueryResponse, ReadAiAssistantSubagentResultQueryParams, GetAiAssistantSubagentStatusQueryResponse, GetAiAssistantSubagentStatusQueryParams, ListAiAssistantSessionsQueryResponse, ListAiAssistantSessionsQueryParams, GetAssistantDataSettingsQueryResponse, UpdateAssistantDataSettingsMutationRequest, UpdateAssistantDataSettingsMutationResponse, GetMySkillScanQueryResponse, ListMySkillsQueryResponse, CreateMySkillMutationRequest, CreateMySkillMutationResponse, PreviewMySkillMutationRequest, PreviewMySkillMutationResponse, GetMySkillQueryResponse, GetMySkillPathParams, UpdateMySkillMutationRequest, UpdateMySkillMutationResponse, UpdateMySkillPathParams, DeleteMySkillMutationResponse, DeleteMySkillPathParams, DeleteMySkillQueryParams, PreviewMySkillVersionMutationRequest, PreviewMySkillVersionMutationResponse, PreviewMySkillVersionPathParams, GetMySkillVersionQueryResponse, GetMySkillVersionPathParams, GetAssistantSourceQueryResponse, GetAssistantSourceQueryParams, GetAssistantUserInstructionsQueryResponse, UpdateAssistantUserInstructionsMutationRequest, UpdateAssistantUserInstructionsMutationResponse, ListAiAssistantWorkbenchesQueryResponse, CreateAiAssistantWorkbenchMutationRequest, CreateAiAssistantWorkbenchMutationResponse, ListAiAssistantWorkbenchTasksQueryResponse, ListAiAssistantWorkbenchTasksPathParams, ListAiAssistantWorkbenchTasksQueryParams, RetryFileRecoveryCleanupMutationRequest, RetryFileRecoveryCleanupMutationResponse, ListFileRecoveryCleanupQueryResponse, ListFileRecoveryCleanupQueryParams, ExportDeviceFileRecoveryMutationRequest, ExportDeviceFileRecoveryMutationResponse, ManageDeviceFileRecoveryMutationRequest, ManageDeviceFileRecoveryMutationResponse, QueryServerInfoQueryResponse, InstallServiceMutationRequest, InstallServiceMutationResponse, InstallService503, QueryServiceOperationQueryResponse, QueryServiceOperationPathParams, QueryServiceOperation404, UninstallServiceMutationResponse, UninstallService503, CreateTokenMutationRequest, CreateTokenMutationResponse, GetTurnInfoQueryResponse, GetTurnMetricsQueryResponse, GetTurnMetrics503, GetTurnSessionStatisticsQueryResponse, GetTurnSessionStatisticsQueryParams, GetTurnUsageQueryResponse, GetTurnUsageQueryParams, GetUsageRetentionQueryResponse, UpdateUsageRetentionMutationRequest, UpdateUsageRetentionMutationResponse, InstallDriverMutationResponse, QueryDriverStatusQueryResponse, UninstallDriverMutationResponse } from "./types.ts";
+import type { AckSecurityApprovalMutationRequest, AckSecurityApprovalMutationResponse, BatchDeleteDeviceCodesMutationRequest, BatchDeleteDeviceCodesMutationResponse, ChangePasswordMutationRequest, ChangePasswordMutationResponse, ChangePassword401, ChangePassword403, CreatePlatformSkillMutationRequest, CreatePlatformSkillMutationResponse, GetAccessCodeProtectionQueryResponse, GetApprovalRuntimeSettingsQueryResponse, UpdateApprovalRuntimeSettingsMutationRequest, UpdateApprovalRuntimeSettingsMutationResponse, GetApprovalTraceSettingsQueryResponse, UpdateApprovalTraceSettingsMutationRequest, UpdateApprovalTraceSettingsMutationResponse, UpdateAccessCodeProtectionMutationRequest, UpdateAccessCodeProtectionMutationResponse, ListBundledSkillsQueryResponse, SetBundledSkillMutationRequest, SetBundledSkillMutationResponse, SetBundledSkillPathParams, GetPlatformSkillScanQueryResponse, ListPlatformSkillsQueryResponse, PreviewPlatformSkillMutationRequest, PreviewPlatformSkillMutationResponse, GetPlatformSkillQueryResponse, GetPlatformSkillPathParams, UpdatePlatformSkillMutationRequest, UpdatePlatformSkillMutationResponse, UpdatePlatformSkillPathParams, DeletePlatformSkillMutationResponse, DeletePlatformSkillPathParams, DeletePlatformSkillQueryParams, PreviewPlatformSkillVersionMutationRequest, PreviewPlatformSkillVersionMutationResponse, PreviewPlatformSkillVersionPathParams, GetPlatformSkillVersionQueryResponse, GetPlatformSkillVersionPathParams, GetAgentDataPolicyQueryResponse, UpdateAgentDataPolicyMutationRequest, UpdateAgentDataPolicyMutationResponse, GetContextManagementQueryResponse, UpdateContextManagementMutationRequest, UpdateContextManagementMutationResponse, GetAutomationPolicyQueryResponse, UpdateAutomationPolicyMutationRequest, UpdateAutomationPolicyMutationResponse, GetDeviceCodeSettingsQueryResponse, UpdateDeviceCodeSettingsMutationRequest, UpdateDeviceCodeSettingsMutationResponse, GetGoalBudgetPolicyQueryResponse, UpdateGoalBudgetPolicyMutationRequest, UpdateGoalBudgetPolicyMutationResponse, GetIssueConnectionsQueryResponse, UpdateIssueConnectionsMutationRequest, UpdateIssueConnectionsMutationResponse, TestIssueConnectionMutationResponse, TestIssueConnectionPathParams, GetScheduleBudgetPolicyQueryResponse, UpdateScheduleBudgetPolicyMutationRequest, UpdateScheduleBudgetPolicyMutationResponse, GetSubagentPolicyQueryResponse, UpdateSubagentPolicyMutationRequest, UpdateSubagentPolicyMutationResponse, GetTerminalCompletionQueryResponse, UpdateTerminalCompletionMutationRequest, UpdateTerminalCompletionMutationResponse, GetWebResearchPolicyQueryResponse, UpdateWebResearchPolicyMutationRequest, UpdateWebResearchPolicyMutationResponse, GetWebSearchQueryResponse, UpdateWebSearchMutationRequest, UpdateWebSearchMutationResponse, TestWebSearchMutationRequest, TestWebSearchMutationResponse, LoginAccountMutationRequest, LoginAccountMutationResponse, LogoutAccountMutationResponse, GetCurrentUserQueryResponse, GetCurrentUser401, LoginTauriMutationResponse, LoginTauriQueryParams, VerifyConnectionMutationRequest, VerifyConnectionMutationResponse, QueryBackendInfoQueryResponse, CreateBrowserExtensionPairingMutationRequest, CreateBrowserExtensionPairingMutationResponse, CreateBrowserExtensionPairing500, ListConnectionsQueryResponse, ListDeviceCodesQueryResponse, ListDeviceCodesQueryParams, CreateDeviceCodeMutationRequest, CreateDeviceCodeMutationResponse, UpdateDeviceCodeMutationRequest, UpdateDeviceCodeMutationResponse, UpdateDeviceCodePathParams, DeleteDeviceCodeMutationResponse, DeleteDeviceCodePathParams, GetDeviceConnectionQueryResponse, GetDeviceConnectionPathParams, GetDeviceConnectionQueryParams, OpenExecPtyCarrierQueryResponse, RetryLocalFileRecoveryCleanupMutationResponse, ConfirmLocalFileRecoveryClockMutationRequest, ConfirmLocalFileRecoveryClockMutationResponse, DiscardLocalFileRecoveryMutationRequest, DiscardLocalFileRecoveryMutationResponse, ExportLocalFileRecoveryMutationRequest, ExportLocalFileRecoveryMutationResponse, UpdateLocalFileRecoveryPolicyMutationRequest, UpdateLocalFileRecoveryPolicyMutationResponse, QueryLocalFileRecoveryMutationRequest, QueryLocalFileRecoveryMutationResponse, QueryMacosAutologinQueryResponse, RetryManagerLinkMutationResponse, QueryManagerLinkStatusQueryResponse, RedeemCodeMutationRequest, RedeemCodeMutationResponse, QuerySecuritySettingsQueryResponse, UpdateSecuritySettingsMutationRequest, UpdateSecuritySettingsMutationResponse, SubmitSecurityApprovalMutationRequest, SubmitSecurityApprovalMutationResponse, QuerySettingsQueryResponse, UpdateSettingsMutationRequest, UpdateSettingsMutationResponse, QueryAiAgentSettingsQueryResponse, UpdateAiAgentSettingsMutationRequest, UpdateAiAgentSettingsMutationResponse, QueryAiPolicySettingsQueryResponse, UpdateAiPolicySettingsMutationRequest, UpdateAiPolicySettingsMutationResponse, QueryCollectionPolicySettingsQueryResponse, UpdateCollectionPolicySettingsMutationRequest, UpdateCollectionPolicySettingsMutationResponse, UpdateComputerUseSwitchesMutationRequest, UpdateComputerUseSwitchesMutationResponse, UpdateComputerUseApplicationPolicyMutationRequest, UpdateComputerUseApplicationPolicyMutationResponse, QueryComputerUseApplicationPolicyMutationResponse, UpdateComputerUseCommunicationPolicyMutationRequest, UpdateComputerUseCommunicationPolicyMutationResponse, QueryComputerUseCommunicationPolicyMutationResponse, QueryComputerUseSwitchesMutationResponse, RevokeExecSandboxLabelsMutationResponse, QueryLogSettingsQueryResponse, UpdateLogSettingsMutationRequest, UpdateLogSettingsMutationResponse, QueryTurnSettingsQueryResponse, UpdateTurnSettingsMutationRequest, UpdateTurnSettingsMutationResponse, QueryTurnClientSettingsQueryResponse, UpdateTurnClientSettingsMutationRequest, UpdateTurnClientSettingsMutationResponse, RegenerateTurnSecretMutationResponse, QueryVirtualDisplaySettingsQueryResponse, UpdateVirtualDisplaySettingsMutationRequest, UpdateVirtualDisplaySettingsMutationResponse, OpenSignalingHandleQueryResponse, OpenSignalingHandleQueryParams, StartSupportMutationResponse, SupportStatusQueryResponse, StopSupportMutationResponse, QuerySysinfoQueryResponse, UpdateTelemetryConsentMutationRequest, UpdateTelemetryConsentMutationResponse, QueryTelemetryStatusQueryResponse, OpenTerminalSessionQueryResponse, OpenTerminalSessionPathParams, OpenTerminalSessionQueryParams, ListTerminalQueryResponse, ListTerminalPathParams, ListTerminalQueryParams, RequestMacosPermissionsMutationResponse, AuthorizeWaylandMutationRequest, AuthorizeWaylandMutationResponse, CancelWaylandMutationRequest, CancelWaylandMutationResponse, InitSystemMutationRequest, InitSystemMutationResponse, InitSystem403, InitRequirementsQueryResponse, GetApprovalModelProviderQueryResponse, UpdateApprovalModelProviderMutationRequest, UpdateApprovalModelProviderMutationResponse, ReuseAiGatewayForApprovalMutationRequest, ReuseAiGatewayForApprovalMutationResponse, TestApprovalModelProviderMutationRequest, TestApprovalModelProviderMutationResponse, GetApprovalMetricsOverviewQueryResponse, GetApprovalMetricsOverviewQueryParams, GetModelMetricsCallsQueryResponse, GetModelMetricsCallsQueryParams, GetModelMetricsCallQueryResponse, GetModelMetricsCallPathParams, GetModelMetricsModelsQueryResponse, GetModelMetricsModelsQueryParams, GetModelMetricsOverviewQueryResponse, GetModelMetricsOverviewQueryParams, GetModelMetricsRuntimeQueryResponse, GetModelMetricsRuntimeQueryParams, GetModelMetricsSeriesQueryResponse, GetModelMetricsSeriesQueryParams, GetModelMetricsSettingsQueryResponse, UpdateModelMetricsSettingsMutationRequest, UpdateModelMetricsSettingsMutationResponse, GetModelMetricsStatusQueryResponse, GetModelMetricsToolsQueryResponse, GetModelMetricsToolsQueryParams, GetModelMetricsUnassociatedQueryResponse, GetModelMetricsUnassociatedQueryParams, GetModelProviderQueryResponse, UpdateModelProviderMutationRequest, UpdateModelProviderMutationResponse, TestModelProviderMutationRequest, TestModelProviderMutationResponse, GetModelUsageQueryResponse, GetModelUsageQueryParams, ListAiAgentAttentionQueryResponse, ListAiAgentAttentionQueryParams, ListRetainedAgentConversationsQueryResponse, ListRetainedAgentConversationsQueryParams, SearchAgentHistoryMutationRequest, SearchAgentHistoryMutationResponse, GetAgentHistoryWindowQueryResponse, GetAgentHistoryWindowQueryParams, GetAgentMemoriesQueryResponse, GetAgentMemoriesQueryParams, ClearAgentMemoriesMutationRequest, ClearAgentMemoriesMutationResponse, DeleteAgentMemoryMutationRequest, DeleteAgentMemoryMutationResponse, GetAgentProcessingQueryResponse, GetAiAgentSessionQueryResponse, GetAiAgentSessionQueryParams, CloseAiAgentApprovalDelegationMutationRequest, CloseAiAgentApprovalDelegationMutationResponse, OpenAiAgentApprovalDelegationMutationRequest, OpenAiAgentApprovalDelegationMutationResponse, GetAiAgentApprovalModeQueryResponse, GetAiAgentApprovalModeQueryParams, UpdateAiAgentApprovalModeMutationRequest, UpdateAiAgentApprovalModeMutationResponse, GetApprovalReviewQueryResponse, GetApprovalReviewQueryParams, GetApprovalReviewPartsQueryResponse, GetApprovalReviewPartsQueryParams, ListApprovalReviewsQueryResponse, ListApprovalReviewsQueryParams, GetAgentAttachmentQueryResponse, GetAgentAttachmentQueryParams, ReadAgentAttachmentMutationRequest, ReadAgentAttachmentMutationResponse, ListAgentAttachmentsQueryResponse, ListAgentAttachmentsQueryParams, DeleteAgentAttachmentsMutationRequest, DeleteAgentAttachmentsMutationResponse, CancelAiAgentBackgroundTaskMutationRequest, CancelAiAgentBackgroundTaskMutationResponse, RevokeAiAgentCapabilityGrantMutationRequest, RevokeAiAgentCapabilityGrantMutationResponse, CancelAiAgentCommandMutationRequest, CancelAiAgentCommandMutationResponse, GetAiAgentContextSummaryQueryResponse, GetAiAgentContextSummaryQueryParams, DeleteAiAgentSessionMutationRequest, DeleteAiAgentSessionMutationResponse, GetAiAgentDeviceRosterQueryResponse, GetAiAgentDeviceRosterQueryParams, UpdateAiAgentDeviceRosterMutationRequest, UpdateAiAgentDeviceRosterMutationResponse, ControlAiAgentDirectoryMutationRequest, ControlAiAgentDirectoryMutationResponse, GetMyGoalBudgetPolicyQueryResponse, ControlAiAgentGoalMutationRequest, ControlAiAgentGoalMutationResponse, DecideAiAgentGoalOpenMutationRequest, DecideAiAgentGoalOpenMutationResponse, GetAgentImageQueryResponse, GetAgentImageQueryParams, GetAgentImage404, DeleteAgentImageMutationResponse, DeleteAgentImageQueryParams, ListAgentImagesQueryResponse, ListAgentImagesQueryParams, GetMyIssueConnectionsQueryResponse, ListAiAgentIssueSubscriptionsQueryResponse, ListAiAgentIssueSubscriptionsQueryParams, SaveAiAgentIssueSubscriptionMutationRequest, SaveAiAgentIssueSubscriptionMutationResponse, GetAiAgentIssueSubscriptionAccountsQueryResponse, GetAiAgentIssueSubscriptionAccountsQueryParams, SetAiAgentIssueSubscriptionEnabledMutationRequest, SetAiAgentIssueSubscriptionEnabledMutationResponse, SetAiAgentIssueSubscriptionEnabledPathParams, DecideAiAgentPermissionMutationRequest, DecideAiAgentPermissionMutationResponse, ListAiAgentMainRequestsQueryResponse, ListAiAgentMainRequestsQueryParams, CancelAiAgentMainRequestMutationRequest, CancelAiAgentMainRequestMutationResponse, ResumeAiAgentMainRequestsMutationRequest, ResumeAiAgentMainRequestsMutationResponse, DecideAiAgentSkillProposalMutationRequest, DecideAiAgentSkillProposalMutationResponse, ListAiAgentSkillProposalsQueryResponse, StopAiAgentSessionMutationRequest, StopAiAgentSessionMutationResponse, GetMySubagentPolicyQueryResponse, ListAiAgentSubagentsQueryResponse, ListAiAgentSubagentsQueryParams, ControlAiAgentSubagentMutationRequest, ControlAiAgentSubagentMutationResponse, MarkAiAgentSubagentReadMutationRequest, MarkAiAgentSubagentReadMutationResponse, ReadAiAgentSubagentResultQueryResponse, ReadAiAgentSubagentResultQueryParams, GetAiAgentSubagentStatusQueryResponse, GetAiAgentSubagentStatusQueryParams, ListAiAgentSessionsQueryResponse, ListAiAgentSessionsQueryParams, GetAgentDataSettingsQueryResponse, UpdateAgentDataSettingsMutationRequest, UpdateAgentDataSettingsMutationResponse, GetMySkillScanQueryResponse, ListMySkillsQueryResponse, CreateMySkillMutationRequest, CreateMySkillMutationResponse, PreviewMySkillMutationRequest, PreviewMySkillMutationResponse, GetMySkillQueryResponse, GetMySkillPathParams, UpdateMySkillMutationRequest, UpdateMySkillMutationResponse, UpdateMySkillPathParams, DeleteMySkillMutationResponse, DeleteMySkillPathParams, DeleteMySkillQueryParams, PreviewMySkillVersionMutationRequest, PreviewMySkillVersionMutationResponse, PreviewMySkillVersionPathParams, GetMySkillVersionQueryResponse, GetMySkillVersionPathParams, GetAgentSourceQueryResponse, GetAgentSourceQueryParams, GetAgentUserInstructionsQueryResponse, UpdateAgentUserInstructionsMutationRequest, UpdateAgentUserInstructionsMutationResponse, ListAiAgentWorkbenchesQueryResponse, CreateAiAgentWorkbenchMutationRequest, CreateAiAgentWorkbenchMutationResponse, ListAiAgentWorkbenchTasksQueryResponse, ListAiAgentWorkbenchTasksPathParams, ListAiAgentWorkbenchTasksQueryParams, RetryFileRecoveryCleanupMutationRequest, RetryFileRecoveryCleanupMutationResponse, ListFileRecoveryCleanupQueryResponse, ListFileRecoveryCleanupQueryParams, ExportDeviceFileRecoveryMutationRequest, ExportDeviceFileRecoveryMutationResponse, ManageDeviceFileRecoveryMutationRequest, ManageDeviceFileRecoveryMutationResponse, QueryServerInfoQueryResponse, InstallServiceMutationRequest, InstallServiceMutationResponse, InstallService503, QueryServiceOperationQueryResponse, QueryServiceOperationPathParams, QueryServiceOperation404, UninstallServiceMutationResponse, UninstallService503, CreateTokenMutationRequest, CreateTokenMutationResponse, GetTurnInfoQueryResponse, GetTurnMetricsQueryResponse, GetTurnMetrics503, GetTurnSessionStatisticsQueryResponse, GetTurnSessionStatisticsQueryParams, GetTurnUsageQueryResponse, GetTurnUsageQueryParams, GetUsageRetentionQueryResponse, UpdateUsageRetentionMutationRequest, UpdateUsageRetentionMutationResponse, InstallDriverMutationResponse, QueryDriverStatusQueryResponse, UninstallDriverMutationResponse } from "./types.ts";
 import type { Client, RequestConfig, ResponseErrorConfig } from "@/lib/kubb-client";
 
 function getGetApprovalRuntimeSettingsUrl() {
@@ -113,37 +113,224 @@ export async function updateAccessCodeProtection(data: UpdateAccessCodeProtectio
   return res.data
 }
 
-function getGetAssistantDataPolicyUrl() {
-  const res = { method: 'GET', url: `/api/admin/system/ai-assistant-data` as const }
+function getListBundledSkillsUrl() {
+  const res = { method: 'GET', url: `/api/admin/system/agent-bundled-skills` as const }
   return res
 }
 
 /**
- * {@link /api/admin/system/ai-assistant-data}
+ * {@link /api/admin/system/agent-bundled-skills}
  */
-export async function getAssistantDataPolicy(config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function listBundledSkills(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<GetAssistantDataPolicyQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAssistantDataPolicyUrl().url.toString(), ... requestConfig })
+  const res = await request<ListBundledSkillsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListBundledSkillsUrl().url.toString(), ... requestConfig })
   return res.data
 }
 
-function getUpdateAssistantDataPolicyUrl() {
-  const res = { method: 'POST', url: `/api/admin/system/ai-assistant-data` as const }
+function getSetBundledSkillUrl(name: SetBundledSkillPathParams["name"]) {
+  const res = { method: 'PUT', url: `/api/admin/system/agent-bundled-skills/${name}` as const }
   return res
 }
 
 /**
- * {@link /api/admin/system/ai-assistant-data}
+ * {@link /api/admin/system/agent-bundled-skills/:name}
  */
-export async function updateAssistantDataPolicy(data: UpdateAssistantDataPolicyMutationRequest, config: Partial<RequestConfig<UpdateAssistantDataPolicyMutationRequest>> & { client?: Client } = {}) {
+export async function setBundledSkill(name: SetBundledSkillPathParams["name"], data: SetBundledSkillMutationRequest, config: Partial<RequestConfig<SetBundledSkillMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<UpdateAssistantDataPolicyMutationResponse, ResponseErrorConfig<Error>, UpdateAssistantDataPolicyMutationRequest>({ method : "POST", url : getUpdateAssistantDataPolicyUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<SetBundledSkillMutationResponse, ResponseErrorConfig<Error>, SetBundledSkillMutationRequest>({ method : "PUT", url : getSetBundledSkillUrl(name).url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getGetPlatformSkillScanUrl() {
+  const res = { method: 'GET', url: `/api/admin/system/agent-skill-scan` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/agent-skill-scan}
+ */
+export async function getPlatformSkillScan(config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetPlatformSkillScanQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetPlatformSkillScanUrl().url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getListPlatformSkillsUrl() {
+  const res = { method: 'GET', url: `/api/admin/system/agent-skills` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/agent-skills}
+ */
+export async function listPlatformSkills(config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<ListPlatformSkillsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListPlatformSkillsUrl().url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getCreatePlatformSkillUrl() {
+  const res = { method: 'POST', url: `/api/admin/system/agent-skills` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/agent-skills}
+ */
+export async function createPlatformSkill(data: CreatePlatformSkillMutationRequest, config: Partial<RequestConfig<CreatePlatformSkillMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<CreatePlatformSkillMutationResponse, ResponseErrorConfig<Error>, CreatePlatformSkillMutationRequest>({ method : "POST", url : getCreatePlatformSkillUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getPreviewPlatformSkillUrl() {
+  const res = { method: 'POST', url: `/api/admin/system/agent-skills/preview` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/agent-skills/preview}
+ */
+export async function previewPlatformSkill(data: PreviewPlatformSkillMutationRequest, config: Partial<RequestConfig<PreviewPlatformSkillMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<PreviewPlatformSkillMutationResponse, ResponseErrorConfig<Error>, PreviewPlatformSkillMutationRequest>({ method : "POST", url : getPreviewPlatformSkillUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getGetPlatformSkillUrl(skill_id: GetPlatformSkillPathParams["skill_id"]) {
+  const res = { method: 'GET', url: `/api/admin/system/agent-skills/${skill_id}` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/agent-skills/:skill_id}
+ */
+export async function getPlatformSkill(skill_id: GetPlatformSkillPathParams["skill_id"], config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetPlatformSkillQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetPlatformSkillUrl(skill_id).url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getUpdatePlatformSkillUrl(skill_id: UpdatePlatformSkillPathParams["skill_id"]) {
+  const res = { method: 'PUT', url: `/api/admin/system/agent-skills/${skill_id}` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/agent-skills/:skill_id}
+ */
+export async function updatePlatformSkill(skill_id: UpdatePlatformSkillPathParams["skill_id"], data: UpdatePlatformSkillMutationRequest, config: Partial<RequestConfig<UpdatePlatformSkillMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<UpdatePlatformSkillMutationResponse, ResponseErrorConfig<Error>, UpdatePlatformSkillMutationRequest>({ method : "PUT", url : getUpdatePlatformSkillUrl(skill_id).url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getDeletePlatformSkillUrl(skill_id: DeletePlatformSkillPathParams["skill_id"]) {
+  const res = { method: 'DELETE', url: `/api/admin/system/agent-skills/${skill_id}` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/agent-skills/:skill_id}
+ */
+export async function deletePlatformSkill(skill_id: DeletePlatformSkillPathParams["skill_id"], params: DeletePlatformSkillQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<DeletePlatformSkillMutationResponse, ResponseErrorConfig<Error>, unknown>({ method : "DELETE", url : getDeletePlatformSkillUrl(skill_id).url.toString(), params, ... requestConfig })
+  return res.data
+}
+
+function getPreviewPlatformSkillVersionUrl(skill_id: PreviewPlatformSkillVersionPathParams["skill_id"]) {
+  const res = { method: 'POST', url: `/api/admin/system/agent-skills/${skill_id}/preview` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/agent-skills/:skill_id/preview}
+ */
+export async function previewPlatformSkillVersion(skill_id: PreviewPlatformSkillVersionPathParams["skill_id"], data: PreviewPlatformSkillVersionMutationRequest, config: Partial<RequestConfig<PreviewPlatformSkillVersionMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<PreviewPlatformSkillVersionMutationResponse, ResponseErrorConfig<Error>, PreviewPlatformSkillVersionMutationRequest>({ method : "POST", url : getPreviewPlatformSkillVersionUrl(skill_id).url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getGetPlatformSkillVersionUrl(skill_id: GetPlatformSkillVersionPathParams["skill_id"], version: GetPlatformSkillVersionPathParams["version"]) {
+  const res = { method: 'GET', url: `/api/admin/system/agent-skills/${skill_id}/versions/${version}` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/agent-skills/:skill_id/versions/:version}
+ */
+export async function getPlatformSkillVersion(skill_id: GetPlatformSkillVersionPathParams["skill_id"], version: GetPlatformSkillVersionPathParams["version"], config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetPlatformSkillVersionQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetPlatformSkillVersionUrl(skill_id, version).url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getGetAgentDataPolicyUrl() {
+  const res = { method: 'GET', url: `/api/admin/system/ai-agent-data` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/ai-agent-data}
+ */
+export async function getAgentDataPolicy(config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetAgentDataPolicyQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAgentDataPolicyUrl().url.toString(), ... requestConfig })
+  return res.data
+}
+
+function getUpdateAgentDataPolicyUrl() {
+  const res = { method: 'POST', url: `/api/admin/system/ai-agent-data` as const }
+  return res
+}
+
+/**
+ * {@link /api/admin/system/ai-agent-data}
+ */
+export async function updateAgentDataPolicy(data: UpdateAgentDataPolicyMutationRequest, config: Partial<RequestConfig<UpdateAgentDataPolicyMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<UpdateAgentDataPolicyMutationResponse, ResponseErrorConfig<Error>, UpdateAgentDataPolicyMutationRequest>({ method : "POST", url : getUpdateAgentDataPolicyUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
@@ -178,193 +365,6 @@ export async function updateContextManagement(data: UpdateContextManagementMutat
   const requestData = data
 
   const res = await request<UpdateContextManagementMutationResponse, ResponseErrorConfig<Error>, UpdateContextManagementMutationRequest>({ method : "PUT", url : getUpdateContextManagementUrl().url.toString(), data : requestData, ... requestConfig })
-  return res.data
-}
-
-function getListBundledSkillsUrl() {
-  const res = { method: 'GET', url: `/api/admin/system/assistant-bundled-skills` as const }
-  return res
-}
-
-/**
- * {@link /api/admin/system/assistant-bundled-skills}
- */
-export async function listBundledSkills(config: Partial<RequestConfig> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-
-
-  const res = await request<ListBundledSkillsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListBundledSkillsUrl().url.toString(), ... requestConfig })
-  return res.data
-}
-
-function getSetBundledSkillUrl(name: SetBundledSkillPathParams["name"]) {
-  const res = { method: 'PUT', url: `/api/admin/system/assistant-bundled-skills/${name}` as const }
-  return res
-}
-
-/**
- * {@link /api/admin/system/assistant-bundled-skills/:name}
- */
-export async function setBundledSkill(name: SetBundledSkillPathParams["name"], data: SetBundledSkillMutationRequest, config: Partial<RequestConfig<SetBundledSkillMutationRequest>> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-  const requestData = data
-
-  const res = await request<SetBundledSkillMutationResponse, ResponseErrorConfig<Error>, SetBundledSkillMutationRequest>({ method : "PUT", url : getSetBundledSkillUrl(name).url.toString(), data : requestData, ... requestConfig })
-  return res.data
-}
-
-function getGetPlatformSkillScanUrl() {
-  const res = { method: 'GET', url: `/api/admin/system/assistant-skill-scan` as const }
-  return res
-}
-
-/**
- * {@link /api/admin/system/assistant-skill-scan}
- */
-export async function getPlatformSkillScan(config: Partial<RequestConfig> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-
-
-  const res = await request<GetPlatformSkillScanQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetPlatformSkillScanUrl().url.toString(), ... requestConfig })
-  return res.data
-}
-
-function getListPlatformSkillsUrl() {
-  const res = { method: 'GET', url: `/api/admin/system/assistant-skills` as const }
-  return res
-}
-
-/**
- * {@link /api/admin/system/assistant-skills}
- */
-export async function listPlatformSkills(config: Partial<RequestConfig> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-
-
-  const res = await request<ListPlatformSkillsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListPlatformSkillsUrl().url.toString(), ... requestConfig })
-  return res.data
-}
-
-function getCreatePlatformSkillUrl() {
-  const res = { method: 'POST', url: `/api/admin/system/assistant-skills` as const }
-  return res
-}
-
-/**
- * {@link /api/admin/system/assistant-skills}
- */
-export async function createPlatformSkill(data: CreatePlatformSkillMutationRequest, config: Partial<RequestConfig<CreatePlatformSkillMutationRequest>> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-  const requestData = data
-
-  const res = await request<CreatePlatformSkillMutationResponse, ResponseErrorConfig<Error>, CreatePlatformSkillMutationRequest>({ method : "POST", url : getCreatePlatformSkillUrl().url.toString(), data : requestData, ... requestConfig })
-  return res.data
-}
-
-function getPreviewPlatformSkillUrl() {
-  const res = { method: 'POST', url: `/api/admin/system/assistant-skills/preview` as const }
-  return res
-}
-
-/**
- * {@link /api/admin/system/assistant-skills/preview}
- */
-export async function previewPlatformSkill(data: PreviewPlatformSkillMutationRequest, config: Partial<RequestConfig<PreviewPlatformSkillMutationRequest>> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-  const requestData = data
-
-  const res = await request<PreviewPlatformSkillMutationResponse, ResponseErrorConfig<Error>, PreviewPlatformSkillMutationRequest>({ method : "POST", url : getPreviewPlatformSkillUrl().url.toString(), data : requestData, ... requestConfig })
-  return res.data
-}
-
-function getGetPlatformSkillUrl(skill_id: GetPlatformSkillPathParams["skill_id"]) {
-  const res = { method: 'GET', url: `/api/admin/system/assistant-skills/${skill_id}` as const }
-  return res
-}
-
-/**
- * {@link /api/admin/system/assistant-skills/:skill_id}
- */
-export async function getPlatformSkill(skill_id: GetPlatformSkillPathParams["skill_id"], config: Partial<RequestConfig> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-
-
-  const res = await request<GetPlatformSkillQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetPlatformSkillUrl(skill_id).url.toString(), ... requestConfig })
-  return res.data
-}
-
-function getUpdatePlatformSkillUrl(skill_id: UpdatePlatformSkillPathParams["skill_id"]) {
-  const res = { method: 'PUT', url: `/api/admin/system/assistant-skills/${skill_id}` as const }
-  return res
-}
-
-/**
- * {@link /api/admin/system/assistant-skills/:skill_id}
- */
-export async function updatePlatformSkill(skill_id: UpdatePlatformSkillPathParams["skill_id"], data: UpdatePlatformSkillMutationRequest, config: Partial<RequestConfig<UpdatePlatformSkillMutationRequest>> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-  const requestData = data
-
-  const res = await request<UpdatePlatformSkillMutationResponse, ResponseErrorConfig<Error>, UpdatePlatformSkillMutationRequest>({ method : "PUT", url : getUpdatePlatformSkillUrl(skill_id).url.toString(), data : requestData, ... requestConfig })
-  return res.data
-}
-
-function getDeletePlatformSkillUrl(skill_id: DeletePlatformSkillPathParams["skill_id"]) {
-  const res = { method: 'DELETE', url: `/api/admin/system/assistant-skills/${skill_id}` as const }
-  return res
-}
-
-/**
- * {@link /api/admin/system/assistant-skills/:skill_id}
- */
-export async function deletePlatformSkill(skill_id: DeletePlatformSkillPathParams["skill_id"], params: DeletePlatformSkillQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-
-
-  const res = await request<DeletePlatformSkillMutationResponse, ResponseErrorConfig<Error>, unknown>({ method : "DELETE", url : getDeletePlatformSkillUrl(skill_id).url.toString(), params, ... requestConfig })
-  return res.data
-}
-
-function getPreviewPlatformSkillVersionUrl(skill_id: PreviewPlatformSkillVersionPathParams["skill_id"]) {
-  const res = { method: 'POST', url: `/api/admin/system/assistant-skills/${skill_id}/preview` as const }
-  return res
-}
-
-/**
- * {@link /api/admin/system/assistant-skills/:skill_id/preview}
- */
-export async function previewPlatformSkillVersion(skill_id: PreviewPlatformSkillVersionPathParams["skill_id"], data: PreviewPlatformSkillVersionMutationRequest, config: Partial<RequestConfig<PreviewPlatformSkillVersionMutationRequest>> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-  const requestData = data
-
-  const res = await request<PreviewPlatformSkillVersionMutationResponse, ResponseErrorConfig<Error>, PreviewPlatformSkillVersionMutationRequest>({ method : "POST", url : getPreviewPlatformSkillVersionUrl(skill_id).url.toString(), data : requestData, ... requestConfig })
-  return res.data
-}
-
-function getGetPlatformSkillVersionUrl(skill_id: GetPlatformSkillVersionPathParams["skill_id"], version: GetPlatformSkillVersionPathParams["version"]) {
-  const res = { method: 'GET', url: `/api/admin/system/assistant-skills/${skill_id}/versions/${version}` as const }
-  return res
-}
-
-/**
- * {@link /api/admin/system/assistant-skills/:skill_id/versions/:version}
- */
-export async function getPlatformSkillVersion(skill_id: GetPlatformSkillVersionPathParams["skill_id"], version: GetPlatformSkillVersionPathParams["version"], config: Partial<RequestConfig> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-
-
-  const res = await request<GetPlatformSkillVersionQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetPlatformSkillVersionUrl(skill_id, version).url.toString(), ... requestConfig })
   return res.data
 }
 
@@ -1292,39 +1292,39 @@ export async function updateSettings(data: UpdateSettingsMutationRequest, config
   return res.data
 }
 
-function getQueryAiAssistantSettingsUrl() {
-  const res = { method: 'GET', url: `/api/desk/settings/ai-assistant` as const }
+function getQueryAiAgentSettingsUrl() {
+  const res = { method: 'GET', url: `/api/desk/settings/ai-agent` as const }
   return res
 }
 
 /**
- * @summary Query the authoritative device-owned AI Assistant switch
- * {@link /api/desk/settings/ai-assistant}
+ * @summary Query the authoritative device-owned AI Agent switch
+ * {@link /api/desk/settings/ai-agent}
  */
-export async function queryAiAssistantSettings(config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function queryAiAgentSettings(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<QueryAiAssistantSettingsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getQueryAiAssistantSettingsUrl().url.toString(), ... requestConfig })
+  const res = await request<QueryAiAgentSettingsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getQueryAiAgentSettingsUrl().url.toString(), ... requestConfig })
   return res.data
 }
 
-function getUpdateAiAssistantSettingsUrl() {
-  const res = { method: 'POST', url: `/api/desk/settings/ai-assistant` as const }
+function getUpdateAiAgentSettingsUrl() {
+  const res = { method: 'POST', url: `/api/desk/settings/ai-agent` as const }
   return res
 }
 
 /**
- * @summary Compare-and-set the authoritative device-owned AI Assistant switch
- * {@link /api/desk/settings/ai-assistant}
+ * @summary Compare-and-set the authoritative device-owned AI Agent switch
+ * {@link /api/desk/settings/ai-agent}
  */
-export async function updateAiAssistantSettings(data: UpdateAiAssistantSettingsMutationRequest, config: Partial<RequestConfig<UpdateAiAssistantSettingsMutationRequest>> & { client?: Client } = {}) {
+export async function updateAiAgentSettings(data: UpdateAiAgentSettingsMutationRequest, config: Partial<RequestConfig<UpdateAiAgentSettingsMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<UpdateAiAssistantSettingsMutationResponse, ResponseErrorConfig<Error>, UpdateAiAssistantSettingsMutationRequest>({ method : "POST", url : getUpdateAiAssistantSettingsUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<UpdateAiAgentSettingsMutationResponse, ResponseErrorConfig<Error>, UpdateAiAgentSettingsMutationRequest>({ method : "POST", url : getUpdateAiAgentSettingsUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
@@ -2300,239 +2300,239 @@ export async function getModelUsage(params?: GetModelUsageQueryParams, config: P
   return res.data
 }
 
-function getListAiAssistantAttentionUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-attention` as const }
+function getListAiAgentAttentionUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-attention` as const }
   return res
 }
 
 /**
- * @summary List durable AI Assistant actions requiring the account owner's attention
- * {@link /api/my/ai-assistant-attention}
+ * @summary List durable AI Agent actions requiring the account owner's attention
+ * {@link /api/my/ai-agent-attention}
  */
-export async function listAiAssistantAttention(params?: ListAiAssistantAttentionQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function listAiAgentAttention(params?: ListAiAgentAttentionQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<ListAiAssistantAttentionQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAssistantAttentionUrl().url.toString(), params, ... requestConfig })
+  const res = await request<ListAiAgentAttentionQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAgentAttentionUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getListRetainedAssistantConversationsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-history/conversations` as const }
+function getListRetainedAgentConversationsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-history/conversations` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-history/conversations}
+ * {@link /api/my/ai-agent-history/conversations}
  */
-export async function listRetainedAssistantConversations(params?: ListRetainedAssistantConversationsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function listRetainedAgentConversations(params?: ListRetainedAgentConversationsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<ListRetainedAssistantConversationsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListRetainedAssistantConversationsUrl().url.toString(), params, ... requestConfig })
+  const res = await request<ListRetainedAgentConversationsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListRetainedAgentConversationsUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getSearchAssistantHistoryUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-history/search` as const }
+function getSearchAgentHistoryUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-history/search` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-history/search}
+ * {@link /api/my/ai-agent-history/search}
  */
-export async function searchAssistantHistory(data: SearchAssistantHistoryMutationRequest, config: Partial<RequestConfig<SearchAssistantHistoryMutationRequest>> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-  const requestData = data
-
-  const res = await request<SearchAssistantHistoryMutationResponse, ResponseErrorConfig<Error>, SearchAssistantHistoryMutationRequest>({ method : "POST", url : getSearchAssistantHistoryUrl().url.toString(), data : requestData, ... requestConfig })
-  return res.data
-}
-
-function getGetAssistantHistoryWindowUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-history/window` as const }
-  return res
-}
-
-/**
- * {@link /api/my/ai-assistant-history/window}
- */
-export async function getAssistantHistoryWindow(params: GetAssistantHistoryWindowQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-
-
-  const res = await request<GetAssistantHistoryWindowQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAssistantHistoryWindowUrl().url.toString(), params, ... requestConfig })
-  return res.data
-}
-
-function getGetAssistantMemoriesUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-memories` as const }
-  return res
-}
-
-/**
- * {@link /api/my/ai-assistant-memories}
- */
-export async function getAssistantMemories(params?: GetAssistantMemoriesQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-
-
-  const res = await request<GetAssistantMemoriesQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAssistantMemoriesUrl().url.toString(), params, ... requestConfig })
-  return res.data
-}
-
-function getClearAssistantMemoriesUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-memory/clear` as const }
-  return res
-}
-
-/**
- * {@link /api/my/ai-assistant-memory/clear}
- */
-export async function clearAssistantMemories(data: ClearAssistantMemoriesMutationRequest, config: Partial<RequestConfig<ClearAssistantMemoriesMutationRequest>> & { client?: Client } = {}) {
+export async function searchAgentHistory(data: SearchAgentHistoryMutationRequest, config: Partial<RequestConfig<SearchAgentHistoryMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<ClearAssistantMemoriesMutationResponse, ResponseErrorConfig<Error>, ClearAssistantMemoriesMutationRequest>({ method : "POST", url : getClearAssistantMemoriesUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<SearchAgentHistoryMutationResponse, ResponseErrorConfig<Error>, SearchAgentHistoryMutationRequest>({ method : "POST", url : getSearchAgentHistoryUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getDeleteAssistantMemoryUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-memory/delete` as const }
+function getGetAgentHistoryWindowUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-history/window` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-memory/delete}
+ * {@link /api/my/ai-agent-history/window}
  */
-export async function deleteAssistantMemory(data: DeleteAssistantMemoryMutationRequest, config: Partial<RequestConfig<DeleteAssistantMemoryMutationRequest>> & { client?: Client } = {}) {
+export async function getAgentHistoryWindow(params: GetAgentHistoryWindowQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetAgentHistoryWindowQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAgentHistoryWindowUrl().url.toString(), params, ... requestConfig })
+  return res.data
+}
+
+function getGetAgentMemoriesUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-memories` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-agent-memories}
+ */
+export async function getAgentMemories(params?: GetAgentMemoriesQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetAgentMemoriesQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAgentMemoriesUrl().url.toString(), params, ... requestConfig })
+  return res.data
+}
+
+function getClearAgentMemoriesUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-memory/clear` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-agent-memory/clear}
+ */
+export async function clearAgentMemories(data: ClearAgentMemoriesMutationRequest, config: Partial<RequestConfig<ClearAgentMemoriesMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<DeleteAssistantMemoryMutationResponse, ResponseErrorConfig<Error>, DeleteAssistantMemoryMutationRequest>({ method : "POST", url : getDeleteAssistantMemoryUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<ClearAgentMemoriesMutationResponse, ResponseErrorConfig<Error>, ClearAgentMemoriesMutationRequest>({ method : "POST", url : getClearAgentMemoriesUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getGetAssistantProcessingUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-processing` as const }
+function getDeleteAgentMemoryUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-memory/delete` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-processing}
+ * {@link /api/my/ai-agent-memory/delete}
  */
-export async function getAssistantProcessing(config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function deleteAgentMemory(data: DeleteAgentMemoryMutationRequest, config: Partial<RequestConfig<DeleteAgentMemoryMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
+  const requestData = data
 
-
-  const res = await request<GetAssistantProcessingQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAssistantProcessingUrl().url.toString(), ... requestConfig })
+  const res = await request<DeleteAgentMemoryMutationResponse, ResponseErrorConfig<Error>, DeleteAgentMemoryMutationRequest>({ method : "POST", url : getDeleteAgentMemoryUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getGetAiAssistantSessionUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session` as const }
+function getGetAgentProcessingUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-processing` as const }
   return res
 }
 
 /**
- * @summary Read a AI Assistant conversation snapshot (browser view)
- * {@link /api/my/ai-assistant-session}
+ * {@link /api/my/ai-agent-processing}
  */
-export async function getAiAssistantSession(params?: GetAiAssistantSessionQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function getAgentProcessing(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<GetAiAssistantSessionQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAssistantSessionUrl().url.toString(), params, ... requestConfig })
+  const res = await request<GetAgentProcessingQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAgentProcessingUrl().url.toString(), ... requestConfig })
   return res.data
 }
 
-function getCloseAiAssistantApprovalDelegationUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/approval-delegation/close` as const }
+function getGetAiAgentSessionUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session` as const }
+  return res
+}
+
+/**
+ * @summary Read a AI Agent conversation snapshot (browser view)
+ * {@link /api/my/ai-agent-session}
+ */
+export async function getAiAgentSession(params?: GetAiAgentSessionQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetAiAgentSessionQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAgentSessionUrl().url.toString(), params, ... requestConfig })
+  return res.data
+}
+
+function getCloseAiAgentApprovalDelegationUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/approval-delegation/close` as const }
   return res
 }
 
 /**
  * @summary Disable independent AI review for one owner conversation
- * {@link /api/my/ai-assistant-session/approval-delegation/close}
+ * {@link /api/my/ai-agent-session/approval-delegation/close}
  */
-export async function closeAiAssistantApprovalDelegation(data: CloseAiAssistantApprovalDelegationMutationRequest, config: Partial<RequestConfig<CloseAiAssistantApprovalDelegationMutationRequest>> & { client?: Client } = {}) {
+export async function closeAiAgentApprovalDelegation(data: CloseAiAgentApprovalDelegationMutationRequest, config: Partial<RequestConfig<CloseAiAgentApprovalDelegationMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<CloseAiAssistantApprovalDelegationMutationResponse, ResponseErrorConfig<Error>, CloseAiAssistantApprovalDelegationMutationRequest>({ method : "POST", url : getCloseAiAssistantApprovalDelegationUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<CloseAiAgentApprovalDelegationMutationResponse, ResponseErrorConfig<Error>, CloseAiAgentApprovalDelegationMutationRequest>({ method : "POST", url : getCloseAiAgentApprovalDelegationUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getOpenAiAssistantApprovalDelegationUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/approval-delegation/open` as const }
+function getOpenAiAgentApprovalDelegationUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/approval-delegation/open` as const }
   return res
 }
 
 /**
  * @summary Enable independent AI review for one owner conversation
- * {@link /api/my/ai-assistant-session/approval-delegation/open}
+ * {@link /api/my/ai-agent-session/approval-delegation/open}
  */
-export async function openAiAssistantApprovalDelegation(data: OpenAiAssistantApprovalDelegationMutationRequest, config: Partial<RequestConfig<OpenAiAssistantApprovalDelegationMutationRequest>> & { client?: Client } = {}) {
+export async function openAiAgentApprovalDelegation(data: OpenAiAgentApprovalDelegationMutationRequest, config: Partial<RequestConfig<OpenAiAgentApprovalDelegationMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<OpenAiAssistantApprovalDelegationMutationResponse, ResponseErrorConfig<Error>, OpenAiAssistantApprovalDelegationMutationRequest>({ method : "POST", url : getOpenAiAssistantApprovalDelegationUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<OpenAiAgentApprovalDelegationMutationResponse, ResponseErrorConfig<Error>, OpenAiAgentApprovalDelegationMutationRequest>({ method : "POST", url : getOpenAiAgentApprovalDelegationUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getGetAiAssistantApprovalModeUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/approval-mode` as const }
+function getGetAiAgentApprovalModeUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/approval-mode` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/approval-mode}
+ * {@link /api/my/ai-agent-session/approval-mode}
  */
-export async function getAiAssistantApprovalMode(params: GetAiAssistantApprovalModeQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function getAiAgentApprovalMode(params: GetAiAgentApprovalModeQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<GetAiAssistantApprovalModeQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAssistantApprovalModeUrl().url.toString(), params, ... requestConfig })
+  const res = await request<GetAiAgentApprovalModeQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAgentApprovalModeUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getUpdateAiAssistantApprovalModeUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/approval-mode` as const }
+function getUpdateAiAgentApprovalModeUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/approval-mode` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/approval-mode}
+ * {@link /api/my/ai-agent-session/approval-mode}
  */
-export async function updateAiAssistantApprovalMode(data: UpdateAiAssistantApprovalModeMutationRequest, config: Partial<RequestConfig<UpdateAiAssistantApprovalModeMutationRequest>> & { client?: Client } = {}) {
+export async function updateAiAgentApprovalMode(data: UpdateAiAgentApprovalModeMutationRequest, config: Partial<RequestConfig<UpdateAiAgentApprovalModeMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<UpdateAiAssistantApprovalModeMutationResponse, ResponseErrorConfig<Error>, UpdateAiAssistantApprovalModeMutationRequest>({ method : "POST", url : getUpdateAiAssistantApprovalModeUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<UpdateAiAgentApprovalModeMutationResponse, ResponseErrorConfig<Error>, UpdateAiAgentApprovalModeMutationRequest>({ method : "POST", url : getUpdateAiAgentApprovalModeUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
 function getGetApprovalReviewUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/approval-review` as const }
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/approval-review` as const }
   return res
 }
 
 /**
  * @summary Get own AI approval review (administrator)
- * {@link /api/my/ai-assistant-session/approval-review}
+ * {@link /api/my/ai-agent-session/approval-review}
  */
 export async function getApprovalReview(params: GetApprovalReviewQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -2544,13 +2544,13 @@ export async function getApprovalReview(params: GetApprovalReviewQueryParams, co
 }
 
 function getGetApprovalReviewPartsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/approval-review/parts` as const }
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/approval-review/parts` as const }
   return res
 }
 
 /**
  * @summary Read own approval content parts (administrator)
- * {@link /api/my/ai-assistant-session/approval-review/parts}
+ * {@link /api/my/ai-agent-session/approval-review/parts}
  */
 export async function getApprovalReviewParts(params: GetApprovalReviewPartsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -2562,13 +2562,13 @@ export async function getApprovalReviewParts(params: GetApprovalReviewPartsQuery
 }
 
 function getListApprovalReviewsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/approval-reviews` as const }
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/approval-reviews` as const }
   return res
 }
 
 /**
  * @summary List own AI approval reviews (administrator)
- * {@link /api/my/ai-assistant-session/approval-reviews}
+ * {@link /api/my/ai-agent-session/approval-reviews}
  */
 export async function listApprovalReviews(params: ListApprovalReviewsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -2579,225 +2579,225 @@ export async function listApprovalReviews(params: ListApprovalReviewsQueryParams
   return res.data
 }
 
-function getGetAssistantAttachmentUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/attachment` as const }
+function getGetAgentAttachmentUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/attachment` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/attachment}
+ * {@link /api/my/ai-agent-session/attachment}
  */
-export async function getAssistantAttachment(params: GetAssistantAttachmentQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function getAgentAttachment(params: GetAgentAttachmentQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<GetAssistantAttachmentQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAssistantAttachmentUrl().url.toString(), params, ... requestConfig })
+  const res = await request<GetAgentAttachmentQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAgentAttachmentUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getReadAssistantAttachmentUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/attachment/read` as const }
+function getReadAgentAttachmentUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/attachment/read` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/attachment/read}
+ * {@link /api/my/ai-agent-session/attachment/read}
  */
-export async function readAssistantAttachment(data: ReadAssistantAttachmentMutationRequest, config: Partial<RequestConfig<ReadAssistantAttachmentMutationRequest>> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-  const requestData = data
-
-  const res = await request<ReadAssistantAttachmentMutationResponse, ResponseErrorConfig<Error>, ReadAssistantAttachmentMutationRequest>({ method : "POST", url : getReadAssistantAttachmentUrl().url.toString(), data : requestData, ... requestConfig })
-  return res.data
-}
-
-function getListAssistantAttachmentsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/attachments` as const }
-  return res
-}
-
-/**
- * {@link /api/my/ai-assistant-session/attachments}
- */
-export async function listAssistantAttachments(params: ListAssistantAttachmentsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-
-
-  const res = await request<ListAssistantAttachmentsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAssistantAttachmentsUrl().url.toString(), params, ... requestConfig })
-  return res.data
-}
-
-function getDeleteAssistantAttachmentsUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/attachments/delete` as const }
-  return res
-}
-
-/**
- * {@link /api/my/ai-assistant-session/attachments/delete}
- */
-export async function deleteAssistantAttachments(data: DeleteAssistantAttachmentsMutationRequest, config: Partial<RequestConfig<DeleteAssistantAttachmentsMutationRequest>> & { client?: Client } = {}) {
+export async function readAgentAttachment(data: ReadAgentAttachmentMutationRequest, config: Partial<RequestConfig<ReadAgentAttachmentMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<DeleteAssistantAttachmentsMutationResponse, ResponseErrorConfig<Error>, DeleteAssistantAttachmentsMutationRequest>({ method : "POST", url : getDeleteAssistantAttachmentsUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<ReadAgentAttachmentMutationResponse, ResponseErrorConfig<Error>, ReadAgentAttachmentMutationRequest>({ method : "POST", url : getReadAgentAttachmentUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getCancelAiAssistantBackgroundTaskUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/background-task/cancel` as const }
+function getListAgentAttachmentsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/attachments` as const }
   return res
 }
 
 /**
- * @summary Request cancellation of an authorized AI Assistant background task
- * {@link /api/my/ai-assistant-session/background-task/cancel}
+ * {@link /api/my/ai-agent-session/attachments}
  */
-export async function cancelAiAssistantBackgroundTask(data: CancelAiAssistantBackgroundTaskMutationRequest, config: Partial<RequestConfig<CancelAiAssistantBackgroundTaskMutationRequest>> & { client?: Client } = {}) {
+export async function listAgentAttachments(params: ListAgentAttachmentsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
-  const requestData = data
 
-  const res = await request<CancelAiAssistantBackgroundTaskMutationResponse, ResponseErrorConfig<Error>, CancelAiAssistantBackgroundTaskMutationRequest>({ method : "POST", url : getCancelAiAssistantBackgroundTaskUrl().url.toString(), data : requestData, ... requestConfig })
+
+  const res = await request<ListAgentAttachmentsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAgentAttachmentsUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getRevokeAiAssistantCapabilityGrantUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/capability-grant/revoke` as const }
+function getDeleteAgentAttachmentsUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/attachments/delete` as const }
   return res
 }
 
 /**
- * @summary Revoke one owner-scoped AI Assistant capability grant
- * {@link /api/my/ai-assistant-session/capability-grant/revoke}
+ * {@link /api/my/ai-agent-session/attachments/delete}
  */
-export async function revokeAiAssistantCapabilityGrant(data: RevokeAiAssistantCapabilityGrantMutationRequest, config: Partial<RequestConfig<RevokeAiAssistantCapabilityGrantMutationRequest>> & { client?: Client } = {}) {
+export async function deleteAgentAttachments(data: DeleteAgentAttachmentsMutationRequest, config: Partial<RequestConfig<DeleteAgentAttachmentsMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<RevokeAiAssistantCapabilityGrantMutationResponse, ResponseErrorConfig<Error>, RevokeAiAssistantCapabilityGrantMutationRequest>({ method : "POST", url : getRevokeAiAssistantCapabilityGrantUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<DeleteAgentAttachmentsMutationResponse, ResponseErrorConfig<Error>, DeleteAgentAttachmentsMutationRequest>({ method : "POST", url : getDeleteAgentAttachmentsUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getCancelAiAssistantCommandUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/command/cancel` as const }
+function getCancelAiAgentBackgroundTaskUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/background-task/cancel` as const }
+  return res
+}
+
+/**
+ * @summary Request cancellation of an authorized AI Agent background task
+ * {@link /api/my/ai-agent-session/background-task/cancel}
+ */
+export async function cancelAiAgentBackgroundTask(data: CancelAiAgentBackgroundTaskMutationRequest, config: Partial<RequestConfig<CancelAiAgentBackgroundTaskMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<CancelAiAgentBackgroundTaskMutationResponse, ResponseErrorConfig<Error>, CancelAiAgentBackgroundTaskMutationRequest>({ method : "POST", url : getCancelAiAgentBackgroundTaskUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getRevokeAiAgentCapabilityGrantUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/capability-grant/revoke` as const }
+  return res
+}
+
+/**
+ * @summary Revoke one owner-scoped AI Agent capability grant
+ * {@link /api/my/ai-agent-session/capability-grant/revoke}
+ */
+export async function revokeAiAgentCapabilityGrant(data: RevokeAiAgentCapabilityGrantMutationRequest, config: Partial<RequestConfig<RevokeAiAgentCapabilityGrantMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<RevokeAiAgentCapabilityGrantMutationResponse, ResponseErrorConfig<Error>, RevokeAiAgentCapabilityGrantMutationRequest>({ method : "POST", url : getRevokeAiAgentCapabilityGrantUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getCancelAiAgentCommandUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/command/cancel` as const }
   return res
 }
 
 /**
  * @summary Request a durable stop for one original AI command generation
- * {@link /api/my/ai-assistant-session/command/cancel}
+ * {@link /api/my/ai-agent-session/command/cancel}
  */
-export async function cancelAiAssistantCommand(data: CancelAiAssistantCommandMutationRequest, config: Partial<RequestConfig<CancelAiAssistantCommandMutationRequest>> & { client?: Client } = {}) {
+export async function cancelAiAgentCommand(data: CancelAiAgentCommandMutationRequest, config: Partial<RequestConfig<CancelAiAgentCommandMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<CancelAiAssistantCommandMutationResponse, ResponseErrorConfig<Error>, CancelAiAssistantCommandMutationRequest>({ method : "POST", url : getCancelAiAssistantCommandUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<CancelAiAgentCommandMutationResponse, ResponseErrorConfig<Error>, CancelAiAgentCommandMutationRequest>({ method : "POST", url : getCancelAiAgentCommandUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getGetAiAssistantContextSummaryUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/context-summary` as const }
+function getGetAiAgentContextSummaryUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/context-summary` as const }
   return res
 }
 
 /**
  * @summary Read the summary one context compaction produced
- * {@link /api/my/ai-assistant-session/context-summary}
+ * {@link /api/my/ai-agent-session/context-summary}
  */
-export async function getAiAssistantContextSummary(params: GetAiAssistantContextSummaryQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function getAiAgentContextSummary(params: GetAiAgentContextSummaryQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<GetAiAssistantContextSummaryQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAssistantContextSummaryUrl().url.toString(), params, ... requestConfig })
+  const res = await request<GetAiAgentContextSummaryQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAgentContextSummaryUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getDeleteAiAssistantSessionUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/delete` as const }
+function getDeleteAiAgentSessionUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/delete` as const }
   return res
 }
 
 /**
- * @summary Delete a AI Assistant conversation and stop its AI turn
- * {@link /api/my/ai-assistant-session/delete}
+ * @summary Delete a AI Agent conversation and stop its AI turn
+ * {@link /api/my/ai-agent-session/delete}
  */
-export async function deleteAiAssistantSession(data: DeleteAiAssistantSessionMutationRequest, config: Partial<RequestConfig<DeleteAiAssistantSessionMutationRequest>> & { client?: Client } = {}) {
+export async function deleteAiAgentSession(data: DeleteAiAgentSessionMutationRequest, config: Partial<RequestConfig<DeleteAiAgentSessionMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<DeleteAiAssistantSessionMutationResponse, ResponseErrorConfig<Error>, DeleteAiAssistantSessionMutationRequest>({ method : "POST", url : getDeleteAiAssistantSessionUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<DeleteAiAgentSessionMutationResponse, ResponseErrorConfig<Error>, DeleteAiAgentSessionMutationRequest>({ method : "POST", url : getDeleteAiAgentSessionUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getGetAiAssistantDeviceRosterUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/device-roster` as const }
+function getGetAiAgentDeviceRosterUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/device-roster` as const }
   return res
 }
 
 /**
  * @summary Read the coordinator's device roster
- * {@link /api/my/ai-assistant-session/device-roster}
+ * {@link /api/my/ai-agent-session/device-roster}
  */
-export async function getAiAssistantDeviceRoster(params: GetAiAssistantDeviceRosterQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function getAiAgentDeviceRoster(params: GetAiAgentDeviceRosterQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<GetAiAssistantDeviceRosterQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAssistantDeviceRosterUrl().url.toString(), params, ... requestConfig })
+  const res = await request<GetAiAgentDeviceRosterQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAgentDeviceRosterUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getUpdateAiAssistantDeviceRosterUrl() {
-  const res = { method: 'PUT', url: `/api/my/ai-assistant-session/device-roster` as const }
+function getUpdateAiAgentDeviceRosterUrl() {
+  const res = { method: 'PUT', url: `/api/my/ai-agent-session/device-roster` as const }
   return res
 }
 
 /**
  * @summary Replace the coordinator's device roster at the observed revision
- * {@link /api/my/ai-assistant-session/device-roster}
+ * {@link /api/my/ai-agent-session/device-roster}
  */
-export async function updateAiAssistantDeviceRoster(data: UpdateAiAssistantDeviceRosterMutationRequest, config: Partial<RequestConfig<UpdateAiAssistantDeviceRosterMutationRequest>> & { client?: Client } = {}) {
+export async function updateAiAgentDeviceRoster(data: UpdateAiAgentDeviceRosterMutationRequest, config: Partial<RequestConfig<UpdateAiAgentDeviceRosterMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<UpdateAiAssistantDeviceRosterMutationResponse, ResponseErrorConfig<Error>, UpdateAiAssistantDeviceRosterMutationRequest>({ method : "PUT", url : getUpdateAiAssistantDeviceRosterUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<UpdateAiAgentDeviceRosterMutationResponse, ResponseErrorConfig<Error>, UpdateAiAgentDeviceRosterMutationRequest>({ method : "PUT", url : getUpdateAiAgentDeviceRosterUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getControlAiAssistantDirectoryUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/directory-control` as const }
+function getControlAiAgentDirectoryUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/directory-control` as const }
   return res
 }
 
 /**
  * @summary Select, approve, deny or revoke an original session directory
- * {@link /api/my/ai-assistant-session/directory-control}
+ * {@link /api/my/ai-agent-session/directory-control}
  */
-export async function controlAiAssistantDirectory(data: ControlAiAssistantDirectoryMutationRequest, config: Partial<RequestConfig<ControlAiAssistantDirectoryMutationRequest>> & { client?: Client } = {}) {
+export async function controlAiAgentDirectory(data: ControlAiAgentDirectoryMutationRequest, config: Partial<RequestConfig<ControlAiAgentDirectoryMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<ControlAiAssistantDirectoryMutationResponse, ResponseErrorConfig<Error>, ControlAiAssistantDirectoryMutationRequest>({ method : "POST", url : getControlAiAssistantDirectoryUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<ControlAiAgentDirectoryMutationResponse, ResponseErrorConfig<Error>, ControlAiAgentDirectoryMutationRequest>({ method : "POST", url : getControlAiAgentDirectoryUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
 function getGetMyGoalBudgetPolicyUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/goal/budget-policy` as const }
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/goal/budget-policy` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/goal/budget-policy}
+ * {@link /api/my/ai-agent-session/goal/budget-policy}
  */
 export async function getMyGoalBudgetPolicy(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -2808,100 +2808,100 @@ export async function getMyGoalBudgetPolicy(config: Partial<RequestConfig> & { c
   return res.data
 }
 
-function getControlAiAssistantGoalUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/goal/control` as const }
+function getControlAiAgentGoalUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/goal/control` as const }
   return res
 }
 
 /**
- * @summary Pause, resume or cancel one owner-approved AI Assistant goal
- * {@link /api/my/ai-assistant-session/goal/control}
+ * @summary Pause, resume or cancel one owner-approved AI Agent goal
+ * {@link /api/my/ai-agent-session/goal/control}
  */
-export async function controlAiAssistantGoal(data: ControlAiAssistantGoalMutationRequest, config: Partial<RequestConfig<ControlAiAssistantGoalMutationRequest>> & { client?: Client } = {}) {
+export async function controlAiAgentGoal(data: ControlAiAgentGoalMutationRequest, config: Partial<RequestConfig<ControlAiAgentGoalMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<ControlAiAssistantGoalMutationResponse, ResponseErrorConfig<Error>, ControlAiAssistantGoalMutationRequest>({ method : "POST", url : getControlAiAssistantGoalUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<ControlAiAgentGoalMutationResponse, ResponseErrorConfig<Error>, ControlAiAgentGoalMutationRequest>({ method : "POST", url : getControlAiAgentGoalUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getDecideAiAssistantGoalOpenUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/goal/open-decision` as const }
+function getDecideAiAgentGoalOpenUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/goal/open-decision` as const }
   return res
 }
 
 /**
- * @summary Approve or deny an AI-proposed AI Assistant goal
- * {@link /api/my/ai-assistant-session/goal/open-decision}
+ * @summary Approve or deny an AI-proposed AI Agent goal
+ * {@link /api/my/ai-agent-session/goal/open-decision}
  */
-export async function decideAiAssistantGoalOpen(data: DecideAiAssistantGoalOpenMutationRequest, config: Partial<RequestConfig<DecideAiAssistantGoalOpenMutationRequest>> & { client?: Client } = {}) {
+export async function decideAiAgentGoalOpen(data: DecideAiAgentGoalOpenMutationRequest, config: Partial<RequestConfig<DecideAiAgentGoalOpenMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<DecideAiAssistantGoalOpenMutationResponse, ResponseErrorConfig<Error>, DecideAiAssistantGoalOpenMutationRequest>({ method : "POST", url : getDecideAiAssistantGoalOpenUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<DecideAiAgentGoalOpenMutationResponse, ResponseErrorConfig<Error>, DecideAiAgentGoalOpenMutationRequest>({ method : "POST", url : getDecideAiAgentGoalOpenUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getGetAssistantImageUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/image` as const }
+function getGetAgentImageUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/image` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/image}
+ * {@link /api/my/ai-agent-session/image}
  */
-export async function getAssistantImage(params: GetAssistantImageQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function getAgentImage(params: GetAgentImageQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<GetAssistantImageQueryResponse, ResponseErrorConfig<GetAssistantImage404>, unknown>({ method : "GET", url : getGetAssistantImageUrl().url.toString(), params, ... requestConfig })
+  const res = await request<GetAgentImageQueryResponse, ResponseErrorConfig<GetAgentImage404>, unknown>({ method : "GET", url : getGetAgentImageUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getDeleteAssistantImageUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/image/delete` as const }
+function getDeleteAgentImageUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/image/delete` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/image/delete}
+ * {@link /api/my/ai-agent-session/image/delete}
  */
-export async function deleteAssistantImage(params: DeleteAssistantImageQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function deleteAgentImage(params: DeleteAgentImageQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<DeleteAssistantImageMutationResponse, ResponseErrorConfig<Error>, unknown>({ method : "POST", url : getDeleteAssistantImageUrl().url.toString(), params, ... requestConfig })
+  const res = await request<DeleteAgentImageMutationResponse, ResponseErrorConfig<Error>, unknown>({ method : "POST", url : getDeleteAgentImageUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getListAssistantImagesUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/images` as const }
+function getListAgentImagesUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/images` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/images}
+ * {@link /api/my/ai-agent-session/images}
  */
-export async function listAssistantImages(params: ListAssistantImagesQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function listAgentImages(params: ListAgentImagesQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<ListAssistantImagesQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAssistantImagesUrl().url.toString(), params, ... requestConfig })
+  const res = await request<ListAgentImagesQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAgentImagesUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
 function getGetMyIssueConnectionsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/issue-connections` as const }
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/issue-connections` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/issue-connections}
+ * {@link /api/my/ai-agent-session/issue-connections}
  */
 export async function getMyIssueConnections(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -2912,207 +2912,207 @@ export async function getMyIssueConnections(config: Partial<RequestConfig> & { c
   return res.data
 }
 
-function getListAiAssistantIssueSubscriptionsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/issue-subscriptions` as const }
+function getListAiAgentIssueSubscriptionsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/issue-subscriptions` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/issue-subscriptions}
+ * {@link /api/my/ai-agent-session/issue-subscriptions}
  */
-export async function listAiAssistantIssueSubscriptions(params: ListAiAssistantIssueSubscriptionsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function listAiAgentIssueSubscriptions(params: ListAiAgentIssueSubscriptionsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<ListAiAssistantIssueSubscriptionsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAssistantIssueSubscriptionsUrl().url.toString(), params, ... requestConfig })
+  const res = await request<ListAiAgentIssueSubscriptionsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAgentIssueSubscriptionsUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getSaveAiAssistantIssueSubscriptionUrl() {
-  const res = { method: 'PUT', url: `/api/my/ai-assistant-session/issue-subscriptions` as const }
+function getSaveAiAgentIssueSubscriptionUrl() {
+  const res = { method: 'PUT', url: `/api/my/ai-agent-session/issue-subscriptions` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/issue-subscriptions}
+ * {@link /api/my/ai-agent-session/issue-subscriptions}
  */
-export async function saveAiAssistantIssueSubscription(data: SaveAiAssistantIssueSubscriptionMutationRequest, config: Partial<RequestConfig<SaveAiAssistantIssueSubscriptionMutationRequest>> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-  const requestData = data
-
-  const res = await request<SaveAiAssistantIssueSubscriptionMutationResponse, ResponseErrorConfig<Error>, SaveAiAssistantIssueSubscriptionMutationRequest>({ method : "PUT", url : getSaveAiAssistantIssueSubscriptionUrl().url.toString(), data : requestData, ... requestConfig })
-  return res.data
-}
-
-function getGetAiAssistantIssueSubscriptionAccountsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/issue-subscriptions/accounts` as const }
-  return res
-}
-
-/**
- * {@link /api/my/ai-assistant-session/issue-subscriptions/accounts}
- */
-export async function getAiAssistantIssueSubscriptionAccounts(params: GetAiAssistantIssueSubscriptionAccountsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-
-
-  const res = await request<GetAiAssistantIssueSubscriptionAccountsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAssistantIssueSubscriptionAccountsUrl().url.toString(), params, ... requestConfig })
-  return res.data
-}
-
-function getSetAiAssistantIssueSubscriptionEnabledUrl(subscription_id: SetAiAssistantIssueSubscriptionEnabledPathParams["subscription_id"]) {
-  const res = { method: 'PUT', url: `/api/my/ai-assistant-session/issue-subscriptions/${subscription_id}/enabled` as const }
-  return res
-}
-
-/**
- * {@link /api/my/ai-assistant-session/issue-subscriptions/:subscription_id/enabled}
- */
-export async function setAiAssistantIssueSubscriptionEnabled(subscription_id: SetAiAssistantIssueSubscriptionEnabledPathParams["subscription_id"], data: SetAiAssistantIssueSubscriptionEnabledMutationRequest, config: Partial<RequestConfig<SetAiAssistantIssueSubscriptionEnabledMutationRequest>> & { client?: Client } = {}) {
+export async function saveAiAgentIssueSubscription(data: SaveAiAgentIssueSubscriptionMutationRequest, config: Partial<RequestConfig<SaveAiAgentIssueSubscriptionMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<SetAiAssistantIssueSubscriptionEnabledMutationResponse, ResponseErrorConfig<Error>, SetAiAssistantIssueSubscriptionEnabledMutationRequest>({ method : "PUT", url : getSetAiAssistantIssueSubscriptionEnabledUrl(subscription_id).url.toString(), data : requestData, ... requestConfig })
+  const res = await request<SaveAiAgentIssueSubscriptionMutationResponse, ResponseErrorConfig<Error>, SaveAiAgentIssueSubscriptionMutationRequest>({ method : "PUT", url : getSaveAiAgentIssueSubscriptionUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getDecideAiAssistantPermissionUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/permission-decision` as const }
+function getGetAiAgentIssueSubscriptionAccountsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/issue-subscriptions/accounts` as const }
   return res
 }
 
 /**
- * @summary Decide one pending AI Assistant permission request
- * {@link /api/my/ai-assistant-session/permission-decision}
+ * {@link /api/my/ai-agent-session/issue-subscriptions/accounts}
  */
-export async function decideAiAssistantPermission(data: DecideAiAssistantPermissionMutationRequest, config: Partial<RequestConfig<DecideAiAssistantPermissionMutationRequest>> & { client?: Client } = {}) {
+export async function getAiAgentIssueSubscriptionAccounts(params: GetAiAgentIssueSubscriptionAccountsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<GetAiAgentIssueSubscriptionAccountsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAgentIssueSubscriptionAccountsUrl().url.toString(), params, ... requestConfig })
+  return res.data
+}
+
+function getSetAiAgentIssueSubscriptionEnabledUrl(subscription_id: SetAiAgentIssueSubscriptionEnabledPathParams["subscription_id"]) {
+  const res = { method: 'PUT', url: `/api/my/ai-agent-session/issue-subscriptions/${subscription_id}/enabled` as const }
+  return res
+}
+
+/**
+ * {@link /api/my/ai-agent-session/issue-subscriptions/:subscription_id/enabled}
+ */
+export async function setAiAgentIssueSubscriptionEnabled(subscription_id: SetAiAgentIssueSubscriptionEnabledPathParams["subscription_id"], data: SetAiAgentIssueSubscriptionEnabledMutationRequest, config: Partial<RequestConfig<SetAiAgentIssueSubscriptionEnabledMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<DecideAiAssistantPermissionMutationResponse, ResponseErrorConfig<Error>, DecideAiAssistantPermissionMutationRequest>({ method : "POST", url : getDecideAiAssistantPermissionUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<SetAiAgentIssueSubscriptionEnabledMutationResponse, ResponseErrorConfig<Error>, SetAiAgentIssueSubscriptionEnabledMutationRequest>({ method : "PUT", url : getSetAiAgentIssueSubscriptionEnabledUrl(subscription_id).url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getListAiAssistantMainRequestsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/requests` as const }
+function getDecideAiAgentPermissionUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/permission-decision` as const }
   return res
 }
 
 /**
- * @summary Read assistant queue entries or an individual durable receipt
- * {@link /api/my/ai-assistant-session/requests}
+ * @summary Decide one pending AI Agent permission request
+ * {@link /api/my/ai-agent-session/permission-decision}
  */
-export async function listAiAssistantMainRequests(params?: ListAiAssistantMainRequestsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
-  const { client: request = fetch, ...requestConfig } = config
-
-
-
-  const res = await request<ListAiAssistantMainRequestsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAssistantMainRequestsUrl().url.toString(), params, ... requestConfig })
-  return res.data
-}
-
-function getCancelAiAssistantMainRequestUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/requests/cancel` as const }
-  return res
-}
-
-/**
- * @summary Cancel a queued assistant request
- * {@link /api/my/ai-assistant-session/requests/cancel}
- */
-export async function cancelAiAssistantMainRequest(data: CancelAiAssistantMainRequestMutationRequest, config: Partial<RequestConfig<CancelAiAssistantMainRequestMutationRequest>> & { client?: Client } = {}) {
+export async function decideAiAgentPermission(data: DecideAiAgentPermissionMutationRequest, config: Partial<RequestConfig<DecideAiAgentPermissionMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<CancelAiAssistantMainRequestMutationResponse, ResponseErrorConfig<Error>, CancelAiAssistantMainRequestMutationRequest>({ method : "POST", url : getCancelAiAssistantMainRequestUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<DecideAiAgentPermissionMutationResponse, ResponseErrorConfig<Error>, DecideAiAgentPermissionMutationRequest>({ method : "POST", url : getDecideAiAgentPermissionUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getResumeAiAssistantMainRequestsUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/requests/resume` as const }
+function getListAiAgentMainRequestsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/requests` as const }
   return res
 }
 
 /**
- * @summary Resume assistant queue processing after a main stop
- * {@link /api/my/ai-assistant-session/requests/resume}
+ * @summary Read agent queue entries or an individual durable receipt
+ * {@link /api/my/ai-agent-session/requests}
  */
-export async function resumeAiAssistantMainRequests(data: ResumeAiAssistantMainRequestsMutationRequest, config: Partial<RequestConfig<ResumeAiAssistantMainRequestsMutationRequest>> & { client?: Client } = {}) {
+export async function listAiAgentMainRequests(params?: ListAiAgentMainRequestsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+
+
+  const res = await request<ListAiAgentMainRequestsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAgentMainRequestsUrl().url.toString(), params, ... requestConfig })
+  return res.data
+}
+
+function getCancelAiAgentMainRequestUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/requests/cancel` as const }
+  return res
+}
+
+/**
+ * @summary Cancel a queued agent request
+ * {@link /api/my/ai-agent-session/requests/cancel}
+ */
+export async function cancelAiAgentMainRequest(data: CancelAiAgentMainRequestMutationRequest, config: Partial<RequestConfig<CancelAiAgentMainRequestMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<ResumeAiAssistantMainRequestsMutationResponse, ResponseErrorConfig<Error>, ResumeAiAssistantMainRequestsMutationRequest>({ method : "POST", url : getResumeAiAssistantMainRequestsUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<CancelAiAgentMainRequestMutationResponse, ResponseErrorConfig<Error>, CancelAiAgentMainRequestMutationRequest>({ method : "POST", url : getCancelAiAgentMainRequestUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getDecideAiAssistantSkillProposalUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/skill-proposal-decision` as const }
+function getResumeAiAgentMainRequestsUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/requests/resume` as const }
+  return res
+}
+
+/**
+ * @summary Resume agent queue processing after a main stop
+ * {@link /api/my/ai-agent-session/requests/resume}
+ */
+export async function resumeAiAgentMainRequests(data: ResumeAiAgentMainRequestsMutationRequest, config: Partial<RequestConfig<ResumeAiAgentMainRequestsMutationRequest>> & { client?: Client } = {}) {
+  const { client: request = fetch, ...requestConfig } = config
+
+  const requestData = data
+
+  const res = await request<ResumeAiAgentMainRequestsMutationResponse, ResponseErrorConfig<Error>, ResumeAiAgentMainRequestsMutationRequest>({ method : "POST", url : getResumeAiAgentMainRequestsUrl().url.toString(), data : requestData, ... requestConfig })
+  return res.data
+}
+
+function getDecideAiAgentSkillProposalUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/skill-proposal-decision` as const }
   return res
 }
 
 /**
  * @summary Approve or reject an AI-proposed personal skill
- * {@link /api/my/ai-assistant-session/skill-proposal-decision}
+ * {@link /api/my/ai-agent-session/skill-proposal-decision}
  */
-export async function decideAiAssistantSkillProposal(data: DecideAiAssistantSkillProposalMutationRequest, config: Partial<RequestConfig<DecideAiAssistantSkillProposalMutationRequest>> & { client?: Client } = {}) {
+export async function decideAiAgentSkillProposal(data: DecideAiAgentSkillProposalMutationRequest, config: Partial<RequestConfig<DecideAiAgentSkillProposalMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<DecideAiAssistantSkillProposalMutationResponse, ResponseErrorConfig<Error>, DecideAiAssistantSkillProposalMutationRequest>({ method : "POST", url : getDecideAiAssistantSkillProposalUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<DecideAiAgentSkillProposalMutationResponse, ResponseErrorConfig<Error>, DecideAiAgentSkillProposalMutationRequest>({ method : "POST", url : getDecideAiAgentSkillProposalUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getListAiAssistantSkillProposalsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/skill-proposals` as const }
+function getListAiAgentSkillProposalsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/skill-proposals` as const }
   return res
 }
 
 /**
  * @summary List undecided AI-proposed personal skills
- * {@link /api/my/ai-assistant-session/skill-proposals}
+ * {@link /api/my/ai-agent-session/skill-proposals}
  */
-export async function listAiAssistantSkillProposals(config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function listAiAgentSkillProposals(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<ListAiAssistantSkillProposalsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAssistantSkillProposalsUrl().url.toString(), ... requestConfig })
+  const res = await request<ListAiAgentSkillProposalsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAgentSkillProposalsUrl().url.toString(), ... requestConfig })
   return res.data
 }
 
-function getStopAiAssistantSessionUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/stop` as const }
+function getStopAiAgentSessionUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/stop` as const }
   return res
 }
 
 /**
  * @summary Stop main generation and optionally all unfinished subagents
- * {@link /api/my/ai-assistant-session/stop}
+ * {@link /api/my/ai-agent-session/stop}
  */
-export async function stopAiAssistantSession(data: StopAiAssistantSessionMutationRequest, config: Partial<RequestConfig<StopAiAssistantSessionMutationRequest>> & { client?: Client } = {}) {
+export async function stopAiAgentSession(data: StopAiAgentSessionMutationRequest, config: Partial<RequestConfig<StopAiAgentSessionMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<StopAiAssistantSessionMutationResponse, ResponseErrorConfig<Error>, StopAiAssistantSessionMutationRequest>({ method : "POST", url : getStopAiAssistantSessionUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<StopAiAgentSessionMutationResponse, ResponseErrorConfig<Error>, StopAiAgentSessionMutationRequest>({ method : "POST", url : getStopAiAgentSessionUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
 function getGetMySubagentPolicyUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/subagent-policy` as const }
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/subagent-policy` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-session/subagent-policy}
+ * {@link /api/my/ai-agent-session/subagent-policy}
  */
 export async function getMySubagentPolicy(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -3123,155 +3123,155 @@ export async function getMySubagentPolicy(config: Partial<RequestConfig> & { cli
   return res.data
 }
 
-function getListAiAssistantSubagentsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/subagents` as const }
+function getListAiAgentSubagentsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/subagents` as const }
   return res
 }
 
 /**
  * @summary List a bounded page of this conversation's subagents
- * {@link /api/my/ai-assistant-session/subagents}
+ * {@link /api/my/ai-agent-session/subagents}
  */
-export async function listAiAssistantSubagents(params: ListAiAssistantSubagentsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function listAiAgentSubagents(params: ListAiAgentSubagentsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<ListAiAssistantSubagentsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAssistantSubagentsUrl().url.toString(), params, ... requestConfig })
+  const res = await request<ListAiAgentSubagentsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAgentSubagentsUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getControlAiAssistantSubagentUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/subagents/control` as const }
+function getControlAiAgentSubagentUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/subagents/control` as const }
   return res
 }
 
 /**
  * @summary Cancel or adjust a Worker request or answer its open question
- * {@link /api/my/ai-assistant-session/subagents/control}
+ * {@link /api/my/ai-agent-session/subagents/control}
  */
-export async function controlAiAssistantSubagent(data: ControlAiAssistantSubagentMutationRequest, config: Partial<RequestConfig<ControlAiAssistantSubagentMutationRequest>> & { client?: Client } = {}) {
+export async function controlAiAgentSubagent(data: ControlAiAgentSubagentMutationRequest, config: Partial<RequestConfig<ControlAiAgentSubagentMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<ControlAiAssistantSubagentMutationResponse, ResponseErrorConfig<Error>, ControlAiAssistantSubagentMutationRequest>({ method : "POST", url : getControlAiAssistantSubagentUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<ControlAiAgentSubagentMutationResponse, ResponseErrorConfig<Error>, ControlAiAgentSubagentMutationRequest>({ method : "POST", url : getControlAiAgentSubagentUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getMarkAiAssistantSubagentReadUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-session/subagents/read` as const }
+function getMarkAiAgentSubagentReadUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-session/subagents/read` as const }
   return res
 }
 
 /**
  * @summary Mark displayed subagent notifications as read in the owner UI
- * {@link /api/my/ai-assistant-session/subagents/read}
+ * {@link /api/my/ai-agent-session/subagents/read}
  */
-export async function markAiAssistantSubagentRead(data: MarkAiAssistantSubagentReadMutationRequest, config: Partial<RequestConfig<MarkAiAssistantSubagentReadMutationRequest>> & { client?: Client } = {}) {
+export async function markAiAgentSubagentRead(data: MarkAiAgentSubagentReadMutationRequest, config: Partial<RequestConfig<MarkAiAgentSubagentReadMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<MarkAiAssistantSubagentReadMutationResponse, ResponseErrorConfig<Error>, MarkAiAssistantSubagentReadMutationRequest>({ method : "POST", url : getMarkAiAssistantSubagentReadUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<MarkAiAgentSubagentReadMutationResponse, ResponseErrorConfig<Error>, MarkAiAgentSubagentReadMutationRequest>({ method : "POST", url : getMarkAiAgentSubagentReadUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getReadAiAssistantSubagentResultUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/subagents/result` as const }
+function getReadAiAgentSubagentResultUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/subagents/result` as const }
   return res
 }
 
 /**
  * @summary Read the Worker request, recent reports and any open question
- * {@link /api/my/ai-assistant-session/subagents/result}
+ * {@link /api/my/ai-agent-session/subagents/result}
  */
-export async function readAiAssistantSubagentResult(params: ReadAiAssistantSubagentResultQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function readAiAgentSubagentResult(params: ReadAiAgentSubagentResultQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<ReadAiAssistantSubagentResultQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getReadAiAssistantSubagentResultUrl().url.toString(), params, ... requestConfig })
+  const res = await request<ReadAiAgentSubagentResultQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getReadAiAgentSubagentResultUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getGetAiAssistantSubagentStatusUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-session/subagents/status` as const }
+function getGetAiAgentSubagentStatusUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-session/subagents/status` as const }
   return res
 }
 
 /**
  * @summary Read the authoritative status of one subagent
- * {@link /api/my/ai-assistant-session/subagents/status}
+ * {@link /api/my/ai-agent-session/subagents/status}
  */
-export async function getAiAssistantSubagentStatus(params: GetAiAssistantSubagentStatusQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function getAiAgentSubagentStatus(params: GetAiAgentSubagentStatusQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<GetAiAssistantSubagentStatusQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAssistantSubagentStatusUrl().url.toString(), params, ... requestConfig })
+  const res = await request<GetAiAgentSubagentStatusQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAiAgentSubagentStatusUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getListAiAssistantSessionsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-sessions` as const }
+function getListAiAgentSessionsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-sessions` as const }
   return res
 }
 
 /**
- * @summary List recent AI Assistant conversations for the selected scope
- * {@link /api/my/ai-assistant-sessions}
+ * @summary List recent AI Agent conversations for the selected scope
+ * {@link /api/my/ai-agent-sessions}
  */
-export async function listAiAssistantSessions(params?: ListAiAssistantSessionsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function listAiAgentSessions(params?: ListAiAgentSessionsQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<ListAiAssistantSessionsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAssistantSessionsUrl().url.toString(), params, ... requestConfig })
+  const res = await request<ListAiAgentSessionsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAgentSessionsUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getGetAssistantDataSettingsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-settings` as const }
+function getGetAgentDataSettingsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-settings` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-settings}
+ * {@link /api/my/ai-agent-settings}
  */
-export async function getAssistantDataSettings(config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function getAgentDataSettings(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<GetAssistantDataSettingsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAssistantDataSettingsUrl().url.toString(), ... requestConfig })
+  const res = await request<GetAgentDataSettingsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAgentDataSettingsUrl().url.toString(), ... requestConfig })
   return res.data
 }
 
-function getUpdateAssistantDataSettingsUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-settings` as const }
+function getUpdateAgentDataSettingsUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-settings` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-settings}
+ * {@link /api/my/ai-agent-settings}
  */
-export async function updateAssistantDataSettings(data: UpdateAssistantDataSettingsMutationRequest, config: Partial<RequestConfig<UpdateAssistantDataSettingsMutationRequest>> & { client?: Client } = {}) {
+export async function updateAgentDataSettings(data: UpdateAgentDataSettingsMutationRequest, config: Partial<RequestConfig<UpdateAgentDataSettingsMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<UpdateAssistantDataSettingsMutationResponse, ResponseErrorConfig<Error>, UpdateAssistantDataSettingsMutationRequest>({ method : "POST", url : getUpdateAssistantDataSettingsUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<UpdateAgentDataSettingsMutationResponse, ResponseErrorConfig<Error>, UpdateAgentDataSettingsMutationRequest>({ method : "POST", url : getUpdateAgentDataSettingsUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
 function getGetMySkillScanUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-skill-scan` as const }
+  const res = { method: 'GET', url: `/api/my/ai-agent-skill-scan` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-skill-scan}
+ * {@link /api/my/ai-agent-skill-scan}
  */
 export async function getMySkillScan(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -3283,12 +3283,12 @@ export async function getMySkillScan(config: Partial<RequestConfig> & { client?:
 }
 
 function getListMySkillsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-skills` as const }
+  const res = { method: 'GET', url: `/api/my/ai-agent-skills` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-skills}
+ * {@link /api/my/ai-agent-skills}
  */
 export async function listMySkills(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -3300,12 +3300,12 @@ export async function listMySkills(config: Partial<RequestConfig> & { client?: C
 }
 
 function getCreateMySkillUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-skills` as const }
+  const res = { method: 'POST', url: `/api/my/ai-agent-skills` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-skills}
+ * {@link /api/my/ai-agent-skills}
  */
 export async function createMySkill(data: CreateMySkillMutationRequest, config: Partial<RequestConfig<CreateMySkillMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -3317,12 +3317,12 @@ export async function createMySkill(data: CreateMySkillMutationRequest, config: 
 }
 
 function getPreviewMySkillUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-skills/preview` as const }
+  const res = { method: 'POST', url: `/api/my/ai-agent-skills/preview` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-skills/preview}
+ * {@link /api/my/ai-agent-skills/preview}
  */
 export async function previewMySkill(data: PreviewMySkillMutationRequest, config: Partial<RequestConfig<PreviewMySkillMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -3334,12 +3334,12 @@ export async function previewMySkill(data: PreviewMySkillMutationRequest, config
 }
 
 function getGetMySkillUrl(skill_id: GetMySkillPathParams["skill_id"]) {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-skills/${skill_id}` as const }
+  const res = { method: 'GET', url: `/api/my/ai-agent-skills/${skill_id}` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-skills/:skill_id}
+ * {@link /api/my/ai-agent-skills/:skill_id}
  */
 export async function getMySkill(skill_id: GetMySkillPathParams["skill_id"], config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -3351,12 +3351,12 @@ export async function getMySkill(skill_id: GetMySkillPathParams["skill_id"], con
 }
 
 function getUpdateMySkillUrl(skill_id: UpdateMySkillPathParams["skill_id"]) {
-  const res = { method: 'PUT', url: `/api/my/ai-assistant-skills/${skill_id}` as const }
+  const res = { method: 'PUT', url: `/api/my/ai-agent-skills/${skill_id}` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-skills/:skill_id}
+ * {@link /api/my/ai-agent-skills/:skill_id}
  */
 export async function updateMySkill(skill_id: UpdateMySkillPathParams["skill_id"], data: UpdateMySkillMutationRequest, config: Partial<RequestConfig<UpdateMySkillMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -3368,12 +3368,12 @@ export async function updateMySkill(skill_id: UpdateMySkillPathParams["skill_id"
 }
 
 function getDeleteMySkillUrl(skill_id: DeleteMySkillPathParams["skill_id"]) {
-  const res = { method: 'DELETE', url: `/api/my/ai-assistant-skills/${skill_id}` as const }
+  const res = { method: 'DELETE', url: `/api/my/ai-agent-skills/${skill_id}` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-skills/:skill_id}
+ * {@link /api/my/ai-agent-skills/:skill_id}
  */
 export async function deleteMySkill(skill_id: DeleteMySkillPathParams["skill_id"], params: DeleteMySkillQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -3385,12 +3385,12 @@ export async function deleteMySkill(skill_id: DeleteMySkillPathParams["skill_id"
 }
 
 function getPreviewMySkillVersionUrl(skill_id: PreviewMySkillVersionPathParams["skill_id"]) {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-skills/${skill_id}/preview` as const }
+  const res = { method: 'POST', url: `/api/my/ai-agent-skills/${skill_id}/preview` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-skills/:skill_id/preview}
+ * {@link /api/my/ai-agent-skills/:skill_id/preview}
  */
 export async function previewMySkillVersion(skill_id: PreviewMySkillVersionPathParams["skill_id"], data: PreviewMySkillVersionMutationRequest, config: Partial<RequestConfig<PreviewMySkillVersionMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -3402,12 +3402,12 @@ export async function previewMySkillVersion(skill_id: PreviewMySkillVersionPathP
 }
 
 function getGetMySkillVersionUrl(skill_id: GetMySkillVersionPathParams["skill_id"], version: GetMySkillVersionPathParams["version"]) {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-skills/${skill_id}/versions/${version}` as const }
+  const res = { method: 'GET', url: `/api/my/ai-agent-skills/${skill_id}/versions/${version}` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-skills/:skill_id/versions/:version}
+ * {@link /api/my/ai-agent-skills/:skill_id/versions/:version}
  */
 export async function getMySkillVersion(skill_id: GetMySkillVersionPathParams["skill_id"], version: GetMySkillVersionPathParams["version"], config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
@@ -3418,105 +3418,105 @@ export async function getMySkillVersion(skill_id: GetMySkillVersionPathParams["s
   return res.data
 }
 
-function getGetAssistantSourceUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-source` as const }
+function getGetAgentSourceUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-source` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-source}
+ * {@link /api/my/ai-agent-source}
  */
-export async function getAssistantSource(params: GetAssistantSourceQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function getAgentSource(params: GetAgentSourceQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<GetAssistantSourceQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAssistantSourceUrl().url.toString(), params, ... requestConfig })
+  const res = await request<GetAgentSourceQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAgentSourceUrl().url.toString(), params, ... requestConfig })
   return res.data
 }
 
-function getGetAssistantUserInstructionsUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-user-instructions` as const }
+function getGetAgentUserInstructionsUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-user-instructions` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-user-instructions}
+ * {@link /api/my/ai-agent-user-instructions}
  */
-export async function getAssistantUserInstructions(config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function getAgentUserInstructions(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<GetAssistantUserInstructionsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAssistantUserInstructionsUrl().url.toString(), ... requestConfig })
+  const res = await request<GetAgentUserInstructionsQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getGetAgentUserInstructionsUrl().url.toString(), ... requestConfig })
   return res.data
 }
 
-function getUpdateAssistantUserInstructionsUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-user-instructions` as const }
+function getUpdateAgentUserInstructionsUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-user-instructions` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-user-instructions}
+ * {@link /api/my/ai-agent-user-instructions}
  */
-export async function updateAssistantUserInstructions(data: UpdateAssistantUserInstructionsMutationRequest, config: Partial<RequestConfig<UpdateAssistantUserInstructionsMutationRequest>> & { client?: Client } = {}) {
+export async function updateAgentUserInstructions(data: UpdateAgentUserInstructionsMutationRequest, config: Partial<RequestConfig<UpdateAgentUserInstructionsMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<UpdateAssistantUserInstructionsMutationResponse, ResponseErrorConfig<Error>, UpdateAssistantUserInstructionsMutationRequest>({ method : "POST", url : getUpdateAssistantUserInstructionsUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<UpdateAgentUserInstructionsMutationResponse, ResponseErrorConfig<Error>, UpdateAgentUserInstructionsMutationRequest>({ method : "POST", url : getUpdateAgentUserInstructionsUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getListAiAssistantWorkbenchesUrl() {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-workbenches` as const }
+function getListAiAgentWorkbenchesUrl() {
+  const res = { method: 'GET', url: `/api/my/ai-agent-workbenches` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-workbenches}
+ * {@link /api/my/ai-agent-workbenches}
  */
-export async function listAiAssistantWorkbenches(config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function listAiAgentWorkbenches(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<ListAiAssistantWorkbenchesQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAssistantWorkbenchesUrl().url.toString(), ... requestConfig })
+  const res = await request<ListAiAgentWorkbenchesQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAgentWorkbenchesUrl().url.toString(), ... requestConfig })
   return res.data
 }
 
-function getCreateAiAssistantWorkbenchUrl() {
-  const res = { method: 'POST', url: `/api/my/ai-assistant-workbenches` as const }
+function getCreateAiAgentWorkbenchUrl() {
+  const res = { method: 'POST', url: `/api/my/ai-agent-workbenches` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-workbenches}
+ * {@link /api/my/ai-agent-workbenches}
  */
-export async function createAiAssistantWorkbench(data: CreateAiAssistantWorkbenchMutationRequest, config: Partial<RequestConfig<CreateAiAssistantWorkbenchMutationRequest>> & { client?: Client } = {}) {
+export async function createAiAgentWorkbench(data: CreateAiAgentWorkbenchMutationRequest, config: Partial<RequestConfig<CreateAiAgentWorkbenchMutationRequest>> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
   const requestData = data
 
-  const res = await request<CreateAiAssistantWorkbenchMutationResponse, ResponseErrorConfig<Error>, CreateAiAssistantWorkbenchMutationRequest>({ method : "POST", url : getCreateAiAssistantWorkbenchUrl().url.toString(), data : requestData, ... requestConfig })
+  const res = await request<CreateAiAgentWorkbenchMutationResponse, ResponseErrorConfig<Error>, CreateAiAgentWorkbenchMutationRequest>({ method : "POST", url : getCreateAiAgentWorkbenchUrl().url.toString(), data : requestData, ... requestConfig })
   return res.data
 }
 
-function getListAiAssistantWorkbenchTasksUrl(workbench_id: ListAiAssistantWorkbenchTasksPathParams["workbench_id"]) {
-  const res = { method: 'GET', url: `/api/my/ai-assistant-workbenches/${workbench_id}/tasks` as const }
+function getListAiAgentWorkbenchTasksUrl(workbench_id: ListAiAgentWorkbenchTasksPathParams["workbench_id"]) {
+  const res = { method: 'GET', url: `/api/my/ai-agent-workbenches/${workbench_id}/tasks` as const }
   return res
 }
 
 /**
- * {@link /api/my/ai-assistant-workbenches/:workbench_id/tasks}
+ * {@link /api/my/ai-agent-workbenches/:workbench_id/tasks}
  */
-export async function listAiAssistantWorkbenchTasks(workbench_id: ListAiAssistantWorkbenchTasksPathParams["workbench_id"], params?: ListAiAssistantWorkbenchTasksQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function listAiAgentWorkbenchTasks(workbench_id: ListAiAgentWorkbenchTasksPathParams["workbench_id"], params?: ListAiAgentWorkbenchTasksQueryParams, config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config
 
 
 
-  const res = await request<ListAiAssistantWorkbenchTasksQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAssistantWorkbenchTasksUrl(workbench_id).url.toString(), params, ... requestConfig })
+  const res = await request<ListAiAgentWorkbenchTasksQueryResponse, ResponseErrorConfig<Error>, unknown>({ method : "GET", url : getListAiAgentWorkbenchTasksUrl(workbench_id).url.toString(), params, ... requestConfig })
   return res.data
 }
 

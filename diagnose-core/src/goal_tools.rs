@@ -1,4 +1,4 @@
-//! Built-in planning control for one claimed AI Assistant goal segment.
+//! Built-in planning control for one claimed AI Agent goal segment.
 
 use desk_agent_protocol::{AgentError, AgentErrorKind};
 use serde_json::json;

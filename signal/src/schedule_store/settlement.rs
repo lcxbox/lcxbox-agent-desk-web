@@ -2,9 +2,9 @@
 use super::{ScheduleStore, ScheduleStoreError};
 use crate::entity::agent_schedule_run as run;
 #[cfg(test)]
-use desk_agent_protocol::schedule::ScheduledRunStatus;
+use desk_agent_data_store::schedule::database_now;
 #[cfg(test)]
-use desk_assistant_data_store::schedule::database_now;
+use desk_agent_protocol::schedule::ScheduledRunStatus;
 #[cfg(test)]
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -47,10 +47,10 @@ impl ScheduleStore {
         if work.status != "running" || work.lease_deadline.is_none_or(|at| at <= now) {
             return Err(ScheduleStoreError::Conflict);
         }
-        let settled = desk_assistant_data_store::schedule::settle_on(
+        let settled = desk_agent_data_store::schedule::settle_on(
             &super::SignalScheduleHost,
             &txn,
-            desk_assistant_data_store::schedule::Settlement {
+            desk_agent_data_store::schedule::Settlement {
                 work,
                 now,
                 outcome,
@@ -67,7 +67,7 @@ impl ScheduleStore {
     /// Unstarted work can expire safely; leased work must first be reconciled.
     pub async fn expire_pending(&self, run_id: &str) -> Result<run::Model, ScheduleStoreError> {
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_schedule::Entity).await?;
-        let decision = desk_assistant_data_store::schedule::expire_pending_on(
+        let decision = desk_agent_data_store::schedule::expire_pending_on(
             &super::SignalScheduleHost,
             &txn,
             run_id,
@@ -81,6 +81,6 @@ impl ScheduleStore {
         after_id: i64,
         limit: u64,
     ) -> Result<Vec<run::Model>, ScheduleStoreError> {
-        desk_assistant_data_store::schedule::expired_pending(&self.db, after_id, limit).await
+        desk_agent_data_store::schedule::expired_pending(&self.db, after_id, limit).await
     }
 }

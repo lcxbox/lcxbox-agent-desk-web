@@ -230,18 +230,19 @@ mod tests {
         let broker = ComputerUseBroker::new();
         let report = broker.readiness(&ComputerUseSettings::default(), false, false);
         report.validate().unwrap();
-        let reports =
-            desk_diagnose_core::ai_assistant::provider_readiness_reports(&report).unwrap();
+        let reports = desk_diagnose_core::ai_agent::provider_readiness_reports(&report).unwrap();
         let word = reports
             .iter()
             .filter(|entry| {
-                entry.provider_id == desk_diagnose_core::ai_assistant::windows_word::PROVIDER_ID
+                entry.provider_id == desk_diagnose_core::ai_agent::windows_word::PROVIDER_ID
             })
             .collect::<Vec<_>>();
         assert_eq!(word.len(), 2);
         assert!(word.iter().all(|entry| !entry.ready && !entry.enabled));
-        assert!(reports.iter().all(|entry| entry.provider_id
-            != desk_diagnose_core::ai_assistant::DOCUMENT_LIVE_PROVIDER_ID));
+        assert!(
+            reports.iter().all(|entry| entry.provider_id
+                != desk_diagnose_core::ai_agent::DOCUMENT_LIVE_PROVIDER_ID)
+        );
         assert!(report.context_references.iter().all(|entry| !matches!(
             entry.capability,
             Capability::DocumentLiveInspect | Capability::DocumentLivePatchConfirmed

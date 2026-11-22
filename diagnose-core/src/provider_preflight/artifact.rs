@@ -511,14 +511,14 @@ impl ArtifactCallPreflight {
             ComputerActionKind::File(
                 FilePatchAction::CreateTextArtifact { .. }
                 | FilePatchAction::CreateLocalCommunicationDraftArtifact { .. },
-            ) => crate::ai_assistant::FILE_ARTIFACT_ADAPTER_VERSION,
+            ) => crate::ai_agent::FILE_ARTIFACT_ADAPTER_VERSION,
             ComputerActionKind::File(
                 FilePatchAction::CreateSpreadsheetArtifact { .. }
                 | FilePatchAction::CreateSpreadsheetFormulaArtifact { .. }
                 | FilePatchAction::CreateWordReportArtifact { .. },
-            ) => crate::ai_assistant::SPREADSHEET_FILE_ADAPTER_VERSION,
+            ) => crate::ai_agent::SPREADSHEET_FILE_ADAPTER_VERSION,
             ComputerActionKind::DocumentConversion(_) => {
-                crate::ai_assistant::DOCUMENT_CONVERSION_ADAPTER_VERSION
+                crate::ai_agent::DOCUMENT_CONVERSION_ADAPTER_VERSION
             }
             _ => unreachable!("artifact preflight only constructs create-new actions"),
         }
@@ -528,7 +528,7 @@ impl ArtifactCallPreflight {
         &'a self,
         subject: &'a ProviderCallSubject<'_>,
     ) -> Result<CapabilityGrantCall<'a>, AgentError> {
-        crate::assistant_policy::require_current_policy(subject.policy_revision)?;
+        crate::agent_policy::require_current_policy(subject.policy_revision)?;
         if subject.readiness_revision == 0
             || subject.now_unix_ms == 0
             || subject.now_unix_ms >= self.valid_until_unix_ms

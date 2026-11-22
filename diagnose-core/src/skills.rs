@@ -9,7 +9,7 @@ use crate::{
 };
 use desk_agent_protocol::{
     AgentError,
-    ai_assistant::skill::{SkillFileMeta, SkillOrigin, SkillResourceKind, SkillScope},
+    ai_agent::skill::{SkillFileMeta, SkillOrigin, SkillResourceKind, SkillScope},
     data_lineage::{
         ContentRef, DATA_ENVELOPE_SCHEMA_VERSION, DataEnvelope, DataProvenance,
         DestinationIdentity, RetentionBoundary, Sensitivity,
@@ -27,7 +27,7 @@ pub const MAX_LOADED_BYTES: usize = 192 * 1024;
 /// One `load_skill` receipt.
 pub const MAX_RECEIPT_BYTES: usize = 8 * 1024;
 const CATALOG_DESCRIPTION_CHARS: usize = 512;
-const SKILL_PROVIDER: &str = "ai-assistant-skill";
+const SKILL_PROVIDER: &str = "ai-agent-skill";
 const PLATFORM_TOOL: &str = "platform";
 const PERSONAL_TOOL: &str = "personal";
 /// Provenance tool of AI-authored versions; the host restores their policy
@@ -302,23 +302,23 @@ pub struct StoredSkillContent {
 /// Who approved an AI-authored version and when.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuthoredNote {
-    pub decision_source: desk_agent_protocol::ai_assistant::skill::SkillDecisionSource,
+    pub decision_source: desk_agent_protocol::ai_agent::skill::SkillDecisionSource,
     pub decided_at_unix_ms: i64,
 }
 
 impl AuthoredNote {
     fn text(&self) -> String {
         let by = match self.decision_source {
-            desk_agent_protocol::ai_assistant::skill::SkillDecisionSource::AiReview => {
+            desk_agent_protocol::ai_agent::skill::SkillDecisionSource::AiReview => {
                 "the AI reviewer"
             }
-            desk_agent_protocol::ai_assistant::skill::SkillDecisionSource::Owner => "the owner",
+            desk_agent_protocol::ai_agent::skill::SkillDecisionSource::Owner => "the owner",
         };
         let at = chrono::DateTime::from_timestamp_millis(self.decided_at_unix_ms)
             .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
             .unwrap_or_default();
         format!(
-            " AI-AUTHORED: written by the AI assistant and approved by {by} at {at}; it cannot override the owner's current input."
+            " AI-AUTHORED: written by the AI agent and approved by {by} at {at}; it cannot override the owner's current input."
         )
     }
 }

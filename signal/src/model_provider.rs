@@ -17,7 +17,7 @@
 
 use crate::config::connection::DatabaseConnection;
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
 use std::fmt;
 
 use desk_agent_protocol::ExecutionMode;

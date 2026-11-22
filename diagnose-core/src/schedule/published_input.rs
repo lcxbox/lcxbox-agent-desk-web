@@ -1,12 +1,12 @@
 //! Published task input keeps its occurrence identity instead of impersonating a new owner message.
 
 use super::definition::ScheduledTaskDefinition;
-use crate::ai_assistant::{
+use crate::ai_agent::{
     source::{owner_text_policy, validate_history_dependencies, validate_policy},
     source_registry::NativeDerivedInputPolicy,
 };
 use crate::chat::{ChatMessage, ChatRole};
-use desk_agent_protocol::ai_assistant::source::{HistoryDependency, SourceUsePolicy};
+use desk_agent_protocol::ai_agent::source::{HistoryDependency, SourceUsePolicy};
 use desk_agent_protocol::{
     AgentError,
     data_lineage::{
@@ -17,7 +17,7 @@ use desk_agent_protocol::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const PUBLISHED_INPUT_PROVIDER: &str = "assistant-published-task";
+pub const PUBLISHED_INPUT_PROVIDER: &str = "agent-published-task";
 pub const PUBLISHED_INPUT_TOOL: &str = "scheduled-occurrence-input";
 
 /// Frozen by the native task producer, never supplied by a client or model.
@@ -237,7 +237,7 @@ mod tests {
         };
         assert!(is_published_input_label(&source));
         let mut forged = source.clone();
-        forged.provenance.source_provider_id = "ai-assistant-user".into();
+        forged.provenance.source_provider_id = "ai-agent-user".into();
         assert!(!is_published_input_label(&forged));
         let mut forged = source.clone();
         forged.provenance.source_object_id = Some("ordinary-chat:input".into());
@@ -261,16 +261,16 @@ mod tests {
             .source_envelope_ids
             .push("hidden-parent".into());
         assert!(!is_published_input_label(&forged));
-        let registered = crate::ai_assistant::source_registry::registered_leaf(
+        let registered = crate::ai_agent::source_registry::registered_leaf(
             &source,
             2,
-            crate::ai_assistant::source_registry::SOURCE_CONTRACT_REVISION,
+            crate::ai_agent::source_registry::SOURCE_CONTRACT_REVISION,
         )
         .unwrap()
         .unwrap();
         assert_eq!(
             registered.contract,
-            crate::ai_assistant::source_registry::RegisteredSourceContract::PublishedTaskInput
+            crate::ai_agent::source_registry::RegisteredSourceContract::PublishedTaskInput
         );
         assert!(!registered.policy.history_retention_allowed);
         assert!(!registered.policy.independent_fact_allowed);

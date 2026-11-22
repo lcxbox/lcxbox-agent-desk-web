@@ -1,4 +1,4 @@
-//! SQLite projection and fenced writes for an AI Assistant goal.
+//! SQLite projection and fenced writes for an AI Agent goal.
 //!
 //! Main-segment mutations lock the session first and commit both rows and the
 //! run event together. Independent-call budget updates retain the original
@@ -26,7 +26,7 @@ use sea_orm::{
 };
 
 fn invalid() -> DbErr {
-    DbErr::Custom("AI Assistant goal state is inconsistent".into())
+    DbErr::Custom("AI Agent goal state is inconsistent".into())
 }
 
 fn as_i64(value: u64) -> Result<i64, DbErr> {
@@ -207,7 +207,7 @@ pub async fn load_for_subject(
 }
 
 /// Owner-visible latest goal, including a terminal goal that the user may
-/// inspect after the assistant has stopped running.
+/// inspect after the agent has stopped running.
 pub async fn load_latest_for_subject<C: ConnectionTrait + crate::config::ConfigConnection>(
     db: &C,
     conversation_id: &str,
@@ -260,7 +260,7 @@ pub async fn apply_owner_action(
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
     let history = desk_diagnose_core::future::boxed(|| {
-        crate::assistant_data_store::native_scope_on(&txn, actor_id, device_id, conversation_id)
+        crate::agent_data_store::native_scope_on(&txn, actor_id, device_id, conversation_id)
     })
     .await?;
     crate::agent_subagent_store::lock_goal_source_on(
@@ -283,7 +283,7 @@ pub async fn apply_owner_action(
     let mut session =
         PersistedAgentSession::decode_json(&session_row.state_json).map_err(|_| invalid())?;
     if !session.agent_role.is_main()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || !(session.turn_state.can_claim() || session.turn_state == TurnState::AwaitingApproval)
         || session_row
             .lease_deadline
@@ -420,7 +420,7 @@ pub async fn wake_for_permission_decision(
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
     let history = desk_diagnose_core::future::boxed(|| {
-        crate::assistant_data_store::native_scope_on(&txn, actor_id, device_id, conversation_id)
+        crate::agent_data_store::native_scope_on(&txn, actor_id, device_id, conversation_id)
     })
     .await?;
     let Some(session_row) = agent_session::Entity::find()
@@ -434,7 +434,7 @@ pub async fn wake_for_permission_decision(
     };
     let mut session =
         PersistedAgentSession::decode_json(&session_row.state_json).map_err(|_| invalid())?;
-    if !session.agent_role.is_main() || session.surface != AgentSessionSurface::AiAssistant {
+    if !session.agent_role.is_main() || session.surface != AgentSessionSurface::AiAgent {
         return Ok(GoalPermissionWake::NoGoal);
     }
     let Some(goal_record) = goal_row::Entity::find()
@@ -598,16 +598,16 @@ pub async fn wake_for_permission_decision(
 pub async fn wake_for_decision(
     db: &DatabaseConnection,
     session: &PersistedAgentSession,
-    record: &desk_assistant_data_store::entity::agent_decision_resume::Model,
+    record: &desk_agent_data_store::entity::agent_decision_resume::Model,
     now: DateTime<Utc>,
 ) -> Result<GoalPermissionWake, DbErr> {
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
-    if !session.agent_role.is_main() || session.surface != AgentSessionSurface::AiAssistant {
+    if !session.agent_role.is_main() || session.surface != AgentSessionSurface::AiAgent {
         return Ok(GoalPermissionWake::NoGoal);
     }
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
     let history = desk_diagnose_core::future::boxed(|| {
-        crate::assistant_data_store::native_scope_on(
+        crate::agent_data_store::native_scope_on(
             &txn,
             &record.actor_id,
             &record.device_id,
@@ -714,11 +714,11 @@ pub async fn wake_for_decision(
     }
     .insert(&txn)
     .await?;
-    if !desk_assistant_data_store::decision_resume::transition_on(
+    if !desk_agent_data_store::decision_resume::transition_on(
         &txn,
         record.id,
-        desk_assistant_data_store::decision_resume::PENDING,
-        desk_assistant_data_store::decision_resume::DONE,
+        desk_agent_data_store::decision_resume::PENDING,
+        desk_agent_data_store::decision_resume::DONE,
         now.timestamp_millis(),
     )
     .await
@@ -861,7 +861,7 @@ pub async fn expire_due(
         let goal = decode(&row)?;
         if let Err(error) = expire_settled(db, &goal, now).await {
             log::warn!(
-                "[ai-assistant-goal] failed to expire goal {}: {error}",
+                "[ai-agent-goal] failed to expire goal {}: {error}",
                 goal.goal_id
             );
         }
@@ -877,7 +877,7 @@ async fn expire_settled(
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
     let history = desk_diagnose_core::future::boxed(|| {
-        crate::assistant_data_store::native_scope_on(
+        crate::agent_data_store::native_scope_on(
             &txn,
             &expected.owner_id,
             &expected.device_id,
@@ -925,7 +925,7 @@ async fn expire_settled(
     let mut session =
         PersistedAgentSession::decode_json(&session_row.state_json).map_err(|_| invalid())?;
     if !session.agent_role.is_main()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || session.input_revision != goal.input_revision
         || !(session.turn_state.can_claim() || session.turn_state == TurnState::AwaitingApproval)
         || session_row
@@ -1120,7 +1120,7 @@ async fn scheduler_transition(
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
     let history = desk_diagnose_core::future::boxed(|| {
-        crate::assistant_data_store::native_scope_on(
+        crate::agent_data_store::native_scope_on(
             &txn,
             &expected.owner_id,
             &expected.device_id,
@@ -1536,7 +1536,7 @@ pub fn claim_slice<'a>(
         let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
         let txn = crate::db::begin_write(db, agent_session::Entity).await?;
         let history = desk_diagnose_core::future::boxed(|| {
-            crate::assistant_data_store::native_scope_on(
+            crate::agent_data_store::native_scope_on(
                 &txn,
                 &params.actor_id,
                 &params.device_id,
@@ -1749,7 +1749,7 @@ async fn claim_slice_source_on(
         PersistedAgentSession::decode_json(&session_row.state_json).map_err(|_| invalid())?,
     );
     if !session.agent_role.is_main()
-        || session.surface != AgentSessionSurface::AiAssistant
+        || session.surface != AgentSessionSurface::AiAgent
         || !session.turn_state.can_claim()
         || desk_diagnose_core::goal_continuation::unresolved_work(&session)
         || desk_diagnose_core::goal_continuation::pending_approval(&session)
@@ -1772,7 +1772,7 @@ async fn claim_slice_source_on(
         return Ok(None);
     };
     let goal = decode(&row)?;
-    desk_diagnose_core::assistant_policy::validate_goal_claim(&session, &goal, params)
+    desk_diagnose_core::agent_policy::validate_goal_claim(&session, &goal, params)
         .map_err(|_| invalid())?;
     if expected_state_version.is_some_and(|version| goal.state_version != version) {
         return Ok(None);
@@ -1996,7 +1996,7 @@ async fn settle_slice_afterimage(
     }
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
     let history = desk_diagnose_core::future::boxed(|| {
-        crate::assistant_data_store::native_scope_on(
+        crate::agent_data_store::native_scope_on(
             &txn,
             &session.actor_id,
             &session.device_id,
@@ -2302,7 +2302,7 @@ mod lifecycle_tests {
             format!("goal-{conversation_id}"),
             conversation_id.into(),
             "1".into(),
-            desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("device-1".into()),
+            desk_diagnose_core::dynamic_run::AgentInputTarget::fixed("device-1".into()),
             "device-1".into(),
             "Finish the report".into(),
             "message-1".into(),
@@ -2342,11 +2342,11 @@ mod lifecycle_tests {
             },
             Utc::now().to_rfc3339(),
         );
-        session.surface = AgentSessionSurface::AiAssistant;
+        session.surface = AgentSessionSurface::AiAgent;
         session.begin_focus_epoch(1, Vec::<String>::new()).unwrap();
         session.input_revision = 1;
         session
-            .bind_assistant_request_targets(vec![session.device_id.clone()])
+            .bind_agent_request_targets(vec![session.device_id.clone()])
             .unwrap();
         agent_session::ActiveModel {
             conversation_id: Set(conversation_id.into()),
@@ -2367,8 +2367,8 @@ mod lifecycle_tests {
     #[tokio::test]
     async fn native_inventory_owner_goal_transition_commits_without_a_model_or_optional_history_capacity()
      {
-        use crate::assistant_data_store as data;
-        use crate::entity::{agent_assistant_history as history, agent_assistant_quota as quota};
+        use crate::agent_data_store as data;
+        use crate::entity::{agent_history as history, agent_quota as quota};
         use sea_orm::PaginatorTrait;
         for mode in 0..3 {
             let db = db().await;
@@ -2387,7 +2387,7 @@ mod lifecycle_tests {
 
             let policy = {
                 use crate::config::ConfigConnection;
-                txn.config_read().await.assistant_data_policy.clone()
+                txn.config_read().await.agent_data_policy.clone()
             };
             data::accept_input_on(
                 &txn,
@@ -2413,7 +2413,7 @@ mod lifecycle_tests {
                 .unwrap(),
             );
             if mode != 2 {
-                desk_diagnose_core::ai_assistant::data_access::bind_opened_task(
+                desk_diagnose_core::ai_agent::data_access::bind_opened_task(
                     &mut session,
                     &task.goal_id,
                     task.deadline_unix_ms,

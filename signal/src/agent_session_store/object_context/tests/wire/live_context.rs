@@ -1,8 +1,8 @@
 //! Real OSS 638/639 loopback; authentication and desktop readiness are synthetic.
 use super::*;
-use desk_agent_protocol::ai_assistant::{AiAssistantContextUpdate, AiAssistantContextUpdated};
 #[cfg(test)]
-use desk_assistant_data_store::entity_table::EntityTableExt;
+use desk_agent_data_store::entity_table::EntityTableExt;
+use desk_agent_protocol::ai_agent::{AiAgentContextUpdate, AiAgentContextUpdated};
 use desk_signal_facade::model::peer::{
     HostExecCapabilities, PeerInfo, ServerRegistration, SignalingPeer,
 };
@@ -30,8 +30,8 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
     let authorizer = Arc::new(SignalControlAuthorizer::new(
         store.db.clone(),
         map.clone(),
-        Arc::new(crate::ai_assistant_gate::AiAssistantGate::new(
-            desk_agent_protocol::ai_assistant::AiAssistantSettings {
+        Arc::new(crate::ai_agent_gate::AiAgentGate::new(
+            desk_agent_protocol::ai_agent::AiAgentSettings {
                 revision: 1,
                 enabled: true,
             },
@@ -110,11 +110,10 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
                                     exec_pty_elevation: false,
                                     max_ai_command_runtime_ms: None,
                                 },
-                                ai_assistant_settings:
-                                    desk_agent_protocol::ai_assistant::AiAssistantSettings {
-                                        revision: 0,
-                                        enabled: false,
-                                    },
+                                ai_agent_settings: desk_agent_protocol::ai_agent::AiAgentSettings {
+                                    revision: 0,
+                                    enabled: false,
+                                },
                             }),
                         })
                         .into_connection_model(
@@ -138,8 +137,8 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
                                             serde_json::from_str(&text).unwrap();
                                         assert!(matches!(
                                             frame.signaling_type,
-                                            SignalingType::UpdateAiAssistantContext
-                                                | SignalingType::AskAiAssistant
+                                            SignalingType::UpdateAiAgentContext
+                                                | SignalingType::AskAiAgent
                                         ));
                                         assert!(matches!(
                                             authorizer.authorize(&actor, &map, &frame).await,
@@ -215,9 +214,8 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
             now,
         )
         .unwrap();
-    let original = AiAssistantContextUpdate {
-        conversation_target:
-            desk_agent_protocol::ai_assistant::AiAssistantConversationTarget::FixedDevice,
+    let original = AiAgentContextUpdate {
+        conversation_target: desk_agent_protocol::ai_agent::AiAgentConversationTarget::FixedDevice,
         conversation_id: "client-conversation".into(),
         client_request_id: "live-selection".into(),
         selected_capability_ids: vec!["desktop.ui.inspect".into()],
@@ -225,10 +223,10 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
 
     macro_rules! exchange {
         ($request:expr, $transport_id:expr) => {{
-            let update: &AiAssistantContextUpdate = $request;
+            let update: &AiAgentContextUpdate = $request;
             let frame = SignalingModel::new(
                 $transport_id,
-                SignalingType::UpdateAiAssistantContext,
+                SignalingType::UpdateAiAgentContext,
                 Some("untrusted-sender-is-ignored".into()),
                 Some("live-context-host".into()),
                 Some(serde_json::to_value(update).unwrap()),
@@ -250,12 +248,9 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
             };
             let reply: SignalingModel = serde_json::from_slice(&text).unwrap();
             assert_eq!(reply.request_id, $transport_id);
-            assert_eq!(
-                reply.signaling_type,
-                SignalingType::AiAssistantContextUpdated
-            );
+            assert_eq!(reply.signaling_type, SignalingType::AiAgentContextUpdated);
             assert_eq!(reply.to_connection_id.as_deref(), Some("controller"));
-            let ack: AiAssistantContextUpdated = reply.get_data().unwrap();
+            let ack: AiAgentContextUpdated = reply.get_data().unwrap();
             assert_eq!(ack.conversation_id, update.conversation_id);
             assert_eq!(ack.client_request_id, update.client_request_id);
             ack
@@ -299,7 +294,7 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
     assert!(!rejected.changed && rejected.error.is_some());
     assert_eq!(row(&store).await, saved);
 
-    let detach = AiAssistantContextUpdate {
+    let detach = AiAgentContextUpdate {
         client_request_id: "detach".into(),
         selected_capability_ids: vec![],
         ..original.clone()
@@ -327,7 +322,7 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
     anonymous.auth_context = AuthContext::anonymous(RemoteDeskTypeEnum::Browser);
     let frame = SignalingModel::new(
         "anonymous-retry",
-        SignalingType::UpdateAiAssistantContext,
+        SignalingType::UpdateAiAgentContext,
         None,
         Some("live-context-host".into()),
         Some(serde_json::to_value(&original).unwrap()),
@@ -347,20 +342,17 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
     };
     let frame: SignalingModel = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(frame.request_id, "anonymous-retry");
-    assert_eq!(
-        frame.signaling_type,
-        SignalingType::AiAssistantContextUpdated
-    );
+    assert_eq!(frame.signaling_type, SignalingType::AiAgentContextUpdated);
     assert!(
         frame
-            .get_data::<AiAssistantContextUpdated>()
+            .get_data::<AiAgentContextUpdated>()
             .unwrap()
             .error
             .is_some()
     );
     let malformed = SignalingModel::new(
         "malformed",
-        SignalingType::UpdateAiAssistantContext,
+        SignalingType::UpdateAiAgentContext,
         None,
         Some("live-context-host".into()),
         Some(
@@ -384,11 +376,8 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
     };
     let frame: SignalingModel = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(frame.request_id, "malformed");
-    assert_eq!(
-        frame.signaling_type,
-        SignalingType::AiAssistantContextUpdated
-    );
-    let ack = frame.get_data::<AiAssistantContextUpdated>().unwrap();
+    assert_eq!(frame.signaling_type, SignalingType::AiAgentContextUpdated);
+    let ack = frame.get_data::<AiAgentContextUpdated>().unwrap();
     assert_eq!(ack.client_request_id, "malformed-client");
     assert!(ack.error.is_some());
     assert_eq!(row(&store).await, saved);
@@ -398,7 +387,7 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
     // browser can settle the submission and look the device up again.
     let ask = SignalingModel::new(
         "ask-gone-host",
-        SignalingType::AskAiAssistant,
+        SignalingType::AskAiAgent,
         None,
         Some("gone-host".into()),
         Some(serde_json::json!({"question": "status?"})),
@@ -420,7 +409,7 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
     };
     let frame: SignalingModel = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(frame.request_id, "ask-gone-host");
-    assert_eq!(frame.signaling_type, SignalingType::AiAssistantUpdated);
+    assert_eq!(frame.signaling_type, SignalingType::AiAgentUpdated);
     assert!(frame.response_state.is_none());
     let event = frame
         .get_data::<desk_agent_protocol::agent_event::AgentEvent>()

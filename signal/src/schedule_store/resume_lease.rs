@@ -1,6 +1,6 @@
 //! Renew a continuation's occurrence and session leases as one transaction.
 use super::{ScheduleStore, ScheduleStoreError};
-pub use desk_assistant_data_store::schedule::{ContinuationLease, FreshTaskLease};
+pub use desk_agent_data_store::schedule::{ContinuationLease, FreshTaskLease};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
 
 impl ScheduleStore {
@@ -67,7 +67,7 @@ impl ScheduleStore {
         if reserved.rows_affected != 1 {
             return Ok(false);
         }
-        let renewed = desk_assistant_data_store::schedule::renew_paired_lease_on(
+        let renewed = desk_agent_data_store::schedule::renew_paired_lease_on(
             &super::session_host::SignalScheduleHost,
             &txn,
             lease,

@@ -79,7 +79,7 @@ impl ManagementMessage {
                 .as_ref()
                 .and_then(|value| value.pointer("/provenance/source_provider_id"))
                 .and_then(serde_json::Value::as_str)
-                == Some("assistant-runtime-control")
+                == Some("agent-runtime-control")
     }
 
     fn is_visible_user(&self) -> bool {
@@ -110,8 +110,8 @@ mod tests {
             "2026-01-01T00:00:00Z",
         ))
         .unwrap();
-        value["surface"] = serde_json::json!("ai_assistant");
-        value["assistant_data"] = serde_json::json!({"model_history_exclusions": []});
+        value["surface"] = serde_json::json!("ai_agent");
+        value["agent_data"] = serde_json::json!({"model_history_exclusions": []});
         value["conversation"] =
             serde_json::json!([{ "role": "user", "text": "Original question" }]);
         let raw = value.to_string();

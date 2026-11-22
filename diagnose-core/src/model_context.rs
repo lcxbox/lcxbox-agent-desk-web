@@ -933,10 +933,10 @@ impl std::fmt::Display for ModelContextError {
             Self::FloorRegression => f.write_str("model context floor attempted to move backward"),
             Self::OrphanToolResult(id) => write!(f, "orphan tool result in conversation: {id}"),
             Self::IncompleteToolGroup(id) => {
-                write!(f, "incomplete assistant tool-call group: {id}")
+                write!(f, "incomplete agent tool-call group: {id}")
             }
             Self::UnexpectedReplayDisposition(id) => {
-                write!(f, "non-assistant message carries replay disposition: {id}")
+                write!(f, "non-agent message carries replay disposition: {id}")
             }
             Self::InvalidProtectionReference(id) => {
                 write!(
@@ -1001,7 +1001,7 @@ mod tests {
 
     fn tool_group(source: SourceContextKey) -> Vec<ChatMessage> {
         vec![
-            ChatMessage::assistant_tool_calls_with_replay(
+            ChatMessage::agent_tool_calls_with_replay(
                 "a1",
                 "",
                 vec![ToolCallRef {
@@ -1050,7 +1050,7 @@ mod tests {
     }
 
     #[test]
-    fn plain_assistant_replay_obeys_source_shape_role_and_cost_guards() {
+    fn plain_agent_replay_obeys_source_shape_role_and_cost_guards() {
         let mut message = ChatMessage::text("answer", ChatRole::Assistant, "done");
         message.replay_disposition = Some(ReplayDisposition::Present {
             envelope: crate::replay::ProviderReplayEnvelope::new(

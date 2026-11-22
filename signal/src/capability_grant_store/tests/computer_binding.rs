@@ -130,8 +130,8 @@ impl Fixture {
             session.version = row.version;
             row.actor_id = actor.into();
             session.policy_revision =
-                desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION;
-            session.surface = AgentSessionSurface::AiAssistant;
+                desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
+            session.surface = AgentSessionSurface::AiAgent;
             session
                 .begin_focus_epoch(session.input_revision, std::iter::empty::<String>())
                 .unwrap();
@@ -156,7 +156,7 @@ impl Fixture {
         if selectable {
             session.device_id.clear();
             session
-                .bind_assistant_request_targets(vec!["device-1".into()])
+                .bind_agent_request_targets(vec!["device-1".into()])
                 .unwrap();
             row.device_id.clear();
             row.lease_deadline = Some(Utc::now() + chrono::Duration::minutes(5));
@@ -164,7 +164,7 @@ impl Fixture {
                 .await
                 .unwrap();
         }
-        let mut proposal = ChatMessage::assistant_tool_calls(
+        let mut proposal = ChatMessage::agent_tool_calls(
             "proposal-1",
             "open approved page",
             vec![ToolCallRef {
@@ -211,7 +211,7 @@ impl Fixture {
         };
         let call_id =
             desk_diagnose_core::native_ids::background_action("run-1", &turn_id, &call.id);
-        let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+        let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
         let evaluated = BrowserCallPreflight::build(
             &registry,
             ProductSurface::OssPersonalOwner,
@@ -226,8 +226,7 @@ impl Fixture {
             run_id: "run-1",
             input_revision: 1,
             target_device_id: "device-1",
-            policy_revision:
-                desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+            policy_revision: desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
             readiness_revision: 9,
             now_unix_ms: now,
         };
@@ -266,7 +265,7 @@ impl Fixture {
                 .record_dispatch_intent_for_target(
                     request(),
                     if selectable {
-                        desk_diagnose_core::action_turn_fence::AssistantTurnFence::for_device(
+                        desk_diagnose_core::action_turn_fence::AgentTurnFence::for_device(
                             &session, "device-1",
                         )
                         .unwrap()

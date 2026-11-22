@@ -345,7 +345,7 @@ fn recreate(
         None,
         None,
     )?;
-    let staging = root.path.join(format!(".assistant-restore-{}", saved.id));
+    let staging = root.path.join(format!(".agent-restore-{}", saved.id));
     let mut attempted = false;
     let mut staged_file = None;
     let result = (|| -> Result<CreatedTextArtifact, AgentError> {

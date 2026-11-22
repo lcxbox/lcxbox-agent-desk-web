@@ -34,7 +34,7 @@ pub fn model_bound_user_message(
             media_type: "text/plain;charset=utf-8".into(),
         },
         provenance: DataProvenance {
-            source_provider_id: "ai-assistant-user".into(),
+            source_provider_id: "ai-agent-user".into(),
             source_tool_name: crate::model_message_labels::sources::USER_MESSAGE.into(),
             source_object_id: Some(message_id.clone()),
             source_envelope_ids: Vec::new(),
@@ -51,7 +51,7 @@ pub fn model_bound_user_message(
     };
     envelope.validate().map_err(|error| AgentError {
         kind: AgentErrorKind::Internal,
-        message: format!("failed to label AI Assistant input: {error}"),
+        message: format!("failed to label AI Agent input: {error}"),
         retryable: false,
         safe_for_model: false,
         error_code: None,
@@ -105,13 +105,13 @@ pub fn read_result_envelope(
             source_envelope_ids: Vec::new(),
         },
         sensitivity: match capability.wire.capability_id.as_str() {
-            crate::ai_assistant::WEB_RESEARCH_FETCH_CAPABILITY_ID
-            | crate::ai_assistant::WEB_RESEARCH_SEARCH_CAPABILITY_ID => Sensitivity::Public,
-            crate::ai_assistant::DESKTOP_SESSION_CAPABILITY_ID
-            | crate::ai_assistant::SYSTEM_INFO_CAPABILITY_ID
-            | crate::ai_assistant::SYSTEM_NETWORK_CAPABILITY_ID
-            | crate::ai_assistant::SYSTEM_SERVICE_CAPABILITY_ID
-            | crate::ai_assistant::SYSTEM_CONTAINER_CAPABILITY_ID => Sensitivity::UserContent,
+            crate::ai_agent::WEB_RESEARCH_FETCH_CAPABILITY_ID
+            | crate::ai_agent::WEB_RESEARCH_SEARCH_CAPABILITY_ID => Sensitivity::Public,
+            crate::ai_agent::DESKTOP_SESSION_CAPABILITY_ID
+            | crate::ai_agent::SYSTEM_INFO_CAPABILITY_ID
+            | crate::ai_agent::SYSTEM_NETWORK_CAPABILITY_ID
+            | crate::ai_agent::SYSTEM_SERVICE_CAPABILITY_ID
+            | crate::ai_agent::SYSTEM_CONTAINER_CAPABILITY_ID => Sensitivity::UserContent,
             _ => Sensitivity::Sensitive,
         },
         // Reading never implicitly grants export to any model or other sink.
@@ -366,7 +366,7 @@ fn compose_with(
 }
 
 /// Replace the body of the result at `index` with a server-authored `text`.
-/// The new label derives from the nearest earlier assistant message that made
+/// The new label derives from the nearest earlier agent message that made
 /// call `call_id`: call ids can repeat across turns, and the replaced body's
 /// own label leaves the model input with it. An unlabelled call leaves the
 /// result unlabelled; a labelled result without its call is an error. The id
@@ -437,7 +437,7 @@ pub fn conversation_history_result_envelope(
     )
 }
 
-pub fn assistant_data_result_envelope(
+pub fn agent_data_result_envelope(
     parent: Option<&DataEnvelope>,
     sources: &[DataEnvelope],
     call_id: &str,
@@ -446,7 +446,7 @@ pub fn assistant_data_result_envelope(
     episode_id: &str,
 ) -> Result<Option<DataEnvelope>, AgentError> {
     if let [snapshot] = sources
-        && snapshot.provenance.source_provider_id == "assistant-conversation-snapshot"
+        && snapshot.provenance.source_provider_id == "agent-conversation-snapshot"
     {
         return Ok(Some(snapshot.clone()));
     }
@@ -459,7 +459,7 @@ pub fn assistant_data_result_envelope(
         &inputs,
         call_id,
         content,
-        "assistant-data-result",
+        "agent-data-result",
         tool_name,
         Some(episode_id),
     )
@@ -485,7 +485,7 @@ fn source_result_envelope(
 
 /// Reconstruct an original tool-result label from immutable projection metadata,
 /// without loading or retaining the old result body. This grants no source use.
-pub(crate) fn retained_assistant_data_result(
+pub(crate) fn retained_agent_data_result(
     parent: &DataEnvelope,
     source: &DataEnvelope,
     call_id: &str,
@@ -497,7 +497,7 @@ pub(crate) fn retained_assistant_data_result(
         &[parent, source],
         call_id,
         source.content.size_bytes(),
-        "assistant-data-result",
+        "agent-data-result",
         tool_name,
         Some(episode_id),
     )
@@ -792,7 +792,7 @@ mod tests {
     #[test]
     fn rewrites_derive_from_the_nearest_call_and_name_one_body_per_id() {
         let call = |id: &str, label: &str| {
-            let mut message = ChatMessage::assistant_tool_calls(
+            let mut message = ChatMessage::agent_tool_calls(
                 "assistant",
                 "",
                 vec![crate::chat::ToolCallRef {
@@ -860,7 +860,7 @@ mod tests {
     fn source_result_identity_binds_purpose_episode_and_complete_parent_proofs() {
         let a = source("a");
         let b = source("b");
-        let result = assistant_data_result_envelope(
+        let result = agent_data_result_envelope(
             None,
             &[a.clone(), b.clone()],
             "call",
@@ -870,7 +870,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        let reordered = assistant_data_result_envelope(
+        let reordered = agent_data_result_envelope(
             None,
             &[b.clone(), a.clone(), a.clone()],
             "call",
@@ -881,7 +881,7 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(result, reordered);
-        let other_tool = assistant_data_result_envelope(
+        let other_tool = agent_data_result_envelope(
             None,
             &[a.clone(), b.clone()],
             "call",
@@ -891,7 +891,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        let other_episode = assistant_data_result_envelope(
+        let other_episode = agent_data_result_envelope(
             None,
             &[a.clone(), b.clone()],
             "call",
@@ -905,7 +905,7 @@ mod tests {
         assert_ne!(result.envelope_id, other_episode.envelope_id);
         let mut restricted = a.clone();
         restricted.allowed_destinations.clear();
-        let changed = assistant_data_result_envelope(
+        let changed = agent_data_result_envelope(
             None,
             &[restricted.clone(), b],
             "call",
@@ -918,7 +918,7 @@ mod tests {
         assert_ne!(result.envelope_id, changed.envelope_id);
         assert!(changed.allowed_destinations.is_empty());
         assert!(
-            assistant_data_result_envelope(
+            agent_data_result_envelope(
                 None,
                 &[a, restricted],
                 "call",
@@ -931,10 +931,10 @@ mod tests {
     }
 
     #[test]
-    fn original_assistant_result_identity_survives_body_cleanup_and_binds_all_original_metadata() {
+    fn original_agent_result_identity_survives_body_cleanup_and_binds_all_original_metadata() {
         let parent = source("producer");
         let read = source("projection");
-        let original = assistant_data_result_envelope(
+        let original = agent_data_result_envelope(
             Some(&parent),
             std::slice::from_ref(&read),
             "read-call",
@@ -945,7 +945,7 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(
-            retained_assistant_data_result(
+            retained_agent_data_result(
                 &parent,
                 &read,
                 "read-call",
@@ -978,8 +978,7 @@ mod tests {
                 }
             }
             assert_ne!(
-                retained_assistant_data_result(&producer, &projection, call, tool, episode)
-                    .unwrap(),
+                retained_agent_data_result(&producer, &projection, call, tool, episode).unwrap(),
                 Some(original.clone()),
                 "case {case}"
             );
@@ -998,7 +997,7 @@ mod tests {
             expires_at_unix_ms: Some(500),
             delete_with_run: false,
         };
-        let result = assistant_data_result_envelope(
+        let result = agent_data_result_envelope(
             None,
             std::slice::from_ref(&input),
             "call",
@@ -1104,7 +1103,7 @@ mod tests {
             document_preview: None,
         };
         let envelope = read_result_envelope(
-            &crate::ai_assistant::ai_assistant_provider_registry(),
+            &crate::ai_agent::ai_agent_provider_registry(),
             &call("inspect_desktop_session"),
             &output,
             label(),
@@ -1122,7 +1121,7 @@ mod tests {
 
     #[test]
     fn unknown_tool_and_empty_result_do_not_get_labels() {
-        let registry = crate::ai_assistant::ai_assistant_provider_registry();
+        let registry = crate::ai_agent::ai_agent_provider_registry();
         assert!(
             read_result_envelope(
                 &registry,

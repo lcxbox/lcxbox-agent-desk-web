@@ -28,7 +28,7 @@ fn identities_keep_their_platform_on_every_host() {
     ] {
         let tx = Transaction {
             parent: "/fixture".into(),
-            directory: ".assistant-transaction-fixture".into(),
+            directory: ".agent-transaction-fixture".into(),
             identity,
         };
         let reopened: Transaction =
@@ -46,7 +46,7 @@ fn windows_roundtrip_preserves_high_64_bits_and_all_object_ids() {
     first[8] = 3;
     let tx = Transaction {
         parent: r"C:\fixture".into(),
-        directory: ".assistant-transaction-fixture".into(),
+        directory: ".agent-transaction-fixture".into(),
         identity: TransactionIdentity::Windows {
             files: WindowsIdentity {
                 volume_serial: u64::MAX,
@@ -69,13 +69,13 @@ fn windows_roundtrip_preserves_high_64_bits_and_all_object_ids() {
 
 #[test]
 fn flat_or_unknown_identities_are_rejected() {
-    let flat = json!({"parent": "/fixture", "directory": ".assistant-transaction-fixture",
+    let flat = json!({"parent": "/fixture", "directory": ".agent-transaction-fixture",
         "parent_device": 9, "parent_inode": 10, "directory_inode": 11,
         "original_inode": 12, "staged_inode": 13});
     assert!(serde_json::from_value::<Transaction>(flat).is_err());
     let mut unknown = serde_json::to_value(Transaction {
         parent: "/fixture".into(),
-        directory: ".assistant-transaction-fixture".into(),
+        directory: ".agent-transaction-fixture".into(),
         identity: TransactionIdentity::Unix { files: files() },
     })
     .unwrap();

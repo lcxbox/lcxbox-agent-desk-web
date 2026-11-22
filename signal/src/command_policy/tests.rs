@@ -58,7 +58,7 @@ pub(crate) async fn owner_host(
                 exec_pty_elevation: false,
                 max_ai_command_runtime_ms,
             },
-            ai_assistant_settings: desk_agent_protocol::ai_assistant::AiAssistantSettings {
+            ai_agent_settings: desk_agent_protocol::ai_agent::AiAgentSettings {
                 revision: 1,
                 enabled: true,
             },
@@ -185,7 +185,7 @@ async fn fixture() -> Fixture {
         .await
         .unwrap();
     crate::db::initialize_schema(&db).await.unwrap();
-    crate::ai_assistant_gate::enable_test_host();
+    crate::ai_agent_gate::enable_test_host();
     let connection_id = format!("policy-host-{}", uuid::Uuid::new_v4());
     let connections = SharedConnectionMap::new_oss();
     connections.write().await.insert(
@@ -211,7 +211,7 @@ fn session(grants: &[&str]) -> PersistedAgentSession {
         "policy-conversation",
         crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string(),
         DEVICE,
-        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         desk_agent_protocol::AgentScope {
             granted: vec![],
             mode: desk_agent_protocol::ExecutionMode::ConfirmEachAction,
@@ -523,7 +523,7 @@ fn frozen_macos_disk_scan_plan_executes_the_original_multiline_script_in_an_isol
     use desk_agent_protocol::authz::ExecAdmissionPolicy;
     use desk_agent_protocol::{ExecutionMode, RiskLevel};
     let fixture = tempfile::Builder::new()
-        .prefix("assistant command ")
+        .prefix("agent command ")
         .tempdir()
         .unwrap();
     for (name, bytes) in [("small directory", 4096), ("large directory", 131072)] {

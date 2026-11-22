@@ -1,6 +1,6 @@
 //! File-owned OSS policy; updates retain the existing revision and validation rules.
 use crate::config::{ConfigConnection, connection::DatabaseConnection};
-use desk_agent_protocol::ai_assistant::subagent_policy::{SubAgentPolicy, UpdateSubAgentPolicy};
+use desk_agent_protocol::ai_agent::subagent_policy::{SubAgentPolicy, UpdateSubAgentPolicy};
 use sea_orm::DbErr;
 
 #[derive(Debug)]

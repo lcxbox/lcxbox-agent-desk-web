@@ -1,8 +1,8 @@
 (() => {
-    if (globalThis.__lcxboxBrowserAssistantLoaded) {
+    if (globalThis.__lcxboxBrowserAgentLoaded) {
         return;
     }
-    globalThis.__lcxboxBrowserAssistantLoaded = true;
+    globalThis.__lcxboxBrowserAgentLoaded = true;
     function randomId() {
         const bytes = crypto.getRandomValues(new Uint8Array(16));
         bytes[6] = (bytes[6] & 15) | 64;

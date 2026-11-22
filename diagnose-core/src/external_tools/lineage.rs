@@ -7,7 +7,7 @@ use desk_agent_protocol::data_lineage::{
     Sensitivity,
 };
 
-pub const READ_PROVIDER_ID: &str = "ai-assistant-external-issue";
+pub const READ_PROVIDER_ID: &str = "ai-agent-external-issue";
 const PREFIX: &str = "external-issue-read-";
 const CONTENT_PREFIX: &str = "external-issue-content-";
 const MEDIA_TYPE: &str = "application/json;charset=utf-8";
@@ -241,16 +241,16 @@ mod tests {
         )
         .unwrap();
         assert!(is_issue_read_label(&first));
-        let policy = crate::ai_assistant::source_registry::registered_leaf(
+        let policy = crate::ai_agent::source_registry::registered_leaf(
             &first,
             1,
-            crate::ai_assistant::source_registry::SOURCE_CONTRACT_REVISION,
+            crate::ai_agent::source_registry::SOURCE_CONTRACT_REVISION,
         )
         .unwrap()
         .unwrap();
         assert_eq!(
             policy.contract,
-            crate::ai_assistant::source_registry::RegisteredSourceContract::ExternalIssueResult
+            crate::ai_agent::source_registry::RegisteredSourceContract::ExternalIssueResult
         );
         assert!(policy.policy.derived_visible_text_allowed);
         assert!(!policy.policy.independent_fact_allowed);

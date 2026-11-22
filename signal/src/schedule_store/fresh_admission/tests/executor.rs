@@ -52,9 +52,9 @@ async fn exercise(model_budget: u64) {
         .await
         .unwrap();
     crate::db::initialize_schema(&db).await.unwrap();
-    use desk_agent_protocol::ai_assistant::user_instructions::UserInstructionsUpdate;
-    let first = crate::assistant_data_config::instructions(&db).await;
-    let frozen = crate::assistant_data_config::update_instructions(
+    use desk_agent_protocol::ai_agent::user_instructions::UserInstructionsUpdate;
+    let first = crate::agent_data_config::instructions(&db).await;
+    let frozen = crate::agent_data_config::update_instructions(
         &db,
         &UserInstructionsUpdate {
             expected_revision: first.revision,
@@ -65,7 +65,7 @@ async fn exercise(model_budget: u64) {
     .unwrap();
     let (store, task) =
         crate::schedule_store::tests::enabled_fresh_task_on(db.clone(), None, 1, None).await;
-    crate::assistant_data_config::update_instructions(
+    crate::agent_data_config::update_instructions(
         &db,
         &UserInstructionsUpdate {
             expected_revision: frozen.revision,
@@ -142,12 +142,12 @@ async fn exercise(model_budget: u64) {
             now,
         )
         .unwrap();
-    let gate = Arc::new(AiAssistantGate::new(AiAssistantSettings {
+    let gate = Arc::new(AiAgentGate::new(AiAgentSettings {
         enabled: true,
         revision: 1,
     }));
 
-    let input_seq_before_dispatch = crate::entity::agent_assistant_runtime::Entity::find()
+    let input_seq_before_dispatch = crate::entity::agent_runtime::Entity::find()
         .one(&db)
         .await
         .unwrap()
@@ -174,13 +174,13 @@ async fn exercise(model_budget: u64) {
     let state =
         desk_diagnose_core::session::PersistedAgentSession::decode_json(&session.state_json)
             .unwrap();
-    let data = state.assistant_data.as_ref().unwrap();
+    let data = state.agent_data.as_ref().unwrap();
 
     assert_eq!(data.current_actor_input_seq, 0);
     assert_eq!(data.instructions.accepted_input_seq, 0);
     assert_eq!(data.instructions.content, "ORIGINAL_FRESH_PERSONALIZATION");
     assert!(data.history_access_scope.is_none() && data.memory_access_scope.is_none());
-    let runtime = crate::entity::agent_assistant_runtime::Entity::find()
+    let runtime = crate::entity::agent_runtime::Entity::find()
         .one(&db)
         .await
         .unwrap()

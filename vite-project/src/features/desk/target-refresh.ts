@@ -1,5 +1,5 @@
 import { deskErrorCodeEnum } from '@/services/types';
-import { SIGNALING_TYPE_CODE_AI_ASSISTANT_UPDATED } from './constants';
+import { SIGNALING_TYPE_CODE_AI_AGENT_UPDATED } from './constants';
 
 const TARGET_GONE = new Set<number>([
     deskErrorCodeEnum.TARGET_CONNECTION_CHANGED,
@@ -20,12 +20,12 @@ type RefreshProbe = {
 
 /**
  * Whether a frame says the device must be looked up again: a refused request,
- * or an AI Assistant error event (the central answers AI requests with typed
+ * or an AI Agent error event (the central answers AI requests with typed
  * events rather than an error state).
  */
 export function needsTargetRefresh(message: RefreshProbe): boolean {
     if (isTargetGoneCode(message.response_state?.error_code)) return true;
-    if (message.signaling_type !== SIGNALING_TYPE_CODE_AI_ASSISTANT_UPDATED) return false;
+    if (message.signaling_type !== SIGNALING_TYPE_CODE_AI_AGENT_UPDATED) return false;
     const event = message.signaling_data as { kind?: string; error?: { error_code?: number | null } | null } | null;
     return event?.kind === 'error' && isTargetGoneCode(event.error?.error_code);
 }

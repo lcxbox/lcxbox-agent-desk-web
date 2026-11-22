@@ -4,7 +4,7 @@ use crate::{
     goal_budget_policy::{self, WriteError},
 };
 use actix_web::{HttpResponse, get, put, web};
-use desk_agent_protocol::ai_assistant::goal_budget::{GoalBudgetPolicy, UpdateGoalBudgetPolicy};
+use desk_agent_protocol::ai_agent::goal_budget::{GoalBudgetPolicy, UpdateGoalBudgetPolicy};
 use desk_utils::{error::DeskErrorCode, rest::RestResponse};
 
 fn db() -> Result<&'static crate::config::connection::DatabaseConnection, DeskSignalError> {
@@ -32,8 +32,8 @@ pub async fn get_goal_budget_policy() -> Result<HttpResponse, DeskSignalError> {
     Ok(response(config))
 }
 
-#[utoipa::path(tag = "AiAssistant", responses((status = 200, body = RestResponse<GoalBudgetPolicy>)))]
-#[get("/my/ai-assistant-session/goal/budget-policy")]
+#[utoipa::path(tag = "AiAgent", responses((status = 200, body = RestResponse<GoalBudgetPolicy>)))]
+#[get("/my/ai-agent-session/goal/budget-policy")]
 pub async fn get_my_goal_budget_policy() -> Result<HttpResponse, DeskSignalError> {
     let config = goal_budget_policy::read(db()?).await.map_err(|_| {
         DeskSignalError::new_custom_error(

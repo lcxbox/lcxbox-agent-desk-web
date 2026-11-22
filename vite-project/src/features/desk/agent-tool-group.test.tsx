@@ -1,0 +1,96 @@
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { AgentToolGroup } from './agent-tool-group';
+
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+
+describe('agent tool activity summary', () => {
+    it('describes a returned historical result without implying a failed operation', () => {
+        render(<AgentToolGroup
+            messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}
+            tools={[{ callId: 'call-1', name: 'inspect_desktop_ui', status: 'returned',
+                argumentsJson: '{}', output: '{"ReadContext":{}}' }]}
+            renderMessage={() => <div>Details</div>} />);
+        expect(screen.getByText('pages.aiAgent.workspace.toolGroupReturned')).toBeTruthy();
+        expect(screen.queryByText('pages.aiAgent.workspace.toolGroupSucceeded')).toBeNull();
+    });
+
+    it('counts a confirmed non-send as returned, not as a successful send', () => {
+        const hash = 'a'.repeat(64);
+        const output = JSON.stringify({ schema_version: 4, snapshot_id: 'snapshot',
+            snapshot_sha256: hash, idempotency_key: `send:v1:${hash}`,
+            outcome: 'definitely_not_sent', provider_receipt_id: null,
+            evidence: 'precondition_rejected_before_activation', observed_at_unix_ms: 1 });
+        render(<AgentToolGroup
+            messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}
+            tools={[{ callId: 'call-1', name: 'send_gmail_message', status: 'ok',
+                argumentsJson: '{}', output }]}
+            renderMessage={() => <div>Details</div>} />);
+        expect(screen.getByText('pages.aiAgent.workspace.toolGroupReturned')).toBeTruthy();
+        expect(screen.queryByText('pages.aiAgent.workspace.toolGroupSucceeded')).toBeNull();
+    });
+
+    it('keeps a genuinely unknown action result separate from a successful tool call', () => {
+        const output = JSON.stringify({ work_id: 'work', action_request_id: 'call-1',
+            execution_generation: 'generation', result: 'outcome_unknown', facts: [], output: null });
+        render(<AgentToolGroup
+            messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}
+            tools={[{ callId: 'call-1', name: 'execute_ui_actions', status: 'ok',
+                argumentsJson: '{}', output }]}
+            renderMessage={() => <div>Details</div>} />);
+        expect(screen.getByText('pages.aiAgent.workspace.toolGroupOutcomeUnknown')).toBeTruthy();
+        expect(screen.queryByText('pages.aiAgent.workspace.toolGroupSucceeded')).toBeNull();
+    });
+
+    it('shows a readable failure reason without exposing an opaque JSON receipt while folded', () => {
+        const { container } = render(<AgentToolGroup
+            messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}
+            tools={[{ callId: 'call-1', name: 'execute_ui_actions', status: 'failed',
+                argumentsJson: '{}', output: JSON.stringify({ work_id: '7bca7a6b-75fa-481d-8bc2-e2d026477925',
+                    error: { message: 'Window closed before step 2' } }) }]}
+            renderMessage={() => <div>Details</div>} />);
+        expect(screen.getByText('Window closed before step 2')).toBeTruthy();
+        expect(screen.queryByText(/7bca7a6b/)).toBeNull();
+        expect(container.querySelector('[data-slot="disclosure"]')?.getAttribute('data-state')).toBe('closed');
+    });
+
+    it('shows a not-executed result through its localized summary', () => {
+        render(<AgentToolGroup
+            messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}
+            tools={[{ callId: 'call-1', name: 'restore_command_changes', status: 'failed', argumentsJson: '{}',
+                output: 'not executed: the owner refused this call' }]}
+            renderMessage={() => <div>Details</div>} />);
+        expect(screen.getByText('pages.aiAgent.notExecuted.format')).toBeTruthy();
+        expect(screen.queryByText(/not executed/)).toBeNull();
+    });
+
+    it('counts a fixed outcome-unknown result as unknown, not failed, and explains it', () => {
+        for (const output of [
+            'Execution did not return a conclusive receipt. Read the current target state before choosing the next action.',
+            JSON.stringify({ work_id: 'work', error: { message: 'File restore outcome is unknown; recovery material has been retained and the operation will not be repeated' } }),
+        ]) {
+            const { unmount } = render(<AgentToolGroup
+                messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}
+                tools={[{ callId: 'call-1', name: 'restore_text_file', status: 'failed', argumentsJson: '{}', output }]}
+                renderMessage={() => <div>Details</div>} />);
+            expect(screen.getByText('pages.aiAgent.workspace.toolGroupOutcomeUnknown')).toBeTruthy();
+            expect(screen.queryByText('pages.aiAgent.workspace.toolGroupFailed')).toBeNull();
+            expect(screen.getByText(/^pages\.aiAgent\.outcomeUnknown\.(noConclusiveReceipt|fileRestore)$/)).toBeTruthy();
+            expect(screen.queryByText('pages.aiAgent.outcomeUnknown.format')).toBeNull();
+            expect(screen.queryByText(/conclusive receipt|recovery material/)).toBeNull();
+            unmount();
+        }
+    });
+
+    it('summarizes a decision receipt by its decision instead of a returned result', () => {
+        render(<AgentToolGroup
+            messages={[{ id: 'call', role: 'tool_call', toolCallId: 'call-1', text: '' }]}
+            tools={[{ callId: 'call-1', name: 'propose_skill', status: 'ok', argumentsJson: '{}',
+                output: '{"proposal_id":"p1","status":"pending","awaiting_decision":true}',
+                decision: { kind: 'skill', requestId: 'p1', state: 'approved', decidedBy: 'owner' } }]}
+            renderMessage={() => <div>Details</div>} />);
+        expect(screen.getByText('pages.aiAgent.decision.state.approved · pages.aiAgent.decision.by.owner')).toBeTruthy();
+        expect(screen.queryByText('pages.aiAgent.workspace.toolGroupReturned')).toBeNull();
+        expect(screen.queryByText('pages.aiAgent.workspace.toolGroupSucceeded')).toBeNull();
+    });
+});

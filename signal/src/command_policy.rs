@@ -1,4 +1,4 @@
-//! Fresh command policy for authenticated single-account assistant requests.
+//! Fresh command policy for authenticated single-account agent requests.
 
 use crate::config::connection::DatabaseConnection;
 use desk_agent_protocol::authz::ExecAdmissionPolicy;
@@ -27,7 +27,7 @@ pub(crate) async fn current(
         error_code: None,
     };
     if actor_id != crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string()
-        || !crate::ai_assistant_gate::global_ai_assistant_gate().is_enabled()
+        || !crate::ai_agent_gate::global_ai_agent_gate().is_enabled()
     {
         return Err(denied());
     }
@@ -68,7 +68,7 @@ pub(crate) async fn current(
             "{}:{}",
             target_connection_id, readiness.readiness.interactive_session_incarnation
         ),
-        policy_revision: desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        policy_revision: desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         admission_policy: ExecAdmissionPolicy::OwnerInteractive,
         execution_mode: mode,
         max_risk: RiskLevel::Critical,

@@ -2,17 +2,17 @@
 
 use crate::entity::agent_session;
 use crate::{
-    ai_assistant_gate::AiAssistantGate,
+    ai_agent_gate::AiAgentGate,
     config::connection::{DatabaseConnection, DatabaseTransaction},
     issue_connections,
 };
-use desk_agent_protocol::AgentError;
-use desk_assistant_data_store::{
+use desk_agent_data_store::{
     entity::agent_issue_source,
     issue_authority,
     issue_events::{self, SourceClaim},
     main_request,
 };
+use desk_agent_protocol::AgentError;
 use desk_diagnose_core::{issue_authority::IssueSubscription, session::PersistedAgentSession};
 use desk_signal_facade::mcp_client::{
     issue_connection::RepositoryCommentPage, settings::IssueConnectionConfig,
@@ -29,7 +29,7 @@ const RETRY_DELAY_MS: i64 = 5_000;
 
 pub async fn scan_once(
     db: &DatabaseConnection,
-    gate: &AiAssistantGate,
+    gate: &AiAgentGate,
     after: i64,
 ) -> Result<i64, AgentError> {
     if !gate.is_enabled() {
@@ -57,7 +57,7 @@ pub async fn scan_once(
 
 async fn poll_source(
     db: &DatabaseConnection,
-    gate: &AiAssistantGate,
+    gate: &AiAgentGate,
     hint: &agent_issue_source::Model,
     token: &str,
 ) -> Result<(), AgentError> {
@@ -118,7 +118,7 @@ async fn read_page(
 
 async fn finish_page(
     db: &DatabaseConnection,
-    gate: &AiAssistantGate,
+    gate: &AiAgentGate,
     claim: &SourceClaim,
     connection: Option<&IssueConnectionConfig>,
     page: Result<RepositoryCommentPage, &'static str>,
@@ -194,7 +194,7 @@ async fn coordinator_on(
     .then_some(held))
 }
 
-fn store(error: desk_assistant_data_store::AssistantStoreError) -> AgentError {
+fn store(error: desk_agent_data_store::AgentStoreError) -> AgentError {
     error.into_agent_error()
 }
 fn unavailable() -> AgentError {

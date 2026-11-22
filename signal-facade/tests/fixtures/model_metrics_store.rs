@@ -162,7 +162,7 @@ fn call_event(id: &str, started: i64, outcome: RequestOutcome) -> ObservationEve
         attribution: Attribution {
             provider_id:"provider-1".into(), model_id:"model-1".into(), model_name:"Test model".into(),
             configuration_revision:"1".into(), contract_revision:"1".into(),
-            purpose:Purpose::Agent, surface:Surface::Assistant, origin:Origin::User,
+            purpose:Purpose::Agent, surface:Surface::Agent, origin:Origin::User,
             configuration_scope:ConfigurationScope::Local, protocol:Protocol::OpenAiChatCompletions,
         },
         payload:ObservationPayload::Call(CallSnapshot { outcome, output:if outcome==RequestOutcome::Returned { OutputOutcome::Accepted } else { OutputOutcome::NotEvaluated },
@@ -178,7 +178,7 @@ fn query(from: i64, to: i64) -> ResolvedQuery {
 async fn unsent_unresolved_calls_keep_one_unknown_group_and_do_not_change_model_quality_denominators() {
     let store = fixture_store(NOW-DAY).await;
     let mut unsent = call_event("unresolved-preflight", NOW, RequestOutcome::NotStarted);
-    unsent.attribution = Attribution::unresolved(Purpose::Agent, Surface::Assistant, Origin::User);
+    unsent.attribution = Attribution::unresolved(Purpose::Agent, Surface::Agent, Origin::User);
     if let ObservationPayload::Call(call) = &mut unsent.payload {
         call.not_started_reason = Some(NotStartedReason::Configuration);
     }
@@ -649,7 +649,7 @@ async fn goal_and_directory_receipts_resolve_production_sized_aliases_after_late
         let mut received=Vec::new();
         let (expected,key)=if is_goal {
             let binding=GoalModelBinding { connection_id:"connection".into(),connection_revision:1,profile_revision:1,model_id:"model-1".into() };
-            let mut request=GoalOpenRequest::new(request_id.clone(),run.clone(),"owner".into(),desk_diagnose_core::dynamic_run::AssistantInputTarget::fixed("device".into()),"device".into(),
+            let mut request=GoalOpenRequest::new(request_id.clone(),run.clone(),"owner".into(),desk_diagnose_core::dynamic_run::AgentInputTarget::fixed("device".into()),"device".into(),
                 "private-source-message".into(),1,"private-goal-text".into(),GoalLimits::default(),binding.clone(),NOW as u64).unwrap();
             let (outcome,key)=match case {
                 "goal_approved"=>{
@@ -671,7 +671,7 @@ async fn goal_and_directory_receipts_resolve_production_sized_aliases_after_late
             let mut session=desk_diagnose_core::session::PersistedAgentSession::new(&run,"owner","device",1,
                 desk_agent_protocol::AgentScope { granted:vec![],mode:desk_agent_protocol::ExecutionMode::ReadOnly,expires_at:None,policy_name:None },
                 timestamp(NOW));
-            session.adopt_client_metadata(Some("browser-run"),desk_diagnose_core::session::AgentSessionSurface::AiAssistant);
+            session.adopt_client_metadata(Some("browser-run"),desk_diagnose_core::session::AgentSessionSurface::AiAgent);
             let subject=session.file_scope_subject("owner","device",&run).unwrap();
             let proposal=DirectoryProposal { request_id:request_id.clone(),requested_path:"/private/path".into(),
                 canonical_path:"/private/canonical".into(),purpose:"private directory purpose".into(),source:DirectoryConsentSource::ModelProposal,

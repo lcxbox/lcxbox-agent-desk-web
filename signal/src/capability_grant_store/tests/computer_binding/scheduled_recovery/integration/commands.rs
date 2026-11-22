@@ -31,7 +31,7 @@ async fn fixture(db: DatabaseConnection) -> (ScheduleStore, String, String) {
     )
     .unwrap();
     let mut session = owner_session(&db, user.clone()).await;
-    let mut proposal = ChatMessage::assistant_tool_calls(
+    let mut proposal = ChatMessage::agent_tool_calls(
         "command-proposal",
         "Run the approved command",
         vec![ToolCallRef {
@@ -80,7 +80,7 @@ async fn fixture(db: DatabaseConnection) -> (ScheduleStore, String, String) {
     .await
     .unwrap();
     exec.mark_unsent("old-generation").await.unwrap();
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let mut origin = ActionResultOrigin::capture(&registry, &session, &call).unwrap();
     let now = Utc::now().timestamp_millis() as u64;
     let context = desk_diagnose_core::command_completion::CommandCompletionContext::capture(

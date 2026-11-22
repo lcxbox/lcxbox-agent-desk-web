@@ -41,13 +41,13 @@ pub(crate) async fn resolve_candidate(
             caller_type: CallerType::Human,
             model_provider: None,
             model_name: None,
-            adapter: Some("assistant-directory-selection".into()),
+            adapter: Some("agent-directory-selection".into()),
         },
         scope: AgentScope {
             granted: vec![Capability::FileMetadataRead],
             mode: ExecutionMode::ReadOnly,
             expires_at: Some(expiry.to_rfc3339()),
-            policy_name: Some("assistant-directory-selection".into()),
+            policy_name: Some("agent-directory-selection".into()),
         },
         operation: AgentOperation {
             risk_hint: None,

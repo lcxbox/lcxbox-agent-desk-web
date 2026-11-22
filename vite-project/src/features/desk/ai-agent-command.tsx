@@ -1,0 +1,58 @@
+import { useTranslation } from 'react-i18next';
+import { CommandSnapshotNotice, validSnapshotNotice, type SnapshotNotice } from './agent-command-changes';
+import { CommandSandboxNotice, sandboxMatchesSnapshot, validCommandSandbox, type CommandSandbox } from './agent-command-sandbox';
+
+export interface CommandReview {
+    command: string;
+    shell: string;
+    cwd?: string | null;
+    targetDeviceId: string;
+    targetSessionId: string;
+    timeoutMs: number;
+    maxStdoutBytes: number;
+    maxStderrBytes: number;
+    executionBasis: string;
+    oneShot: boolean;
+    snapshot?: SnapshotNotice | null;
+    /** How the command runs; a card without a consistent block cannot be approved. */
+    sandbox: CommandSandbox;
+}
+
+export function validCommandReview(input: unknown): input is CommandReview {
+    if (!input || typeof input !== 'object') return false;
+    const value = input as CommandReview;
+    return Boolean(typeof value.command === 'string' && value.command.trim()
+        && typeof value.shell === 'string' && ['powershell', 'pwsh', 'bash', 'sh'].includes(value.shell)
+        && typeof value.targetDeviceId === 'string' && value.targetDeviceId.trim()
+        && typeof value.targetSessionId === 'string' && value.targetSessionId.trim() && value.oneShot === true
+        && (value.cwd == null || (typeof value.cwd === 'string' && value.cwd.length > 0))
+        && Number.isInteger(value.timeoutMs) && value.timeoutMs > 0
+        && Number.isInteger(value.maxStdoutBytes) && value.maxStdoutBytes > 0
+        && Number.isInteger(value.maxStderrBytes) && value.maxStderrBytes > 0
+        && ['template', 'owner_blocklist_only'].includes(value.executionBasis)
+        && (value.snapshot == null || validSnapshotNotice(value.snapshot))
+        && validCommandSandbox(value.sandbox) && sandboxMatchesSnapshot(value.sandbox, value.snapshot?.roots));
+}
+
+export function CommandConfirmationCard({ value }: { value: CommandReview }) {
+    const { t } = useTranslation();
+    return (
+        <div className="mt-3 space-y-2 rounded-md border p-3 text-xs" data-testid="command-confirmation">
+            <p className="font-semibold">{t('pages.aiAgent.commandConfirmTitle')}</p>
+            <p>{t(value.executionBasis === 'owner_blocklist_only'
+                ? 'pages.aiAgent.commandFreeformWarning'
+                : 'pages.aiAgent.commandOneShot')}</p>
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2">{value.command}</pre>
+            <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1">
+                <dt>{t('pages.aiAgent.commandShell')}</dt><dd>{value.shell}</dd>
+                <dt>{t('pages.aiAgent.commandCwd')}</dt><dd className="break-all">{value.cwd ?? t('pages.aiAgent.commandDefaultCwd')}</dd>
+                <dt>{t('pages.aiAgent.commandTarget')}</dt><dd className="break-all">{value.targetDeviceId} / {value.targetSessionId}</dd>
+                <dt>{t('pages.aiAgent.commandLimits')}</dt><dd>{t('pages.aiAgent.commandLimitsValue', {
+                    seconds: value.timeoutMs / 1000, stdout: value.maxStdoutBytes, stderr: value.maxStderrBytes,
+                })}</dd>
+            </dl>
+            <CommandSandboxNotice value={value.sandbox} />
+            {value.snapshot && <CommandSnapshotNotice value={value.snapshot} />}
+        </div>
+    );
+}

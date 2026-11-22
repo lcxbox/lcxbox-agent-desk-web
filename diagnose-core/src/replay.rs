@@ -1,4 +1,4 @@
-//! Opaque provider replay material carried with assistant replies.
+//! Opaque provider replay material carried with agent replies.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -137,7 +137,7 @@ pub enum ReplayUnavailableReason {
     UnsupportedCodec,
 }
 
-/// Replay decision frozen when an assistant response is parsed.
+/// Replay decision frozen when an agent response is parsed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ReplayDisposition {
@@ -266,7 +266,7 @@ impl std::fmt::Display for ReplayError {
             Self::UnsupportedCodec(codec) => write!(f, "unsupported replay codec: {codec:?}"),
             Self::InvalidPayload(detail) => write!(f, "invalid replay payload: {detail}"),
             Self::MissingOrUnexpectedDisposition => {
-                f.write_str("assistant tool-call responses require a replay disposition")
+                f.write_str("agent tool-call responses require a replay disposition")
             }
         }
     }

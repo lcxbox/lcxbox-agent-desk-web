@@ -265,7 +265,7 @@ async fn execute(protocol: WireProtocol, mode: CaptureMode) -> BusinessResult {
     let model = ObservedAdapter { parts: adapter(&url, protocol), collector: collector.clone(), calls: Cell::new(0) };
     let mut seeded = PersistedAgentSession::new("chain-conversation", "owner", "device", 1,
         scope(), "2026-10-08T00:00:00Z");
-    seeded.surface = AgentSessionSurface::AiAssistant;
+    seeded.surface = AgentSessionSurface::AiAgent;
     seeded.input_revision = 1;
     seeded.latest_input_seq = 1;
     seeded.focus_epoch.input_revision = 1;

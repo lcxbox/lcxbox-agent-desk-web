@@ -230,7 +230,7 @@ impl SignalScheduleExecutor {
         else {
             return DeviceWaitStatus::Waiting;
         };
-        let Some(settings) = connection.model.ai_assistant_settings.as_ref() else {
+        let Some(settings) = connection.model.ai_agent_settings.as_ref() else {
             return DeviceWaitStatus::Waiting;
         };
         if !settings.enabled {
@@ -293,7 +293,7 @@ impl SignalScheduleExecutor {
         let db = self.db.clone();
         let gate = self.gate.clone();
         match owned_task::run(async move {
-            crate::ai_assistant_orchestrator::resume_subagent_turn(connections, db, &gate, runtime)
+            crate::ai_agent_orchestrator::resume_subagent_turn(connections, db, &gate, runtime)
                 .await
         })
         .await

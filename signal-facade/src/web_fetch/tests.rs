@@ -48,7 +48,7 @@ async fn read_page(
     // Every result passes the validator both hosts apply before retention
     // and model use.
     desk_diagnose_core::provider_preflight::read::limits::validate_output(
-        &desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+        &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         &desk_diagnose_core::chat::ToolCall {
             id: "fetch".into(),
             name: desk_diagnose_core::web_research::WEB_FETCH_TOOL_NAME.into(),

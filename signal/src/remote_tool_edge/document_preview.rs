@@ -43,13 +43,13 @@ pub(crate) async fn render_page(
             caller_type: CallerType::Human,
             model_provider: None,
             model_name: None,
-            adapter: Some("assistant-document-preview-page".into()),
+            adapter: Some("agent-document-preview-page".into()),
         },
         scope: AgentScope {
             granted: vec![Capability::DocumentPreview],
             mode: ExecutionMode::ReadOnly,
             expires_at: Some(expiry.to_rfc3339()),
-            policy_name: Some("assistant-document-preview-page".into()),
+            policy_name: Some("agent-document-preview-page".into()),
         },
         operation: AgentOperation {
             risk_hint: None,

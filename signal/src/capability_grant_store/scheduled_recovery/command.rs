@@ -310,7 +310,7 @@ async fn validate_command_origin_on(
         || origin.provider_id != payload.provider_id
         || (history.is_none()
             && session.agent_role.is_main()
-            && AssistantTurnFence::from_session(session)
+            && AgentTurnFence::from_session(session)
                 .map_err(|_| invalid())?
                 .as_ref()
                 != Some(&origin.turn_fence))
@@ -396,7 +396,7 @@ async fn validate_command_origin_on(
             .map_err(|_| invalid())?;
     } else if history.is_none() {
         let mut expected = ActionResultOrigin::capture(
-            &desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+            &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
             session,
             &call,
         )

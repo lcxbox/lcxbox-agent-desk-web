@@ -5,7 +5,7 @@ async fn application_catalog_passes_observation_gate_and_reaches_remote_dispatch
     let db = crate::config::test_support::Database::connect("sqlite::memory:")
         .await
         .unwrap();
-    let registry = desk_diagnose_core::ai_assistant::ai_assistant_provider_registry();
+    let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let capability = registry.capability_for_tool("list_applications").unwrap();
     let provider = registry
         .provider_for_capability(&capability.wire.capability_id)
@@ -47,7 +47,7 @@ async fn application_catalog_passes_observation_gate_and_reaches_remote_dispatch
         revoked_reason: None,
     };
     grant.validate().unwrap();
-    let tools = SignalAiAssistantTools::new(
+    let tools = SignalAiAgentTools::new(
         db,
         registry,
         Arc::new(SharedConnectionMap::default()),
@@ -151,11 +151,11 @@ async fn an_unapproved_launch_asks_for_approval_instead_of_failing() {
         "run",
         "owner",
         "device",
-        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         scope.clone(),
         "1970-01-01T00:00:00Z",
     );
-    session.surface = desk_diagnose_core::session::AgentSessionSurface::AiAssistant;
+    session.surface = desk_diagnose_core::session::AgentSessionSurface::AiAgent;
     session.begin_focus_epoch(1, Vec::new()).unwrap();
     session.input_revision = 1;
     let now = chrono::DateTime::from_timestamp_millis(1).unwrap();
@@ -176,9 +176,9 @@ async fn an_unapproved_launch_asks_for_approval_instead_of_failing() {
     .insert(&db)
     .await
     .unwrap();
-    let tools = SignalAiAssistantTools::new(
+    let tools = SignalAiAgentTools::new(
         db,
-        desk_diagnose_core::ai_assistant::ai_assistant_provider_registry(),
+        desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         Arc::new(SharedConnectionMap::default()),
         Arc::new(SignalRemoteToolPendingStore::default()),
         "host".into(),
@@ -198,7 +198,7 @@ async fn an_unapproved_launch_asks_for_approval_instead_of_failing() {
         "open Calculator".into(),
         "run".into(),
         "turn".into(),
-        desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         1,
         vec![],
         30_000,
@@ -211,12 +211,12 @@ async fn an_unapproved_launch_asks_for_approval_instead_of_failing() {
                 .into(),
     };
     let ctx = ExecContext {
-        assistant_turn_fence: None,
+        agent_turn_fence: None,
         conversation_id: "run".into(),
         turn_id: "turn".into(),
         tool_call_id: "launch".into(),
         actor_id: "owner".into(),
-        policy_revision: desk_diagnose_core::assistant_policy::PERSONAL_ASSISTANT_POLICY_REVISION,
+        policy_revision: desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         scope,
         connection_id: None,
     };

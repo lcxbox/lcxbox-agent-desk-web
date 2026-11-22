@@ -221,7 +221,7 @@ impl SubAgentStore {
                 && run.binding.input_revision == expected.input_revision
                 && run.binding.control_revision == expected.control_revision
                 && let Some(report) =
-                    desk_assistant_data_store::worker_report::first_matching_report_on(
+                    desk_agent_data_store::worker_report::first_matching_report_on(
                         &txn,
                         &run,
                         wait.report_wait.requests[index].after_seq,

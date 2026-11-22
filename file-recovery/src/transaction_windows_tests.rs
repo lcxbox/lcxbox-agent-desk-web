@@ -422,7 +422,7 @@ fn failed_preparing_publication_blocks_the_change_until_reopen() {
     assert!(
         !root
             .path()
-            .join(format!(".assistant-transaction-{id}"))
+            .join(format!(".agent-transaction-{id}"))
             .exists()
     );
     assert_eq!(fs::read(&source).unwrap(), b"before");

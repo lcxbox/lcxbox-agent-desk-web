@@ -171,16 +171,15 @@ async fn adjustment_between_child_checkpoint_plan_and_save_rejects_old_summary_a
             "root",
             "1",
             "1",
-            &desk_agent_protocol::ai_assistant::subagent::AiAssistantSubAgentControl {
+            &desk_agent_protocol::ai_agent::subagent::AiAgentSubAgentControl {
                 client_request_id: "adjust-during-checkpoint".into(),
                 task_id: binding.task_id.clone(),
                 expected_input_revision: binding.input_revision,
                 expected_control_revision: binding.control_revision,
-                action:
-                    desk_agent_protocol::ai_assistant::subagent::SubAgentControlAction::Adjust {
-                        client_timezone: "UTC".into(),
-                        message: "Investigate the revised symptom".into(),
-                    },
+                action: desk_agent_protocol::ai_agent::subagent::SubAgentControlAction::Adjust {
+                    client_timezone: "UTC".into(),
+                    message: "Investigate the revised symptom".into(),
+                },
             },
         )
         .await

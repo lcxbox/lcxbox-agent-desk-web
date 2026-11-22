@@ -22,7 +22,7 @@ pub(crate) fn is_window(node: &super::super::CollectedUiNode) -> bool {
 pub(crate) fn adapter() -> (ComputerUseAdapterKind, &'static str) {
     (
         ComputerUseAdapterKind::LinuxAtspi,
-        desk_diagnose_core::ai_assistant::LINUX_ATSPI_ADAPTER_VERSION,
+        desk_diagnose_core::ai_agent::LINUX_ATSPI_ADAPTER_VERSION,
     )
 }
 

@@ -46,9 +46,9 @@ async fn approval_routes_reject_ordinary_scoped_and_anonymous_before_accessing_s
             None
         };
         for path in [
-            "/my/ai-assistant-session/approval-reviews?session=foreign",
-            "/my/ai-assistant-session/approval-review?session=foreign&id=foreign",
-            "/my/ai-assistant-session/approval-review/parts?session=foreign&id=foreign&kind=input",
+            "/my/ai-agent-session/approval-reviews?session=foreign",
+            "/my/ai-agent-session/approval-review?session=foreign&id=foreign",
+            "/my/ai-agent-session/approval-review/parts?session=foreign&id=foreign&kind=input",
             "/model/metrics/approval/overview",
             "/admin/approval-trace-settings",
             "/admin/approval-runtime-settings",
