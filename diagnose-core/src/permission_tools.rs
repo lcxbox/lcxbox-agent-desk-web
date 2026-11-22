@@ -1,8 +1,9 @@
-//! Internal permission-planning control tool.
+//! Server-side permission planning.
 //!
-//! The model may propose a bounded batch, but the server resolves every
-//! provider/tool/effect against the compiled registry and only persists a
-//! `PermissionRequest`. This module cannot create a grant or dispatch work.
+//! A direct tool call without a matching grant is turned into an internal
+//! proposal; the server resolves every provider/tool/effect against the
+//! compiled registry and only persists a `PermissionRequest`. This module
+//! cannot create a grant or dispatch work.
 
 use crate::command_confirmation::CommandConfirmation;
 use std::collections::BTreeSet;
@@ -1257,33 +1258,20 @@ pub(crate) fn same_permission_action(
         && left.launch_confirmation == right.launch_confirmation
 }
 
-/// Locate the agent call that proposed `request_id`: an explicit
-/// `request_permissions` call whose result recorded it, or the direct call it
-/// was synthesized from (its first item id is that call's id). Returns
-/// (message index, call index).
+/// Locate the direct agent call that proposed `request_id`: the request's
+/// first item id is that call's id. Returns (message index, call index).
 pub fn proposing_call(
     session: &crate::session::PersistedAgentSession,
     request_id: &str,
 ) -> Option<(usize, usize)> {
     let conversation = &session.conversation;
-    let call_id = conversation
+    let call_id = session
+        .permission_requests
         .iter()
-        .find_map(|message| {
-            let call_id = message.tool_call_id.as_deref()?;
-            let value: serde_json::Value = serde_json::from_str(&message.text).ok()?;
-            (value.get("status")?.as_str()? == "pending_user_decision"
-                && value.get("request_id")?.as_str()? == request_id)
-                .then_some(call_id)
-        })
-        .or_else(|| {
-            session
-                .permission_requests
-                .iter()
-                .find(|request| request.request_id == request_id)?
-                .items
-                .first()
-                .map(|item| item.item_id.as_str())
-        })?;
+        .find(|request| request.request_id == request_id)?
+        .items
+        .first()
+        .map(|item| item.item_id.as_str())?;
     conversation
         .iter()
         .enumerate()
@@ -1337,8 +1325,8 @@ pub(crate) fn owner_denied_tool(
 pub(crate) const SYNTHESIZED_REASON: &str = "Requested by the agent's tool call.";
 
 /// Build the permission proposal implied by one resolved direct tool call. The
-/// result is an internal `request_permissions` call with the same call id; it
-/// passes through the same planner and validation as an explicit proposal.
+/// result is an internal `request_permissions` call with the same call id,
+/// which the planner validates and turns into a request.
 ///
 /// The input form follows the tool's permission input mode, so grant breadth is
 /// fixed by the server: exact tools bind these arguments, side-effecting tools

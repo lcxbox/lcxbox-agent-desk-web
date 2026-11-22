@@ -70,7 +70,6 @@ pub(super) async fn pause<F: FnMut() -> String>(
         &request.request_id,
         &issuing_message_id,
         remaining,
-        false,
     ));
     let event_seq = session.last_event_seq.checked_add(1).ok_or_else(invalid)?;
     let event = crate::dynamic_run::PermissionRequestedEvent {

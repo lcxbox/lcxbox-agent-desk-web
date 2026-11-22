@@ -35,7 +35,6 @@ pub(super) fn step_marker(
     request_id: &str,
     issuing_message_id: &str,
     remaining: &[crate::chat::ToolCall],
-    owes_resume_bridge: bool,
 ) -> crate::session::AwaitingPermission {
     let issuing = session.conversation.iter().rposition(|message| {
         message.role == ChatRole::Assistant && message.message_id == issuing_message_id
@@ -49,21 +48,20 @@ pub(super) fn step_marker(
             .filter(|call| issuing.is_none_or(|index| !session.answered_after(index, &call.id)))
             .map(|call| call.id.clone())
             .collect(),
-        owes_resume_bridge,
         ..Default::default()
     }
 }
 
 /// Validate `call` as a permission proposal, record it and pause the turn.
 /// A rejected proposal is returned to the model as this call's result.
-/// `shown` is the model's own call: the explicit `request_permissions` call, or
-/// the direct tool call from which `call` was synthesized with the same id.
+/// `direct` is the model's tool call from which `call` was synthesized with
+/// the same id.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn propose<F: FnMut() -> String>(
+async fn propose<F: FnMut() -> String>(
     deps: &LoopDeps<'_>,
     session: &mut crate::session::PersistedAgentSession,
     call: &crate::chat::ToolCall,
-    shown: &crate::chat::ToolCall,
+    direct: &crate::chat::ToolCall,
     context: ProposalContext<'_>,
     mint: &mut F,
     tool_observation: &crate::model_observability::tool::ToolObservation,
@@ -75,14 +73,7 @@ pub(super) async fn propose<F: FnMut() -> String>(
         issuing_message_id,
         ..
     } = context;
-    let synthesized = shown.name != crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME;
-    // Request states are server-authored.
-    let status_source = if synthesized {
-        ServerResultSource::PermissionRequestStatus
-    } else {
-        ServerResultSource::RequestPermissions
-    };
-    sink.on_tool_started(&shown.name, &shown.id, &shown.arguments_json);
+    sink.on_tool_started(&direct.name, &direct.id, &direct.arguments_json);
     let created_at = (deps.clock)();
     let request_id = stable_lineage_id(
         "permission-request",
@@ -132,15 +123,6 @@ pub(super) async fn propose<F: FnMut() -> String>(
     };
     match request {
         Ok(request) => {
-            // An explicit proposal owns its complete input, so its
-            // preparatory schemas retire. A direct call keeps its
-            // schema: the model calls it again after approval.
-            if !synthesized {
-                session
-                    .capability_disclosure
-                    .loaded_tool_names
-                    .retain(|name| !request.items.iter().any(|item| item.tool_name == *name));
-            }
             let existing = session
                 .permission_requests
                 .iter()
@@ -179,9 +161,7 @@ pub(super) async fn propose<F: FnMut() -> String>(
                 }
                 other => other,
             };
-            if let (Some(existing), Some(group_id), true) =
-                (&existing, &waits_on_group, synthesized)
-            {
+            if let (Some(existing), Some(group_id)) = (&existing, &waits_on_group) {
                 // The held call runs once the group settles: the last
                 // member's resume releases it.
                 tool_observation.permission(crate::model_observability::PermissionOutcome::Waiting);
@@ -191,7 +171,6 @@ pub(super) async fn propose<F: FnMut() -> String>(
                     &existing.request_id,
                     issuing_message_id,
                     remaining,
-                    false,
                 );
                 marker.group_id = Some(group_id.clone());
                 session.pause_for_permission(marker);
@@ -214,10 +193,7 @@ pub(super) async fn propose<F: FnMut() -> String>(
                     existing.state,
                     actor,
                 ));
-                // An approval inside a group that is not decided in full
-                // grants nothing yet: to the model it is still pending.
                 let decision_state = match existing.state {
-                    _ if waits_on_group.is_some() => "pending_user_decision",
                     crate::dynamic_run::PermissionRequestState::Pending => "pending",
                     crate::dynamic_run::PermissionRequestState::NeedsRevalidation => {
                         "needs_revalidation"
@@ -239,35 +215,18 @@ pub(super) async fn propose<F: FnMut() -> String>(
                     &call.id,
                     &content,
                     parent_envelope,
-                    status_source,
+                    ServerResultSource::PermissionRequestStatus,
                 )?);
                 finish_tool(session, &call.id, true, sink);
-                if existing.state.can_user_decide() || waits_on_group.is_some() {
-                    if !synthesized && existing.input_revision == session.input_revision {
-                        // An explicit request call has its receipt: the step
-                        // continues after the decision, then the model sees
-                        // the decision through the resume bridge.
-                        let mut marker = step_marker(
-                            session,
-                            &call.id,
-                            &existing.request_id,
-                            issuing_message_id,
-                            remaining,
-                            true,
-                        );
-                        marker.group_id =
-                            existing.group.as_ref().map(|group| group.group_id.clone());
-                        session.pause_for_permission(marker);
-                    } else {
-                        append_unstarted_tool_results(
-                            session,
-                            remaining,
-                            parent_envelope,
-                            &mut *mint,
-                            EXISTING_DECISION_CLOSED,
-                            ServerResultSource::PermissionPauseClosed,
-                        )?;
-                    }
+                if existing.state.can_user_decide() {
+                    append_unstarted_tool_results(
+                        session,
+                        remaining,
+                        parent_envelope,
+                        &mut *mint,
+                        EXISTING_DECISION_CLOSED,
+                        ServerResultSource::PermissionPauseClosed,
+                    )?;
                     deps.session_seam.save(session).await?;
                     sink.on_permission_requested(&existing.request_id, existing.items.len());
                     return Ok(Some(LoopOutcome::PermissionRequested {
@@ -286,7 +245,6 @@ pub(super) async fn propose<F: FnMut() -> String>(
                             deps,
                             session,
                             &request,
-                            !synthesized,
                             context,
                             planning,
                             &created_at,
@@ -301,12 +259,10 @@ pub(super) async fn propose<F: FnMut() -> String>(
                     deps,
                     session,
                     call,
-                    synthesized,
                     &request,
                     members,
                     context,
                     &created_at,
-                    mint,
                     tool_observation,
                     sink,
                 )
@@ -342,31 +298,9 @@ pub(super) async fn propose<F: FnMut() -> String>(
             }
             // A direct call keeps no result while it waits: its approval
             // resume runs it, and any other continuation closes it first.
-            let result = if synthesized {
-                None
-            } else {
-                Some(ChatMessage::tool_result_from(
-                    mint(),
-                    &call.id,
-                    &crate::model_content::ModelContent::json(&PendingDecisionReceipt {
-                        status: "pending_user_decision",
-                        request_id: crate::model_content::ServerId::new(&request.request_id),
-                        item_count: request.items.len(),
-                        authority: "none",
-                    })?,
-                    parent_envelope,
-                    status_source,
-                )?)
-            };
             let event_seq = next_event_seq(session.last_event_seq)?;
-            let event = requested_event(
-                session,
-                &request,
-                event_seq,
-                parent_envelope,
-                result.as_ref(),
-                &created_at,
-            )?;
+            let event =
+                requested_event(session, &request, event_seq, parent_envelope, &created_at)?;
             // The bounded request list keeps every request a decision is still
             // pending for. When none can make room, this call gets a result
             // and the step continues.
@@ -395,22 +329,15 @@ pub(super) async fn propose<F: FnMut() -> String>(
                 finish_tool(session, &call.id, false, sink);
                 return Ok(None);
             }
-            if let Some(message) = result {
-                session.conversation.push(message);
-            }
             // The step's later calls keep no result: they continue after the
-            // decision. An explicit request call with no later call needs no
-            // marker; its receipt answers it.
-            if synthesized || !remaining.is_empty() {
-                session.pause_for_permission(step_marker(
-                    session,
-                    &call.id,
-                    &request.request_id,
-                    issuing_message_id,
-                    remaining,
-                    !synthesized,
-                ));
-            }
+            // decision.
+            session.pause_for_permission(step_marker(
+                session,
+                &call.id,
+                &request.request_id,
+                issuing_message_id,
+                remaining,
+            ));
             session.last_event_seq = event_seq;
             deps.session_seam
                 .save_permission_request(session, &event)
@@ -474,10 +401,8 @@ fn requested_event(
     request: &crate::dynamic_run::PermissionRequest,
     event_seq: u64,
     parent_envelope: Option<&desk_agent_protocol::data_lineage::DataEnvelope>,
-    result: Option<&ChatMessage>,
     created_at: &str,
 ) -> Result<crate::dynamic_run::PermissionRequestedEvent, AgentError> {
-    let result_envelope = result.and_then(|message| message.data_envelope.as_ref());
     let event = crate::dynamic_run::PermissionRequestedEvent {
         approval_mode_revision: None,
         event: crate::dynamic_run::AgentRunEvent {
@@ -494,9 +419,7 @@ fn requested_event(
             source_envelope_ids: parent_envelope
                 .map(|envelope| vec![envelope.envelope_id.clone()])
                 .unwrap_or_default(),
-            result_envelope_ids: result_envelope
-                .map(|envelope| vec![envelope.envelope_id.clone()])
-                .unwrap_or_default(),
+            result_envelope_ids: Vec::new(),
             created_at: created_at.to_owned(),
         },
         request: request.clone(),
@@ -526,16 +449,14 @@ enum GroupPublication {
 /// session is restored as it was before staging, so the pausing request can
 /// be published alone and the other calls get their cards when reached.
 #[allow(clippy::too_many_arguments)]
-async fn publish_group<F: FnMut() -> String>(
+async fn publish_group(
     deps: &LoopDeps<'_>,
     session: &mut crate::session::PersistedAgentSession,
     call: &crate::chat::ToolCall,
-    synthesized: bool,
     request: &crate::dynamic_run::PermissionRequest,
     members: Vec<permission_group::Member>,
     context: ProposalContext<'_>,
     created_at: &str,
-    mint: &mut F,
     tool_observation: &crate::model_observability::tool::ToolObservation,
     sink: &mut dyn TurnSink,
 ) -> Result<GroupPublication, AgentError> {
@@ -572,32 +493,15 @@ async fn publish_group<F: FnMut() -> String>(
             size,
         });
     }
-    let result = if synthesized {
-        None
-    } else {
-        Some(ChatMessage::tool_result_from(
-            mint(),
-            &call.id,
-            &crate::model_content::ModelContent::json(&PendingDecisionReceipt {
-                status: "pending_user_decision",
-                request_id: crate::model_content::ServerId::new(&requests[0].request_id),
-                item_count: requests[0].items.len(),
-                authority: "none",
-            })?,
-            context.parent_envelope,
-            ServerResultSource::RequestPermissions,
-        )?)
-    };
     let mut events = Vec::with_capacity(requests.len());
     let mut event_seq = staged_event_seq;
-    for (index, request) in requests.iter().enumerate() {
+    for request in &requests {
         event_seq = next_event_seq(event_seq)?;
         events.push(requested_event(
             session,
             request,
             event_seq,
             context.parent_envelope,
-            result.as_ref().filter(|_| index == 0),
             created_at,
         )?);
     }
@@ -607,16 +511,12 @@ async fn publish_group<F: FnMut() -> String>(
             return Ok(GroupPublication::Alone);
         }
     }
-    if let Some(message) = result {
-        session.conversation.push(message);
-    }
     let mut marker = step_marker(
         session,
         &call.id,
         &requests[0].request_id,
         context.issuing_message_id,
         context.remaining,
-        !synthesized,
     );
     marker.group_id = Some(group_id);
     marker.pre_requested = members
@@ -984,9 +884,9 @@ pub(super) async fn grant_required<F: FnMut() -> String>(
     propose_call(deps, session, call, context, mint, tool_observation, sink).await
 }
 
-/// A direct device call names its device the same way an explicit proposal
-/// would: a single admitted target is inferred, and a native UI call takes the
-/// device that observed its application.
+/// Name the device of a direct device call's proposal: a single admitted
+/// target is inferred, and a native UI call takes the device that observed its
+/// application.
 pub(super) fn bind_request_device(
     planning: crate::chat::ToolCall,
     call: &crate::chat::ToolCall,
@@ -1021,13 +921,4 @@ pub(super) fn bind_request_device(
         });
     }
     Ok(planning)
-}
-
-crate::model_receipt! {
-    struct PendingDecisionReceipt {
-        status: &'static str,
-        request_id: crate::model_content::ServerId,
-        item_count: usize,
-        authority: &'static str,
-    }
 }

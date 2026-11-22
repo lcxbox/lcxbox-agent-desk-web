@@ -826,9 +826,6 @@ pub struct AwaitingPermission {
     /// The marker call currently being dispatched (released marker only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dispatching: Option<String>,
-    /// The step began as a receipt pause whose resume bridge is still owed.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub owes_resume_bridge: bool,
     /// The approval group the run waits for: every request of it must be
     /// settled before the step continues.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3359,10 +3356,10 @@ impl PersistedAgentSession {
     }
 
     /// Record that a step waits for an approval decision. `waiting` names the
-    /// held call (or the receipt-paused request call), its request, the issuing
-    /// message and the step's later calls, which keep no result while waiting.
-    /// A re-pause inside a continuation replaces the release, carrying over the
-    /// up-front requests of calls still pending and an owed resume bridge.
+    /// held call, its request, the issuing message and the step's later calls,
+    /// which keep no result while waiting. A re-pause inside a continuation
+    /// replaces the release, carrying over the up-front requests of calls still
+    /// pending.
     pub fn pause_for_permission(&mut self, mut waiting: AwaitingPermission) {
         // A release of another step is left in place: the turn's settlement
         // closes its unstarted calls.
@@ -3379,7 +3376,6 @@ impl PersistedAgentSession {
                     waiting.pre_requested.push(entry);
                 }
             }
-            waiting.owes_resume_bridge |= released.owes_resume_bridge;
         }
         self.released_in_claim = false;
         self.awaiting_permission = Some(Box::new(waiting));
@@ -3666,9 +3662,8 @@ impl PersistedAgentSession {
                 safe_for_model: false,
                 error_code: None,
             })?;
-        // A receipt pause has an answered held call; its later calls still need
-        // their results. A reused call id may have results from earlier turns;
-        // only results after the issuing message belong to this step.
+        // A reused call id may have results from earlier turns; only results
+        // after the issuing message belong to this step.
         let mut calls = vec![(waiting.tool_call_id.as_str(), text)];
         calls.extend(
             waiting
@@ -6267,22 +6262,6 @@ mod tests {
         );
         assert_eq!(state.conversation.len(), 4);
         assert!(state.unclosed_tool_call_ids().is_empty());
-
-        // A receipt pause has an answered request call; its later calls still
-        // get their results, right after the group.
-        let mut state = paused_step(step_marker("request"));
-        state
-            .conversation
-            .push(ChatMessage::tool_result("receipt", "held", "pending"));
-        state.close_awaiting_permission("unused").unwrap();
-        assert_eq!(
-            result_texts(&state),
-            [
-                ("held".to_string(), "pending".to_string()),
-                ("b".to_string(), AWAITING_STEP_CALL_CLOSED.to_string()),
-                ("c".to_string(), AWAITING_STEP_CALL_CLOSED.to_string()),
-            ]
-        );
     }
 
     #[test]
@@ -6469,7 +6448,6 @@ mod tests {
         );
         let full = AwaitingPermission {
             dispatching: Some("b".into()),
-            owes_resume_bridge: true,
             group_id: Some("group".into()),
             pre_requested: vec![PreRequested {
                 call_id: "c".into(),
@@ -6485,9 +6463,8 @@ mod tests {
     }
 
     #[test]
-    fn a_repause_carries_pre_requested_calls_and_the_owed_bridge() {
+    fn a_repause_carries_pre_requested_calls() {
         let mut marker = step_marker("request");
-        marker.owes_resume_bridge = true;
         marker.pre_requested = vec![PreRequested {
             call_id: "c".into(),
             request_id: "for-c".into(),
@@ -6505,7 +6482,6 @@ mod tests {
         assert!(state.released_permission_call.is_none());
         let waiting = state.awaiting_permission.as_ref().unwrap();
         assert_eq!(waiting.pre_requested_for("c"), Some("for-c"));
-        assert!(waiting.owes_resume_bridge);
     }
 
     #[test]

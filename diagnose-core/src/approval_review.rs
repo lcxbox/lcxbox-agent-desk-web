@@ -287,12 +287,7 @@ pub fn is_historical_permission_pause_result(message: &crate::chat::ChatMessage)
             .starts_with("not executed: waiting for user permission decision")
             || message
                 .text
-                .starts_with("not executed: waiting for the existing user permission decision")
-            || serde_json::from_str::<serde_json::Value>(&message.text)
-                .ok()
-                .and_then(|value| value.get("status")?.as_str().map(str::to_owned))
-                .as_deref()
-                == Some("pending_user_decision"))
+                .starts_with("not executed: waiting for the existing user permission decision"))
 }
 
 pub fn permission_review_source_id(

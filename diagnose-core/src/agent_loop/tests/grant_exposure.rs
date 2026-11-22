@@ -2697,7 +2697,6 @@ async fn a1_in_request_device_mode_pre_requests_screen_and_command() {
         &deps,
         &session,
         &screen_request,
-        false,
         crate::agent_loop::permission_proposal::ProposalContext {
             authority: None,
             request_devices: &devices,

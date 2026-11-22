@@ -14,16 +14,12 @@ pub(super) struct LoopState<M> {
     pub completion_protocol_retries: u8,
     pub empty_end_turn_retries: u8,
     pub truncated_turn_retries: u8,
-    pub post_tool_permission_protocol_retries: u8,
     pub invalid_tool_argument_retries: u8,
     pub goal_correction_attempted: bool,
     pub required_tool_choice_rejected: bool,
     pub physical_model_attempt: u32,
     /// Tools whose exact-input mismatch was already explained in this turn.
     pub exact_mismatch_hinted: HashSet<String>,
-    /// The resume bridge a continued step owes the model, appended once every
-    /// call of the step has its result.
-    pub deferred_resume_bridge: Option<ChatMessage>,
 }
 
 enum PhaseResult<F> {
@@ -730,12 +726,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         .await?;
         return Ok(PhaseResult::Complete(outcome));
     }
-    if let Some(bridge) = state.deferred_resume_bridge.take() {
-        if let Some(outcome) = append_deferred_bridge(session, bridge, turn_id)? {
-            return Ok(PhaseResult::Complete(Some(outcome)));
-        }
-        deps.session_seam.save(session).await?;
-    }
     let missing = close_untracked_unanswered_calls(session)?;
     if !missing.is_empty() {
         // A defect left these calls open: report it to the host's error log
@@ -1197,32 +1187,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 &crate::model_content::ModelContent::constant(marker_text),
                 parent,
                 crate::model_message_labels::ServerResultSource::TruncatedTurnRetry,
-            )?);
-        }
-        if state.post_tool_permission_protocol_retries > 0 {
-            // A malformed permission-planning call after a verified/read-back
-            // tool result has not been committed or dispatched. Give the model
-            // one bounded chance to rebuild only that JSON call from the current
-            // server-authored projections. This never replays the preceding tool
-            // and does not grant or widen authority.
-            let marker_id = format!(
-                "runtime-post-tool-permission-protocol-retry-{turn_id}-{}",
-                state.post_tool_permission_protocol_retries
-            );
-            let marker_text = "RUNTIME RECOVERY NOTICE (server authoritative): the previous request_permissions call had invalid JSON arguments and was discarded before it was recorded or executed. Rebuild exactly one valid request_permissions call from the current capability catalog and CURRENT REUSABLE PROVIDER RESULTS. Copy observed short page and element IDs verbatim, keep the exact downstream tool input bounded, and do not repeat the preceding Provider action. This notice grants no authority; normal permission planning and final server validation remain authoritative.";
-            // This server-authored notice contains no Provider output bytes.
-            // Inherit the delegated projection or owner requirement, keeping
-            // the same model destination and retention without fabricating a
-            // User message in a child or exporting the preceding receipt.
-            let parent = child_runtime_label.as_ref().or_else(|| {
-                crate::permission_resume::latest_user_requirement(&session.conversation)
-                    .and_then(|message| message.data_envelope.as_ref())
-            });
-            messages.push(runtime_notice(
-                &marker_id,
-                &crate::model_content::ModelContent::constant(marker_text),
-                parent,
-                crate::model_message_labels::ServerResultSource::PostToolPermissionProtocolRetry,
             )?);
         }
         if state.invalid_tool_argument_retries > 0 {
@@ -1859,10 +1823,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     "runtime-truncated-turn-retry-{turn_id}-{}",
                                     state.truncated_turn_retries
                                 )),
-                                ProtocolCorrectionReason::PermissionPlanProtocol => Some(format!(
-                                    "runtime-post-tool-permission-protocol-retry-{turn_id}-{}",
-                                    state.post_tool_permission_protocol_retries
-                                )),
                                 ProtocolCorrectionReason::InvalidToolArguments => Some(format!(
                                     "runtime-invalid-tool-arguments-retry-{turn_id}-{}",
                                     state.invalid_tool_argument_retries
@@ -1871,7 +1831,8 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     Some(format!("goal-control-correction-{turn_id}"))
                                 }
                                 ProtocolCorrectionReason::CompletionInterpretation
-                                | ProtocolCorrectionReason::ToolChoiceFallback => None,
+                                | ProtocolCorrectionReason::ToolChoiceFallback
+                                | ProtocolCorrectionReason::PermissionPlanProtocol => None,
                             };
                             let cue_present = if let Some(marker) = marker {
                                 request.messages.iter().any(|message| {
@@ -2102,34 +2063,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                             } else {
                                 sink.on_turn_discarded();
                             }
-                            let follows_tool_result =
-                                session.conversation.last().is_some_and(|message| {
-                                    matches!(
-                                        message.role,
-                                        ChatRole::Tool | ChatRole::UntrustedOutput
-                                    )
-                                });
-                            let malformed_permission_plan =
-                                matches!(
-                                    error,
-                                    crate::chat::ModelTurnError::InvalidToolArguments { .. }
-                                ) && turn.tool_calls.iter().any(|call| {
-                                    call.name
-                                == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME
-                                });
-                            if session.surface == crate::session::AgentSessionSurface::AiAgent
-                                && follows_tool_result
-                                && malformed_permission_plan
-                                && state.post_tool_permission_protocol_retries < 1
-                            {
-                                state.post_tool_permission_protocol_retries += 1;
-                                state.pending_protocol_correction = PendingProtocolCorrection::open(
-                                    observation.clone(),
-                                    correction_fence.clone(),
-                                    ProtocolCorrectionReason::PermissionPlanProtocol,
-                                );
-                                return Ok(PhaseResult::Complete(None));
-                            }
                             if session.surface == crate::session::AgentSessionSurface::AiAgent
                                 && matches!(
                                     error,
@@ -2242,12 +2175,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     && turn.tool_calls[0].name
                                         == crate::goal_tools::CONTROL_GOAL_TOOL_NAME
                             }
-                            ProtocolCorrectionReason::PermissionPlanProtocol => turn
-                                .tool_calls
-                                .len()
-                                == 1
-                                && turn.tool_calls[0].name
-                                    == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
                             _ => true,
                         };
                         correction.check(if passed {

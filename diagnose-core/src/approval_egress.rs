@@ -1263,20 +1263,15 @@ mod tests {
             "assistant",
             "",
             vec![ToolCallRef {
-                id: "call".into(),
-                name: "request_permissions".into(),
-                arguments_json: r#"{"tool_name":"write_text_file"}"#.into(),
+                id: "write".into(),
+                name: "write_text_file".into(),
+                arguments_json: exact.into(),
             }],
         );
         agent.data_envelope = Some(envelope_for(&agent, Sensitivity::UserContent));
         session.conversation.push(user);
         session.conversation.push(agent);
         session.conversation.extend(review_projections());
-        session.conversation.push(ChatMessage::tool_result(
-            "result",
-            "call",
-            r#"{"status":"pending_user_decision","request_id":"request"}"#,
-        ));
         session.add_permission_request(request.clone()).unwrap();
         let authority = vec![ApprovalAuthorityFact {
             source: ApprovalSource::PermissionItem {

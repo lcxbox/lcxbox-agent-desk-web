@@ -479,18 +479,9 @@ async fn child_recovery_notices_keep_delegated_model_authority_without_user_mess
         provider_meta: ProviderResponseMeta::without_reasoning(StopReason::MaxTokens),
         ..Default::default()
     };
-    let malformed_plan = tool_use_args(
-        "malformed-plan",
-        crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
-        "{\"items\":[",
-    );
     for (initial, marker_kind) in [
         (vec![answer("")], "empty_end_turn_retry"),
         (vec![truncated], "truncated_turn_retry"),
-        (
-            vec![tool_use("read", "sysinfo"), malformed_plan],
-            "post_tool_permission_protocol_retry",
-        ),
     ] {
         let (sessions, child) = ChildSessions::prepared();
         assert!(
@@ -523,18 +514,7 @@ async fn child_recovery_notices_keep_delegated_model_authority_without_user_mess
             },
             label: projection_label.clone(),
         };
-        let registry = vec![
-            read_tool("sysinfo", Capability::SystemInfo),
-            RegisteredTool {
-                spec: ToolSpec {
-                    name: crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME.into(),
-                    description: "request permission".into(),
-                    parameters_schema: serde_json::json!({"type": "object"}),
-                },
-                required_device_capability: None,
-                effect: ToolEffect::RunProjection,
-            },
-        ];
+        let registry = vec![read_tool("sysinfo", Capability::SystemInfo)];
         let clock = || "2026-06-20T00:00:01Z".into();
         let heartbeat = HealthyChildLease;
         let mut runtime = deps(&sessions.budget.sessions, &model, &tools, &registry, &clock);
@@ -585,10 +565,7 @@ async fn child_recovery_notices_keep_delegated_model_authority_without_user_mess
             sessions.budget.reservations.borrow().len(),
             requests.len() + tools.inner.calls.borrow().len()
         );
-        assert_eq!(
-            tools.inner.calls.borrow().len(),
-            usize::from(marker_kind == "post_tool_permission_protocol_retry")
-        );
+        assert!(tools.inner.calls.borrow().is_empty());
         assert_eq!(
             sessions.run.borrow().state,
             crate::subagent::SubAgentState::Completed

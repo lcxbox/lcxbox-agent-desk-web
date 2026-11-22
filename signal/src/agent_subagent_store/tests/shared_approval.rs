@@ -138,15 +138,18 @@ async fn child(
     let mut agent = ChatMessage::agent_tool_calls(
         format!("ask-{}", task.task_id),
         "Request child permission",
+        // The direct call the request was proposed for: its id is the item id.
         vec![ToolCallRef {
-            id: format!("ask-call-{}", task.task_id),
-            name: "request_permissions".into(),
-            arguments_json: "{}".into(),
+            id: event.request.items[0].item_id.clone(),
+            name: event.request.items[0].tool_name.clone(),
+            arguments_json: event.request.items[0]
+                .canonical_input_json
+                .clone()
+                .unwrap_or_else(|| "{}".into()),
         }],
     );
-    let mut result = ChatMessage::tool_result(format!("result-{}", task.task_id), format!("ask-call-{}", task.task_id),
-        serde_json::json!({"request_id": event.request.request_id, "status": "pending_user_decision"}).to_string());
-    for message in [&mut agent, &mut result] {
+    {
+        let message = &mut agent;
         message.data_envelope = Some(
             desk_diagnose_core::subagent::projection::envelope(
                 &message.message_id,
@@ -160,7 +163,7 @@ async fn child(
             .unwrap(),
         );
     }
-    session.conversation.extend([agent, result]);
+    session.conversation.push(agent);
     super::paused_permission::publish(db, &mut session, &event).await;
     session.finish_turn(
         desk_diagnose_core::session::TurnState::Idle,

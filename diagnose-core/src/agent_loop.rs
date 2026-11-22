@@ -785,33 +785,11 @@ async fn drive_claimed_inner(
     // before the first model call. Completion-only turns use the existing tail.
     let mut newer_user_inputs_after_request = 0_u64;
     // A released held call is itself the continuation: its result follows its
-    // call group directly, so the permission-resume bridge is dropped. A
-    // receipt pause has no held result: its decision reaches the model only
-    // through the bridge, which waits until the step's calls all have results.
-    let mut deferred_bridge = None;
-    let to_append = match to_append {
-        Some(message)
-            if crate::permission_resume::is_permission_resume_message(&message)
-                && session.released_permission_call.is_some() =>
-        {
-            if session
-                .released_permission_call
-                .as_ref()
-                .is_some_and(|released| {
-                    released.owes_resume_bridge
-                        || session
-                            .marker_issuing_index(released)
-                            .is_some_and(|issuing| {
-                                session.answered_after(issuing, &released.tool_call_id)
-                            })
-                })
-            {
-                deferred_bridge = Some(message);
-            }
-            None
-        }
-        other => other,
-    };
+    // call group directly, so the permission-resume bridge is dropped.
+    let to_append = to_append.filter(|message| {
+        !(crate::permission_resume::is_permission_resume_message(message)
+            && session.released_permission_call.is_some())
+    });
     if let Some(message) = to_append {
         newer_user_inputs_after_request = admit_turn_message(
             &mut session,
@@ -853,7 +831,7 @@ async fn drive_claimed_inner(
             current_input_revision: session.input_revision,
         })
     } else {
-        run_inner(deps, &mut session, &turn_id, deferred_bridge, sink).await
+        run_inner(deps, &mut session, &turn_id, sink).await
     };
     if matches!(&result, Ok(LoopOutcome::SubAgentYielded)) {
         return result;
@@ -2360,21 +2338,6 @@ fn admit_turn_message(
     Ok(newer)
 }
 
-/// Append the resume bridge a continued step deferred, once every call of
-/// the step has its result. Returns the outcome when newer owner input
-/// superseded this turn.
-pub(super) fn append_deferred_bridge(
-    session: &mut PersistedAgentSession,
-    bridge: ChatMessage,
-    turn_id: &str,
-) -> Result<Option<LoopOutcome>, AgentError> {
-    let newer = admit_turn_message(session, bridge.with_turn_id(turn_id.to_owned()), turn_id)?;
-    Ok((newer > 0).then(|| LoopOutcome::Superseded {
-        previous_input_revision: session.input_revision.saturating_sub(newer),
-        current_input_revision: session.input_revision,
-    }))
-}
-
 /// Close calls of the latest agent message that have no result before the
 /// model is called. Every path is meant to give each call its result, so this
 /// is a defect net: the provider must never receive an unanswered call. A
@@ -2449,23 +2412,15 @@ fn run_inner<'a, 'd: 'a>(
     deps: &'a LoopDeps<'d>,
     session: &'a mut PersistedAgentSession,
     turn_id: &'a str,
-    deferred_bridge: Option<ChatMessage>,
     sink: &'a mut dyn TurnSink,
 ) -> std::pin::Pin<Box<impl std::future::Future<Output = Result<LoopOutcome, AgentError>> + 'a>> {
-    Box::pin(run_inner_impl(
-        deps,
-        session,
-        turn_id,
-        deferred_bridge,
-        sink,
-    ))
+    Box::pin(run_inner_impl(deps, session, turn_id, sink))
 }
 
 async fn run_inner_impl(
     deps: &LoopDeps<'_>,
     session: &mut crate::session::PersistedAgentSession,
     turn_id: &str,
-    deferred_bridge: Option<ChatMessage>,
     sink: &mut dyn TurnSink,
 ) -> Result<LoopOutcome, AgentError> {
     crate::conversation_attachment::delivery::resolve_session(deps.session_seam, session).await?;
@@ -2486,7 +2441,6 @@ async fn run_inner_impl(
     let completion_protocol_retries: u8 = 0;
     let empty_end_turn_retries: u8 = 0;
     let truncated_turn_retries: u8 = 0;
-    let post_tool_permission_protocol_retries: u8 = 0;
     let invalid_tool_argument_retries: u8 = 0;
     let goal_correction_attempted = false;
     let required_tool_choice_rejected = false;
@@ -2500,13 +2454,11 @@ async fn run_inner_impl(
         completion_protocol_retries,
         empty_end_turn_retries,
         truncated_turn_retries,
-        post_tool_permission_protocol_retries,
         invalid_tool_argument_retries,
         goal_correction_attempted,
         required_tool_choice_rejected,
         physical_model_attempt,
         exact_mismatch_hinted: HashSet::new(),
-        deferred_resume_bridge: deferred_bridge,
     });
     loop {
         let outcome = phases::run_iteration(deps, session, turn_id, sink, &mut state).await?;

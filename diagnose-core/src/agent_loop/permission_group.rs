@@ -50,14 +50,12 @@ pub(super) fn group_id(
 }
 
 /// Plan the later calls of the step that pauses at the request `pausing`.
-/// `explicit` is true when `pausing` is an explicit request call. Returns the
-/// members in call order; each has its own request.
+/// Returns the members in call order; each has its own request.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn plan(
     deps: &LoopDeps<'_>,
     session: &crate::session::PersistedAgentSession,
     pausing: &crate::dynamic_run::PermissionRequest,
-    explicit: bool,
     context: permission_proposal::ProposalContext<'_>,
     planning: &Planning<'_>,
     created_at: &str,
@@ -87,17 +85,11 @@ pub(super) async fn plan(
         if crate::permission_grant::permission_device_id(session, &request) != device {
             continue;
         }
-        let in_group = std::iter::once(pausing).chain(members.iter().map(|member| &member.request));
-        let overlaps = in_group.clone().any(|existing| {
-            crate::permission_tools::equivalent_permission_request(existing, &request)
-        }) || (explicit
-            && in_group
-                .flat_map(|existing| existing.items.iter())
-                .any(|item| {
-                    request.items.iter().any(|candidate| {
-                        crate::permission_tools::same_permission_action(item, candidate)
-                    })
-                }));
+        let overlaps = std::iter::once(pausing)
+            .chain(members.iter().map(|member| &member.request))
+            .any(|existing| {
+                crate::permission_tools::equivalent_permission_request(existing, &request)
+            });
         if overlaps {
             continue;
         }
