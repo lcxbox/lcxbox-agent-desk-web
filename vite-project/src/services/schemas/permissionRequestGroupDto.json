@@ -1,0 +1,1 @@
+{"type":"object","required":["groupId","order","size"],"properties":{"groupId":{"type":"string"},"order":{"type":"integer","format":"int32","description":"The request's position in the step's execution order, from 0.","minimum":0},"size":{"type":"integer","format":"int32","minimum":0}},"x-readme-ref-name":"PermissionRequestGroupDto"}

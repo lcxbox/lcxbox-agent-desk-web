@@ -2946,6 +2946,24 @@ export type PermissionDecisionSummaryDto = {
     source: PermissionDecisionSourceDto;
 };
 
+export type PermissionRequestGroupDto = {
+    /**
+     * @type string
+    */
+    groupId: string;
+    /**
+     * @description The request\'s position in the step\'s execution order, from 0.
+     * @minLength 0
+     * @type integer, int32
+    */
+    order: number;
+    /**
+     * @minLength 0
+     * @type integer, int32
+    */
+    size: number;
+};
+
 export const applicationActionKindEnum = {
     invoke: "invoke",
     select: "select",
@@ -3987,6 +4005,7 @@ export type PermissionRequestDto = {
     */
     createdAt: string;
     decision?: (null | PermissionDecisionSummaryDto);
+    group?: (null | PermissionRequestGroupDto);
     /**
      * @minLength 0
      * @type integer, int64
@@ -7395,6 +7414,7 @@ export const deskErrorCodeEnum = {
     AI_AGENT_DATA_CHANGED: 112,
     TARGET_CONNECTION_CHANGED: 113,
     SERVICE_RESTARTING: 114,
+    PERMISSION_GROUP_MEMBER_REJECTED: 115,
     ACTION_NEED_RETRY: 1001,
     REMOTE_DESK_OFFLINE: 10003,
     TIMEOUT: 10004,

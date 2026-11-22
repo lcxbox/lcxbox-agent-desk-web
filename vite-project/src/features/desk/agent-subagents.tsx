@@ -220,7 +220,12 @@ export function AgentSubagents({ agents, connected, canDecide, interactive, expo
                         </div>)}
                         <div data-agent-pending={pendingPermissions.length > 0 ? '' : undefined} tabIndex={-1}>
                         <AgentPermissionRecords approvalRecords={<ApprovalReviews session={child.sessionId} open={panel === 'permissions'} includeChildren={false}/>} key={child.sessionId} requests={child.permissionRequests ?? []} automaticApproval={automaticApproval}
-                            open={panel === 'permissions'} onOpenChange={open => setPanel(open ? 'permissions' : null)}>
+                            open={panel === 'permissions'} onOpenChange={open => setPanel(open ? 'permissions' : null)}
+                            decisions={{
+                                canDecide: permission => canDecide && !subagentIsTerminal(task) && permission.inputRevision === child.inputRevision,
+                                disabled: !connected || child.active || agents.updating,
+                                onDecide: agents.decidePermission,
+                            }}>
                             {permission => <div key={`${child.sessionId}:${permission.requestId}:${permission.inputRevision}`}
                                 data-permission-id={permission.requestId} tabIndex={-1}><AgentPermissionRequest
                                 request={permission} canDecide={canDecide && !subagentIsTerminal(task) && permission.inputRevision === child.inputRevision}

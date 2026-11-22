@@ -1053,7 +1053,12 @@ export function AiAgentWorkspace({
                             setPermissionHistorySession(null);
                         }} session={chat.sessionId ?? null} open={permissionHistorySession === permissionHistoryKey}/> : undefined} key={permissionHistoryKey} requests={chat.permissionRequests} automaticApproval={automaticApproval}
                         open={permissionHistorySession === permissionHistoryKey}
-                        onOpenChange={(open) => setPermissionHistorySession(open ? permissionHistoryKey : null)}>
+                        onOpenChange={(open) => setPermissionHistorySession(open ? permissionHistoryKey : null)}
+                        decisions={{
+                            canDecide: request => featureProfile.permission_decision && request.inputRevision === chat.inputRevision,
+                            disabled: !agentEnabled || !isConnected || chat.hydrating || chat.turnRunning || chat.permissionUpdating,
+                            onDecide: chat.decidePermissionItems,
+                        }}>
                             {(request) => (
                                 <AgentPermissionRequest key={`${permissionHistoryKey}:${request.requestId}:${request.inputRevision}`}
                                     request={request} canDecide={featureProfile.permission_decision && request.inputRevision === chat.inputRevision}

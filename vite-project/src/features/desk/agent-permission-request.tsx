@@ -5,7 +5,7 @@ import { AlertTriangle, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import type { GrantRequestItemDto, PermissionDecisionBody, PermissionRequestDto } from '@/services/types';
+import type { PermissionDecisionBody, PermissionRequestDto } from '@/services/types';
 import { OutputConfirmationCard, validOutputReview, isOutputInput, outputApprovalBlocked } from './ai-agent-output-confirmation';
 import { AgentPermissionDisclosure } from './agent-permission-disclosure';
 import { CommandConfirmationCard, validCommandReview } from './ai-agent-command';
@@ -13,29 +13,16 @@ import { LaunchConfirmationCard, validLaunchReview } from './ai-agent-launch';
 import { TextFileConfirmationCard, validTextFileReview, fileApprovalBlocked } from './ai-agent-file-confirmation';
 import { CommandRestoreConfirmationCard, COMMAND_RESTORE_TOOL, validCommandRestoreReview } from './agent-command-changes';
 import { AgentInteractiveCommand, interactiveCommandItem, type InteractiveCommandContext } from './agent-interactive-command';
-
-function needsApplicationScope(tool: string) {
-    return ['execute_ui_actions', 'send_background_input'].includes(tool);
-}
-
-function hasNativeUiAuthority(item: GrantRequestItemDto) {
-    return !needsApplicationScope(item.toolName)
-        || Boolean(item.applicationScope);
-}
+import {
+    defaultApprovedItemIds, hasNativeUiAuthority, needsApplicationScope, permissionDecisionItems, permissionDenyItems,
+    permissionItemApprovalBlocked, type PermissionItemEdit,
+} from './agent-permission-decision';
 
 function formatByteCount(value: number) {
     if (value < 1024) return `${value} B`;
     if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
     return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
 }
-
-type PermissionItemEdit = {
-    resourceScope?: string[];
-    operationScope?: string[];
-    exportDestinationIndexes?: number[];
-    ttlSeconds?: number;
-    maxUses?: number;
-};
 
 export function AgentPermissionRequest({ request, canDecide, disabled = false, busy = false, waitingForTurn = false, interactive, onDecide }: {
     request: PermissionRequestDto;
@@ -121,14 +108,7 @@ export function AgentPermissionRequest({ request, canDecide, disabled = false, b
                     const reason = item.itemId === `included-${item.toolName}`
                         && ['inspect_desktop_session', 'inspect_desktop_ui'].includes(item.toolName)
                         ? t('pages.aiAgent.permissionIncludedDesktopReadReason') : permissionReasonLabel(t, item.reason);
-                    const defaultItemIds = request.items
-                        .filter((entry) => (entry.expectedEffect !== 'send_external'
-                            || Boolean(entry.externalSendConfirmation))
-                            && (entry.toolName !== 'exec_command' || validCommandReview(entry.commandConfirmation))
-                            && (entry.toolName !== 'launch_application' || validLaunchReview(entry.launchConfirmation))
-                            && hasNativeUiAuthority(entry)
-                            && !fileApprovalBlocked(entry) && !outputApprovalBlocked(entry))
-                        .map((entry) => entry.itemId);
+                    const defaultItemIds = defaultApprovedItemIds(request);
                     const selected = permissionSelections[request.requestId]
                         ?? defaultItemIds;
                     const approved = selected.includes(item.itemId);
@@ -139,7 +119,7 @@ export function AgentPermissionRequest({ request, canDecide, disabled = false, b
                     const outputBlocked = outputApprovalBlocked(item);
                     const commandBlocked = item.toolName === 'exec_command' && !validCommandReview(commandConfirmation);
                     const launchBlocked = item.toolName === 'launch_application' && !validLaunchReview(item.launchConfirmation);
-                    const approvalBlocked = outputBlocked || (isExternalSend && !sendConfirmation) || commandBlocked || launchBlocked || !hasNativeUiAuthority(item) || fileApprovalBlocked(item);
+                    const approvalBlocked = permissionItemApprovalBlocked(item);
                     const edit = permissionEdits[request.requestId]?.[item.itemId]
                         ?? {};
                     const resourceScope = edit.resourceScope
@@ -397,47 +377,11 @@ export function AgentPermissionRequest({ request, canDecide, disabled = false, b
                         size="sm"
                         className="gap-1.5 px-2.5"
                         disabled={disabled || busy || waitingForTurn}
-                        onClick={() => void onDecide(
+                        onClick={() => void onDecide(request, permissionDecisionItems(
                             request,
-                            request.items.map((item) => {
-                                const selected = permissionSelections[request.requestId]
-                                    ?? request.items
-                                        .filter((entry) => (entry.expectedEffect !== 'send_external'
-                                            || Boolean(entry.externalSendConfirmation))
-                                            && (entry.toolName !== 'exec_command' || validCommandReview(entry.commandConfirmation))
-                            && (entry.toolName !== 'launch_application' || validLaunchReview(entry.launchConfirmation))
-                                            && hasNativeUiAuthority(entry)
-                                            && !fileApprovalBlocked(entry) && !outputApprovalBlocked(entry))
-                                        .map((entry) => entry.itemId);
-                                if (!selected.includes(item.itemId)
-                                    || (item.expectedEffect === 'send_external'
-                                        && !item.externalSendConfirmation)
-                                    || (item.toolName === 'exec_command' && !validCommandReview(item.commandConfirmation))
-                                    || (item.toolName === 'launch_application' && !validLaunchReview(item.launchConfirmation))
-                                    || outputApprovalBlocked(item) || fileApprovalBlocked(item) || !hasNativeUiAuthority(item)) {
-                                    return {
-                                        itemId: item.itemId,
-                                        decision: 'deny' as const,
-                                    };
-                                }
-                                const edit = permissionEdits[request.requestId]?.[item.itemId]
-                                    ?? {};
-                                const destinationIndexes = edit.exportDestinationIndexes
-                                    ?? item.exportDestinations.map((_, index) => index);
-                                return {
-                                    itemId: item.itemId,
-                                    decision: 'approve' as const,
-                                    resource_scope: edit.resourceScope ?? item.resourceScope,
-                                    operation_scope: edit.operationScope ?? item.operationScope,
-                                    export_destinations: item.exportDestinations.filter((_, index) =>
-                                        destinationIndexes.includes(index)),
-                                    ttl_seconds: edit.ttlSeconds ?? item.suggestedTtlSeconds,
-                                    max_uses: isReusableWebHost(item) || item.expectedEffect === 'send_external' || isOutputInput(item)
-                                        ? 1
-                                        : (edit.maxUses ?? item.suggestedMaxUses),
-                                };
-                            }),
-                        )}
+                            permissionSelections[request.requestId] ?? defaultApprovedItemIds(request),
+                            permissionEdits[request.requestId],
+                        ))}
                     >
                         <Check className="h-4 w-4" />
                         {t('pages.aiAgent.permissionSubmitSelection')}
@@ -448,7 +392,7 @@ export function AgentPermissionRequest({ request, canDecide, disabled = false, b
                         variant="outline"
                         className="gap-1.5 px-2.5"
                         disabled={disabled || busy || waitingForTurn}
-                        onClick={() => void onDecide(request, request.items.map(item => ({ itemId: item.itemId, decision: 'deny' })))}
+                        onClick={() => void onDecide(request, permissionDenyItems(request))}
                     >
                         <X className="h-4 w-4" />
                         {t('pages.aiAgent.permissionDeny')}
