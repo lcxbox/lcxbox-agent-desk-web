@@ -385,19 +385,7 @@ pub(crate) fn resolve_directories(
     session: &PersistedAgentSession,
     now: u64,
 ) -> Result<(), AgentError> {
-    let needs_directory = copy_tool(tool)
-        || (tool == "request_permissions"
-            && value
-                .get("items")
-                .and_then(Value::as_array)
-                .is_some_and(|items| {
-                    items.iter().any(|item| {
-                        item.get("tool_name")
-                            .and_then(Value::as_str)
-                            .is_some_and(copy_tool)
-                    })
-                }));
-    if !needs_directory {
+    if !copy_tool(tool) {
         return Ok(());
     }
     let device = value
@@ -426,17 +414,7 @@ pub(crate) fn resolve_device_directories(
     device_id: &str,
     now: u64,
 ) -> Result<(), AgentError> {
-    if tool == "request_permissions" {
-        if let Some(items) = value.get_mut("items").and_then(Value::as_array_mut) {
-            for item in items {
-                if let Some(tool) = item["tool_name"].as_str().map(str::to_owned)
-                    && let Some(exact) = item.get_mut("exact_input")
-                {
-                    resolve_device_directories(&tool, exact, session, device_id, now)?;
-                }
-            }
-        }
-    } else if copy_tool(tool) {
+    if copy_tool(tool) {
         let output = value
             .get_mut("output")
             .and_then(Value::as_object_mut)

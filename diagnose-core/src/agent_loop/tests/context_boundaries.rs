@@ -671,19 +671,21 @@ async fn saving_a_new_permission_request_pauses_without_starting_another_model_o
         "actor",
         "device",
         1,
-        scope(),
+        exec_scope(),
         "2026-06-20T00:00:00Z",
     );
     initial.latest_input_seq = 1;
     initial.input_revision = 1;
     *session.inner.borrow_mut() = Some(initial);
-    let providers = crate::ai_agent::ai_agent_provider_registry();
+    let providers = crate::ai_agent::ai_agent_provider_registry()
+        .with_command_policy(crate::command_confirmation::test_policy());
     let descriptor = providers
-        .capability_for_tool("inspect_desktop_session")
+        .capability_for_tool(crate::command_confirmation::COMMAND_TOOL)
         .unwrap();
-    let candidate = vec![descriptor.registered_tool()];
-    let mut registry = candidate.clone();
-    registry.extend(crate::permission_tools::permission_planning_tool_registry());
+    let registry = vec![mutating_tool(
+        crate::command_confirmation::COMMAND_TOOL,
+        Capability::ShellExecConfirmed,
+    )];
     let inventory = vec![crate::capability_availability::CapabilityAvailability {
         provider_id: providers
             .provider_for_capability(&descriptor.wire.capability_id)
@@ -692,40 +694,48 @@ async fn saving_a_new_permission_request_pauses_without_starting_another_model_o
             .provider_id
             .clone(),
         capability_id: descriptor.wire.capability_id.clone(),
-        tool_name: "inspect_desktop_session".into(),
+        tool_name: crate::command_confirmation::COMMAND_TOOL.into(),
         compiled: true,
         enabled: true,
         connected: true,
         ready: true,
         reason: None,
     }];
-    let model = RebuildingModel { requests: RefCell::new(vec![]), main_steps: std::cell::Cell::new(0), preparation_calls: std::cell::Cell::new(0), maximum: 16384, reject_summary_candidate: false,
-        policy: None, action: Some(ToolCall { id: "request".into(), name: crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME.into(),
-            arguments_json: serde_json::json!({"items":[{"tool_name":"inspect_desktop_session","reason":"Observe the device for the current task","suggested_ttl_seconds":300,"suggested_max_uses":1}]}).to_string() }), during_summary: None };
-    let calls = Rc::new(RefCell::new(vec![]));
-    let tools = RecordingTools {
-        calls: calls.clone(),
-        reply: "must not run".into(),
+    let model = RebuildingModel {
+        requests: RefCell::new(vec![]),
+        main_steps: std::cell::Cell::new(0),
+        preparation_calls: std::cell::Cell::new(0),
+        maximum: 16384,
+        reject_summary_candidate: false,
+        policy: None,
+        action: Some(ToolCall {
+            id: "request".into(),
+            name: crate::command_confirmation::COMMAND_TOOL.into(),
+            arguments_json: r#"{"shell":"bash","command":"pwd","timeout_ms":10000}"#.into(),
+        }),
+        during_summary: None,
     };
+    // The host finds no grant for the direct call, so it becomes a proposal.
+    let scripted = tools(vec![ExecOutcome::GrantRequired {
+        input_mismatch: false,
+    }]);
     let clock = || "2026-06-20T00:00:01Z".to_string();
-    let mut dependencies = deps(&session, &model, &tools, &registry, &clock);
+    let mut dependencies = exec_deps(&session, &model, &scripted, &registry, &clock);
     dependencies.provider_registry = Some(&providers);
     dependencies.capability_inventory = Some(&inventory);
-    dependencies.capability_permission_candidates = &candidate;
     dependencies.system_prompt = ChatMessage::public_system(
         "system",
-        "Request required permission before reading the device",
+        "Request required permission before running a command",
     );
     let outcome = run_agent_turn(
         &dependencies,
-        claim(),
-        ChatMessage::text("owner", ChatRole::User, "Inspect this device"),
+        exec_claim(),
+        ChatMessage::text("owner", ChatRole::User, "Show the working directory"),
         &mut NullTurnSink,
     )
     .await
     .unwrap();
     assert!(matches!(outcome, LoopOutcome::PermissionRequested { .. }));
-    assert!(calls.borrow().is_empty());
     assert_eq!(model.requests.borrow().len(), 1);
     let stored = session.inner.borrow();
     let stored = stored.as_ref().unwrap();

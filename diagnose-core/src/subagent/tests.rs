@@ -306,7 +306,6 @@ fn child_retains_business_effects_and_rejects_all_orchestration_effects() {
     for effect in [
         ToolEffect::ReadOnly,
         ToolEffect::Mutating,
-        ToolEffect::PermissionPlanning,
         ToolEffect::CapabilityDiscovery,
         ToolEffect::ConversationHistory,
         ToolEffect::DirectoryPlanning,
@@ -1432,7 +1431,6 @@ fn published_result_authority_survives_notice_consumption_and_dependency_waits()
     for (name, effect) in [
         ("device_read", ToolEffect::ReadOnly),
         ("device_write", ToolEffect::Mutating),
-        ("permissions", ToolEffect::PermissionPlanning),
         ("directory", ToolEffect::DirectoryPlanning),
         ("history", ToolEffect::ConversationHistory),
         ("projection", ToolEffect::RunProjection),
@@ -1463,7 +1461,6 @@ fn published_result_authority_survives_notice_consumption_and_dependency_waits()
         tools::REPORT,
         "device_read",
         "device_write",
-        "permissions",
         "directory",
     ] {
         assert!(
@@ -1499,7 +1496,6 @@ fn published_result_authority_survives_notice_consumption_and_dependency_waits()
     assert!(parent.allows_new_mutation());
     assert!(lookup_for_session(&catalog, "device_read", &parent).is_some());
     assert!(lookup_for_session(&catalog, "device_write", &parent).is_some());
-    assert!(lookup_for_session(&catalog, "permissions", &parent).is_some());
     parent.scope_snapshot.granted.clear();
     assert!(lookup_for_session(&catalog, "device_write", &parent).is_none());
 }

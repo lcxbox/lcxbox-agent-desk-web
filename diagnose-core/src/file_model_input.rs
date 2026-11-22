@@ -28,18 +28,6 @@ fn invalid(message: impl Into<String>) -> AgentError {
     }
 }
 
-pub(crate) fn prepare_permissions(value: &mut Value) {
-    if let Some(items) = value["items"].as_array_mut() {
-        for item in items {
-            if item["tool_name"].as_str().is_some_and(is_read)
-                && let Some(item) = item.as_object_mut()
-            {
-                item.entry("exact_input").or_insert_with(|| json!({}));
-            }
-        }
-    }
-}
-
 fn metadata(value: &Value) -> Option<FileMetadataInspectOutput> {
     match serde_json::from_value::<OperationOutput>(value.clone()).ok()? {
         OperationOutput::ReadContext(ReadContextOutput::FileMetadataInspect(output)) => {
@@ -317,28 +305,7 @@ pub(crate) fn complete_device_input(
     }
     // The request-device planner resolves the target before completing its
     // device-specific directory choices.
-    if session.has_admitted_agent_input()
-        && value.get("target_ref").is_some()
-        && (tool == "request_permissions" || is_read(tool))
-    {
-        return Ok(());
-    }
-    if tool == "request_permissions" {
-        if let Some(items) = value["items"].as_array_mut() {
-            for item in items {
-                let Some(tool) = item["tool_name"].as_str().map(str::to_owned) else {
-                    continue;
-                };
-                if tool == "request_permissions" {
-                    return Err(invalid(
-                        "Permission items must identify a Provider tool, not request_permissions; no request was created.",
-                    ));
-                }
-                if let Some(exact) = item.get_mut("exact_input") {
-                    complete_device_input(&tool, exact, session, original, device_id, now)?;
-                }
-            }
-        }
+    if session.has_admitted_agent_input() && value.get("target_ref").is_some() && is_read(tool) {
         return Ok(());
     }
     if is_read(tool)
@@ -389,25 +356,6 @@ pub(crate) fn complete_device_input(
 
 /// Filled fields are compared after model projection; explicit choices stay exact.
 pub(crate) fn complete_comparison(tool: &str, original: &mut Value, resolved: &Value) {
-    if tool == "request_permissions" {
-        if let (Some(left), Some(right)) = (
-            original["items"].as_array_mut(),
-            resolved["items"].as_array(),
-        ) {
-            for (left, right) in left.iter_mut().zip(right) {
-                if let Some(tool) = left["tool_name"].as_str().map(str::to_owned) {
-                    if is_read(&tool) && left.get("exact_input").is_none() {
-                        left["exact_input"] = json!({});
-                        crate::model_input::fill_versions(&tool, &mut left["exact_input"]);
-                    }
-                    if let Some(exact) = left.get_mut("exact_input") {
-                        complete_comparison(&tool, exact, &right["exact_input"]);
-                    }
-                }
-            }
-        }
-        return;
-    }
     let directory_tool = tool == crate::tool_names::INSPECT_FILES
         || crate::provider_preflight::ArtifactCallPreflight::supports(tool)
         || crate::provider_preflight::text_file::TextMutationPreflight::selects_directory(tool);

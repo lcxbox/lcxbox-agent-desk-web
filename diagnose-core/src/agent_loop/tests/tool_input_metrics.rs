@@ -280,47 +280,6 @@ async fn terminal_answer_observation_callback_panic_cannot_change_the_loop_outco
     assert_eq!(script.requests.borrow().len(), 1);
 }
 
-pub(super) fn assert_protocol_recovery(
-    recorder: &Recorder,
-    reason: crate::model_observability::protocol_correction::ProtocolCorrectionReason,
-    source_index: usize,
-    next_index: usize,
-    check: crate::model_observability::protocol_correction::ProtocolCorrectionCheck,
-) {
-    use crate::model_observability::{
-        ObservationRelation, protocol_correction::ProtocolCorrectionFact,
-    };
-    let events = recorder.0.lock().unwrap();
-    let facts: Vec<_> = events
-        .iter()
-        .filter_map(|event| {
-            if let Some(ObservationRelation::ProtocolCorrection { fact, .. }) = &event.relation {
-                Some(fact)
-            } else {
-                None
-            }
-        })
-        .collect();
-    assert_eq!(facts.len(), 4);
-    assert!(
-        matches!(facts[0],ProtocolCorrectionFact::Feedback { reason:recorded,.. } if *recorded==reason)
-    );
-    assert!(
-        matches!(facts[1],ProtocolCorrectionFact::Projected { source_call_id,next_call_id,.. }
-        if source_call_id==&format!("server-model-call.{source_index}") && next_call_id==&format!("server-model-call.{next_index}"))
-    );
-    assert!(matches!(facts[2], ProtocolCorrectionFact::Returned { .. }));
-    assert!(
-        matches!(facts[3],ProtocolCorrectionFact::Response { check:recorded,.. } if *recorded==check)
-    );
-    assert!(events.iter().all(ObservationEvent::is_bounded));
-    let encoded = serde_json::to_string(&facts).unwrap();
-    assert!(
-        !encoded.contains("execute the approved action")
-            && !encoded.contains("inspect, then request permission")
-    );
-}
-
 #[tokio::test]
 async fn real_empty_and_truncated_recovery_branches_emit_only_the_first_projected_output_check() {
     use crate::model_observability::{

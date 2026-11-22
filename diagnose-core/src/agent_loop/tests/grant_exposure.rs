@@ -102,7 +102,6 @@ async fn approval_exposes_without_load_and_last_use_refreshes_next_request() {
     };
     let mut registry = vec![target];
     registry.extend(crate::capability_disclosure::capability_discovery_tool_registry());
-    registry.extend(crate::permission_tools::permission_planning_tool_registry());
     let clock = || "1970-01-01T00:00:00.500Z".to_string();
     let mut deps = deps(&session, &model, &tools, &registry, &clock);
     deps.provider_registry = Some(&providers);
@@ -157,12 +156,6 @@ async fn approval_exposes_without_load_and_last_use_refreshes_next_request() {
             .tools
             .iter()
             .any(|t| t.name == "inspect_desktop_session")
-    );
-    assert!(
-        requests[1]
-            .tools
-            .iter()
-            .any(|t| t.name == "request_permissions")
     );
     assert!(
         requests[1]
@@ -721,8 +714,7 @@ async fn workbench_coordinator_uses_reads_and_rejects_forged_writes_and_permissi
         requests: requests.clone(),
     };
     let tools = SelectedRead(RefCell::new(Vec::new()));
-    let mut registry = candidates.to_vec();
-    registry.extend(crate::permission_tools::permission_planning_tool_registry());
+    let registry = candidates.to_vec();
     let clock = || "2026-06-20T00:00:01Z".to_string();
     let mut deps = deps(&session, &model, &tools, &registry, &clock);
     deps.provider_registry = Some(&providers);
@@ -881,6 +873,169 @@ fn tool_result<'a>(session: &'a PersistedAgentSession, id: &str) -> &'a str {
         .find(|message| message.tool_call_id.as_deref() == Some(id))
         .unwrap()
         .text
+}
+
+/// Seed a request the direct read `{}` would propose, already settled.
+fn seed_prior_read(
+    session: &MemSession,
+    providers: &crate::provider_registry::ProviderRegistry,
+    state: crate::dynamic_run::PermissionRequestState,
+) {
+    let mut stored = session.inner.borrow_mut();
+    let stored = stored.as_mut().unwrap();
+    let call = ToolCall {
+        id: "prior".into(),
+        name: "inspect_desktop_session".into(),
+        arguments_json: "{}".into(),
+    };
+    let proposal = crate::permission_tools::synthesize_request_call(
+        &call,
+        providers,
+        &[],
+        crate::permission_tools::DEFAULT_APPLICATION_SCOPE_USES,
+    )
+    .unwrap();
+    let mut prior = crate::permission_tools::build_permission_request(
+        &proposal,
+        providers,
+        "permission-prior".into(),
+        stored.input_revision,
+        "1970-01-01T00:00:00Z".into(),
+    )
+    .unwrap();
+    prior.state = state;
+    stored.add_permission_request(prior).unwrap();
+}
+
+/// Run one turn in which the model loads and directly calls the read.
+/// Returns the outcome and how many reads the host ran.
+async fn run_direct_read(
+    session: &MemSession,
+    providers: &crate::provider_registry::ProviderRegistry,
+    snapshot: crate::grant_disclosure::GrantDisclosureSnapshot,
+    inventory: &[crate::capability_availability::CapabilityAvailability],
+    target: RegisteredTool,
+    scope: AgentScope,
+    answer_text: &str,
+) -> (LoopOutcome, usize) {
+    let model = ScriptModel {
+        turns: RefCell::new([load_read(), direct_read("read"), answer(answer_text)].into()),
+        requests: Rc::new(RefCell::new(vec![])),
+    };
+    let tools = GrantTools {
+        snapshot: RefCell::new(snapshot),
+        reads: std::cell::Cell::new(0),
+    };
+    let mut registry = vec![target];
+    registry.extend(crate::capability_disclosure::capability_discovery_tool_registry());
+    let clock = || "1970-01-01T00:00:00.500Z".to_string();
+    let mut deps = deps(session, &model, &tools, &registry, &clock);
+    deps.provider_registry = Some(providers);
+    deps.capability_inventory = Some(inventory);
+    let outcome = run_agent_turn(
+        &deps,
+        ClaimTurnParams {
+            current_pdp_scope: scope,
+            ..claim()
+        },
+        ChatMessage::text("u", ChatRole::User, "inspect the session"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    (outcome, tools.reads.get())
+}
+
+#[tokio::test]
+async fn a_direct_call_reuses_a_settled_equivalent_request_without_a_new_card() {
+    let (session, providers, snapshot, inventory, target, scope) = call_time_case(true);
+    seed_prior_read(
+        &session,
+        &providers,
+        crate::dynamic_run::PermissionRequestState::Denied,
+    );
+    let seq = session.inner.borrow().as_ref().unwrap().last_event_seq;
+    let (outcome, reads) = run_direct_read(
+        &session,
+        &providers,
+        snapshot,
+        &inventory,
+        target,
+        scope,
+        "I will adapt to the recorded denial.",
+    )
+    .await;
+    assert_eq!(
+        outcome,
+        LoopOutcome::Answered("I will adapt to the recorded denial.".into())
+    );
+    assert_eq!(reads, 0);
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    assert_eq!(stored.permission_requests.len(), 1);
+    assert_eq!(stored.last_event_seq, seq);
+    let result = tool_result(stored, "read");
+    assert!(
+        result.contains("existing_permission_request") && result.contains("denied"),
+        "{result}"
+    );
+}
+
+#[tokio::test]
+async fn an_exhausted_approval_is_renewed_as_a_new_owner_decision_without_dispatch() {
+    let (mut session, providers, snapshot, inventory, target, scope) = call_time_case(true);
+    session.allow_permission_renewal = true;
+    seed_prior_read(
+        &session,
+        &providers,
+        crate::dynamic_run::PermissionRequestState::Approved,
+    );
+    let (outcome, reads) = run_direct_read(
+        &session, &providers, snapshot, &inventory, target, scope, "unused",
+    )
+    .await;
+    assert!(matches!(outcome, LoopOutcome::PermissionRequested { .. }));
+    assert_eq!(reads, 0);
+    let stored = session.inner.borrow();
+    let stored = stored.as_ref().unwrap();
+    let [prior, renewed] = stored.permission_requests.as_slice() else {
+        panic!("{:?}", stored.permission_requests)
+    };
+    assert_eq!(
+        prior.state,
+        crate::dynamic_run::PermissionRequestState::Approved
+    );
+    assert_eq!(
+        renewed.state,
+        crate::dynamic_run::PermissionRequestState::Pending
+    );
+    assert_ne!(prior.request_id, renewed.request_id);
+}
+
+#[tokio::test]
+async fn an_unknown_outcome_still_allows_a_new_call_time_proposal() {
+    let (session, providers, snapshot, inventory, target, scope) = call_time_case(true);
+    session.inner.borrow_mut().as_mut().unwrap().execution_state = ExecutionState::OutcomeUnknown {
+        action: crate::session::ActionIdentity::agent_exec(57, "request", "execution"),
+        placeholder_message_id: "unknown".into(),
+        since: "1970-01-01T00:00:00Z".into(),
+    };
+    let (outcome, reads) = run_direct_read(
+        &session, &providers, snapshot, &inventory, target, scope, "unused",
+    )
+    .await;
+    assert!(matches!(outcome, LoopOutcome::PermissionRequested { .. }));
+    assert_eq!(reads, 0);
+    assert_eq!(
+        session
+            .inner
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .permission_requests
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -1875,7 +2030,6 @@ fn every_tool_effect_is_classified_for_continuation() {
         ToolEffect::Mutating,
         ToolEffect::WaitTask,
         ToolEffect::RunProjection,
-        ToolEffect::PermissionPlanning,
         ToolEffect::CapabilityDiscovery,
         ToolEffect::MemoryQuery,
         ToolEffect::MemoryWrite,
@@ -2050,122 +2204,6 @@ const LOAD_INSPECT: (&str, &str, &str) = (
     crate::capability_disclosure::LOAD_CAPABILITY_DETAILS_TOOL_NAME,
     r#"{"tool_names":["inspect_desktop_session"]}"#,
 );
-
-fn result_index(stored: &PersistedAgentSession, id: &str) -> usize {
-    stored
-        .conversation
-        .iter()
-        .position(|message| message.tool_call_id.as_deref() == Some(id))
-        .unwrap()
-}
-
-#[tokio::test]
-async fn explicit_request_continues_remaining_calls_then_appends_the_bridge() {
-    let (session, providers, snapshot, inventory, mut registry, scope) = group_case(None);
-    registry.extend(crate::permission_tools::permission_planning_tool_registry());
-    let requests = Rc::new(RefCell::new(vec![]));
-    let model = ScriptModel {
-        turns: RefCell::new(
-            [
-                load_reads(),
-                step_of(&[
-                    (
-                        "req",
-                        crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
-                        r#"{"items":[{"tool_name":"inspect_desktop_session","suggested_ttl_seconds":300,"suggested_max_uses":1,"reason":"Inspect the session the owner asked about"}]}"#,
-                    ),
-                    LOAD_INSPECT,
-                ]),
-                answer("done"),
-            ]
-            .into(),
-        ),
-        requests: requests.clone(),
-    };
-    let tools = GrantTools {
-        snapshot: RefCell::new(snapshot),
-        reads: std::cell::Cell::new(0),
-    };
-    let clock = || "1970-01-01T00:00:00.500Z".to_string();
-    let mut deps = deps(&session, &model, &tools, &registry, &clock);
-    deps.provider_registry = Some(&providers);
-    deps.capability_inventory = Some(&inventory);
-    let outcome = run_agent_turn(
-        &deps,
-        ClaimTurnParams {
-            current_pdp_scope: scope.clone(),
-            ..claim()
-        },
-        ChatMessage::text("u", ChatRole::User, "inspect the session"),
-        &mut NullTurnSink,
-    )
-    .await
-    .unwrap();
-    let LoopOutcome::PermissionRequested { request_id } = outcome else {
-        let stored = session.inner.borrow();
-        panic!(
-            "{outcome:?} {:?}",
-            stored
-                .as_ref()
-                .unwrap()
-                .conversation
-                .iter()
-                .map(|message| (message.tool_call_id.clone(), message.text.clone()))
-                .collect::<Vec<_>>()
-        )
-    };
-    {
-        let mut stored = session.inner.borrow_mut();
-        let stored = stored.as_mut().unwrap();
-        // The request call has its receipt; the later call waits for the
-        // decision without a result.
-        assert!(tool_result(stored, "req").contains("pending_user_decision"));
-        assert!(
-            !stored
-                .conversation
-                .iter()
-                .any(|message| message.tool_call_id.as_deref() == Some("c"))
-        );
-        let waiting = stored.awaiting_permission.as_ref().unwrap();
-        assert_eq!(waiting.tool_call_id, "req");
-        assert_eq!(waiting.pending_call_ids, ["c"]);
-        assert!(waiting.owes_resume_bridge);
-        let item = stored.permission_requests[0].items[0].item_id.clone();
-        decide(stored, &request_id, &item, true);
-        assert!(stored.release_awaiting_permission(&request_id).unwrap());
-    }
-    let outcome = resume_agent_turn_after_permission(
-        &deps,
-        ClaimTurnParams {
-            current_pdp_scope: scope,
-            trigger_origin: crate::session::TriggerOrigin::PermissionDecision,
-            ..claim()
-        },
-        permission_bridge("decided"),
-        &mut NullTurnSink,
-    )
-    .await
-    .unwrap();
-    assert_eq!(outcome, LoopOutcome::Answered("done".into()));
-    let stored = session.inner.borrow();
-    let stored = stored.as_ref().unwrap();
-    // The later call ran first; the bridge follows the whole call group.
-    let bridge = stored
-        .conversation
-        .iter()
-        .position(|message| message.message_id == "decided")
-        .unwrap();
-    assert!(result_index(stored, "c") < bridge);
-    assert!(!tool_result(stored, "c").starts_with("not executed"));
-    let requests = requests.borrow();
-    let last = requests.last().unwrap();
-    let positions =
-        |pick: &dyn Fn(&ChatMessage) -> bool| last.messages.iter().position(pick).unwrap();
-    assert!(
-        positions(&|message| message.tool_call_id.as_deref() == Some("c"))
-            < positions(&|message| message.message_id == "decided")
-    );
-}
 
 #[tokio::test]
 async fn scheduled_continuation_continues_through_a_second_pause() {

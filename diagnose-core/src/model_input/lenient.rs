@@ -181,39 +181,7 @@ pub fn normalize_turn_tools(turn: &mut crate::chat::ModelTurn, tools: &[crate::c
         };
         let mut spec = spec.clone();
         crate::ui_model_ids::project_tool(&mut spec);
-        let mut report = normalize(&spec.parameters_schema, &mut value, lenient(&call.name));
-        if call.name == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME
-            && let Some(items) = value.get_mut("items").and_then(Value::as_array_mut)
-        {
-            let registry = crate::ai_agent::ai_agent_provider_registry_ref();
-            for (index, item) in items.iter_mut().enumerate() {
-                let Some(name) = item["tool_name"].as_str().map(str::to_owned) else {
-                    continue;
-                };
-                let (Some(capability), Some(exact)) = (
-                    registry.capability_for_tool(&name),
-                    item.get_mut("exact_input"),
-                ) else {
-                    continue;
-                };
-                let mut target = capability.tool_spec.clone();
-                crate::ui_model_ids::project_tool(&mut target);
-                let nested = normalize(&target.parameters_schema, exact, lenient(&name));
-                let prefix = format!("items[{index}].exact_input.");
-                report.ignored.extend(
-                    nested
-                        .ignored
-                        .into_iter()
-                        .map(|field| format!("{prefix}{field}")),
-                );
-                report.nulls.extend(
-                    nested
-                        .nulls
-                        .into_iter()
-                        .map(|field| format!("{prefix}{field}")),
-                );
-            }
-        }
+        let report = normalize(&spec.parameters_schema, &mut value, lenient(&call.name));
         if report.is_empty() {
             continue;
         }
@@ -251,7 +219,6 @@ fn lenient(name: &str) -> bool {
                 | ToolEffect::ExternalRead
                 | ToolEffect::WaitTask
                 | ToolEffect::RunProjection
-                | ToolEffect::PermissionPlanning
                 | ToolEffect::CapabilityDiscovery
                 | ToolEffect::ConversationHistory
                 | ToolEffect::AgentHistory
@@ -268,9 +235,8 @@ fn builtin_effects() -> &'static std::collections::BTreeMap<String, crate::regis
         std::collections::BTreeMap<String, crate::registry::ToolEffect>,
     > = std::sync::OnceLock::new();
     EFFECTS.get_or_init(|| {
-        crate::permission_tools::permission_planning_tool_registry()
+        crate::capability_disclosure::capability_discovery_tool_registry()
             .into_iter()
-            .chain(crate::capability_disclosure::capability_discovery_tool_registry())
             .chain(crate::task_status_tools::task_status_tool_registry())
             .chain(crate::subagent::tools::registry())
             .chain(crate::goal_tools::registry())
@@ -397,20 +363,12 @@ mod turn_tests {
         request.tools = names
             .iter()
             .map(|name| {
-                if *name == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME {
-                    crate::permission_tools::permission_planning_tool_registry()
-                        .into_iter()
-                        .find(|tool| tool.spec.name == *name)
-                        .unwrap()
-                        .spec
-                } else {
-                    let mut tool = registry
-                        .capability_for_tool(name)
-                        .unwrap()
-                        .registered_tool();
-                    crate::request_devices::add_target_selector(&mut tool, false);
-                    tool.spec
-                }
+                let mut tool = registry
+                    .capability_for_tool(name)
+                    .unwrap()
+                    .registered_tool();
+                crate::request_devices::add_target_selector(&mut tool, false);
+                tool.spec
             })
             .collect();
         request
@@ -459,42 +417,6 @@ mod turn_tests {
         );
         assert_eq!(turn.tool_calls[1].arguments_json, original_update);
         assert!(!turn.provider_meta.normalized_inputs.contains_key("call-1"));
-    }
-
-    #[test]
-    fn permission_exact_input_nulls_are_omitted_and_match_the_later_call() {
-        let request = request(&[crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME]);
-        let exact =
-            json!({"shell":"bash","command":"pwd","timeout_ms":1000,"cwd":null,"io_mode":null});
-        let mut turn = turn(&[(
-            crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
-            json!({"items":[{"tool_name":"exec_command","reason":"Run","exact_input":exact}]}),
-        )]);
-        normalize_model_turn(&mut turn, &request);
-        let value: Value = serde_json::from_str(&turn.tool_calls[0].arguments_json).unwrap();
-        let normalized = value["items"][0]["exact_input"].clone();
-        // cwd declares null (its default); io_mode does not accept null.
-        assert_eq!(
-            normalized,
-            json!({"shell":"bash","command":"pwd","timeout_ms":1000,"cwd":null})
-        );
-        assert_eq!(
-            turn.provider_meta.normalized_inputs["call-0"].notice,
-            "Null optional fields were treated as omitted: items[0].exact_input.io_mode."
-        );
-        let later_call = json!({"shell":"bash","command":"pwd","timeout_ms":1000});
-        assert_eq!(
-            crate::permission_tools::canonical_tool_permission_input_json(
-                "exec_command",
-                normalized
-            )
-            .unwrap(),
-            crate::permission_tools::canonical_tool_permission_input_json(
-                "exec_command",
-                later_call
-            )
-            .unwrap()
-        );
     }
 
     #[test]

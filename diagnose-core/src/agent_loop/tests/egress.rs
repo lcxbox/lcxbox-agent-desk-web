@@ -169,7 +169,7 @@ async fn strict_compression_loop_keeps_authorized_summaries_after_time_advances(
 }
 
 #[tokio::test]
-async fn a_permission_plan_the_server_cannot_build_is_reported_as_server_text() {
+async fn a_proposal_the_server_cannot_build_is_reported_as_server_text() {
     let policy = ModelEgressPolicy {
         destination: DestinationIdentity::Model {
             connection_id: "test".into(),
@@ -195,7 +195,7 @@ async fn a_permission_plan_the_server_cannot_build_is_reported_as_server_text() 
         "actor",
         "device",
         1,
-        scope(),
+        exec_scope(),
         "2026-06-19T00:00:00Z",
     );
     existing.surface = crate::session::AgentSessionSurface::AiAgent;
@@ -206,11 +206,7 @@ async fn a_permission_plan_the_server_cannot_build_is_reported_as_server_text() 
         inner: CompressionScriptModel {
             turns: RefCell::new(
                 [
-                    Ok(tool_use_args(
-                        "permission-call",
-                        crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
-                        r#"{"items":[{"tool_name":"no_such_tool","suggested_ttl_seconds":300,"suggested_max_uses":1,"reason":"Inspect the target"}]}"#,
-                    )),
+                    Ok(tool_use("command-call", "exec_command")),
                     Ok(answer("corrected")),
                 ]
                 .into(),
@@ -228,16 +224,20 @@ async fn a_permission_plan_the_server_cannot_build_is_reported_as_server_text() 
         policy: RefCell::new(policy),
         expire_after_compression: false,
     };
-    let tools = RecordingTools {
-        calls: Rc::new(RefCell::new(vec![])),
-        reply: "must not run".into(),
-    };
+    // The host finds no grant, and the registry carries no command policy,
+    // so building the proposal for the direct call fails on the server.
+    let scripted = tools(vec![ExecOutcome::GrantRequired {
+        input_mismatch: false,
+    }]);
     let providers = crate::ai_agent::ai_agent_provider_registry();
-    let registry = crate::permission_tools::permission_planning_tool_registry();
+    let registry = vec![mutating_tool(
+        "exec_command",
+        Capability::ShellExecConfirmed,
+    )];
     let clock = || "2026-06-20T00:00:01Z".into();
-    let mut loop_deps = deps(&sess, &model, &tools, &registry, &clock);
+    let mut loop_deps = exec_deps(&sess, &model, &scripted, &registry, &clock);
     loop_deps.provider_registry = Some(&providers);
-    let outcome = run_agent_turn(&loop_deps, claim(), current, &mut NullTurnSink)
+    let outcome = run_agent_turn(&loop_deps, exec_claim(), current, &mut NullTurnSink)
         .await
         .unwrap();
     assert_eq!(outcome, LoopOutcome::Answered("corrected".into()));
@@ -247,11 +247,11 @@ async fn a_permission_plan_the_server_cannot_build_is_reported_as_server_text() 
         .unwrap()
         .conversation
         .iter()
-        .find(|message| message.tool_call_id.as_deref() == Some("permission-call"))
+        .find(|message| message.tool_call_id.as_deref() == Some("command-call"))
         .unwrap();
     assert_eq!(result.tool_ok, Some(false));
     assert!(
-        result.text.contains("unknown tool `no_such_tool`"),
+        result.text.contains("no trusted policy context"),
         "{}",
         result.text
     );

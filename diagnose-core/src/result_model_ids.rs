@@ -664,24 +664,6 @@ pub(crate) fn project_arguments(tool: &str, value: &mut Value, locators: &[Resul
 }
 
 pub(crate) fn preserves_explicit_evidence(tool: &str, original: &Value, resolved: &Value) -> bool {
-    if tool == "request_permissions" {
-        let (Some(left), Some(right)) =
-            (original["items"].as_array(), resolved["items"].as_array())
-        else {
-            return false;
-        };
-        return left.len() == right.len()
-            && left.iter().zip(right).all(|(left, right)| {
-                left["tool_name"] == right["tool_name"]
-                    && left["tool_name"].as_str().is_some_and(|name| {
-                        preserves_explicit_evidence(
-                            name,
-                            &left["exact_input"],
-                            &right["exact_input"],
-                        )
-                    })
-            });
-    }
     let fields: &[&str] = match tool {
         crate::provider_preflight::text_file::UPDATE_TEXT_TOOL
         | crate::provider_preflight::text_file::DELETE_TEXT_TOOL => &["expected_sha256"],

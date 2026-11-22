@@ -26,8 +26,7 @@ pub fn is_targetless_web_tool(tool: &crate::registry::RegisteredTool) -> bool {
         || crate::subagent::tools::effect(tool.name()).is_some()
         || matches!(
             tool.effect,
-            crate::registry::ToolEffect::PermissionPlanning
-                | crate::registry::ToolEffect::CapabilityDiscovery
+            crate::registry::ToolEffect::CapabilityDiscovery
                 | crate::registry::ToolEffect::SkillLoading
                 | crate::registry::ToolEffect::SchedulePlanning
                 | crate::registry::ToolEffect::ScheduleQuery

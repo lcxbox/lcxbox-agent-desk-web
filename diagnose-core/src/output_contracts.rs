@@ -79,7 +79,6 @@ catalog!(
         "ScheduledTaskCancellationReceipt",
         Inline
     ),
-    ("request_permissions", "PermissionRequestReceipt", Inline),
     ("describe_tools", "ToolDescriptionList", Inline),
     ("load_skill", "SkillLoadReceipt", Inline),
     ("read_conversation_attachment", "ReadPage", Inline),
@@ -483,7 +482,6 @@ mod tests {
             "request_scheduled_task",
             "list_scheduled_tasks",
             "cancel_scheduled_task",
-            "request_permissions",
             "describe_tools",
             "load_skill",
             "read_conversation_attachment",
@@ -498,7 +496,7 @@ mod tests {
         ] {
             assert!(for_tool(builtin).is_some());
         }
-        assert_eq!(ALL.len(), 96);
+        assert_eq!(ALL.len(), 95);
     }
 
     #[test]

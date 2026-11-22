@@ -29,7 +29,6 @@
 | `request_scheduled_task` | `ScheduledTaskRequestReceipt` | 1 | inline |
 | `list_scheduled_tasks` | `ScheduledTaskList` | 1 | inline |
 | `cancel_scheduled_task` | `ScheduledTaskCancellationReceipt` | 1 | inline |
-| `request_permissions` | `PermissionRequestReceipt` | 1 | inline |
 | `describe_tools` | `ToolDescriptionList` | 1 | inline |
 | `load_skill` | `SkillLoadReceipt` | 1 | inline |
 | `read_conversation_attachment` | `ReadPage` | 1 | inline |

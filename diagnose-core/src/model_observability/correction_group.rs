@@ -100,7 +100,6 @@ pub fn tool_category(key: &str) -> CorrectionCategory {
     {
         CorrectionCategory::Schedule
     } else if [
-        crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
         crate::directory_tools::REQUEST_DIRECTORY,
         crate::goal_tools::REQUEST_GOAL_TOOL_NAME,
         crate::skills::authoring::PROPOSE_TOOL,
@@ -168,7 +167,7 @@ mod tests {
             CorrectionCategory::Schedule
         );
         assert_eq!(
-            tool_category(crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME),
+            tool_category(crate::directory_tools::REQUEST_DIRECTORY),
             CorrectionCategory::Approval
         );
         assert_eq!(
@@ -176,7 +175,7 @@ mod tests {
             CorrectionCategory::Approval
         );
         assert_eq!(
-            tool_category("request_permissions_extra"),
+            tool_category("request_directory_extra"),
             CorrectionCategory::ToolInput
         );
         assert!(serde_json::from_str::<CorrectionCategory>("\"untrusted\"").is_err());

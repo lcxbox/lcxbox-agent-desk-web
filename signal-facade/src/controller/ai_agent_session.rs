@@ -3651,6 +3651,7 @@ mod command_snapshot_card_tests {
             items: vec![item],
             created_at: "2026-11-16T00:00:00Z".into(),
             input_source: None,
+            group: None,
         }
     }
 

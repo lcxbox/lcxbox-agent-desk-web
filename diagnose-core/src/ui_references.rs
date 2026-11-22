@@ -1556,7 +1556,9 @@ impl UiReferenceState {
             {
                 ids.insert(id.into());
             }
-            if tool == "request_permissions"
+            // The internal proposal synthesized from a direct call carries
+            // that call's resolved input.
+            if tool == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME
                 && let Some(items) = value.get("items").and_then(Value::as_array)
             {
                 for item in items {
@@ -1565,13 +1567,6 @@ impl UiReferenceState {
                         .and_then(|reference| state.projected_alias(reference))
                     {
                         ids.insert(alias.into());
-                    }
-                    if let Some(id) = item
-                        .pointer("/application_scope/application_id")
-                        .and_then(Value::as_str)
-                        && state.entries.contains_key(id)
-                    {
-                        ids.insert(id.into());
                     }
                     if let Some(name) = item["tool_name"].as_str() {
                         collect(state, name, &item["exact_input"], ids);
@@ -1841,7 +1836,6 @@ impl UiReferenceState {
                 | "send_background_input"
                 | "send_raw_input"
                 | "execute_wayland_output_input"
-                | "request_permissions"
         ) || crate::browser_model_ids::supports(&call.name)
             || crate::document_model_ids::supports(&call.name);
         if ui_tool {
@@ -2028,23 +2022,6 @@ impl UiReferenceState {
                 }
                 if let Some(id) = value.pointer_mut("/attachment/element_id") {
                     self.expand_id(id, &["b"], expected)?;
-                }
-            }
-        }
-        if tool == "request_permissions"
-            && let Some(items) = value.get_mut("items").and_then(Value::as_array_mut)
-        {
-            for item in items {
-                if let Some(id) = item.pointer_mut("/application_scope/application_id") {
-                    self.expand_id(id, &["a"], expected)?;
-                }
-                if let Some(tool) = item
-                    .get("tool_name")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                    && let Some(exact) = item.get_mut("exact_input")
-                {
-                    self.expand_arguments(&tool, exact, expected)?;
                 }
             }
         }

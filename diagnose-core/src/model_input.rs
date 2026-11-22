@@ -11,9 +11,8 @@ pub mod lenient;
 /// Conversation tools the host exposes directly; they are never Provider
 /// capabilities and are never loaded through capability discovery.
 fn built_in_specs() -> impl Iterator<Item = ToolSpec> {
-    crate::permission_tools::permission_planning_tool_registry()
+    crate::capability_disclosure::capability_discovery_tool_registry()
         .into_iter()
-        .chain(crate::capability_disclosure::capability_discovery_tool_registry())
         .chain(crate::task_status_tools::task_status_tool_registry())
         .chain(crate::subagent::tools::registry())
         .chain(crate::goal_tools::registry())
@@ -79,37 +78,6 @@ pub fn hide_versions(schema: &mut Value) {
     }
 }
 
-/// Model inputs cannot select server-owned identities or observation metadata.
-pub(crate) fn validate_server_metadata(
-    call: &crate::chat::ToolCall,
-) -> Result<(), desk_agent_protocol::AgentError> {
-    if call.name != "request_permissions" {
-        return Ok(());
-    }
-    let value: Value = serde_json::from_str(&call.arguments_json)
-        .map_err(|_| crate::subagent::invalid("Tool arguments must be a JSON object."))?;
-    if let Some(items) = value["items"].as_array() {
-        for item in items {
-            if ["item_id", "resource_scope", "operation_scope"]
-                .iter()
-                .any(|field| item.get(field).is_some())
-            {
-                return Err(crate::subagent::invalid(
-                    "request_permissions items accept tool_name, business targets/inputs, reason and optional lifetime/use suggestions. Item identities and authorization scopes are compiled by the server; omit internal metadata. No request was created.",
-                ));
-            }
-            if let Some(exact) = item.get("exact_input") {
-                validate_server_metadata(&crate::chat::ToolCall {
-                    id: call.id.clone(),
-                    name: item["tool_name"].as_str().unwrap_or_default().into(),
-                    arguments_json: exact.to_string(),
-                })?;
-            }
-        }
-    }
-    Ok(())
-}
-
 fn fill(schema: &Value, input: &mut Value, canonical: bool) {
     if let (Some(properties), Some(object)) =
         (schema["properties"].as_object(), input.as_object_mut())
@@ -164,40 +132,8 @@ pub(crate) fn fill_canonical_arguments(name: &str, input: &mut Value) {
 }
 
 fn fill_arguments(name: &str, input: &mut Value, canonical: bool) {
-    if name == "request_permissions"
-        && let Some(items) = input.get_mut("items").and_then(Value::as_array_mut)
-    {
-        for item in items {
-            if let Some(name) = item["tool_name"].as_str().map(str::to_owned)
-                && name != "request_permissions"
-                && let Some(exact) = item.get_mut("exact_input")
-            {
-                fill_arguments(&name, exact, canonical);
-            }
-        }
-    }
     if let Some(tool) = tools().get(name) {
         fill(&tool.parameters_schema, input, canonical);
-    }
-    if name == "request_permissions"
-        && let Some(items) = input.get_mut("items").and_then(Value::as_array_mut)
-    {
-        let mut used = items
-            .iter()
-            .filter_map(|item| item["item_id"].as_str().map(str::to_owned))
-            .collect::<std::collections::BTreeSet<_>>();
-        for (index, item) in items.iter_mut().enumerate() {
-            if let Some(item) = item.as_object_mut()
-                && !item.contains_key("item_id")
-            {
-                let mut id = format!("item_{}", index + 1);
-                while used.contains(&id) {
-                    id.push('_');
-                }
-                used.insert(id.clone());
-                item.insert("item_id".into(), json!(id));
-            }
-        }
     }
     if let Some(recipients) = input
         .pointer_mut("/draft/recipients")
@@ -256,14 +192,6 @@ pub(crate) fn project_defaults(tool: &mut ToolSpec) {
     {
         required.retain(|key| key != "attachment_labels");
     }
-    if tool.name == "request_permissions"
-        && let Some(required) = tool
-            .parameters_schema
-            .pointer_mut("/properties/items/items/required")
-            .and_then(Value::as_array_mut)
-    {
-        required.retain(|key| key != "item_id");
-    }
 }
 
 pub(crate) fn project_fixed_arguments(tool: &str, value: &mut Value) {
@@ -292,17 +220,6 @@ pub(crate) fn project_fixed_arguments(tool: &str, value: &mut Value) {
 }
 
 pub(crate) fn project_protocol_versions(tool: &str, value: &mut Value) {
-    if tool == "request_permissions"
-        && let Some(items) = value.get_mut("items").and_then(Value::as_array_mut)
-    {
-        for item in items {
-            if let Some(name) = item["tool_name"].as_str().map(str::to_owned)
-                && let Some(exact) = item.get_mut("exact_input")
-            {
-                project_protocol_versions(&name, exact);
-            }
-        }
-    }
     if let Some(spec) = tools().get(tool) {
         project_versions(&spec.parameters_schema, value);
     }
@@ -440,31 +357,6 @@ mod protocol_version_tests {
         let original = input.clone();
         project_versions(&schema, &mut input);
         assert_eq!(input, original);
-    }
-
-    #[test]
-    fn permission_exact_inputs_use_each_target_tools_schema() {
-        let mut input = json!({"items":[
-            {"tool_name":crate::exec_tools::EXEC_TOOL_NAME,"exact_input":{"shell":"bash","command":"pwd","timeout_ms":10000,"schema_version":2}},
-            {"tool_name":"prepare_outlook_draft","exact_input":{"draft":{"schema_version":desk_agent_protocol::communication::COMMUNICATION_SCHEMA_VERSION,"body_plain_text":"unchanged","recipients":[]}}},
-            {"tool_name":"unknown","exact_input":{"schema_version":1}}
-        ]});
-        project_protocol_versions("request_permissions", &mut input);
-        assert!(
-            input["items"][0]["exact_input"]
-                .get("schema_version")
-                .is_none()
-        );
-        assert!(
-            input["items"][1]["exact_input"]["draft"]
-                .get("schema_version")
-                .is_none()
-        );
-        assert_eq!(
-            input["items"][1]["exact_input"]["draft"]["body_plain_text"],
-            "unchanged"
-        );
-        assert_eq!(input["items"][2]["exact_input"]["schema_version"], 1);
     }
 }
 
@@ -622,38 +514,6 @@ pub fn validate_format(name: &str, input: &Value) -> Result<(), String> {
     check(&tool.parameters_schema, input, "$", 0)
         .map_err(|reason| describe_error(name, &reason.message))
 }
-/// Check every permission item's exact input and report all failures at
-/// once, so one correction can fix the whole batch.
-pub fn validate_permission_items(
-    items: &[Value],
-    schema_for: impl Fn(&str) -> Option<Value>,
-) -> Result<(), FormatError> {
-    let mut errors = items
-        .iter()
-        .filter_map(|item| {
-            let name = item["tool_name"].as_str()?;
-            let exact = item.get("exact_input")?;
-            validate_format_reported(name, &schema_for(name)?, exact).err()
-        })
-        .collect::<Vec<_>>();
-    match errors.len() {
-        0 => Ok(()),
-        1 => Err(errors.remove(0)),
-        count => Err(FormatError {
-            message: format!(
-                "{count} permission items have invalid exact_input; no approval card was created. Correct all of them in one request:\n{}",
-                errors
-                    .iter()
-                    .map(|error| error.message.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            ),
-            issue: errors[0].issue,
-            schema_path: None,
-        }),
-    }
-}
-
 pub fn validate_format_with_schema(
     name: &str,
     schema: &Value,
@@ -1103,45 +963,6 @@ mod tests {
     }
 
     #[test]
-    fn every_malformed_permission_item_is_reported_together() {
-        let registry = crate::ai_agent::ai_agent_provider_registry();
-        let schema_for = |name: &str| {
-            registry.capability_for_tool(name).map(|capability| {
-                let mut target = capability.tool_spec.clone();
-                crate::ui_model_ids::project_tool(&mut target);
-                target.parameters_schema
-            })
-        };
-        // The batch from a real session: each attempt used to surface one item.
-        let items = [
-            json!({"tool_name":"list_applications","exact_input":{}}),
-            json!({"tool_name":"inspect_desktop_ui","exact_input":{"limit":20}}),
-            json!({"tool_name":"launch_application","exact_input":{"queries":["Calculator"]}}),
-            json!({"tool_name":"inspect_desktop_session","exact_input":{}}),
-        ];
-        let error = validate_permission_items(&items, schema_for).unwrap_err();
-        assert!(
-            error
-                .message
-                .starts_with("3 permission items have invalid exact_input"),
-            "{}",
-            error.message
-        );
-        for tool in [
-            "list_applications",
-            "inspect_desktop_ui",
-            "launch_application",
-        ] {
-            assert!(error.message.contains(&format!("Tool: {tool}")), "{tool}");
-        }
-        // One failure keeps its focused feedback and schema path.
-        let single = validate_permission_items(&items[..1], schema_for).unwrap_err();
-        assert!(!single.message.contains("permission items have invalid"));
-        assert!(single.schema_path.is_some());
-        assert!(validate_permission_items(&items[3..], schema_for).is_ok());
-    }
-
-    #[test]
     fn bounds_feedback_reports_observed_size_instead_of_input_contents() {
         let schema = json!({"type":"object","properties":{"queries":{"type":"array","minItems":1,"maxItems":2},"text":{"type":"string","maxLength":3},"limit":{"type":"integer","maximum":5}}});
         for (input, path, bound, observed) in [
@@ -1171,7 +992,6 @@ mod tests {
     #[test]
     fn final_schemas_hide_derived_fields_and_keep_business_identifiers() {
         for name in [
-            "request_permissions",
             "cancel_subagent_request",
             "adjust_subagent_request",
             "cancel_scheduled_task",
@@ -1185,9 +1005,6 @@ mod tests {
                 "/properties/expected_control_revision",
                 "/properties/expected_revision",
                 "/properties/adapter",
-                "/properties/items/items/properties/item_id",
-                "/properties/items/items/properties/resource_scope",
-                "/properties/items/items/properties/operation_scope",
             ] {
                 assert!(schema.pointer(pointer).is_none(), "{name}: {pointer}");
             }
@@ -1199,19 +1016,6 @@ mod tests {
                 .pointer("/properties/items/items/properties/item_id")
                 .is_some()
         );
-        let input = crate::chat::ToolCall { id: "permission".into(), name: "request_permissions".into(), arguments_json: r#"{"items":[{"tool_name":"read_system_info","reason":"Read the requested machine"}]}"#.into() };
-        validate_server_metadata(&input).unwrap();
-        for field in ["item_id", "resource_scope", "operation_scope"] {
-            let mut value: Value = serde_json::from_str(&input.arguments_json).unwrap();
-            value["items"][0][field] = json!("forged");
-            assert!(
-                validate_server_metadata(&crate::chat::ToolCall {
-                    arguments_json: value.to_string(),
-                    ..input.clone()
-                })
-                .is_err()
-            );
-        }
     }
     #[test]
     fn reported_errors_expose_schema_paths_without_dynamic_property_values() {
@@ -1343,10 +1147,6 @@ mod tests {
             ),
             ("inspect_files", json!({"cursor":"cursor","paginate":false})),
             ("read_text_file", json!({"entry_name":"notes.txt"})),
-            (
-                "request_permissions",
-                json!({"items":[{"tool_name":"execute_ui_actions","reason":"action","application_scope":{"application_id":"app","actions":["invoke"]},"exact_input":{}}]}),
-            ),
             (
                 "request_scheduled_task",
                 json!({"kind":"fresh_task","title":"test","prompt":"test","rule":{"kind":"after_confirmation","delay_seconds":10},"time_input":{"timezone":"UTC","reference_date":"2026-10-07","local_time":"08:00:00","rule":{"kind":"once"}}}),
@@ -1485,18 +1285,6 @@ mod tests {
             command["schema_version"],
             desk_agent_protocol::exec::COMMAND_DRAFT_SCHEMA_VERSION
         );
-        let grant = json!({"items":[{"tool_name":"exec_command","exact_input":{"shell":"bash","command":"pwd","timeout_ms":10000}}]});
-        let mut resolved = grant.clone();
-        fill_versions("request_permissions", &mut resolved);
-        assert_eq!(
-            resolved["items"][0]["exact_input"]["schema_version"],
-            desk_agent_protocol::exec::COMMAND_DRAFT_SCHEMA_VERSION
-        );
-        assert!(crate::ui_model_ids::same_call_input(
-            "request_permissions",
-            &grant.to_string(),
-            &resolved.to_string()
-        ));
     }
     #[test]
     fn command_without_version_preserves_exact_approval_identity() {

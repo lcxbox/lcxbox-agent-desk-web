@@ -41,9 +41,6 @@ pub enum ToolEffect {
     /// Updates only the model-maintained, user-visible task projection stored in
     /// the current run. It grants no device authority and dispatches no work.
     RunProjection,
-    /// Creates a bounded user-facing permission request. It cannot mint grants,
-    /// reserve uses, or dispatch tools; approval is a separate trusted action.
-    PermissionPlanning,
     /// Updates the bounded capability working set for the current input
     /// revision. It performs no Provider call and grants no authority.
     CapabilityDiscovery,
@@ -134,7 +131,6 @@ fn mode_allows_effect(mode: ExecutionMode, effect: ToolEffect) -> bool {
         | ToolEffect::ExternalWrite
         | ToolEffect::WaitTask
         | ToolEffect::RunProjection
-        | ToolEffect::PermissionPlanning
         | ToolEffect::CapabilityDiscovery
         | ToolEffect::ConversationHistory
         | ToolEffect::AgentHistory
@@ -228,9 +224,6 @@ pub fn exposure_block_reason(
     }
     if tool.effect == ToolEffect::GoalOpenPlanning {
         return (origin != TriggerOrigin::User).then_some("trigger_origin_disallows_planning");
-    }
-    if tool.effect == ToolEffect::PermissionPlanning {
-        return None;
     }
     if matches!(
         tool.effect,

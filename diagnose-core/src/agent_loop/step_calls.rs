@@ -354,20 +354,7 @@ pub(super) async fn run<M: FnMut() -> String>(
                             &call.name,
                             &spec.parameters_schema,
                             &input,
-                        )?;
-                        if call.name == "request_permissions"
-                            && let Some(registry) = deps.provider_registry
-                            && let Some(items) = input["items"].as_array()
-                        {
-                            crate::model_input::validate_permission_items(items, |name| {
-                                registry.capability_for_tool(name).map(|capability| {
-                                    let mut target = capability.tool_spec.clone();
-                                    crate::ui_model_ids::project_tool(&mut target);
-                                    target.parameters_schema
-                                })
-                            })?;
-                        }
-                        Ok(())
+                        )
                     })
             });
             let schema_observed = validation.is_some();
@@ -1537,29 +1524,6 @@ pub(super) async fn run<M: FnMut() -> String>(
                     }))
                 })
             }
-            ToolEffect::PermissionPlanning => crate::future::phase(|| async {
-                permission_proposal::propose(
-                    deps,
-                    session,
-                    call,
-                    call,
-                    permission_proposal::ProposalContext {
-                        authority: authority.as_ref(),
-                        request_devices,
-                        selected_reads,
-                        step_inventory: step_inventory.as_deref(),
-                        permission_candidates,
-                        remaining: &calls[call_index + 1..],
-                        parent_envelope,
-                        issuing_message_id: response_message_id,
-                        planning: Some(&planning),
-                    },
-                    &mut state.mint,
-                    &tool_observation,
-                    sink,
-                )
-                .await
-            }),
             ToolEffect::SkillLoading => {
                 crate::future::phase(|| async {
                     sink.on_tool_started(&call.name, &call.id, &call.arguments_json);
@@ -1710,7 +1674,6 @@ pub(super) fn continuable(effect: ToolEffect) -> bool {
         | ToolEffect::Mutating
         | ToolEffect::WaitTask
         | ToolEffect::RunProjection
-        | ToolEffect::PermissionPlanning
         | ToolEffect::CapabilityDiscovery
         | ToolEffect::MemoryQuery
         | ToolEffect::MemoryWrite

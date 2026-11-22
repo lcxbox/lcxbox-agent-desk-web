@@ -7,20 +7,6 @@ const SCHEMA_REMINDER: &str = "Follow schema limits.";
 pub(crate) fn project(tool: &mut ToolSpec) {
     let schema = &mut tool.parameters_schema;
     match tool.name.as_str() {
-        "request_permissions" => {
-            let item = &mut schema["properties"]["items"]["items"];
-            item["not"] = json!({"required":["application_scope","exact_input"]});
-            item["allOf"] = json!([{
-                "if":{"properties":{"tool_name":{"enum":["execute_ui_actions","send_background_input"]}},"required":["tool_name"]},
-                "then":{"required":["application_scope"]},
-                "else":{"not":{"required":["application_scope"]}}
-            }]);
-            item["properties"]["reason"]["x-maxUtf8Bytes"] =
-                json!(crate::dynamic_run::MAX_PERMISSION_REASON_BYTES);
-            item["properties"]["exact_input"]["description"] = json!(
-                "Use the current model-facing target tool input, including necessary business choices and observed result IDs. contextual_exact_input file reads may omit bound sources only when the current accepted user input already selected the required files, or inspect_files has a unique approved directory; required worksheet/cell and merge rules remain necessary. The server restores reference metadata, hashes and defaults before approval. Native UI permissions use application_scope instead. Obtain prerequisite reads before requesting a mutation that depends on their results."
-            );
-        }
         crate::tool_names::READ_CURRENT_SCREEN => {
             schema["not"] = json!({"required":["display","window_id"]})
         }

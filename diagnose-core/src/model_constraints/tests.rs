@@ -6,7 +6,6 @@ fn tools(limits: &AgentDataLimits) -> Vec<RegisteredTool> {
     let mut tools = crate::read_tools::read_tool_registry();
     tools.extend(crate::read_tools::ai_agent_read_tool_registry());
     tools.extend(crate::ai_agent::ai_agent_provider_registry().registered_tools());
-    tools.extend(crate::permission_tools::permission_planning_tool_registry());
     tools.extend(crate::task_status_tools::task_status_tool_registry());
     tools.extend(crate::subagent::tools::registry());
     tools.extend(crate::capability_disclosure::capability_discovery_tool_registry());
@@ -132,19 +131,6 @@ fn native_limits_keep_their_schema_values_without_numeric_captions() {
         assert_eq!(field["maxItems"], 16);
         assert!(field.get("description").is_none());
     }
-    let permission = &registry
-        .iter()
-        .find(|tool| tool.name() == "request_permissions")
-        .unwrap()
-        .spec;
-    let actions = permission
-        .parameters_schema
-        .pointer("/properties/items/items/properties/application_scope/properties/actions")
-        .unwrap();
-    assert_eq!(actions["minItems"], 1);
-    assert_eq!(actions["maxItems"], 6);
-    assert!(actions.get("description").is_none());
-    assert!(!permission.description.contains("at most 14"));
     let mut native = ToolSpec {
         name: "create_text_artifact".into(),
         description: "Create text".into(),

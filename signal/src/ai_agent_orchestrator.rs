@@ -4008,7 +4008,6 @@ mod tests {
         assert!(!registry.is_empty());
         assert!(registry.iter().all(|tool| {
             tool.name() != desk_diagnose_core::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME
-                && tool.effect != desk_diagnose_core::registry::ToolEffect::PermissionPlanning
         }));
     }
     use tokio::net::TcpListener;

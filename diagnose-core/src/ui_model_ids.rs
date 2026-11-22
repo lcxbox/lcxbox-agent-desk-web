@@ -31,7 +31,6 @@ pub fn needs_resolution(tool: &str) -> bool {
     !fields(tool).is_empty()
         || tool == crate::tool_names::INSPECT_FILES
         || crate::provider_preflight::ArtifactCallPreflight::supports(tool)
-        || tool == "request_permissions"
         || crate::browser_model_ids::supports(tool)
         || crate::result_model_ids::supports(tool)
         || crate::document_model_ids::supports(tool)
@@ -208,7 +207,6 @@ pub fn resolve_session_call_with_context(
     now_ms: u64,
     original: Option<&crate::input_read_context::ReadContextSelection>,
 ) -> Result<ToolCall, AgentError> {
-    crate::model_input::validate_server_metadata(call)?;
     // Data and schedule tools have no desktop/file IDs to expand. Their admission
     // binds the exact model argument bytes, including JSON formatting.
     if crate::ai_agent::data_tools::is_data_tool(&call.name)
@@ -236,8 +234,7 @@ pub fn resolve_session_call_with_context(
         return Ok(call.clone());
     }
     let mut prepared = call.clone();
-    let route = if call.name != "request_permissions"
-        && session.uses_request_device_tools()
+    let route = if session.uses_request_device_tools()
         && crate::ai_agent::ai_agent_provider_registry_ref()
             .capability_for_tool(&call.name)
             .is_some_and(|descriptor| {
@@ -252,12 +249,6 @@ pub fn resolve_session_call_with_context(
     } else {
         None
     };
-    if call.name == "request_permissions" {
-        let mut value: Value = serde_json::from_str(&call.arguments_json)
-            .map_err(|_| invalid("Tool arguments must be a JSON object."))?;
-        crate::file_model_input::prepare_permissions(&mut value);
-        prepared.arguments_json = value.to_string();
-    }
     let (expanded, expected) = session.ui_references.expand_call(&prepared)?;
     let mut resolved =
         resolve_call_with_references(&expanded, &session.conversation, now_ms, &expected)?;
@@ -472,86 +463,6 @@ pub(crate) fn resolve_single_call_with_references(
             }
         }
     }
-    if call.name == "request_permissions"
-        && let Some(items) = object.get_mut("items").and_then(Value::as_array_mut)
-    {
-        for item in items {
-            if let Some(tool) = item["tool_name"].as_str().map(str::to_owned)
-                && (tool == crate::tool_names::INSPECT_FILES
-                    || crate::provider_preflight::ArtifactCallPreflight::supports(&tool)
-                    || crate::browser_model_ids::supports(&tool)
-                    || crate::result_model_ids::supports(&tool)
-                    || crate::document_model_ids::supports(&tool)
-                    || !fields(&tool).is_empty())
-                && let Some(exact) = item.get_mut("exact_input")
-            {
-                let nested = ToolCall {
-                    id: call.id.clone(),
-                    name: tool,
-                    arguments_json: exact.to_string(),
-                };
-                *exact = serde_json::from_str(
-                    &resolve_call_with_references(&nested, history, now_ms, expected)?
-                        .arguments_json,
-                )
-                .unwrap();
-                continue;
-            }
-            if matches!(
-                item["tool_name"].as_str(),
-                Some("send_raw_input" | "execute_wayland_output_input")
-            ) {
-                let exact_tool = item["tool_name"].as_str().unwrap().to_owned();
-                if let Some(exact) = item.get_mut("exact_input") {
-                    let nested = ToolCall {
-                        id: call.id.clone(),
-                        name: exact_tool.clone(),
-                        arguments_json: exact.to_string(),
-                    };
-                    *exact = serde_json::from_str(
-                        &resolve_call_with_references(&nested, history, now_ms, expected)?
-                            .arguments_json,
-                    )
-                    .unwrap();
-                }
-                continue;
-            }
-            if !matches!(
-                item["tool_name"].as_str(),
-                Some("execute_ui_actions" | "send_background_input")
-            ) {
-                continue;
-            }
-            let scope = item.get_mut("application_scope").and_then(Value::as_object_mut)
-                    .ok_or_else(|| invalid(r#"Native UI permission requires application_scope: {"application_id":"<observed application ID>","actions":["invoke","set_value"]}. No approval card was created."#))?;
-            if scope.contains_key("application") {
-                return Err(invalid(
-                    "Use application_scope.application_id, not a full application reference. No approval card was created.",
-                ));
-            }
-            let id = scope.remove("application_id").ok_or_else(|| {
-                invalid(
-                    "application_scope.application_id is required. No approval card was created.",
-                )
-            })?;
-            let reference = resolve_with_references(
-                history,
-                id.as_str()
-                    .ok_or_else(|| invalid("application_id must be a string."))?,
-                now_ms,
-                expected,
-            )?;
-            if reference.object_kind != ObjectKind::Application {
-                return Err(invalid(
-                    "application_id must identify an observed application. No approval card was created.",
-                ));
-            }
-            scope.insert(
-                "application".into(),
-                serde_json::to_value(reference).unwrap(),
-            );
-        }
-    }
     crate::model_input::fill_versions(&call.name, &mut value);
     Ok(ToolCall {
         arguments_json: value.to_string(),
@@ -633,36 +544,6 @@ pub(crate) fn project_arguments(
                     (*model).into(),
                     reference.get("token").cloned().unwrap_or(Value::Null),
                 );
-            }
-        }
-        if tool == "request_permissions"
-            && let Some(items) = object.get_mut("items").and_then(Value::as_array_mut)
-        {
-            for item in items {
-                project_scope(item);
-                if let Some(tool) = item["tool_name"]
-                    .as_str()
-                    .map(str::to_owned)
-                    .filter(|tool| {
-                        crate::browser_model_ids::supports(tool)
-                            || crate::result_model_ids::supports(tool)
-                            || crate::document_model_ids::supports(tool)
-                            || !fields(tool).is_empty()
-                    })
-                    && let Some(exact) = item.get_mut("exact_input")
-                {
-                    project_arguments(&tool, exact, locators);
-                    continue;
-                }
-                if matches!(
-                    item["tool_name"].as_str(),
-                    Some("send_raw_input" | "execute_wayland_output_input")
-                ) {
-                    let exact_tool = item["tool_name"].as_str().unwrap().to_owned();
-                    if let Some(exact) = item.get_mut("exact_input") {
-                        project_arguments(&exact_tool, exact, locators);
-                    }
-                }
             }
         }
     }
@@ -869,23 +750,6 @@ fn project_tool_status(message: &mut ChatMessage) {
 /// checks. Durable messages/envelopes remain unchanged and retain exact lineage.
 pub fn project_request(request: &crate::seam::ModelRequest) -> crate::seam::ModelRequest {
     let mut request = request.clone();
-    let failed_ids = request
-        .messages
-        .iter()
-        .filter(|message| message.role == ChatRole::Tool && message.tool_ok == Some(false))
-        .filter_map(|message| message.tool_call_id.as_ref())
-        .collect::<std::collections::HashSet<_>>();
-    let failed_permission_calls = request
-        .messages
-        .iter()
-        .flat_map(|message| &message.tool_calls)
-        .filter(|call| {
-            call.name == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME
-                && failed_ids.contains(&call.id)
-        })
-        .map(|call| (call.id.clone(), call.arguments_json.clone()))
-        .collect::<std::collections::HashMap<_, _>>();
-
     let locators = if request.result_locators.is_empty() {
         crate::result_model_ids::locators(&request.messages)
     } else {
@@ -899,13 +763,6 @@ pub fn project_request(request: &crate::seam::ModelRequest) -> crate::seam::Mode
             &locators,
             request.use_case,
         );
-        // An invalid historical call stays invalid; its failure must not appear
-        // to describe an otherwise valid invocation under today's schema.
-        for call in &mut message.tool_calls {
-            if let Some(original) = failed_permission_calls.get(&call.id) {
-                call.arguments_json = original.clone();
-            }
-        }
     }
     // The gateway sees the model's own arguments; the server executed the
     // normalized copy, and the paired result says which fields it dropped.
@@ -997,17 +854,6 @@ pub(crate) fn project_model_message(
                 references.alias_selector_ids(&mut value);
             }
             crate::model_input::project_protocol_versions(&call.name, &mut value);
-            if call.name == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME
-                && let Some(items) = value.get_mut("items").and_then(Value::as_array_mut)
-            {
-                for item in items {
-                    if let Some(item) = item.as_object_mut() {
-                        for key in ["item_id", "resource_scope", "operation_scope"] {
-                            item.remove(key);
-                        }
-                    }
-                }
-            }
             call.arguments_json = value.to_string();
         }
     }
@@ -1142,33 +988,6 @@ pub fn project_tool(tool: &mut crate::chat::ToolSpec) {
             }
         }
     }
-    if tool.name == "request_permissions"
-        && let Some(item) = schema.pointer_mut("/properties/items/items")
-    {
-        if let Some(properties) = item["properties"].as_object_mut() {
-            for key in ["item_id", "resource_scope", "operation_scope"] {
-                properties.remove(key);
-            }
-        }
-        if let Some(required) = item["required"].as_array_mut() {
-            required.retain(|key| key != "item_id");
-        }
-    }
-    if tool.name == "request_permissions"
-        && let Some(scope) =
-            schema.pointer_mut("/properties/items/items/properties/application_scope")
-    {
-        scope["properties"]
-            .as_object_mut()
-            .unwrap()
-            .remove("application");
-        scope["properties"]["application_id"] =
-            json!({"type":"string","minLength":1,"maxLength":512});
-        scope["required"] = json!(["application_id", "actions"]);
-        scope["description"] = json!(
-            "Native UI permission requires the observed application_id and needed actions. The server supplies all reference metadata. Do not supply exact_input."
-        );
-    }
     if tool.name == crate::ai_agent::linux::OUTPUT_TOOL {
         if let Some(properties) = schema
             .pointer_mut("/properties/action/properties")
@@ -1198,41 +1017,6 @@ mod output_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn permission_history_hides_internal_bindings_but_preserves_real_failures_and_source() {
-        let original = serde_json::json!({"items":[{"item_id":"internal-item", "tool_name":"read_system_info", "resource_scope":["selected:server_resolved"], "operation_scope":["read"], "reason":"inspect"}]}).to_string();
-        let agent = ChatMessage::agent_tool_calls(
-            "assistant",
-            "",
-            vec![crate::chat::ToolCallRef {
-                id: "permission-call".into(),
-                name: crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME.into(),
-                arguments_json: original.clone(),
-            }],
-        );
-        let mut result = ChatMessage::tool_result("result", "permission-call", "accepted");
-        result.tool_ok = Some(true);
-        let request = crate::seam::ModelRequest::text_only(
-            vec![agent.clone(), result.clone()],
-            crate::prompt::ResponseFormatSpec::None,
-        );
-        let projected = project_request(&request);
-        let value: Value =
-            serde_json::from_str(&projected.messages[0].tool_calls[0].arguments_json).unwrap();
-        assert!(value["items"][0].get("item_id").is_none());
-        assert!(value["items"][0].get("resource_scope").is_none());
-        assert_eq!(request.messages[0].tool_calls[0].arguments_json, original);
-        result.tool_ok = Some(false);
-        result.text = "invalid: item_id is not accepted".into();
-        let failed = crate::seam::ModelRequest::text_only(
-            vec![agent, result],
-            crate::prompt::ResponseFormatSpec::None,
-        );
-        let projected = project_request(&failed);
-        assert_eq!(projected.messages[0].tool_calls[0].arguments_json, original);
-        assert_eq!(projected.messages[1].tool_ok, Some(false));
-    }
 
     #[test]
     fn scheduled_calls_preserve_original_json_bytes_without_desktop_resolution() {
@@ -1270,10 +1054,7 @@ mod tests {
 
     #[test]
     fn model_tool_contracts_never_require_internal_snapshot_metadata() {
-        let tools = crate::ai_agent::ai_agent_provider_registry()
-            .registered_tools()
-            .into_iter()
-            .chain(crate::permission_tools::permission_planning_tool_registry());
+        let tools = crate::ai_agent::ai_agent_provider_registry().registered_tools();
         for registration in tools {
             let mut spec = registration.spec;
             project_tool(&mut spec);
@@ -1291,17 +1072,6 @@ mod tests {
         use crate::{chat::ToolCallRef, prompt::ResponseFormatSpec, seam::ModelRequest};
         let canonical =
             json!({"schema_version":2,"shell":"bash","command":"pwd","timeout_ms":10000});
-        let history = ChatMessage::agent_tool_calls(
-            "history",
-            "",
-            vec![ToolCallRef {
-                id: "old-call".into(),
-                name: "request_permissions".into(),
-                arguments_json:
-                    json!({"items":[{"tool_name":"exec_command","exact_input":canonical}]})
-                        .to_string(),
-            }],
-        );
         let command = ChatMessage::agent_tool_calls(
             "command",
             "",
@@ -1311,17 +1081,13 @@ mod tests {
                 arguments_json: canonical.to_string(),
             }],
         );
-        let request = ModelRequest::text_only(vec![history, command], ResponseFormatSpec::None);
+        let request = ModelRequest::text_only(vec![command], ResponseFormatSpec::None);
         let original = serde_json::to_string(&request.messages).unwrap();
         let projected = project_request(&request);
-        let input: Value =
+        let approved: Value =
             serde_json::from_str(&projected.messages[0].tool_calls[0].arguments_json).unwrap();
-        let approved = &input["items"][0]["exact_input"];
         assert!(approved.get("schema_version").is_none());
         assert_eq!(approved["command"], "pwd");
-        let visible: Value =
-            serde_json::from_str(&projected.messages[1].tool_calls[0].arguments_json).unwrap();
-        assert_eq!(&visible, approved);
         let resolved = resolve_call(
             &ToolCall {
                 id: "next".into(),
@@ -1626,11 +1392,6 @@ mod tests {
             .into_iter()
             .map(|t| t.spec)
             .collect();
-        request.tools.extend(
-            crate::permission_tools::permission_planning_tool_registry()
-                .into_iter()
-                .map(|t| t.spec),
-        );
         let projected = project_request(&request);
         let text = serde_json::to_string(&projected.messages).unwrap();
         assert!(!text.contains("expires_at"));
@@ -1791,20 +1552,9 @@ mod tests {
         );
         let exact = json!({"application_id":"calendar","action":{"screen":{"display":"1","width":100,"height":100,"dpi_x":96,"dpi_y":96},"step":{"kind":"key","params":{"key":"enter"}}}});
         let execution = resolve_call(&call("send_raw_input", exact.clone()), &messages, 1).unwrap();
-        let permission = resolve_call(
-            &call(
-                "request_permissions",
-                json!({"items":[{"tool_name":"send_raw_input","exact_input":exact}]}),
-            ),
-            &messages,
-            1,
-        )
-        .unwrap();
-        let permission: Value = serde_json::from_str(&permission.arguments_json).unwrap();
-        assert_eq!(
-            permission["items"][0]["exact_input"],
-            serde_json::from_str::<Value>(&execution.arguments_json).unwrap()
-        );
+        let execution: Value = serde_json::from_str(&execution.arguments_json).unwrap();
+        assert!(execution.get("application_id").is_none());
+        assert_eq!(execution["target"]["token"], "calendar");
         // A tool result from a different tool cannot register desktop IDs.
         messages[0]
             .tool_calls
@@ -1825,13 +1575,16 @@ mod tests {
     #[test]
     fn application_permission_resolves_on_server_and_keeps_approval_flow() {
         let original = call(
-            "request_permissions",
-            json!({"items":[{"item_id":"calendar","tool_name":"execute_ui_actions","application_scope":{"application_id":"calendar","actions":["invoke"]},"suggested_ttl_seconds":120,"suggested_max_uses":4,"reason":"Create requested event"}]}),
+            "execute_ui_actions",
+            json!({"application_id":"calendar","steps":[{"element_id":"date","action":{"kind":"invoke"}}]}),
         );
         let resolved = resolve_call(&original, &history(), 1).unwrap();
         let registry = crate::ai_agent::ai_agent_provider_registry();
+        let proposal =
+            crate::permission_tools::synthesize_request_call(&resolved, &registry, &history(), 4)
+                .unwrap();
         let mut request = crate::permission_tools::build_permission_request(
-            &resolved,
+            &proposal,
             &registry,
             "request".into(),
             1,

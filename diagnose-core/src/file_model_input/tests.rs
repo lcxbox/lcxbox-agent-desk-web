@@ -366,19 +366,17 @@ fn directory_and_created_content_freeze_before_human_or_ai_review() {
 #[test]
 fn missing_creation_business_fields_are_explained_before_permission_creation() {
     let session = session();
-    let nested = call(
-        "request_permissions",
-        json!({"items":[{"tool_name":"request_permissions","reason":"invalid nested request","exact_input":{"items":[]}}]}),
-    );
-    assert!(
-        crate::ui_model_ids::resolve_session_call_with_context(&nested, &session, NOW, None)
-            .is_err()
-    );
     for input in [
         json!({"file_name":"notes.txt"}),
         json!({"content_utf8":"text"}),
     ] {
-        let error = crate::ui_model_ids::resolve_session_call_with_context(&call("request_permissions", json!({"items":[{"tool_name":"create_text_file","reason":"create","exact_input":input}]})), &session, NOW, None).unwrap_err();
+        let error = crate::ui_model_ids::resolve_session_call_with_context(
+            &call("create_text_file", input.clone()),
+            &session,
+            NOW,
+            None,
+        )
+        .unwrap_err();
         assert!(error.message.contains(if input.get("file_name").is_some() {
             "content_utf8"
         } else {
@@ -500,19 +498,14 @@ fn contextual_file_permissions_preserve_business_fields_and_exact_source_cardina
             }
             _ => json!({}),
         };
-        let request = call(
-            "request_permissions",
-            json!({"items":[{"tool_name":tool,"reason":"read","exact_input":args}]}),
-        );
         let resolved = crate::ui_model_ids::resolve_session_call_with_context(
-            &request,
+            &call(tool, args),
             &session,
             NOW,
             Some(&original),
         )
         .unwrap();
-        let value: Value = serde_json::from_str(&resolved.arguments_json).unwrap();
-        let exact = value["items"][0]["exact_input"].to_string();
+        let exact = resolved.arguments_json;
         crate::provider_preflight::text_file::validate_read_permission_input_with_context(
             &session,
             tool,
@@ -533,10 +526,7 @@ fn contextual_file_permissions_preserve_business_fields_and_exact_source_cardina
     for tool in ["inspect_excel_cell", "preview_spreadsheet_merge"] {
         assert!(
             crate::ui_model_ids::resolve_session_call_with_context(
-                &call(
-                    "request_permissions",
-                    json!({"items":[{"tool_name":tool,"reason":"read"}]})
-                ),
+                &call(tool, json!({})),
                 &session,
                 NOW,
                 Some(&original)
@@ -544,20 +534,17 @@ fn contextual_file_permissions_preserve_business_fields_and_exact_source_cardina
             .is_err()
         );
     }
-    let permission = call(
-        "request_permissions",
-        json!({"items":[{"tool_name":"read_text_file","reason":"read"}]}),
-    );
+    let read = call("read_text_file", json!({}));
     let resolved = crate::ui_model_ids::resolve_session_call_with_context(
-        &permission,
+        &read,
         &session,
         NOW,
         Some(&original),
     )
     .unwrap();
     assert!(crate::ui_model_ids::same_call_input(
-        "request_permissions",
-        &permission.arguments_json,
+        "read_text_file",
+        &read.arguments_json,
         &resolved.arguments_json
     ));
     let mut multiple_session = self::session();

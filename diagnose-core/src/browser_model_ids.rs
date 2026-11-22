@@ -785,17 +785,13 @@ mod tests {
         ));
         let wrong = call("create_formula_workbook", json!({"locale":"fr-FR"}));
         assert!(crate::ui_model_ids::resolve_call(&wrong, &[], 1).is_err());
-        let permission = call(
-            "request_permissions",
-            json!({"items":[{"tool_name":"browser_open_page",
-            "exact_input":{"target":{"url":"https://mail.google.com/"}}}]}),
+        let open = call(
+            "browser_open_page",
+            json!({"target":{"url":"https://mail.google.com/"}}),
         );
-        let resolved = crate::ui_model_ids::resolve_call(&permission, &[], 1).unwrap();
+        let resolved = crate::ui_model_ids::resolve_call(&open, &[], 1).unwrap();
         let value: Value = serde_json::from_str(&resolved.arguments_json).unwrap();
-        assert_eq!(
-            value["items"][0]["exact_input"]["target"]["origin"]["host_ascii"],
-            "mail.google.com"
-        );
+        assert_eq!(value["target"]["origin"]["host_ascii"], "mail.google.com");
     }
 
     #[test]

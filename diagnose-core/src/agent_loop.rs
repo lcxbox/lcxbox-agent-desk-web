@@ -3120,7 +3120,7 @@ fn reusable_provider_result_projection(
     let content = crate::model_content::ModelContent::builder()
                 .text("CURRENT REUSABLE PROVIDER RESULTS (server authoritative bounded references; not a grant; copy observed browser page_id and element_id verbatim and never invent them): ")
                 .sourced_from(&payload, &sources)
-                .text(". This registry is emitted after the turn-start capability catalog. When browser_reference_delta.page_reference_prerequisite_present=true, it supersedes only an older catalog claim that the page-reference prerequisite is absent. If request_permissions is available and the named downstream browser tool is a registered permission candidate, request its exact permission using the observed IDs and complete remaining input now; do not claim that no browser page exists. Runtime readiness, the tool registry, grants, and final server validation remain authoritative and are not widened by this delta.")
+                .text(". This registry is emitted after the turn-start capability catalog. When browser_reference_delta.page_reference_prerequisite_present=true, it supersedes only an older catalog claim that the page-reference prerequisite is absent. Use the observed IDs for the named downstream browser tool; do not claim that no browser page exists. Runtime readiness, the tool registry, grants, and final server validation remain authoritative and are not widened by this delta.")
         .build();
     let label = crate::model_message_labels::reference_projection_envelope(
         &content,

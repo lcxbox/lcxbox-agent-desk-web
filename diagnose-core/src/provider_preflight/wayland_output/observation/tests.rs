@@ -94,7 +94,7 @@ fn intact_output_observation_allows_best_effort_without_relabeling() {
 }
 
 #[test]
-fn output_id_call_and_permission_preserve_model_input_and_exact_frame() {
+fn output_id_call_preserves_model_input_and_exact_frame() {
     let history = history();
     let original = crate::chat::ToolCall {
         id: "input".into(),
@@ -113,49 +113,22 @@ fn output_id_call_and_permission_preserve_model_input_and_exact_frame() {
         &resolved.arguments_json
     ));
 
-    let permission = crate::chat::ToolCall {
-        id: "permission".into(),
-        name: "request_permissions".into(),
-        arguments_json: json!({"items":[{"tool_name":original.name,
-            "exact_input":serde_json::from_str::<serde_json::Value>(&original.arguments_json).unwrap()
-        }]}).to_string(),
-    };
-    let resolved_permission = crate::ui_model_ids::resolve_call(&permission, &history, 2).unwrap();
-    assert!(crate::ui_model_ids::same_call_input(
-        &permission.name,
-        &permission.arguments_json,
-        &resolved_permission.arguments_json
-    ));
-    let permission_value: serde_json::Value =
-        serde_json::from_str(&resolved_permission.arguments_json).unwrap();
     let resolved_value: serde_json::Value = serde_json::from_str(&resolved.arguments_json).unwrap();
-    assert_eq!(permission_value["items"][0]["exact_input"], resolved_value);
 
     let replay = ChatMessage::agent_tool_calls(
         "replay",
         "",
-        vec![
-            ToolCallRef {
-                id: resolved.id.clone(),
-                name: resolved.name.clone(),
-                arguments_json: resolved.arguments_json.clone(),
-            },
-            ToolCallRef {
-                id: resolved_permission.id.clone(),
-                name: resolved_permission.name.clone(),
-                arguments_json: resolved_permission.arguments_json.clone(),
-            },
-        ],
+        vec![ToolCallRef {
+            id: resolved.id.clone(),
+            name: resolved.name.clone(),
+            arguments_json: resolved.arguments_json.clone(),
+        }],
     );
     let request =
         crate::seam::ModelRequest::text_only(vec![replay], crate::prompt::ResponseFormatSpec::None);
     let durable = serde_json::to_string(&request.messages).unwrap();
     let projected = crate::ui_model_ids::project_request(&request);
-    for (call, expected) in projected.messages[0]
-        .tool_calls
-        .iter()
-        .zip([&original, &permission])
-    {
+    for (call, expected) in projected.messages[0].tool_calls.iter().zip([&original]) {
         assert!(crate::ui_model_ids::same_call_input(
             &expected.name,
             &expected.arguments_json,
@@ -180,7 +153,7 @@ fn output_id_call_and_permission_preserve_model_input_and_exact_frame() {
             preflight.canonical_input_json(),
             crate::permission_tools::canonical_tool_permission_input_json(
                 &original.name,
-                permission_value["items"][0]["exact_input"].clone()
+                resolved_value.clone()
             )
             .unwrap()
         );

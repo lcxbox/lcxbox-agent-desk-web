@@ -132,22 +132,6 @@ fn file_version_recovers_exact_hash_and_approval_input() {
         &changed.to_string(),
         &history,
     ));
-    let permission = ToolCall {
-        id: "permission".into(),
-        name: "request_permissions".into(),
-        arguments_json:
-            json!({"items":[{"tool_name":call.name,"reason":"edit","exact_input":input}]})
-                .to_string(),
-    };
-    let resolved = crate::ui_model_ids::resolve_call(&permission, &history, 1).unwrap();
-    assert!(same_input(
-        &permission.name,
-        &permission.arguments_json,
-        &resolved.arguments_json,
-        &history,
-    ));
-    let native: Value = serde_json::from_str(&resolved.arguments_json).unwrap();
-    assert_eq!(native["items"][0]["item_id"], "item_1");
 }
 
 #[test]
@@ -379,12 +363,12 @@ fn exact_send_restores_original_body_and_rejects_missing_or_conflicting_input() 
 }
 
 #[test]
-fn nested_exact_evidence_cannot_be_discarded_by_projection() {
-    let original = json!({"items":[{"tool_name":"delete_text_file","exact_input":{"file_result_call_id":"read","expected_sha256":"a".repeat(64)}}]});
+fn exact_evidence_cannot_be_discarded_by_projection() {
+    let original = json!({"file_result_call_id":"read","expected_sha256":"a".repeat(64)});
     let mut changed = original.clone();
-    changed["items"][0]["exact_input"]["expected_sha256"] = json!("b".repeat(64));
+    changed["expected_sha256"] = json!("b".repeat(64));
     assert!(!same_input(
-        "request_permissions",
+        "delete_text_file",
         &original.to_string(),
         &changed.to_string(),
         &[],

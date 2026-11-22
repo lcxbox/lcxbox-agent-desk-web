@@ -1229,7 +1229,6 @@ mod tests {
             crate::wait_tools::WAIT_TOOL_NAME,
             crate::skills::LOAD_TOOL,
             crate::goal_tools::REQUEST_GOAL_TOOL_NAME,
-            "request_permissions",
             "update_task_status",
             "control_goal",
             "load_conversation_history",
@@ -1303,13 +1302,6 @@ mod tests {
             .filter(|tool| tool.effect != ToolEffect::ReadOnly)
             .cloned()
             .collect::<Vec<_>>();
-        let legacy =
-            crate::permission_tools::discoverable_catalog_prompt_with_permission_candidates(
-                &registry,
-                &inventory,
-                &callable,
-                &permission_candidates,
-            );
         let index = capability_name_index_prompt(
             &registry,
             &inventory,
@@ -1336,7 +1328,6 @@ mod tests {
             serde_json::to_string_pretty(&json!({
                 "registry_count": entries.len(),
                 "runtime_ready_count": inventory.iter().filter(|item| item.callable()).count(),
-                "legacy_catalog_utf8_bytes": legacy.len(),
                 "name_index_utf8_bytes": index.len(),
                 "detail_min_utf8_bytes": detail_sizes.first().copied().unwrap_or(0),
                 "detail_p50_utf8_bytes": percentile(50),

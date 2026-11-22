@@ -554,20 +554,23 @@ async fn desktop_object_approval_and_dispatch_keep_the_observed_device_and_incar
     let reads = read_tools(&devices, &session, registry, true, None);
     let input_a = json!({"window":window("snapshot-a")});
     let input_b = json!({"window":window("snapshot-b")});
-    let propose_window = |alias: &str| {
+    // The proposal a resolved direct call makes, with its exact input.
+    let propose = |call: &ToolCall, session: &PersistedAgentSession| {
+        let mut input: Value =
+            serde_json::from_str(&resolve(call, session).arguments_json).unwrap();
+        let reference = input.as_object_mut().unwrap().remove("target_ref").unwrap();
+        proposal(&call.name, reference.as_str().unwrap(), input)
+    };
+    let window_call = |alias: &str| {
         tool(
-            REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
-            json!({
-                "target_ref":"a",
-                "items":[{"tool_name":"read_current_screen","exact_input":{"window_id":alias},
-                    "reason":"Capture the selected window"}]
-            }),
+            "read_current_screen",
+            json!({"target_ref":"a","window_id":alias}),
         )
     };
-    let proposal_a = resolve(&propose_window("w1"), &session);
+    let proposal_a = propose(&window_call("w1"), &session);
     assert!(
         crate::ui_model_ids::resolve_session_call_with_context(
-            &propose_window("w2"),
+            &window_call("w2"),
             &session,
             1,
             None
@@ -649,8 +652,8 @@ async fn desktop_object_approval_and_dispatch_keep_the_observed_device_and_incar
     assert!(!covered(&session, &tool("read_current_screen", input_b), b));
     for (target, element, allowed) in [("a", "e1", true), ("b", "e1", false), ("b", "e2", true)] {
         let raw = tool(
-            REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
-            json!({"target_ref":target,"items":[{"tool_name":"inspect_desktop_ui","exact_input":{"element_id":element,"element_only":true},"reason":"Read a specific control"}]}),
+            "inspect_desktop_ui",
+            json!({"target_ref":target,"element_id":element,"element_only":true}),
         );
         if !allowed {
             assert!(
@@ -659,18 +662,7 @@ async fn desktop_object_approval_and_dispatch_keep_the_observed_device_and_incar
             );
             continue;
         }
-        let call = resolve(
-            &tool(
-                REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
-                json!({
-                    "target_ref":target,
-                    "items":[{"tool_name":"inspect_desktop_ui",
-                        "exact_input":{"element_id":element,"element_only":true},
-                        "reason":"Read a specific control"}]
-                }),
-            ),
-            &session,
-        );
+        let call = propose(&raw, &session);
         let permission = plan_device_permission(
             &NoDeviceCommands,
             Some(registry),
@@ -863,44 +855,6 @@ fn every_native_action_uses_the_registered_schema_and_original_device_projection
         }
         assert_eq!(schema, native_schema, "{}", tool.name());
     }
-}
-
-#[tokio::test]
-async fn a_command_mixed_with_device_items_is_asked_to_be_requested_alone() {
-    let session = session();
-    let registry = crate::ai_agent::ai_agent_provider_registry_ref();
-    let descriptor = registry.capability_for_tool("browser_open_page").unwrap();
-    let mut devices = [device("a", vec![descriptor.wire.capability_id.clone()])];
-    devices[0].ready_capabilities = vec![Capability::BrowserPageObserve];
-    let reads = read_tools(&devices, &session, registry, true, None);
-    let call = tool(
-        REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
-        json!({"target_ref":"a","items":[
-            {"tool_name":"browser_open_page","exact_input":{"target":{"url":"https://example.com/"}},"reason":"Open"},
-            {"tool_name":"exec_command","exact_input":{"shell":"bash","command":"pwd","timeout_ms":1000},"reason":"Run"}
-        ]}),
-    );
-    let error = plan_device_permission(
-        &NoDeviceCommands,
-        Some(registry),
-        Some(desk_agent_protocol::capability_provider::ProductSurface::OssPersonalOwner),
-        &session,
-        &devices,
-        &reads,
-        &call,
-        "mixed",
-        NOW,
-    )
-    .await
-    .unwrap()
-    .unwrap_err();
-    assert!(
-        error
-            .message
-            .contains("Request exec_command alone in its own request_permissions call"),
-        "{}",
-        error.message
-    );
 }
 
 #[tokio::test]

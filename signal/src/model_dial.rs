@@ -3760,8 +3760,6 @@ mod tests {
             .collect::<Vec<_>>();
         let all_tools = registry.registered_tools();
         let discovery = capability_discovery_tool_registry().remove(0);
-        let permission =
-            desk_diagnose_core::permission_tools::permission_planning_tool_registry().remove(0);
         let advertised = std::collections::BTreeSet::new();
         let index =
             capability_name_index_prompt(&registry, &inventory, &[], &all_tools, &advertised)
@@ -3872,26 +3870,26 @@ mod tests {
             128 * 1024,
         )
         .unwrap();
+        let resume_tool = all_tools.iter().find(|tool| tool.name() == target).unwrap();
         let (permission_turn, permission_elapsed_ms) = call(
             seam,
             format!(
-                "{contract}\nThe requested capability is loaded. Ask for permission with request_permissions; loading itself did not authorize it.\n\n{}\n\n{}",
+                "{contract}\nThe requested capability is loaded. Call it directly; the call asks the owner for approval before anything runs.\n\n{}\n\n{}",
                 projection.index_prompt, projection.detail_prompt
             ),
-            "The user wants to replace the selected Pages copy body with the exact text `Quarterly review`. Request the required permission now and do not claim execution.",
-            vec![permission.spec.clone(), discovery.spec.clone()],
+            "The user wants to replace the selected Pages copy body with the exact text `Quarterly review`. Call the tool now and do not claim execution.",
+            vec![resume_tool.spec.clone(), discovery.spec.clone()],
         )
         .await;
         results.push(json!({
-            "case": "permission_plan",
+            "case": "direct_call_for_approval",
             "success": permission_turn
                 .tool_calls
                 .iter()
-                .any(|tool| tool.name == permission.name()),
+                .any(|tool| tool.name == target),
             "usage": usage(&permission_turn, permission_elapsed_ms),
         }));
 
-        let resume_tool = all_tools.iter().find(|tool| tool.name() == target).unwrap();
         let (approved, approved_elapsed_ms) = call(
             seam,
             "The owner approved the exact pending input. The only advertised tool is the exact continuation. Call it now; do not re-plan, re-observe, or answer in prose.".into(),
@@ -4168,8 +4166,6 @@ mod tests {
             .collect::<Vec<_>>();
         let all_tools = registry.registered_tools();
         let discovery = capability_discovery_tool_registry().remove(0);
-        let permission =
-            desk_diagnose_core::permission_tools::permission_planning_tool_registry().remove(0);
         let direct_tool = all_tools
             .iter()
             .find(|tool| tool.name() == "read_system_info")
@@ -4268,6 +4264,7 @@ mod tests {
         }));
 
         let target = "replace_pages_copy_body";
+        let target_tool = all_tools.iter().find(|tool| tool.name() == target).unwrap();
         let mut disclosure = CapabilityDisclosureState::default();
         apply_load_call(
             &ToolCall {
@@ -4324,14 +4321,14 @@ mod tests {
         long.push(ChatMessage::text(
             "long-current",
             ChatRole::User,
-            "Replace the selected Pages copy body with the exact text `Quarterly review`. Request the required permission now; do not execute or answer in prose.",
+            "Replace the selected Pages copy body with the exact text `Quarterly review`. Call the tool now; do not answer in prose.",
         ));
-        let long_tools = vec![permission.spec.clone(), discovery.spec.clone()];
+        let long_tools = vec![target_tool.spec.clone(), discovery.spec.clone()];
         let (long_messages, long_bytes) = bounded_long_eval_messages(
             wire_protocol,
             provider,
             format!(
-                "{contract} The latest capability is loaded but not authorized. Request exact permission with request_permissions.\n\n{}\n\n{}",
+                "{contract} The latest capability is loaded but not authorized. Call it directly; the call asks the owner for approval before anything runs.\n\n{}\n\n{}",
                 disclosure.index_prompt, disclosure.detail_prompt
             ),
             long,
@@ -4357,7 +4354,7 @@ mod tests {
         if !long_turns[0]
             .tool_calls
             .iter()
-            .any(|call| call.name == permission.name())
+            .any(|call| call.name == target)
             && let Some(discovery_call) = redundant_discovery
         {
             // Mirror the production loop: a redundant bounded discovery call is
@@ -4380,7 +4377,7 @@ mod tests {
                 json!({
                     "status": "already_loaded",
                     "loaded_tool_names": [target],
-                    "next": "request the exact required permission now"
+                    "next": "call the loaded tool now"
                 })
                 .to_string(),
             ));
@@ -4389,7 +4386,7 @@ mod tests {
         let permission_attempts = long_turns
             .iter()
             .flat_map(|turn| turn.tool_calls.iter())
-            .filter(|call| call.name == permission.name())
+            .filter(|call| call.name == target)
             .count();
         let permission_success = permission_attempts == 1;
         let returned_tool_names = long_turns

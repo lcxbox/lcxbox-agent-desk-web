@@ -441,36 +441,6 @@ pub(crate) fn is_selected_read_tool(
             .is_some_and(selected_read_descriptor)
 }
 
-pub(crate) fn device_permission_tool(
-    session: &PersistedAgentSession,
-    devices: &[RequestDevice],
-    reads: &[(RegisteredTool, bool)],
-    tool: &RegisteredTool,
-) -> Option<RegisteredTool> {
-    let commands = can_request_command(session, devices);
-    if reads.is_empty() && !commands {
-        return None;
-    }
-    let mut tool = tool.clone();
-    tool.spec.parameters_schema["properties"]["target_ref"] = serde_json::json!({
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 256,
-        "description": "For a device permission, copy one ready target_ref from REQUEST DEVICES. Omit for central web tools."
-    });
-    if !reads.is_empty() {
-        tool.spec.description.push_str(
-            "\nFor device permissions, select one target_ref for the batch when the request includes more than one device. All items in this batch apply to that same device. Use each tool's native permission_input_mode: application_scope for application authority, exact_input for exact calls. Omit target_ref inside each native input. Use {} when no native arguments are needed. Use inspect_desktop_session for display identifiers before capturing on a device with multiple displays.",
-        );
-    }
-    if commands {
-        tool.spec.description.push_str(
-        "\nTo request a device command, supply target_ref and exactly one exec_command item. Put shell, command and timeout_ms in exact_input. Use the shell name bash, sh, powershell, or pwsh, without a filesystem path. cwd and io_mode are optional. A command requires its own approval on that device.",
-    );
-    }
-    Some(tool)
-}
-
 fn accepts_command_permissions(session: &PersistedAgentSession) -> bool {
     session.uses_request_device_tools()
         && !session.has_admitted_targetless_input()
@@ -631,14 +601,6 @@ pub(crate) async fn plan_device_permission(
                 );
             }
             let [item] = items.as_slice() else {
-                if items
-                    .iter()
-                    .any(|item| item["tool_name"] == crate::command_confirmation::COMMAND_TOOL)
-                {
-                    return Err(crate::subagent::invalid(
-                        "Request exec_command alone in its own request_permissions call with the same target_ref; request the other items in a separate call",
-                    ));
-                }
                 return Err(invalid());
             };
             if !accepts_command_permissions(session)

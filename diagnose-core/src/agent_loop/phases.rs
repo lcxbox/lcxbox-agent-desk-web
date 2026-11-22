@@ -684,21 +684,6 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         });
     }
 
-    let selected_permission_tool = exposed
-        .iter()
-        .find(|tool| tool.name() == crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME)
-        .and_then(|tool| {
-            crate::request_devices::device_permission_tool(
-                session,
-                &request_devices,
-                &selected_reads,
-                tool,
-            )
-        });
-    if let Some(tool) = &selected_permission_tool {
-        exposed.retain(|candidate| candidate.name() != tool.name());
-        exposed.push(tool);
-    }
     let can_request_selected_command =
         crate::request_devices::can_request_command(session, &request_devices);
     let offered_command_tool = if !goal_control_only && planning_goal.is_none() {

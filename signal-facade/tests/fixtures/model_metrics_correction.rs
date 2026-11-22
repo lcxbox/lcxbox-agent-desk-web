@@ -294,9 +294,9 @@ async fn late_parent_link_demotes_a_provisional_group_atomically_and_replay_keep
 
 #[tokio::test]
 async fn input_group_categories_use_registered_contracts_and_never_owner_decisions() {
-    use desk_diagnose_core::{schedule::proposal::REQUEST_SCHEDULE,permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME};
+    use desk_diagnose_core::{schedule::proposal::REQUEST_SCHEDULE,directory_tools::REQUEST_DIRECTORY};
     for (key,category,counter) in [(REQUEST_SCHEDULE,"schedule",Count::CorrectionGroupSchedule),
-        (REQUEST_CAPABILITY_GRANTS_TOOL_NAME,"approval",Count::CorrectionGroupApproval)] {
+        (REQUEST_DIRECTORY,"approval",Count::CorrectionGroupApproval)] {
         let store=fixture_store(NOW-DAY).await;
         let mut source=correction_input("original-call",NOW,InputConclusion::Rejected);
         if let ObservationPayload::Tool(tool)=&mut source.payload { tool.tool_key=key.into(); }
