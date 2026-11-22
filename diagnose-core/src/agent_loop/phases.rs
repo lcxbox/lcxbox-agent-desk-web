@@ -1831,8 +1831,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     Some(format!("goal-control-correction-{turn_id}"))
                                 }
                                 ProtocolCorrectionReason::CompletionInterpretation
-                                | ProtocolCorrectionReason::ToolChoiceFallback
-                                | ProtocolCorrectionReason::PermissionPlanProtocol => None,
+                                | ProtocolCorrectionReason::ToolChoiceFallback => None,
                             };
                             let cue_present = if let Some(marker) = marker {
                                 request.messages.iter().any(|message| {

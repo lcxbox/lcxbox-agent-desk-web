@@ -9,7 +9,6 @@ closed_enum!(ProtocolCorrectionReason {
     EmptyResponse,
     TruncatedOutput,
     CompletionInterpretation,
-    PermissionPlanProtocol,
     InvalidToolArguments,
     GoalControlMissing,
     ToolChoiceFallback
@@ -23,10 +22,7 @@ closed_enum!(ProtocolCorrectionCheck {
 
 impl ProtocolCorrectionReason {
     pub fn category(self) -> CorrectionCategory {
-        match self {
-            Self::PermissionPlanProtocol => CorrectionCategory::Approval,
-            _ => CorrectionCategory::Protocol,
-        }
+        CorrectionCategory::Protocol
     }
 }
 
@@ -313,7 +309,7 @@ mod tests {
             let cue = PendingProtocolCorrection::open(
                 Some(context("source", recorder.clone())),
                 None,
-                ProtocolCorrectionReason::PermissionPlanProtocol,
+                ProtocolCorrectionReason::InvalidToolArguments,
             )
             .unwrap();
             let mut guard = cue
@@ -331,8 +327,8 @@ mod tests {
                 matches!(&events.last().unwrap().relation,Some(ObservationRelation::ProtocolCorrection { fact:ProtocolCorrectionFact::Response { check:recorded,.. },.. }) if *recorded==check)
             );
             assert_eq!(
-                ProtocolCorrectionReason::PermissionPlanProtocol.category(),
-                CorrectionCategory::Approval
+                ProtocolCorrectionReason::InvalidToolArguments.category(),
+                CorrectionCategory::Protocol
             );
         }
     }

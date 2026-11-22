@@ -66,10 +66,10 @@ describe('observed correction group details', () => {
     it('names a checked protocol response independently from tool-input and owner approval', () => {
         const record: ObservationRecord = { ...input(), id: 'source-call', kind: 'call', outcome: 'returned',
             correction_group_root: 'source-call', correction_group: { root_id: 'source-call', last_input_id: 'next-call',
-                category: 'approval', reason: 'permission_plan_protocol', outcome: 'output_accepted', linked_attempts: '1', updated_at: '2026-10-08T00:02:00Z' } };
+                category: 'protocol', reason: 'truncated_output', outcome: 'output_accepted', linked_attempts: '1', updated_at: '2026-10-08T00:02:00Z' } };
         const select = vi.fn();
         render(<ObservationDetails record={record} expanded select={select}/>);
-        expect(screen.getByText('Permission-plan protocol correction')).toBeTruthy();
+        expect(screen.getByText('Truncated-output correction')).toBeTruthy();
         expect(screen.getByText('Subsequent output passed the recovery check')).toBeTruthy();
         expect(screen.getByText('Projected subsequent requests')).toBeTruthy();
         expect(screen.getByText(/does not prove tool-input acceptance, permission approval or execution/)).toBeTruthy();

@@ -71,7 +71,6 @@ export default {
     "modelMetrics.value.protocolCorrectionReason.empty_response": "Empty-response correction",
     "modelMetrics.value.protocolCorrectionReason.truncated_output": "Truncated-output correction",
     "modelMetrics.value.protocolCorrectionReason.completion_interpretation": "Command-interpretation protocol correction",
-    "modelMetrics.value.protocolCorrectionReason.permission_plan_protocol": "Permission-plan protocol correction",
     "modelMetrics.value.protocolCorrectionReason.goal_control_missing": "Goal-control response required",
     "modelMetrics.value.protocolCorrectionReason.tool_choice_fallback": "Required-tool-choice gateway fallback",
     "modelMetrics.value.correctionGroup.awaiting_output_check": "Model turn returned; awaiting output check",

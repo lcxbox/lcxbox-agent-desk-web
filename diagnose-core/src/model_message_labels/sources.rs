@@ -109,7 +109,6 @@ server_result_sources! {
     ManageMemories => crate::ai_agent::data_tools::MANAGE_MEMORIES,
     PrepareIssueReply => crate::issue_reply::PREPARE_TOOL_NAME,
     PreviewComputerAction => crate::ai_agent::PREVIEW_COMPUTER_ACTION_TOOL,
-    RequestPermissions => crate::permission_tools::REQUEST_CAPABILITY_GRANTS_TOOL_NAME,
     UpdateTaskStatus => crate::task_status_tools::UPDATE_TASK_STATUS_TOOL_NAME,
     AttachmentReadReceipt => "attachment_read_receipt",
     MemoryForgetReceipt => "memory_forget_receipt",
@@ -132,7 +131,6 @@ server_result_sources! {
     InputWatermark => "input_watermark",
     InvalidToolArgumentsRetry => "invalid_tool_arguments_retry",
     LatestInputProjection => "latest_input_projection",
-    PostToolPermissionProtocolRetry => "post_tool_permission_protocol_retry",
     RuntimeContext => "runtime_context",
     TruncatedTurnRetry => "truncated_turn_retry",
     // Host recovery of device actions.

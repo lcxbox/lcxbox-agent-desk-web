@@ -6,7 +6,7 @@ fn protocol_source(reason:ProtocolCorrectionReason) -> ObservationEvent {
     call.output=match reason {
         ProtocolCorrectionReason::EmptyResponse=>OutputOutcome::EmptyResponse,
         ProtocolCorrectionReason::TruncatedOutput=>OutputOutcome::OutputTruncated,
-        ProtocolCorrectionReason::CompletionInterpretation | ProtocolCorrectionReason::PermissionPlanProtocol | ProtocolCorrectionReason::InvalidToolArguments
+        ProtocolCorrectionReason::CompletionInterpretation | ProtocolCorrectionReason::InvalidToolArguments
             =>OutputOutcome::InvalidStructuredOutput,
         ProtocolCorrectionReason::GoalControlMissing=>OutputOutcome::Accepted,
         ProtocolCorrectionReason::ToolChoiceFallback=>{ call.outcome=RequestOutcome::HttpError; OutputOutcome::NotEvaluated },
@@ -42,7 +42,7 @@ fn protocol_checked(source:&ObservationEvent,next:&str,fence:Option<CorrectionFe
 async fn protocol_recovery_keeps_calls_and_input_permission_operation_axes_independent() {
     for reason in [ProtocolCorrectionReason::EmptyResponse,ProtocolCorrectionReason::TruncatedOutput,
         ProtocolCorrectionReason::CompletionInterpretation,
-        ProtocolCorrectionReason::PermissionPlanProtocol,ProtocolCorrectionReason::InvalidToolArguments,
+        ProtocolCorrectionReason::InvalidToolArguments,
         ProtocolCorrectionReason::GoalControlMissing,ProtocolCorrectionReason::ToolChoiceFallback] {
         let store=fixture_store(NOW-DAY).await;
         let source=protocol_source(reason);
@@ -155,13 +155,13 @@ async fn protocol_changed_model_missing_fence_and_first_projection_have_explicit
 }
 
 #[tokio::test]
-async fn later_recovery_source_keeps_its_own_category_when_the_previous_response_arrives_late() {
+async fn later_recovery_source_keeps_its_own_group_when_the_previous_response_arrives_late() {
     let store=fixture_store(NOW-DAY).await; let source=protocol_source(ProtocolCorrectionReason::EmptyResponse);
-    let mut next=protocol_source(ProtocolCorrectionReason::PermissionPlanProtocol);
-    next.object_id="approval-protocol-source".into(); next.event_id="approval-protocol-source.terminal".into();
+    let mut next=protocol_source(ProtocolCorrectionReason::InvalidToolArguments);
+    next.object_id="arguments-protocol-source".into(); next.event_id="arguments-protocol-source.terminal".into();
     next.started_at_ms=NOW+HOUR; next.occurred_at_ms=NOW+HOUR+100;
-    let mut next_feedback=protocol_feedback(&next,ProtocolCorrectionReason::PermissionPlanProtocol);
-    next_feedback.event_id="approval-protocol-feedback".into(); next_feedback.object_id=next_feedback.event_id.clone();
+    let mut next_feedback=protocol_feedback(&next,ProtocolCorrectionReason::InvalidToolArguments);
+    next_feedback.event_id="arguments-protocol-feedback".into(); next_feedback.object_id=next_feedback.event_id.clone();
     store.persist(&[source.clone(),protocol_feedback(&source,ProtocolCorrectionReason::EmptyResponse),next.clone(),next_feedback,
         protocol_projection(&source,&next.object_id,Some(correction_fence()))],NOW+HOUR+200).await.unwrap();
     store.aggregate(NOW+HOUR+200).await.unwrap();
@@ -170,7 +170,7 @@ async fn later_recovery_source_keeps_its_own_category_when_the_previous_response
     let older=store.call_detail(&source.object_id).await.unwrap().unwrap().call.correction_group.unwrap();
     let newer=store.call_detail(&next.object_id).await.unwrap().unwrap().call.correction_group.unwrap();
     assert_eq!(older.category,"protocol"); assert_eq!(older.outcome,"output_rejected");
-    assert_eq!(newer.category,"approval"); assert_eq!(newer.outcome,"awaiting_response");
+    assert_eq!(newer.category,"protocol"); assert_eq!(newer.outcome,"awaiting_response");
     let overview=store.overview(&query(NOW-HOUR,NOW+2*HOUR),NOW+2*HOUR).await.unwrap();
     assert_eq!(count(&overview.summary,Count::CorrectionGroups),Some("2"));
     assert_resource_accounting(&store).await;
