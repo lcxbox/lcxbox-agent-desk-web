@@ -1683,6 +1683,7 @@ impl WorkerManager {
     /// Close the browser sockets of remote-desktop connections whose session
     /// left the console, with the "session changed" close code, so the
     /// control page reconnects and is admitted to the current session.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     fn evict_for_session_change(&self, connection_ids: &[String]) {
         if connection_ids.is_empty() {
             return;

@@ -5899,6 +5899,7 @@ mod tests {
 
         // Once recovery storage is ready, text writes and command restore
         // are available with Computer Use still off; Computer Use itself is not.
+        #[cfg(any(windows, target_os = "linux"))]
         broker.set_file_recovery_ready(true);
         let readiness = broker.readiness(&computer_use_off, false, false);
         let ready = |capability| {
