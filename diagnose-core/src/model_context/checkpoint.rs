@@ -1817,6 +1817,33 @@ mod tests {
             7,
         )
         .unwrap();
+        // A display projection can change the cost of a covered source, the
+        // covered endpoint or the first retained group after a restart.
+        let restored: ModelContextState =
+            serde_json::from_slice(&serde_json::to_vec(&state).unwrap()).unwrap();
+        for index in 0..3 {
+            let mut projected = conversation.clone();
+            projected[index].prepared_context_cost.0 = Some(crate::trim::PreparedMessageCost {
+                bytes: 0,
+                replay_bytes: 0,
+            });
+            let resumed =
+                plan_model_context(&projected, &restored, &policy(), &protection, 8).unwrap();
+            let ContextBuildPlan::Ready(ready) = resumed else {
+                panic!("old checkpoint was not ready")
+            };
+            assert_eq!(
+                ready.view.floor_group_head_message_id,
+                view.floor_group_head_message_id
+            );
+            assert!(
+                !ready
+                    .view
+                    .messages
+                    .iter()
+                    .any(|m| m.message_id == "old-a" || m.message_id == "old-b")
+            );
+        }
         assert_eq!(view.messages[0].role, ChatRole::ContextSummary);
         assert!(
             view.messages

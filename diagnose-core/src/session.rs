@@ -2752,17 +2752,51 @@ impl PersistedAgentSession {
     }
 
     pub fn context_protection_set(&self) -> crate::model_context::ContextProtectionSet {
+        self.context_protection_since(None)
+    }
+
+    pub(crate) fn context_protection_since(
+        &self,
+        floor: Option<(&str, bool)>,
+    ) -> crate::model_context::ContextProtectionSet {
         let mut protection = self.native_context_protection_set();
+        let display = crate::goal_projection::display_summary_ids(&self.conversation);
         // The latest tool batch stays intact until a model consumes its results.
-        if let Some(message) = self
+        let mut assistants = self
             .conversation
             .iter()
+            .enumerate()
             .rev()
-            .find(|message| message.role == crate::chat::ChatRole::Assistant)
-        {
-            for call in &message.tool_calls {
-                protection.protect_tool_call(call.id.clone());
+            .filter(|(_, message)| message.role == crate::chat::ChatRole::Assistant);
+        let latest = assistants.next().and_then(|(_, latest)| {
+            if !display.contains(&latest.message_id) {
+                return Some((latest, false));
             }
+            // An old checkpoint may already cover the issuing batch. Never
+            // reintroduce that batch through a presentation-only record.
+            let floor = floor
+                .and_then(|(id, after)| {
+                    self.conversation
+                        .iter()
+                        .position(|m| m.message_id == id)
+                        .map(|index| index + usize::from(after))
+                })
+                .unwrap_or(0);
+            assistants
+                .find(|(index, message)| *index >= floor && !display.contains(&message.message_id))
+                .map(|(_, message)| (message, true))
+        });
+        match latest {
+            Some((message, true)) if !message.tool_calls.is_empty() => {
+                // A provider may reuse a call id in a different, older batch.
+                protection.protect_message(message.message_id.clone());
+            }
+            Some((message, false)) => {
+                for call in &message.tool_calls {
+                    protection.protect_tool_call(call.id.clone());
+                }
+            }
+            _ => {}
         }
         protection
     }

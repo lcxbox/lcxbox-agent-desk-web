@@ -182,11 +182,11 @@ impl ContextUsageBasis {
         };
         let mut used_bytes = self.synthetic_bytes;
         let mut source_changed = false;
-        for (_, message) in history
-            .iter()
-            .enumerate()
-            .filter(|(i, m)| *i >= self.observed_len || ids.contains(&m.message_id))
-        {
+        let display = crate::goal_projection::display_summary_ids(history);
+        for (_, message) in history.iter().enumerate().filter(|(i, m)| {
+            ids.contains(&m.message_id)
+                || (*i >= self.observed_len && !display.contains(&m.message_id))
+        }) {
             let prepared = self.retained_costs.iter().find(|(id, digest, _, _)| {
                 id == &message.message_id && digest == &source_digest(message)
             });

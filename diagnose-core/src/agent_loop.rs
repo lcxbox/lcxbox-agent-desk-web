@@ -1773,7 +1773,13 @@ fn assemble_context_request(
             history.push(source.clone());
         }
     }
-    history.extend(view.messages.iter().cloned());
+    let display = crate::goal_projection::display_summary_ids(&session.conversation);
+    history.extend(
+        view.messages
+            .iter()
+            .filter(|message| !display.contains(&message.message_id))
+            .cloned(),
+    );
     crate::proposal_review::projection::project_decisions(&mut history)?;
     let mut at = usize::from(
         request
@@ -1899,7 +1905,30 @@ async fn prepare_model_context(
             )
             .await);
         }
-        let mut protection = session.context_protection_set();
+        let compatible_state = crate::model_context::adopt_compatible_checkpoint(
+            &session.model_context_state,
+            &session.model_conversation(),
+            &planning_policy,
+            deps.model.model_egress_policy()?.as_ref(),
+        )
+        .map_err(model_context_error)?;
+        let floor = compatible_state
+            .entries
+            .iter()
+            .find(|entry| entry.policy_key == planning_policy.key())
+            .and_then(|entry| {
+                entry
+                    .floor_group_head_message_id
+                    .as_deref()
+                    .map(|id| (id, false))
+                    .or_else(|| {
+                        entry
+                            .floor_after_group_head_message_id
+                            .as_deref()
+                            .map(|id| (id, true))
+                    })
+            });
+        let mut protection = session.context_protection_since(floor);
         if session.trigger_origin == TriggerOrigin::GoalContinuation {
             let goal = deps.session_seam.load_claimed_goal(session).await?;
             if let Some(wait) = goal.work_wait.as_ref().filter(|wait| wait.ready) {
@@ -1908,13 +1937,6 @@ async fn prepare_model_context(
                 }
             }
         }
-        let compatible_state = crate::model_context::adopt_compatible_checkpoint(
-            &session.model_context_state,
-            &session.model_conversation(),
-            &planning_policy,
-            deps.model.model_egress_policy()?.as_ref(),
-        )
-        .map_err(model_context_error)?;
         let configuration_changed = planning_policy.preserve_history
             && !session.model_context_state.entries.is_empty()
             && !compatible_state

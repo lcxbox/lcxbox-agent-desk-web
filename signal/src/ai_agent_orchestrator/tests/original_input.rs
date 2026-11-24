@@ -5075,6 +5075,7 @@ async fn production_input_entry_freezes_objects_and_rejects_changed_retry_withou
 }
 
 mod activation_failure;
+mod attachment_baseline;
 mod retention;
 
 mod schedule_input;
@@ -5612,6 +5613,7 @@ async fn selectable_goal_retains_its_device_across_signal_segments() {
                 desk_diagnose_core::model_profile::WireProtocol::OpenAiChatCompletions,
             ),
             model: Some("goal-fixture".into()),
+            reasoning_contract: desk_diagnose_core::model_profile::ReasoningContract::DeepseekChat,
             base_url: Some(format!("http://{}", listener.local_addr().unwrap())),
             api_key: Some("test-only-key".into()),
             max_context_bytes: Some(131_072),
@@ -5642,7 +5644,7 @@ async fn selectable_goal_retains_its_device_across_signal_segments() {
         ..Default::default()
     };
     let first = memory_sse(
-        json!({"tool_calls":[report_test_call("continue-goal", "control_goal",
+        json!({"reasoning_content":"fixture replay","tool_calls":[report_test_call("continue-goal", "control_goal",
         json!({"decision":"continue","message":"Continue on the original device"}))]}),
         "tool_calls",
     );
@@ -5701,6 +5703,12 @@ async fn selectable_goal_retains_its_device_across_signal_segments() {
         capture_one_openai_request_with_reply(gateway_listener.as_ref(), |body| {
             let text=String::from_utf8_lossy(body);
             assert!(text.contains("goal-mac"));
+            let request: serde_json::Value = serde_json::from_slice(body).unwrap();
+            let messages = request["messages"].as_array().unwrap();
+            let original = messages.iter().find(|m| m["tool_calls"][0]["id"] == "continue-goal").unwrap();
+            assert_eq!(original["reasoning_content"], "fixture replay");
+            assert!(messages.iter().any(|m| m["role"] == "tool" && m["tool_call_id"] == "continue-goal"));
+            assert!(!messages.iter().any(|m| m["role"] == "assistant" && m["content"] == "Continue on the original device"));
             memory_sse(json!({"tool_calls":[report_test_call("finish-goal","control_goal",
                 json!({"decision":"blocked","message":"Waiting for the owner after checking the original target"}))]}),"tool_calls")
         }).await
@@ -5723,4 +5731,126 @@ async fn selectable_goal_retains_its_device_across_signal_segments() {
         .await
         .unwrap()
         .unwrap();
+}
+
+#[actix_web::test]
+async fn scheduler_scans_a_stale_policy_goal_only_once() {
+    use desk_diagnose_core::{
+        goal::{GOAL_POLICY_CHANGED, GoalModelBinding},
+        session::PersistedAgentSession,
+    };
+    use sea_orm::{
+        ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
+        Set,
+    };
+
+    use crate::{
+        agent_goal_store as goals,
+        agent_run_event_store::{self as events, StartUserGoal},
+        entity::{agent_run_event, agent_session},
+    };
+    use desk_signal_facade::model::os::OperationSystemEnum;
+    let db = crate::config::test_support::Database::connect("sqlite::memory:")
+        .await
+        .unwrap();
+    crate::db::initialize_schema(&db).await.unwrap();
+    let mut input =
+        events::tests::goal_input("legacy-event", "legacy-goal", "Work on the original device");
+    input.device_id = "stale-policy-fixture".into();
+    let connections = web::Data::new(SharedConnectionMap::new_oss());
+    let _peer = register_request_device(
+        &connections,
+        &input.device_id,
+        "Fixture device",
+        OperationSystemEnum::Mac,
+    )
+    .await;
+    let now = chrono::Utc::now();
+    let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
+    let connection = format!("live-{}", input.device_id);
+    cache
+        .update(
+            &connection,
+            desk_agent_protocol::computer_use::ComputerUseReadiness {
+                schema_version: desk_agent_protocol::computer_use::COMPUTER_USE_SCHEMA_VERSION,
+                revision: 1,
+                observed_at: now.to_rfc3339(),
+                expires_at: (now + chrono::Duration::seconds(45)).to_rfc3339(),
+                os: "macos".into(),
+                server_api_version: desk_server_version::SERVER_API_VERSION,
+                interactive_session_incarnation: "fixture-worker".into(),
+                interactive_user_home: None,
+                local_ceiling_revision: 1,
+                exec_sandbox: desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+                exec_identity: desk_agent_protocol::exec::ExecIdentity {
+                    elevated: false,
+                    system: false,
+                    root: false,
+                },
+                unattended_command_execution: false,
+                capabilities: vec![],
+                context_references: vec![],
+            },
+            now,
+        )
+        .unwrap();
+    let executor = crate::schedule_executor::SignalScheduleExecutor::new(
+        db.clone(),
+        connections,
+        crate::ai_agent_gate::global_ai_agent_gate(),
+    );
+
+    input.created_at = chrono::Utc::now().to_rfc3339();
+    let start = StartUserGoal {
+        goal_id: "legacy-policy-goal".into(),
+        previous_completed_goal_id: None,
+        model_binding: GoalModelBinding::from_destination(
+            &input
+                .message
+                .data_envelope
+                .as_ref()
+                .unwrap()
+                .allowed_destinations[0],
+        )
+        .unwrap(),
+    };
+    SignalAgentRunEventStore::new(db.clone())
+        .append_user_goal(&input, start)
+        .await
+        .unwrap();
+    let row = agent_session::Entity::find()
+        .filter(agent_session::Column::ConversationId.eq(&input.run_id))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut legacy = PersistedAgentSession::decode_json(&row.state_json).unwrap();
+    legacy.policy_revision = 0;
+    let mut row = row.into_active_model();
+    row.state_json = Set(legacy.encode_json_for_storage().unwrap());
+    row.update(&db).await.unwrap();
+    let events = || {
+        agent_run_event::Entity::find()
+            .filter(agent_run_event::Column::RunId.eq(&input.run_id))
+            .count(&db)
+    };
+    let load = || goals::load_for_subject(&db, &input.run_id, &input.actor_id, &input.device_id);
+    let queued = load().await.unwrap().unwrap();
+    let before = events().await.unwrap();
+    assert_eq!(executor.scan_once(0).await.unwrap().goal_scanned, 1);
+    let paused = load().await.unwrap().unwrap();
+    assert_eq!(paused.status_reason.as_deref(), Some(GOAL_POLICY_CHANGED));
+    assert_eq!(
+        paused.state,
+        desk_diagnose_core::goal::GoalState::Paused(
+            desk_diagnose_core::goal::GoalPauseReason::Recovery
+        )
+    );
+    assert_eq!(paused.state_version, queued.state_version + 1);
+    assert_eq!(paused.slice_seq, 0);
+    assert_eq!(events().await.unwrap(), before + 1);
+    assert_eq!(executor.scan_once(0).await.unwrap().goal_scanned, 0);
+    assert_eq!(load().await.unwrap().unwrap(), paused);
+    assert_eq!(events().await.unwrap(), before + 1);
+    cache.remove_connection(&connection);
 }

@@ -21,6 +21,44 @@ use desk_agent_protocol::{
 };
 use serde::Serialize;
 
+/// The host appends a display copy after a successful goal receipt. Both
+/// records derive from the model output that issued that exact call.
+pub(crate) fn display_summary_ids(history: &[ChatMessage]) -> std::collections::HashSet<String> {
+    let mut copies = std::collections::HashSet::new();
+    let mut issuing: Option<&ChatMessage> = None;
+    let mut previous: Option<&ChatMessage> = None;
+    for message in history {
+        if message.role == ChatRole::Assistant {
+            if message.tool_calls.is_empty()
+                && let (Some(output), Some(receipt)) = (issuing, previous)
+                && receipt.role == ChatRole::Tool
+                && receipt.tool_ok == Some(true)
+                && output.turn_id == message.turn_id
+                && let Some(parent) = &output.data_envelope
+                && [receipt, message].into_iter().all(|part| {
+                    part.data_envelope.as_ref().is_some_and(|label| {
+                        let source = &label.provenance;
+                        source.source_provider_id == crate::dynamic_run::RUN_CONTROL_PROVIDER_ID
+                            && source.source_tool_name == crate::goal_tools::CONTROL_GOAL_TOOL_NAME
+                            && source.source_envelope_ids.first() == Some(&parent.envelope_id)
+                    })
+                })
+                && output.tool_calls.iter().any(|call| {
+                    call.name == crate::goal_tools::CONTROL_GOAL_TOOL_NAME
+                        && Some(call.id.as_str()) == receipt.tool_call_id.as_deref()
+                })
+            {
+                copies.insert(message.message_id.clone());
+            }
+            issuing = Some(message);
+        } else if !matches!(message.role, ChatRole::Tool | ChatRole::UntrustedOutput) {
+            issuing = None;
+        }
+        previous = Some(message);
+    }
+    copies
+}
+
 /// The stored-text kind of goal fields.
 pub(crate) const KIND: &str = "goal";
 /// The field of the current goal text.

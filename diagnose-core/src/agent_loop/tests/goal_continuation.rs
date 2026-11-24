@@ -226,7 +226,92 @@ async fn the_current_complete_call_is_not_its_own_pending_dependency() {
     )
     .unwrap()
     .data_envelope;
-    let (outcome, _, _) = run_script(vec![turn], false).await;
+    let (outcome, store, _) = run_script(vec![turn], false).await;
+    let mut session = store.inner.borrow().as_ref().unwrap().clone();
+    let durable = session.encode_json_for_storage().unwrap();
+    session = PersistedAgentSession::decode_json(&durable).unwrap();
+    let copy = session.conversation.last().unwrap().message_id.clone();
+    assert_eq!(
+        crate::goal_projection::display_summary_ids(&session.conversation),
+        [copy.clone()].into()
+    );
+    let mut other_source = session.conversation.clone();
+    other_source
+        .last_mut()
+        .unwrap()
+        .data_envelope
+        .as_mut()
+        .unwrap()
+        .provenance
+        .source_envelope_ids = vec!["another-model-response".into()];
+    assert!(crate::goal_projection::display_summary_ids(&other_source).is_empty());
+    let mut other_call = session.conversation.clone();
+    let receipt = other_call
+        .iter_mut()
+        .rev()
+        .find(|m| m.role == ChatRole::Tool)
+        .unwrap();
+    receipt.tool_call_id = Some("sibling".into());
+    assert!(crate::goal_projection::display_summary_ids(&other_call).is_empty());
+    let basis = session.context_usage_basis.as_ref().unwrap();
+    let with_display = basis.usage(&session.conversation).unwrap();
+    let without_display = basis
+        .usage(&session.conversation[..session.conversation.len() - 1])
+        .unwrap();
+    assert_eq!(with_display.used_bytes, without_display.used_bytes);
+    let issuer = session
+        .conversation
+        .iter()
+        .find(|m| m.tool_calls.iter().any(|c| c.id == "complete"))
+        .unwrap()
+        .message_id
+        .clone();
+    assert!(
+        session
+            .context_protection_set()
+            .protected_message_ids
+            .contains(&issuer)
+    );
+    assert!(
+        !session
+            .context_protection_since(Some((&copy, false)))
+            .protected_message_ids
+            .contains(&issuer)
+    );
+    let mut repeated = session.clone();
+    let index = repeated
+        .conversation
+        .iter()
+        .position(|m| m.message_id == issuer)
+        .unwrap();
+    let mut old_batch = repeated.conversation[index..].to_vec();
+    for message in &mut old_batch {
+        message.message_id.insert_str(0, "old-");
+    }
+    repeated.conversation.splice(index..index, old_batch);
+    let protected = repeated.context_protection_since(Some((&issuer, false)));
+    assert!(protected.protected_message_ids.contains(&issuer));
+    assert!(
+        !protected
+            .protected_message_ids
+            .contains(&format!("old-{issuer}"))
+    );
+    assert!(!protected.protected_tool_call_ids.contains("complete"));
+    session.conversation.push(ChatMessage::text(
+        "ordinary",
+        ChatRole::Assistant,
+        "Verified report finished",
+    ));
+    assert_eq!(
+        crate::goal_projection::display_summary_ids(&session.conversation),
+        [copy].into()
+    );
+    assert!(
+        !session
+            .context_protection_set()
+            .protected_message_ids
+            .contains(&issuer)
+    );
     assert!(matches!(
         outcome,
         LoopOutcome::GoalControlled {

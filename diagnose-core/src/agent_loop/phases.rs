@@ -1306,7 +1306,15 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 deps.session_seam.save(session).await?;
             }
             let result_locators = crate::result_model_ids::locators(&session.model_conversation());
+            let display = crate::goal_projection::display_summary_ids(&session.conversation);
             for source in &mut session.conversation {
+                if display.contains(&source.message_id) {
+                    source.prepared_context_cost.0 = Some(crate::trim::PreparedMessageCost {
+                        bytes: 0,
+                        replay_bytes: 0,
+                    });
+                    continue;
+                }
                 let mut projected = source.clone();
                 projected.prepared_context_cost.0 = None;
                 crate::ui_model_ids::project_model_message(
