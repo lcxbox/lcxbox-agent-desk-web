@@ -13,7 +13,7 @@
 
 ## 忘记密码
 
-在宿主机的回环地址打开登录页，选择 **忘记密码**，按页面提示取得验证码。每次重置都会生成新的随机盐，旧浏览器会话需要重新登录。远端服务器可通过 SSH 使用部署账号运行 `lcxbox-agent-desk-server reset-password`。[配置与验证码](/zh/config/config-toml) · [部署与命令行重置](/zh/guide/deployment)
+在账户密码登录页选择 **忘记密码**。通过域名或局域网 IP 访问时，页面会显示本机操作说明和命令行重置命令。在运行服务的机器上通过回环地址打开登录页后，可按提示取得验证码并设置新密码。每次重置都会生成新的随机盐，旧浏览器会话需要重新登录。远端服务器可通过 SSH 使用部署账号运行 `lcxbox-agent-desk-server reset-password`。[配置与验证码](/zh/config/config-toml) · [部署与命令行重置](/zh/guide/deployment)
 
 ## 初始化令牌
 

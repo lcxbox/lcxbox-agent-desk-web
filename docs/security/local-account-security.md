@@ -17,7 +17,7 @@ own protection settings, described below.
 
 ## Forgotten password
 
-Open the login page through the host's loopback address and select **Forgot password**. Follow the prompt to obtain the code. Each reset generates a new random salt and requires existing browser sessions to sign in again. On a remote host, use SSH to run `lcxbox-agent-desk-server reset-password` as the deployment account. [Configuration and recovery codes](/config/config-toml) · [Deployment and CLI reset](/guide/deployment)
+Select **Forgot password** on the account login page. When you connect through a domain name or LAN IP address, the page shows instructions for local recovery and the CLI command. To reset in the browser, open the page through a loopback address on the machine running the service, then follow the prompts to obtain the code and set a new password. Each reset generates a new random salt and requires existing browser sessions to sign in again. On a remote host, use SSH to run `lcxbox-agent-desk-server reset-password` as the deployment account. [Configuration and recovery codes](/config/config-toml) · [Deployment and CLI reset](/guide/deployment)
 
 ## Initialization token
 

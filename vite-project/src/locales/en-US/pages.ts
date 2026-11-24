@@ -1171,6 +1171,7 @@ export default {
   'pages.legal.privacy.s8.heading': '8. Contact & Changes',
   'pages.legal.privacy.s8.body': 'Updates to this policy will be published on this page. To exercise the rights above or for any privacy-related questions, contact us through the operator’s published contact details.',
   'pages.recovery.title': 'Reset password',
+  'pages.recovery.remoteHelp': 'On the machine running the service, open the login page via localhost and select “Forgot password?”. You can also connect to that machine over SSH and run the command below as the service account.',
   'pages.recovery.code': 'Recovery code',
   'pages.recovery.password': 'New password',
   'pages.recovery.confirm': 'Confirm new password',

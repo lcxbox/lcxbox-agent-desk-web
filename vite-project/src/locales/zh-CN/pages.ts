@@ -1045,6 +1045,7 @@ export default {
   'pages.login.loginWith': '其他登录方式 :',
   'pages.login.registerAccount': '注册账户',
   'pages.recovery.title': '重置密码',
+  'pages.recovery.remoteHelp': '请在运行服务的机器上通过 localhost 打开登录页，选择“忘记密码”。也可以通过 SSH 登录该机器，使用运行服务的账号执行下方命令。',
   'pages.recovery.code': '验证码',
   'pages.recovery.password': '新密码',
   'pages.recovery.confirm': '确认新密码',

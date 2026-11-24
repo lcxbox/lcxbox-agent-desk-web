@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-    Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+    Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
 import { startLocalRecovery, finishLocalRecovery, cancelLocalRecovery } from '@/services/clients';
 import { errorCodeOf } from '@/lib/desk-error-i18n';
@@ -19,7 +19,20 @@ export function LocalPasswordRecovery({ onSuccess }: { onSuccess: () => void }) 
     const [password, setPassword] = useState('');
     const [confirm, setConfirm] = useState('');
     const host = window.location.hostname;
-    if (!['localhost', '[::1]'].includes(host) && !/^127(?:\.\d{1,3}){3}$/.test(host)) return null;
+    if (!['localhost', '[::1]'].includes(host) && !/^127(?:\.\d{1,3}){3}$/.test(host)) {
+        return <Dialog>
+            <DialogTrigger asChild>
+                <Button type="button" variant="link">{t('pages.login.forgotPassword')}</Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>{t('pages.recovery.title')}</DialogTitle>
+                    <DialogDescription>{t('pages.recovery.remoteHelp')}</DialogDescription>
+                </DialogHeader>
+                <code className="break-words rounded bg-muted p-3 text-sm">lcxbox-agent-desk-server reset-password</code>
+            </DialogContent>
+        </Dialog>;
+    }
 
     function clear() {
         setLocation(null);
