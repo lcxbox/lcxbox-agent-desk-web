@@ -118,7 +118,7 @@ tag 发布工作流要求配置 `APPLE_CERTIFICATE_P12_BASE64`、
 
 ```bash
 git clone <repository-url>
-cd lcxl-remote-desk-web
+cd lcxbox-agent-desk-web
 ```
 
 ### 2. 后端开发

@@ -14,7 +14,7 @@ hero:
       link: /zh/guide/quick-start
     - theme: alt
       text: 在 GitHub 查看
-      link: https://github.com/lcxl-remote/lcxl-remote-desk-web
+      link: https://github.com/lcxbox/lcxbox-agent-desk-web
 
 features:
   - icon: 🤖

@@ -9,7 +9,7 @@
   <DisplayName DefaultValue="Lcxbox Excel Agent"/>
   <Description DefaultValue="Pair the current Excel document for bounded, read-only semantic inspection."/>
   <IconUrl DefaultValue="https://localhost:32123/icon.png"/>
-  <SupportUrl DefaultValue="https://github.com/lcxl/lcxl-remote-desk"/>
+  <SupportUrl DefaultValue="https://github.com/lcxbox/lcxbox-agent-desk-web"/>
   <AppDomains>
     <AppDomain>https://localhost:32123</AppDomain>
   </AppDomains>

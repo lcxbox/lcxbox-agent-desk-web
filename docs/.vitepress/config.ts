@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 // GitHub repository the open-source `web` project mirrors to.
-const REPO_URL = 'https://github.com/lcxl-remote/lcxl-remote-desk-web'
+const REPO_URL = 'https://github.com/lcxbox/lcxbox-agent-desk-web'
 
 // When publishing to a GitHub Pages *project* site
 // (https://<user>.github.io/<repo>/), set DOCS_BASE to '/<repo>/'.
