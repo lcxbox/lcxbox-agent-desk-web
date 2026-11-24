@@ -102,7 +102,7 @@ impl ModelSeam for MeteredModel {
         Ok(provenance)
     }
     fn model_egress_policy(&self) -> Result<Option<ModelEgressPolicy>, AgentError> {
-        let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis())
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond())
             .map_err(|_| transport_error("system clock predates the Unix epoch"))?;
         Ok(Some(ModelEgressPolicy {
             destination: self.destination.clone(),
@@ -122,7 +122,7 @@ impl ModelSeam for MeteredModel {
             &self.db,
             session,
             &self.destination,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .map_err(|error| error.into_agent_error())
@@ -359,7 +359,7 @@ impl ModelSeam for MeteredModel {
         // execute. The egress projector already removes historical inputs that
         // lack bounded model-call headroom; this completion check is the final
         // fail-closed guard for current-turn observations.
-        let completion_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis())
+        let completion_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond())
             .map_err(|_| transport_error("system clock predates the Unix epoch"))?;
         let completion_policy = ModelEgressPolicy {
             now_unix_ms: completion_unix_ms,

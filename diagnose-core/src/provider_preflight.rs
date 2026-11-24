@@ -111,9 +111,9 @@ impl BrowserCallPreflight {
         {
             return Err(unavailable());
         }
-        let expiry = chrono::DateTime::parse_from_rfc3339(&browser_surface.expires_at)
+        let expiry = desk_utils::datetime::parse_rfc3339(&browser_surface.expires_at)
             .ok()
-            .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+            .and_then(|time| u64::try_from(desk_utils::datetime::unix_millis(time)).ok())
             .filter(|expiry| now_unix_ms > 0 && *expiry > now_unix_ms)
             .ok_or_else(unavailable)?;
         let request = browser_action_from_call(call, server_call_id)?;

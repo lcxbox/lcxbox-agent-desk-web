@@ -52,7 +52,7 @@ fn native_excel_copy_requires_lease_preserves_conflicts_and_rejects_cancelled_wo
             execution_generation: "native-generation".into(),
             approved_actor_id: "owner".into(),
             interactive_session_incarnation: readiness.interactive_session_incarnation,
-            expires_at: Utc::now() + Duration::seconds(120),
+            expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_secs(120),
         })
         .unwrap();
     let artifact = broker

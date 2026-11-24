@@ -99,7 +99,7 @@ async fn terminal_receipt_survives_reopen_consumption_and_timeout_without_new_au
                 &f.plan.execution_generation,
                 &f.plan.action_request_id,
                 1,
-                Utc::now().timestamp_millis() as u64,
+                jiff::Timestamp::now().as_millisecond() as u64,
             )
             .await
             .unwrap();
@@ -181,7 +181,7 @@ async fn terminal_receipt_survives_reopen_consumption_and_timeout_without_new_au
             f.store
                 .claim_dispatch(
                     &f.plan.execution_generation,
-                    Utc::now().timestamp_millis() as u64
+                    jiff::Timestamp::now().as_millisecond() as u64
                 )
                 .await
                 .is_err()
@@ -405,7 +405,7 @@ async fn timeout_and_authenticated_completion_converge_on_the_original_terminal_
                 &f.plan.execution_generation,
                 &f.plan.action_request_id,
                 1,
-                Utc::now().timestamp_millis() as u64
+                jiff::Timestamp::now().as_millisecond() as u64
             ),
             observe(&f, &native),
         );

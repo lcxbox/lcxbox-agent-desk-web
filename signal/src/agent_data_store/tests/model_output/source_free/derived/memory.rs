@@ -86,7 +86,7 @@ async fn forgetting_memory_keeps_the_accepted_answer_and_inflight_followup() {
                 operation_id: "forget-derived-answer-source".into(),
             },
             &AgentDataPolicy::default(),
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
@@ -173,7 +173,7 @@ async fn later_source_policy_changes_do_not_rewrite_accepted_snapshot_policy() {
 async fn already_retained_answer_identity_does_not_require_loading_the_retired_memory_body_again() {
     let (store, mut session, parent, proof) = parent("derived-memory-cleared-body").await;
     let memory = &proof.usage.memories[0].memory_id;
-    let cleared_at = chrono::Utc::now().timestamp_millis() - 1;
+    let cleared_at = jiff::Timestamp::now().as_millisecond() - 1;
     // Simulate the completed body-only cleanup; this is not a GC/quota test.
     revision::Entity::update_many()
         .col_expr(revision::Column::Status, Expr::value("superseded"))

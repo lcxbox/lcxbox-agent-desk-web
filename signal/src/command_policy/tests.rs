@@ -118,7 +118,7 @@ pub(crate) fn mark_ready_with(
     exec_sandbox: ExecSandboxSupport,
     exec_identity: ExecIdentity,
 ) {
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
     cache.remove_connection(connection_id);
     cache
@@ -128,7 +128,11 @@ pub(crate) fn mark_ready_with(
                 schema_version: COMPUTER_USE_SCHEMA_VERSION,
                 revision: 1,
                 observed_at: now.to_rfc3339(),
-                expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                expires_at: (now
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(5),
+                    ))
+                .to_rfc3339(),
                 server_api_version: 1,
                 os: "linux".into(),
                 interactive_user_home: None,
@@ -152,7 +156,7 @@ pub(crate) fn mark_ready_with(
                     .collect(),
                 context_references: vec![],
             },
-            now,
+            desk_agent_data_store::datetime::from_database(now).unwrap(),
         )
         .unwrap();
 }
@@ -232,7 +236,7 @@ impl Fixture {
             &self.connection_id,
             &crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string(),
             session,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap()
@@ -484,7 +488,7 @@ async fn stored_session_reads_the_subject_row_only() {
     use sea_orm::{ActiveModelTrait, Set};
     let fixture = fixture().await;
     let stored = session(&["a"]);
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     agent_session::ActiveModel {
         conversation_id: Set(stored.conversation_id.clone()),
         actor_id: Set(stored.actor_id.clone()),

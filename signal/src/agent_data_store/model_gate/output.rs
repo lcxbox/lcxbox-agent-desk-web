@@ -36,7 +36,7 @@ pub(crate) async fn prepare_on(
         &row,
         &session,
         &set,
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )?;
     let binding =
         crate::agent_data_store::source_device_ref(&config.metadata.instance, &session.device_id);
@@ -103,7 +103,7 @@ pub(crate) fn validate_on<'a>(
         {
             return Err(rejected("session_snapshot_changed"));
         }
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond() as u64;
         validate_session(&row, &prepared.session, set, now)?;
         let mut deadline = unsigned(
             row.lease_deadline
@@ -114,7 +114,7 @@ pub(crate) fn validate_on<'a>(
             deadline = deadline.min(until);
         }
 
-        if deadline <= chrono::Utc::now().timestamp_millis() as u64 {
+        if deadline <= jiff::Timestamp::now().as_millisecond() as u64 {
             return Err(rejected("acceptance_deadline_elapsed"));
         }
         crate::issue_connections::check_work_on(db, &prepared.session, false, now as i64).await?;

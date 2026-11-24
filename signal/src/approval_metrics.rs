@@ -50,7 +50,7 @@ pub fn committed(db: &DatabaseConnection, candidate: &str) {
                 &tracking,
                 phase,
                 if tracking.snapshot.terminal() { 2 } else { 0 },
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             );
         }
     });

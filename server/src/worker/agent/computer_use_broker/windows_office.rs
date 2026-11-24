@@ -386,7 +386,7 @@ mod tests {
                 execution_generation: "pptx-generation".into(),
                 approved_actor_id: "owner".into(),
                 interactive_session_incarnation: readiness.interactive_session_incarnation,
-                expires_at: Utc::now() + Duration::seconds(30),
+                expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30),
             })
             .unwrap();
         assert!(matches!(
@@ -464,7 +464,7 @@ mod tests {
             desk_agent_protocol::computer_use::ComputerActionKind::PresentationLiveBatch(
                 batch.clone(),
             );
-        let now = Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond() as u64;
         super::super::super::windows_office_batch::validate_pptx_receipt(
             &output.adapter,
             &batch_action,

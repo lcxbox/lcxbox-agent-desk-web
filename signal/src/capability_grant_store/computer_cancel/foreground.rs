@@ -179,7 +179,7 @@ impl SignalCapabilityGrantStore {
         {
             return Ok(false);
         }
-        let now = u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+        let now = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?;
         if timestamp(now)? < outbox.created_at {
             return Err(invalid());
         }

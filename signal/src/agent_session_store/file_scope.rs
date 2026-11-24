@@ -75,7 +75,7 @@ impl SignalAgentSessionStore {
     pub async fn update_file_scope(
         &self,
         update: &FileScopeUpdate,
-        now: DateTime<Utc>,
+        now: sea_orm::prelude::DateTimeUtc,
     ) -> Result<FileScopeReceipt, AgentError> {
         self.update_file_scope_guarded(update, now, None).await
     }
@@ -85,7 +85,7 @@ impl SignalAgentSessionStore {
         session: &mut PersistedAgentSession,
         device_id: &str,
         proposal: desk_diagnose_core::file_scope::DirectoryProposal,
-        now: DateTime<Utc>,
+        now: sea_orm::prelude::DateTimeUtc,
     ) -> Result<(), AgentError> {
         use desk_diagnose_core::file_scope::DirectoryConsentSource;
         if proposal.source != DirectoryConsentSource::ModelProposal
@@ -128,7 +128,7 @@ impl SignalAgentSessionStore {
     async fn update_file_scope_guarded(
         &self,
         update: &FileScopeUpdate,
-        now: DateTime<Utc>,
+        now: sea_orm::prelude::DateTimeUtc,
         held: Option<(i64, u64)>,
     ) -> Result<FileScopeReceipt, AgentError> {
         update.validate().map_err(|_| failure())?;
@@ -140,8 +140,8 @@ impl SignalAgentSessionStore {
             return Err(failure());
         }
         let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| failure())?;
-        let now =
-            DateTime::<Utc>::from_timestamp_millis(now.timestamp_millis()).ok_or_else(failure)?;
+        let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now.timestamp_millis())
+            .ok_or_else(failure)?;
         for _ in 0..CLAIM_ATTEMPTS {
             let txn = crate::db::begin_write(&self.db, crate::entity::agent_session::Entity)
                 .await
@@ -264,8 +264,9 @@ impl SignalAgentSessionStore {
                     || existing.source_envelope_ids_json != "[]"
                     || existing.result_envelope_ids_json != "[]"
                     || existing.input_seq.is_some()
-                    || DateTime::parse_from_rfc3339(&receipt.event.created_at)
-                        .map(|time| time.with_timezone(&Utc))
+                    || desk_utils::datetime::parse_rfc3339(&receipt.event.created_at)
+                        .map(desk_agent_data_store::datetime::to_database)
+                        .map(|time| time)
                         .ok()
                         != Some(existing.created_at)
                 {

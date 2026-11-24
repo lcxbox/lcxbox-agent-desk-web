@@ -54,7 +54,7 @@ pub(crate) async fn current(
         .unwrap_or(desk_agent_protocol::exec_policy::DEFAULT_TIMEOUT_MS);
     drop(map);
     let readiness = crate::computer_use_readiness::global_computer_use_readiness_cache()
-        .get_fresh(target_connection_id, chrono::Utc::now())
+        .get_fresh(target_connection_id, jiff::Timestamp::now())
         .ok_or_else(denied)?;
     let mode = crate::model_provider::load(db)
         .await

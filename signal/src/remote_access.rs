@@ -114,7 +114,7 @@ impl SignalRemoteAccessControl {
                 .is_none_or(|state| requested_version > state.state_version);
 
         if !exact_replay && (can_lock || can_unlock || can_initial_unlocked) {
-            let now = chrono::Utc::now();
+            let now = desk_agent_data_store::datetime::utc_now();
             if request.locked {
                 let lock_id = request
                     .lock_id
@@ -160,7 +160,7 @@ impl SignalRemoteAccessControl {
             locked: false,
             state_version: 0,
             lock_id: None,
-            updated_at: chrono::Utc::now(),
+            updated_at: desk_agent_data_store::datetime::utc_now(),
         });
         txn.commit().await?;
         if generation_bumped {
@@ -379,8 +379,8 @@ mod tests {
             device_code: Set("ABC123".into()),
             capabilities: Set(None),
             generation: Set(0),
-            created_at: Set(chrono::Utc::now()),
-            updated_at: Set(chrono::Utc::now()),
+            created_at: Set(desk_agent_data_store::datetime::utc_now()),
+            updated_at: Set(desk_agent_data_store::datetime::utc_now()),
             ..Default::default()
         }
         .insert(&db)

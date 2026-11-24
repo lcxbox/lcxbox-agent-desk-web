@@ -42,9 +42,9 @@ impl SubAgentStore {
         {
             return Err(invalid());
         }
-        let now = chrono::DateTime::parse_from_rfc3339(&params.now)
-            .map_err(|_| invalid())?
-            .with_timezone(&chrono::Utc);
+        let now = desk_utils::datetime::parse_rfc3339(&params.now)
+            .map(desk_agent_data_store::datetime::to_database)
+            .map_err(|_| invalid())?;
         // A selector read determines lock order only. Authority is re-read after
         // owner, root and child control locks (or the SQLite writer lock).
         let selected = desk_diagnose_core::future::boxed(|| async {
@@ -160,7 +160,7 @@ impl SubAgentStore {
                 &txn,
                 &session,
                 false,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             )
             .await
             {
@@ -316,20 +316,28 @@ impl SubAgentStore {
             session.version = version;
             let changed = desk_diagnose_core::future::boxed(|| async {
                 session_row::Entity::update_many()
-                .set(session_row::ActiveModel {
-                    state_json: Set(session.encode_json_for_storage().map_err(|_| invalid())?),
-                    version: Set(version),
-                    lease_token: Set(i64::try_from(session.lease_token).map_err(|_| invalid())?),
-                    lease_deadline: Set(Some(now + chrono::Duration::seconds(90))),
-                    updated_at: Set(now),
+                        .set(session_row::ActiveModel {
+                            state_json: Set(session
+                                .encode_json_for_storage()
+                                .map_err(|_| invalid())?),
+                            version: Set(version),
+                            lease_token: Set(
+                                i64::try_from(session.lease_token).map_err(|_| invalid())?
+                            ),
+                            lease_deadline: Set(Some(
+                                now + desk_agent_data_store::datetime::database_interval(
+                                    jiff::SignedDuration::from_secs(90),
+                                ),
+                            )),
+                            updated_at: Set(now),
 
-                    ..Default::default()
-                })
-                .filter(session_row::Column::Id.eq(session_row.id))
-                .filter(session_row::Column::Version.eq(session_row.version))
-                .filter(session_row::Column::LeaseToken.eq(session_row.lease_token))
-                .exec(&txn)
-                .await
+                            ..Default::default()
+                        })
+                        .filter(session_row::Column::Id.eq(session_row.id))
+                        .filter(session_row::Column::Version.eq(session_row.version))
+                        .filter(session_row::Column::LeaseToken.eq(session_row.lease_token))
+                        .exec(&txn)
+                        .await
             })
             .await?;
             if changed.rows_affected != 1 {

@@ -23,7 +23,6 @@ pub use object_context::UpdateObjectContext;
 pub use permission_receipt::{PermissionDecisionOutcome, PermissionDecisionSubject};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
 use desk_agent_protocol::capability_grant::CAPABILITY_GRANT_SCHEMA_VERSION;
 use desk_agent_protocol::{AgentError, AgentErrorKind, AgentScope};
 use desk_diagnose_core::context_attachment::ContextAttachment;
@@ -258,7 +257,7 @@ impl SignalAgentSessionStore {
             active: session.turn_state.is_active()
                 && row
                     .lease_deadline
-                    .is_some_and(|deadline| deadline > Utc::now()),
+                    .is_some_and(|deadline| deadline > desk_agent_data_store::datetime::utc_now()),
             request_id: session.current_request_id,
             active_execution_generation,
             unresolved_action,
@@ -453,7 +452,7 @@ impl SignalAgentSessionStore {
             if !crate::agent_subagent_store::check_child_permission_on(
                 &txn,
                 &session,
-                Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             )
             .await
             .map_err(|_| internal("delegated permission source is unavailable"))?
@@ -888,7 +887,7 @@ impl SignalAgentSessionStore {
             .await
             .agent_data_policy
             .conversation_title_max_chars as usize;
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let running_order: Expr =
             Expr::case(Expr::col(agent_session::Column::LeaseDeadline).gt(now), 1)
                 .finally(0)
@@ -1005,7 +1004,7 @@ impl SignalAgentSessionStore {
     pub async fn settle_lapsed_session(
         &self,
         row: &agent_session::Model,
-        now: DateTime<Utc>,
+        now: sea_orm::prelude::DateTimeUtc,
     ) -> Result<bool, AgentError> {
         let Some(current) = agent_session::Entity::find_by_id(row.id)
             .filter(agent_session::Column::Version.eq(row.version))
@@ -1118,7 +1117,7 @@ impl SignalAgentSessionStore {
             .col_expr(agent_session::Column::Version, Expr::value(new_version))
             .col_expr(
                 agent_session::Column::LeaseDeadline,
-                Expr::value(Option::<DateTime<Utc>>::None),
+                Expr::value(Option::<sea_orm::prelude::DateTimeUtc>::None),
             )
             .col_expr(agent_session::Column::UpdatedAt, Expr::value(now))
             .filter(agent_session::Column::Id.eq(row.id))
@@ -1624,7 +1623,7 @@ fn snapshot_from_session(
         active: session.turn_state.is_active()
             && row
                 .lease_deadline
-                .is_some_and(|deadline| deadline > Utc::now()),
+                .is_some_and(|deadline| deadline > desk_agent_data_store::datetime::utc_now()),
         request_id: session.current_request_id,
         active_execution_generation,
         unresolved_action,
@@ -1679,10 +1678,10 @@ fn transport(message: impl Into<String>) -> AgentError {
     }
 }
 
-fn now_from(raw: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(raw)
-        .map(|v| v.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now())
+fn now_from(raw: &str) -> sea_orm::prelude::DateTimeUtc {
+    desk_utils::datetime::parse_rfc3339(raw)
+        .map(desk_agent_data_store::datetime::to_database)
+        .unwrap_or_else(|_| desk_agent_data_store::datetime::utc_now())
 }
 
 async fn find(
@@ -1890,7 +1889,7 @@ impl SignalAgentSessionStore {
             };
             proposals.push(proposal);
         }
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let old_version = session.version;
         let new_version = old_version + 1;
         desk_diagnose_core::image_input::retain_latest_session_image(&mut session.conversation)
@@ -1901,10 +1900,11 @@ impl SignalAgentSessionStore {
         let state_json = stored
             .encode_json_for_storage()
             .map_err(|error| internal(format!("encode agent session state: {error}")))?;
-        let lease_deadline = session
-            .turn_state
-            .is_active()
-            .then_some(now + Duration::seconds(LEASE_TTL_SECS));
+        let lease_deadline = session.turn_state.is_active().then_some(
+            now + desk_agent_data_store::datetime::database_interval(
+                jiff::SignedDuration::from_secs(LEASE_TTL_SECS),
+            ),
+        );
         let result = agent_session::Entity::update_many()
             .col_expr(agent_session::Column::StateJson, Expr::value(state_json))
             .col_expr(agent_session::Column::Version, Expr::value(new_version))
@@ -1983,7 +1983,7 @@ impl SignalAgentSessionStore {
         }
         if !session.agent_role.is_main() {
             let target = permission_device_id(session, request);
-            let now_ms = Utc::now().timestamp_millis();
+            let now_ms = jiff::Timestamp::now().as_millisecond();
             let current = if target.is_empty() {
                 // A central web request has no device to fence.
                 crate::agent_subagent_store::check_child_central_on(txn, session, now_ms).await
@@ -2125,7 +2125,8 @@ impl SessionSeam for SignalAgentSessionStore {
         upper: desk_diagnose_core::goal::GoalUsage,
         now: &str,
     ) -> Result<desk_diagnose_core::subagent::reservation::CallAdmission, AgentError> {
-        let now = chrono::DateTime::parse_from_rfc3339(now)
+        let now = desk_utils::datetime::parse_rfc3339(now)
+            .map(desk_agent_data_store::datetime::to_database)
             .map_err(|_| internal("invalid delegation budget clock"))?;
         crate::agent_subagent_store::SubAgentStore::new(self.db.clone())
             .reserve_runtime_call(
@@ -2146,7 +2147,8 @@ impl SessionSeam for SignalAgentSessionStore {
         actual: Option<desk_diagnose_core::goal::GoalUsage>,
         now: &str,
     ) -> Result<(), AgentError> {
-        let now = chrono::DateTime::parse_from_rfc3339(now)
+        let now = desk_utils::datetime::parse_rfc3339(now)
+            .map(desk_agent_data_store::datetime::to_database)
             .map_err(|_| internal("invalid delegation settlement clock"))?;
         crate::agent_subagent_store::SubAgentStore::new(self.db.clone())
             .settle_runtime_call(reservation, actual, now.timestamp_millis())
@@ -2325,7 +2327,7 @@ impl SessionSeam for SignalAgentSessionStore {
                 session,
                 request,
                 &grants,
-                chrono::Utc::now().timestamp_millis().max(0) as u64,
+                jiff::Timestamp::now().as_millisecond().max(0) as u64,
             ),
         )
     }
@@ -2557,7 +2559,11 @@ impl SessionSeam for SignalAgentSessionStore {
                         )
                         .col_expr(
                             agent_session::Column::LeaseDeadline,
-                            Expr::value(Some(now + Duration::seconds(LEASE_TTL_SECS))),
+                            Expr::value(Some(
+                                now + desk_agent_data_store::datetime::database_interval(
+                                    jiff::SignedDuration::from_secs(LEASE_TTL_SECS),
+                                ),
+                            )),
                         )
                         .col_expr(agent_session::Column::UpdatedAt, Expr::value(now))
                         .filter(agent_session::Column::Id.eq(row.id))
@@ -2570,7 +2576,7 @@ impl SessionSeam for SignalAgentSessionStore {
                             &txn,
                             &session,
                             false,
-                            Utc::now().timestamp_millis(),
+                            jiff::Timestamp::now().as_millisecond(),
                         )
                         .await
                         .map_err(|error| ClaimError::Backend(error.into_agent_error()))?;
@@ -2724,7 +2730,11 @@ impl SessionSeam for SignalAgentSessionStore {
                         state_json: Set(state_json),
                         version: Set(0),
                         lease_token: Set(session.lease_token as i64),
-                        lease_deadline: Set(Some(now + Duration::seconds(LEASE_TTL_SECS))),
+                        lease_deadline: Set(Some(
+                            now + desk_agent_data_store::datetime::database_interval(
+                                jiff::SignedDuration::from_secs(LEASE_TTL_SECS),
+                            ),
+                        )),
                         created_at: Set(now),
                         updated_at: Set(now),
                         ..Default::default()
@@ -2789,7 +2799,7 @@ impl SessionSeam for SignalAgentSessionStore {
                 .await
                 .map_err(|error| internal(format!("save delegation result: {error}")));
             }
-            let now = Utc::now();
+            let now = desk_agent_data_store::datetime::utc_now();
             let new_version = session.version + 1;
             desk_diagnose_core::image_input::retain_latest_session_image(&mut session.conversation)
                 .map_err(|error| internal(format!("invalid session image: {error}")))?;
@@ -2802,10 +2812,11 @@ impl SessionSeam for SignalAgentSessionStore {
             let state_json = stored
                 .encode_json_for_storage()
                 .map_err(|e| internal(format!("encode agent session state: {e}")))?;
-            let lease_deadline = session
-                .turn_state
-                .is_active()
-                .then_some(now + Duration::seconds(LEASE_TTL_SECS));
+            let lease_deadline = session.turn_state.is_active().then_some(
+                now + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_secs(LEASE_TTL_SECS),
+                ),
+            );
             let result = if session.surface == AgentSessionSurface::AiAgent
                 && session.agent_data.is_some()
             {
@@ -2856,9 +2867,9 @@ impl SessionSeam for SignalAgentSessionStore {
         result_fingerprints: &[String],
         now: &str,
     ) -> Result<(), AgentError> {
-        let now = chrono::DateTime::parse_from_rfc3339(now)
-            .map_err(|_| internal("invalid goal settlement clock"))?
-            .with_timezone(&Utc);
+        let now = desk_utils::datetime::parse_rfc3339(now)
+            .map(desk_agent_data_store::datetime::to_database)
+            .map_err(|_| internal("invalid goal settlement clock"))?;
         crate::agent_goal_store::settle_slice(&self.db, session, end, result_fingerprints, now)
             .await
             .map_err(|error| internal(format!("settle AI Agent goal: {error}")))?;
@@ -2922,9 +2933,9 @@ impl SessionSeam for SignalAgentSessionStore {
         upper: desk_diagnose_core::goal::GoalUsage,
         now: &str,
     ) -> Result<(), AgentError> {
-        let now = chrono::DateTime::parse_from_rfc3339(now)
-            .map_err(|_| internal("invalid goal budget clock"))?
-            .with_timezone(&Utc);
+        let now = desk_utils::datetime::parse_rfc3339(now)
+            .map(desk_agent_data_store::datetime::to_database)
+            .map_err(|_| internal("invalid goal budget clock"))?;
         crate::agent_goal_store::reserve_budget(&self.db, session, identity, upper, now)
             .await
             .map_err(|error| internal(format!("reserve AI Agent goal budget: {error}")))?;
@@ -2938,9 +2949,9 @@ impl SessionSeam for SignalAgentSessionStore {
         actual: desk_diagnose_core::goal::GoalUsage,
         now: &str,
     ) -> Result<(), AgentError> {
-        let now = chrono::DateTime::parse_from_rfc3339(now)
-            .map_err(|_| internal("invalid goal budget clock"))?
-            .with_timezone(&Utc);
+        let now = desk_utils::datetime::parse_rfc3339(now)
+            .map(desk_agent_data_store::datetime::to_database)
+            .map_err(|_| internal("invalid goal budget clock"))?;
         crate::agent_goal_store::settle_budget(&self.db, session, identity, actual, now)
             .await
             .map_err(|error| internal(format!("settle AI Agent goal budget: {error}")))?;
@@ -2962,7 +2973,7 @@ impl SessionSeam for SignalAgentSessionStore {
             now_unix_ms,
         )
         .await?;
-        let now = DateTime::<Utc>::from_timestamp_millis(
+        let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
             i64::try_from(now_unix_ms).map_err(|_| internal("invalid directory clock"))?,
         )
         .ok_or_else(|| internal("invalid directory clock"))?;
@@ -2989,7 +3000,7 @@ impl SessionSeam for SignalAgentSessionStore {
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_session::Entity)
             .await
             .map_err(|error| internal(format!("begin task-status transaction: {error}")))?;
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let old_version = session.version;
         let new_version = old_version + 1;
         desk_diagnose_core::image_input::retain_latest_session_image(&mut session.conversation)
@@ -3000,10 +3011,11 @@ impl SessionSeam for SignalAgentSessionStore {
         let state_json = stored
             .encode_json_for_storage()
             .map_err(|error| internal(format!("encode agent session state: {error}")))?;
-        let lease_deadline = session
-            .turn_state
-            .is_active()
-            .then_some(now + Duration::seconds(LEASE_TTL_SECS));
+        let lease_deadline = session.turn_state.is_active().then_some(
+            now + desk_agent_data_store::datetime::database_interval(
+                jiff::SignedDuration::from_secs(LEASE_TTL_SECS),
+            ),
+        );
         let result = agent_session::Entity::update_many()
             .col_expr(agent_session::Column::StateJson, Expr::value(state_json))
             .col_expr(agent_session::Column::Version, Expr::value(new_version))
@@ -3277,7 +3289,7 @@ impl SessionSeam for SignalAgentSessionStore {
                 .col_expr(agent_session::Column::Version, Expr::value(new_version))
                 .col_expr(
                     agent_session::Column::LeaseDeadline,
-                    Expr::value(None::<DateTime<Utc>>),
+                    Expr::value(None::<sea_orm::prelude::DateTimeUtc>),
                 )
                 .col_expr(agent_session::Column::UpdatedAt, Expr::value(now_from(now)))
                 .filter(agent_session::Column::Id.eq(row.id))
@@ -3344,7 +3356,10 @@ impl SessionSeam for SignalAgentSessionStore {
             Some(false) => return Err(internal("AI Agent goal lease was lost")),
             None => {}
         }
-        let deadline = now_from(now) + Duration::seconds(LEASE_TTL_SECS);
+        let deadline = now_from(now)
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(
+                LEASE_TTL_SECS,
+            ));
         let result = agent_session::Entity::update_many()
             .col_expr(
                 agent_session::Column::LeaseDeadline,
@@ -3405,10 +3420,13 @@ mod tests {
         let mut session = store.claim_turn(claim("title-turn")).await.unwrap();
         session.surface = AgentSessionSurface::AiAgent;
         let txn = store.db.begin().await.unwrap();
-        session.version =
-            crate::agent_subagent_store::write_child_session_on(&txn, &session, Utc::now())
-                .await
-                .unwrap();
+        session.version = crate::agent_subagent_store::write_child_session_on(
+            &txn,
+            &session,
+            desk_agent_data_store::datetime::utc_now(),
+        )
+        .await
+        .unwrap();
         txn.commit().await.unwrap();
         let store = store.with_client_metadata(None, AgentSessionSurface::AiAgent);
         let before = agent_session::Entity::find()
@@ -3639,7 +3657,10 @@ mod tests {
             ContextUsageBasis::observe(&session.conversation, &session.conversation, &policy)
                 .with_request_budget(Some(budget.clone())),
         );
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         owner.save(&mut session).await.unwrap();
         let first = owner
             .read_snapshot(&session.conversation_id)
@@ -3675,19 +3696,30 @@ mod tests {
             let mut session = store.claim_turn(params).await.unwrap();
             session.surface = AgentSessionSurface::AiAgent;
             if !active {
-                session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+                session.finish_turn(
+                    TurnState::Idle,
+                    desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+                );
             }
             let txn = store.db.begin().await.unwrap();
-            let version =
-                crate::agent_subagent_store::write_child_session_on(&txn, &session, Utc::now())
-                    .await
-                    .unwrap();
+            let version = crate::agent_subagent_store::write_child_session_on(
+                &txn,
+                &session,
+                desk_agent_data_store::datetime::utc_now(),
+            )
+            .await
+            .unwrap();
             txn.commit().await.unwrap();
             session.version = version;
             agent_session::Entity::update_many()
                 .col_expr(
                     agent_session::Column::UpdatedAt,
-                    Expr::value(Utc::now() - Duration::days(age)),
+                    Expr::value(
+                        desk_agent_data_store::datetime::utc_now()
+                            - desk_agent_data_store::datetime::database_interval(
+                                jiff::SignedDuration::from_hours(24 * age),
+                            ),
+                    ),
                 )
                 .filter(agent_session::Column::ConversationId.eq(id))
                 .exec(&store.db)
@@ -3711,12 +3743,18 @@ mod tests {
             params.conversation_id = id;
             let mut session = store.claim_turn(params).await.unwrap();
             session.surface = AgentSessionSurface::AiAgent;
-            session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+            session.finish_turn(
+                TurnState::Idle,
+                desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+            );
             let txn = store.db.begin().await.unwrap();
-            let version =
-                crate::agent_subagent_store::write_child_session_on(&txn, &session, Utc::now())
-                    .await
-                    .unwrap();
+            let version = crate::agent_subagent_store::write_child_session_on(
+                &txn,
+                &session,
+                desk_agent_data_store::datetime::utc_now(),
+            )
+            .await
+            .unwrap();
             txn.commit().await.unwrap();
             session.version = version;
         }
@@ -4005,7 +4043,15 @@ mod tests {
                 .unwrap()
                 .active
         );
-        for deadline in [Some(Utc::now() - Duration::seconds(1)), None] {
+        for deadline in [
+            Some(
+                desk_agent_data_store::datetime::utc_now()
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_secs(1),
+                    ),
+            ),
+            None,
+        ] {
             agent_session::Entity::update_many()
                 .col_expr(agent_session::Column::LeaseDeadline, Expr::value(deadline))
                 .filter(agent_session::Column::ConversationId.eq("conversation-1"))
@@ -4176,7 +4222,7 @@ mod tests {
             request_id: Some(format!("request-{turn_id}")),
             connection_id: Some("browser-1".into()),
             trigger_origin: TriggerOrigin::User,
-            now: Utc::now().to_rfc3339(),
+            now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         }
     }
 
@@ -4229,7 +4275,7 @@ mod tests {
             current_scope: claim("scope").current_pdp_scope,
             read_context: None,
             message,
-            created_at: Utc::now().to_rfc3339(),
+            created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         }
     }
 
@@ -4424,7 +4470,10 @@ mod tests {
         session.capability_disclosure.updated_input_revision = 7;
         session.capability_disclosure.loaded_tool_names =
             vec!["inspect_pages_file".into(), "read_system_info".into()];
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         first.save(&mut session).await.unwrap();
         let saved_version = session.version;
         first.db.close().await.unwrap();
@@ -4459,7 +4508,10 @@ mod tests {
         let mut stale_snapshot = restored;
         stale_snapshot.turn_state = TurnState::Running;
         assert!(stale.save(&mut stale_snapshot).await.is_err());
-        claimed.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        claimed.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         owner.save(&mut claimed).await.unwrap();
     }
 
@@ -4470,7 +4522,10 @@ mod tests {
             AgentSessionSurface::AiAgent,
         );
         let mut session = store.claim_turn(claim("current-schema")).await.unwrap();
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         store.save(&mut session).await.unwrap();
 
         let row = agent_session::Entity::find()
@@ -4544,7 +4599,10 @@ mod tests {
         );
         let mut session = owner.claim_turn(claim("matrix-owner")).await.unwrap();
         populate_thousand_turn_lcc_matrix(&mut session);
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         owner.save(&mut session).await.unwrap();
         let expected_version = session.version;
         owner.db.close().await.unwrap();
@@ -4583,9 +4641,15 @@ mod tests {
             .await
             .unwrap();
         let mut stale = winner.clone();
-        winner.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        winner.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         store_a.save(&mut winner).await.unwrap();
-        stale.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        stale.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         assert!(store_b.save(&mut stale).await.is_err());
     }
 
@@ -4755,7 +4819,10 @@ mod tests {
             )
             .await
             .unwrap();
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         store.save(&mut session).await.unwrap();
 
         let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
@@ -5039,7 +5106,10 @@ mod tests {
 
         assert!(
             store
-                .settle_superseded(&stale, &Utc::now().to_rfc3339())
+                .settle_superseded(
+                    &stale,
+                    &desk_utils::datetime::rfc3339(jiff::Timestamp::now())
+                )
                 .await
                 .unwrap()
         );
@@ -5202,7 +5272,7 @@ mod tests {
             Some("screen-client-conversation".into()),
             AgentSessionSurface::AiAgent,
         );
-        let now_unix_ms = u64::try_from(Utc::now().timestamp_millis()).unwrap();
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap();
         let mut session = base.claim_turn(claim("screen-turn-1")).await.unwrap();
         let mut legacy = context_attachment(
             "legacy-current-screen",
@@ -5215,7 +5285,10 @@ mod tests {
         legacy.object_ref.source_capability_id = "screen.capture.current".into();
         legacy.envelope.sensitivity = Sensitivity::Sensitive;
         session.context_attachments.push(legacy);
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         base.save(&mut session).await.unwrap();
 
         let reconciled = base
@@ -5302,7 +5375,10 @@ mod tests {
                 desk_diagnose_core::chat::ChatRole::User,
                 "original requirement",
             ));
-        original.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        original.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         store.save(&mut original).await.unwrap();
         original.policy_revision = 0;
         agent_session::Entity::update_many()
@@ -5357,7 +5433,10 @@ mod tests {
         let store = store().await;
         let mut first = store.claim_turn(claim("turn-1")).await.unwrap();
         assert_eq!(first.turn_state, TurnState::Running);
-        first.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        first.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         store.save(&mut first).await.unwrap();
 
         let second = store.claim_turn(claim("turn-2")).await.unwrap();
@@ -5491,7 +5570,10 @@ mod tests {
         assert!(active.messages[0].image_data_url.is_none());
         assert!(session.conversation[0].image_data_url.is_some());
 
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         store.save(&mut session).await.unwrap();
         assert!(session.conversation[0].image_data_url.is_some());
         let settled = store
@@ -5516,8 +5598,8 @@ mod tests {
     #[tokio::test]
     async fn standalone_context_update_creates_session_is_idempotent_and_detaches() {
         let base = store().await;
-        let now_unix_ms = u64::try_from(Utc::now().timestamp_millis()).unwrap();
-        let now = Utc::now().to_rfc3339();
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap();
+        let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
         let selected = base
             .clone()
             .with_client_metadata(Some("agent-context".into()), AgentSessionSurface::AiAgent)
@@ -5580,7 +5662,7 @@ mod tests {
                     "1",
                     "device-1",
                     "deselect",
-                    &Utc::now().to_rfc3339(),
+                    &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                 )
                 .await
                 .unwrap()
@@ -5602,7 +5684,7 @@ mod tests {
     async fn context_selection_survives_sqlite_reopen_and_worker_respawn_is_one_way() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("agent-context.db");
-        let now_unix_ms = u64::try_from(Utc::now().timestamp_millis()).unwrap();
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap();
         let first = create_file_store(&path)
             .await
             .with_client_metadata(Some("client-1".into()), AgentSessionSurface::AiAgent)
@@ -5614,7 +5696,10 @@ mod tests {
             ));
         let mut session = first.claim_turn(claim("turn-1")).await.unwrap();
         assert_eq!(session.active_context(now_unix_ms).len(), 1);
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         first.save(&mut session).await.unwrap();
         let db = first.db.clone();
         drop(first);
@@ -5647,7 +5732,10 @@ mod tests {
             after_respawn.active_context(now_unix_ms + 1)[0].attachment_id,
             "attachment-2"
         );
-        after_respawn.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        after_respawn.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         reopened.save(&mut after_respawn).await.unwrap();
 
         let deselected = SignalAgentSessionStore::new(reopened.db.clone())
@@ -5705,7 +5793,10 @@ mod tests {
         );
         result.data_envelope = Some(artifact.clone());
         session.conversation.push(result);
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         first.save(&mut session).await.unwrap();
         let db = first.db.clone();
         drop(first);
@@ -5755,7 +5846,10 @@ mod tests {
         session
             .conversation
             .push(ChatMessage::text("u1", ChatRole::User, "why slow?"));
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         diagnose.save(&mut session).await.unwrap();
 
         let terminal = SignalAgentSessionStore::new(db).with_client_metadata(
@@ -5765,7 +5859,10 @@ mod tests {
         let mut terminal_claim = claim("terminal-turn");
         terminal_claim.conversation_id = "terminal-session".into();
         let mut terminal_session = terminal.claim_turn(terminal_claim).await.unwrap();
-        terminal_session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        terminal_session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         terminal.save(&mut terminal_session).await.unwrap();
 
         let initial = diagnose
@@ -5831,7 +5928,12 @@ mod tests {
         agent_session::Entity::update_many()
             .col_expr(
                 agent_session::Column::LeaseDeadline,
-                Expr::value(Some(Utc::now() - Duration::seconds(1))),
+                Expr::value(Some(
+                    desk_agent_data_store::datetime::utc_now()
+                        - desk_agent_data_store::datetime::database_interval(
+                            jiff::SignedDuration::from_secs(1),
+                        ),
+                )),
             )
             .filter(agent_session::Column::ConversationId.eq("conversation-1"))
             .exec(&store.db)
@@ -5880,7 +5982,7 @@ mod tests {
             request_id: "request-1".into(),
             ..Default::default()
         });
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         crate::entity::agent_exec_task::ActiveModel {
             exec_request_id: Set("exec-1".into()),
             execution_generation: Set("generation-1".into()),
@@ -5936,7 +6038,7 @@ mod tests {
                     "call-1",
                     "task-1",
                     "done",
-                    &Utc::now().to_rfc3339(),
+                    &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                 )
                 .await
                 .unwrap(),
@@ -5951,10 +6053,13 @@ mod tests {
         session.execution_state = ExecutionState::Executing {
             action: ActionIdentity::agent_exec(7, "task-1", "generation-1"),
         };
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         store.save(&mut session).await.unwrap();
 
-        let now = Utc::now().to_rfc3339();
+        let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
         assert_eq!(
             store
                 .deliver_completion(
@@ -6038,9 +6143,12 @@ mod tests {
             pending("event-3", &chain),
         ];
         session.automation_turns_used = 3;
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         store.save(&mut session).await.unwrap();
-        let now = Utc::now().to_rfc3339();
+        let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
         let notices = |store: &SignalAgentSessionStore| {
             let db = store.db.clone();
             async move {
@@ -6084,7 +6192,10 @@ mod tests {
         let chain = session.chain_id.clone();
         session.pending_auto_triggers = vec![pending("event-goal", &chain)];
         session.automation_turns_used = 3;
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         store.save(&mut session).await.unwrap();
         let goal = desk_diagnose_core::goal::GoalRun::new(
             "goal".into(),
@@ -6105,7 +6216,7 @@ mod tests {
             )
             .unwrap(),
             1,
-            Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
             desk_diagnose_core::goal::GoalLimits::default(),
         )
         .unwrap();
@@ -6140,7 +6251,10 @@ mod tests {
         session
             .execution_state
             .insert(ExecutionState::Executing { action: b.clone() });
-        session.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         store.save(&mut session).await.unwrap();
         let mut restored = store.claim_turn(claim("turn-2")).await.unwrap();
         assert!(restored.execution_state.contains(&a));

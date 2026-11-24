@@ -43,8 +43,8 @@ async fn local_attachments_are_durable_scoped_atomic_and_do_not_resurrect() {
         state_json: Set(session.encode_json_for_storage().unwrap()),
         version: Set(session.version),
         lease_token: Set(session.lease_token as i64),
-        created_at: Set(chrono::Utc::now()),
-        updated_at: Set(chrono::Utc::now()),
+        created_at: Set(desk_agent_data_store::datetime::utc_now()),
+        updated_at: Set(desk_agent_data_store::datetime::utc_now()),
         ..Default::default()
     }
     .insert(&db)

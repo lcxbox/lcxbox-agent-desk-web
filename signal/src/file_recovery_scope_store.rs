@@ -57,7 +57,7 @@ impl FileRecoveryScopeStore {
                 conversation,
                 &reply.authority,
                 &reply.os_user,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             )
             .await?
         {
@@ -205,7 +205,7 @@ mod tests {
         db.execute(&schema.entity_table(vault::Entity).to_owned())
             .await
             .unwrap();
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         agent_session::ActiveModel {
             conversation_id: Set("conversation".into()),
             actor_id: Set("owner".into()),
@@ -343,7 +343,7 @@ mod tests {
         db.execute(&schema.entity_table(vault::Entity).to_owned())
             .await
             .unwrap();
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         // A conversation without a bound device acts on the devices it selects.
         agent_session::ActiveModel {
             conversation_id: Set("conversation".into()),

@@ -113,9 +113,9 @@ pub async fn resume_claimed_fresh_task_permission_turn(
         safe_for_model: false,
         error_code: None,
     };
-    let now = chrono::DateTime::parse_from_rfc3339(&(deps.clock)())
+    let now = desk_utils::datetime::parse_rfc3339(&(deps.clock)())
         .ok()
-        .and_then(|value| u64::try_from(value.timestamp_millis()).ok())
+        .and_then(|value| u64::try_from(desk_utils::datetime::unix_millis(value)).ok())
         .ok_or_else(denied)?;
     let original = session.conversation.first().ok_or_else(denied)?;
     if deps.heartbeat.is_none()

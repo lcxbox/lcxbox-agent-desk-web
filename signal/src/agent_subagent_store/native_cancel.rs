@@ -48,7 +48,8 @@ pub(crate) async fn cancel_native_actions_for_subject_on<
     operation: &str,
     now_ms: i64,
 ) -> Result<(), DbErr> {
-    let now = chrono::DateTime::from_timestamp_millis(now_ms).ok_or_else(|| invalid())?;
+    let now =
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms).ok_or_else(|| invalid())?;
     let rows = work::Entity::find()
         .filter(work::Column::ConversationId.eq(conversation))
         .filter(work::Column::ActorId.eq(actor));
@@ -172,7 +173,7 @@ impl SubAgentStore {
         }
         if row.cancel_requested_at.is_none() {
             let mut active: command::ActiveModel = row.into();
-            active.cancel_requested_at = Set(Some(chrono::Utc::now()));
+            active.cancel_requested_at = Set(Some(desk_agent_data_store::datetime::utc_now()));
             active.cancel_requested_by = Set(Some(actor.into()));
             active.update(&txn).await?;
         } else if row.cancel_requested_by.as_deref() != Some(actor) {

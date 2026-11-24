@@ -264,7 +264,7 @@ fn commit_intent_write_failure_keeps_original_for_update_and_delete() {
             b"old"
         );
         locked
-            .recover_interrupted(Utc::now().timestamp_millis() as u64)
+            .recover_interrupted(jiff::Timestamp::now().as_millisecond() as u64)
             .unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"old");
     }

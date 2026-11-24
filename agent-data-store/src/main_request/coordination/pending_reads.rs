@@ -73,7 +73,7 @@ impl Batch {
         if !desk_diagnose_core::model_egress::same_recipient(&frozen.destination, &self.destination)
             || !frozen.device_id.is_empty()
             || frozen.ask.target_refs != item.target_refs
-            || frozen.authorization_expired(chrono::Utc::now().timestamp_millis())
+            || frozen.authorization_expired(jiff::Timestamp::now().as_millisecond())
             || !frozen
                 .roster_matches(db, &row.actor_id, &row.conversation_id)
                 .await?
@@ -158,7 +158,7 @@ mod tests {
             .sync(&db)
             .await
             .unwrap();
-        let now = chrono::Utc::now();
+        let now = crate::datetime::utc_now();
         let ms = now.timestamp_millis();
         let mut session = PersistedAgentSession::new_workbench_coordinator(
             "owner",

@@ -124,8 +124,8 @@ pub async fn reconcile_late_task_receipts_on<C: ConnectionTrait, H: ScheduleHost
         return Ok(Finish::Rollback(false));
     }
     let now = authority_now(txn).await?;
-    let timestamp =
-        chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let timestamp = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     if !(host
         .restore_completed_calls(txn, &work, &mut session, now)
         .await?)

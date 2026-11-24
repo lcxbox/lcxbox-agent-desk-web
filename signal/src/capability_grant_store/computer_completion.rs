@@ -337,7 +337,7 @@ impl SignalCapabilityGrantStore {
             let running = super::computer_background::task_on(
                 &txn,
                 work,
-                u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?,
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?,
             )
             .await?
             .is_some_and(|task| {
@@ -487,7 +487,7 @@ impl SignalCapabilityGrantStore {
         ) {
             return Ok(CompletionObservation::Stale.into());
         }
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
         let observation = Observation {
             native: completed.clone(),

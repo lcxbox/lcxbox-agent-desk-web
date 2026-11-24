@@ -144,8 +144,8 @@ async fn real_handler_scopes_enumeration_and_rechecks_live_grants() {
         client_id: Set("client-a".into()),
         device_code: Set("AAAAAA".into()),
         generation: Set(2),
-        created_at: Set(chrono::Utc::now()),
-        updated_at: Set(chrono::Utc::now()),
+        created_at: Set(desk_agent_data_store::datetime::utc_now()),
+        updated_at: Set(desk_agent_data_store::datetime::utc_now()),
         ..Default::default()
     }
     .insert(&db)

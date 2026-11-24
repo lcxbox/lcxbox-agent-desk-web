@@ -215,7 +215,7 @@ impl SignalModelEgressStore {
             .map_err(|_| DbErr::Custom("model egress byte count exceeds i64".into()))?;
         let ordinal = i32::try_from(model_call_ordinal)
             .map_err(|_| DbErr::Custom("model call ordinal exceeds i32".into()))?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         model_egress_receipt::ActiveModel {
             receipt_id: Set(receipt_id),
             export_authorization_id: Set(export_authorization_id),
@@ -261,7 +261,7 @@ impl SignalModelEgressStore {
             .set(model_egress_receipt::ActiveModel {
                 provider_context_observation_json: Set(context_json.clone()),
                 usage_json: Set(Some(encoded.clone())),
-                usage_recorded_at: Set(Some(chrono::Utc::now())),
+                usage_recorded_at: Set(Some(desk_agent_data_store::datetime::utc_now())),
                 ..Default::default()
             })
             .filter(model_egress_receipt::Column::ReceiptId.eq(receipt_id))
@@ -347,7 +347,7 @@ impl SignalModelEgressStore {
         .await
         .map_err(model_gate::admission_error)?;
         txn.mark_phase("validated");
-        let completed_at = chrono::Utc::now();
+        let completed_at = desk_agent_data_store::datetime::utc_now();
         let pending_archive = desk_diagnose_core::future::boxed(|| {
             model_gate::output::archive_on(
                 &txn,
@@ -359,7 +359,7 @@ impl SignalModelEgressStore {
         })
         .await
         .map_err(model_gate::admission_error)?;
-        if deadline.is_some_and(|until| until <= chrono::Utc::now().timestamp_millis() as u64) {
+        if deadline.is_some_and(|until| until <= jiff::Timestamp::now().as_millisecond() as u64) {
             log::warn!(
                 "[agent-output] deadline elapsed: phase=archive, receipt_id={receipt_id}, elapsed_ms={}",
                 acceptance_started.elapsed().as_millis()
@@ -436,7 +436,7 @@ impl SignalModelEgressStore {
             .await?;
         ensure_single_update(result.rows_affected, "complete successful model egress")?;
         txn.mark_phase("receipt_updated");
-        if deadline.is_some_and(|until| until <= chrono::Utc::now().timestamp_millis() as u64) {
+        if deadline.is_some_and(|until| until <= jiff::Timestamp::now().as_millisecond() as u64) {
             log::warn!(
                 "[agent-output] deadline elapsed: phase=native_write, receipt_id={receipt_id}, elapsed_ms={}",
                 acceptance_started.elapsed().as_millis()
@@ -449,7 +449,7 @@ impl SignalModelEgressStore {
                 .map_err(model_gate::admission_error)?;
         }
 
-        if deadline.is_some_and(|until| until <= chrono::Utc::now().timestamp_millis() as u64) {
+        if deadline.is_some_and(|until| until <= jiff::Timestamp::now().as_millisecond() as u64) {
             log::warn!(
                 "[agent-output] deadline elapsed: phase=archive_commit, receipt_id={receipt_id}, elapsed_ms={}",
                 acceptance_started.elapsed().as_millis()
@@ -728,7 +728,7 @@ impl SignalModelEgressStore {
             )
             .col_expr(
                 model_egress_receipt::Column::CompletedAt,
-                Expr::value(Some(chrono::Utc::now())),
+                Expr::value(Some(desk_agent_data_store::datetime::utc_now())),
             )
             .filter(model_egress_receipt::Column::ReceiptId.eq(receipt_id))
             .filter(model_egress_receipt::Column::State.eq(STATE_DISPATCH_INTENT))

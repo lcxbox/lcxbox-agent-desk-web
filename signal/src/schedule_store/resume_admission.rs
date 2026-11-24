@@ -37,7 +37,7 @@ impl super::ScheduleStore {
     ) -> Result<
         Option<(
             Option<desk_diagnose_core::input_read_context::ReadContextSelection>,
-            chrono::DateTime<chrono::Utc>,
+            sea_orm::prelude::DateTimeUtc,
         )>,
         DbErr,
     > {

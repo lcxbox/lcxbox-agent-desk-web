@@ -443,10 +443,12 @@ async fn unreadable_expiry() {
     live.conversation_schema_version = Set(Some(
         i32::from(desk_diagnose_core::session::CONVERSATION_SCHEMA_VERSION) - 1,
     ));
-    let live_until = chrono::Utc::now() + chrono::Duration::hours(1);
+    let live_until = desk_agent_data_store::datetime::utc_now()
+        + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(1));
     live.lease_deadline = Set(Some(live_until));
     let live = live.insert(&db).await.unwrap();
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(30);
+    let cutoff = desk_agent_data_store::datetime::utc_now()
+        - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(720));
     let pending = crate::agent_session_store::retire_unsupported_sessions(&db, cutoff, 2, 100);
     assert!(
         std::mem::size_of_val(&pending) <= 16 * 1024,
@@ -464,10 +466,13 @@ async fn unreadable_expiry() {
     assert_eq!(unchanged.state_json, live.state_json);
     assert_eq!(unchanged.version, live.version);
     assert_eq!(unchanged.lease_deadline, live.lease_deadline);
-    let (_, deleted) =
-        crate::usage_retention::cleanup_agent_sessions(&db, cutoff, chrono::Utc::now())
-            .await
-            .unwrap();
+    let (_, deleted) = crate::usage_retention::cleanup_agent_sessions(
+        &db,
+        cutoff,
+        desk_agent_data_store::datetime::utc_now(),
+    )
+    .await
+    .unwrap();
     assert_eq!(deleted, 1);
     assert!(
         session_row::Entity::find_by_id(original.id)

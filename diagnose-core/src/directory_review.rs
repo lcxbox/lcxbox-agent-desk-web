@@ -246,9 +246,9 @@ pub fn deadline(record: &DirectoryConsent) -> Result<u64, ApprovalReviewError> {
     let identity_expiry = if record.proposal.directory.expires_at.is_empty() {
         u64::MAX
     } else {
-        chrono::DateTime::parse_from_rfc3339(&record.proposal.directory.expires_at)
+        desk_utils::datetime::parse_rfc3339(&record.proposal.directory.expires_at)
             .ok()
-            .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+            .and_then(|time| u64::try_from(desk_utils::datetime::unix_millis(time)).ok())
             .ok_or(ApprovalReviewError::InvalidContext)?
     };
     Ok(context

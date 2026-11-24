@@ -85,7 +85,7 @@ pub(super) fn completion_params(parent: &PersistedAgentSession) -> ClaimTurnPara
         request_id: Some("completion-request".into()),
         connection_id: None,
         trigger_origin: TriggerOrigin::SubAgentCompletion,
-        now: chrono::Utc::now().to_rfc3339(),
+        now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     }
 }
 
@@ -99,7 +99,10 @@ async fn completion_before_parent_release_is_found_after_release_and_claimed_onc
         store.resolve_parent_wait("root", "1", "1").await.unwrap(),
         ParentWaitResolution::Busy
     );
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_main_delegation_session(&db, &mut parent)
         .await
         .unwrap();
@@ -206,7 +209,10 @@ async fn completion_before_parent_release_is_found_after_release_and_claimed_onc
 async fn progress_and_approval_attention_do_not_resolve_a_wait() {
     let db = database().await;
     let (mut parent, task_id) = waiting_parent(&db).await;
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_main_delegation_session(&db, &mut parent)
         .await
         .unwrap();
@@ -225,7 +231,7 @@ async fn progress_and_approval_attention_do_not_resolve_a_wait() {
         .unwrap()
         .unwrap();
     let group = decode_group(&group).unwrap();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     run.synchronize_dependencies(
         vec![TaskDependency::Approval {
             permission_request_id: "owner-approval".into(),
@@ -265,7 +271,10 @@ async fn explicit_adjustment_delivers_dependency_changed_instead_of_waiting_for_
     let child = load(&db, &task_id).await;
     let child_reply = super::issue_replies::seed(&db, &child.child_conversation_id, "root").await;
     let main_reply = super::issue_replies::seed(&db, "root", "root").await;
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_main_delegation_session(&db, &mut parent)
         .await
         .unwrap();
@@ -335,11 +344,19 @@ async fn stopping_only_the_parent_blocks_result_claims_without_closing_existing_
         .unwrap();
     let mut group = decode_group(&source).unwrap();
     group.stop_parent().unwrap();
-    replace_group_on(&txn, &source, &group, chrono::Utc::now().timestamp_millis())
-        .await
-        .unwrap();
-    parent.finish_turn(TurnState::Cancelled, chrono::Utc::now().to_rfc3339());
-    write_child_session_on(&txn, &parent, chrono::Utc::now())
+    replace_group_on(
+        &txn,
+        &source,
+        &group,
+        jiff::Timestamp::now().as_millisecond(),
+    )
+    .await
+    .unwrap();
+    parent.finish_turn(
+        TurnState::Cancelled,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
+    write_child_session_on(&txn, &parent, desk_agent_data_store::datetime::utc_now())
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -376,7 +393,10 @@ async fn failed_root_model_keeps_the_ready_delivery_and_retry_does_not_consume_n
     let db = database().await;
     let (mut parent, task_id) = waiting_parent(&db).await;
     super::main_tools::complete_child(&db, &task_id).await;
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_main_delegation_session(&db, &mut parent)
         .await
         .unwrap();
@@ -391,15 +411,16 @@ async fn failed_root_model_keeps_the_ready_delivery_and_retry_does_not_consume_n
         .unwrap()
         .unwrap();
     let original = claimed.session.ready_subagent_wait.clone().unwrap();
-    claimed
-        .session
-        .finish_turn(TurnState::Failed, chrono::Utc::now().to_rfc3339());
+    claimed.session.finish_turn(
+        TurnState::Failed,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     claimed
         .session
         .ready_subagent_wait
         .as_mut()
         .unwrap()
-        .retry_after_ms = Some(chrono::Utc::now().timestamp_millis() + 30_000);
+        .retry_after_ms = Some(jiff::Timestamp::now().as_millisecond() + 30_000);
     save_main_delegation_session(&db, &mut claimed.session)
         .await
         .unwrap();
@@ -533,7 +554,10 @@ async fn report_wait_matches_cursors_without_consuming_and_can_reply_on_the_resu
         .unwrap();
     assert_eq!(later.payload["status"], "waiting");
     assert_eq!(later.payload["reports"], serde_json::json!([]));
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_main_delegation_session(&db, &mut parent)
         .await
         .unwrap();

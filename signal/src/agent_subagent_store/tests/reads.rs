@@ -17,7 +17,7 @@ async fn read_work(
     child: &PersistedAgentSession,
     outcome: CapabilityDispatchOutcome,
 ) -> (work::Model, outbox::Model) {
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let digest = format!("{:x}", Sha256::digest(b"{}"));
     let authority = ObservedCapabilityAuthority {
         target_session_id: None,
@@ -120,7 +120,7 @@ async fn ordinary_read_success_and_failure_close_the_lifecycle_and_settle_once()
         let facts = super::super::facts::runtime_facts_on(
             &txn,
             &child,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .unwrap();
@@ -129,7 +129,10 @@ async fn ordinary_read_success_and_failure_close_the_lifecycle_and_settle_once()
         txn.commit().await.unwrap();
         let report = super::lifecycle::report();
         super::lifecycle::append_report(&db, &mut child, &report).await;
-        child.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+        child.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         let store = SubAgentStore::new(db.clone());
         assert_eq!(
             store
@@ -242,7 +245,7 @@ async fn terminal_read_requires_consistent_original_completion_and_unknown_work_
         let facts = super::super::facts::runtime_facts_on(
             &txn,
             &child,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await;
         if case < 3 {
@@ -260,7 +263,7 @@ async fn completed_read_recovers_old_wait_to_queued_then_normal_answer_without_r
     let mut child = super::lifecycle::child(&db).await;
     let task_id = child.agent_role.binding().unwrap().task_id.clone();
     read_work(&db, &child, CapabilityDispatchOutcome::Succeeded).await;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     child.finish_turn(TurnState::Idle, now.to_rfc3339());
     save_child_session(&db, &mut child).await.unwrap();
     let mut run = load(&db, &task_id).await;
@@ -303,7 +306,10 @@ async fn completed_read_recovers_old_wait_to_queued_then_normal_answer_without_r
     let mut child = claimed.session;
     let report = super::lifecycle::report();
     super::lifecycle::append_report(&db, &mut child, &report).await;
-    child.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    child.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     assert_eq!(
         store
             .settle_answer_for_turn(&mut child, queued.fence(), report.summary)

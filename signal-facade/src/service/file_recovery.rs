@@ -173,7 +173,8 @@ pub async fn request_authorized(
         .filter(|v| !v.is_empty())
         .ok_or(RecoveryRequestError::Offline)?;
     let (registration, receiver) = global_hub().register(connection_id)?;
-    let expires = (chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc3339();
+    let expires =
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30));
     let expected_authority = request.expected_authority.clone();
     let expected_os_user = request.expected_os_user.clone();
     let wrapper = AuthorizedControlPayload {

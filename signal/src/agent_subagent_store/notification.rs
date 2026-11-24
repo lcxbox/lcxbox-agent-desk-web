@@ -240,7 +240,7 @@ pub(crate) async fn batch_report_context_on(
             &session,
             selector,
             destination,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
             byte_limit,
         ),
     )
@@ -319,7 +319,7 @@ pub(crate) async fn ready_notification_source_on(
         return Ok(None);
     }
     super::scheduled_source::current_scheduled_source_on(txn, &source).await?;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     if !(matches!(
         group.source,
         desk_diagnose_core::subagent::DelegationSource::UserInput { .. }
@@ -430,7 +430,7 @@ pub(crate) async fn prepare_notification_on(
         return Ok(false);
     };
     let group = decode_group(&source)?;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     // An ordinary conversation is only woken after a turn that ended normally.
     if matches!(
         group.source,
@@ -572,7 +572,7 @@ pub(crate) async fn prepare_parent_wake_on(
         if !delivered {
             if notification
                 .retry_after_ms
-                .is_some_and(|due| due > chrono::Utc::now().timestamp_millis())
+                .is_some_and(|due| due > jiff::Timestamp::now().as_millisecond())
             {
                 return Ok(None);
             }
@@ -582,7 +582,7 @@ pub(crate) async fn prepare_parent_wake_on(
                         txn,
                         parent,
                         &source.1.model_destination,
-                        chrono::Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                     )
                     .await?
                 {
@@ -606,7 +606,8 @@ pub(crate) async fn prepare_parent_wake_on(
         return ready_notification_source_on(txn, parent).await;
     }
     if cleared {
-        parent.version = write_child_session_on(txn, parent, chrono::Utc::now()).await?;
+        parent.version =
+            write_child_session_on(txn, parent, desk_agent_data_store::datetime::utc_now()).await?;
     }
     Ok(None)
 }

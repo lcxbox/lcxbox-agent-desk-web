@@ -474,9 +474,9 @@ pub(crate) fn resolve(
                     && artifact(value).is_some()
             })?;
             let artifact = artifact(&result).expect("selected typed artifact");
-            let expiry = chrono::DateTime::parse_from_rfc3339(&artifact.file.expires_at)
+            let expiry = desk_utils::datetime::parse_rfc3339(&artifact.file.expires_at)
                 .map_err(|_| invalid("artifact expiry is invalid"))?;
-            if expiry.timestamp_millis() <= now as i64 {
+            if desk_utils::datetime::unix_millis(expiry) <= now as i64 {
                 return Err(invalid("artifact object expired"));
             }
             attachment.insert("artifact".into(), json!(artifact));

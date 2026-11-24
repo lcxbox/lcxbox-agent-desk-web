@@ -35,7 +35,7 @@ pub async fn scan_once(
     if !gate.is_enabled() {
         return Ok(0);
     }
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let rows = issue_events::candidates_on(db, after, now, BATCH_SIZE)
         .await
         .map_err(store)?;
@@ -73,7 +73,7 @@ async fn poll_source(
     if !policy.enabled || coordinator_on(&txn, &policy).await?.is_none() {
         return Ok(());
     }
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let Some(claim) =
         issue_events::claim_on(&txn, &policy, token, now, now.saturating_add(LEASE_MS))
             .await
@@ -139,7 +139,7 @@ async fn finish_page(
     } else {
         Err("connection_changed")
     };
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     match page {
         Ok(page) => {
             let comments = page

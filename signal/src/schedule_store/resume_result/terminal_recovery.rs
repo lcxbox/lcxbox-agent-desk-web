@@ -45,7 +45,7 @@ async fn fixture(failed: bool) -> (ScheduleStore, run::Model, PersistedAgentSess
         } else {
             TurnState::Idle
         },
-        chrono::Utc::now().to_rfc3339(),
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     );
     if failed {
         session.terminal_error = Some(AgentError {
@@ -97,7 +97,7 @@ async fn ordinary_orphan_sweep_does_not_modify_scheduled_session_or_run() {
         .unwrap();
     let original_task = store.read(1, &work.schedule_id).await.unwrap();
     let ordinary = crate::agent_session_store::SignalAgentSessionStore::new(store.db.clone());
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     for stale_origin in [false, true] {
         let mut scanned = row.clone();
         if stale_origin {
@@ -227,7 +227,7 @@ async fn old_answers_and_still_running_sessions_are_not_terminal_evidence() {
     session.conversation.last_mut().unwrap().turn_id = Some(work.turn_id.clone());
     session.turn_state = TurnState::Running;
     session.execution_state.insert(ExecutionState::Interrupted {
-        since: chrono::Utc::now().to_rfc3339(),
+        since: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     });
     save_session(&store, &session).await;
     assert_eq!(
@@ -239,7 +239,7 @@ async fn old_answers_and_still_running_sessions_are_not_terminal_evidence() {
     );
     session.turn_state = TurnState::Idle;
     session.execution_state.insert(ExecutionState::Interrupted {
-        since: chrono::Utc::now().to_rfc3339(),
+        since: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     });
     save_session(&store, &session).await;
     assert_eq!(
@@ -293,7 +293,7 @@ async fn failed_recovery_transaction_keeps_the_original_slot_and_can_be_retried(
 async fn uncertain_action_blocks_terminal_recovery_even_with_a_committed_answer() {
     let (store, work, _) = fixture(false).await;
     expire(&store, &work).await;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let action = agent_exec_task::ActiveModel {
         exec_request_id: Set("uncertain-action".into()),
         execution_generation: Set("generation".into()),
@@ -610,7 +610,12 @@ async fn interruption_preserves_live_lease_and_records_untracked_read_as_unavail
         .unwrap()
         .unwrap();
     let mut live: agent_session::ActiveModel = original.clone().into();
-    live.lease_deadline = Set(Some(chrono::Utc::now() + chrono::Duration::minutes(2)));
+    live.lease_deadline = Set(Some(
+        desk_agent_data_store::datetime::utc_now()
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_mins(
+                2,
+            )),
+    ));
     live.update(&store.db).await.unwrap();
     assert!(
         store

@@ -80,7 +80,7 @@ mod tests {
                 "call-a",
                 "device",
                 "device-1",
-                chrono::Utc::now(),
+                desk_agent_data_store::datetime::utc_now(),
             )
             .await
             .unwrap();
@@ -92,7 +92,7 @@ mod tests {
                 "call-b",
                 "device",
                 "device-1",
-                chrono::Utc::now(),
+                desk_agent_data_store::datetime::utc_now(),
             )
             .await
             .unwrap();

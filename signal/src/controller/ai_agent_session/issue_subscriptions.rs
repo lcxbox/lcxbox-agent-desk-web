@@ -219,7 +219,7 @@ async fn commit(
             return Err(AgentStoreError::SourceUnavailable);
         }
     }
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let actor = policy.actor_id.clone();
     let subscription = policy.subscription_id.clone();
     let result = settings::put_on(&txn, policy, now).await?;

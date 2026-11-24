@@ -91,7 +91,7 @@ impl ContinuationDispatchHost for ContinuationHost<'_> {
         target: String,
     ) -> Option<(LeaseIds, Self::Claimed)> {
         crate::computer_use_readiness::global_computer_use_readiness_cache()
-            .get_fresh(&target, chrono::Utc::now())?;
+            .get_fresh(&target, jiff::Timestamp::now())?;
         let config = crate::model_provider::load(&self.0.db).await.ok()?;
         crate::model_dial::SignalModelSeam::from_config(&config).ok()?;
         config.destination_identity().ok()?;

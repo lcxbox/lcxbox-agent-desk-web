@@ -3,7 +3,6 @@
 use crate::config::connection::DatabaseConnection;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use desk_agent_protocol::edge_exec::EdgeExecDisposition;
 use desk_agent_protocol::{AgentError, AgentErrorKind, AgentOutcome};
 use sea_orm::sea_query::Expr;
@@ -243,9 +242,9 @@ impl SignalAgentExecStore {
         tool_call_id: &str,
         target_connection_id: &str,
         target_device_id: &str,
-        deadline: DateTime<Utc>,
+        deadline: sea_orm::prelude::DateTimeUtc,
     ) -> Result<agent_exec_task::Model, AgentError> {
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let event_id = format!("signal-exec:{exec_request_id}:done");
         agent_exec_task::ActiveModel {
             exec_request_id: Set(exec_request_id.to_string()),
@@ -274,7 +273,10 @@ impl SignalAgentExecStore {
     pub async fn mark_running(&self, execution_generation: &str) -> Result<(), AgentError> {
         agent_exec_task::Entity::update_many()
             .col_expr(agent_exec_task::Column::Status, Expr::value(STATUS_RUNNING))
-            .col_expr(agent_exec_task::Column::UpdatedAt, Expr::value(Utc::now()))
+            .col_expr(
+                agent_exec_task::Column::UpdatedAt,
+                Expr::value(desk_agent_data_store::datetime::utc_now()),
+            )
             .filter(agent_exec_task::Column::ExecutionGeneration.eq(execution_generation))
             .filter(agent_exec_task::Column::Status.eq(STATUS_DISPATCHING))
             .exec(&self.db)
@@ -294,7 +296,10 @@ impl SignalAgentExecStore {
                 agent_exec_task::Column::ResultText,
                 Expr::value(Some("execution was not sent to the host".to_string())),
             )
-            .col_expr(agent_exec_task::Column::UpdatedAt, Expr::value(Utc::now()))
+            .col_expr(
+                agent_exec_task::Column::UpdatedAt,
+                Expr::value(desk_agent_data_store::datetime::utc_now()),
+            )
             .filter(agent_exec_task::Column::ExecutionGeneration.eq(execution_generation))
             .exec(&self.db)
             .await
@@ -434,7 +439,7 @@ impl SignalAgentExecStore {
         };
         let disposition_json = serde_json::to_string(disposition)
             .map_err(|e| internal(format!("encode agent execution result: {e}")))?;
-        let received_at = Utc::now();
+        let received_at = desk_agent_data_store::datetime::utc_now();
         let changed = agent_exec_task::Entity::update_many()
             .col_expr(agent_exec_task::Column::Status, Expr::value(status))
             .col_expr(
@@ -505,7 +510,10 @@ impl SignalAgentExecStore {
                 agent_exec_task::Column::DeliveryState,
                 Expr::value(DELIVERY_CONSUMED),
             )
-            .col_expr(agent_exec_task::Column::UpdatedAt, Expr::value(Utc::now()))
+            .col_expr(
+                agent_exec_task::Column::UpdatedAt,
+                Expr::value(desk_agent_data_store::datetime::utc_now()),
+            )
             .filter(agent_exec_task::Column::EventId.eq(event_id))
             .filter(
                 agent_exec_task::Column::DeliveryState
@@ -534,7 +542,7 @@ impl SignalAgentExecStore {
     pub(crate) async fn publish_once(&self) -> Result<(), AgentError> {
         let sessions = SignalAgentSessionStore::new(self.db.clone());
         for task in self.pending_deliveries().await? {
-            let now = Utc::now().to_rfc3339();
+            let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
             if task.delivery_state == DELIVERY_PUBLISHED {
                 if task.status == STATUS_UNKNOWN
                     || self.follow_up_completion(&sessions, &task, &now).await?
@@ -572,7 +580,7 @@ impl SignalAgentExecStore {
                     SignalCapabilityGrantStore::new(self.db.clone())
                         .record_dispatch_completion(
                             &completion,
-                            Utc::now().timestamp_millis() as u64,
+                            jiff::Timestamp::now().as_millisecond() as u64,
                         )
                         .await
                         .map_err(|_| {
@@ -717,8 +725,9 @@ impl SignalAgentExecStore {
             .expires_at
             .as_ref()
             .is_some_and(|raw| {
-                DateTime::parse_from_rfc3339(raw)
-                    .map(|deadline| deadline < Utc::now())
+                desk_utils::datetime::parse_rfc3339(raw)
+                    .map(desk_agent_data_store::datetime::to_database)
+                    .map(|deadline| deadline < desk_agent_data_store::datetime::utc_now())
                     .unwrap_or(true)
             });
         if pending.chain_id != session.chain_id || session.automation_turns_used >= limit || expired
@@ -766,7 +775,7 @@ impl SignalAgentExecStore {
                             .prune_auto_trigger(
                                 &task.conversation_id,
                                 &task.event_id,
-                                &Utc::now().to_rfc3339(),
+                                &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                                 None,
                             )
                             .await?,
@@ -793,7 +802,7 @@ impl SignalAgentExecStore {
                             .prune_auto_trigger(
                                 &task.conversation_id,
                                 &task.event_id,
-                                &Utc::now().to_rfc3339(),
+                                &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                                 exhausted.then_some(limit),
                             )
                             .await?,
@@ -897,7 +906,10 @@ mod tests {
                 "call-1",
                 "edge-a",
                 "device-1",
-                Utc::now() + chrono::Duration::minutes(1),
+                desk_agent_data_store::datetime::utc_now()
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(1),
+                    ),
             )
             .await
             .unwrap();
@@ -944,7 +956,10 @@ mod tests {
                 "call-2",
                 "edge-a",
                 "device-1",
-                Utc::now() + chrono::Duration::minutes(1),
+                desk_agent_data_store::datetime::utc_now()
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(1),
+                    ),
             )
             .await
             .unwrap();
@@ -974,7 +989,7 @@ mod tests {
                 request_id: Some("request-1".into()),
                 connection_id: Some("browser-1".into()),
                 trigger_origin: TriggerOrigin::User,
-                now: Utc::now().to_rfc3339(),
+                now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             })
             .await
             .unwrap();
@@ -985,7 +1000,10 @@ mod tests {
                 "generation-expired",
             ),
         };
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         sessions.save(&mut session).await.unwrap();
 
         let task = store
@@ -996,7 +1014,10 @@ mod tests {
                 "call-expired",
                 "edge-a",
                 "device-1",
-                Utc::now() + chrono::Duration::minutes(1),
+                desk_agent_data_store::datetime::utc_now()
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(1),
+                    ),
             )
             .await
             .unwrap();

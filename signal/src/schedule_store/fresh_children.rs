@@ -150,7 +150,7 @@ mod tests {
             } else {
                 run::Entity::update_many()
                     .set(run::ActiveModel {
-                        cancel_requested_at: Set(Some(chrono::Utc::now().timestamp_millis())),
+                        cancel_requested_at: Set(Some(jiff::Timestamp::now().as_millisecond())),
                         ..Default::default()
                     })
                     .filter(run::Column::RunId.eq(&parent.conversation_id))

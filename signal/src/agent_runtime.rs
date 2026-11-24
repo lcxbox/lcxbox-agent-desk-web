@@ -39,7 +39,7 @@ impl LeaseHeartbeat for SignalStoreHeartbeat {
         let handle = actix_web::rt::spawn(async move {
             loop {
                 tokio::time::sleep(AGENT_HEARTBEAT_INTERVAL).await;
-                let now = chrono::Utc::now().to_rfc3339();
+                let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
                 if store
                     .heartbeat(&conversation_id, lease_token, &now)
                     .await
@@ -75,7 +75,7 @@ pub(crate) fn record_metered(
     context: Option<&desk_diagnose_core::model_observability::ObservationContext>,
 ) {
     if let Some(context) = context {
-        context.metered(chrono::Utc::now().timestamp_millis());
+        context.metered(jiff::Timestamp::now().as_millisecond());
     }
 }
 
@@ -399,7 +399,7 @@ async fn continuation_target(connections: &SharedConnectionMap, device_id: &str)
         return None;
     }
     crate::computer_use_readiness::global_computer_use_readiness_cache()
-        .get_fresh(&connection_id, chrono::Utc::now())
+        .get_fresh(&connection_id, jiff::Timestamp::now())
         .map(|_| connection_id)
 }
 
@@ -580,7 +580,7 @@ async fn resume_completion_turn_inner(
     let heartbeat = SignalStoreHeartbeat {
         store: sessions.clone(),
     };
-    let clock = || chrono::Utc::now().to_rfc3339();
+    let clock = || desk_utils::datetime::rfc3339(jiff::Timestamp::now());
     let claim = ClaimTurnParams {
         conversation_id: session.conversation_id,
         actor_id: session.actor_id,

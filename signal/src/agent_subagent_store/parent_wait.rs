@@ -50,10 +50,10 @@ pub(crate) async fn ready_wait_source_on(
         || wait.source_epoch != group.source_epoch
         || wait.parent_input_revision != parent.input_revision
         || wait.parent_control_revision != parent.control_revision
-        || chrono::Utc::now().timestamp_millis() >= group.limits.deadline_ms
+        || jiff::Timestamp::now().as_millisecond() >= group.limits.deadline_ms
         || wait
             .retry_after_ms
-            .is_some_and(|due| due > chrono::Utc::now().timestamp_millis())
+            .is_some_and(|due| due > jiff::Timestamp::now().as_millisecond())
     {
         return Ok(None);
     }
@@ -155,7 +155,7 @@ impl SubAgentStore {
         if group.source_admission == SourceAdmission::Paused {
             return Ok(ParentWaitResolution::SourcePaused);
         }
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         if !group.can_interpret(parent.input_revision, parent.control_revision)
             || parent.turn_state == TurnState::Cancelled
             || parent.delegation_group_id.as_deref() != Some(group.group_id.as_str())
@@ -355,7 +355,7 @@ impl SubAgentStore {
                     &txn,
                     &parent,
                     destination,
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 )
             })
             .await?
@@ -370,9 +370,9 @@ impl SubAgentStore {
         if !group.limits.total.has_model_capacity(charged) {
             return Ok(None);
         }
-        let now = chrono::DateTime::parse_from_rfc3339(&params.now)
-            .map_err(|_| invalid())?
-            .with_timezone(&chrono::Utc);
+        let now = desk_utils::datetime::parse_rfc3339(&params.now)
+            .map(desk_agent_data_store::datetime::to_database)
+            .map_err(|_| invalid())?;
         if let (Some(workbench_id), Some(request_id)) = (
             parent.agent_role.workbench_id(),
             parent.agent_role.workbench_request_id(),
@@ -420,7 +420,11 @@ impl SubAgentStore {
                     state_json: Set(parent.encode_json_for_storage().map_err(|_| invalid())?),
                     version: Set(version),
                     lease_token: Set(i64::try_from(parent.lease_token).map_err(|_| invalid())?),
-                    lease_deadline: Set(Some(now + chrono::Duration::seconds(90))),
+                    lease_deadline: Set(Some(
+                        now + desk_agent_data_store::datetime::database_interval(
+                            jiff::SignedDuration::from_secs(90),
+                        ),
+                    )),
                     updated_at: Set(now),
                     ..Default::default()
                 })

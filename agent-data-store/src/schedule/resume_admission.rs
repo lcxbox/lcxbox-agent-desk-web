@@ -290,7 +290,7 @@ pub async fn scheduled_context_on<C: ConnectionTrait>(
 ) -> Result<
     Option<(
         Option<desk_diagnose_core::input_read_context::ReadContextSelection>,
-        chrono::DateTime<chrono::Utc>,
+        sea_orm::prelude::DateTimeUtc,
     )>,
     DbErr,
 > {
@@ -322,7 +322,7 @@ pub async fn scheduled_context_on<C: ConnectionTrait>(
     {
         return Err(invalid());
     }
-    let recorded = chrono::DateTime::from_timestamp_millis(
+    let recorded = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
         binding
             .recorded_at_unix_ms
             .try_into()
@@ -483,7 +483,7 @@ mod tests {
     #[tokio::test]
     async fn continuation_actions_require_a_personal_session_row() {
         let db = Database::connect("sqlite::memory:").await.unwrap();
-        let far = chrono::Utc::now().timestamp_millis() + 600_000;
+        let far = jiff::Timestamp::now().as_millisecond() + 600_000;
         continuation_rows(&db, "running", Some(far), false, None).await;
         let mut session = continuation_session();
         session.turn_state = TurnState::Running;

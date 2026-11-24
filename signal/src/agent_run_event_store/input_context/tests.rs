@@ -71,7 +71,7 @@ async fn select_live_document(store: &SignalAgentRunEventStore) {
         live_context::{LiveContextBuild, build_live_context},
     };
 
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let capability = registry
         .capability_for_tool("inspect_live_document")
@@ -93,7 +93,11 @@ async fn select_live_document(store: &SignalAgentRunEventStore) {
         schema_version: desk_agent_protocol::computer_use::COMPUTER_USE_SCHEMA_VERSION,
         revision: 1,
         observed_at: now.to_rfc3339(),
-        expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+        expires_at: (now
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_mins(
+                5,
+            )))
+        .to_rfc3339(),
         server_api_version: 1,
         os: "macos".into(),
         interactive_user_home: None,
@@ -122,7 +126,11 @@ async fn select_live_document(store: &SignalAgentRunEventStore) {
                 token: "original-document".into(),
                 snapshot_id: "snapshot-1".into(),
                 object_kind: ObjectKind::Document,
-                expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                expires_at: (now
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(5),
+                    ))
+                .to_rfc3339(),
             },
         }],
     };
@@ -161,7 +169,9 @@ async fn attach(store: &SignalAgentRunEventStore, id: &str, kind: ObjectKind) ->
         token: format!("ref-{id}"),
         snapshot_id: "worker".into(),
         object_kind: kind,
-        expires_at: (Utc::now() + chrono::Duration::minutes(10)).to_rfc3339(),
+        expires_at: desk_utils::datetime::rfc3339(
+            jiff::Timestamp::now() + jiff::SignedDuration::from_mins(10),
+        ),
     };
     let operation = if kind == ObjectKind::TerminalOutput {
         AiAgentObjectContextOperation::AttachTerminalOutput {
@@ -187,7 +197,7 @@ async fn attach(store: &SignalAgentRunEventStore, id: &str, kind: ObjectKind) ->
                 operation,
             },
             destination: Some(destination()),
-            created_at: Utc::now().to_rfc3339(),
+            created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         })
         .await
         .unwrap();
@@ -215,7 +225,7 @@ async fn detach(store: &SignalAgentRunEventStore, object: &ContextAttachment) {
                 },
             },
             destination: None,
-            created_at: Utc::now().to_rfc3339(),
+            created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         })
         .await
         .unwrap();
@@ -254,7 +264,7 @@ fn input(id: &str, mut objects: Vec<ContextAttachment>) -> AppendUserFollowupPar
             destination(),
         )
         .unwrap(),
-        created_at: Utc::now().to_rfc3339(),
+        created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     }
 }
 
@@ -270,7 +280,7 @@ async fn validate(
             revision,
             params.read_context.as_ref().unwrap(),
             &destination(),
-            Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
 }
@@ -308,7 +318,7 @@ async fn original_input_survives_reopen_and_later_unselected_context_without_ren
                 subject(),
                 "message",
                 &[chosen.attachment_id.clone(), later.attachment_id],
-                Utc::now().timestamp_millis() as u64
+                jiff::Timestamp::now().as_millisecond() as u64
             )
             .await
             .is_err()
@@ -319,7 +329,7 @@ async fn original_input_survives_reopen_and_later_unselected_context_without_ren
                 subject(),
                 "message",
                 &[],
-                Utc::now().timestamp_millis() as u64
+                jiff::Timestamp::now().as_millisecond() as u64
             )
             .await
             .is_err()
@@ -332,7 +342,9 @@ async fn original_input_survives_reopen_and_later_unselected_context_without_ren
     );
     let detached = session_row(&store).await;
     let mut expired_retry = params.clone();
-    expired_retry.created_at = (Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+    expired_retry.created_at = desk_utils::datetime::rfc3339(
+        jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24),
+    );
     assert!(
         !store
             .append_user_followup(&expired_retry)
@@ -395,7 +407,9 @@ async fn replay_checks_full_message_subject_and_selection_without_any_writes() {
             }
             _ => {
                 retry.read_context.as_mut().unwrap().expires_at =
-                    Some((Utc::now() + chrono::Duration::minutes(1)).to_rfc3339())
+                    Some(desk_utils::datetime::rfc3339(
+                        jiff::Timestamp::now() + jiff::SignedDuration::from_mins(1),
+                    ))
             }
         }
         assert!(
@@ -457,7 +471,7 @@ async fn stale_prepared_turn_and_changed_input_cannot_claim_or_read_the_new_requ
         request_id: Some("transport".into()),
         connection_id: Some("browser".into()),
         trigger_origin: desk_diagnose_core::session::TriggerOrigin::User,
-        now: Utc::now().to_rfc3339(),
+        now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     };
     assert!(matches!(
         sessions(&store)
@@ -548,7 +562,7 @@ async fn shared_object_binding_clamps_all_file_reads_and_rejects_expired_or_chan
             device_id: &object.device_id,
             original: &selection,
             destination: &destination,
-            now_unix_ms: Utc::now().timestamp_millis() as u64,
+            now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
         };
         binding.bind(&call, &mut operation).unwrap();
         let json = serde_json::to_string(&operation).unwrap();
@@ -612,7 +626,7 @@ async fn terminal_read_binds_only_original_terminal_with_original_byte_limit() {
         device_id: &terminal.device_id,
         original: params.read_context.as_ref().unwrap(),
         destination: &destination(),
-        now_unix_ms: Utc::now().timestamp_millis() as u64,
+        now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
     }
     .bind(&call, &mut operation)
     .unwrap();
@@ -966,7 +980,7 @@ async fn a_child_reads_only_the_objects_its_main_conversation_selected_and_still
             source_epoch: 1,
             deadline_ms: 1_799_999_999_999,
         },
-        Utc::now().to_rfc3339(),
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     )
     .unwrap();
     child.surface = AgentSessionSurface::AiAgent;
@@ -980,8 +994,8 @@ async fn a_child_reads_only_the_objects_its_main_conversation_selected_and_still
         state_json: Set(child.encode_json_for_storage().unwrap()),
         version: Set(child.version),
         lease_token: Set(child.lease_token as i64),
-        created_at: Set(Utc::now()),
-        updated_at: Set(Utc::now()),
+        created_at: Set(desk_agent_data_store::datetime::utc_now()),
+        updated_at: Set(desk_agent_data_store::datetime::utc_now()),
         ..Default::default()
     }
     .insert(&store.db)
@@ -1055,7 +1069,7 @@ async fn a_child_reads_only_the_objects_its_main_conversation_selected_and_still
                     revision,
                     &selection,
                     &destination(),
-                    Utc::now().timestamp_millis() as u64,
+                    jiff::Timestamp::now().as_millisecond() as u64,
                 )
                 .await
         }

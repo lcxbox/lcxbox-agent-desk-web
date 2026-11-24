@@ -192,7 +192,7 @@ fn time_calls(session: &PersistedAgentSession, from: u64, until: u64) -> Vec<Too
 #[tokio::test]
 async fn byte_limited_time_pages_resume_after_the_actual_last_output_and_do_not_admit_late_sources_after_refresh()
  {
-    let clock = chrono::Utc::now().timestamp_millis() as u64;
+    let clock = jiff::Timestamp::now().as_millisecond() as u64;
     let frame = Frame::with_maximum("search-flow-time", true, Some(8192), |session| {
         time_calls(session, clock - 10_000, clock + 10_000)
     })
@@ -455,7 +455,7 @@ async fn native_inventory_search_corpus_binds_twenty_roots_and_five_statuses_to_
     };
     use desk_diagnose_core::ai_agent::source::HistorySourceDirectory;
     for maximum in [32768, 8192] {
-        let clock = chrono::Utc::now().timestamp_millis() as u64;
+        let clock = jiff::Timestamp::now().as_millisecond() as u64;
         let frame = Frame::with_maximum("native-inventory-search", true, Some(maximum), |_| vec![ToolCall {
             id: "inventory-search".into(), name: data_tools::SEARCH_CONVERSATIONS.into(), arguments_json: serde_json::json!({
                 "queries":["report"],"sort":"time","order":"asc","limit":20,"source_kinds":["input"],

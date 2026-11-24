@@ -397,8 +397,8 @@ async fn settle_expired_fresh_task<C: ConnectionTrait, H: ScheduleHostStores<C>>
     } else {
         "lease_expired".to_owned()
     };
-    let timestamp =
-        chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let timestamp = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     if let Some(request_id) = work
         .result_ref
         .as_deref()

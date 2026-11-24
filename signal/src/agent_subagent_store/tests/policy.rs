@@ -217,7 +217,7 @@ async fn terminal_tasks_release_slots_without_a_cumulative_limit() {
                 expected_control_revision: 1,
                 action: desk_agent_protocol::ai_agent::subagent::SubAgentControlAction::Cancel,
             },
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .unwrap();
@@ -303,7 +303,7 @@ async fn completed_and_failed_children_also_release_creation_slots() {
             .unwrap()
             .unwrap();
         let mut run = decode_run(&row).unwrap();
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         if completed {
             run.claim_planning(run.fence(), now.timestamp_millis(), &now.to_rfc3339())
                 .unwrap();

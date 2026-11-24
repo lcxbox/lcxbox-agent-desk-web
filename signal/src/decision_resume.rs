@@ -57,7 +57,7 @@ pub async fn awaiting_owner_on(
         reviewer_available,
         review_ended_without_verdict,
         requested_at_unix_ms,
-        now_unix_ms: u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+        now_unix_ms: u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
     }))
 }
 
@@ -140,7 +140,7 @@ pub async fn withdraw_on(
     if after.decision_pause.is_some() {
         return Ok(());
     }
-    decision_resume::withdraw_on(txn, before, pause, chrono::Utc::now().timestamp_millis())
+    decision_resume::withdraw_on(txn, before, pause, jiff::Timestamp::now().as_millisecond())
         .await
         .map_err(|error| DbErr::Custom(format!("withdraw paused request: {error:?}")))
 }
@@ -245,7 +245,7 @@ impl DecisionResumeExecutor {
             &self.db,
             &session,
             &record,
-            chrono::Utc::now(),
+            desk_agent_data_store::datetime::utc_now(),
         )
         .await?
         {
@@ -299,7 +299,7 @@ impl DecisionResumeExecutor {
 
     /// A started record is done once its resumed turn is no longer running.
     async fn settle_started(&self) -> Result<(), DbErr> {
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         for record in decision_resume::started_on(&self.db, BATCH_SIZE)
             .await
             .map_err(store_error)?
@@ -328,7 +328,7 @@ impl DecisionResumeExecutor {
             record.id,
             &record.state,
             to,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .map_err(store_error)?;

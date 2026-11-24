@@ -427,8 +427,8 @@ async fn persist_fresh_children_close<C: ConnectionTrait, H: ScheduleHostStores<
     } else {
         desk_agent_protocol::schedule::ScheduledRunStatus::Failed
     };
-    let timestamp =
-        chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let timestamp = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     if !session.main_stopped {
         desk_diagnose_core::subagent::control::stop_main_session(
             &mut session,
@@ -671,8 +671,8 @@ async fn persist_fresh_children_receipts<C: ConnectionTrait, H: ScheduleHostStor
         mut session,
         now,
     } = *wait;
-    let timestamp =
-        chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let timestamp = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     if !session.execution_state.states().is_empty() || !session.unclosed_tool_call_ids().is_empty()
     {
         let restored = desk_diagnose_core::future::send_phase(|| {

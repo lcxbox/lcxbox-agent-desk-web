@@ -75,7 +75,7 @@ pub(super) async fn decide(
     // Its immutable request key permits history replay without issuing authority.
     crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
         .with_client_metadata(session.client_conversation_id.clone(), session.surface)
-        .update_file_scope(&update, chrono::Utc::now())
+        .update_file_scope(&update, desk_agent_data_store::datetime::utc_now())
         .await
         .map_err(|_| ScheduleStoreError::Conflict)?;
     Ok(())

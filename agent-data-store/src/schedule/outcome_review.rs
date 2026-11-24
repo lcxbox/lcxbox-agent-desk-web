@@ -183,9 +183,9 @@ pub fn reviewed_at(raw: Option<&str>) -> Result<Option<i64>, ScheduleStoreError>
         let evidence_at = match (&value.receipts_reconciled_at, &value.manual_disposition) {
             (Some(at), None) => *at,
             (None, Some(disposition)) => {
-                chrono::DateTime::parse_from_rfc3339(&disposition.disposed_at)
+                desk_utils::datetime::parse_rfc3339(&disposition.disposed_at)
+                    .map(desk_utils::datetime::unix_millis)
                     .map_err(|_| ScheduleStoreError::Invalid)?
-                    .timestamp_millis()
             }
             _ => return Err(ScheduleStoreError::Invalid),
         };

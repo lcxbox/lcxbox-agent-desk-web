@@ -276,7 +276,7 @@ async fn run_completion_turn(
                 &prefix,
                 &default_shell,
                 observation.as_ref(),
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             );
             mark_completions(TerminalCompleteResult::ok(request_id, completions), model)
         }
@@ -298,7 +298,7 @@ fn mark_completions(
     }
     result.with_provenance(AiProvenance::stamp(
         model,
-        Some(chrono::Utc::now().to_rfc3339()),
+        Some(desk_utils::datetime::rfc3339(jiff::Timestamp::now())),
     ))
 }
 
@@ -333,12 +333,12 @@ async fn run_terminal_agent_turn(
                 &turn,
                 &default_shell,
                 observation.as_ref(),
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             );
             // Mark the AI-generated answer with machine-readable provenance (Art.50(2)).
             sink.set_provenance(AiProvenance::stamp(
                 model,
-                Some(chrono::Utc::now().to_rfc3339()),
+                Some(desk_utils::datetime::rfc3339(jiff::Timestamp::now())),
             ));
             sink.emit_final(answer);
         }

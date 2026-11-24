@@ -32,7 +32,7 @@ async fn read_report_source(
             &mut parent,
             "UTC",
             None,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
@@ -97,7 +97,7 @@ pub(super) async fn response(
         .data_envelope
         .clone()
         .unwrap();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let policy = ModelEgressPolicy {
         destination: super::creation::destination(),
         selected_source_tools: Default::default(),
@@ -137,7 +137,7 @@ pub(super) async fn record_accepted_provider(
     input: &DataEnvelope,
     output: &DataEnvelope,
 ) {
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let store = SubAgentStore::new(db.clone());
     let upper = desk_diagnose_core::goal::GoalUsage {
         input_tokens: 100,
@@ -399,13 +399,13 @@ async fn session_save_failure_rolls_back_both_observation_and_interpretation() {
         &txn,
         &current,
         &parent,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     .unwrap();
     parent.version += 100;
     assert!(
-        write_child_session_on(&txn, &parent, chrono::Utc::now())
+        write_child_session_on(&txn, &parent, desk_agent_data_store::datetime::utc_now())
             .await
             .is_err()
     );

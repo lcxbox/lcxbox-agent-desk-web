@@ -148,7 +148,7 @@ impl MetricsBackend for Backend {
     }
 }
 
-fn now() -> i64 { chrono::Utc::now().timestamp_millis() }
+fn now() -> i64 { jiff::Timestamp::now().as_millisecond() }
 
 fn scope() -> AgentScope {
     AgentScope { granted: vec![Capability::SystemInfo], mode: ExecutionMode::ReadOnly,

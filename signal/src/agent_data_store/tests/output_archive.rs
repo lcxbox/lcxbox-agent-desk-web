@@ -138,7 +138,7 @@ async fn metadata_survives_native_cleanup_but_does_not_renew_source_access_or_or
                 operation_id: "forget-archived-source".into(),
             },
             &AgentDataPolicy::default(),
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();

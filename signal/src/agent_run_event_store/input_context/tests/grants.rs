@@ -18,7 +18,7 @@ async fn all_object_read_grants_ignore_later_objects_display_names_and_ambient_r
     session.input_revision = 1;
     session.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
     session.bind_agent_input_targets(&[]).unwrap();
-    let now = Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let deadline = now + 60_000;
     let ambient = [serde_json::from_str::<ObjectRef>(&later.object_ref.opaque_token).unwrap()];
     let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
@@ -48,7 +48,7 @@ async fn all_object_read_grants_ignore_later_objects_display_names_and_ambient_r
                 &registry,
                 "request".into(),
                 1,
-                Utc::now().to_rfc3339(),
+                desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             )
             .unwrap();
             request.items[0].selected_device_target =
@@ -102,7 +102,7 @@ async fn all_object_read_grants_ignore_later_objects_display_names_and_ambient_r
                 external_issue_sources: Vec::new(),
                 tool_names: vec![name.into()],
                 expires_at: Some(
-                    chrono::DateTime::from_timestamp_millis(deadline as i64)
+                    sea_orm::prelude::DateTimeUtc::from_timestamp_millis(deadline as i64)
                         .unwrap()
                         .to_rfc3339(),
                 ),
@@ -140,7 +140,7 @@ async fn all_object_read_grants_ignore_later_objects_display_names_and_ambient_r
             );
             let mut expired = original;
             expired.expires_at = Some(
-                chrono::DateTime::from_timestamp_millis(now as i64)
+                sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now as i64)
                     .unwrap()
                     .to_rfc3339(),
             );

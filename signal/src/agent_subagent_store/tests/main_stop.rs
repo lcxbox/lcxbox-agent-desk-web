@@ -171,7 +171,7 @@ async fn main_only_preserves_child_admission_budget_and_deadline_but_closes_pare
                 None,
                 2,
                 scope(),
-                chrono::Utc::now().to_rfc3339()
+                desk_utils::datetime::rfc3339(jiff::Timestamp::now())
             )
             .is_err()
     );
@@ -186,7 +186,10 @@ async fn stale_parent_input_or_wrong_subject_never_stops_a_newer_conversation() 
     parent.begin_focus_epoch(2, Vec::new()).unwrap();
     parent.input_revision = 2;
     parent.delegation_group_id = None;
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     let prior_version = parent.version;
     parent.version += 1;
     session_row::Entity::update_many()
@@ -245,7 +248,7 @@ async fn no_children_stop_fences_generation_and_a_new_owner_input_can_start_agai
             None,
             2,
             scope(),
-            chrono::Utc::now().to_rfc3339(),
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         )
         .unwrap();
     assert_eq!(current.control_revision, result.result.control_revision);
@@ -326,7 +329,7 @@ async fn child_completing_after_main_only_stop_keeps_result_without_restarting_p
         request_id: None,
         connection_id: None,
         trigger_origin: desk_diagnose_core::session::TriggerOrigin::SubAgentCompletion,
-        now: chrono::Utc::now().to_rfc3339(),
+        now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     };
     for _ in 0..2 {
         assert!(

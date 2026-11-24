@@ -23,8 +23,8 @@ use rmcp::RoleServer;
 use rmcp::ServerHandler;
 use rmcp::ServiceExt;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Content, Implementation, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::stdio;
@@ -215,8 +215,8 @@ impl McpServer {
 }
 
 impl ServerHandler for McpServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(
                 "lcxbox-mcp-server",
                 env!("CARGO_PKG_VERSION"),
@@ -239,9 +239,11 @@ impl ServerHandler for McpServer {
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
+    ) -> Result<CallToolResponse, McpError> {
         let args = request.arguments.unwrap_or_default();
-        self.dispatch_tool(request.name.as_ref(), args).await
+        self.dispatch_tool(request.name.as_ref(), args)
+            .await
+            .map(Into::into)
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
@@ -272,14 +274,14 @@ fn tool(name: &'static str, description: &'static str, schema: Value) -> Tool {
 /// Serialize a value as the (single) text content of a successful tool result.
 fn success_json<T: serde::Serialize>(value: &T) -> CallToolResult {
     match serde_json::to_string_pretty(value) {
-        Ok(text) => CallToolResult::success(vec![Content::text(text)]),
+        Ok(text) => CallToolResult::success(vec![ContentBlock::text(text)]),
         Err(e) => error_result(format!("failed to serialize result: {e}")),
     }
 }
 
 /// An error tool result carrying a single text message.
 fn error_result(message: impl Into<String>) -> CallToolResult {
-    CallToolResult::error(vec![Content::text(message.into())])
+    CallToolResult::error(vec![ContentBlock::text(message.into())])
 }
 
 /// Deserialize tool arguments, mapping any failure to an MCP invalid-params error.

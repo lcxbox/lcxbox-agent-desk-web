@@ -34,7 +34,7 @@ pub(super) fn output_text(
         destination: proof.source_envelope.allowed_destinations[0].clone(),
         selected_source_tools: Default::default(),
         export_authorization_id: "export".into(),
-        now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+        now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
         byte_cap: desk_diagnose_core::sink_authorizer::MAX_SINK_BYTES,
         permission_resume: false,
     }
@@ -113,7 +113,7 @@ pub(super) async fn admitted_with_owner_input(
                 session.latest_input_seq += 1;
                 let next = session.latest_input_seq;
                 session.begin_focus_epoch(next, Vec::new()).unwrap();
-                let now = chrono::Utc::now().timestamp_millis() as u64;
+                let now = jiff::Timestamp::now().as_millisecond() as u64;
                 super::super::accept_input_on(&txn, &mut session, "UTC", None, now)
                     .await
                     .unwrap();
@@ -172,7 +172,7 @@ pub(super) async fn admitted_with_owner_input(
                 block.memory_state_generation,
                 block.records,
             )
-            .encode(8192, chrono::Utc::now().timestamp_millis() as u64)
+            .encode(8192, jiff::Timestamp::now().as_millisecond() as u64)
             .unwrap()
             .unwrap();
             let data = session.agent_data.as_mut().unwrap();
@@ -221,7 +221,7 @@ pub(super) async fn admitted_with_owner_input(
             .agent_data_request_manifest(
                 &session,
                 &request,
-                chrono::Utc::now().timestamp_millis() as u64,
+                jiff::Timestamp::now().as_millisecond() as u64,
             )
             .await
             .unwrap()
@@ -298,7 +298,7 @@ async fn a_forgotten_source_blocks_success_without_discarding_actual_token_usage
                 operation_id: "forget-inflight-output".into(),
             },
             &AgentDataPolicy::default(),
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
@@ -342,7 +342,7 @@ async fn completed_output_replay_keeps_the_original_receipt_after_forgetting_and
                 operation_id: "forget-after-output".into(),
             },
             &AgentDataPolicy::default(),
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
@@ -422,7 +422,7 @@ async fn completion_keeps_read_snapshots_but_rejects_changed_current_session_jso
             origin::Entity::update_many()
                 .col_expr(
                     origin::Column::DeletedAtMs,
-                    Expr::value(Some(chrono::Utc::now().timestamp_millis())),
+                    Expr::value(Some(jiff::Timestamp::now().as_millisecond())),
                 )
                 .filter(origin::Column::Id.eq(original))
                 .exec(&txn)

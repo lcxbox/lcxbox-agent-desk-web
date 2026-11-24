@@ -17,7 +17,6 @@ use std::io::{Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use chrono::{DateTime, Duration, Utc};
 use desk_agent_protocol::computer_use::{
     DirectoryEntryProjection, FileContentReadOutput, FileContentReadParams,
     FileMetadataInspectOutput, FileMetadataInspectParams, FileMetadataProjection, ObjectKind,
@@ -87,7 +86,7 @@ struct FileIdentity {
 #[derive(Clone)]
 struct StoredFile {
     snapshot_id: String,
-    expires_at: Option<DateTime<Utc>>,
+    expires_at: Option<jiff::Timestamp>,
     object_kind: ObjectKind,
     path: PathBuf,
     identity: FileIdentity,
@@ -121,7 +120,7 @@ struct DirectoryPageCursor {
     params: FileMetadataInspectParams,
     next_offset: usize,
     pagination_id: String,
-    expires_at: DateTime<Utc>,
+    expires_at: jiff::Timestamp,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -133,7 +132,7 @@ struct DurableArtifactRegistry {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct DurableArtifactRecord {
     snapshot_id: String,
-    expires_at: Option<DateTime<Utc>>,
+    expires_at: Option<jiff::Timestamp>,
     object_kind: ObjectKind,
     path: PathBuf,
     identity: FileIdentity,
@@ -301,8 +300,8 @@ fn issue_opened_with_lifetime(
             false,
         ));
     };
-    let expires_at =
-        (object_kind != ObjectKind::Directory).then(|| Utc::now() + Duration::seconds(ttl_seconds));
+    let expires_at = (object_kind != ObjectKind::Directory)
+        .then(|| jiff::Timestamp::now() + jiff::SignedDuration::from_secs(ttl_seconds));
     let token = uuid::Uuid::new_v4().to_string();
     let mut state = store().lock().map_err(|_| {
         error(
@@ -313,7 +312,9 @@ fn issue_opened_with_lifetime(
     })?;
     state.objects.retain(|_, object| {
         object.object_kind == ObjectKind::Directory
-            || object.expires_at.is_some_and(|expiry| expiry > Utc::now())
+            || object
+                .expires_at
+                .is_some_and(|expiry| expiry > jiff::Timestamp::now())
     });
     if state.objects.len() >= MAX_FILE_REFS {
         return Err(error(
@@ -329,7 +330,7 @@ fn issue_opened_with_lifetime(
         snapshot_id: snapshot_id.clone(),
         object_kind,
         expires_at: expires_at
-            .map(|expiry| expiry.to_rfc3339())
+            .map(|expiry| desk_utils::datetime::rfc3339(expiry))
             .unwrap_or_default(),
     };
     state.objects.insert(
@@ -383,7 +384,7 @@ fn reload_durable_artifacts(state: &mut StoreState) {
             return;
         }
     };
-    let now = Utc::now();
+    let now = jiff::Timestamp::now();
     for (token, record) in registry.artifacts {
         if (record.object_kind != ObjectKind::Directory
             && record.expires_at.is_none_or(|expiry| expiry <= now))
@@ -422,7 +423,9 @@ fn persist_durable_artifacts(state: &StoreState) -> std::io::Result<()> {
         .filter(|(_, stored)| {
             stored.durable_artifact
                 && (stored.object_kind == ObjectKind::Directory
-                    || stored.expires_at.is_some_and(|expiry| expiry > Utc::now()))
+                    || stored
+                        .expires_at
+                        .is_some_and(|expiry| expiry > jiff::Timestamp::now()))
         })
         .map(|(token, stored)| {
             (
@@ -505,8 +508,8 @@ pub fn inspect(
                 .metadata
                 .modified()
                 .ok()
-                .map(DateTime::<Utc>::from)
-                .map(|value| value.to_rfc3339()),
+                .and_then(|time| jiff::Timestamp::try_from(time).ok())
+                .map(|value| desk_utils::datetime::rfc3339(value)),
         };
         let mut candidate = entries.clone();
         candidate.push(projection.clone());
@@ -600,7 +603,9 @@ fn inspect_paginated(
             state
                 .directory_page_cursors
                 .get(cursor)
-                .filter(|saved| saved.expires_at > Utc::now() && saved.params == binding)
+                .filter(|saved| {
+                    saved.expires_at > jiff::Timestamp::now() && saved.params == binding
+                })
                 .cloned()
                 .ok_or_else(|| {
                     error(
@@ -650,8 +655,8 @@ fn inspect_paginated(
             .metadata
             .modified()
             .ok()
-            .map(DateTime::<Utc>::from)
-            .map(|value| value.to_rfc3339()),
+            .and_then(|time| jiff::Timestamp::try_from(time).ok())
+            .map(|value| desk_utils::datetime::rfc3339(value)),
     };
     let pagination_id = prior.as_ref().map_or_else(
         || format!("file-page-{}", uuid::Uuid::new_v4()),
@@ -715,7 +720,7 @@ fn inspect_paginated(
     if output.truncated {
         state
             .directory_page_cursors
-            .retain(|_, saved| saved.expires_at > Utc::now());
+            .retain(|_, saved| saved.expires_at > jiff::Timestamp::now());
         if state.directory_page_cursors.len() >= MAX_DIRECTORY_PAGE_CURSORS {
             return Err(error(
                 AgentErrorKind::OutputLimitExceeded,
@@ -730,7 +735,10 @@ fn inspect_paginated(
                 next_offset: offset + output.directory_entries.len(),
                 pagination_id,
                 expires_at: prior.as_ref().map_or_else(
-                    || Utc::now() + Duration::seconds(DIRECTORY_PAGE_CURSOR_TTL_SECONDS),
+                    || {
+                        jiff::Timestamp::now()
+                            + jiff::SignedDuration::from_secs(DIRECTORY_PAGE_CURSOR_TTL_SECONDS)
+                    },
                     |saved| saved.expires_at,
                 ),
             },
@@ -745,8 +753,8 @@ struct ValidatedDirectoryFilter {
     file_name: Option<String>,
     min_file_bytes: Option<u64>,
     max_file_bytes: Option<u64>,
-    modified_after: Option<DateTime<Utc>>,
-    modified_before: Option<DateTime<Utc>>,
+    modified_after: Option<jiff::Timestamp>,
+    modified_before: Option<jiff::Timestamp>,
 }
 
 impl ValidatedDirectoryFilter {
@@ -816,7 +824,7 @@ impl ValidatedDirectoryFilter {
         &self,
         display_name: &str,
         byte_len: u64,
-        modified_at: Option<DateTime<Utc>>,
+        modified_at: Option<jiff::Timestamp>,
     ) -> bool {
         if self
             .file_name
@@ -861,13 +869,9 @@ impl ValidatedDirectoryFilter {
     }
 }
 
-fn parse_filter_time(value: Option<&str>) -> Result<Option<DateTime<Utc>>, AgentError> {
+fn parse_filter_time(value: Option<&str>) -> Result<Option<jiff::Timestamp>, AgentError> {
     value
-        .map(|value| {
-            DateTime::parse_from_rfc3339(value)
-                .map(|value| value.with_timezone(&Utc))
-                .map_err(|_| invalid_file_filter())
-        })
+        .map(|value| desk_utils::datetime::parse_rfc3339(value).map_err(|_| invalid_file_filter()))
         .transpose()
 }
 
@@ -880,12 +884,12 @@ fn invalid_file_filter() -> AgentError {
 }
 
 #[cfg(windows)]
-fn windows_file_time_value(value: i64) -> Option<DateTime<Utc>> {
+fn windows_file_time_value(value: i64) -> Option<jiff::Timestamp> {
     const WINDOWS_TO_UNIX_100NS: i64 = 116_444_736_000_000_000;
     let unix_100ns = value.checked_sub(WINDOWS_TO_UNIX_100NS)?;
     let seconds = unix_100ns.div_euclid(10_000_000);
     let nanos = unix_100ns.rem_euclid(10_000_000) as u32 * 100;
-    DateTime::<Utc>::from_timestamp(seconds, nanos)
+    jiff::Timestamp::new(seconds, nanos as i32).ok()
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -975,7 +979,10 @@ fn enumerate_directory_from(
         let display_name = String::from_utf8_lossy(name.to_bytes()).into_owned();
         let is_directory = metadata.is_dir();
         let byte_len = metadata.is_file().then_some(metadata.len());
-        let modified_at = metadata.modified().ok().map(DateTime::<Utc>::from);
+        let modified_at = metadata
+            .modified()
+            .ok()
+            .and_then(|time| jiff::Timestamp::try_from(time).ok());
         let matches = if is_directory {
             !filter.is_active()
         } else {
@@ -1020,7 +1027,7 @@ fn enumerate_directory_from(
             display_name: display_name.chars().take(512).collect(),
             is_directory,
             byte_len,
-            modified_at: modified_at.map(|timestamp| timestamp.to_rfc3339()),
+            modified_at: modified_at.map(|timestamp| desk_utils::datetime::rfc3339(timestamp)),
         });
     }
 }
@@ -2175,7 +2182,7 @@ fn resolve(object_ref: &ObjectRef) -> Result<StoredFile, AgentError> {
             true,
         )
     })?;
-    let now = Utc::now();
+    let now = jiff::Timestamp::now();
     state.objects.retain(|_, object| {
         object.object_kind == ObjectKind::Directory
             || object.expires_at.is_some_and(|expiry| expiry > now)
@@ -2191,7 +2198,7 @@ fn resolve(object_ref: &ObjectRef) -> Result<StoredFile, AgentError> {
         || stored.object_kind != object_ref.object_kind
         || stored
             .expires_at
-            .map(|expiry| expiry.to_rfc3339())
+            .map(|expiry| desk_utils::datetime::rfc3339(expiry))
             .unwrap_or_default()
             != object_ref.expires_at
         || (!stored.durable_artifact && !object_ref.snapshot_id.starts_with(&state.incarnation))
@@ -2536,17 +2543,15 @@ mod tests {
         let _guard = file_store_test_lock();
         let temp = tempfile::tempdir().unwrap();
         reset_worker_incarnation();
-        let issued_after = Utc::now();
+        let issued_after = jiff::Timestamp::now();
         let file = temp.path().join("selected.txt");
         std::fs::write(&file, b"selected").unwrap();
         let object_ref = issue(&file).unwrap();
-        let expires_at = DateTime::parse_from_rfc3339(&object_ref.expires_at)
-            .unwrap()
-            .with_timezone(&Utc);
+        let expires_at = desk_utils::datetime::parse_rfc3339(&object_ref.expires_at).unwrap();
 
         assert!(
             expires_at - issued_after
-                >= Duration::seconds(super::super::PERMISSION_FLOW_TTL_SECONDS - 1)
+                >= jiff::SignedDuration::from_secs(super::super::PERMISSION_FLOW_TTL_SECONDS - 1)
         );
     }
 
@@ -3172,8 +3177,12 @@ mod tests {
             cursor: None,
             min_file_bytes: Some(4),
             max_file_bytes: Some(16),
-            modified_after: Some((Utc::now() - Duration::days(1)).to_rfc3339()),
-            modified_before: Some((Utc::now() + Duration::days(1)).to_rfc3339()),
+            modified_after: Some(desk_utils::datetime::rfc3339(
+                jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24),
+            )),
+            modified_before: Some(desk_utils::datetime::rfc3339(
+                jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24),
+            )),
         })
         .unwrap();
         assert_eq!(output.directory_entries.len(), 1);

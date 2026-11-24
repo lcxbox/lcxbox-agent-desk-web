@@ -247,8 +247,8 @@ async fn persist_children_claim<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     if now < authority.verified_at() || until <= now {
         return Err(ScheduleStoreError::Conflict);
     }
-    let timestamp =
-        chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let timestamp = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     let epoch = work
         .lease_epoch
         .checked_add(1)

@@ -17,7 +17,7 @@ async fn fixture() -> (DatabaseConnection, i64) {
         .await
         .unwrap();
     crate::db::initialize_schema(&db).await.unwrap();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let tool = desk_diagnose_core::command_confirmation::COMMAND_TOOL;
     let origin = desk_diagnose_core::action_result::ActionResultOrigin {
         schema_version: 1,
@@ -168,7 +168,9 @@ async fn fixture() -> (DatabaseConnection, i64) {
             "model-call",
             "original-host",
             "original-device",
-            now + chrono::Duration::minutes(1),
+            now + desk_agent_data_store::datetime::database_interval(
+                jiff::SignedDuration::from_mins(1),
+            ),
         )
         .await
         .unwrap();

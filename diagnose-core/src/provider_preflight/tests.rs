@@ -12,9 +12,9 @@ fn surface() -> ObjectRef {
 }
 
 fn now() -> u64 {
-    chrono::DateTime::parse_from_rfc3339("2026-08-30T00:00:00Z")
-        .unwrap()
-        .timestamp_millis() as u64
+    desk_utils::datetime::parse_rfc3339("2026-08-30T00:00:00Z")
+        .map(desk_utils::datetime::unix_millis)
+        .unwrap() as u64
 }
 
 fn subject() -> ProviderCallSubject<'static> {

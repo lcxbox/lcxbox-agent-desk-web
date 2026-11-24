@@ -189,7 +189,7 @@ async fn project_http_response(
         &body,
         validated,
         server_call_id,
-        &chrono::Utc::now().to_rfc3339(),
+        &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     )
 }
 

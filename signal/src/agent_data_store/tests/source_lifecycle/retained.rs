@@ -257,7 +257,7 @@ async fn native_device(store: &TestStore, public: &str) -> String {
 }
 
 async fn seed_conflicting_session(store: &TestStore, device: &str) {
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     execution::ActiveModel {
         conversation_id: Set("retained-root".into()),
         actor_id: Set("foreign-owner".into()),

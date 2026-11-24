@@ -20,7 +20,7 @@ use crate::{
 static HISTORY_REDACTOR: LazyLock<RegexRedactor> = LazyLock::new(RegexRedactor::new);
 
 pub fn valid_statement_timezone(value: &str) -> bool {
-    value.len() <= 128 && value.parse::<chrono_tz::Tz>().is_ok()
+    value.len() <= 128 && crate::schedule::timezone::zone_name(value).is_some()
 }
 
 /// Called by the trusted input producer, never from model-supplied policy fields.

@@ -92,7 +92,7 @@ impl WorkerManager {
                         request_id,
                         os_user: user.sid.clone(),
                         session_id: user.session_id,
-                        deadline_unix_ms: (chrono::Utc::now().timestamp_millis().max(1) as u64)
+                        deadline_unix_ms: (jiff::Timestamp::now().as_millisecond().max(1) as u64)
                             .saturating_add(30_000),
                         command,
                     },

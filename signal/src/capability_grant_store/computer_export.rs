@@ -67,9 +67,9 @@ impl ComputerExportContext {
             }
         }
         if let Some(expiry) = &session.scope_snapshot.expires_at {
-            let expiry = chrono::DateTime::parse_from_rfc3339(expiry)
-                .map_err(|_| invalid())?
-                .timestamp_millis();
+            let expiry = desk_utils::datetime::parse_rfc3339(expiry)
+                .map(desk_utils::datetime::unix_millis)
+                .map_err(|_| invalid())?;
             expires_at = expires_at.min(u64::try_from(expiry).map_err(|_| invalid())?);
         }
         let context = Self {
@@ -145,7 +145,8 @@ impl SignalCapabilityGrantStore {
                     .check(
                         session,
                         destination,
-                        u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?,
+                        u64::try_from(jiff::Timestamp::now().as_millisecond())
+                            .map_err(|_| invalid())?,
                     )
                     .map_err(|_| invalid())?;
                 if export.captured_at_unix_ms != completion.captured_at_unix_ms
@@ -182,7 +183,8 @@ impl SignalCapabilityGrantStore {
                     &output,
                 )
                 .map_err(|_| invalid())?;
-            let now = u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+            let now =
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?;
             if task.id != pending.work_id
                 || task.event_id != event_id
                 || task.status != crate::agent_exec_store::STATUS_DONE
@@ -263,7 +265,8 @@ impl SignalCapabilityGrantStore {
             }
             let export = binding.model_export.ok_or_else(invalid)?;
             export.validate()?;
-            let now = u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+            let now =
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?;
             if !desk_diagnose_core::model_egress::same_recipient(&export.destination, destination)
                 || export.expires_at_unix_ms <= now
                 || now < export.captured_at_unix_ms

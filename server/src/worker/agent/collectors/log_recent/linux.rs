@@ -2,7 +2,6 @@
 
 use std::process::Command;
 
-use chrono::{DateTime, Utc};
 use desk_agent_protocol::{AgentError, AgentErrorKind, LogEvent, LogRecentParams, LogSeverity};
 
 const DEFAULT_SINCE_MINUTES: u32 = 60;
@@ -94,8 +93,8 @@ fn parse_journal_line(line: &str) -> Option<LogEvent> {
         .unwrap_or(6);
     let timestamp = string_field(object, "__REALTIME_TIMESTAMP")
         .and_then(|value| value.parse::<i64>().ok())
-        .and_then(DateTime::<Utc>::from_timestamp_micros)
-        .map(|value| value.to_rfc3339())
+        .and_then(|us| jiff::Timestamp::from_microsecond(us).ok())
+        .map(desk_utils::datetime::rfc3339)
         .unwrap_or_default();
     let source = string_field(object, "_SYSTEMD_UNIT")
         .or_else(|| string_field(object, "SYSLOG_IDENTIFIER"))

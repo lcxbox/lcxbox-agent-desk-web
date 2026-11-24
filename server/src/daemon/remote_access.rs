@@ -404,7 +404,7 @@ impl RemoteAccessCoordinator {
         let mut next = RemoteAccessState::locked(
             current.state_version.saturating_add(1),
             uuid::Uuid::new_v4().to_string(),
-            chrono::Utc::now().to_rfc3339(),
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             true,
         );
         next.durable = false;
@@ -455,7 +455,7 @@ impl RemoteAccessCoordinator {
             let rollback = RemoteAccessState::locked(
                 next.state_version.saturating_add(1),
                 uuid::Uuid::new_v4().to_string(),
-                chrono::Utc::now().to_rfc3339(),
+                desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                 true,
             );
             self.store.persist(&rollback)?;
@@ -552,7 +552,7 @@ impl RemoteAccessCoordinator {
                 let repaired = RemoteAccessState::locked(
                     ack.state_version,
                     lock_id,
-                    chrono::Utc::now().to_rfc3339(),
+                    desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                     false,
                 );
                 self.store.persist(&repaired)?;
@@ -573,7 +573,7 @@ impl RemoteAccessCoordinator {
                     .max(current.state_version)
                     .saturating_add(1),
                 lock_id,
-                chrono::Utc::now().to_rfc3339(),
+                desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                 true,
             );
             self.store.persist(&retry)?;

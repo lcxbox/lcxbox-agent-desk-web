@@ -9,7 +9,6 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use chrono::{DateTime, Duration, Utc};
 use desk_agent_protocol::computer_use::{
     ObjectKind, ObjectRef, TerminalOutputInspectOutput, TerminalOutputInspectParams,
     TerminalOutputProjection,
@@ -25,7 +24,7 @@ const MAX_SELECTED_OUTPUTS: usize = 8;
 #[derive(Clone)]
 struct StoredOutput {
     snapshot_id: String,
-    expires_at: DateTime<Utc>,
+    expires_at: jiff::Timestamp,
     content: String,
     source_truncated: bool,
 }
@@ -86,7 +85,7 @@ pub fn append_and_issue(terminal_id: &str, chunk: &str) -> Result<ObjectRef, Age
             false,
         ));
     }
-    let now = Utc::now();
+    let now = jiff::Timestamp::now();
     let mut state = store().lock().map_err(|_| unavailable())?;
     state.objects.retain(|_, object| object.expires_at > now);
     if state.objects.len() >= MAX_TERMINAL_REFS {
@@ -108,7 +107,7 @@ pub fn append_and_issue(terminal_id: &str, chunk: &str) -> Result<ObjectRef, Age
     state.sequence = state.sequence.saturating_add(1);
     let snapshot_id = format!("{}:{}", state.incarnation, state.sequence);
     let token = uuid::Uuid::new_v4().to_string();
-    let expires_at = now + Duration::seconds(TERMINAL_REF_TTL_SECS);
+    let expires_at = now + jiff::SignedDuration::from_secs(TERMINAL_REF_TTL_SECS);
     state.objects.insert(
         token.clone(),
         StoredOutput {
@@ -122,7 +121,7 @@ pub fn append_and_issue(terminal_id: &str, chunk: &str) -> Result<ObjectRef, Age
         token,
         snapshot_id,
         object_kind: ObjectKind::TerminalOutput,
-        expires_at: expires_at.to_rfc3339(),
+        expires_at: desk_utils::datetime::rfc3339(expires_at),
     })
 }
 
@@ -186,7 +185,7 @@ fn resolve(object_ref: &ObjectRef) -> Result<StoredOutput, AgentError> {
             false,
         ));
     }
-    let now = Utc::now();
+    let now = jiff::Timestamp::now();
     let mut state = store().lock().map_err(|_| unavailable())?;
     state.objects.retain(|_, object| object.expires_at > now);
     let stored = state.objects.get(&object_ref.token).ok_or_else(|| {
@@ -197,7 +196,7 @@ fn resolve(object_ref: &ObjectRef) -> Result<StoredOutput, AgentError> {
         )
     })?;
     if stored.snapshot_id != object_ref.snapshot_id
-        || stored.expires_at.to_rfc3339() != object_ref.expires_at
+        || desk_utils::datetime::rfc3339(stored.expires_at) != object_ref.expires_at
         || !object_ref.snapshot_id.starts_with(&state.incarnation)
     {
         return Err(error(

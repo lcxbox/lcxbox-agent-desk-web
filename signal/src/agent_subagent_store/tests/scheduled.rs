@@ -159,7 +159,7 @@ pub(crate) async fn awaiting_children_fixture() -> (
     let wait_id = parent.subagent_wait.as_ref().unwrap().wait_id.clone();
     parent.finish_turn(
         desk_diagnose_core::session::TurnState::Idle,
-        chrono::Utc::now().to_rfc3339(),
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     );
     parent.handled_input_seq = parent.latest_input_seq;
     save_main_delegation_session(&db, &mut parent)
@@ -248,7 +248,7 @@ pub(crate) async fn answered_children_fixture_at(
         destination: super::creation::destination(),
         selected_source_tools: Default::default(),
         export_authorization_id: "scheduled-initial-answer".into(),
-        now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+        now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
         byte_cap: 1024 * 1024,
         permission_resume: false,
     };
@@ -273,14 +273,14 @@ pub(crate) async fn answered_children_fixture_at(
     parent.lifetime_steps = 2;
     parent.finish_turn(
         desk_diagnose_core::session::TurnState::Idle,
-        chrono::Utc::now().to_rfc3339(),
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     );
     parent.handled_input_seq = parent.latest_input_seq;
     let txn = db.begin().await.unwrap();
     super::super::super::agent_subagent_store::write_child_session_on(
         &txn,
         &parent,
-        chrono::Utc::now(),
+        desk_agent_data_store::datetime::utc_now(),
     )
     .await
     .unwrap();
@@ -325,7 +325,7 @@ async fn durable_occurrence_cancel_closes_only_its_children_and_preserves_source
     );
     occurrence::Entity::update_many()
         .set(occurrence::ActiveModel {
-            cancel_requested_at: Set(Some(chrono::Utc::now().timestamp_millis())),
+            cancel_requested_at: Set(Some(jiff::Timestamp::now().as_millisecond())),
             ..Default::default()
         })
         .filter(occurrence::Column::RunId.eq(&parent.conversation_id))
@@ -408,7 +408,7 @@ async fn reserve(
                 model_calls: 1,
                 ..Default::default()
             },
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .unwrap()
@@ -482,7 +482,7 @@ async fn source_initialization_is_fenced_and_keeps_one_original_group() {
     // A cancelled occurrence cannot start another source.
     occurrence::Entity::update_many()
         .set(occurrence::ActiveModel {
-            cancel_requested_at: Set(Some(chrono::Utc::now().timestamp_millis())),
+            cancel_requested_at: Set(Some(jiff::Timestamp::now().as_millisecond())),
             ..Default::default()
         })
         .exec(&db)
@@ -561,7 +561,7 @@ async fn parent_compression_and_safety_share_the_occurrence_without_duplicate_ru
                     model_calls: 1,
                     ..Default::default()
                 },
-                chrono::Utc::now().timestamp_millis()
+                jiff::Timestamp::now().as_millisecond()
             )
             .await
             .unwrap(),
@@ -573,7 +573,7 @@ async fn parent_compression_and_safety_share_the_occurrence_without_duplicate_ru
     );
     assert_eq!(cost::Entity::find().count(&db).await.unwrap(), 5);
     store
-        .settle_runtime_call(&held, None, chrono::Utc::now().timestamp_millis())
+        .settle_runtime_call(&held, None, jiff::Timestamp::now().as_millisecond())
         .await
         .unwrap();
     let remaining = quota::Entity::find()
@@ -598,7 +598,7 @@ async fn unknown_scheduled_usage_settles_once_after_cancel_without_reopening_aut
         200,
     )
     .await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     store
         .link_model_receipt(&receipt, "original-provider", now)
         .await
@@ -716,7 +716,7 @@ async fn child_claim_and_quota_survive_parent_holder_release_but_not_source_canc
     let original = load(&db, &task.task_id).await;
     parent.finish_turn(
         desk_diagnose_core::session::TurnState::Idle,
-        chrono::Utc::now().to_rfc3339(),
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     );
     parent.version += 1;
     session_row::Entity::update_many()
@@ -772,7 +772,7 @@ async fn child_claim_and_quota_survive_parent_holder_release_but_not_source_canc
     txn.rollback().await.unwrap();
     occurrence::Entity::update_many()
         .set(occurrence::ActiveModel {
-            cancel_requested_at: Set(Some(chrono::Utc::now().timestamp_millis())),
+            cancel_requested_at: Set(Some(jiff::Timestamp::now().as_millisecond())),
             ..Default::default()
         })
         .filter(occurrence::Column::RunId.eq(&parent.conversation_id))
@@ -787,7 +787,7 @@ async fn child_claim_and_quota_survive_parent_holder_release_but_not_source_canc
             .link_model_receipt(
                 &receipt,
                 "child-after-cancel",
-                chrono::Utc::now().timestamp_millis()
+                jiff::Timestamp::now().as_millisecond()
             )
             .await
             .is_err()
@@ -822,7 +822,7 @@ async fn deleted_schedule_and_redacted_conversation_retain_only_the_original_bud
         200,
     )
     .await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     store
         .link_model_receipt(&receipt, "original-provider", now)
         .await

@@ -67,7 +67,7 @@ pub(super) async fn handle_inbound_signaling_text(
         let s = router_ctx.settings.read().await;
         s.system.get_client_id().unwrap_or_default()
     };
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
 
     // `EdgeExecRequest` uses a dedicated authorization gate: a trusted-but-
     // invalid request is answered with a synthesized denied result (so the

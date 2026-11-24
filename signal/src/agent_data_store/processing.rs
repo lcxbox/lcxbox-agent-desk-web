@@ -79,7 +79,7 @@ pub(crate) async fn processing(
     let actor = crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string();
     super::ensure_runtime_on(&txn, &actor).await?;
     let config = txn.config_read().await;
-    let now = unsigned(chrono::Utc::now().timestamp_millis())?;
+    let now = unsigned(jiff::Timestamp::now().as_millisecond())?;
     let result = desk_diagnose_core::future::boxed(|| {
         read_on(
             &txn,

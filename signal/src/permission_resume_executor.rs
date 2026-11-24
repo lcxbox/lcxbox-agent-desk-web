@@ -94,9 +94,12 @@ impl SignalPermissionResumeExecutor {
         if candidate.actor_id != crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string() {
             return Ok(false);
         }
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
         let Some(session) = SignalAgentSessionStore::new(self.db.clone())
-            .pending_permission_resume(&candidate, now)
+            .pending_permission_resume(
+                &candidate,
+                desk_agent_data_store::datetime::to_database(now),
+            )
             .await?
         else {
             return Ok(false);
@@ -115,7 +118,7 @@ impl SignalPermissionResumeExecutor {
                 &session.actor_id,
                 &session.device_id,
                 &candidate.request_id,
-                chrono::Utc::now(),
+                desk_agent_data_store::datetime::utc_now(),
             )
             .await
             {
@@ -201,7 +204,7 @@ impl SignalPermissionResumeExecutor {
         // The durable claim remains authoritative even if preflight returned or
         // the process exits before this maintenance pass.
         SignalAgentSessionStore::new(self.db.clone())
-            .pending_permission_resume(&candidate, chrono::Utc::now())
+            .pending_permission_resume(&candidate, desk_agent_data_store::datetime::utc_now())
             .await?;
         Ok(true)
     }

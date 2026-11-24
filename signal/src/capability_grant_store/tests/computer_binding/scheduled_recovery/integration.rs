@@ -32,7 +32,7 @@ pub(in crate::capability_grant_store::tests::computer_binding) async fn owner_se
         expires_at: None,
         policy_name: None,
     };
-    let now = Utc::now().to_rfc3339();
+    let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
     SignalAgentRunEventStore::new(db.clone())
         .append_user_followup(&AppendUserFollowupParams {
             target_refs: Vec::new(),
@@ -86,13 +86,16 @@ pub(in crate::capability_grant_store::tests::computer_binding) async fn claim_or
     assert_eq!(session.actor_id, "1");
     // Create the occurrence before preparing or signing any original action.
     let mut proposal = session.conversation.pop().unwrap();
-    session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     session.handled_input_seq = session.latest_input_seq;
     let sessions = crate::agent_session_store::SignalAgentSessionStore::new(db.clone());
     sessions.save(session).await.unwrap();
     let store = ScheduleStore::new(db.clone());
     let now = store.database_time().await.unwrap();
-    let at = chrono::DateTime::from_timestamp_millis(now + 3000).unwrap();
+    let at = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now + 3000).unwrap();
     let draft = ScheduleCreation {
         time_confirmation: None,
         client_create_key: "native-recovery".into(),
@@ -105,7 +108,7 @@ pub(in crate::capability_grant_store::tests::computer_binding) async fn claim_or
         spec: ScheduleSpec {
             schema_version: 1,
             rule: ScheduleRule::Once {
-                at: at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                at: at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             },
         },
         source_conversation_id: Some(session.conversation_id.clone()),
@@ -157,7 +160,7 @@ async fn session(f: &Fixture) -> agent_session::Model {
 }
 
 async fn expire(f: &Fixture, cancelled: bool) {
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut work: agent_schedule_run::ActiveModel = run(f).await.into();
     work.lease_deadline = Set(Some(now.timestamp_millis() - 1));
     if cancelled {
@@ -165,7 +168,11 @@ async fn expire(f: &Fixture, cancelled: bool) {
     }
     work.update(&f.store.db).await.unwrap();
     let mut row: agent_session::ActiveModel = session(f).await.into();
-    row.lease_deadline = Set(Some(now - chrono::Duration::seconds(1)));
+    row.lease_deadline = Set(Some(
+        now - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(
+            1,
+        )),
+    ));
     row.update(&f.store.db).await.unwrap();
 }
 
@@ -300,7 +307,8 @@ async fn scheduled_native_recovery_keeps_active_slot_until_original_background_r
     f.bind().await;
     f.accept().await.unwrap();
     let mut outbox: agent_capability_dispatch_outbox::ActiveModel = f.outbox().await.into();
-    outbox.created_at = Set(Utc::now() - chrono::Duration::seconds(9));
+    outbox.created_at = Set(desk_agent_data_store::datetime::utc_now()
+        - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(9)));
     outbox.update(&f.store.db).await.unwrap();
     assert!(
         f.store
@@ -643,7 +651,7 @@ async fn unbound_dispatch_intent_pauses_without_refund_or_redispatch() {
             f.store
                 .claim_dispatch(
                     &before_outbox.dispatch_id,
-                    Utc::now().timestamp_millis() as u64
+                    jiff::Timestamp::now().as_millisecond() as u64
                 )
                 .await
                 .unwrap(),

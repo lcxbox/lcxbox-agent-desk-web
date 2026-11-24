@@ -84,7 +84,7 @@ pub(super) async fn finish_on(
     }
     if needs_live_lease {
         let deadline = row.lease_deadline.ok_or(AgentStoreError::Inaccessible)?;
-        if deadline.timestamp_millis() <= chrono::Utc::now().timestamp_millis() {
+        if deadline.timestamp_millis() <= jiff::Timestamp::now().as_millisecond() {
             return Err(AgentStoreError::Inaccessible);
         }
         return Ok(Some(unsigned(deadline.timestamp_millis())?));

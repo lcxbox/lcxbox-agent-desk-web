@@ -8,7 +8,7 @@ use desk_diagnose_core::{
 };
 
 pub(super) fn proposal(session: &mut PersistedAgentSession) -> GoalOpenRequestEvent {
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let source =
         desk_diagnose_core::permission_resume::latest_user_requirement(&session.conversation)
             .map(|message| message.message_id.clone())

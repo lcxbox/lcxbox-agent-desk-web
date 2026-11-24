@@ -115,7 +115,7 @@ async fn update_configuration(
     )
     .await?;
     if key != run && session.is_none() {
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let (state_json, version) = device_roster::initial_personal_state(
             &actor,
             &run,

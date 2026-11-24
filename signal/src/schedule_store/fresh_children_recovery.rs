@@ -17,7 +17,7 @@ async fn saved_wait_recovers_after_the_original_process_dies_without_another_inp
         .await
         .unwrap()
         .unwrap();
-    let deadline = chrono::Utc::now().timestamp_millis() - 1;
+    let deadline = jiff::Timestamp::now().as_millisecond() - 1;
     run::Entity::update_many()
         .set(run::ActiveModel {
             status: Set("running".into()),
@@ -108,7 +108,7 @@ async fn stopped_parent_with_a_lost_run_holder_preserves_finite_children_until_t
         .set(run::ActiveModel {
             status: Set("running".into()),
             lease_owner: Set(Some("lost-original-node".into())),
-            lease_deadline: Set(Some(chrono::Utc::now().timestamp_millis() - 1)),
+            lease_deadline: Set(Some(jiff::Timestamp::now().as_millisecond() - 1)),
             result_ref: Set(None),
             ..Default::default()
         })

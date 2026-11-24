@@ -25,7 +25,7 @@ pub(super) async fn add_input_tables(db: &DatabaseConnection) {
 pub(super) async fn first_input(
     db: &DatabaseConnection,
     message: ChatMessage,
-    now: chrono::DateTime<chrono::Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> PersistedAgentSession {
     use crate::agent_run_event_store::{AppendUserFollowupParams, SignalAgentRunEventStore};
     let input = AppendUserFollowupParams {
@@ -78,7 +78,10 @@ pub(super) async fn release_parent(db: &DatabaseConnection) {
         .unwrap();
     let mut session = PersistedAgentSession::decode_json(&row.state_json).unwrap();
     session.handled_input_seq = session.latest_input_seq;
-    session.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     session.version += 1;
     session_row::Entity::update_many()
         .set(session_row::ActiveModel {
@@ -99,7 +102,7 @@ fn model() -> GoalModelBinding {
 }
 
 pub(super) async fn append_input(db: &DatabaseConnection, start: bool, id: &str) {
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let message = desk_diagnose_core::model_message_labels::model_bound_user_message(
         id.into(),
         if start {
@@ -164,7 +167,7 @@ pub(super) async fn spawn_goal_child(
     store: &SubAgentStore,
 ) -> AiAgentSubAgentSummary {
     let mut parent = root(db).await;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     parent
         .begin_turn(
             "goal-parent-turn",
@@ -211,7 +214,11 @@ pub(super) async fn spawn_goal_child(
             state_json: Set(parent.encode_json_for_storage().unwrap()),
             version: Set(parent.version),
             lease_token: Set(parent.lease_token as i64),
-            lease_deadline: Set(Some(now + chrono::Duration::minutes(5))),
+            lease_deadline: Set(Some(
+                now + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_mins(5),
+                ),
+            )),
             ..Default::default()
         })
         .filter(session_row::Column::ConversationId.eq("root"))
@@ -275,7 +282,7 @@ async fn new_goal_and_later_input_preserve_old_child_sources_and_pause_only_the_
         panic!("new main input preserves the original goal child");
     };
 
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let paused = goals::apply_owner_action(
         &db,
         "root",
@@ -335,7 +342,7 @@ async fn new_goal_and_later_input_preserve_old_child_sources_and_pause_only_the_
             DelegationCallKind::Model,
             &"a".repeat(64),
             upper,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .unwrap()
@@ -345,7 +352,7 @@ async fn new_goal_and_later_input_preserve_old_child_sources_and_pause_only_the_
     assert!(receipt.source_goal_upper.is_none());
     assert!(goal(&db).await.independent_reservations.is_empty());
     store
-        .settle_runtime_call(&receipt, None, chrono::Utc::now().timestamp_millis())
+        .settle_runtime_call(&receipt, None, jiff::Timestamp::now().as_millisecond())
         .await
         .unwrap();
     assert_eq!(
@@ -361,7 +368,7 @@ async fn new_goal_and_later_input_preserve_old_child_sources_and_pause_only_the_
         &paused.goal_id,
         paused.state_version,
         GoalOwnerAction::Resume,
-        chrono::Utc::now(),
+        desk_agent_data_store::datetime::utc_now(),
     )
     .await
     .unwrap()
@@ -421,7 +428,7 @@ async fn promoting_the_same_input_to_a_goal_does_not_adopt_an_existing_ordinary_
         .unwrap()
         .unwrap();
     let original_group = decode_group(&original_group_row).unwrap();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let promoted = GoalRun::new(
         "new-goal".into(),
         "root".into(),
@@ -468,7 +475,7 @@ async fn promoting_the_same_input_to_a_goal_does_not_adopt_an_existing_ordinary_
         &promoted.goal_id,
         promoted.state_version,
         GoalOwnerAction::Pause,
-        chrono::Utc::now(),
+        desk_agent_data_store::datetime::utc_now(),
     )
     .await
     .unwrap()

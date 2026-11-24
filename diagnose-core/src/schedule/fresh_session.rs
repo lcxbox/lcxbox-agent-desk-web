@@ -33,7 +33,7 @@ pub fn initial_session(
         || input
             .locale
             .is_some_and(|locale| locale.is_empty() || locale.len() > 64)
-        || chrono::DateTime::parse_from_rfc3339(input.now).is_err()
+        || desk_utils::datetime::parse_rfc3339(input.now).is_err()
     {
         return Err("invalid fresh task session identity");
     }

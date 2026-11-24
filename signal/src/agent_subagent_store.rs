@@ -289,7 +289,7 @@ impl SubAgentStore {
             &txn,
             &task,
             before_report_seq,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await?;
         txn.commit().await?;
@@ -402,7 +402,7 @@ async fn apply_group_admission_on<C: ConnectionTrait + crate::config::ConfigConn
 ) -> Result<desk_diagnose_core::model_observability::permission::PendingEnds, DbErr> {
     let mut permission_ends =
         desk_diagnose_core::model_observability::permission::PendingEnds::default();
-    let now = chrono::DateTime::from_timestamp_millis(now_ms)
+    let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms)
         .ok_or_else(|| invalid())?
         .to_rfc3339();
     let mut group = current_group_on(db, row).await?;

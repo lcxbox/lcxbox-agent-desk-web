@@ -8,7 +8,6 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, OnceLock},
 };
 
-use chrono::{DateTime, Duration, Utc};
 use desk_agent_protocol::computer_use::ComputerUseReadiness;
 use desk_signal_facade::{
     model::{
@@ -43,7 +42,7 @@ impl ComputerUseReadinessCache {
         &self,
         connection_id: &str,
         readiness: ComputerUseReadiness,
-        now: DateTime<Utc>,
+        now: jiff::Timestamp,
     ) -> Result<CacheUpdateOutcome, String> {
         readiness.validate().map_err(|e| e.to_string())?;
         validate_readiness_time(&readiness, now)?;
@@ -59,9 +58,9 @@ impl ComputerUseReadinessCache {
                     );
                 }
                 let existing_observed =
-                    DateTime::parse_from_rfc3339(&existing.readiness.observed_at)
+                    desk_utils::datetime::parse_rfc3339(&existing.readiness.observed_at)
                         .map_err(|_| "existing readiness observed_at is invalid")?;
-                let incoming_observed = DateTime::parse_from_rfc3339(&readiness.observed_at)
+                let incoming_observed = desk_utils::datetime::parse_rfc3339(&readiness.observed_at)
                     .map_err(|_| "readiness observed_at is invalid")?;
                 if incoming_observed <= existing_observed {
                     return Ok(CacheUpdateOutcome::StaleRevision);
@@ -112,7 +111,7 @@ impl ComputerUseReadinessCache {
     pub fn get_fresh(
         &self,
         connection_id: &str,
-        now: DateTime<Utc>,
+        now: jiff::Timestamp,
     ) -> Option<CachedComputerUseReadiness> {
         let mut entries = self.lock();
         let entry = entries.get(connection_id)?.clone();
@@ -213,10 +212,11 @@ impl ComputerUseReadinessObserver for SignalComputerUseReadinessObserver {
                 log::warn!("dropping Computer Use readiness with mismatched server API version");
                 return;
             }
-            match self
-                .cache
-                .update(&source.model.connection_id, readiness, Utc::now())
-            {
+            match self.cache.update(
+                &source.model.connection_id,
+                readiness,
+                jiff::Timestamp::now(),
+            ) {
                 Ok(CacheUpdateOutcome::Stored) => {}
                 Ok(CacheUpdateOutcome::StaleRevision) => log::debug!(
                     "dropping stale Computer Use readiness from {}",
@@ -233,21 +233,19 @@ impl ComputerUseReadinessObserver for SignalComputerUseReadinessObserver {
 
 fn validate_readiness_time(
     readiness: &ComputerUseReadiness,
-    now: DateTime<Utc>,
+    now: jiff::Timestamp,
 ) -> Result<(), String> {
-    let observed = DateTime::parse_from_rfc3339(&readiness.observed_at)
-        .map_err(|_| "observed_at is not RFC3339".to_string())?
-        .with_timezone(&Utc);
-    let expires = DateTime::parse_from_rfc3339(&readiness.expires_at)
-        .map_err(|_| "expires_at is not RFC3339".to_string())?
-        .with_timezone(&Utc);
+    let observed = desk_utils::datetime::parse_rfc3339(&readiness.observed_at)
+        .map_err(|_| "observed_at is not RFC3339".to_string())?;
+    let expires = desk_utils::datetime::parse_rfc3339(&readiness.expires_at)
+        .map_err(|_| "expires_at is not RFC3339".to_string())?;
     if expires <= now || expires <= observed {
         return Err("readiness is expired or has a non-positive validity window".to_string());
     }
-    if expires - observed > Duration::seconds(MAX_REPORTED_VALIDITY_SECS) {
+    if expires - observed > jiff::SignedDuration::from_secs(MAX_REPORTED_VALIDITY_SECS) {
         return Err("readiness validity window is too long".to_string());
     }
-    if observed > now + Duration::seconds(MAX_OBSERVED_FUTURE_SKEW_SECS) {
+    if observed > now + jiff::SignedDuration::from_secs(MAX_OBSERVED_FUTURE_SKEW_SECS) {
         return Err("observed_at is too far in the future".to_string());
     }
     Ok(())
@@ -288,29 +286,25 @@ mod tests {
         }
     }
 
-    fn now() -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339("2026-08-23T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc)
+    fn now() -> jiff::Timestamp {
+        desk_utils::datetime::parse_rfc3339("2026-08-23T12:00:00Z").unwrap()
     }
 
     #[test]
     fn one_minute_reports_remain_fresh_until_expiry() {
         let cache = ComputerUseReadinessCache::default();
-        let now = DateTime::parse_from_rfc3339("2026-08-23T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let now = desk_utils::datetime::parse_rfc3339("2026-08-23T12:00:00Z").unwrap();
         let mut report = readiness(1, "session");
         report.expires_at = "2026-08-23T12:01:00Z".into();
         cache.update("connection", report, now).unwrap();
         assert!(
             cache
-                .get_fresh("connection", now + Duration::seconds(59))
+                .get_fresh("connection", now + jiff::SignedDuration::from_secs(59))
                 .is_some()
         );
         assert!(
             cache
-                .get_fresh("connection", now + Duration::seconds(60))
+                .get_fresh("connection", now + jiff::SignedDuration::from_secs(60))
                 .is_none()
         );
     }
@@ -350,15 +344,23 @@ mod tests {
         changed.observed_at = "2026-08-23T12:00:05Z".into();
         changed.unattended_command_execution = true;
         assert_eq!(
-            cache.update("connection", changed, now() + Duration::seconds(5)),
+            cache.update(
+                "connection",
+                changed,
+                now() + jiff::SignedDuration::from_secs(5)
+            ),
             Ok(CacheUpdateOutcome::Stored)
         );
         assert_eq!(
-            cache.update("connection", first, now() + Duration::seconds(5)),
+            cache.update(
+                "connection",
+                first,
+                now() + jiff::SignedDuration::from_secs(5)
+            ),
             Ok(CacheUpdateOutcome::StaleRevision)
         );
         let current = cache
-            .get_fresh("connection", now() + Duration::seconds(5))
+            .get_fresh("connection", now() + jiff::SignedDuration::from_secs(5))
             .unwrap()
             .readiness;
         assert_eq!(current.revision, 10);
@@ -374,16 +376,13 @@ mod tests {
         let mut heartbeat = readiness(10, "worker-a");
         heartbeat.observed_at = "2026-08-23T12:00:05Z".into();
         heartbeat.expires_at = "2026-08-23T12:00:40Z".into();
-        let heartbeat_now = DateTime::parse_from_rfc3339("2026-08-23T12:00:10Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let heartbeat_now = desk_utils::datetime::parse_rfc3339("2026-08-23T12:00:10Z").unwrap();
         assert_eq!(
             cache.update("connection", heartbeat, heartbeat_now),
             Ok(CacheUpdateOutcome::Stored)
         );
-        let after_original_expiry = DateTime::parse_from_rfc3339("2026-08-23T12:00:35Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let after_original_expiry =
+            desk_utils::datetime::parse_rfc3339("2026-08-23T12:00:35Z").unwrap();
         assert!(
             cache
                 .get_fresh("connection", after_original_expiry)
@@ -400,9 +399,7 @@ mod tests {
         let mut changed = readiness(10, "worker-b");
         changed.observed_at = "2026-08-23T12:00:05Z".into();
         changed.expires_at = "2026-08-23T12:00:40Z".into();
-        let heartbeat_now = DateTime::parse_from_rfc3339("2026-08-23T12:00:10Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let heartbeat_now = desk_utils::datetime::parse_rfc3339("2026-08-23T12:00:10Z").unwrap();
         assert!(
             cache
                 .update("connection", changed, heartbeat_now)
@@ -414,9 +411,7 @@ mod tests {
     #[test]
     fn same_revision_cannot_change_sandbox_support_or_execution_identity() {
         use desk_agent_protocol::exec::{ExecSandboxSupport, ExecSandboxUnsupportedReason};
-        let heartbeat_now = DateTime::parse_from_rfc3339("2026-08-23T12:00:10Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let heartbeat_now = desk_utils::datetime::parse_rfc3339("2026-08-23T12:00:10Z").unwrap();
         let heartbeat = || {
             let mut report = readiness(10, "worker-a");
             report.observed_at = "2026-08-23T12:00:05Z".into();
@@ -458,11 +453,12 @@ mod tests {
         let source =
             crate::command_policy::tests::owner_host("old-worker", "old-device", &["bash"], None)
                 .await;
-        let now = Utc::now();
+        let now = jiff::Timestamp::now();
         let mut current = readiness(1, "worker-a");
         current.server_api_version = 1;
-        current.observed_at = now.to_rfc3339();
-        current.expires_at = (now + Duration::seconds(60)).to_rfc3339();
+        current.observed_at = desk_utils::datetime::rfc3339(now);
+        current.expires_at =
+            desk_utils::datetime::rfc3339(now + jiff::SignedDuration::from_secs(60));
         let frame = |data: serde_json::Value| {
             SignalingModel::new(
                 "readiness",
@@ -505,9 +501,7 @@ mod tests {
             cache
                 .get_fresh(
                     "old-connection",
-                    DateTime::parse_from_rfc3339("2026-08-23T12:01:00Z")
-                        .unwrap()
-                        .with_timezone(&Utc)
+                    desk_utils::datetime::parse_rfc3339("2026-08-23T12:01:00Z").unwrap()
                 )
                 .is_none()
         );

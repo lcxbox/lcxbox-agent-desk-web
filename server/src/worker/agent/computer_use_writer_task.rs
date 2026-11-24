@@ -54,7 +54,7 @@ mod tests {
                 execution_generation: "publication".into(),
                 approved_actor_id: "owner".into(),
                 interactive_session_incarnation: readiness.interactive_session_incarnation,
-                expires_at: chrono::Utc::now() + chrono::Duration::seconds(30),
+                expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30),
             };
             broker.acquire_writer_lease(request.clone()).unwrap();
             let (started_tx, started_rx) = tokio::sync::oneshot::channel();

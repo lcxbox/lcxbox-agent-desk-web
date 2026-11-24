@@ -55,7 +55,7 @@ fn observation(config: &ApprovalModelConfig) -> ModelProbeObservation {
     ModelProbeObservation {
         connection_revision: config.gateway.connection_revision,
         profile_revision: config.gateway.profile_revision,
-        tested_at: chrono::Utc::now(),
+        tested_at: desk_agent_data_store::datetime::utc_now(),
         reasoning_observed: false,
         reasoning_tokens: None,
         stop_reason: Some("stop".into()),

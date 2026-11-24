@@ -23,7 +23,7 @@ async fn get_or_create_with<C: ConfigConnection, F: FnMut(usize) -> String>(
     let length = db.config_read().await.device_codes.length as usize;
     for _ in 0..MAX_ATTEMPTS {
         let code = generate(length);
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let candidate = device_code::ActiveModel {
             client_id: Set(client_id.to_owned()),
             device_code: Set(code.clone()),
@@ -77,7 +77,7 @@ pub async fn create<C: ConfigConnection>(
         let code = explicit.clone().unwrap_or_else(|| {
             desk_utils::string::generate_device_code(length.expect("automatic length"))
         });
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let candidate = device_code::ActiveModel {
             client_id: Set(client_id.clone()),
             device_code: Set(code.clone()),
@@ -129,7 +129,7 @@ pub async fn resolve_online<C: sea_orm::ConnectionTrait>(
             device_code::Column::CreatedAt,
         ])
         .filter(device_code::Column::DeviceCode.eq(code))
-        .into_tuple::<(i32, String, chrono::DateTime<chrono::Utc>)>()
+        .into_tuple::<(i32, String, sea_orm::prelude::DateTimeUtc)>()
         .one(db)
         .await?
     else {

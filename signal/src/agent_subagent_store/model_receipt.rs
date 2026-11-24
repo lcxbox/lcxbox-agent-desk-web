@@ -377,14 +377,17 @@ impl SubAgentStore {
                 let receipt = budget::decode_reservation(&row)?;
                 if row.provider_receipt_id.is_none() {
                     return self
-                        .reconcile_unstarted_model(&receipt, chrono::Utc::now().timestamp_millis())
+                        .reconcile_unstarted_model(
+                            &receipt,
+                            jiff::Timestamp::now().as_millisecond(),
+                        )
                         .await;
                 }
                 if let Some(actual) = provider_usage_on(&self.db, &row).await? {
                     self.settle_runtime_call(
                         &receipt,
                         Some(actual),
-                        chrono::Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                     )
                     .await?;
                     Ok::<_, DbErr>(true)

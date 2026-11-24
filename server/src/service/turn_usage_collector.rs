@@ -31,17 +31,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use desk_signal::config::connection::DatabaseConnection;
 use desk_signal::turn_usage::{
     ConnectionDeviceMap, TurnUsageDelta, truncate_to_hour, upsert_turn_usage,
 };
 use desk_turn::model::{Statistics, TurnApiState, TurnDirectionalCounters, TurnSessionStatistics};
 use desk_turn::supervisor::RetiredRuntimes;
+use sea_orm::prelude::DateTimeUtc;
 use tokio::sync::watch;
-
-/// Hour-aligned UTC timestamp, matching the rollup's `hour_bucket` column type.
-type DateTimeUtc = DateTime<Utc>;
 
 /// Default cadence between collection passes.
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(60);
@@ -139,8 +136,11 @@ impl TurnUsageCollector {
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             ticker.tick().await;
-            self.tick(desk_signal::db::get_db(), chrono::Utc::now())
-                .await;
+            self.tick(
+                desk_signal::db::get_db(),
+                desk_agent_data_store::datetime::utc_now(),
+            )
+            .await;
         }
     }
 
@@ -345,8 +345,7 @@ mod tests {
     }
 
     fn now() -> DateTimeUtc {
-        use chrono::TimeZone;
-        chrono::Utc.with_ymd_and_hms(2026, 6, 24, 9, 30, 0).unwrap()
+        "2026-06-24T09:30:00Z".parse().unwrap()
     }
 
     #[test]
@@ -408,8 +407,8 @@ mod tests {
 
         let rows = query_turn_usage(
             &db,
-            now() - chrono::Duration::hours(1),
-            now() + chrono::Duration::hours(1),
+            now() - std::time::Duration::from_secs(3600),
+            now() + std::time::Duration::from_secs(3600),
             desk_signal::usage_query::Granularity::Hour,
         )
         .await
@@ -424,8 +423,8 @@ mod tests {
         flush(&mut collector, &db, now()).await;
         let rows = query_turn_usage(
             &db,
-            now() - chrono::Duration::hours(1),
-            now() + chrono::Duration::hours(1),
+            now() - std::time::Duration::from_secs(3600),
+            now() + std::time::Duration::from_secs(3600),
             desk_signal::usage_query::Granularity::Hour,
         )
         .await
@@ -720,8 +719,8 @@ mod tests {
     async fn total_relay_received(db: &DatabaseConnection) -> i64 {
         query_turn_usage(
             db,
-            now() - chrono::Duration::hours(1),
-            now() + chrono::Duration::hours(1),
+            now() - std::time::Duration::from_secs(3600),
+            now() + std::time::Duration::from_secs(3600),
             desk_signal::usage_query::Granularity::Hour,
         )
         .await
@@ -750,8 +749,8 @@ mod tests {
 
         let rows = query_turn_usage(
             &db,
-            now() - chrono::Duration::hours(1),
-            now() + chrono::Duration::hours(1),
+            now() - std::time::Duration::from_secs(3600),
+            now() + std::time::Duration::from_secs(3600),
             desk_signal::usage_query::Granularity::Hour,
         )
         .await

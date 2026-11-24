@@ -562,7 +562,9 @@ fn spawn_log_cleanup_task(shared_settings: Arc<SharedSettings>, log_dir: std::pa
             let swept = tokio::task::spawn_blocking(move || {
                 cleanup_logs(
                     &sweep_log_dir,
-                    chrono::Utc::now().date_naive(),
+                    jiff::tz::TimeZone::UTC
+                        .to_datetime(jiff::Timestamp::now())
+                        .date(),
                     retention_days,
                     threshold_percent,
                 )
@@ -586,10 +588,10 @@ fn spawn_log_cleanup_task(shared_settings: Arc<SharedSettings>, log_dir: std::pa
 ///
 /// With daily rotation the file being written is today's dated file; the
 /// retention window and [`eligible_under_disk_pressure`] keep it.
-fn rolled_log_date(file_name: &str) -> Option<chrono::NaiveDate> {
+fn rolled_log_date(file_name: &str) -> Option<jiff::civil::Date> {
     let date_after = |rest: &str| {
         rest.strip_prefix('.')
-            .and_then(|date| chrono::NaiveDate::parse_from_str(date, LOG_DATE_FORMAT).ok())
+            .and_then(|date| jiff::civil::Date::strptime(LOG_DATE_FORMAT, date).ok())
     };
     MANAGED_LOG_BASE_NAMES.iter().find_map(|base| {
         if let Some(rest) = file_name.strip_prefix(base) {
@@ -614,8 +616,8 @@ fn rolled_log_date(file_name: &str) -> Option<chrono::NaiveDate> {
 /// unlinked inode (or a delete-pending handle on Windows) and lose them. Files
 /// past the retention window are deleted by age regardless — a non-zero retention
 /// keeps that cutoff at least a day back, so the same file is never at risk there.
-fn eligible_under_disk_pressure(date: chrono::NaiveDate, today: chrono::NaiveDate) -> bool {
-    match today.checked_sub_days(chrono::Days::new(1)) {
+fn eligible_under_disk_pressure(date: jiff::civil::Date, today: jiff::civil::Date) -> bool {
+    match today.yesterday().ok() {
         Some(yesterday) => date < yesterday,
         None => false,
     }
@@ -629,20 +631,24 @@ fn eligible_under_disk_pressure(date: chrono::NaiveDate, today: chrono::NaiveDat
 /// Blocking filesystem work: call it from a blocking context.
 fn cleanup_logs(
     dir: &std::path::Path,
-    today: chrono::NaiveDate,
+    today: jiff::civil::Date,
     retention_days: u32,
     threshold_percent: u8,
 ) -> Result<usize> {
     if !dir.exists() {
         return Ok(0);
     }
-    let Some(expiration_date) = today.checked_sub_days(chrono::Days::new(retention_days as u64))
+    let Some(expiration_date) = today
+        .checked_sub(jiff::SignedDuration::from_hours(
+            i64::from(retention_days) * 24,
+        ))
+        .ok()
     else {
         return Ok(0);
     };
 
     let mut deleted = 0;
-    let mut survivors: Vec<(chrono::NaiveDate, std::path::PathBuf)> = Vec::new();
+    let mut survivors: Vec<(jiff::civil::Date, std::path::PathBuf)> = Vec::new();
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         // The appenders only ever create plain files; never unlink a directory
@@ -721,8 +727,8 @@ fn cleanup_logs(
 mod tests {
     use super::*;
 
-    fn day(s: &str) -> chrono::NaiveDate {
-        chrono::NaiveDate::parse_from_str(s, LOG_DATE_FORMAT).expect("test date")
+    fn day(s: &str) -> jiff::civil::Date {
+        jiff::civil::Date::strptime(LOG_DATE_FORMAT, s).expect("test date")
     }
 
     /// The sweep can only prune what it recognises, so every name the appenders
@@ -786,7 +792,7 @@ mod tests {
     #[test]
     fn a_log_that_cannot_be_opened_falls_back_and_never_panics() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let today = chrono::Utc::now().format(LOG_DATE_FORMAT).to_string();
+        let today = jiff::Timestamp::now().strftime(LOG_DATE_FORMAT).to_string();
         // Today's primary file is a directory: it cannot be opened.
         std::fs::create_dir(dir.path().join(format!("desk-daemon.log.{today}"))).unwrap();
         let (appender, notes) = open_rolling_log(

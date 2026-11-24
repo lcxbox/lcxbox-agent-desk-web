@@ -181,7 +181,7 @@ async fn commit_on(
     let db = fence.db;
     let receipt = pending.receipt()?;
     let now = super::super::conversation_search::now_ms()?;
-    let at = chrono::DateTime::from_timestamp_millis(signed(now)?)
+    let at = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(signed(now)?)
         .ok_or(AgentStoreError::Inaccessible)?;
     let mut committed = Box::new(fence.context.session.clone());
     let OriginalAgentDataCall::MemoryControl(original) = &fence.original else {

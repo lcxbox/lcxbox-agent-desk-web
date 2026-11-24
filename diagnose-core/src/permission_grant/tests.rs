@@ -1361,9 +1361,9 @@ fn application_scope_is_reusable_but_cannot_cross_actions_apps_or_expiry() {
             max_uses: 8,
         },
     }];
-    let now = chrono::DateTime::parse_from_rfc3339("2026-09-11T03:09:00Z")
-        .unwrap()
-        .timestamp_millis() as u64;
+    let now = desk_utils::datetime::parse_rfc3339("2026-09-11T03:09:00Z")
+        .map(desk_utils::datetime::unix_millis)
+        .unwrap() as u64;
     for surface in [
         ProductSurface::OssPersonalOwner,
         ProductSurface::ManagerPersonalOwner,
@@ -1454,9 +1454,9 @@ fn scroll_approval_keeps_semantic_and_background_authority_separate() {
     session.scope_snapshot.mode = ExecutionMode::ConfirmEachAction;
     let registry = crate::ai_agent::ai_agent_provider_registry();
     let app = serde_json::json!({"token":"app","snapshot_id":"apps","object_kind":"application","expires_at":"2026-09-11T03:10:00Z"});
-    let now = chrono::DateTime::parse_from_rfc3339("2026-09-11T03:09:00Z")
-        .unwrap()
-        .timestamp_millis() as u64;
+    let now = desk_utils::datetime::parse_rfc3339("2026-09-11T03:09:00Z")
+        .map(desk_utils::datetime::unix_millis)
+        .unwrap() as u64;
     for surface in [
         ProductSurface::OssPersonalOwner,
         ProductSurface::ManagerPersonalOwner,
@@ -1590,9 +1590,9 @@ fn background_scope_is_reusable_but_cannot_cross_actions_apps_or_expiry() {
             max_uses: 8,
         },
     }];
-    let now = chrono::DateTime::parse_from_rfc3339("2026-09-11T03:09:00Z")
-        .unwrap()
-        .timestamp_millis() as u64;
+    let now = desk_utils::datetime::parse_rfc3339("2026-09-11T03:09:00Z")
+        .map(desk_utils::datetime::unix_millis)
+        .unwrap() as u64;
     for surface in [
         ProductSurface::OssPersonalOwner,
         ProductSurface::ManagerPersonalOwner,
@@ -1720,9 +1720,9 @@ fn conversion_permission_freezes_source_and_directory_for_manual_and_ai_on_both_
             )
             .unwrap();
         let expires = |milliseconds: u64| {
-            chrono::DateTime::from_timestamp_millis(milliseconds as i64)
-                .unwrap()
-                .to_rfc3339()
+            desk_utils::datetime::rfc3339(
+                jiff::Timestamp::from_millisecond(milliseconds as i64).unwrap(),
+            )
         };
         let directory = ObjectRef {
             token: "directory-object".into(),

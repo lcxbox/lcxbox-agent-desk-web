@@ -30,7 +30,7 @@ async fn store_session(db: &DatabaseConnection) -> PersistedAgentSession {
         "2026-11-17T00:00:00Z",
     );
     session.delegated_directories = vec![delegated(DEVICE, "a")];
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     agent_session::ActiveModel {
         conversation_id: Set(session.conversation_id.clone()),
         actor_id: Set(session.actor_id.clone()),
@@ -74,7 +74,7 @@ async fn a_review_refuses_a_command_approved_under_another_readiness() {
         mark_ready_with(&connection_id, incarnation, &[], support, identity)
     };
     let policy = || async {
-        current_device_context(&db, &connections, &subject, chrono::Utc::now())
+        current_device_context(&db, &connections, &subject, jiff::Timestamp::now())
             .await
             .expect("review device context")
             .registry

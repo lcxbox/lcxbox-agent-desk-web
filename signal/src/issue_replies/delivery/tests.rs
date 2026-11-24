@@ -32,7 +32,7 @@ async fn other_work(db: &DatabaseConnection) -> agent_session::Model {
             expires_at: None,
             policy_name: None,
         },
-        &chrono::Utc::now().to_rfc3339(),
+        &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     );
     b.surface = AgentSessionSurface::AiAgent;
     b.input_revision = 2;
@@ -51,9 +51,14 @@ async fn other_work(db: &DatabaseConnection) -> agent_session::Model {
         state_json: Set(b.encode_json_for_storage().unwrap()),
         version: Set(b.version),
         lease_token: Set(b.lease_token as i64),
-        lease_deadline: Set(Some(chrono::Utc::now() + chrono::Duration::minutes(2))),
-        created_at: Set(chrono::Utc::now()),
-        updated_at: Set(chrono::Utc::now()),
+        lease_deadline: Set(Some(
+            desk_agent_data_store::datetime::utc_now()
+                + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_mins(2),
+                ),
+        )),
+        created_at: Set(desk_agent_data_store::datetime::utc_now()),
+        updated_at: Set(desk_agent_data_store::datetime::utc_now()),
         ..Default::default()
     }
     .insert(db)
@@ -108,7 +113,7 @@ async fn durable_replies_send_once_and_do_not_resume_other_work() {
                     &db,
                     "1",
                     &admitted.request_id,
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 )
                 .await
                 .unwrap();
@@ -143,7 +148,7 @@ async fn durable_replies_send_once_and_do_not_resume_other_work() {
                 profile_revision: 1,
             },
         );
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = jiff::Timestamp::now().as_millisecond();
         issue_reply::freeze(&db, &artifact, DeliveryMode::Automatic, now)
             .await
             .unwrap();
@@ -179,7 +184,7 @@ async fn durable_replies_send_once_and_do_not_resume_other_work() {
                             &db,
                             "1",
                             &artifact.artifact_id,
-                            chrono::Utc::now().timestamp_millis(),
+                            jiff::Timestamp::now().as_millisecond(),
                         )
                         .await
                         .unwrap();
@@ -212,7 +217,7 @@ async fn durable_replies_send_once_and_do_not_resume_other_work() {
                             .filter(agent_issue_reply::Column::ArtifactId.eq(&artifact.artifact_id))
                             .col_expr(
                                 agent_issue_reply::Column::LeaseExpiresAtMs,
-                                Expr::value(chrono::Utc::now().timestamp_millis() - 1),
+                                Expr::value(jiff::Timestamp::now().as_millisecond() - 1),
                             )
                             .exec(&db)
                             .await
@@ -225,7 +230,7 @@ async fn durable_replies_send_once_and_do_not_resume_other_work() {
                             &txn,
                             "1",
                             "root",
-                            chrono::Utc::now().timestamp_millis(),
+                            jiff::Timestamp::now().as_millisecond(),
                         )
                         .await
                         .unwrap();
@@ -242,7 +247,7 @@ async fn durable_replies_send_once_and_do_not_resume_other_work() {
                             &db,
                             changed,
                             1,
-                            chrono::Utc::now().timestamp_millis(),
+                            jiff::Timestamp::now().as_millisecond(),
                         )
                         .await
                         .unwrap();
@@ -284,7 +289,7 @@ async fn durable_replies_send_once_and_do_not_resume_other_work() {
                         &txn,
                         "1",
                         "root",
-                        chrono::Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                     )
                     .await
                     .unwrap();

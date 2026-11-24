@@ -126,7 +126,7 @@ fn build_collect_envelope(
 
 /// Current time as an RFC3339 string (the snapshot capture timestamp).
 fn now_rfc3339() -> String {
-    chrono::Utc::now().to_rfc3339()
+    desk_utils::datetime::rfc3339(jiff::Timestamp::now())
 }
 
 #[cfg(test)]

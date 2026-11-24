@@ -185,9 +185,9 @@ pub fn request_for_original_call(
     }
     // Request timestamps describe this authenticated preflight; they also
     // anchor validation of ephemeral directory selections.
-    let created_ms = chrono::DateTime::parse_from_rfc3339(&created_at)
+    let created_ms = desk_utils::datetime::parse_rfc3339(&created_at)
         .ok()
-        .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+        .and_then(|time| u64::try_from(desk_utils::datetime::unix_millis(time)).ok())
         .ok_or(invalid)?;
     if created_ms != call.now_unix_ms {
         return Err(invalid);

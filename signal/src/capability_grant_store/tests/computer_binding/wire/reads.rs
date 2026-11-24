@@ -146,7 +146,7 @@ async fn browser_wire_case_inner() {
     tokio::time::timeout(Duration::from_secs(5), connected.notified())
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
     cache
         .update(
@@ -155,7 +155,11 @@ async fn browser_wire_case_inner() {
                 schema_version: COMPUTER_USE_SCHEMA_VERSION,
                 revision: 9,
                 observed_at: now.to_rfc3339(),
-                expires_at: (now + chrono::Duration::minutes(2)).to_rfc3339(),
+                expires_at: (now
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(2),
+                    ))
+                .to_rfc3339(),
                 server_api_version: 1,
                 os: "fixture".into(),
                 interactive_user_home: None,
@@ -183,7 +187,7 @@ async fn browser_wire_case_inner() {
                 .collect(),
                 context_references: vec![],
             },
-            now,
+            desk_agent_data_store::datetime::from_database(now).unwrap(),
         )
         .unwrap();
     let tools = SignalAiAgentTools::new(

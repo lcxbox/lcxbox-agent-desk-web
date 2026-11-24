@@ -396,7 +396,8 @@ pub async fn record_committed_continuation_on<C: ConnectionTrait, H: ScheduleHos
     if !settlement_lease.accepts(work.lease_deadline, now) {
         return Err(ScheduleStoreError::Conflict);
     }
-    let at = chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let at = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     if interrupted {
         if awaiting_result {
             if session == before_recovery {

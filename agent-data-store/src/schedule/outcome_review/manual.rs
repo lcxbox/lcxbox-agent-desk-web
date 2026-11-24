@@ -52,8 +52,8 @@ pub(super) async fn evidence<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     {
         return Err(ScheduleStoreError::Conflict);
     }
-    let timestamp =
-        chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let timestamp = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     if let Some((work_id, execution_id)) = requested
         && !session.manually_dispose_unknown(work_id, execution_id, timestamp.to_rfc3339())
     {
@@ -63,9 +63,9 @@ pub(super) async fn evidence<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         .manual_outcome_disposition
         .as_ref()
         .ok_or(ScheduleStoreError::Conflict)?;
-    let at = chrono::DateTime::parse_from_rfc3339(&evidence.disposed_at)
-        .map_err(|_| ScheduleStoreError::Invalid)?
-        .timestamp_millis();
+    let at = desk_utils::datetime::parse_rfc3339(&evidence.disposed_at)
+        .map(desk_utils::datetime::unix_millis)
+        .map_err(|_| ScheduleStoreError::Invalid)?;
     if at > now
         || !session
             .conversation

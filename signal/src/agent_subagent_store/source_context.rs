@@ -8,7 +8,7 @@ use desk_diagnose_core::subagent::creation::TaskCreationEnvelope;
 pub(crate) async fn task_context_on<C: ConnectionTrait + crate::config::ConfigConnection>(
     db: &C,
     session: &PersistedAgentSession,
-) -> Result<Option<(TaskCreationEnvelope, chrono::DateTime<chrono::Utc>)>, DbErr> {
+) -> Result<Option<(TaskCreationEnvelope, sea_orm::prelude::DateTimeUtc)>, DbErr> {
     let Some(binding) = session.agent_role.binding() else {
         return Ok(None);
     };
@@ -43,9 +43,9 @@ pub(crate) async fn task_context_on<C: ConnectionTrait + crate::config::ConfigCo
     {
         return Err(invalid());
     }
-    let created_at = chrono::DateTime::parse_from_rfc3339(&run.created_at)
-        .map_err(|_| invalid())?
-        .with_timezone(&chrono::Utc);
+    let created_at = desk_utils::datetime::parse_rfc3339(&run.created_at)
+        .map(desk_agent_data_store::datetime::to_database)
+        .map_err(|_| invalid())?;
     Ok(Some((creation, created_at)))
 }
 
@@ -165,7 +165,7 @@ pub(crate) async fn record_child_resume_on(
         .ok_or_else(|| invalid())?;
     let group = current_group_on(txn, &group).await?;
     let facts = super::facts::runtime_facts_on(txn, session, now_ms).await?;
-    let now = chrono::DateTime::from_timestamp_millis(now_ms)
+    let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms)
         .ok_or_else(|| invalid())?
         .to_rfc3339();
     if run
@@ -204,7 +204,8 @@ impl SubAgentStore {
     ) -> Result<bool, DbErr> {
         let txn = self.db.begin().await?;
         let result =
-            child_resume_admitted_on(&txn, session, chrono::Utc::now().timestamp_millis()).await?;
+            child_resume_admitted_on(&txn, session, jiff::Timestamp::now().as_millisecond())
+                .await?;
         txn.commit().await?;
         Ok(result)
     }

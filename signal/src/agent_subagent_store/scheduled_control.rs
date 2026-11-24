@@ -32,7 +32,9 @@ impl SubAgentStore {
             .filter(
                 Condition::any()
                     .add(group_row::Column::SourceOccurrenceId.in_subquery(withdrawn))
-                    .add(group_row::Column::DeadlineMs.lte(chrono::Utc::now().timestamp_millis())),
+                    .add(
+                        group_row::Column::DeadlineMs.lte(jiff::Timestamp::now().as_millisecond()),
+                    ),
             )
             .order_by_asc(group_row::Column::Id)
             .limit(limit)
@@ -69,7 +71,7 @@ impl SubAgentStore {
         if rows.len() > 1 {
             return Err(invalid());
         }
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let mut closed = 0;
         let mut permission_ends =
             desk_diagnose_core::model_observability::permission::PendingEnds::default();
@@ -133,7 +135,8 @@ pub(crate) async fn close_scheduled_group_on(
     {
         return Err(invalid());
     }
-    let now = chrono::DateTime::from_timestamp_millis(now_ms).ok_or_else(|| invalid())?;
+    let now =
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms).ok_or_else(|| invalid())?;
     if group.source_admission != SourceAdmission::Closed {
         group.stop_parent().map_err(|_| invalid())?;
         group

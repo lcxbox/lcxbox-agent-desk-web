@@ -30,7 +30,7 @@ impl SubAgentStore {
         }
         let changed = inbox::Entity::update_many()
             .set(inbox::ActiveModel {
-                ui_read_at_ms: Set(Some(chrono::Utc::now().timestamp_millis())),
+                ui_read_at_ms: Set(Some(jiff::Timestamp::now().as_millisecond())),
                 ..Default::default()
             })
             .filter(inbox::Column::RootConversationId.eq(root))

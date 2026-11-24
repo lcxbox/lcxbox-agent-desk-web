@@ -140,7 +140,7 @@ async fn manage_inner(
                 .map_err(|_| ScheduleStoreError::Invalid)?;
             let upcoming_runs = desk_diagnose_core::schedule::timezone::upcoming_runs(
                 &conversion.spec,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             )
             .map_err(|_| ScheduleStoreError::Invalid)?;
             return Ok(Response::ConvertedTime {
@@ -501,8 +501,8 @@ fn run_view(
 }
 
 fn utc(value: i64) -> Result<String, ScheduleStoreError> {
-    chrono::DateTime::from_timestamp_millis(value)
-        .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+    sea_orm::prelude::DateTimeUtc::from_timestamp_millis(value)
+        .map(|at| at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
         .ok_or(ScheduleStoreError::Invalid)
 }
 async fn view(
@@ -525,7 +525,7 @@ async fn view(
     } else {
         desk_diagnose_core::schedule::timezone::upcoming_runs(
             &spec,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .map_err(|_| ScheduleStoreError::Invalid)?
     };
@@ -763,8 +763,8 @@ mod tests {
             state_json: Set(original),
             version: Set(0),
             lease_token: Set(0),
-            created_at: Set(chrono::Utc::now()),
-            updated_at: Set(chrono::Utc::now()),
+            created_at: Set(desk_agent_data_store::datetime::utc_now()),
+            updated_at: Set(desk_agent_data_store::datetime::utc_now()),
             ..Default::default()
         }
         .insert(&db)
@@ -782,7 +782,7 @@ mod tests {
         proposal.client_create_key = "pending-review-detail".into();
         let store = ScheduleStore::new(db.clone());
         let pending = store
-            .create_pending_task(1, &proposal, chrono::Utc::now().timestamp_millis())
+            .create_pending_task(1, &proposal, jiff::Timestamp::now().as_millisecond())
             .await
             .unwrap();
         let reviewed = task(

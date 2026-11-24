@@ -72,8 +72,9 @@ pub(super) fn renew_browser_surface_ref(
     surface: &desk_agent_protocol::computer_use::ObjectRef,
 ) -> desk_agent_protocol::computer_use::ObjectRef {
     let mut renewed = surface.clone();
-    renewed.expires_at =
-        (chrono::Utc::now() + chrono::Duration::seconds(PERMISSION_FLOW_TTL_SECONDS)).to_rfc3339();
+    renewed.expires_at = desk_utils::datetime::rfc3339(
+        jiff::Timestamp::now() + jiff::SignedDuration::from_secs(PERMISSION_FLOW_TTL_SECONDS),
+    );
     renewed
 }
 
@@ -103,12 +104,12 @@ pub(super) fn browser_surface_lease_is_current(
     if surface.object_kind != ObjectKind::BrowserSurface {
         return false;
     }
-    let now = chrono::Utc::now();
-    chrono::DateTime::parse_from_rfc3339(&surface.expires_at)
+    let now = jiff::Timestamp::now();
+    desk_utils::datetime::parse_rfc3339(&surface.expires_at)
         .ok()
-        .map(|expiry| expiry.with_timezone(&chrono::Utc))
         .is_some_and(|expiry| {
-            expiry > now && expiry <= now + chrono::Duration::seconds(PERMISSION_FLOW_TTL_SECONDS)
+            expiry > now
+                && expiry <= now + jiff::SignedDuration::from_secs(PERMISSION_FLOW_TTL_SECONDS)
         })
 }
 
@@ -131,7 +132,9 @@ mod browser_surface_lease_tests {
 
     #[test]
     fn renewal_keeps_connection_identity_and_replaces_only_the_lease() {
-        let expired = surface((chrono::Utc::now() - chrono::Duration::seconds(1)).to_rfc3339());
+        let expired = surface(desk_utils::datetime::rfc3339(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1),
+        ));
         let renewed = renew_browser_surface_ref(&expired);
 
         assert!(same_browser_surface_identity(&expired, &renewed));
@@ -147,7 +150,9 @@ mod browser_surface_lease_tests {
         assert!(!same_browser_surface_identity(&current, &reconnected));
 
         let mut extended = current;
-        extended.expires_at = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+        extended.expires_at = desk_utils::datetime::rfc3339(
+            jiff::Timestamp::now() + jiff::SignedDuration::from_hours(1),
+        );
         assert!(!browser_surface_lease_is_current(&extended));
     }
 }
@@ -310,7 +315,7 @@ fn new_event_id() -> String {
 
 /// Current time as an RFC3339 string (the audit event timestamp format).
 fn now_rfc3339() -> String {
-    chrono::Utc::now().to_rfc3339()
+    desk_utils::datetime::rfc3339(jiff::Timestamp::now())
 }
 
 /// Dispatch a single read kind to its collector. `settings` is only consumed

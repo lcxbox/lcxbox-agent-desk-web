@@ -144,7 +144,7 @@ async fn owner_conversation_http_signal_deletes_an_offline_retained_root_without
         .await
         .unwrap()
         .unwrap();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let root = "signal-http-retained-root";
     let source = capture_at(
         &store,

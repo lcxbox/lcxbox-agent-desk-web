@@ -37,6 +37,7 @@ rust-version = "1.90"
 
 
 [workspace.dependencies]
+jiff = { version = "1.0.2", features = ["serde"] }
 desk-ipc-protocol = { path = "ipc-protocol" }
 desk-wayland-portal = { path = "wayland-portal" }
 desk-utils = { path = "utils" }
@@ -61,7 +62,6 @@ desk-document-conversion = { path = "document-conversion", default-features = fa
 clap = { version = "4.5", features = ["derive"] }
 log = "0.4"
 env_logger = "0.11"
-chrono = { version = "0.4", features = ["serde"] }
 
 utoipa = { version = "5", features = ["actix_extras", "chrono"] }
 utoipa_repr = "0.1"
@@ -101,7 +101,7 @@ console-subscriber = "0.5"
 actix-web = "4.11"
 actix-ws = "0.3"
 actix-session = { version = "0.11", features = ["cookie-session"] }
-actix-files = "0.6"
+actix-files = "0.7.5"
 actix-server = "2.6"
 actix-http = "3.11"
 actix-rt = "2"
@@ -129,7 +129,7 @@ uuid = "1.20"
 portable-pty = "0.9"
 
 url = "2.5.8"
-rmcp = { version = "=1.7.0", default-features = false }
+rmcp = { version = "=3.9.0", default-features = false }
 
 sea-orm = { version = "2.0.0-rc", features = [
     "sqlx-sqlite",
@@ -164,7 +164,7 @@ vpx-encode = { git = "https://github.com/lcxl/vpx-encode.git", tag = "v0.8.0", f
 opusic-c = "1.5"
 
 cpal = "0.15"
-ringbuf = "0.4"
+ringbuf = "0.5.3"
 
 toml = "0.9"
 config = { version = "0.15", features = ["toml"] }
@@ -181,7 +181,7 @@ prometheus = "0.14"
 png = "0.17"
 image = "0.25"
 quick-xml = "0.41"
-zip = { version = "6.0.0", default-features = false, features = ["deflate"] }
+zip = { version = "9.4.1", default-features = false, features = ["deflate"] }
 zstd = { version = "0.13.3", default-features = false }
 ignore = "0.4.25"
 yaml-rust2 = { version = "=0.10.4", default-features = false }
@@ -215,7 +215,7 @@ tempfile = "3"
 typst = "=0.14.2"
 typst-pdf = "=0.14.2"
 typst-render = "=0.14.2"
-pulldown-cmark = "=0.13.4"
+pulldown-cmark = "=0.13.6"
 unpdf = { version = "=0.12.0", default-features = false }
 flate2 = "=1.1.2"
 

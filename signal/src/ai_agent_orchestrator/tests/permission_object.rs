@@ -1,7 +1,6 @@
 //! Actual input, permission persistence, resumed model and chunked object read.
 use super::*;
 use crate::remote_tool_edge::SignalRemoteToolObserver;
-use chrono::Utc;
 use desk_agent_protocol::ai_agent::{AiAgentContextUpdate, AiAgentObjectContextOperation};
 use desk_agent_protocol::computer_use::*;
 use desk_agent_protocol::remote_tool::{RemoteToolOutput, RemoteToolRequest, RemoteToolResponse};
@@ -312,12 +311,16 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
         .await
         .unwrap();
 
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let live_reference = ObjectRef {
         token: "original-live-document".into(),
         snapshot_id: "live-snapshot".into(),
         object_kind: ObjectKind::Document,
-        expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+        expires_at: (now
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_mins(
+                5,
+            )))
+        .to_rfc3339(),
     };
     crate::computer_use_readiness::global_computer_use_readiness_cache()
         .update(
@@ -326,7 +329,11 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
                 schema_version: COMPUTER_USE_SCHEMA_VERSION,
                 revision: 1,
                 observed_at: now.to_rfc3339(),
-                expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                expires_at: (now
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(5),
+                    ))
+                .to_rfc3339(),
                 server_api_version: 1,
                 os: if live { "macos" } else { "fixture" }.into(),
                 interactive_user_home: None,
@@ -371,7 +378,7 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
                     vec![]
                 },
             },
-            now,
+            desk_agent_data_store::datetime::from_database(now).unwrap(),
         )
         .unwrap();
     let connections = web::Data::from(map.clone());
@@ -400,7 +407,11 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
         token: "original-file".into(),
         snapshot_id: "worker".into(),
         object_kind: ObjectKind::File,
-        expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+        expires_at: (now
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_mins(
+                5,
+            )))
+        .to_rfc3339(),
     };
     apply_object_context_update(
         db.clone(),
@@ -529,14 +540,14 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
                 registry: &registry,
                 inventory: &inventory,
                 readiness_revision: 1,
-                now_unix_ms: Utc::now().timestamp_millis() as u64,
+                now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
                 implicit_fresh_object_refs: if live {
                     std::slice::from_ref(&live_reference)
                 } else {
                     &[]
                 },
             },
-            &Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         )
         .await
         .unwrap();
@@ -585,10 +596,13 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
         restored.lifecycle = Default::default();
         map.write().await.insert(host.clone(), restored);
         let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
-        let ready = cache.get_fresh(&host, Utc::now()).unwrap().readiness;
+        let ready = cache
+            .get_fresh(&host, jiff::Timestamp::now())
+            .unwrap()
+            .readiness;
         cache.remove_connection(&host);
         assert_eq!(executor.scan_once(0).await.unwrap().attempted, 0);
-        cache.update(&host, ready, Utc::now()).unwrap();
+        cache.update(&host, ready, jiff::Timestamp::now()).unwrap();
         let row = crate::entity::agent_permission_resume::Entity::find()
             .one(&db)
             .await
@@ -698,14 +712,16 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
                 restored.lifecycle = Default::default();
                 map.write().await.insert(host.clone(), restored);
                 let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
-                let cached = cache.get_fresh(&host, Utc::now()).unwrap();
+                let cached = cache.get_fresh(&host, jiff::Timestamp::now()).unwrap();
                 cache.remove_connection(&host);
                 assert!(
                     claim_scheduled_permission(connections.as_ref(), &db, &gate, scheduled_run, 90)
                         .await
                         .is_err()
                 );
-                cache.update(&host, cached.readiness, Utc::now()).unwrap();
+                cache
+                    .update(&host, cached.readiness, jiff::Timestamp::now())
+                    .unwrap();
                 let prepared =
                     claim_scheduled_permission(connections.as_ref(), &db, &gate, scheduled_run, 90)
                         .await
@@ -723,7 +739,7 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
                             &grants[0].grant_id,
                             "1",
                             "device",
-                            Utc::now().timestamp_millis() as u64,
+                            jiff::Timestamp::now().as_millisecond() as u64,
                             "owner revoked",
                         )
                         .await
@@ -831,9 +847,14 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
     if matches!(change, Some("readiness" | "legacy")) {
         if change == Some("readiness") {
             let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
-            let mut readiness = cache.get_fresh(&host, Utc::now()).unwrap().readiness;
+            let mut readiness = cache
+                .get_fresh(&host, jiff::Timestamp::now())
+                .unwrap()
+                .readiness;
             readiness.revision += 1;
-            cache.update(&host, readiness, Utc::now()).unwrap();
+            cache
+                .update(&host, readiness, jiff::Timestamp::now())
+                .unwrap();
         } else {
             use sea_orm::{ActiveModelTrait, ColumnTrait, QueryFilter, Set};
             let row = crate::entity::agent_run_event::Entity::find()
@@ -950,17 +971,27 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
                 // grant is stale even though the durable frozen target remains
                 // the only target that a future freshly-authorized call may use.
                 let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
-                let mut current = cache.get_fresh(&host, Utc::now()).unwrap().readiness;
+                let mut current = cache
+                    .get_fresh(&host, jiff::Timestamp::now())
+                    .unwrap()
+                    .readiness;
                 current.revision += 1;
                 current.context_references[0].object_ref.token = "other-live-document".into();
-                cache.update(&host, current, Utc::now()).unwrap();
+                cache
+                    .update(&host, current, jiff::Timestamp::now())
+                    .unwrap();
             }
             "live_worker" => {
                 let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
-                let mut current = cache.get_fresh(&host, Utc::now()).unwrap().readiness;
+                let mut current = cache
+                    .get_fresh(&host, jiff::Timestamp::now())
+                    .unwrap()
+                    .readiness;
                 current.revision += 1;
                 current.interactive_session_incarnation = "other-worker".into();
-                cache.update(&host, current, Utc::now()).unwrap();
+                cache
+                    .update(&host, current, jiff::Timestamp::now())
+                    .unwrap();
             }
             "model" => {
                 let mut config = crate::model_provider::load(&db).await.unwrap();
@@ -1043,7 +1074,7 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
                             destination,
                         )
                         .unwrap(),
-                        created_at: Utc::now().to_rfc3339(),
+                        created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                     })
                     .await
                     .unwrap();
@@ -1193,10 +1224,15 @@ async fn run_case_with_live_inner(change: Option<&str>, mode: ResumeMode, live: 
         };
         if change == Some("live_after") {
             let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
-            let mut current = cache.get_fresh(&host, Utc::now()).unwrap().readiness;
+            let mut current = cache
+                .get_fresh(&host, jiff::Timestamp::now())
+                .unwrap()
+                .readiness;
             current.revision += 1;
             current.context_references[0].object_ref.token = "changed-during-read".into();
-            cache.update(&host, current, Utc::now()).unwrap();
+            cache
+                .update(&host, current, jiff::Timestamp::now())
+                .unwrap();
         }
         for chunk in chunk_bytes(
             &request.request_id,
@@ -1359,7 +1395,7 @@ async fn apply_object_context_update(
             device_id: device,
             update: update.clone(),
             destination: Some(destination),
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         })
         .await
 }

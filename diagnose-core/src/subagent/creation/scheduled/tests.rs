@@ -56,9 +56,9 @@ fn fixture_with_tokens(
             max_runtime_seconds: 60,
         },
     };
-    let now = chrono::DateTime::parse_from_rfc3339(NOW)
-        .unwrap()
-        .timestamp_millis();
+    let now = desk_utils::datetime::parse_rfc3339(NOW)
+        .map(desk_utils::datetime::unix_millis)
+        .unwrap();
     let source = ScheduledCreationSource::capture(
         TaskGrantProvenance {
             schedule_id: "schedule-test".into(),

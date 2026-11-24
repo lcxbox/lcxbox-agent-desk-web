@@ -71,14 +71,14 @@ async fn ready_request_for(
             &fixture.destination,
             "actual-current-send",
             8192,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
     let usage = block.uses[0].clone();
     let envelope = block.source_envelopes[0].clone();
     let content = CurrentMemoryPayload::new(block.memory_state_generation, block.records)
-        .encode(8192, chrono::Utc::now().timestamp_millis() as u64)
+        .encode(8192, jiff::Timestamp::now().as_millisecond() as u64)
         .unwrap()
         .unwrap();
     let mut message = desk_diagnose_core::chat::ChatMessage::text(
@@ -159,7 +159,7 @@ async fn ready_request_for(
         &host,
         &fixture.session,
         &request,
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )
     .await
     .unwrap()
@@ -228,14 +228,14 @@ async fn real_running_session_prepares_exact_current_facts_without_creating_or_c
             &fixture.destination,
             "preparation-A",
             8192,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
     assert_eq!(first.records.len(), 1);
     assert_eq!(first.source_envelopes.len(), 1);
     assert_eq!(first.uses.len(), 1);
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let content = CurrentMemoryPayload::new(first.memory_state_generation, first.records.clone())
         .encode(8192, now)
         .unwrap()
@@ -278,7 +278,7 @@ async fn real_running_session_prepares_exact_current_facts_without_creating_or_c
             &fixture.destination,
             "preparation-A",
             8192,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
@@ -571,7 +571,7 @@ async fn current_preparation_fence_reselects_original_raw_json_and_never_renews_
     {
         let fixture = Fixture::new("current-native-raw-fence").await;
         let txn = fixture.store.db.begin().await.unwrap();
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond() as u64;
         let held = current_native::prepare_on(&txn, &fixture.session, now)
             .await
             .unwrap();
@@ -583,9 +583,11 @@ async fn current_preparation_fence_reselects_original_raw_json_and_never_renews_
             .col_expr(
                 agent_session::Column::LeaseDeadline,
                 Expr::value(
-                    chrono::DateTime::from_timestamp_millis((original + 60_000) as i64)
-                        .unwrap()
-                        .naive_utc(),
+                    sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
+                        (original + 60_000) as i64,
+                    )
+                    .unwrap()
+                    .naive_utc(),
                 ),
             )
             .filter(agent_session::Column::ConversationId.eq(&fixture.session.conversation_id))
@@ -593,7 +595,7 @@ async fn current_preparation_fence_reselects_original_raw_json_and_never_renews_
             .await
             .unwrap();
         assert_eq!(
-            held.finish_on(chrono::Utc::now().timestamp_millis() as u64)
+            held.finish_on(jiff::Timestamp::now().as_millisecond() as u64)
                 .await
                 .unwrap(),
             original
@@ -613,7 +615,7 @@ async fn current_preparation_fence_reselects_original_raw_json_and_never_renews_
             .await
             .unwrap();
         assert!(
-            held.finish_on(chrono::Utc::now().timestamp_millis() as u64)
+            held.finish_on(jiff::Timestamp::now().as_millisecond() as u64)
                 .await
                 .is_err()
         );
@@ -627,7 +629,7 @@ async fn history_retirement_fence_rejects_authority_changed_after_preparation() 
         let fixture = Fixture::new(&format!("history-retirement-late-{change_control}")).await;
         let before = quota::Entity::find().one(&fixture.store.db).await.unwrap();
         let txn = fixture.store.db.begin().await.unwrap();
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond() as u64;
         let fence = desk_diagnose_core::future::send_phase(|| {
             current_native::prepare_on(&txn, &fixture.session, now)
         })
@@ -653,7 +655,7 @@ async fn history_retirement_fence_rejects_authority_changed_after_preparation() 
             .unwrap();
         assert!(
             fence
-                .finish_on(chrono::Utc::now().timestamp_millis() as u64)
+                .finish_on(jiff::Timestamp::now().as_millisecond() as u64)
                 .await
                 .is_err()
         );
@@ -682,7 +684,7 @@ async fn history_retirement_fence_rejects_generations_moving_backwards() {
         .unwrap();
     let before = quota::Entity::find().one(&fixture.store.db).await.unwrap();
     let txn = fixture.store.db.begin().await.unwrap();
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     assert!(
         current_native::prepare_on(&txn, &fixture.session, now,)
             .await
@@ -730,7 +732,7 @@ async fn current_memory_preparation_accepts_platform_capacity_above_the_old_fixe
     .unwrap();
     assert!(!block.records.is_empty());
     let content = CurrentMemoryPayload::new(block.memory_state_generation, block.records)
-        .encode(64 * 1024, chrono::Utc::now().timestamp_millis() as u64)
+        .encode(64 * 1024, jiff::Timestamp::now().as_millisecond() as u64)
         .unwrap()
         .unwrap();
     let proof = projection::load_on(

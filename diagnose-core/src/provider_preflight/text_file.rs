@@ -1269,9 +1269,9 @@ impl ResultFileRead {
         {
             return Err(unavailable());
         }
-        let expiry = chrono::DateTime::parse_from_rfc3339(&evidence.reference.expires_at)
+        let expiry = desk_utils::datetime::parse_rfc3339(&evidence.reference.expires_at)
             .ok()
-            .and_then(|t| u64::try_from(t.timestamp_millis()).ok())
+            .and_then(|t| u64::try_from(desk_utils::datetime::unix_millis(t)).ok())
             .ok_or_else(unavailable)?;
         // This operation obtains new bytes under a new read grant. The old
         // receipt must be valid when resolving its reference (above), but its
@@ -1745,9 +1745,9 @@ impl TextMutationPreflight {
             if reference.object_kind == ObjectKind::Directory {
                 return Ok(u64::MAX);
             }
-            chrono::DateTime::parse_from_rfc3339(&reference.expires_at)
+            desk_utils::datetime::parse_rfc3339(&reference.expires_at)
                 .ok()
-                .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+                .and_then(|time| u64::try_from(desk_utils::datetime::unix_millis(time)).ok())
                 .filter(|time| *time > now_unix_ms)
                 .ok_or_else(unavailable)
         };

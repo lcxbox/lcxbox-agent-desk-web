@@ -42,7 +42,7 @@ pub(super) fn request(session: &mut PersistedAgentSession) -> PermissionRequeste
             suggested_max_uses: 1,
             reason: "Inspect original delegated target".into(),
         }],
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         group: None,
     };
     session.add_permission_request(request.clone()).unwrap();
@@ -150,7 +150,10 @@ async fn approval_during_goal_pause_is_retained_without_resume_or_budget_reset()
     save_child_session(&db, &mut child).await.unwrap();
     let event = request(&mut child);
     publish(&db, &mut child, &event).await;
-    child.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    child.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_child_session(&db, &mut child).await.unwrap();
     let original_group = group_row::Entity::find()
         .filter(group_row::Column::GroupId.eq(&task.group_id))
@@ -232,7 +235,7 @@ pub(super) async fn control(
         &goal.goal_id,
         goal.state_version,
         action,
-        chrono::Utc::now(),
+        desk_agent_data_store::datetime::utc_now(),
     )
     .await
     .unwrap()
@@ -253,7 +256,7 @@ pub(super) async fn approve(db: &DatabaseConnection, id: &str) {
 async fn decide_at(db: &DatabaseConnection, id: &str) -> bool {
     let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let inventory = inventory();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let ctx = PermissionGrantIssuanceContext {
         surface: ProductSurface::OssPersonalOwner,
         registry: &registry,
@@ -285,7 +288,7 @@ async fn pending(db: &DatabaseConnection, id: &str) -> bool {
         .unwrap()
         .unwrap();
     SignalAgentSessionStore::new(db.clone())
-        .pending_permission_resume(&candidate, chrono::Utc::now())
+        .pending_permission_resume(&candidate, desk_agent_data_store::datetime::utc_now())
         .await
         .unwrap()
         .is_some()
@@ -311,7 +314,7 @@ pub(super) async fn assert_claim(db: &DatabaseConnection, id: &str, should_run: 
         request_id: Some("resumed-child-request".into()),
         connection_id: None,
         trigger_origin: desk_diagnose_core::session::TriggerOrigin::PermissionDecision,
-        now: chrono::Utc::now().to_rfc3339(),
+        now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     };
     let result = SignalAgentSessionStore::new(db.clone())
         .with_client_metadata(current.client_conversation_id.clone(), current.surface)
@@ -383,7 +386,10 @@ async fn new_parent_input_preserves_running_child_and_original_permission_select
     save_child_session(&db, &mut child).await.unwrap();
     let event = request(&mut child);
     publish(&db, &mut child, &event).await;
-    child.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    child.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_child_session(&db, &mut child).await.unwrap();
     super::input_sources::release_parent(&db).await;
     let ordinary_before = load(&db, &ordinary.task_id).await;

@@ -254,7 +254,7 @@ async fn completed_fixture_with_delivery(
     ))
     .await;
     crate::ai_agent_gate::enable_test_host();
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let policy = ModelEgressPolicy {
         destination: destination.clone(),
         selected_source_tools: [call.name.clone()].into_iter().collect(),
@@ -373,7 +373,10 @@ async fn completed_fixture_with_delivery(
     child.execution_state = desk_diagnose_core::session::ExecutionState::Executing {
         action: receipt.action.clone(),
     };
-    child.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    child.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_child_session(&db, &mut child).await.unwrap();
     let sessions = SignalAgentSessionStore::new(db.clone());
     if recover_first {
@@ -400,7 +403,7 @@ async fn completed_fixture_with_delivery(
                 Some(receipt.envelope),
                 output.format,
                 None,
-                &chrono::Utc::now().to_rfc3339(),
+                &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             )
             .await
             .unwrap();

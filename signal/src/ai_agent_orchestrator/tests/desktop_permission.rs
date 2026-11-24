@@ -2,7 +2,6 @@
 use super::permission_object::{tool_reply, tool_reply_with_id};
 use super::*;
 use crate::remote_tool_edge::SignalRemoteToolObserver;
-use chrono::Utc;
 use desk_agent_protocol::computer_use::*;
 use desk_agent_protocol::remote_tool::{RemoteToolOutput, RemoteToolRequest, RemoteToolResponse};
 use desk_agent_protocol::{AgentOutcome, ContextKind, ReadContextInput};
@@ -353,7 +352,7 @@ async fn run_desktop_history_case(
         .await
         .unwrap();
 
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     crate::computer_use_readiness::global_computer_use_readiness_cache()
         .update(
             &host,
@@ -361,7 +360,11 @@ async fn run_desktop_history_case(
                 schema_version: COMPUTER_USE_SCHEMA_VERSION,
                 revision: 1,
                 observed_at: now.to_rfc3339(),
-                expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                expires_at: (now
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(5),
+                    ))
+                .to_rfc3339(),
                 server_api_version: 1,
                 os: "macos".into(),
                 interactive_user_home: None,
@@ -402,7 +405,7 @@ async fn run_desktop_history_case(
                 .collect(),
                 context_references: vec![],
             },
-            now,
+            desk_agent_data_store::datetime::from_database(now).unwrap(),
         )
         .unwrap();
     let connections = web::Data::from(map.clone());
@@ -515,10 +518,10 @@ async fn run_desktop_history_case(
                     registry: &registry,
                     inventory: &inventory,
                     readiness_revision: 1,
-                    now_unix_ms: Utc::now().timestamp_millis() as u64,
+                    now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
                     implicit_fresh_object_refs: &[],
                 },
-                &Utc::now().to_rfc3339(),
+                &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             )
             .await
             .unwrap();
@@ -1031,7 +1034,7 @@ async fn approve_with_independent_model(
         .unwrap();
     if group.source_goal_id.is_some() {
         let mut stale = crate::agent_subagent_store::decode_group(&group).unwrap();
-        stale.limits.deadline_ms = Utc::now().timestamp_millis() - 7_200_000;
+        stale.limits.deadline_ms = jiff::Timestamp::now().as_millisecond() - 7_200_000;
         crate::entity::agent_delegation_group::Entity::update_many()
             .set(crate::entity::agent_delegation_group::ActiveModel {
                 deadline_ms: Set(stale.limits.deadline_ms),
@@ -1065,7 +1068,7 @@ async fn approve_with_independent_model(
         })
         .await
         .unwrap();
-    let now_ms = || Utc::now().timestamp_millis() as u64;
+    let now_ms = || jiff::Timestamp::now().as_millisecond() as u64;
     crate::agent_approval_store::discover_default_review_roots(db, 0, 64, now_ms())
         .await
         .unwrap();
@@ -1264,7 +1267,7 @@ async fn approve_with_independent_model(
                 now_unix_ms: now_ms(),
                 implicit_fresh_object_refs: &[],
             },
-            &Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         )
         .await
         .unwrap();
@@ -1351,7 +1354,9 @@ fn concrete_ui_nodes() -> Vec<UiNodeProjection> {
                 token: token.into(),
                 snapshot_id: "ui-snapshot".into(),
                 object_kind,
-                expires_at: (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+                expires_at: desk_utils::datetime::rfc3339(
+                    jiff::Timestamp::now() + jiff::SignedDuration::from_mins(5),
+                ),
             },
             parent_index,
             role: role.into(),
@@ -1483,7 +1488,7 @@ async fn seed_command_history(db: &crate::config::connection::DatabaseConnection
         directory_grants: desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
             &session,
             &session.device_id,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         ),
         exec_sandbox: desk_diagnose_core::command_confirmation::DeviceExecSandbox::for_test(
             desk_agent_protocol::exec::ExecSandboxSupport::Supported,
@@ -1537,7 +1542,7 @@ async fn seed_command_history(db: &crate::config::connection::DatabaseConnection
                 input_revision: session.input_revision,
                 state: PermissionRequestState::Denied,
                 items: vec![item],
-                created_at: Utc::now().to_rfc3339(),
+                created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                 group: None,
             },
         );
@@ -1553,7 +1558,7 @@ async fn seed_command_history(db: &crate::config::connection::DatabaseConnection
                 correlation_id: Some(format!("historical-command-{index}")),
                 source_envelope_ids: vec![],
                 result_envelope_ids: vec![],
-                created_at: Utc::now().to_rfc3339(),
+                created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             },
             request_id: format!("historical-command-{index}"),
             request_input_revision: session.input_revision,
@@ -1576,7 +1581,7 @@ async fn seed_command_history(db: &crate::config::connection::DatabaseConnection
             result_envelope_ids_json: Set("[]".into()),
             payload_json: Set(serde_json::to_string(&event).unwrap()),
             payload_schema_version: Set(1),
-            created_at: Set(Utc::now()),
+            created_at: Set(desk_agent_data_store::datetime::utc_now()),
             ..Default::default()
         }
         .insert(&txn)

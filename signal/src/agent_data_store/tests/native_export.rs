@@ -27,7 +27,7 @@ use sea_orm::PaginatorTrait;
 // must validate those under their original fences before recording a native use.
 fn source_proof(key: &str) -> ReadProjectionProof {
     let mut proof = super::projection::proof("{}", key);
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     proof.created_at_unix_ms = now - 1000;
     proof.unused_until_unix_ms = now + 60_000;
     proof.usage.history_dependencies.push(HistoryDependency {

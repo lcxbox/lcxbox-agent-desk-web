@@ -151,7 +151,7 @@ mod tests {
             let LiveDocumentProjection::Document { document, .. } = observed.projection else {
                 panic!()
             };
-            let expires_at = chrono::Utc::now() + chrono::Duration::seconds(30);
+            let expires_at = jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30);
             let file_name = format!("{scenario}.docx");
             let mut plan = SealedComputerActionPlan {
                 turn_scope: None,
@@ -165,7 +165,7 @@ mod tests {
                 approval_id: "approval".into(),
                 approved_actor_id: "owner".into(),
                 draft_hash: "a".repeat(64),
-                expires_at: expires_at.to_rfc3339(),
+                expires_at: desk_utils::datetime::rfc3339(expires_at),
                 timeout_ms: 30000,
                 actions: vec![ComputerActionStep {
                     target: document,
@@ -234,7 +234,7 @@ mod tests {
                     &plan.adapter,
                     &plan.actions[0].action,
                     &receipt,
-                    chrono::Utc::now().timestamp_millis() as u64,
+                    jiff::Timestamp::now().as_millisecond() as u64,
                 )
                 .unwrap();
             }
@@ -317,7 +317,7 @@ mod tests {
             panic!()
         };
         assert_eq!(body_text, "原文");
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond() as u64;
         let (_, worker_incarnation) = readiness
             .interactive_session_incarnation
             .split_once(':')
@@ -347,7 +347,7 @@ mod tests {
                 execution_generation: "word-generation".into(),
                 approved_actor_id: "owner".into(),
                 interactive_session_incarnation: readiness.interactive_session_incarnation,
-                expires_at: chrono::Utc::now() + chrono::Duration::seconds(30),
+                expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30),
             })
             .unwrap();
         assert!(matches!(

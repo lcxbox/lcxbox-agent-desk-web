@@ -1198,9 +1198,9 @@ mod tests {
 
     #[test]
     fn exact_review_requires_original_exportable_sources() {
-        let now_unix_ms = chrono::DateTime::parse_from_rfc3339("2026-09-23T00:00:10Z")
-            .unwrap()
-            .timestamp_millis() as u64;
+        let now_unix_ms = desk_utils::datetime::parse_rfc3339("2026-09-23T00:00:10Z")
+            .map(desk_utils::datetime::unix_millis)
+            .unwrap() as u64;
         let destination = DestinationIdentity::Model {
             connection_id: "review-connection".into(),
             connection_revision: 1,

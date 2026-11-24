@@ -135,7 +135,7 @@ fn interrupted_transactions_preserve_target_and_fence_replay() {
                     .spawn()
                     .unwrap(),
             );
-            let deadline = std::time::Instant::now() + Duration::seconds(20).to_std().unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
             let status = loop {
                 if let Some(status) = child.0.try_wait().unwrap() {
                     break status;
@@ -172,7 +172,7 @@ fn interrupted_transactions_preserve_target_and_fence_replay() {
             );
             for _ in 0..2 {
                 let unknown = locked
-                    .recover_interrupted(Utc::now().timestamp_millis() as u64)
+                    .recover_interrupted(jiff::Timestamp::now().as_millisecond() as u64)
                     .unwrap();
                 assert_eq!(unknown.len(), usize::from(phase != "prepared"));
                 assert_eq!(

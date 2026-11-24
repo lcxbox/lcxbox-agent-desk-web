@@ -21,9 +21,9 @@ const MAX_OBJECT_REF_COMPONENT_BYTES: usize = 4096;
 const MAX_DERIVED_OBJECT_REF_TTL_MS: u64 = 300_000;
 
 fn object_ref_expiry(reference: &ObjectRef, now_unix_ms: u64) -> Result<u64, AgentError> {
-    chrono::DateTime::parse_from_rfc3339(&reference.expires_at)
+    desk_utils::datetime::parse_rfc3339(&reference.expires_at)
         .ok()
-        .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+        .and_then(|time| u64::try_from(desk_utils::datetime::unix_millis(time)).ok())
         .filter(|expiry| {
             *expiry > now_unix_ms
                 && *expiry <= now_unix_ms.saturating_add(MAX_DERIVED_OBJECT_REF_TTL_MS)
@@ -732,18 +732,18 @@ impl IworkCallPreflight {
             if reference.object_kind == ObjectKind::Directory {
                 continue;
             }
-            let expiry = chrono::DateTime::parse_from_rfc3339(&reference.expires_at)
+            let expiry = desk_utils::datetime::parse_rfc3339(&reference.expires_at)
                 .ok()
-                .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+                .and_then(|time| u64::try_from(desk_utils::datetime::unix_millis(time)).ok())
                 .filter(|expiry| *expiry > now_unix_ms)
                 .ok_or_else(unavailable)?;
             valid_until_unix_ms = valid_until_unix_ms.min(expiry);
         }
         if let Some(expiry) = &original.expires_at {
             valid_until_unix_ms = valid_until_unix_ms.min(
-                chrono::DateTime::parse_from_rfc3339(expiry)
+                desk_utils::datetime::parse_rfc3339(expiry)
                     .ok()
-                    .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+                    .and_then(|time| u64::try_from(desk_utils::datetime::unix_millis(time)).ok())
                     .filter(|expiry| *expiry > now_unix_ms)
                     .ok_or_else(unavailable)?,
             );

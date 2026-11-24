@@ -237,7 +237,7 @@ impl SignalScheduleExecutor {
             return DeviceWaitStatus::Unavailable;
         }
         let ready = crate::computer_use_readiness::global_computer_use_readiness_cache()
-            .get_fresh(&connection.model.connection_id, chrono::Utc::now())
+            .get_fresh(&connection.model.connection_id, jiff::Timestamp::now())
             .is_some();
         if ready {
             DeviceWaitStatus::Ready

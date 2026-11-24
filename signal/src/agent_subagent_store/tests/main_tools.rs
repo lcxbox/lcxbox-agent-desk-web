@@ -48,7 +48,7 @@ async fn runtime_schema_defaults_preserve_result_and_list_call_authority() {
         let resolved = desk_diagnose_core::ui_model_ids::resolve_session_call_with_context(
             &original,
             &parent,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
             None,
         )
         .unwrap();
@@ -258,7 +258,7 @@ pub(super) async fn committed_call(
             destination: super::creation::destination(),
             selected_source_tools: Default::default(),
             export_authorization_id: format!("control-test-export-{id}"),
-            now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+            now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
             byte_cap: 1024 * 1024,
             permission_resume: false,
         };
@@ -315,7 +315,10 @@ pub(super) async fn complete_child(db: &DatabaseConnection, task_id: &str) {
     let mut child = claimed.session;
     let report = super::lifecycle::report();
     super::lifecycle::append_report(db, &mut child, &report).await;
-    child.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    child.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     store
         .settle_answer_for_turn(&mut child, run.fence(), report.summary)
         .await
@@ -445,7 +448,10 @@ async fn wait_registration_persists_result_and_fences_without_consuming_attentio
             .iter()
             .any(|message| message.message_id == "wait-result")
     );
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_main_delegation_session(&db, &mut parent)
         .await
         .unwrap();
@@ -496,7 +502,10 @@ async fn all_terminal_report_wait_keeps_native_terminal_fallback_for_protected_r
         .unwrap();
     assert_eq!(waiting.payload["status"], "waiting");
     assert_eq!(waiting.payload["reports"], serde_json::json!([]));
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_main_delegation_session(&db, &mut parent)
         .await
         .unwrap();
@@ -569,7 +578,8 @@ async fn a_request_that_ended_without_a_report_tells_the_parent_why() {
         store
             .expire_task_at(
                 &task.task_id,
-                chrono::DateTime::from_timestamp_millis(run.binding.deadline_ms + 1).unwrap(),
+                sea_orm::prelude::DateTimeUtc::from_timestamp_millis(run.binding.deadline_ms + 1)
+                    .unwrap(),
             )
             .await
             .unwrap()
@@ -670,14 +680,15 @@ async fn projection_after_new_input_keeps_old_tasks_opaque_and_active_tasks_visi
         owner,
         None,
         None,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
         Default::default(),
     )
     .await
     .unwrap();
-    parent.version = write_child_session_on(&txn, &parent, chrono::Utc::now())
-        .await
-        .unwrap();
+    parent.version =
+        write_child_session_on(&txn, &parent, desk_agent_data_store::datetime::utc_now())
+            .await
+            .unwrap();
     txn.commit().await.unwrap();
     let projection = store.main_projection_for_turn(&parent).await.unwrap();
     let payload: serde_json::Value = serde_json::from_str(&projection.text).unwrap();
@@ -1044,7 +1055,10 @@ async fn worker_progress_and_terminal_reports_are_immutable_ordered_and_non_cons
     }
     let answer = super::lifecycle::report();
     super::lifecycle::append_report(&db, &mut child, &answer).await;
-    child.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    child.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     assert_eq!(
         store
             .settle_answer_for_turn(&mut child, run.fence(), answer.summary.clone())
@@ -1651,7 +1665,7 @@ async fn report_settlement_preserves_active_pages_and_releases_eligible_pages() 
                 event_id: "peer-result".into(),
                 chain_id: "chain".into(),
                 resolution_org_id: None,
-                since: chrono::Utc::now().to_rfc3339(),
+                since: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             });
         }
         let mut call = commit_worker_report_call(&db, &mut child, "report", kind).await;

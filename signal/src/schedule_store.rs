@@ -412,7 +412,7 @@ pub(crate) mod tests {
             source_device_ref: "original-device-public-id".into(),
             source_instance_id: None,
             current_actor_input_seq: 1,
-            current_input_recorded_at_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+            current_input_recorded_at_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
             current_input_timezone: "UTC".into(),
             instructions: desk_diagnose_core::ai_agent::settings::freeze_instructions(
                 &UserInstructions::default(),
@@ -460,8 +460,8 @@ pub(crate) mod tests {
             state_json: Set(session.encode_json_for_storage().unwrap()),
             version: Set(session.version),
             lease_token: Set(session.lease_token as i64),
-            created_at: Set(chrono::Utc::now()),
-            updated_at: Set(chrono::Utc::now()),
+            created_at: Set(desk_agent_data_store::datetime::utc_now()),
+            updated_at: Set(desk_agent_data_store::datetime::utc_now()),
             ..Default::default()
         }
         .insert(&store.db)
@@ -554,7 +554,7 @@ pub(crate) mod tests {
                     .unwrap()
                     .current_input_recorded_at_unix_ms
         );
-        assert!(consent.captured_at_unix_ms <= chrono::Utc::now().timestamp_millis() as u64);
+        assert!(consent.captured_at_unix_ms <= jiff::Timestamp::now().as_millisecond() as u64);
         // A retry after the source changed cannot replace the first consent.
         let mut later = session.clone();
         later.input_revision += 1;

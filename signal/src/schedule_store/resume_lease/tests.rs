@@ -89,7 +89,9 @@ async fn either_expired_lease_or_cancel_blocks_renewal_without_changing_the_othe
         let (store, claimed, source) = fixture().await;
         if reason == 0 {
             let mut changed: session_row::ActiveModel = source.into();
-            changed.lease_deadline = Set(Some(chrono::DateTime::from_timestamp_millis(1).unwrap()));
+            changed.lease_deadline = Set(Some(
+                sea_orm::prelude::DateTimeUtc::from_timestamp_millis(1).unwrap(),
+            ));
             changed.update(&store.db).await.unwrap();
         } else {
             let mut changed: run::ActiveModel = claimed.run.clone().into();

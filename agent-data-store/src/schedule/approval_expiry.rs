@@ -155,8 +155,8 @@ pub async fn expire_fresh_approval_wait_on<C: ConnectionTrait, H: ScheduleHostSt
     {
         return Err(ScheduleStoreError::Conflict);
     }
-    let timestamp =
-        chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let timestamp = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     let reference = work
         .result_ref
         .as_deref()

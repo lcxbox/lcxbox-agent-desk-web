@@ -69,11 +69,15 @@ async fn native_idle_retention_removes_publication_content() {
     seed_parent(&db).await;
     let original = seed(&db, "root", "root").await;
     let unrelated = seed(&db, "other-chat", "other-chat").await;
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(30);
-    let (_, deleted) =
-        crate::usage_retention::cleanup_agent_sessions(&db, cutoff, chrono::Utc::now())
-            .await
-            .unwrap();
+    let cutoff = desk_agent_data_store::datetime::utc_now()
+        - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(720));
+    let (_, deleted) = crate::usage_retention::cleanup_agent_sessions(
+        &db,
+        cutoff,
+        desk_agent_data_store::datetime::utc_now(),
+    )
+    .await
+    .unwrap();
     assert_eq!(deleted, 1);
     let removed = read(&db, &original).await;
     assert_eq!(removed.state, issue_reply::NOT_SENT);

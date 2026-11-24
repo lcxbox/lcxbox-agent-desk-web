@@ -11,8 +11,8 @@ pub(super) async fn with_history(
     session: &PersistedAgentSession,
     state_json: &str,
     new_version: i64,
-    now: chrono::DateTime<chrono::Utc>,
-    lease_deadline: Option<chrono::DateTime<chrono::Utc>>,
+    now: sea_orm::prelude::DateTimeUtc,
+    lease_deadline: Option<sea_orm::prelude::DateTimeUtc>,
 ) -> Result<sea_orm::UpdateResult, AgentError> {
     let txn = crate::db::begin_write(db, agent_session::Entity)
         .await
@@ -61,7 +61,7 @@ pub(super) async fn with_history(
     let outcomes = desk_diagnose_core::future::boxed(|| pending.finalize_on())
         .await
         .map_err(history_error)?;
-    let completed = u64::try_from(chrono::Utc::now().timestamp_millis())
+    let completed = u64::try_from(jiff::Timestamp::now().as_millisecond())
         .map_err(|_| history_error(AgentStoreError::Inaccessible))?;
     if outcomes.len() != deadlines.len()
         || held_until.is_some_and(|until| until <= completed)
@@ -85,8 +85,8 @@ pub(crate) async fn persist_on<C: ConnectionTrait>(
     session: &PersistedAgentSession,
     state_json: &str,
     new_version: i64,
-    now: chrono::DateTime<chrono::Utc>,
-    lease_deadline: Option<chrono::DateTime<chrono::Utc>>,
+    now: sea_orm::prelude::DateTimeUtc,
+    lease_deadline: Option<sea_orm::prelude::DateTimeUtc>,
     original: Option<&agent_session::Model>,
 ) -> Result<sea_orm::UpdateResult, sea_orm::DbErr> {
     // A native caller without an agent-data scope retains the original

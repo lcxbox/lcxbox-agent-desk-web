@@ -159,7 +159,12 @@ impl Fixture {
                 .bind_agent_request_targets(vec!["device-1".into()])
                 .unwrap();
             row.device_id.clear();
-            row.lease_deadline = Some(Utc::now() + chrono::Duration::minutes(5));
+            row.lease_deadline = Some(
+                desk_agent_data_store::datetime::utc_now()
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(5),
+                    ),
+            );
             crate::device_code_store::get_or_create(&db, "device-1")
                 .await
                 .unwrap();
@@ -201,8 +206,10 @@ impl Fixture {
         }
         let turn_id = session.current_turn_id.clone().unwrap();
 
-        let now = u64::try_from(Utc::now().timestamp_millis()).unwrap();
-        let expires_at = (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339();
+        let now = u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap();
+        let expires_at = desk_utils::datetime::rfc3339(
+            jiff::Timestamp::now() + jiff::SignedDuration::from_mins(5),
+        );
         let surface = ObjectRef {
             token: "selected-browser".into(),
             snapshot_id: "snapshot-1".into(),
@@ -629,7 +636,7 @@ async fn unknown_work_cannot_gain_new_acceptance_but_existing_acceptance_stays_i
                 &fixture.plan.execution_generation,
                 &fixture.plan.action_request_id,
                 1,
-                u64::try_from(Utc::now().timestamp_millis()).unwrap(),
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap(),
             )
             .await
             .unwrap();
@@ -662,7 +669,7 @@ async fn expired_and_terminal_actions_cannot_gain_first_acceptance() {
                         outcome: CapabilityDispatchOutcome::Succeeded,
                         result_digest_sha256: "a".repeat(64),
                     },
-                    u64::try_from(Utc::now().timestamp_millis()).unwrap(),
+                    u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap(),
                 )
                 .await
                 .unwrap();
@@ -670,7 +677,9 @@ async fn expired_and_terminal_actions_cannot_gain_first_acceptance() {
             let row = fixture.outbox().await;
             let mut binding: ComputerBinding =
                 serde_json::from_str(row.computer_binding_json.as_ref().unwrap()).unwrap();
-            binding.plan.expires_at = (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
+            binding.plan.expires_at = desk_utils::datetime::rfc3339(
+                jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1),
+            );
             let mut active: agent_capability_dispatch_outbox::ActiveModel = row.into();
             active.computer_binding_json = Set(Some(serde_json::to_string(&binding).unwrap()));
             active.update(&fixture.store.db).await.unwrap();

@@ -6,7 +6,6 @@ use desk_agent_data_store::entity_table::EntityTableExt;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use desk_diagnose_core::durable_action::{
     CancelRequestOutcome, ClaimedAction, DurableActionLifecycle, RecoveredAction, WritebackOutcome,
 };
@@ -87,9 +86,9 @@ impl SignalActionStore {
                 "generic Signal action store does not replace confirmed exec".into(),
             ));
         }
-        let now = Utc::now();
-        let ttl = chrono::Duration::from_std(approval_ttl)
-            .unwrap_or_else(|_| chrono::Duration::seconds(120));
+        let now = desk_agent_data_store::datetime::utc_now();
+        let ttl = jiff::SignedDuration::try_from(approval_ttl)
+            .unwrap_or_else(|_| jiff::SignedDuration::from_secs(120));
         let action_request_id = draft.action_request_id;
         agent_action_item::ActiveModel {
             kind: Set(draft.kind.as_str().into()),
@@ -102,7 +101,9 @@ impl SignalActionStore {
             target_device_id: Set(draft.target_device_id),
             status: Set(STATUS_AWAITING_APPROVAL.into()),
             attempt: Set(0),
-            approval_expires_at: Set(Some(now + ttl)),
+            approval_expires_at: Set(Some(
+                now + desk_agent_data_store::datetime::database_interval(ttl),
+            )),
             draft_hash: Set(draft.draft_hash),
             policy_revision: Set(draft.policy_revision),
             is_side_effecting: Set(draft.is_side_effecting),
@@ -141,7 +142,7 @@ impl SignalActionStore {
         if row.status != STATUS_AWAITING_APPROVAL {
             return Ok(ApprovalOutcome::AlreadyResolved);
         }
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         if row.approval_expires_at.is_some_and(|expiry| expiry <= now) {
             let result = agent_action_item::Entity::update_many()
                 .col_expr(
@@ -280,8 +281,12 @@ fn claimed(row: agent_action_item::Model) -> Result<ClaimedAction, DbErr> {
     })
 }
 
-fn lease_deadline(lease: Duration) -> DateTime<Utc> {
-    Utc::now() + chrono::Duration::from_std(lease).unwrap_or_else(|_| chrono::Duration::seconds(30))
+fn lease_deadline(lease: Duration) -> sea_orm::prelude::DateTimeUtc {
+    desk_agent_data_store::datetime::utc_now()
+        + desk_agent_data_store::datetime::database_interval(
+            jiff::SignedDuration::try_from(lease)
+                .unwrap_or_else(|_| jiff::SignedDuration::from_secs(30)),
+        )
 }
 
 #[async_trait]
@@ -293,7 +298,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
         lease: Duration,
     ) -> Result<Option<ClaimedAction>, DbErr> {
         let token = Uuid::new_v4().to_string();
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let result = agent_action_item::Entity::update_many()
             .col_expr(
                 agent_action_item::Column::Status,
@@ -337,7 +342,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
             )
             .col_expr(
                 agent_action_item::Column::UpdatedAt,
-                Expr::value(Utc::now()),
+                Expr::value(desk_agent_data_store::datetime::utc_now()),
             )
             .filter(agent_action_item::Column::ClaimToken.eq(claim_token))
             .filter(agent_action_item::Column::Status.is_in([STATUS_CLAIMED, STATUS_DISPATCHED]))
@@ -350,7 +355,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
         let Some(row) = self.row_for_claim_token(claim_token).await? else {
             return Ok(false);
         };
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let result = agent_action_item::Entity::update_many()
             .col_expr(
                 agent_action_item::Column::Status,
@@ -392,7 +397,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
             )
             .col_expr(
                 agent_action_item::Column::DispatchIntentAt,
-                Expr::value(None::<DateTime<Utc>>),
+                Expr::value(None::<sea_orm::prelude::DateTimeUtc>),
             )
             .col_expr(
                 agent_action_item::Column::ClaimToken,
@@ -404,11 +409,11 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
             )
             .col_expr(
                 agent_action_item::Column::LeaseExpiresAt,
-                Expr::value(None::<DateTime<Utc>>),
+                Expr::value(None::<sea_orm::prelude::DateTimeUtc>),
             )
             .col_expr(
                 agent_action_item::Column::UpdatedAt,
-                Expr::value(Utc::now()),
+                Expr::value(desk_agent_data_store::datetime::utc_now()),
             )
             .filter(agent_action_item::Column::ClaimToken.eq(claim_token))
             .filter(agent_action_item::Column::Attempt.eq(attempt))
@@ -434,7 +439,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
             )
             .col_expr(
                 agent_action_item::Column::DispatchIntentAt,
-                Expr::value(None::<DateTime<Utc>>),
+                Expr::value(None::<sea_orm::prelude::DateTimeUtc>),
             )
             .col_expr(
                 agent_action_item::Column::ClaimToken,
@@ -446,7 +451,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
             )
             .col_expr(
                 agent_action_item::Column::LeaseExpiresAt,
-                Expr::value(None::<DateTime<Utc>>),
+                Expr::value(None::<sea_orm::prelude::DateTimeUtc>),
             )
             .col_expr(
                 agent_action_item::Column::ResultJson,
@@ -458,7 +463,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
             )
             .col_expr(
                 agent_action_item::Column::UpdatedAt,
-                Expr::value(Utc::now()),
+                Expr::value(desk_agent_data_store::datetime::utc_now()),
             )
             .filter(agent_action_item::Column::ClaimToken.eq(claim_token))
             .filter(agent_action_item::Column::Attempt.eq(attempt))
@@ -489,7 +494,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
             )
             .col_expr(
                 agent_action_item::Column::UpdatedAt,
-                Expr::value(Utc::now()),
+                Expr::value(desk_agent_data_store::datetime::utc_now()),
             )
             .filter(agent_action_item::Column::ClaimToken.eq(claim_token))
             .filter(agent_action_item::Column::Attempt.eq(attempt))
@@ -553,7 +558,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
             )
             .col_expr(
                 agent_action_item::Column::UpdatedAt,
-                Expr::value(Utc::now()),
+                Expr::value(desk_agent_data_store::datetime::utc_now()),
             )
             .filter(agent_action_item::Column::Id.eq(work_id))
             .filter(agent_action_item::Column::ExecutionId.eq(execution_id))
@@ -570,7 +575,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
     }
 
     async fn recover_expired(&self, kind: WorkKind) -> Result<Vec<RecoveredAction>, DbErr> {
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let candidates = agent_action_item::Entity::find()
             .filter(agent_action_item::Column::Kind.eq(kind.as_str()))
             .filter(agent_action_item::Column::Status.is_in([STATUS_CLAIMED, STATUS_DISPATCHED]))
@@ -588,7 +593,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
                 .col_expr(agent_action_item::Column::Status, Expr::value(new_status))
                 .col_expr(
                     agent_action_item::Column::LeaseExpiresAt,
-                    Expr::value(None::<DateTime<Utc>>),
+                    Expr::value(None::<sea_orm::prelude::DateTimeUtc>),
                 )
                 .col_expr(agent_action_item::Column::UpdatedAt, Expr::value(now));
             if new_status == STATUS_APPROVED {
@@ -611,7 +616,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
                     )
                     .col_expr(
                         agent_action_item::Column::DispatchIntentAt,
-                        Expr::value(None::<DateTime<Utc>>),
+                        Expr::value(None::<sea_orm::prelude::DateTimeUtc>),
                     );
             }
             let updated = update
@@ -642,11 +647,11 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
         let updated = agent_action_item::Entity::update_many()
             .col_expr(
                 agent_action_item::Column::ManualResolvedAt,
-                Expr::value(Some(Utc::now())),
+                Expr::value(Some(desk_agent_data_store::datetime::utc_now())),
             )
             .col_expr(
                 agent_action_item::Column::UpdatedAt,
-                Expr::value(Utc::now()),
+                Expr::value(desk_agent_data_store::datetime::utc_now()),
             )
             .filter(agent_action_item::Column::Id.eq(work_id))
             .filter(agent_action_item::Column::Status.is_in([STATUS_DISPATCHED, STATUS_UNKNOWN]))
@@ -678,7 +683,7 @@ impl DurableActionLifecycle<DbErr> for SignalActionStore {
         ) {
             return Ok(CancelRequestOutcome::AlreadyTerminal);
         }
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         if matches!(row.status.as_str(), STATUS_DISPATCHED | STATUS_UNKNOWN) {
             agent_action_item::Entity::update_many()
                 .col_expr(
@@ -849,7 +854,12 @@ mod tests {
         agent_action_item::Entity::update_many()
             .col_expr(
                 agent_action_item::Column::LeaseExpiresAt,
-                Expr::value(Some(Utc::now() - chrono::Duration::seconds(1))),
+                Expr::value(Some(
+                    desk_agent_data_store::datetime::utc_now()
+                        - desk_agent_data_store::datetime::database_interval(
+                            jiff::SignedDuration::from_secs(1),
+                        ),
+                )),
             )
             .filter(agent_action_item::Column::Id.eq(row.id))
             .exec(&store.db)

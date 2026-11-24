@@ -135,7 +135,7 @@ async fn an_eligible_native_send_without_its_original_producer_records_a_gap_wit
         image_data_url: None,
         document_preview: None,
     };
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     // This layer receives already authenticated native facts. A missing model
     // producer still denies body retention without guessing a projection.
     let receipt = origin

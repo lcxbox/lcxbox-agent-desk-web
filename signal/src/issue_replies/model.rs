@@ -57,7 +57,7 @@ pub(crate) async fn authorize_model_on(
         &original,
         &call,
         destination,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     .map_err(|_| denied())?;

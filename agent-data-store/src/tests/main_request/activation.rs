@@ -60,7 +60,7 @@ fn agent_session() -> desk_diagnose_core::session::PersistedAgentSession {
 #[tokio::test]
 async fn failed_activations_back_off_then_close_the_request_with_its_error_code() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let row = enqueue_at(&db, "a", now - 60_000).await;
     // An elapsed coordination deferral is a separate schedule and is kept.
     request::Entity::update_many()
@@ -144,7 +144,7 @@ async fn failed_activations_back_off_then_close_the_request_with_its_error_code(
 #[tokio::test]
 async fn a_failure_without_an_error_code_closes_the_request_with_none() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let row = enqueue_at(&db, "a", now).await;
     for attempt in 1..=queue::MAX_ACTIVATION_ATTEMPTS {
         let scanned = reload(&db, &row).await;
@@ -169,7 +169,7 @@ async fn a_failure_without_an_error_code_closes_the_request_with_none() {
 #[tokio::test]
 async fn one_scan_records_once_and_cancellation_or_activation_wins_over_a_stale_scan() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let a = enqueue_at(&db, "a", now).await;
     assert!(matches!(
         record(&db, &a, now).await,
@@ -218,7 +218,7 @@ async fn one_scan_records_once_and_cancellation_or_activation_wins_over_a_stale_
 #[tokio::test]
 async fn a_deferred_head_lets_a_due_follower_start_after_unclaimed_activations() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let a = enqueue_at(&db, "a", now).await;
     let b = enqueue_at(&db, "b", now).await;
     let c = enqueue_at(&db, "c", now).await;
@@ -260,7 +260,7 @@ async fn a_deferred_head_lets_a_due_follower_start_after_unclaimed_activations()
 #[tokio::test]
 async fn admission_order_decides_between_a_committed_backoff_and_a_selected_head() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     // A backoff that commits first hides the head from admission.
     let a = enqueue_at(&db, "a", now).await;
     record(&db, &a, now).await;
@@ -310,7 +310,7 @@ async fn admission_order_decides_between_a_committed_backoff_and_a_selected_head
 async fn coordination_and_paused_deferrals_keep_an_activation_backoff_separate() {
     use desk_diagnose_core::chat::{ModelTurn, StopReason};
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let a = enqueue_at(&db, "a", now).await;
     enqueue_at(&db, "b", now).await;
     let mut session = agent_session();
@@ -364,7 +364,7 @@ async fn coordination_and_paused_deferrals_keep_an_activation_backoff_separate()
 async fn an_old_scan_loses_to_a_paused_deferral_a_reservation_and_a_selected_route() {
     use desk_diagnose_core::chat::{ModelTurn, StopReason};
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     // Three failures, then a paused-source deferral, then the old scan's
     // fourth failure: the subscription may still resume its request.
     let a = enqueue_at(&db, "a", now).await;
@@ -398,7 +398,7 @@ async fn an_old_scan_loses_to_a_paused_deferral_a_reservation_and_a_selected_rou
             None,
             1,
             agent_session().scope_snapshot,
-            &chrono::Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         )
         .unwrap();
     workbench.surface = desk_diagnose_core::session::AgentSessionSurface::AiAgent;
@@ -466,7 +466,7 @@ async fn an_old_scan_loses_to_a_paused_deferral_a_reservation_and_a_selected_rou
 #[tokio::test]
 async fn an_unreadable_follower_ends_the_batch_and_later_fails_as_its_own_head() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let a = enqueue_at(&db, "a", now).await;
     let b = enqueue_at(&db, "b", now).await;
     request::Entity::update_many()
@@ -506,7 +506,7 @@ async fn an_unreadable_follower_ends_the_batch_and_later_fails_as_its_own_head()
 #[tokio::test]
 async fn a_head_that_cannot_be_projected_fails_its_reservation_alone() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let mut broken = input("a", "Request a");
     broken.destination = desk_agent_protocol::data_lineage::DestinationIdentity::Model {
         connection_id: "gateway".into(),
@@ -536,7 +536,7 @@ async fn a_head_that_cannot_be_projected_fails_its_reservation_alone() {
 #[tokio::test]
 async fn a_candidate_changed_after_its_read_rolls_the_reservation_back() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let a = enqueue_at(&db, "a", now).await;
     let b = enqueue_at(&db, "b", now).await;
     // Simulate the concurrent writer between the read and the final update.
@@ -685,7 +685,7 @@ fn progress_counts_only_an_uncancelled_attempt_that_neither_waited_nor_was_admit
 #[tokio::test]
 async fn failed_receipts_list_the_latest_failures_by_when_they_failed() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let mut rows = Vec::new();
     for index in 0..10_i64 {
         let row = enqueue_at(&db, &format!("m{index}"), now).await;
@@ -729,7 +729,7 @@ async fn failed_receipts_list_the_latest_failures_by_when_they_failed() {
 #[tokio::test]
 async fn a_claim_fences_failure_records_between_attempts() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let row = enqueue_at(&db, "fenced", now).await;
     // An older attempt claims, then a newer one takes the row over.
     let older = queue::claim_activation(&db, &row).await.unwrap().unwrap();
@@ -778,7 +778,7 @@ async fn a_claim_fences_failure_records_between_attempts() {
 #[tokio::test]
 async fn a_stale_claim_cannot_activate_close_or_defer_the_row() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let row = enqueue_at(&db, "stale-claim", now).await;
     let older = queue::claim_activation(&db, &row).await.unwrap().unwrap();
     let newer = queue::claim_activation(&db, &reload(&db, &row).await)
@@ -829,7 +829,7 @@ async fn a_stale_claim_cannot_activate_close_or_defer_the_row() {
 #[tokio::test]
 async fn an_exhausted_claim_or_attempt_counter_takes_nothing() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let row = enqueue_at(&db, "exhausted", now).await;
     request::Entity::update_many()
         .col_expr(request::Column::ActivationClaim, Expr::value(i64::MAX))
@@ -864,7 +864,7 @@ async fn an_exhausted_claim_or_attempt_counter_takes_nothing() {
 #[tokio::test]
 async fn a_stale_claim_cannot_reserve_or_settle_the_heads_coordination() {
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let a = enqueue_at(&db, "a", now).await;
     let b = enqueue_at(&db, "b", now).await;
     request::Entity::update_many()

@@ -91,7 +91,7 @@ impl Batch {
             return Ok(None);
         }
         let input = FrozenRequestInput::decode(&row)?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = jiff::Timestamp::now().as_millisecond();
         let authority = if let Some(reference) = input
             .reads
             .external_issue_sources

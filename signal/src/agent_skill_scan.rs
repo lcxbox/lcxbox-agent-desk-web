@@ -177,7 +177,7 @@ fn egress_policy(
         destination: destination.clone(),
         selected_source_tools: Default::default(),
         export_authorization_id: export_id.into(),
-        now_unix_ms: u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| "clock")?,
+        now_unix_ms: u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| "clock")?,
         byte_cap: desk_diagnose_core::approval_review::MAX_APPROVAL_CONTEXT_BYTES,
         permission_resume: false,
     })

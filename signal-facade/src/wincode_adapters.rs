@@ -1,64 +1,15 @@
-//! Wincode `SchemaWrite` / `SchemaRead` adapters for types that wincode does
-//! not support natively.
-//!
-//! ## Why this module exists
-//!
-//! The daemon ↔ worker IPC migrated from bincode v2 to wincode.
-//! Several `model::*` types embed `chrono::DateTime<Local>` fields and used to
-//! ride bincode 2's `#[bincode(with_serde)]` field attribute to delegate to
-//! chrono's serde impl. wincode does not delegate to serde — every IPC type
-//! must implement `SchemaWrite` / `SchemaRead` directly, so this module
-//! provides a hand-rolled adapter for the chrono types the facade exposes.
-//!
-//! ## Wire format
-//!
-//! `DateTimeLocalWincode` encodes a `chrono::DateTime<Local>` as `i64` Unix
-//! epoch nanoseconds (UTC reference). On the receive side the i64 is
-//! converted back to `DateTime<Local>` using the receiver's local timezone.
-//!
-//! The original `Local` timezone offset is *intentionally* dropped on the
-//! wire: daemon and worker run in the same OS session and observe the same
-//! `Local` reference, so the wall-clock instant survives the round-trip
-//! without timezone metadata. Out-of-window values
-//! (~ before 1677 or after 2262, where `timestamp_nanos_opt()` returns
-//! `None`) saturate to the Unix epoch — acceptable for the file-metadata
-//! fields this adapter serves.
-//!
-//! ## Usage
-//!
-//! On any IPC payload field whose type is `DateTime<Local>` or
-//! `Option<DateTime<Local>>`:
-//!
-//! ```ignore
-//! use chrono::{DateTime, Local};
-//! use crate::wincode_adapters::DateTimeLocalWincode;
-//!
-//! #[derive(wincode::SchemaWrite, wincode::SchemaRead)]
-//! struct MyPayload {
-//!     #[wincode(with = "DateTimeLocalWincode")]
-//!     accessed: DateTime<Local>,
-//!
-//!     #[wincode(with = "Option<DateTimeLocalWincode>")]
-//!     deadline: Option<DateTime<Local>>,
-//! }
-//! ```
-//!
-//! The `Option<DateTimeLocalWincode>` syntax is validated by the
-//! `pocs/poc-ipc-bench` fixture — wincode-derive resolves it against the
-//! `SchemaWrite` / `SchemaRead` impls below whose `Src` / `Dst` is
-//! `DateTime<Local>`, so a single adapter type suffices for both bare and
-//! `Option`-wrapped fields.
+//! IPC file timestamps are signed 64-bit Unix nanoseconds.
 
-use chrono::{DateTime, Local, TimeZone, Utc};
 use core::mem::MaybeUninit;
+use jiff::Timestamp;
 use wincode::config::ConfigCore;
 use wincode::error::{ReadResult, WriteResult};
 use wincode::io::{Reader, Writer};
 use wincode::{SchemaRead, SchemaWrite, TypeMeta};
 
-/// Zero-sized adapter for `chrono::DateTime<Local>`. Implements
-/// `SchemaWrite<C>` (Src = `DateTime<Local>`) and `SchemaRead<'de, C>`
-/// (Dst = `DateTime<Local>`).
+/// Zero-sized adapter for `Timestamp`. Implements
+/// `SchemaWrite<C>` (Src = `Timestamp`) and `SchemaRead<'de, C>`
+/// (Dst = `Timestamp`).
 ///
 /// Encoded form: exactly an i64 (8 bytes under wincode's `FixInt +
 /// LittleEndian` default configuration, which the daemon ↔ worker IPC
@@ -66,40 +17,39 @@ use wincode::{SchemaRead, SchemaWrite, TypeMeta};
 pub struct DateTimeLocalWincode;
 
 // SAFETY: `size_of` always returns the exact 8 bytes that `write` emits
-// (one i64). `zero_copy = false` because `DateTime<Local>`'s in-memory
-// representation is not an i64 — readers must materialise a chrono value
+// (one i64). `zero_copy = false` because `Timestamp`'s in-memory
+// representation is not an i64 — readers must materialise a timestamp
 // rather than transmute.
 unsafe impl<C: ConfigCore> SchemaWrite<C> for DateTimeLocalWincode {
-    type Src = DateTime<Local>;
+    type Src = Timestamp;
     const TYPE_META: TypeMeta = TypeMeta::Static {
         size: 8,
         zero_copy: false,
     };
 
-    fn size_of(_src: &DateTime<Local>) -> WriteResult<usize> {
+    fn size_of(_src: &Timestamp) -> WriteResult<usize> {
         Ok(8)
     }
 
-    fn write(writer: impl Writer, src: &DateTime<Local>) -> WriteResult<()> {
-        let ns: i64 = src.timestamp_nanos_opt().unwrap_or(0);
+    fn write(writer: impl Writer, src: &Timestamp) -> WriteResult<()> {
+        let ns: i64 = i64::try_from(src.as_nanosecond()).unwrap_or(0);
         <i64 as SchemaWrite<C>>::write(writer, &ns)
     }
 }
 
 // SAFETY: `read` initialises `dst` only on the `Ok(())` path (after
 // successfully reading the inner i64 and constructing the
-// `DateTime<Local>`). On error, `dst` is left untouched.
+// `Timestamp`). On error, `dst` is left untouched.
 unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for DateTimeLocalWincode {
-    type Dst = DateTime<Local>;
+    type Dst = Timestamp;
     const TYPE_META: TypeMeta = TypeMeta::Static {
         size: 8,
         zero_copy: false,
     };
 
-    fn read(reader: impl Reader<'de>, dst: &mut MaybeUninit<DateTime<Local>>) -> ReadResult<()> {
+    fn read(reader: impl Reader<'de>, dst: &mut MaybeUninit<Timestamp>) -> ReadResult<()> {
         let ns: i64 = <i64 as SchemaRead<'de, C>>::get(reader)?;
-        let utc: DateTime<Utc> = Utc.timestamp_nanos(ns);
-        dst.write(utc.with_timezone(&Local));
+        dst.write(Timestamp::from_nanosecond(i128::from(ns)).expect("all i64 nanoseconds fit"));
         Ok(())
     }
 }
@@ -113,16 +63,16 @@ mod tests {
         Configuration::new()
     }
 
-    /// Bare `DateTime<Local>` field round-trips. A non-zero ns instant
+    /// Bare `Timestamp` field round-trips. A non-zero ns instant
     /// is chosen so any byte-order or sign-extension bug surfaces as a
     /// visible diff rather than a coincidental all-zero match.
     #[derive(Debug, Clone, PartialEq, Eq, wincode::SchemaWrite, wincode::SchemaRead)]
     struct BareDateTimeField {
         #[wincode(with = "DateTimeLocalWincode")]
-        accessed: DateTime<Local>,
+        accessed: Timestamp,
     }
 
-    /// `Option<DateTime<Local>>` field — `#[wincode(with = "Option<...>")]`
+    /// `Option<Timestamp>` field — `#[wincode(with = "Option<...>")]`
     /// resolution against the bare adapter is the central finding
     /// that this module relies on, and it's re-verified here on the
     /// production crate so a future wincode-derive update that breaks
@@ -130,16 +80,13 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Eq, wincode::SchemaWrite, wincode::SchemaRead)]
     struct OptionDateTimeField {
         #[wincode(with = "Option<DateTimeLocalWincode>")]
-        deadline: Option<DateTime<Local>>,
+        deadline: Option<Timestamp>,
     }
 
     #[test]
     fn datetime_local_round_trips_wincode() {
         let value = BareDateTimeField {
-            accessed: Local
-                .with_ymd_and_hms(2026, 5, 10, 14, 30, 45)
-                .single()
-                .expect("valid local time"),
+            accessed: "2026-05-10T14:30:45Z".parse::<Timestamp>().unwrap(),
         };
         let config = unbounded_config();
         let bytes = wincode::config::serialize(&value, config).expect("encode");
@@ -154,12 +101,7 @@ mod tests {
         let config = unbounded_config();
 
         let some_value = OptionDateTimeField {
-            deadline: Some(
-                Local
-                    .with_ymd_and_hms(2030, 1, 1, 0, 0, 0)
-                    .single()
-                    .expect("valid local time"),
-            ),
+            deadline: Some("2030-01-01T00:00:00Z".parse::<Timestamp>().unwrap()),
         };
         let bytes = wincode::config::serialize(&some_value, config).expect("encode some");
         let back: OptionDateTimeField =
@@ -175,20 +117,17 @@ mod tests {
 
     /// The Unix epoch (`ns = 0`) and a representative pre-epoch instant
     /// must both survive a round-trip — pre-epoch values produce
-    /// negative `timestamp_nanos_opt()` so this catches any sign-bit
+    /// negative `Unix nanoseconds` so this catches any sign-bit
     /// drop during the i64 conversion.
     #[test]
     fn datetime_local_round_trips_epoch_and_pre_epoch() {
         let config = unbounded_config();
         for value in [
             BareDateTimeField {
-                accessed: Utc.timestamp_nanos(0).with_timezone(&Local),
+                accessed: Timestamp::UNIX_EPOCH,
             },
             BareDateTimeField {
-                accessed: Local
-                    .with_ymd_and_hms(1965, 7, 4, 12, 0, 0)
-                    .single()
-                    .expect("valid pre-epoch local time"),
+                accessed: "1965-07-04T12:00:00Z".parse::<Timestamp>().unwrap(),
             },
         ] {
             let bytes = wincode::config::serialize(&value, config).expect("encode");

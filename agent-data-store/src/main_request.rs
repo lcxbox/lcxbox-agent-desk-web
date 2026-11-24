@@ -389,7 +389,7 @@ pub async fn recovery_heads(
 ) -> Result<Vec<request::Model>, AgentStoreError> {
     use request::Column;
     use sea_orm::sea_query::Func;
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = jiff::Timestamp::now().as_millisecond();
     let active = Condition::all()
         .add(Column::State.eq(ACTIVATED))
         .add(Column::PendingInputJson.is_not_null())
@@ -469,7 +469,7 @@ pub async fn fail_unclaimed(
     txn: &impl ConnectionTrait,
     row: &request::Model,
     session: &mut PersistedAgentSession,
-    now: chrono::DateTime<chrono::Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
     reason: MainRequestFailure,
 ) -> Result<bool, AgentStoreError> {
     if session.queue_conversation_id() != row.conversation_id
@@ -607,8 +607,12 @@ impl FrozenRequestInput {
         self.reads
             .expires_at
             .as_deref()
-            .and_then(|date| chrono::DateTime::parse_from_rfc3339(date).ok())
-            .is_some_and(|date| date.timestamp_millis() <= now_ms)
+            .and_then(|date| {
+                desk_utils::datetime::parse_rfc3339(date)
+                    .ok()
+                    .map(desk_utils::datetime::unix_millis)
+            })
+            .is_some_and(|ms| ms <= now_ms)
             || self.reads.object_attachments.iter().any(|attachment| {
                 !attachment.is_active_at(u64::try_from(now_ms).unwrap_or_default())
             })
@@ -1345,7 +1349,7 @@ pub async fn first_pending(
     Ok(eligible_pending(
         actor_id,
         conversation_id,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .order_by_asc(request::Column::Id)
     .one(txn)

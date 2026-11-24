@@ -56,7 +56,7 @@ pub(super) async fn fixture_with_model(
         .await
         .unwrap()
         .unwrap();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut session = PersistedAgentSession::new(
         "root",
         "1",
@@ -165,7 +165,11 @@ pub(super) async fn fixture_with_model(
         state_json: Set(session.encode_json_for_storage().unwrap()),
         version: Set(session.version),
         lease_token: Set(session.lease_token as i64),
-        lease_deadline: Set(Some(now + chrono::Duration::seconds(90))),
+        lease_deadline: Set(Some(
+            now + desk_agent_data_store::datetime::database_interval(
+                jiff::SignedDuration::from_secs(90),
+            ),
+        )),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -258,8 +262,8 @@ async fn direct_send_records_live_sources_only_with_its_original_native_receipt(
         .await
         .unwrap()
         .unwrap();
-    assert!(deadline > chrono::Utc::now().timestamp_millis() as u64);
-    assert!(deadline <= chrono::Utc::now().timestamp_millis() as u64 + 90_000);
+    assert!(deadline > jiff::Timestamp::now().as_millisecond() as u64);
+    assert!(deadline <= jiff::Timestamp::now().as_millisecond() as u64 + 90_000);
     assert_eq!(authorization::Entity::find().count(&txn).await.unwrap(), 1);
     assert_eq!(source_use::Entity::find().count(&txn).await.unwrap(), 1);
     assert_eq!(memory_use::Entity::find().count(&txn).await.unwrap(), 1);
@@ -314,7 +318,7 @@ async fn a_source_revoked_after_preparation_rolls_back_the_native_receipt_and_ev
     origin::Entity::update_many()
         .col_expr(
             origin::Column::DeletedAtMs,
-            Expr::value(Some(chrono::Utc::now().timestamp_millis())),
+            Expr::value(Some(jiff::Timestamp::now().as_millisecond())),
         )
         .filter(origin::Column::Id.eq(original))
         .exec(&txn)

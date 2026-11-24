@@ -13,7 +13,7 @@ fn grouped_request(
     serde_json::from_value(serde_json::json!({
         "schema_version": desk_diagnose_core::dynamic_run::PERMISSION_REQUEST_SCHEMA_VERSION,
         "request_id": request_id, "input_revision": 1, "state": "pending",
-        "created_at": Utc::now().to_rfc3339(), "items": [{
+        "created_at": desk_utils::datetime::rfc3339(jiff::Timestamp::now()), "items": [{
             "item_id": format!("call-{request_id}"), "provider_id": "desktop.session",
             "tool_name": "inspect_desktop_session", "expected_effect": "read_device",
             "resource_scope": ["target:current_device"], "operation_scope": ["observe"],
@@ -89,8 +89,8 @@ async fn decide(db: &DatabaseConnection, cid: &str, request_id: &str) {
         state: Set("pending".into()),
         turn_id: Set(None),
         version: Set(1),
-        created_at: Set(Utc::now()),
-        updated_at: Set(Utc::now()),
+        created_at: Set(desk_agent_data_store::datetime::utc_now()),
+        updated_at: Set(desk_agent_data_store::datetime::utc_now()),
         ..Default::default()
     }
     .insert(db)
@@ -124,22 +124,36 @@ async fn goal_wake_waits_for_the_whole_group_in_both_decision_orders() {
             .push(grouped_request("request-2", 1));
         write(&db, &row, &session).await;
         // The goal waits on the step's first request, the held call's.
-        let mut waiting = goal(&cid, Utc::now().timestamp_millis() as u64);
+        let mut waiting = goal(&cid, jiff::Timestamp::now().as_millisecond() as u64);
         waiting.state = GoalState::Waiting(GoalWaitReason::Approval);
         waiting.status_reason = Some("request-1".into());
         insert(&db, &waiting).await;
 
         decide(&db, &cid, first).await;
-        let wake = wake_for_permission_decision(&db, &cid, "1", "device-1", first, Utc::now())
-            .await
-            .unwrap();
+        let wake = wake_for_permission_decision(
+            &db,
+            &cid,
+            "1",
+            "device-1",
+            first,
+            desk_agent_data_store::datetime::utc_now(),
+        )
+        .await
+        .unwrap();
         assert_eq!(wake, GoalPermissionWake::Held, "{first} decided first");
         assert_eq!(resume_state(&db, &cid, first).await, "pending");
 
         decide(&db, &cid, last).await;
-        let wake = wake_for_permission_decision(&db, &cid, "1", "device-1", last, Utc::now())
-            .await
-            .unwrap();
+        let wake = wake_for_permission_decision(
+            &db,
+            &cid,
+            "1",
+            "device-1",
+            last,
+            desk_agent_data_store::datetime::utc_now(),
+        )
+        .await
+        .unwrap();
         assert_eq!(wake, GoalPermissionWake::Queued, "{last} decided last");
         // The woken goal handles the whole group: no member resumes alone.
         assert_eq!(resume_state(&db, &cid, "request-1").await, "goal_handled");

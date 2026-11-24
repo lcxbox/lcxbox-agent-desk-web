@@ -10,7 +10,6 @@ use crate::{
     registry::{RegisteredTool, ToolEffect},
     session::PersistedAgentSession,
 };
-use chrono::DateTime;
 use desk_agent_protocol::{
     AgentError, AgentErrorKind, AgentScope,
     computer_use::{ObjectKind, ObjectRef},
@@ -166,7 +165,7 @@ impl ReadContextSelection {
             || self
                 .expires_at
                 .as_ref()
-                .is_some_and(|value| DateTime::parse_from_rfc3339(value).is_err())
+                .is_some_and(|value| desk_utils::datetime::parse_rfc3339(value).is_err())
         {
             return Err(invalid("invalid original read context"));
         }
@@ -245,9 +244,9 @@ pub fn validate_objects(objects: &[ContextAttachment]) -> Result<(), AgentError>
         let expiry = if reference.object_kind.is_lifecycle_bound() {
             Some(u64::MAX)
         } else {
-            DateTime::parse_from_rfc3339(&reference.expires_at)
+            desk_utils::datetime::parse_rfc3339(&reference.expires_at)
                 .ok()
-                .and_then(|date| u64::try_from(date.timestamp_millis()).ok())
+                .and_then(|date| u64::try_from(desk_utils::datetime::unix_millis(date)).ok())
         };
         if !kind_matches
             || !matches!(object.state, AttachmentState::Active)

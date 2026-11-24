@@ -160,7 +160,7 @@ impl ApprovalTraceSink {
             sequence: self.sequence,
             kind: kind.into(),
             text,
-            at_ms: chrono::Utc::now().timestamp_millis(),
+            at_ms: jiff::Timestamp::now().as_millisecond(),
         };
         self.sequence += 1;
         if self.sender.try_send(part).is_err() {
@@ -229,7 +229,7 @@ impl ApprovalTraceSink {
         self.stage = stage.into();
         self.text(
             "event",
-            &(serde_json::json!({"attempt_index":self.attempt_index,"stage":stage,"origin":if matches!(stage,"first_response"|"model_finished"|"non_stream_response"){"model"}else{"server"},"at_ms":chrono::Utc::now().timestamp_millis()})
+            &(serde_json::json!({"attempt_index":self.attempt_index,"stage":stage,"origin":if matches!(stage,"first_response"|"model_finished"|"non_stream_response"){"model"}else{"server"},"at_ms":jiff::Timestamp::now().as_millisecond()})
                 .to_string()
                 + "\n"),
         );
@@ -292,7 +292,7 @@ impl ApprovalTraceSink {
             state.stop_reason = stop;
             state.usage_json = usage;
             state.reason = reason;
-            state.finished_at_ms = Some(chrono::Utc::now().timestamp_millis());
+            state.finished_at_ms = Some(jiff::Timestamp::now().as_millisecond());
         } else {
             self.partial.store(true, Ordering::Relaxed);
         }
@@ -366,7 +366,7 @@ impl TurnSink for ApprovalTraceSink {
         if let Some(tracking) = &self.tracking
             && let Ok(mut tracking) = tracking.try_lock()
         {
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = jiff::Timestamp::now().as_millisecond();
             tracking.snapshot.provider_started_at_ms.get_or_insert(now);
             if let Some(publish) = &self.publish {
                 publish(tracking.event(

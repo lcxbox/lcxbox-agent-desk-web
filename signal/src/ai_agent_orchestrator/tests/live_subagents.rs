@@ -554,7 +554,7 @@ impl ComparisonCutoff {
     fn after(duration: Duration) -> Self {
         Self {
             instant: Instant::now() + duration,
-            unix_ms: chrono::Utc::now().timestamp_millis() + duration.as_millis() as i64,
+            unix_ms: jiff::Timestamp::now().as_millisecond() + duration.as_millis() as i64,
         }
     }
 
@@ -614,7 +614,7 @@ async fn sample(
     let sessions = crate::agent_session_store::SignalAgentSessionStore::new(db.clone());
     let store = crate::agent_subagent_store::SubAgentStore::new(db.clone());
     let started = Instant::now();
-    let started_at_ms = chrono::Utc::now().timestamp_millis();
+    let started_at_ms = jiff::Timestamp::now().as_millisecond();
     let mut initial_wait_evidence = Value::Null;
     let execution = cutoff
         .run(async {
@@ -1097,7 +1097,7 @@ async fn personal_worker_web_request_scenario() {
         request_id: Some("worker-request".into()),
         connection_id: None,
         trigger_origin: desk_diagnose_core::session::TriggerOrigin::DelegatedTask,
-        now: chrono::Utc::now().to_rfc3339(),
+        now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     };
     let crate::agent_subagent_store::SubAgentClaimOutcome::Claimed(claimed) = store
         .claim_child(&claim, &run.binding.task_id, run.fence(), &destination)
@@ -1192,7 +1192,7 @@ async fn personal_worker_web_request_scenario() {
         &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         "worker-web-permission".into(),
         child.input_revision,
-        chrono::Utc::now().to_rfc3339(),
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     )
     .unwrap();
     assert!(desk_diagnose_core::agent_policy::is_targetless_permission(

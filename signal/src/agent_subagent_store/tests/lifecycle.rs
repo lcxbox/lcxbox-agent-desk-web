@@ -93,7 +93,10 @@ async fn report_session_terminal_state_and_inbox_commit_together() {
         load(&db, &binding.task_id).await.state,
         SubAgentState::Running
     );
-    session.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     assert_eq!(
         store
             .settle_answer_for_turn(&mut session, task.fence(), report().summary)
@@ -178,7 +181,10 @@ async fn prose_references_do_not_mint_receipts_and_idle_without_an_answer_does_n
     save_child_session(&db, &mut session).await.unwrap();
     assert_eq!(load(&db, &task_id).await.state, SubAgentState::Running);
     assert_eq!(load(&db, &task_id).await.report_corrections_used, 1);
-    session.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     store
         .settle_turn_for_task(&mut session, None, false)
         .await
@@ -248,7 +254,7 @@ async fn committed_source_pause_rejects_old_report_and_old_history() {
         .unwrap()
         .unwrap();
     let mut group = decode_group(&source).unwrap();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let epoch = group.set_source_admission(SourceAdmission::Paused).unwrap();
     replace_group_on(&txn, &source, &group, now.timestamp_millis())
         .await

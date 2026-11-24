@@ -137,7 +137,7 @@ pub async fn get_approval_metrics_overview(
     authorize(&session)?;
     let store = crate::model_metrics::runtime::store().ok_or_else(failure)?;
     let data = store
-        .approval_overview(&query, chrono::Utc::now().timestamp_millis())
+        .approval_overview(&query, jiff::Timestamp::now().as_millisecond())
         .await
         .map_err(|_| failure())?;
     Ok(HttpResponse::Ok()

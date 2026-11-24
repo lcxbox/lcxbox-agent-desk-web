@@ -92,7 +92,7 @@ pub(super) async fn issue_on(
                 &checked,
                 registry,
                 u64::try_from(authority.valid_until()).map_err(|_| invalid())?,
-                chrono::DateTime::from_timestamp_millis(authority.verified_at())
+                sea_orm::prelude::DateTimeUtc::from_timestamp_millis(authority.verified_at())
                     .ok_or_else(invalid)?
                     .to_rfc3339(),
             )

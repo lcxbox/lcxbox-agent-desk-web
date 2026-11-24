@@ -137,7 +137,10 @@ async fn notification_requires_the_original_accepted_provider_receipt_before_del
     assert!(event.model_observed_at_ms.is_none() && event.interpreted_at_ms.is_none());
     let answer = claimed.conversation.last().unwrap().text.clone();
     claimed.ready_subagent_notification = None;
-    claimed.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    claimed.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     children::save_main_delegation_session(&db, &mut claimed)
         .await
         .unwrap();
@@ -200,8 +203,11 @@ async fn retryable_capacity_failure_keeps_the_exact_notice_without_marking_it_de
         .ready_subagent_notification
         .as_mut()
         .unwrap()
-        .retry_after_ms = Some(chrono::Utc::now().timestamp_millis() + 30_000);
-    claimed.finish_turn(TurnState::Failed, chrono::Utc::now().to_rfc3339());
+        .retry_after_ms = Some(jiff::Timestamp::now().as_millisecond() + 30_000);
+    claimed.finish_turn(
+        TurnState::Failed,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     claimed.terminal_error = Some(error.clone());
     children::save_main_delegation_session(&db, &mut claimed)
         .await
@@ -284,7 +290,7 @@ async fn crashed_notification_claim_preserves_the_same_source_counters_and_event
     children::complete_scheduled_test_child(&db, &task_id).await;
     let claimed = super::tests::claim_on(&db, &parent).await.unwrap();
     let before = occurrence(&db, &claimed.conversation_id).await;
-    let expired = chrono::Utc::now().timestamp_millis() - 1;
+    let expired = jiff::Timestamp::now().as_millisecond() - 1;
     run::Entity::update_many()
         .set(run::ActiveModel {
             lease_deadline: Set(Some(expired)),
@@ -297,7 +303,7 @@ async fn crashed_notification_claim_preserves_the_same_source_counters_and_event
     agent_session::Entity::update_many()
         .set(agent_session::ActiveModel {
             lease_deadline: Set(Some(
-                chrono::DateTime::from_timestamp_millis(expired).unwrap(),
+                sea_orm::prelude::DateTimeUtc::from_timestamp_millis(expired).unwrap(),
             )),
             ..Default::default()
         })
@@ -345,7 +351,7 @@ async fn assert_result_only_authority(
     let source = occurrence(db, &recovered.conversation_id).await;
     // Establish that the current holder is valid before testing forged authority.
     let txn = db.begin().await.unwrap();
-    children::parent_planning_on(&txn, recovered, chrono::Utc::now().timestamp_millis())
+    children::parent_planning_on(&txn, recovered, jiff::Timestamp::now().as_millisecond())
         .await
         .unwrap();
     txn.rollback().await.unwrap();
@@ -357,7 +363,7 @@ async fn assert_result_only_authority(
         }
         let txn = db.begin().await.unwrap();
         assert!(
-            children::parent_planning_on(&txn, &forged, chrono::Utc::now().timestamp_millis())
+            children::parent_planning_on(&txn, &forged, jiff::Timestamp::now().as_millisecond())
                 .await
                 .is_err()
         );

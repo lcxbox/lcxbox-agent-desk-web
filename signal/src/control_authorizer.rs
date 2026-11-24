@@ -561,9 +561,10 @@ impl ControlFrameAuthorizer for SignalControlAuthorizer {
                 // Single round-trip device frames: wrap with the decision and
                 // relay to the edge, which re-checks and enforces.
                 SignalingType::InvokeAgentCapability | SignalingType::PreviewExecution => {
-                    let expires_at = (chrono::Utc::now()
-                        + chrono::Duration::seconds(AUTHZ_TTL_SECS))
-                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+                    let expires_at = format!(
+                        "{:.0}",
+                        jiff::Timestamp::now() + jiff::SignedDuration::from_secs(AUTHZ_TTL_SECS)
+                    );
                     build_wrapper_outcome(
                         model,
                         scope,

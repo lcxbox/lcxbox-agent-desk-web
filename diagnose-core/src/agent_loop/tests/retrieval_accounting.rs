@@ -81,9 +81,9 @@ async fn pending_read_is_durable_and_completed_response_replays_without_reopenin
         .reserved_at_unix_ms;
     assert_eq!(
         admitted_at,
-        chrono::DateTime::parse_from_rfc3339("2026-10-20T00:00:00Z")
-            .unwrap()
-            .timestamp_millis() as u64
+        desk_utils::datetime::parse_rfc3339("2026-10-20T00:00:00Z")
+            .map(desk_utils::datetime::unix_millis)
+            .unwrap() as u64
     );
     let saves = *store.saves.borrow();
     session = persisted;

@@ -309,8 +309,10 @@ impl SignalCapabilityGrantStore {
                 || work.result_json.is_some()
                 || work.manual_resolved_at.is_some()
                 || outbox.computer_acceptance_json.is_some()
-                || chrono::DateTime::parse_from_rfc3339(&plan.expires_at).map_err(|_| invalid())?
-                    <= Utc::now()
+                || desk_utils::datetime::parse_rfc3339(&plan.expires_at)
+                    .map(desk_agent_data_store::datetime::to_database)
+                    .map_err(|_| invalid())?
+                    <= desk_agent_data_store::datetime::utc_now()
             {
                 return Err(invalid());
             }
@@ -452,20 +454,21 @@ impl SignalCapabilityGrantStore {
                 if receipt.schema_version != 1
                     || receipt.accepted_at_unix_ms == 0
                     || i64::try_from(receipt.accepted_at_unix_ms).map_err(|_| invalid())?
-                        >= chrono::DateTime::parse_from_rfc3339(&binding.plan.expires_at)
+                        >= desk_utils::datetime::parse_rfc3339(&binding.plan.expires_at)
+                            .map(desk_utils::datetime::unix_millis)
                             .map_err(|_| invalid())?
-                            .timestamp_millis()
                 {
                     return Err(invalid());
                 }
                 return Ok(AcceptanceOutcome::Duplicate);
             }
-            let now = Utc::now();
+            let now = desk_agent_data_store::datetime::utc_now();
             if outbox.state != DISPATCH_OUTBOX_SENDING
                 || work.status != CAPABILITY_WORK_DISPATCHING
                 || work.result_json.is_some()
                 || work.manual_resolved_at.is_some()
-                || chrono::DateTime::parse_from_rfc3339(&binding.plan.expires_at)
+                || desk_utils::datetime::parse_rfc3339(&binding.plan.expires_at)
+                    .map(desk_agent_data_store::datetime::to_database)
                     .map_err(|_| invalid())?
                     <= now
             {

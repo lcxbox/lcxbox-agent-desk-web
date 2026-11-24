@@ -115,7 +115,7 @@ pub(crate) fn with_vault<T, Q: LocalQuota>(
 }
 
 fn now_ms() -> u64 {
-    chrono::Utc::now().timestamp_millis().max(1) as u64
+    jiff::Timestamp::now().as_millisecond().max(1) as u64
 }
 
 fn policy(vault: &desk_file_recovery::LockedVault) -> FileRecoveryPolicyDto {

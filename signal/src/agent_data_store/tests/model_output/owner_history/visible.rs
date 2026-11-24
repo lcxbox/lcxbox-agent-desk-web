@@ -49,7 +49,7 @@ async fn an_accepted_memory_answer_is_saved_after_forgetting_and_remains_visible
                 operation_id: "forget-before-own-visible-save".into(),
             },
             &AgentDataPolicy::default(),
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
@@ -73,7 +73,7 @@ async fn an_accepted_memory_answer_is_saved_after_forgetting_and_remains_visible
             1,
             &row.source_id(),
             &AgentDataPolicy::default(),
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
@@ -124,7 +124,7 @@ async fn late_source_changes_do_not_withdraw_the_already_accepted_answer_copy() 
             origin::Entity::update_many()
                 .col_expr(
                     origin::Column::DeletedAtMs,
-                    Expr::value(Some(chrono::Utc::now().timestamp_millis())),
+                    Expr::value(Some(jiff::Timestamp::now().as_millisecond())),
                 )
                 .col_expr(
                     origin::Column::DeletionGeneration,
@@ -290,7 +290,7 @@ async fn citations_are_bound_to_the_actual_consumed_roots_in_the_original_answer
             "1",
             &session.conversation_id,
             &[(answer_id.clone(), text.clone(), output.clone())],
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
             &AgentDataPolicy::default(),
         )
         .await
@@ -311,7 +311,7 @@ async fn citations_are_bound_to_the_actual_consumed_roots_in_the_original_answer
                                 "1",
                                 &conversation,
                                 &answers,
-                                chrono::Utc::now().timestamp_millis() as u64,
+                                jiff::Timestamp::now().as_millisecond() as u64,
                                 &AgentDataPolicy::default(),
                             )
                             .await;
@@ -348,7 +348,7 @@ async fn citations_are_bound_to_the_actual_consumed_roots_in_the_original_answer
                     actor,
                     conversation,
                     &[(answer_id.clone(), body, envelope)],
-                    chrono::Utc::now().timestamp_millis() as u64,
+                    jiff::Timestamp::now().as_millisecond() as u64,
                     &AgentDataPolicy::default(),
                 )
                 .await

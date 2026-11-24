@@ -30,7 +30,7 @@ pub async fn get_model_usage(
                 "model metrics unavailable",
             )
         })?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         if query
             .granularity
             .as_deref()

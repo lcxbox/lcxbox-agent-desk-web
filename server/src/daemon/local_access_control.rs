@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -36,7 +35,7 @@ pub struct LocalAccessAuthChallenge {
     pub request_id: String,
     pub nonce: Vec<u8>,
     pub action_digest: [u8; 32],
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: jiff::Timestamp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,7 +171,7 @@ pub fn elevated_proof_signature(challenge: &LocalAccessAuthChallenge) -> Vec<u8>
     digest.update(b"lcxbox-local-access-elevated-proof-v1");
     digest.update(&challenge.nonce);
     digest.update(challenge.action_digest);
-    digest.update(challenge.expires_at.timestamp_millis().to_le_bytes());
+    digest.update(desk_utils::datetime::unix_millis(challenge.expires_at).to_le_bytes());
     digest.finalize().to_vec()
 }
 
@@ -265,9 +264,9 @@ impl LocalAccessControlService {
 
         let action_digest = digest_action(&request.action, request.expected_version)?;
         let nonce = uuid::Uuid::new_v4().as_bytes().to_vec();
-        let expires_at = Utc::now()
-            + chrono::Duration::from_std(self.challenge_ttl)
-                .unwrap_or_else(|_| chrono::Duration::seconds(60));
+        let expires_at = jiff::Timestamp::now()
+            + jiff::SignedDuration::try_from(self.challenge_ttl)
+                .unwrap_or_else(|_| jiff::SignedDuration::from_secs(60));
         let public = LocalAccessAuthChallenge {
             request_id: request.request_id.clone(),
             nonce,

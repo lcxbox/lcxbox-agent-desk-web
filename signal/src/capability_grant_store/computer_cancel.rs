@@ -157,7 +157,7 @@ impl SignalCapabilityGrantStore {
         {
             return Err(invalid());
         }
-        let now = u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+        let now = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?;
         let record = task_on(txn, &work, now).await?.ok_or_else(invalid)?;
         if !record.supports_cancel {
             return Err(invalid());
@@ -214,7 +214,7 @@ impl SignalCapabilityGrantStore {
             .ok_or_else(invalid)?;
         let computer_original = original_on(&txn, &outbox.dispatch_id).await?;
         let (outbox, work, payload) = computer_original.as_ref();
-        let now = u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+        let now = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?;
         if outbox.computer_background_json.is_none() {
             return foreground::candidate(outbox, work, payload);
         }
@@ -293,7 +293,7 @@ impl SignalCapabilityGrantStore {
         lock_task(&txn, &state.action_request_id).await?;
         let computer_original = original_on(&txn, &state.execution_generation).await?;
         let (outbox, work, payload) = computer_original.as_ref();
-        let now = u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+        let now = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?;
         if outbox.computer_background_json.is_none() {
             let accepted = foreground::accept(
                 &txn, outbox, work, payload, connection, audience, state, now,

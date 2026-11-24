@@ -23,7 +23,7 @@ pub async fn database_now<C: ConnectionTrait>(db: &C) -> Result<i64, ScheduleSto
         .await?
         .ok_or(ScheduleStoreError::Invalid)?;
     Ok(row
-        .try_get::<chrono::DateTime<chrono::Utc>>("", "now")?
+        .try_get::<sea_orm::prelude::DateTimeUtc>("", "now")?
         .timestamp_millis())
 }
 

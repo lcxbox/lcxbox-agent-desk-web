@@ -15,6 +15,7 @@ mcp-client = ["dep:rmcp", "dep:reqwest-mcp", "dep:rustls", "dep:rustls-native-ce
 clap = ["dep:clap"]
 
 [dependencies]
+jiff.workspace = true
 serde_urlencoded = { workspace = true }
 desk-agent-protocol = { workspace = true }
 desk-diagnose-core = { workspace = true }
@@ -31,7 +32,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_repr = { workspace = true }
 wincode = { workspace = true }
-chrono = { workspace = true }
 webrtc = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }

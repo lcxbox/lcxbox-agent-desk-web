@@ -40,7 +40,7 @@ async fn seed_versions(
         .await
         .unwrap()
         .unwrap();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     for index in 1..=count {
         let name = if index == 1 {
             "sss".into()

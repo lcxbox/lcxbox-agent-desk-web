@@ -78,7 +78,9 @@ pub(crate) fn validate_event(
         serde_json::from_str(&row.source_envelope_ids_json).map_err(|_| invalid())?;
     let results: Vec<String> =
         serde_json::from_str(&row.result_envelope_ids_json).map_err(|_| invalid())?;
-    let created_at = DateTime::parse_from_rfc3339(&event.created_at).map_err(|_| invalid())?;
+    let created_at = desk_utils::datetime::parse_rfc3339(&event.created_at)
+        .map(desk_agent_data_store::datetime::to_database)
+        .map_err(|_| invalid())?;
     if row.event_id != event.event_id
         || row.run_id != session.conversation_id
         || event.run_id != session.conversation_id
@@ -92,7 +94,7 @@ pub(crate) fn validate_event(
         || row.input_seq.is_some()
         || sources != event.source_envelope_ids
         || results != event.result_envelope_ids
-        || created_at.with_timezone(&Utc) != row.created_at
+        || created_at != row.created_at
         || event.event_seq > session.last_event_seq
         || event.input_revision > session.input_revision
     {

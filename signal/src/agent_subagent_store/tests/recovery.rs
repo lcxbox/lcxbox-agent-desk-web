@@ -11,7 +11,7 @@ async fn child(db: &DatabaseConnection) -> (SubAgentStore, RuntimeTurn) {
 async fn child_source(db: &DatabaseConnection, goal_source: bool) -> (SubAgentStore, RuntimeTurn) {
     let (mut parent, calls) = super::creation::runnable_parent(db).await;
     if goal_source {
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let goal = desk_diagnose_core::goal::GoalRun::new(
             "recovery-goal".into(),
             "root".into(),
@@ -161,7 +161,8 @@ async fn lapsed_child_lease_recovers_only_the_finite_task_and_keeps_its_budget_a
         .await
         .unwrap()
         .unwrap();
-    let old_deadline = chrono::Utc::now() - chrono::Duration::seconds(1);
+    let old_deadline = desk_agent_data_store::datetime::utc_now()
+        - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(1));
     session_row::Entity::update_many()
         .set(session_row::ActiveModel {
             lease_deadline: Set(Some(old_deadline)),
@@ -217,7 +218,7 @@ async fn recovery_observes_a_paused_source_without_claiming_or_resetting_it() {
         .unwrap();
     let mut group = decode_group(&row).unwrap();
     let epoch = group.set_source_admission(SourceAdmission::Paused).unwrap();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     replace_group_on(&txn, &row, &group, now.timestamp_millis())
         .await
         .unwrap();
@@ -318,7 +319,12 @@ async fn an_interrupted_child_with_pending_mutation_and_memory_calls_settles() {
     session_row::Entity::update_many()
         .set(session_row::ActiveModel {
             state_json: Set(session.encode_json_for_storage().unwrap()),
-            lease_deadline: Set(Some(chrono::Utc::now() - chrono::Duration::seconds(1))),
+            lease_deadline: Set(Some(
+                desk_agent_data_store::datetime::utc_now()
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_secs(1),
+                    ),
+            )),
             ..Default::default()
         })
         .filter(session_row::Column::ConversationId.eq(&run.child_conversation_id))

@@ -325,7 +325,7 @@ mod tests {
         ModelProbeObservation {
             connection_revision: config.gateway.connection_revision,
             profile_revision: config.gateway.profile_revision,
-            tested_at: chrono::Utc::now(),
+            tested_at: desk_agent_data_store::datetime::utc_now(),
             reasoning_observed: false,
             reasoning_tokens: None,
             stop_reason: Some("stop".into()),
@@ -429,7 +429,7 @@ mod tests {
                 .unwrap()
         );
         assert!(load(&db).await.unwrap().probe_observation.is_none());
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let store = SignalAgentSessionStore::new(db.clone()).with_client_metadata(
             Some("empty-client-conversation".into()),
             AgentSessionSurface::AiAgent,

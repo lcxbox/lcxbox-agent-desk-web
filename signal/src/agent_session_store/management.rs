@@ -7,7 +7,7 @@ use sea_orm::{DbErr, ExprTrait};
 pub(crate) fn retire_unsupported_for_expiry<'a>(
     db: &'a DatabaseConnection,
     candidate: &'a agent_session::Model,
-    cutoff: chrono::DateTime<chrono::Utc>,
+    cutoff: sea_orm::prelude::DateTimeUtc,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, DbErr>> + Send + 'a>> {
     desk_diagnose_core::future::send_phase(|| async move {
         if candidate.conversation_schema_version
@@ -30,8 +30,8 @@ pub(crate) fn retire_unsupported_for_expiry<'a>(
         }
         let txn = crate::db::begin_write(db, agent_session::Entity).await?;
 
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        let now = chrono::DateTime::from_timestamp_millis(now_ms)
+        let now_ms = jiff::Timestamp::now().as_millisecond();
+        let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms)
             .ok_or_else(|| DbErr::Custom("invalid clock".into()))?;
         let current = agent_session::Entity::find_by_id(candidate.id)
             .filter(agent_session::Column::ConversationId.eq(&candidate.conversation_id))
@@ -156,7 +156,7 @@ pub(crate) fn retire_unsupported_for_expiry<'a>(
 /// The cursor is only a scan position. Each instance repeats all deletion fences in DB.
 pub(crate) async fn retire_unsupported_sessions(
     db: &DatabaseConnection,
-    cutoff: chrono::DateTime<chrono::Utc>,
+    cutoff: sea_orm::prelude::DateTimeUtc,
     batches: usize,
     batch_rows: u64,
 ) -> Result<(), DbErr> {

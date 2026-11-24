@@ -5,7 +5,6 @@ use crate::entity::{
     agent_goal_open_request as request_row, agent_goal_run as goal_row, agent_run_event,
     agent_session,
 };
-use chrono::{DateTime, Utc};
 use desk_agent_protocol::{AgentError, AgentErrorKind};
 use desk_diagnose_core::dynamic_run::{AGENT_RUN_EVENT_SCHEMA_VERSION, AgentRunEventKind};
 use desk_diagnose_core::goal::{
@@ -62,9 +61,9 @@ pub async fn save_model_request(
             "goal opening request does not match the current turn",
         ));
     }
-    let now = DateTime::parse_from_rfc3339(&event.event.created_at)
-        .map_err(|_| failed("invalid goal opening timestamp"))?
-        .with_timezone(&Utc);
+    let now = desk_utils::datetime::parse_rfc3339(&event.event.created_at)
+        .map(desk_agent_data_store::datetime::to_database)
+        .map_err(|_| failed("invalid goal opening timestamp"))?;
     let txn = crate::db::begin_write(db, agent_session::Entity)
         .await
         .map_err(|_| failed("goal opening storage is unavailable"))?;
@@ -351,7 +350,7 @@ pub async fn decide_for_subject(
     device_id: &str,
     request_id: &str,
     approve: bool,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<(GoalOpenRequest, Option<GoalRun>)>, DbErr> {
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
     let result = decide_on(
@@ -384,7 +383,7 @@ pub(crate) async fn decide_on(
     device_id: &str,
     request_id: &str,
     approve: bool,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
     review: Option<desk_diagnose_core::goal_review::GoalReviewDecision>,
 ) -> Result<Option<(GoalOpenRequest, Option<GoalRun>)>, DbErr> {
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
@@ -637,7 +636,7 @@ pub(crate) async fn decide_on(
 
 pub async fn expire_due(
     db: &DatabaseConnection,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
     limit: u64,
 ) -> Result<(), DbErr> {
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;

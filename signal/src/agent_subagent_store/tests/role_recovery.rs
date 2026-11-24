@@ -130,7 +130,10 @@ async fn raw_child_writes_stay_forbidden_after_compaction_permission_resume_and_
     reject_writes(&db, &child.conversation_id).await;
     let event = super::paused_permission::request(&mut child);
     super::paused_permission::publish(&db, &mut child, &event).await;
-    child.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    child.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_child_session(&db, &mut child).await.unwrap();
     super::paused_permission::approve(&db, &child.conversation_id).await;
     super::paused_permission::assert_claim(&db, &child.conversation_id, true).await;

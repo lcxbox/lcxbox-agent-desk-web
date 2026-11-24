@@ -56,8 +56,8 @@ async fn fixture() -> (
         state_json: Set(session.encode_json_for_storage().unwrap()),
         version: Set(0),
         lease_token: Set(0),
-        created_at: Set(chrono::Utc::now()),
-        updated_at: Set(chrono::Utc::now()),
+        created_at: Set(desk_agent_data_store::datetime::utc_now()),
+        updated_at: Set(desk_agent_data_store::datetime::utc_now()),
         ..Default::default()
     }
     .insert(&store.db)
@@ -68,7 +68,7 @@ async fn fixture() -> (
     draft.source_conversation_id = Some("source".into());
     draft.requirement_revision = Some(1);
     draft.spec.rule = ScheduleRule::Once {
-        at: fixture_run_at().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        at: fixture_run_at().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
     };
     let task = store
         .create_pending_task(1, &draft, store.database_time().await.unwrap())
@@ -111,12 +111,13 @@ async fn fresh_proposal(store: &ScheduleStore, session: &PersistedAgentSession) 
 }
 
 /// Midnight UTC two days out: inside the default 30-day session retention.
-fn fixture_run_at() -> chrono::DateTime<chrono::Utc> {
-    (chrono::Utc::now() + chrono::Duration::days(2))
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .unwrap()
-        .and_utc()
+fn fixture_run_at() -> sea_orm::prelude::DateTimeUtc {
+    (desk_agent_data_store::datetime::utc_now()
+        + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(48)))
+    .date_naive()
+    .and_hms_opt(0, 0, 0)
+    .unwrap()
+    .and_utc()
 }
 
 #[tokio::test]
@@ -502,7 +503,7 @@ async fn pause_session(
         )
         .col_expr(
             session_row::Column::LeaseDeadline,
-            sea_orm::sea_query::Expr::value(Option::<chrono::DateTime<chrono::Utc>>::None),
+            sea_orm::sea_query::Expr::value(Option::<sea_orm::prelude::DateTimeUtc>::None),
         )
         .filter(session_row::Column::ConversationId.eq(&session.conversation_id))
         .exec(&store.db)
@@ -576,7 +577,12 @@ async fn begin_proposal_turn(
     changed.device_id = Set(session.device_id.clone());
     changed.state_json = Set(session.encode_json_for_storage().unwrap());
     changed.lease_token = Set(session.lease_token as i64);
-    changed.lease_deadline = Set(Some(chrono::Utc::now() + chrono::Duration::minutes(5)));
+    changed.lease_deadline = Set(Some(
+        desk_agent_data_store::datetime::utc_now()
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_mins(
+                5,
+            )),
+    ));
     changed.update(&store.db).await.unwrap();
     call
 }

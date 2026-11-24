@@ -133,7 +133,7 @@ async fn create(
         return Ok(previous);
     }
     workbench::initialize_roster_on(&txn, actor, &view.workbench_id).await?;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let (state_json, version, lease_token) =
         workbench::initial_state(actor, &view, &now.to_rfc3339())?;
     agent_session::ActiveModel {

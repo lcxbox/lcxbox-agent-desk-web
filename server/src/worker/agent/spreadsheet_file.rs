@@ -4,7 +4,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::{Cursor, Read, Write};
 use std::sync::{Mutex, OnceLock};
 
-use chrono::{DateTime, Duration, Utc};
 use desk_agent_protocol::computer_use::{
     SpreadsheetCellKind, SpreadsheetCellProjection, SpreadsheetFileInspectOutput,
     SpreadsheetFileInspectParams, SpreadsheetMergePreviewOutput, SpreadsheetMergePreviewParams,
@@ -26,7 +25,7 @@ const MAX_RETAINED_PREVIEWS: usize = 32;
 
 #[derive(Clone)]
 struct StoredMergePreview {
-    expires_at: DateTime<Utc>,
+    expires_at: jiff::Timestamp,
     output: SpreadsheetMergePreviewOutput,
 }
 
@@ -42,7 +41,7 @@ pub fn reset_preview_store() {
 }
 
 fn retain_preview(output: &SpreadsheetMergePreviewOutput) -> Result<(), AgentError> {
-    let now = Utc::now();
+    let now = jiff::Timestamp::now();
     let mut previews = preview_store()
         .lock()
         .map_err(|_| internal("lock spreadsheet preview store"))?;
@@ -62,7 +61,7 @@ fn retain_preview(output: &SpreadsheetMergePreviewOutput) -> Result<(), AgentErr
     previews.insert(
         output.preview_id.clone(),
         StoredMergePreview {
-            expires_at: now + Duration::seconds(super::PERMISSION_FLOW_TTL_SECONDS),
+            expires_at: now + jiff::SignedDuration::from_secs(super::PERMISSION_FLOW_TTL_SECONDS),
             output: output.clone(),
         },
     );
@@ -73,7 +72,7 @@ fn load_preview(preview_id: &str) -> Result<SpreadsheetMergePreviewOutput, Agent
     if preview_id.is_empty() || preview_id.len() > 128 {
         return Err(invalid("spreadsheet preview id is invalid"));
     }
-    let now = Utc::now();
+    let now = jiff::Timestamp::now();
     let mut previews = preview_store()
         .lock()
         .map_err(|_| internal("lock spreadsheet preview store"))?;
@@ -1352,7 +1351,10 @@ fn inspect_xlsx(
         let file = archive
             .by_index(index)
             .map_err(|_| invalid("cannot inspect .xlsx package entry"))?;
-        let name = file.name().to_ascii_lowercase();
+        let name = file
+            .name()
+            .map_err(|_| invalid("invalid .xlsx package entry name"))?
+            .to_ascii_lowercase();
         if file.size() > MAX_XML_BYTES && name.ends_with(".xml") {
             return Err(invalid("selected .xlsx contains an oversized XML part"));
         }
@@ -1371,9 +1373,7 @@ fn inspect_xlsx(
         )));
     }
 
-    let has_shared_strings = archive
-        .file_names()
-        .any(|name| name == "xl/sharedStrings.xml");
+    let has_shared_strings = archive.index_for_name("xl/sharedStrings.xml").is_some();
     let shared_strings = if has_shared_strings {
         parse_shared_strings(&read_zip_part(
             &mut archive,
@@ -1977,7 +1977,7 @@ mod tests {
         assert!(package.by_name("xl/worksheets/sheet2.xml").is_ok());
         for index in 0..package.len() {
             let mut entry = package.by_index(index).unwrap();
-            if entry.name().ends_with(".xml") {
+            if entry.name().unwrap().ends_with(".xml") {
                 let mut xml = String::new();
                 entry.read_to_string(&mut xml).unwrap();
                 assert!(

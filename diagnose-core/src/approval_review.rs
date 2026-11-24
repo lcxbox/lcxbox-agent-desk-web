@@ -1258,9 +1258,9 @@ pub fn preflight_review_capacity(
             dispatch_ids: vec![],
         })
         .collect::<Vec<_>>();
-    let now = chrono::DateTime::parse_from_rfc3339(&request.created_at)
+    let now = desk_utils::datetime::parse_rfc3339(&request.created_at)
         .ok()
-        .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+        .and_then(|time| u64::try_from(desk_utils::datetime::unix_millis(time)).ok())
         .ok_or(ApprovalReviewError::InvalidContext)?;
     for item in &request.items {
         let (descriptor_json, risk) = trusted_permission_descriptor(registry, item, surface)?;
@@ -1443,9 +1443,9 @@ pub fn pending_default_device_review<'a>(
             && !requires_owner_decision(request)
             && (!crate::permission_grant::permission_device_id(session, request).is_empty()
                 || crate::agent_policy::is_targetless_permission(session, request))
-            && chrono::DateTime::parse_from_rfc3339(&request.created_at)
+            && desk_utils::datetime::parse_rfc3339(&request.created_at)
                 .ok()
-                .and_then(|date| u64::try_from(date.timestamp_millis()).ok())
+                .and_then(|date| u64::try_from(desk_utils::datetime::unix_millis(date)).ok())
                 .is_some_and(|created| {
                     now_ms < created.saturating_add(PERMISSION_REVIEW_MAX_AGE_MS)
                 })
@@ -1544,9 +1544,9 @@ pub fn permission_review_candidate(
         &item.item_id,
         &action_sha256,
     )?;
-    let requested_at_unix_ms = chrono::DateTime::parse_from_rfc3339(&request.created_at)
+    let requested_at_unix_ms = desk_utils::datetime::parse_rfc3339(&request.created_at)
         .ok()
-        .and_then(|value| u64::try_from(value.timestamp_millis()).ok())
+        .and_then(|value| u64::try_from(desk_utils::datetime::unix_millis(value)).ok())
         .ok_or(ApprovalReviewError::InvalidCandidate)?;
     if requested_at_unix_ms > now_unix_ms.saturating_add(5 * 60 * 1_000) {
         return Err(ApprovalReviewError::InvalidContext);
@@ -3374,9 +3374,9 @@ pub(crate) mod tests {
         let mut pending = personal.clone();
         pending.permission_requests.push(request.clone());
         let now = u64::try_from(
-            chrono::DateTime::parse_from_rfc3339(&request.created_at)
-                .unwrap()
-                .timestamp_millis(),
+            desk_utils::datetime::parse_rfc3339(&request.created_at)
+                .map(desk_utils::datetime::unix_millis)
+                .unwrap(),
         )
         .unwrap()
             + 1_000;
@@ -3492,9 +3492,9 @@ pub(crate) mod tests {
             item_id: item.item_id.clone(),
         };
         let now_unix_ms = u64::try_from(
-            chrono::DateTime::parse_from_rfc3339(&request.created_at)
-                .unwrap()
-                .timestamp_millis(),
+            desk_utils::datetime::parse_rfc3339(&request.created_at)
+                .map(desk_utils::datetime::unix_millis)
+                .unwrap(),
         )
         .unwrap()
             + 10 * 60 * 1_000;

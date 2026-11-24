@@ -31,7 +31,7 @@ async fn database() -> DatabaseConnection {
         .await
         .unwrap();
     crate::db::initialize_schema(&db).await.unwrap();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let root_id = root_id();
     for conversation in [root_id.as_str(), "work-a"] {
         let mut held = PersistedAgentSession::new(
@@ -45,7 +45,7 @@ async fn database() -> DatabaseConnection {
                 expires_at: None,
                 policy_name: None,
             },
-            &chrono::Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         );
         held.surface = AgentSessionSurface::AiAgent;
         if conversation == root_id {
@@ -178,7 +178,7 @@ async fn connection_revoked_after_read_prevents_late_page_admission() {
     let fixture = IssueFixture::start().await;
     let (policy, connection) = subscribe(&db, &fixture).await;
     fixture.seed_comment(7, "Frozen remote material".into());
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let txn = db.begin().await.unwrap();
     let claim = issue_events::claim_on(&txn, &policy, "read-in-flight", now, now + LEASE_MS)
         .await
@@ -287,7 +287,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
             .contains("Third-party regression report")
     );
     let admitted = frozen
-        .authorized_issue_on(&db, ACTOR, chrono::Utc::now().timestamp_millis())
+        .authorized_issue_on(&db, ACTOR, jiff::Timestamp::now().as_millisecond())
         .await
         .unwrap()
         .subscribed()
@@ -303,7 +303,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         expires_at: None,
         policy_name: None,
     };
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
     let message = source.purpose_message(&destination).unwrap();
     let input = AppendUserFollowupParams {
         event_id: message.message_id.clone(),
@@ -466,7 +466,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         session::TurnState,
     };
     let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
     let request = build_permission_request(
         &ToolCall {
             id: "web-permission-tool".into(),
@@ -614,7 +614,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         registry: &registry,
         inventory: &[],
         readiness_revision: 1,
-        now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+        now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
         implicit_fresh_object_refs: &[],
     };
     let decisions = vec![PermissionDecisionItem {
@@ -647,7 +647,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         connection_id: None,
         policy_revision: held.policy_revision,
         current_pdp_scope: held.scope_snapshot.clone(),
-        now: chrono::Utc::now().to_rfc3339(),
+        now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         trigger_origin: TriggerOrigin::PermissionDecision,
     };
     let permission = permission
@@ -701,7 +701,7 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         &db,
         &resumed,
         &destination,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     .unwrap();
@@ -769,7 +769,7 @@ async fn assert_source_rejection_at_admission(
         request_id: &queued.request_id,
         issue_source: Some(source),
     };
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let current = issue_authority::current(db, ACTOR, &policy.subscription_id)
         .await
         .unwrap()

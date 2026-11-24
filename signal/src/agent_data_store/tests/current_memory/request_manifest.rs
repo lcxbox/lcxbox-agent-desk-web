@@ -25,8 +25,11 @@ async fn actual_session_port_selects_current_read_without_consuming_it_or_mintin
     let host = SignalAgentSessionStore::new(fixture.store.db.clone());
     // The caller sampled this clock before a backwards wall-clock adjustment.
     // Keep the earlier sample ahead of later reads without racing the live clock.
-    let caller_sample = chrono::Utc::now().timestamp_millis() as u64 + 30_000;
-    for observed_at in [chrono::Utc::now().timestamp_millis() as u64, caller_sample] {
+    let caller_sample = jiff::Timestamp::now().as_millisecond() as u64 + 30_000;
+    for observed_at in [
+        jiff::Timestamp::now().as_millisecond() as u64,
+        caller_sample,
+    ] {
         let manifest = host
             .agent_data_request_manifest(&fixture.session, &request, observed_at)
             .await
@@ -56,7 +59,7 @@ async fn actual_session_port_selects_current_read_without_consuming_it_or_mintin
         .agent_data_request_manifest(
             &fixture.session,
             &request,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap()
@@ -113,7 +116,7 @@ async fn actual_manifest_port_rejects_stale_native_identity_revoked_reads_and_ch
                 projection_row::Entity::update_many()
                     .col_expr(
                         projection_row::Column::RevokedAtMs,
-                        Expr::value(Some(chrono::Utc::now().timestamp_millis())),
+                        Expr::value(Some(jiff::Timestamp::now().as_millisecond())),
                     )
                     .filter(projection_row::Column::ProjectionId.eq(&proof.usage.projection_id))
                     .exec(&fixture.store.db)
@@ -147,7 +150,12 @@ async fn actual_manifest_port_rejects_stale_native_identity_revoked_reads_and_ch
                 agent_session::Entity::update_many()
                     .col_expr(
                         agent_session::Column::LeaseDeadline,
-                        Expr::value(Some(chrono::Utc::now() - chrono::Duration::seconds(1))),
+                        Expr::value(Some(
+                            desk_agent_data_store::datetime::utc_now()
+                                - desk_agent_data_store::datetime::database_interval(
+                                    jiff::SignedDuration::from_secs(1),
+                                ),
+                        )),
                     )
                     .exec(&fixture.store.db)
                     .await
@@ -160,7 +168,7 @@ async fn actual_manifest_port_rejects_stale_native_identity_revoked_reads_and_ch
             host.agent_data_request_manifest(
                 &fixture.session,
                 &request,
-                chrono::Utc::now().timestamp_millis() as u64
+                jiff::Timestamp::now().as_millisecond() as u64
             )
             .await
             .is_err(),

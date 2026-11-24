@@ -285,9 +285,11 @@ impl RequestRemoteAuthorizer for SignalRequestRemoteAuthorizer {
                 };
             };
 
-            let expires_at = (chrono::Utc::now()
-                + chrono::Duration::seconds(REQUEST_REMOTE_AUTHZ_TTL_SECS))
-            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            let expires_at = format!(
+                "{:.0}",
+                jiff::Timestamp::now()
+                    + jiff::SignedDuration::from_secs(REQUEST_REMOTE_AUTHZ_TTL_SECS)
+            );
 
             // The cookie-authenticated single account owns every device it reaches
             // → no ceiling (full control). The server resolves this from the

@@ -3,6 +3,7 @@
 //! A stored snapshot establishes content identity, never permission to use it.
 
 pub mod citations;
+pub mod datetime;
 pub mod decision_resume;
 pub mod delegation_group;
 pub mod device_roster;
@@ -108,7 +109,7 @@ pub async fn ensure_quota_on<C: ConnectionTrait>(
         memory_body_bytes: Set(0),
         term_records: Set(0),
         metadata_bytes: Set(8192),
-        output_gc_next_scan_at_ms: Set(Some(chrono::Utc::now().timestamp_millis())),
+        output_gc_next_scan_at_ms: Set(Some(jiff::Timestamp::now().as_millisecond())),
         revision: Set(1),
         ..Default::default()
     })

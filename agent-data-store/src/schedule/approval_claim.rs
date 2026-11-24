@@ -70,8 +70,8 @@ pub async fn claim_fresh_approval_on<C: ConnectionTrait, H: ScheduleHostStores<C
     if until <= now {
         return Err(ScheduleStoreError::Conflict);
     }
-    let timestamp =
-        chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let timestamp = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     if reference.starts_with("directory:") {
         verify_directory_receipt_on(host, txn, &session, request_id).await?;
     } else {

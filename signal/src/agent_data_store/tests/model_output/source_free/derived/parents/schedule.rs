@@ -17,7 +17,7 @@ async fn competing_metadata_claims_preserve_new_native_charges_and_never_grant_s
     let charged = quota::Entity::find().one(&store.db).await.unwrap().unwrap();
     assert!(charged.metadata_bytes > candidate.metadata_bytes);
     let runtime = runtime_on(&store.db, "1").await.unwrap();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let first = store.db.clone();
     let second = store.db.clone();
     let (a, b) = tokio::join!(
@@ -68,7 +68,7 @@ async fn scheduled_cleanup_uses_actual_proofs_and_refunds_only_once_across_indep
     detach_execution(&store).await;
     let before = quota::Entity::find().one(&store.db).await.unwrap().unwrap();
     let runtime = runtime_on(&store.db, "1").await.unwrap();
-    let now = chrono::Utc::now().timestamp_millis() as u64 + 100 * 86_400_000;
+    let now = jiff::Timestamp::now().as_millisecond() as u64 + 100 * 86_400_000;
     let outcome = schedule::run_at_with_limit(&store.db, now, 1)
         .await
         .unwrap();
@@ -133,7 +133,7 @@ async fn failed_collection_keeps_its_committed_retry_time_but_rolls_back_all_sou
     let before = quota::Entity::find().one(&store.db).await.unwrap().unwrap();
     let runtime = runtime_on(&store.db, "1").await.unwrap();
     store.db.execute_unprepared("CREATE TRIGGER reject_scheduled_gc BEFORE DELETE ON agent_model_output BEGIN SELECT RAISE(ABORT, 'injected archive cleanup failure'); END").await.unwrap();
-    let now = chrono::Utc::now().timestamp_millis() as u64 + 100 * 86_400_000;
+    let now = jiff::Timestamp::now().as_millisecond() as u64 + 100 * 86_400_000;
     let outcome = schedule::run_at_with_limit(&store.db, now, 1)
         .await
         .unwrap();
@@ -207,7 +207,7 @@ async fn corrupt_future_schedule_is_repaired_without_weakening_original_lifetime
         .unwrap();
     let before = quota::Entity::find().one(&store.db).await.unwrap().unwrap();
     let runtime = runtime_on(&store.db, "1").await.unwrap();
-    let now = chrono::Utc::now().timestamp_millis() as u64 + 100 * 86_400_000;
+    let now = jiff::Timestamp::now().as_millisecond() as u64 + 100 * 86_400_000;
     let outcome = schedule::run_at_with_limit(&store.db, now, 1)
         .await
         .unwrap();
@@ -277,7 +277,7 @@ async fn configured_gc_interval_and_record_batch_apply_to_real_proofs() {
     )
     .await
     .unwrap();
-    let now = chrono::Utc::now().timestamp_millis() as u64 + 100 * 86_400_000;
+    let now = jiff::Timestamp::now().as_millisecond() as u64 + 100 * 86_400_000;
     let first = schedule::run_at_with_limit(&store.db, now, 1)
         .await
         .unwrap();

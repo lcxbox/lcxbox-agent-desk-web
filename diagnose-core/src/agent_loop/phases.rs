@@ -1046,19 +1046,17 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             if let Some(data) = &session.agent_data
                 && data.current_actor_input_seq > 0
             {
-                let anchor = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
+                let anchor = jiff::Timestamp::from_millisecond(
                     data.current_input_recorded_at_unix_ms as i64,
                 )
-                .ok_or_else(|| AgentError {
+                .map_err(|_| AgentError {
                     kind: AgentErrorKind::Internal,
                     message: "Invalid user statement time anchor".into(),
                     retryable: false,
                     safe_for_model: false,
                     error_code: None,
                 })?;
-                let timezone = data
-                    .current_input_timezone
-                    .parse::<chrono_tz::Tz>()
+                let timezone = crate::schedule::timezone::zone(&data.current_input_timezone)
                     .map_err(|_| AgentError {
                         kind: AgentErrorKind::Internal,
                         message: "Invalid user statement timezone".into(),
@@ -1067,7 +1065,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                         error_code: None,
                     })?;
                 marker_text.push_str(&format!(" Original user input recorded_at_unix_ms={} statement_timezone={} local_anchor={}. Interpret relative dates in that input from this accepted-input anchor; later processing time does not change it. Recording time alone does not prove when an external action occurred.",
-                    data.current_input_recorded_at_unix_ms, data.current_input_timezone, anchor.with_timezone(&timezone).to_rfc3339()));
+                    data.current_input_recorded_at_unix_ms, data.current_input_timezone, desk_utils::datetime::rfc3339_at(anchor, timezone.to_offset(anchor))));
             } else if let Some(data) = &session.agent_data {
                 // Only a timezone the server recognizes is repeated, so the
                 // marker stays server text.

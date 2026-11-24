@@ -212,9 +212,9 @@ fn attachment(id: &str, kind: ContextAttachmentKind, reference: &ObjectRef) -> C
     let expires_at_unix_ms = if reference.object_kind.is_lifecycle_bound() {
         u64::MAX
     } else {
-        chrono::DateTime::parse_from_rfc3339(&reference.expires_at)
-            .unwrap()
-            .timestamp_millis() as u64
+        desk_utils::datetime::parse_rfc3339(&reference.expires_at)
+            .map(desk_utils::datetime::unix_millis)
+            .unwrap() as u64
     };
     let destination = DestinationIdentity::Model {
         connection_id: "gateway".into(),

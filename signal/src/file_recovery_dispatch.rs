@@ -45,7 +45,7 @@ pub async fn run(
             })
             .collect();
         for (connection, device) in targets {
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = jiff::Timestamp::now().as_millisecond();
             let job = match store
                 .claim_for_device(&device, &SINGLE_ACCOUNT_USER_ID.to_string(), now)
                 .await
@@ -67,7 +67,7 @@ pub async fn run(
                         .retry(
                             &job,
                             "cleanup_pending",
-                            chrono::Utc::now().timestamp_millis(),
+                            jiff::Timestamp::now().as_millisecond(),
                         )
                         .await;
                     continue;
@@ -95,7 +95,7 @@ pub async fn run(
                 },
             )
             .await;
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = jiff::Timestamp::now().as_millisecond();
             let saved = match result {
                 Ok(FileRecoveryReply {
                     outcome: FileRecoveryOutcome::Deleted { complete: true },

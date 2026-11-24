@@ -84,9 +84,9 @@ impl OutlookCallPreflight {
         {
             return Err(unavailable());
         }
-        let expiry = chrono::DateTime::parse_from_rfc3339(&application.expires_at)
+        let expiry = desk_utils::datetime::parse_rfc3339(&application.expires_at)
             .ok()
-            .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+            .and_then(|time| u64::try_from(desk_utils::datetime::unix_millis(time)).ok())
             .filter(|expiry| now_unix_ms > 0 && *expiry > now_unix_ms)
             .ok_or_else(unavailable)?;
         let input: OutlookNewDraftHandoffInput =

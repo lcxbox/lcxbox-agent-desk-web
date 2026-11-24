@@ -91,7 +91,7 @@ async fn fixture(
         destination: config.destination_identity().unwrap(),
         selected_source_tools: [f.call.name.clone()].into_iter().collect(),
         export_authorization_id: "original-owner-selected-context".into(),
-        now_unix_ms: Utc::now().timestamp_millis() as u64,
+        now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
         byte_cap: desk_diagnose_core::sink_authorizer::MAX_SINK_BYTES,
         permission_resume: false,
     };
@@ -124,7 +124,7 @@ async fn fixture(
     }
     f.session.conversation = vec![user, proposal];
     use desk_diagnose_core::context_attachment::*;
-    let now = Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     f.session.context_attachments.push(ContextAttachment {
         schema_version: CONTEXT_ATTACHMENT_SCHEMA_VERSION,
         attachment_id: "selected-context".into(),
@@ -325,7 +325,10 @@ async fn exercise(stack_bytes: Option<usize>) {
                     WorkKind::ComputerAction,
                 ),
             };
-            session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+            session.finish_turn(
+                TurnState::Idle,
+                desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+            );
         }
         if case == "new-input" {
             session.input_revision += 1;
@@ -360,7 +363,7 @@ async fn exercise(stack_bytes: Option<usize>) {
                     WorkKind::ComputerAction,
                 ),
                 placeholder_message_id: "running".into(),
-                since: Utc::now().to_rfc3339(),
+                since: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             };
         }
         set_session(&f, &session).await;
@@ -369,7 +372,12 @@ async fn exercise(stack_bytes: Option<usize>) {
             // recoverable only after that original planner lease expires.
             agent_session::Entity::update_many()
                 .set(agent_session::ActiveModel {
-                    lease_deadline: Set(Some(Utc::now() - chrono::Duration::seconds(1))),
+                    lease_deadline: Set(Some(
+                        desk_agent_data_store::datetime::utc_now()
+                            - desk_agent_data_store::datetime::database_interval(
+                                jiff::SignedDuration::from_secs(1),
+                            ),
+                    )),
                     ..Default::default()
                 })
                 .filter(agent_session::Column::ConversationId.eq(&f.session.conversation_id))

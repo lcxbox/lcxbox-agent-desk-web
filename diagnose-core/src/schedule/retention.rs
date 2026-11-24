@@ -7,7 +7,6 @@
 //! run falls outside the window minus a safety margin. `fresh_task` schedules
 //! start a new context on every run and are not bound by this rule.
 
-use chrono::DateTime;
 use desk_agent_protocol::schedule::{ScheduleRule, ScheduleSpec};
 
 /// One expiry sweep interval (both products sweep hourly) plus one hour of
@@ -45,8 +44,8 @@ pub fn conversation_resume_fits_retention(
     let delay_ms = match &spec.rule {
         ScheduleRule::AfterConfirmation { delay_seconds } => i64::from(*delay_seconds) * 1_000,
         ScheduleRule::Once { at } => {
-            let at = DateTime::parse_from_rfc3339(at).map_err(|_| exceeded())?;
-            at.timestamp_millis().saturating_sub(now_ms)
+            let at = desk_utils::datetime::parse_rfc3339(at).map_err(|_| exceeded())?;
+            desk_utils::datetime::unix_millis(at).saturating_sub(now_ms)
         }
         _ => return Ok(()),
     };
@@ -70,11 +69,11 @@ mod tests {
     const NOW: i64 = 1_800_000_000_000;
 
     fn once_after(delay_ms: i64) -> ScheduleSpec {
-        let at = DateTime::from_timestamp_millis(NOW + delay_ms).unwrap();
+        let at = jiff::Timestamp::from_millisecond(NOW + delay_ms).unwrap();
         ScheduleSpec {
             schema_version: 1,
             rule: ScheduleRule::Once {
-                at: at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                at: format!("{at:.3}"),
             },
         }
     }

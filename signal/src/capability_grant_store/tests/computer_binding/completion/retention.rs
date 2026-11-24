@@ -57,8 +57,9 @@ async fn expiry_deletes_original_results_with_run_or_rolls_back_every_related_re
     );
     let original = work(&f).await;
     let outbox = f.outbox().await;
-    let now = Utc::now();
-    let old = now - chrono::Duration::days(40);
+    let now = desk_agent_data_store::datetime::utc_now();
+    let old = now
+        - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(960));
     let row = agent_session::Entity::find()
         .one(db)
         .await

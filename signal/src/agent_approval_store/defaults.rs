@@ -13,7 +13,7 @@ pub(crate) async fn discover_default_review_roots(
     let mut unattended = Vec::new();
     let actor = crate::control_authorizer::SINGLE_ACCOUNT_USER_ID.to_string();
     let page = limit.clamp(1, 64);
-    let oldest = DateTime::<Utc>::from_timestamp_millis(as_i64(
+    let oldest = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(as_i64(
         now.saturating_sub(desk_diagnose_core::approval_review::PERMISSION_REVIEW_MAX_AGE_MS),
     )?)
     .ok_or_else(invalid)?;
@@ -150,7 +150,7 @@ async fn ensure_root(
         &delegation,
         AgentRunEventKind::ApprovalDelegationOpened,
         delegation.issued_by.clone(),
-        DateTime::<Utc>::from_timestamp_millis(as_i64(now)?).ok_or_else(invalid)?,
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis(as_i64(now)?).ok_or_else(invalid)?,
     )
     .await?;
     txn.commit().await?;
@@ -212,7 +212,7 @@ pub(crate) async fn open_for_proposal_review_on(
         &delegation,
         AgentRunEventKind::ApprovalDelegationOpened,
         delegation.issued_by.clone(),
-        DateTime::<Utc>::from_timestamp_millis(as_i64(now)?).ok_or_else(invalid)?,
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis(as_i64(now)?).ok_or_else(invalid)?,
     )
     .await?;
     Ok(true)

@@ -32,7 +32,10 @@ pub(super) async fn release_parent(db: &DatabaseConnection, parent: &mut Persist
         .unwrap();
         parent.conversation.push(message);
     }
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_main_delegation_session(db, parent).await.unwrap();
 }
 
@@ -73,7 +76,7 @@ pub(super) async fn answer(
         destination: super::creation::destination(),
         selected_source_tools: Default::default(),
         export_authorization_id: "notice-export".into(),
-        now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+        now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
         byte_cap: 1024 * 1024,
         permission_resume: false,
     };
@@ -239,7 +242,7 @@ async fn stopped_main_and_new_owner_input_keep_old_events_without_automatic_revi
     let store = SubAgentStore::new(db.clone());
     desk_diagnose_core::subagent::control::stop_main_session(
         &mut parent,
-        &chrono::Utc::now().to_rfc3339(),
+        &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     )
     .unwrap();
     // The owner control rotates the lease as well as control revision.
@@ -263,7 +266,10 @@ async fn stopped_main_and_new_owner_input_keep_old_events_without_automatic_revi
     parent.begin_focus_epoch(2, Vec::new()).unwrap();
     parent.input_revision = 2;
     parent.delegation_group_id = None;
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     session_row::Entity::update_many()
         .col_expr(
             session_row::Column::StateJson,

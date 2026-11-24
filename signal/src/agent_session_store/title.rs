@@ -55,7 +55,10 @@ impl SignalAgentSessionStore {
                 .filter(agent_session::Column::DeviceId.eq(&session.device_id))
                 .filter(agent_session::Column::Version.eq(session.version))
                 .filter(agent_session::Column::LeaseToken.eq(session.lease_token as i64))
-                .filter(agent_session::Column::LeaseDeadline.gt(Utc::now()))
+                .filter(
+                    agent_session::Column::LeaseDeadline
+                        .gt(desk_agent_data_store::datetime::utc_now()),
+                )
                 .filter(
                     agent_session::Column::ConversationSchemaVersion.eq(i32::from(
                         desk_diagnose_core::session::CONVERSATION_SCHEMA_VERSION,

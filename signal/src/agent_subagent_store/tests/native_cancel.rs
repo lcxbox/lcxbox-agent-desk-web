@@ -16,7 +16,7 @@ pub(crate) async fn seed_native(
             &format!("call-{generation}"),
             "original-host",
             "1",
-            chrono::DateTime::from_timestamp_millis(20_000).unwrap(),
+            sea_orm::prelude::DateTimeUtc::from_timestamp_millis(20_000).unwrap(),
         )
         .await
         .unwrap();
@@ -54,7 +54,7 @@ async fn personal_stop_targets_original_actions_on_their_native_devices() {
     use crate::entity::agent_action_item as action;
     let db = database().await;
     let mut rows = Vec::new();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     for (id, conversation, device) in [
         ("a", "personal-work", "mac"),
         ("b", "personal-work", "linux"),
@@ -250,7 +250,8 @@ async fn expired_child_requests_original_native_stop_and_does_not_claim_executio
     seed_parent(&db).await;
     let task = seed_task(&db, "expired", "goal-expired").await;
     let original = seed_native(&db, &task.child_conversation_id, "expired-native").await;
-    let now = chrono::DateTime::from_timestamp_millis(task.binding.deadline_ms + 1).unwrap();
+    let now =
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis(task.binding.deadline_ms + 1).unwrap();
     let store = SubAgentStore::new(db.clone());
     assert!(
         store
@@ -453,7 +454,7 @@ async fn late_native_receipt_is_durable_and_idempotent_while_goal_is_paused() {
     let mut child = claimed.session;
     child.finish_turn(
         desk_diagnose_core::session::TurnState::Idle,
-        chrono::Utc::now().to_rfc3339(),
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     );
     save_child_session(&db, &mut child).await.unwrap();
     let original = seed_native(&db, &original_run.child_conversation_id, "paused-native").await;

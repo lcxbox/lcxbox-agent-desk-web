@@ -581,9 +581,9 @@ pub(crate) async fn plan_device_permission(
                     .iter()
                     .find(|device| device.target_ref == reference)
                     .ok_or_else(invalid)?;
-                let now = chrono::DateTime::parse_from_rfc3339(created_at)
+                let now = desk_utils::datetime::parse_rfc3339(created_at)
                     .ok()
-                    .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+                    .and_then(|time| u64::try_from(desk_utils::datetime::unix_millis(time)).ok())
                     .ok_or_else(invalid)?;
                 return action::permission_request(
                     session,

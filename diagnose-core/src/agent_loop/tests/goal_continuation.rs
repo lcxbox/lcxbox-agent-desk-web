@@ -3,9 +3,9 @@ use crate::goal::{GoalLimits, GoalModelBinding, GoalOpening, GoalRun, GoalSegmen
 
 fn fixture(background: bool) -> (MemSession, PersistedAgentSession) {
     let now = "2026-06-20T00:00:00Z";
-    let at = chrono::DateTime::parse_from_rfc3339(now)
-        .unwrap()
-        .timestamp_millis() as u64;
+    let at = desk_utils::datetime::parse_rfc3339(now)
+        .map(desk_utils::datetime::unix_millis)
+        .unwrap() as u64;
     let mut session = PersistedAgentSession::new("conv", "actor", "device", 1, scope(), now);
     session.surface = AgentSessionSurface::AiAgent;
     session.input_revision = 1;

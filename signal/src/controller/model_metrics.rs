@@ -47,10 +47,9 @@ fn resolve(
             "runtime and group filters require their corresponding endpoints",
         ));
     }
-    let resolved =
-        ResolvedQuery::resolve(query, chrono::Utc::now().timestamp_millis()).map_err(|reason| {
-            DeskSignalError::new_custom_error(DeskErrorCode::INVALID_PARAMS, reason)
-        })?;
+    let resolved = ResolvedQuery::resolve(query, jiff::Timestamp::now().as_millisecond()).map_err(
+        |reason| DeskSignalError::new_custom_error(DeskErrorCode::INVALID_PARAMS, reason),
+    )?;
     if !calls {
         resolved.validate_aggregate_filters().map_err(|reason| {
             DeskSignalError::new_custom_error(DeskErrorCode::INVALID_PARAMS, reason)
@@ -82,7 +81,7 @@ async fn read<T>(
 #[get("/model/metrics/status")]
 pub async fn get_model_metrics_status(session: Session) -> Result<HttpResponse, DeskSignalError> {
     authorize(&session)?;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let status = match crate::model_metrics::runtime::store() {
         Some(store) => read(store.status(now))
             .await
@@ -100,7 +99,7 @@ pub async fn get_model_metrics_overview(
 ) -> Result<HttpResponse, DeskSignalError> {
     authorize(&session)?;
     let query = resolve(&query, false, false)?;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let data = read(store()?.overview(&query, now)).await?;
     Ok(HttpResponse::Ok().json(RestResponse::succeed_with_data(data)))
 }
@@ -113,7 +112,7 @@ pub async fn get_model_metrics_series(
 ) -> Result<HttpResponse, DeskSignalError> {
     authorize(&session)?;
     let query = resolve(&query, false, false)?;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let data = read(store()?.series(&query, now)).await?;
     Ok(HttpResponse::Ok().json(RestResponse::succeed_with_data(data)))
 }
@@ -129,7 +128,7 @@ pub async fn get_model_metrics_models(
     query.validate_group_sort(false).map_err(|reason| {
         DeskSignalError::new_custom_error(DeskErrorCode::INVALID_PARAMS, reason)
     })?;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let data = read(store()?.groups(&query, false, now)).await?;
     Ok(HttpResponse::Ok().json(RestResponse::succeed_with_data(data)))
 }
@@ -145,7 +144,7 @@ pub async fn get_model_metrics_tools(
     query.validate_group_sort(true).map_err(|reason| {
         DeskSignalError::new_custom_error(DeskErrorCode::INVALID_PARAMS, reason)
     })?;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let data = read(store()?.groups(&query, true, now)).await?;
     Ok(HttpResponse::Ok().json(RestResponse::succeed_with_data(data)))
 }
@@ -161,7 +160,7 @@ pub async fn get_model_metrics_calls(
     query.validate_call_filters().map_err(|reason| {
         DeskSignalError::new_custom_error(DeskErrorCode::INVALID_PARAMS, reason)
     })?;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     query.call_boundary(false, now).map_err(|reason| {
         DeskSignalError::new_custom_error(DeskErrorCode::INVALID_PARAMS, reason)
     })?;
@@ -249,7 +248,7 @@ pub async fn get_model_metrics_runtime(
         desk_signal_facade::service::model_metrics::runtime_filters(&query).map_err(|reason| {
             DeskSignalError::new_custom_error(DeskErrorCode::INVALID_PARAMS, reason)
         })?;
-    let query = ResolvedQuery::resolve(&query, chrono::Utc::now().timestamp_millis()).map_err(
+    let query = ResolvedQuery::resolve(&query, jiff::Timestamp::now().as_millisecond()).map_err(
         |reason| DeskSignalError::new_custom_error(DeskErrorCode::INVALID_PARAMS, reason),
     )?;
     if !query.calls.is_empty()
@@ -265,7 +264,7 @@ pub async fn get_model_metrics_runtime(
             "runtime observations do not support model, tool, or request-error filters",
         ));
     }
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let data = read(store()?.runtime_groups(&query, category, definition, now)).await?;
     Ok(HttpResponse::Ok().json(RestResponse::succeed_with_data(data)))
 }
@@ -284,7 +283,7 @@ pub async fn get_model_metrics_unassociated(
                 "unassociated facts accept only a time range, cursor and limit",
             )
         })?;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let query=desk_signal_facade::service::model_metrics::unassociated::ResolvedUnassociatedQuery::resolve(&query,now)
         .map_err(|reason|DeskSignalError::new_custom_error(DeskErrorCode::INVALID_PARAMS,reason))?;
     query.boundary(false).map_err(|reason| {

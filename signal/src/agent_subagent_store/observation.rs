@@ -298,7 +298,7 @@ pub(crate) async fn save_main_delegation_session(
     {
         return Err(invalid());
     }
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let version = if held.surface == desk_diagnose_core::session::AgentSessionSurface::AiAgent
         && held.agent_data.is_some()
     {
@@ -323,7 +323,7 @@ async fn save_main_history_on(
     txn: &DatabaseTransaction,
     current: &PersistedAgentSession,
     held: &PersistedAgentSession,
-    now: chrono::DateTime<chrono::Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<i64, DbErr> {
     use super::super::{agent_data_store, agent_session_store::history_save};
     use desk_agent_protocol::ai_agent::history::HistoryAdmission;
@@ -369,10 +369,11 @@ async fn save_main_history_on(
         stored.encode_json_for_storage().map_err(|_| invalid())?
     };
     txn.mark_phase("state_encoded");
-    let deadline = held
-        .turn_state
-        .is_active()
-        .then_some(now + chrono::Duration::seconds(90));
+    let deadline = held.turn_state.is_active().then_some(
+        now + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(
+            90,
+        )),
+    );
     let changed = history_save::persist_on(
         txn,
         held,
@@ -400,7 +401,8 @@ async fn save_main_history_on(
         .await
         .map_err(history_error)?;
     txn.mark_phase("history_finalized");
-    let completed = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+    let completed =
+        u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?;
     if outcomes.len() != deadlines.len()
         || held_until.is_some_and(|until| until <= completed)
         || outcomes.iter().zip(deadlines).any(|(outcome, deadline)| {

@@ -217,14 +217,15 @@ pub(crate) mod tests {
             let mut entry = calculated.by_index(index).unwrap();
             let mut bytes = Vec::new();
             entry.read_to_end(&mut bytes).unwrap();
-            if entry.name() == "xl/data.xml" {
+            let name = entry.name().unwrap();
+            if name == "xl/data.xml" {
                 bytes = String::from_utf8(bytes)
                     .unwrap()
                     .replace("<v>42</v>", "<v>44</v>")
                     .into_bytes();
             }
             saved
-                .start_file(entry.name(), zip::write::SimpleFileOptions::default())
+                .start_file(name, zip::write::SimpleFileOptions::default())
                 .unwrap();
             saved.write_all(&bytes).unwrap();
         }

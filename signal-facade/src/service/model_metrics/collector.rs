@@ -229,7 +229,7 @@ impl ObservabilitySeam for Collector {
 }
 
 fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
+    jiff::Timestamp::now().as_millisecond()
 }
 
 /// Storage initialization is supplied as part of the background settings read.

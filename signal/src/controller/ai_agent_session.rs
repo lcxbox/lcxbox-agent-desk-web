@@ -83,7 +83,7 @@ pub async fn list_ai_agent_attention(
     if owner.is_none() {
         return Ok(not_accessible());
     }
-    let now = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+    let now = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
         DeskSignalError::new_custom_error(DeskErrorCode::SYSTEM_ERROR, "invalid system clock")
     })?;
     let items = crate::agent_owner_attention::list_goal_attention(
@@ -167,7 +167,7 @@ pub async fn open_ai_agent_approval_delegation(
     else {
         return Ok(not_accessible());
     };
-    let now = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+    let now = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
         DeskSignalError::new_custom_error(
             DeskErrorCode::PRECONDITION_FAILED,
             "invalid system clock",
@@ -219,7 +219,7 @@ pub async fn close_ai_agent_approval_delegation(
     else {
         return Ok(not_accessible());
     };
-    let now = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+    let now = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
         DeskSignalError::new_custom_error(
             DeskErrorCode::PRECONDITION_FAILED,
             "invalid system clock",
@@ -280,7 +280,7 @@ pub async fn control_ai_agent_goal(
         &body.goal_id,
         body.expected_state_version,
         action,
-        chrono::Utc::now(),
+        desk_agent_data_store::datetime::utc_now(),
     )
     .await?
     .ok_or_else(|| {
@@ -324,7 +324,7 @@ pub async fn decide_ai_agent_goal_open(
         &device_id,
         &body.request_id,
         body.approve,
-        chrono::Utc::now(),
+        desk_agent_data_store::datetime::utc_now(),
     )
     .await
     .map_err(|_| {
@@ -516,7 +516,7 @@ pub async fn get_ai_agent_session(
             }
             let visual_evidence = desk_diagnose_core::visual_evidence::durable_projection(
                 &snapshot.visual_evidence,
-                u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
             );
             let agent_policy = crate::agent_data_config::policy(crate::db::get_db()).await;
             let conversation_limits = agent_policy.limits.conversation.clone();
@@ -558,7 +558,7 @@ pub async fn get_ai_agent_session(
                 &actor_id,
                 &session_id,
                 &answers,
-                u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
                 &agent_policy,
             )
             .await
@@ -710,7 +710,7 @@ pub async fn revoke_ai_agent_capability_grant(
     if session.is_none() {
         return Ok(not_accessible());
     }
-    let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+    let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
         DeskSignalError::new_custom_error(
             DeskErrorCode::PRECONDITION_FAILED,
             "system clock predates Unix epoch",
@@ -851,7 +851,7 @@ pub(crate) async fn decide_permission_on(
         };
         let readiness = current.as_deref().and_then(|current| {
             crate::computer_use_readiness::global_computer_use_readiness_cache()
-                .get_fresh(current, chrono::Utc::now())
+                .get_fresh(current, jiff::Timestamp::now())
         });
         stale_target = personal_request.as_ref().and_then(|request| {
             desk_diagnose_core::permission_grant::stale_approval_target(
@@ -922,8 +922,8 @@ pub(crate) async fn decide_permission_on(
             },
         )));
     }
-    let now_dt = chrono::Utc::now();
-    let now_unix_ms = u64::try_from(now_dt.timestamp_millis()).map_err(|_| {
+    let now_dt = jiff::Timestamp::now();
+    let now_unix_ms = u64::try_from(now_dt.as_millisecond()).map_err(|_| {
         DeskSignalError::new_custom_error(
             DeskErrorCode::PRECONDITION_FAILED,
             "system clock predates Unix epoch",
@@ -1087,7 +1087,7 @@ pub(crate) async fn decide_permission_on(
         }
         _ => None,
     };
-    let now = now_dt.to_rfc3339();
+    let now = desk_utils::datetime::rfc3339(now_dt);
     let decision = store
         .decide_permission_request_with_expected_request(
             crate::agent_session_store::PermissionDecisionSubject {
@@ -1124,7 +1124,7 @@ pub(crate) async fn decide_permission_on(
             &actor_id,
             &target_audience,
             &body.request_id,
-            now_dt,
+            desk_agent_data_store::datetime::to_database(now_dt),
         )
         .await
         {
@@ -1278,7 +1278,7 @@ pub async fn cancel_ai_agent_background_task(
             &target_audience,
             &body.request_id,
             &body.reason,
-            &chrono::Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         )
         .await
         .map_err(|error| {

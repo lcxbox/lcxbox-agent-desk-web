@@ -14,12 +14,12 @@ content-safety-eval = []
 stack-budget = []
 
 [dependencies]
+jiff.workspace = true
 desk-agent-protocol = { workspace = true }
 desk-utils = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-chrono = { workspace = true }
-chrono-tz = "=0.10.4"
+jiff-tzdb = "1.0"
 base64 = { workspace = true }
 sha2 = { workspace = true }
 hmac = { workspace = true }

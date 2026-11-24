@@ -46,7 +46,7 @@ impl SubAgentStore {
             parent_on(&txn, root, actor, device).await
         })
         .await?;
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = jiff::Timestamp::now().as_millisecond();
         let prepared = desk_diagnose_core::future::boxed(|| async {
             prepare_owner_control_on(&txn, &parent, request, now_ms).await
         })
@@ -282,7 +282,8 @@ async fn apply_task_control_with_source_on(
             message,
         } = &request.action
         {
-            let now = chrono::DateTime::from_timestamp_millis(now_ms).ok_or_else(invalid)?;
+            let now =
+                sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms).ok_or_else(invalid)?;
             let task =
                 reply_to_question_on(txn, &row, question_id, message, None, None, now).await?;
             return Ok(PreparedControl {
@@ -326,7 +327,7 @@ async fn apply_task_control_with_source_on(
         if bound {
             run.validate_session(&child).map_err(|_| invalid())?;
         }
-        let now = chrono::DateTime::from_timestamp_millis(now_ms)
+        let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms)
             .ok_or_else(|| invalid())?
             .to_rfc3339();
         let mut cancellation = None;
@@ -508,7 +509,7 @@ pub(super) async fn reply_to_question_on(
     message: &str,
     caller: Option<&desk_agent_protocol::data_lineage::DataEnvelope>,
     after_seq: Option<u64>,
-    now: chrono::DateTime<chrono::Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<AiAgentSubAgentSummary, DbErr> {
     use desk_diagnose_core::subagent::{creation::TaskCreationEnvelope, report::QUESTION_NOT_OPEN};
 

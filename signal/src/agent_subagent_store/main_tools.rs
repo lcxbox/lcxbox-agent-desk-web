@@ -192,7 +192,8 @@ impl SubAgentStore {
         held: &PersistedAgentSession,
     ) -> Result<bool, DbErr> {
         let txn = self.db.begin().await?;
-        let parent = parent_planning_on(&txn, held, chrono::Utc::now().timestamp_millis()).await?;
+        let parent =
+            parent_planning_on(&txn, held, jiff::Timestamp::now().as_millisecond()).await?;
         let ready = required_children_reviewed_on(&txn, &parent, false).await?;
         txn.commit().await?;
         Ok(ready)
@@ -205,7 +206,7 @@ impl SubAgentStore {
     ) -> Result<ChatMessage, DbErr> {
         let txn = desk_diagnose_core::future::boxed(|| async { self.db.begin().await }).await?;
         let parent = desk_diagnose_core::future::boxed(|| async {
-            parent_planning_on(&txn, held, chrono::Utc::now().timestamp_millis()).await
+            parent_planning_on(&txn, held, jiff::Timestamp::now().as_millisecond()).await
         })
         .await?;
         let group =
@@ -306,7 +307,7 @@ impl SubAgentStore {
                 &txn,
                 &group,
                 &creation.model_destination,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
                 max_bytes.saturating_sub(base_bytes),
                 &mut labels,
             )
@@ -371,7 +372,7 @@ impl SubAgentStore {
             )
         })
         .await?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let parent = desk_diagnose_core::future::boxed(|| async {
             parent_planning_on(&txn, held, now.timestamp_millis()).await
         })

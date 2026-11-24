@@ -7,7 +7,6 @@ pub(crate) mod main_requests;
 pub use desk_diagnose_core::input_read_context::ReadContextSelection;
 pub use input_context::InputSubject;
 
-use chrono::{DateTime, Utc};
 use desk_agent_data_store::main_request::{
     self, FrozenRequestInput, OwnerAdmission, OwnerAdmissionResult,
 };
@@ -453,7 +452,7 @@ impl SignalAgentRunEventStore {
                         .authorized_issue_on(
                             &txn,
                             &params.actor_id,
-                            chrono::Utc::now().timestamp_millis(),
+                            jiff::Timestamp::now().as_millisecond(),
                         )
                         .await
                         .map_err(|error| error.into_agent_error())?
@@ -813,7 +812,7 @@ async fn prepare_input_goals_on(
     prior_task_retrieval: Option<
         Box<desk_diagnose_core::ai_agent::data_access::TaskRetrievalSnapshot>,
     >,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Box<PreparedInputGoals>, AgentError> {
     let mut goals = Box::new(PreparedInputGoals {
         opened_goal: None,
@@ -1005,7 +1004,7 @@ async fn write_input_goal_events_on(
     params: &AppendUserFollowupParams,
     goals: &PreparedInputGoals,
     envelope: &desk_agent_protocol::data_lineage::DataEnvelope,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<bool, AgentError> {
     if let Some(goal) = &goals.opened_goal {
         crate::agent_goal_store::insert_on(db, goal)
@@ -1287,9 +1286,9 @@ fn ack_from_existing(
     })
 }
 
-fn parse_time(raw: &str) -> Result<DateTime<Utc>, AgentError> {
-    DateTime::parse_from_rfc3339(raw)
-        .map(|value| value.with_timezone(&Utc))
+fn parse_time(raw: &str) -> Result<sea_orm::prelude::DateTimeUtc, AgentError> {
+    desk_utils::datetime::parse_rfc3339(raw)
+        .map(desk_agent_data_store::datetime::to_database)
         .map_err(|_| internal("invalid user follow-up timestamp"))
 }
 
@@ -1458,7 +1457,7 @@ pub(crate) mod tests {
         crate::device_code_store::get_or_create(&db, "device-1")
             .await
             .unwrap();
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let mut input = params("command-input", "command-user", "Check disk space");
         input.device_id.clear();
         input.target_refs = vec!["device-1".into()];
@@ -1840,7 +1839,7 @@ pub(crate) mod tests {
             first.client_conversation_id.as_deref().unwrap(),
         );
         first.target_refs = vec!["mac".into(), "linux".into()];
-        first.created_at = chrono::Utc::now().to_rfc3339();
+        first.created_at = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
         let roster = |expected_revision, target_refs| AiAgentDeviceRosterBody {
             conversation: first.client_conversation_id.clone().unwrap(),
             expected_revision,
@@ -1928,7 +1927,10 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
             let task_id = worker_receipt.payload["task_id"].as_str().unwrap();
-            parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+            parent.finish_turn(
+                TurnState::Idle,
+                desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+            );
             sessions.save(&mut parent).await.unwrap();
             let candidate = workers
                 .child_runtime_candidate(task_id)
@@ -1982,7 +1984,7 @@ pub(crate) mod tests {
                 conversation_id: session.conversation_id,
                 turn_id: "personal-worker-turn".into(),
                 trigger_origin: TriggerOrigin::DelegatedTask,
-                now: chrono::Utc::now().to_rfc3339(),
+                now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                 ..turn
             };
             let crate::agent_subagent_store::SubAgentClaimOutcome::Claimed(claimed) = workers
@@ -2085,7 +2087,7 @@ pub(crate) mod tests {
             );
             let next_claim = ClaimTurnParams {
                 turn_id: "personal-worker-after-wait".into(),
-                now: chrono::Utc::now().to_rfc3339(),
+                now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                 ..claim
             };
             let crate::agent_subagent_store::SubAgentClaimOutcome::Claimed(claimed) = workers
@@ -2422,7 +2424,7 @@ pub(crate) mod tests {
             .unwrap();
         crate::db::initialize_schema(&db).await.unwrap();
         let store = SignalAgentRunEventStore::new(db.clone());
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let mut input = params("web-input-event", "web-input", "Read public documentation");
         input.device_id.clear();
         input.policy_revision = desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION;
@@ -2850,7 +2852,10 @@ pub(crate) mod tests {
             assert!(resume.claim_turn(claim.clone()).await.is_err());
             assert!(
                 sessions
-                    .pending_permission_resume(candidate, Utc::now())
+                    .pending_permission_resume(
+                        candidate,
+                        desk_agent_data_store::datetime::utc_now()
+                    )
                     .await
                     .unwrap()
                     .is_none()
@@ -2887,7 +2892,7 @@ pub(crate) mod tests {
             let next = AppendUserFollowupParams {
                 event_id: "after-personal-stop".into(),
                 message: params("new-event", "after-stop", "A new personal request").message,
-                created_at: Utc::now().to_rfc3339(),
+                created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                 ..input.clone()
             };
             let receipt = store.append_user_followup(&next).await.unwrap();
@@ -2915,7 +2920,10 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
             assert_eq!(stopped.cancel_request_ids, ["after-stop-request"]);
-            claimed.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+            claimed.finish_turn(
+                TurnState::Idle,
+                desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+            );
             assert!(sessions.save(&mut claimed).await.is_err());
             return;
         }
@@ -2995,7 +3003,7 @@ pub(crate) mod tests {
         let directory = tempfile::tempdir().unwrap();
         let db = file_db(&directory.path().join("workbench.sqlite")).await;
         let store = SignalAgentRunEventStore::new(db.clone());
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let mut a = params("event-a", "work-a", "Check work A");
         let mut b = params("event-b", "work-b", "Check work B");
         let workbench_key = desk_diagnose_core::conversation_key::derive_agent_conversation_key(
@@ -3712,7 +3720,7 @@ pub(crate) mod tests {
             &goal.goal_id,
             goal.state_version,
             desk_diagnose_core::goal::GoalOwnerAction::Pause,
-            chrono::DateTime::from_timestamp_millis(
+            sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
                 i64::try_from(goal.created_at_unix_ms + 1_000).unwrap(),
             )
             .unwrap(),
@@ -3760,9 +3768,9 @@ pub(crate) mod tests {
             original.created_at,
         );
         sessions.save(&mut session).await.unwrap();
-        let now = chrono::DateTime::parse_from_rfc3339("2026-08-25T00:00:00Z")
-            .unwrap()
-            .timestamp_millis() as u64;
+        let now = desk_utils::datetime::parse_rfc3339("2026-08-25T00:00:00Z")
+            .map(desk_utils::datetime::unix_millis)
+            .unwrap() as u64;
         let model_binding = GoalModelBinding {
             connection_id: "gateway".into(),
             connection_revision: 1,
@@ -3887,9 +3895,9 @@ pub(crate) mod tests {
                 .unwrap()
                 .unwrap();
         let at = |seconds: u32| {
-            chrono::DateTime::parse_from_rfc3339(&format!("2026-08-25T00:00:{seconds:02}Z"))
+            desk_utils::datetime::parse_rfc3339(&format!("2026-08-25T00:00:{seconds:02}Z"))
+                .map(desk_agent_data_store::datetime::to_database)
                 .unwrap()
-                .with_timezone(&chrono::Utc)
         };
         let paused = crate::agent_goal_store::apply_owner_action(
             &db,
@@ -4016,9 +4024,9 @@ pub(crate) mod tests {
             .append_user_followup(&params("first-event", "first-message", "Work on a report"))
             .await
             .unwrap();
-        let now_ms = chrono::DateTime::parse_from_rfc3339("2026-08-25T00:00:00Z")
-            .unwrap()
-            .timestamp_millis() as u64;
+        let now_ms = desk_utils::datetime::parse_rfc3339("2026-08-25T00:00:00Z")
+            .map(desk_utils::datetime::unix_millis)
+            .unwrap() as u64;
         let pending = desk_diagnose_core::goal::GoalOpenRequest::new(
             "proposal".into(),
             "run-1".into(),

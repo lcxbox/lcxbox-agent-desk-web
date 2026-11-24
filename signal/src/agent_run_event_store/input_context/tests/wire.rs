@@ -61,7 +61,7 @@ async fn real_object_read_transport_keeps_original_refs_bounds_and_lineage_and_r
                 request_id: Some("transport".into()),
                 connection_id: Some("controller".into()),
                 trigger_origin: desk_diagnose_core::session::TriggerOrigin::User,
-                now: Utc::now().to_rfc3339(),
+                now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             })
             .await
             .unwrap();
@@ -179,7 +179,7 @@ async fn real_object_read_transport_keeps_original_refs_bounds_and_lineage_and_r
         tokio::time::timeout(Duration::from_secs(5), notified.notified())
             .await
             .unwrap();
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         crate::computer_use_readiness::global_computer_use_readiness_cache()
             .update(
                 &host,
@@ -187,7 +187,7 @@ async fn real_object_read_transport_keeps_original_refs_bounds_and_lineage_and_r
                     schema_version: COMPUTER_USE_SCHEMA_VERSION,
                     revision: 1,
                     observed_at: now.to_rfc3339(),
-                    expires_at: (now + chrono::Duration::minutes(2)).to_rfc3339(),
+                    expires_at: (now + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_mins(2))).to_rfc3339(),
                     server_api_version: 1,
                     os: "fixture".into(),
                     interactive_user_home: None,
@@ -209,7 +209,7 @@ async fn real_object_read_transport_keeps_original_refs_bounds_and_lineage_and_r
                     }],
                     context_references: vec![],
                 },
-                now,
+                desk_agent_data_store::datetime::from_database(now).unwrap(),
             )
             .unwrap();
         let reference: ObjectRef = serde_json::from_str(&object.object_ref.opaque_token).unwrap();
@@ -270,7 +270,7 @@ async fn real_object_read_transport_keeps_original_refs_bounds_and_lineage_and_r
             serde_json::json!({}),
         )
         .unwrap();
-        let issued_at = Utc::now().timestamp_millis() as u64;
+        let issued_at = jiff::Timestamp::now().as_millisecond() as u64;
         let grant_expires_at = issued_at + 120_000;
         let output_limit = if oversized {
             512
@@ -346,11 +346,11 @@ async fn real_object_read_transport_keeps_original_refs_bounds_and_lineage_and_r
             assert!(read.max_entries <= object.bounds.max_objects);
             // The grant bounds execution admission, not how long a completed
             // observation may remain as historical evidence.
-            let execution_expiry = chrono::DateTime::parse_from_rfc3339(
+            let execution_expiry = desk_utils::datetime::parse_rfc3339(
                 request.envelope.scope.expires_at.as_deref().unwrap(),
             )
-            .unwrap()
-            .timestamp_millis() as u64;
+            .map(desk_utils::datetime::unix_millis)
+            .unwrap() as u64;
             assert!(execution_expiry <= grant_expires_at);
             assert!(
                 !serde_json::to_string(&request)

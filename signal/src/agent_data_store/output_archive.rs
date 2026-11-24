@@ -359,7 +359,8 @@ async fn verify_native_on<C: ConnectionTrait>(
         return Err(AgentStoreError::Inaccessible);
     }
     let (audit, inputs, input_snapshot) = crate::model_egress_store::receipt_inputs(&row)?;
-    if proof.sources.evidence.completed_at_unix_ms > chrono::Utc::now().timestamp_millis() as u64 {
+    if proof.sources.evidence.completed_at_unix_ms > jiff::Timestamp::now().as_millisecond() as u64
+    {
         return Err(AgentStoreError::Inaccessible);
     }
     let evidence = desk_diagnose_core::model_egress::NativeModelOutputEvidence::from_receipt(

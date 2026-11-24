@@ -25,7 +25,9 @@ fn params() -> UpdateObjectContext {
                 token: "opaque-file".into(),
                 snapshot_id: "snapshot".into(),
                 object_kind: ObjectKind::TerminalOutput,
-                expires_at: (Utc::now() + Duration::minutes(3)).to_rfc3339(),
+                expires_at: desk_utils::datetime::rfc3339(
+                    jiff::Timestamp::now() + jiff::SignedDuration::from_mins(3),
+                ),
             },
             display_summary: "selected file".into(),
         },
@@ -41,7 +43,7 @@ fn params() -> UpdateObjectContext {
         device_id: "device".into(),
         update,
         destination: Some(destination()),
-        created_at: Utc::now().to_rfc3339(),
+        created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     }
 }
 
@@ -119,7 +121,8 @@ async fn first_object_receipts_survive_detach_expiry_and_missing_model_without_r
     assert!(store.update_object_context(&detach).await.unwrap());
     let detached = row(&store).await;
     assert!(store.update_object_context(&detach).await.unwrap());
-    original.created_at = (Utc::now() + Duration::minutes(5)).to_rfc3339();
+    original.created_at =
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now() + jiff::SignedDuration::from_mins(5));
     original.destination = None;
     assert_eq!(
         store.replay_object_context(&original).await.unwrap(),
@@ -164,7 +167,10 @@ async fn first_object_receipts_survive_detach_expiry_and_missing_model_without_r
         session.context_attachments[0].expires_at_unix_ms,
         attachment.expires_at_unix_ms
     );
-    assert!(!session.context_attachments[0].is_active_at(Utc::now().timestamp_millis() as u64));
+    assert!(
+        !session.context_attachments[0]
+            .is_active_at(jiff::Timestamp::now().as_millisecond() as u64)
+    );
 }
 
 #[tokio::test]
@@ -187,7 +193,7 @@ async fn fresh_duplicate_object_has_a_durable_false_receipt_and_keeps_capability
         selected_capability_ids: vec![],
         runtime_bindings: vec![],
         candidates: vec![],
-        now_unix_ms: Utc::now().timestamp_millis() as u64,
+        now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
     });
     assert!(
         !select
@@ -196,7 +202,7 @@ async fn fresh_duplicate_object_has_a_durable_false_receipt_and_keeps_capability
                 "7",
                 "device",
                 "clear-live-context",
-                &Utc::now().to_rfc3339()
+                &desk_utils::datetime::rfc3339(jiff::Timestamp::now())
             )
             .await
             .unwrap()
@@ -267,7 +273,12 @@ async fn active_turn_replays_history_but_refuses_new_object_mutations_even_after
         .col_expr(agent_session::Column::LeaseToken, Expr::value(1_i64))
         .col_expr(
             agent_session::Column::LeaseDeadline,
-            Expr::value(Utc::now() - Duration::seconds(1)),
+            Expr::value(
+                desk_agent_data_store::datetime::utc_now()
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_secs(1),
+                    ),
+            ),
         )
         .exec(&store.db)
         .await

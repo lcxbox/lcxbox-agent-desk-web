@@ -422,7 +422,7 @@ mod tests {
             execution_generation: execution.into(),
             approved_actor_id: "owner".into(),
             interactive_session_incarnation: "session".into(),
-            expires_at: chrono::Utc::now() + chrono::Duration::seconds(60),
+            expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_secs(60),
         }
     }
     fn cancel(execution: &str) -> ComputerActionCancel {

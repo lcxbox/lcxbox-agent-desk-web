@@ -150,7 +150,7 @@ mod tests {
         let before = original_run(&db, &parent.conversation_id).await;
         run::Entity::update_many()
             .set(run::ActiveModel {
-                cancel_requested_at: Set(Some(chrono::Utc::now().timestamp_millis())),
+                cancel_requested_at: Set(Some(jiff::Timestamp::now().as_millisecond())),
                 ..Default::default()
             })
             .filter(run::Column::Id.eq(before.id))
@@ -295,7 +295,10 @@ mod tests {
             "original-child-call",
             "original-host",
             "device-1",
-            chrono::Utc::now() + chrono::Duration::minutes(1),
+            desk_agent_data_store::datetime::utc_now()
+                + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_mins(1),
+                ),
         )
         .await
         .unwrap();
@@ -332,7 +335,7 @@ mod tests {
         } else {
             run::Entity::update_many()
                 .set(run::ActiveModel {
-                    cancel_requested_at: Set(Some(chrono::Utc::now().timestamp_millis())),
+                    cancel_requested_at: Set(Some(jiff::Timestamp::now().as_millisecond())),
                     ..Default::default()
                 })
                 .filter(run::Column::Id.eq(original.id))
@@ -409,7 +412,7 @@ mod tests {
         let before = original_run(&db, &parent.conversation_id).await;
         run::Entity::update_many()
             .set(run::ActiveModel {
-                cancel_requested_at: Set(Some(chrono::Utc::now().timestamp_millis())),
+                cancel_requested_at: Set(Some(jiff::Timestamp::now().as_millisecond())),
                 ..Default::default()
             })
             .filter(run::Column::Id.eq(before.id))

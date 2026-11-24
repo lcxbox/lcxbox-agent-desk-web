@@ -98,9 +98,10 @@ impl CommandCompletionContext {
             .and_then(|deadline| deadline.checked_add(COMPLETION_GRACE_MS))
             .ok_or_else(denied)?;
         if let Some(scope_expiry) = &session.scope_snapshot.expires_at {
-            let expiry =
-                chrono::DateTime::parse_from_rfc3339(scope_expiry).map_err(|_| denied())?;
-            expires = expires.min(u64::try_from(expiry.timestamp_millis()).map_err(|_| denied())?);
+            let expiry = desk_utils::datetime::parse_rfc3339(scope_expiry).map_err(|_| denied())?;
+            expires = expires.min(
+                u64::try_from(desk_utils::datetime::unix_millis(expiry)).map_err(|_| denied())?,
+            );
         }
         let context = Self {
             destination,

@@ -79,7 +79,7 @@ async fn fixture() -> (
     policy.directory_grants = desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
         &parent,
         &parent.device_id,
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     );
     let registry =
         desk_diagnose_core::ai_agent::ai_agent_provider_registry().with_command_policy(policy);
@@ -88,7 +88,7 @@ async fn fixture() -> (
         .provider_for_capability(&capability.wire.capability_id)
         .unwrap();
     let mut origin = ActionResultOrigin::capture(&registry, &parent, &call).unwrap();
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let context = desk_diagnose_core::command_completion::CommandCompletionContext::capture(
         &parent,
         super::super::creation::destination(),
@@ -317,11 +317,12 @@ async fn expire_as_unknown(
             generation,
             &native.exec_request_id,
             1,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
-    let expired = chrono::Utc::now() - chrono::Duration::seconds(1);
+    let expired = desk_agent_data_store::datetime::utc_now()
+        - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(1));
     occurrence::Entity::update_many()
         .set(occurrence::ActiveModel {
             lease_deadline: Set(Some(expired.timestamp_millis())),
@@ -488,7 +489,7 @@ async fn closed_main_with_open_original_command_recovers_child_wait_after_lease_
     let original = original_run(&db, &parent.conversation_id).await;
     occurrence::Entity::update_many()
         .set(occurrence::ActiveModel {
-            lease_deadline: Set(Some(chrono::Utc::now().timestamp_millis() - 1)),
+            lease_deadline: Set(Some(jiff::Timestamp::now().as_millisecond() - 1)),
             ..Default::default()
         })
         .filter(occurrence::Column::Id.eq(original.id))

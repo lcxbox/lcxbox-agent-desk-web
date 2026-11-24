@@ -26,7 +26,7 @@ pub(super) fn prepare_on<'a>(
             .await?
             .ok_or(AgentStoreError::Inaccessible)?;
         let proof = &stored.proof;
-        let now = unsigned(chrono::Utc::now().timestamp_millis())?;
+        let now = unsigned(jiff::Timestamp::now().as_millisecond())?;
         let data = session
             .agent_data
             .as_ref()

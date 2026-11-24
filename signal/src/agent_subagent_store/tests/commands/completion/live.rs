@@ -105,7 +105,7 @@ async fn live_project_model_subagent_completion() {
         request_id: None,
         connection_id: None,
         trigger_origin: desk_diagnose_core::session::TriggerOrigin::DelegatedTask,
-        now: chrono::Utc::now().to_rfc3339(),
+        now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     };
     let SubAgentClaimOutcome::Claimed(claimed) = tasks
         .claim_child(
@@ -150,7 +150,7 @@ async fn live_project_model_subagent_completion() {
         }
     }
     let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
-    let clock = || chrono::Utc::now().to_rfc3339();
+    let clock = || desk_utils::datetime::rfc3339(jiff::Timestamp::now());
     let deps = LoopDeps {
         session_seam: &sessions,
         model: &model,

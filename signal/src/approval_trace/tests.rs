@@ -37,7 +37,7 @@ async fn session(db: &DatabaseConnection, id: &str, owner: &str) {
         "2026-10-12T00:00:00Z",
     );
     session.surface = desk_diagnose_core::session::AgentSessionSurface::AiAgent;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     agent_session::ActiveModel {
         conversation_id: Set(id.into()),
         actor_id: Set(owner.into()),
@@ -54,7 +54,7 @@ async fn session(db: &DatabaseConnection, id: &str, owner: &str) {
     .unwrap();
 }
 async fn candidate(db: &DatabaseConnection, id: &str, conversation: &str, owner: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let tracking = ReviewTracking::queued(
         owner,
         "device",
@@ -102,7 +102,7 @@ fn identity(id: &str, conversation: &str, owner: &str) -> TraceIdentity {
         source_id: id.into(),
         lease_epoch: 1,
         model_revision: 1,
-        created_at_ms: chrono::Utc::now().timestamp_millis(),
+        created_at_ms: jiff::Timestamp::now().as_millisecond(),
     }
 }
 #[tokio::test]
@@ -287,7 +287,7 @@ async fn approval_expiry_and_orphan_cleanup_release_quota_without_resurrecting_b
 async fn unclaimed_approval_failures_paginate_by_fixed_milliseconds_and_remain_private() {
     let db = database().await;
     session(&db, "own", "1").await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let values: Vec<_> = (0..3)
         .map(|i| {
             ReviewTracking::queued(
@@ -321,7 +321,7 @@ async fn unclaimed_approval_failures_paginate_by_fixed_milliseconds_and_remain_p
         payload_schema_version: Set(1),
         approval_statistics_json: Set(Some(serde_json::to_string(&values).unwrap())),
         approval_statistics_at_ms: Set(Some(now)),
-        created_at: Set(chrono::Utc::now()),
+        created_at: Set(desk_agent_data_store::datetime::utc_now()),
         ..Default::default()
     }
     .insert(&db)

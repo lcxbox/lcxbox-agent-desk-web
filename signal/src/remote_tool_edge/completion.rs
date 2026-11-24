@@ -62,7 +62,8 @@ impl SignalAiAgentTools {
             .and_then(Result::ok)
             .and_then(Result::ok);
         global_computer_action_pending().cancel(&plan.execution_generation);
-        let now_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+        let now_ms =
+            u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?;
         if durable {
             if let Some(original) = desk_diagnose_core::future::boxed(|| async {
                 store
@@ -403,8 +404,8 @@ fn project_with_observation(
             &plan.adapter,
             action,
             completed,
-            chrono::Utc::now()
-                .timestamp_millis()
+            jiff::Timestamp::now()
+                .as_millisecond()
                 .try_into()
                 .map_err(|_| invalid())?,
         )?;
@@ -555,7 +556,9 @@ fn validate_output(
             if artifact.file.object_kind != ObjectKind::File
                 || artifact.file.token.is_empty()
                 || artifact.file.snapshot_id.is_empty()
-                || chrono::DateTime::parse_from_rfc3339(&artifact.file.expires_at).is_err()
+                || desk_utils::datetime::parse_rfc3339(&artifact.file.expires_at)
+                    .map(desk_agent_data_store::datetime::to_database)
+                    .is_err()
                 || &artifact.file_name != expected
                 || artifact.byte_len == 0
                 || artifact.validation_byte_len == 0

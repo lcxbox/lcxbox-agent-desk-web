@@ -174,7 +174,7 @@ pub struct RealClock;
 
 impl GrantClock for RealClock {
     fn now_unix(&self) -> i64 {
-        chrono::Utc::now().timestamp()
+        jiff::Timestamp::now().as_second()
     }
 }
 

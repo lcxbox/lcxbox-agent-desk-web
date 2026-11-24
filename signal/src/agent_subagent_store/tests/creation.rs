@@ -37,7 +37,7 @@ pub(super) async fn runnable_parent_with_source(
     model_destination: DestinationIdentity,
     sensitivity: Sensitivity,
 ) -> (PersistedAgentSession, Vec<ToolCall>) {
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let owner = desk_diagnose_core::model_message_labels::model_bound_user_message(
         "source-message".into(),
         "Investigate these independent symptoms".into(),
@@ -114,7 +114,11 @@ pub(super) async fn runnable_parent_with_source(
             state_json: Set(parent.encode_json_for_storage().unwrap()),
             version: Set(parent.version),
             lease_token: Set(parent.lease_token as i64),
-            lease_deadline: Set(Some(now + chrono::Duration::minutes(5))),
+            lease_deadline: Set(Some(
+                now + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_mins(5),
+                ),
+            )),
 
             ..Default::default()
         })
@@ -137,7 +141,7 @@ pub(super) fn claim_params(run: &SubAgentRun) -> ClaimTurnParams {
         request_id: Some("child-request".into()),
         connection_id: None,
         trigger_origin: TriggerOrigin::DelegatedTask,
-        now: chrono::Utc::now().to_rfc3339(),
+        now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     }
 }
 
@@ -303,7 +307,10 @@ async fn a_reused_worker_continues_in_its_session_with_the_full_history() {
     let mut session = claimed.session;
     let answer = super::lifecycle::report();
     super::lifecycle::append_report(&db, &mut session, &answer).await;
-    session.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     store
         .settle_answer_for_turn(&mut session, original.fence(), answer.summary.clone())
         .await
@@ -380,7 +387,7 @@ async fn a_reused_worker_continues_in_its_session_with_the_full_history() {
             &db,
             held,
             &fence,
-            chrono::Utc::now().timestamp_millis()
+            jiff::Timestamp::now().as_millisecond()
         )
         .await
         .unwrap()
@@ -523,7 +530,7 @@ async fn a_worker_claims_requests_in_order_and_keeps_execution_bindings_separate
             expected_control_revision: first.control_revision,
             action: SubAgentControlAction::Cancel,
         },
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     .unwrap();
@@ -637,7 +644,7 @@ async fn cancelling_a_queued_worker_request_leaves_the_shared_session_alone() {
             expected_control_revision: second.control_revision,
             action: SubAgentControlAction::Cancel,
         },
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     .unwrap();
@@ -680,7 +687,7 @@ async fn new_main_input_does_not_invalidate_an_existing_child_claim() {
     parent.delegation_group_id = None;
     parent.finish_turn(
         desk_diagnose_core::session::TurnState::Idle,
-        chrono::Utc::now().to_rfc3339(),
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     );
     session_row::Entity::update_many()
         .set(session_row::ActiveModel {
@@ -795,7 +802,7 @@ async fn another_gateway_family_and_expired_source_cannot_claim_or_revive_a_chil
             .is_err()
     );
     assert_eq!(load(&db, &task.task_id).await.state, SubAgentState::Queued);
-    params.now = chrono::DateTime::from_timestamp_millis(run.binding.deadline_ms)
+    params.now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(run.binding.deadline_ms)
         .unwrap()
         .to_rfc3339();
     assert!(matches!(
@@ -840,7 +847,7 @@ async fn group_creation_and_parent_binding_roll_back_together() {
         owner,
         None,
         None,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
         Default::default(),
     )
     .await
@@ -1032,7 +1039,7 @@ async fn a_child_uses_the_main_conversations_approved_directories_until_revoked(
     let child = claimed.session;
     assert_eq!(child.delegated_directories.len(), 1);
     assert_eq!(child.delegated_directories[0].directory, directory);
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let txn = db.begin().await.unwrap();
     let view = crate::agent_subagent_store::current_directory_view_on(&txn, &child, now)
         .await

@@ -43,7 +43,7 @@ impl SignalCapabilityGrantStore {
                 &self.db,
                 session,
                 &fence,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             )
             .await?
             {
@@ -85,7 +85,6 @@ impl SignalCapabilityGrantStore {
 mod tests {
     use super::*;
     use crate::entity::agent_session;
-    use chrono::Utc;
     use desk_agent_protocol::{AgentScope, ExecutionMode};
     use desk_diagnose_core::{
         action_turn_fence::AgentTurnFence,
@@ -103,7 +102,7 @@ mod tests {
         db.execute(&schema.entity_table(agent_session::Entity))
             .await
             .unwrap();
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
 
         let mut session = PersistedAgentSession::new(
             "conversation",
@@ -145,7 +144,11 @@ mod tests {
             state_json: Set(session.encode_json_for_storage().unwrap()),
             version: Set(session.version),
             lease_token: Set(session.lease_token as i64),
-            lease_deadline: Set(Some(now + chrono::Duration::minutes(1))),
+            lease_deadline: Set(Some(
+                now + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_mins(1),
+                ),
+            )),
             created_at: Set(now),
             updated_at: Set(now),
 
@@ -161,7 +164,11 @@ mod tests {
         agent_session::Entity::update_many()
             .col_expr(
                 agent_session::Column::LeaseDeadline,
-                sea_orm::sea_query::Expr::value(now - chrono::Duration::minutes(1)),
+                sea_orm::sea_query::Expr::value(
+                    now - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(1),
+                    ),
+                ),
             )
             .exec(&db)
             .await

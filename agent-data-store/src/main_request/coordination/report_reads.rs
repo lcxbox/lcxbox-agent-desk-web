@@ -413,7 +413,7 @@ impl Batch {
                         db,
                         row,
                         &self.destination,
-                        chrono::Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                         worker_report::CoordinationHistoryPage {
                             after_seq,
                             limit: read.limit.unwrap_or(DEFAULT_HISTORY_LIMIT),

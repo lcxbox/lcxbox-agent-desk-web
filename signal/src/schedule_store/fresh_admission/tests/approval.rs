@@ -96,11 +96,11 @@ async fn approve_held_command(policy_changed: bool) {
     policy.directory_grants = desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
         &session,
         &session.device_id,
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     );
     let registry =
         desk_diagnose_core::ai_agent::ai_agent_provider_registry().with_command_policy(policy);
-    let created_at = chrono::Utc::now().to_rfc3339();
+    let created_at = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
     let request = desk_diagnose_core::permission_tools::build_permission_request(
         &desk_diagnose_core::chat::ToolCall {
             id: HELD_CALL.into(),
@@ -147,7 +147,10 @@ async fn approve_held_command(policy_changed: bool) {
         .save_permission_request(&mut session, &event)
         .await
         .unwrap();
-    session.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     session.handled_input_seq = session.latest_input_seq;
     sessions.save(&mut session).await.unwrap();
     let run = || async {
@@ -188,7 +191,7 @@ async fn approve_held_command(policy_changed: bool) {
             desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
                 &session,
                 &session.device_id,
-                chrono::Utc::now().timestamp_millis() as u64,
+                jiff::Timestamp::now().as_millisecond() as u64,
             );
         registry.with_command_policy(changed)
     } else {
@@ -233,10 +236,10 @@ async fn approve_held_command(policy_changed: bool) {
                 registry: &registry,
                 inventory: &inventory,
                 readiness_revision: 1,
-                now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+                now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
                 implicit_fresh_object_refs: &[],
             },
-            &chrono::Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             None,
             None,
         )

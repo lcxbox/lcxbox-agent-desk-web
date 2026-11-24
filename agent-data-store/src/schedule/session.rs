@@ -511,8 +511,8 @@ pub trait ScheduleHostStores<C: ConnectionTrait>: SessionRows<C> + ScheduleLocks
 }
 
 /// Milliseconds since the Unix epoch as a UTC timestamp.
-pub fn timestamp(ms: i64) -> Result<chrono::DateTime<chrono::Utc>, ScheduleStoreError> {
-    chrono::DateTime::from_timestamp_millis(ms).ok_or(ScheduleStoreError::Invalid)
+pub fn timestamp(ms: i64) -> Result<sea_orm::prelude::DateTimeUtc, ScheduleStoreError> {
+    sea_orm::prelude::DateTimeUtc::from_timestamp_millis(ms).ok_or(ScheduleStoreError::Invalid)
 }
 
 /// Whether the host commits or rolls back the caller's transaction after a

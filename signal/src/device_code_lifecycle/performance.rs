@@ -62,7 +62,7 @@ async fn directory_cost() -> Vec<serde_json::Value> {
         db.execute(&Schema::new(db.get_database_backend()).entity_table(device_code::Entity))
             .await
             .unwrap();
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         for start in (0..count).step_by(100) {
             device_code::Entity::insert_many((start..(start + 100).min(count)).map(|i| {
                 device_code::ActiveModel {
@@ -192,7 +192,7 @@ async fn registration_and_cleanup_performance() {
             db.execute(&Schema::new(db.get_database_backend()).entity_table(device_code::Entity))
                 .await
                 .unwrap();
-            let now = chrono::Utc::now();
+            let now = desk_agent_data_store::datetime::utc_now();
             for batch in 0..10 {
                 device_code::Entity::insert_many((0..100).map(|i| {
                     let i = batch * 100 + i;

@@ -374,7 +374,7 @@ async fn an_error_before_the_call_registration_is_not_charged() {
     use sea_orm::{ActiveModelTrait, Set};
     let host = host("activation-model").await;
     let row = host.submit("unregistered", "Check readiness first").await;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let session = crate::entity::agent_session::ActiveModel {
         conversation_id: Set(row.conversation_id.clone()),
         actor_id: Set(row.actor_id.clone()),
@@ -775,7 +775,7 @@ async fn an_admitted_device_request_resumes_with_its_usual_tools() {
             frozen.destination.clone(),
         )
         .unwrap(),
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     };
     SignalAgentRunEventStore::new(host.db.clone())
         .admit_user_input(

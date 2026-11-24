@@ -44,7 +44,7 @@ pub(super) async fn match_current_on(
         .await?;
         let now_ms = i64::try_from(call.now_unix_ms)
             .map_err(|_| invalid())?
-            .max(chrono::Utc::now().timestamp_millis());
+            .max(jiff::Timestamp::now().as_millisecond());
         let current = if call.target_device_id.is_empty() {
             // A central web read has no device to fence.
             desk_diagnose_core::future::boxed(|| async {

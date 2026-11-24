@@ -1042,7 +1042,7 @@ impl SignalAiAgentTools {
             desk_agent_protocol::evidence::EvidenceSnapshot::record(
                 "ai-agent-command",
                 "owner-approved exact command dispatch",
-                chrono::Utc::now().to_rfc3339(),
+                desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                 Vec::new(),
             ),
             ExecAdmissionPolicy::OwnerInteractive,
@@ -1366,7 +1366,7 @@ impl SignalAiAgentTools {
                 || row.lease_token != session.lease_token as i64
                 || row
                     .lease_deadline
-                    .is_none_or(|expiry| expiry <= chrono::Utc::now()))
+                    .is_none_or(|expiry| expiry <= desk_agent_data_store::datetime::utc_now()))
         {
             return Err(error(
                 AgentErrorKind::PermissionDenied,
@@ -1438,7 +1438,7 @@ impl SignalAiAgentTools {
             return Ok(());
         }
         let current = crate::computer_use_readiness::global_computer_use_readiness_cache()
-            .get_fresh(&self.target_connection_id, chrono::Utc::now())
+            .get_fresh(&self.target_connection_id, jiff::Timestamp::now())
             .ok_or_else(|| {
                 log::warn!("[readiness-check] no fresh report: connection={} run={} tool={} expected_revision={}", self.target_connection_id, self.run_id, capability.wire.tool_name, self.readiness_revision);
                 error(
@@ -1535,7 +1535,7 @@ impl SignalAiAgentTools {
                     call.id.clone(),
                     VerifiedReadLabel {
                         digest_sha256,
-                        expires_at_unix_ms: chrono::Utc::now().timestamp_millis().max(0) as u64
+                        expires_at_unix_ms: jiff::Timestamp::now().as_millisecond().max(0) as u64
                             + 120_000,
                         failed: true,
                     },
@@ -1681,7 +1681,7 @@ impl SignalAiAgentTools {
         let operation_scope =
             compiled_scope.map_or_else(|| vec!["observe".to_string()], |scope| scope.operations);
         let risk_tier = Self::capability_risk(capability, call)?;
-        let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
             error(
                 AgentErrorKind::Internal,
                 "system clock predates the Unix epoch",
@@ -1957,7 +1957,7 @@ impl SignalAiAgentTools {
         }
 
         let current_time = || {
-            u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+            u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
                 error(
                     AgentErrorKind::Internal,
                     "system clock predates the Unix epoch",
@@ -2228,7 +2228,7 @@ impl SignalAiAgentTools {
                 &canonical_input_json,
             )?;
         let confirmation = confirmation.clone();
-        let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
             error(
                 AgentErrorKind::Internal,
                 "system clock predates the Unix epoch",
@@ -2860,7 +2860,7 @@ impl SignalAiAgentTools {
                     .await?;
                     let current =
                         crate::computer_use_readiness::global_computer_use_readiness_cache()
-                            .get_fresh(&self.target_connection_id, chrono::Utc::now())
+                            .get_fresh(&self.target_connection_id, jiff::Timestamp::now())
                             .filter(|record| record.readiness.revision == self.readiness_revision)
                             .ok_or_else(desk_diagnose_core::directory_tools::unavailable)?;
                     Some(
@@ -3088,7 +3088,7 @@ impl SignalAiAgentTools {
                 true,
             )
         };
-        let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
             error(
                 AgentErrorKind::Internal,
                 "system clock predates the Unix epoch",
@@ -3182,7 +3182,7 @@ impl SignalAiAgentTools {
                         };
                         let current =
                             crate::computer_use_readiness::global_computer_use_readiness_cache()
-                                .get_fresh(&self.target_connection_id, chrono::Utc::now())
+                                .get_fresh(&self.target_connection_id, jiff::Timestamp::now())
                                 .filter(|record| {
                                     record.readiness.revision == self.readiness_revision
                                 })
@@ -3721,15 +3721,15 @@ impl SignalAiAgentTools {
                     }
                 };
                 if let Some(resolution) = closure {
-                    let review_now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis())
+                    let review_now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond())
                         .map_err(|_| {
-                        error(
-                            AgentErrorKind::SessionUnavailable,
-                            "unable to date the completed UI review",
-                            false,
-                            false,
-                        )
-                    })?;
+                            error(
+                                AgentErrorKind::SessionUnavailable,
+                                "unable to date the completed UI review",
+                                false,
+                                false,
+                            )
+                        })?;
                     desk_diagnose_core::future::boxed(|| async {
                         store
                             .close_prepared_after_review(
@@ -3828,7 +3828,7 @@ impl SignalAiAgentTools {
 
             let dispatch_material = async {
         let readiness = crate::computer_use_readiness::global_computer_use_readiness_cache()
-            .get_fresh(&self.target_connection_id, chrono::Utc::now())
+            .get_fresh(&self.target_connection_id, jiff::Timestamp::now())
             .ok_or_else(|| {
                 error(
                     AgentErrorKind::TargetOffline,
@@ -3880,7 +3880,7 @@ impl SignalAiAgentTools {
             approval_id: grant_id.clone(),
             approved_actor_id: self.actor_id.clone(),
             draft_hash: canonical_input_digest_sha256.clone(),
-            expires_at: (chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc3339(),
+            expires_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30)),
             timeout_ms: 30_000,
             actions: vec![ComputerActionStep {
                 target: target_ref,
@@ -3918,10 +3918,10 @@ impl SignalAiAgentTools {
                 .map_err(|_|error(AgentErrorKind::Internal,"failed to read batch grant expiry",false,false))?
                 .into_iter().find(|grant|grant.grant_id==grant_id)
                 .ok_or_else(||error(AgentErrorKind::PermissionDenied,"batch application grant is unavailable",false,true))?;
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = jiff::Timestamp::now().as_millisecond();
             let expiry = grant.expires_at_unix_ms.min((now+30_000) as u64);
             if expiry <= now as u64 { return Err(error(AgentErrorKind::PermissionDenied,"batch application grant has expired; no steps executed",false,true)); }
-            plan.expires_at=chrono::DateTime::from_timestamp_millis(expiry as i64).expect("bounded expiry").to_rfc3339();
+            plan.expires_at=sea_orm::prelude::DateTimeUtc::from_timestamp_millis(expiry as i64).expect("bounded expiry").to_rfc3339();
         }
 
         plan.validate().map_err(|validation_error| {
@@ -4333,7 +4333,7 @@ impl SignalAiAgentTools {
         let current_session =
             desk_diagnose_core::future::boxed(|| async { self.authoritative_session().await })
                 .await?;
-        let now_ms = u64::try_from(chrono::Utc::now().timestamp_millis())
+        let now_ms = u64::try_from(jiff::Timestamp::now().as_millisecond())
             .map_err(|_| desk_diagnose_core::directory_tools::unavailable())?;
         let selected_directories = vec![
             desk_diagnose_core::file_scope::select_device_directory(
@@ -4430,7 +4430,7 @@ impl SignalAiAgentTools {
                 false,
             ));
         }
-        let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
             error(
                 AgentErrorKind::Internal,
                 "system clock predates the Unix epoch",
@@ -4636,7 +4636,7 @@ impl SignalAiAgentTools {
 
         let readiness = artifact_pre_send!(
             crate::computer_use_readiness::global_computer_use_readiness_cache()
-                .get_fresh(&self.target_connection_id, chrono::Utc::now())
+                .get_fresh(&self.target_connection_id, jiff::Timestamp::now())
                 .ok_or_else(|| {
                     error(
                         AgentErrorKind::TargetOffline,
@@ -4771,7 +4771,7 @@ impl SignalAiAgentTools {
             approval_id: grant_id.clone(),
             approved_actor_id: self.actor_id.clone(),
             draft_hash: canonical_input_digest_sha256.clone(),
-            expires_at: (chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc3339(),
+            expires_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30)),
             timeout_ms: if matches!(action, ComputerActionKind::DocumentConversion(_)) {
                 60_000
             } else {
@@ -4853,7 +4853,7 @@ impl SignalAiAgentTools {
             device: AuthzDevice { device_id: None },
             request_id: generation.clone(),
             session_id: Some(self.run_id.clone()),
-            expires_at: Some((chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc3339()),
+            expires_at: Some(desk_utils::datetime::rfc3339(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30))),
             issuer: "signal".into(),
             audience,
             signature: None,
@@ -5051,7 +5051,7 @@ impl SignalAiAgentTools {
         let session =
             desk_diagnose_core::future::boxed(|| async { self.authoritative_session().await })
                 .await?;
-        let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
             error(
                 AgentErrorKind::Internal,
                 "invalid browser preflight clock",
@@ -5410,7 +5410,7 @@ impl SignalAiAgentTools {
 
                     let readiness = browser_pre_send!(
                         crate::computer_use_readiness::global_computer_use_readiness_cache()
-                            .get_fresh(&self.target_connection_id, chrono::Utc::now())
+                            .get_fresh(&self.target_connection_id, jiff::Timestamp::now())
                             .ok_or_else(|| {
                                 error(
                                     AgentErrorKind::TargetOffline,
@@ -5438,7 +5438,7 @@ impl SignalAiAgentTools {
             approval_id: grant_id.clone(),
             approved_actor_id: self.actor_id.clone(),
             draft_hash: canonical_input_digest_sha256.clone(),
-            expires_at: (chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc3339(),
+            expires_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30)),
             timeout_ms: 30_000,
             actions: vec![ComputerActionStep {
                 target: surface,
@@ -5544,7 +5544,7 @@ impl SignalAiAgentTools {
                         request_id: generation.clone(),
                         session_id: Some(self.run_id.clone()),
                         expires_at: Some(
-                            (chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc3339(),
+                            desk_utils::datetime::rfc3339(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30)),
                         ),
                         issuer: "signal".into(),
                         audience,
@@ -5721,7 +5721,7 @@ impl SignalAiAgentTools {
         .await?;
         let initial_readiness =
             crate::computer_use_readiness::global_computer_use_readiness_cache()
-                .get_fresh(&self.target_connection_id, chrono::Utc::now())
+                .get_fresh(&self.target_connection_id, jiff::Timestamp::now())
                 .ok_or_else(|| {
                     error(
                         AgentErrorKind::TargetOffline,
@@ -5751,7 +5751,7 @@ impl SignalAiAgentTools {
                 .await?;
         let (canonical_input_json, canonical_input_digest_sha256) =
             Self::canonical_call_input(call)?;
-        let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
             error(
                 AgentErrorKind::Internal,
                 "system clock predates the Unix epoch",
@@ -5946,7 +5946,7 @@ impl SignalAiAgentTools {
         // OutcomeUnknown and the one-shot grant is never restored.
         let dispatch_readiness =
             crate::computer_use_readiness::global_computer_use_readiness_cache()
-                .get_fresh(&self.target_connection_id, chrono::Utc::now())
+                .get_fresh(&self.target_connection_id, jiff::Timestamp::now())
                 .ok_or_else(|| {
                     error(
                         AgentErrorKind::TargetOffline,
@@ -6110,7 +6110,7 @@ impl SignalAiAgentTools {
         approval_id: grant_id.clone(),
         approved_actor_id: self.actor_id.clone(),
         draft_hash: canonical_input_digest_sha256.clone(),
-        expires_at: (chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc3339(),
+        expires_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30)),
         timeout_ms: 30_000,
         actions: vec![ComputerActionStep {
             target: surface_ref,
@@ -6146,7 +6146,9 @@ impl SignalAiAgentTools {
             device: AuthzDevice { device_id: None },
             request_id: generation.clone(),
             session_id: Some(self.run_id.clone()),
-            expires_at: Some((chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc3339()),
+            expires_at: Some(desk_utils::datetime::rfc3339(
+                jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30),
+            )),
             issuer: "signal".into(),
             audience,
             signature: None,
@@ -6574,9 +6576,11 @@ impl SignalAiAgentTools {
                 result.bind(&mut bounded)?;
                 input = bounded;
                 Some(
-                    chrono::DateTime::from_timestamp_millis(result.valid_until_unix_ms as i64)
-                        .ok_or_else(desk_diagnose_core::directory_tools::unavailable)?
-                        .to_rfc3339(),
+                    sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
+                        result.valid_until_unix_ms as i64,
+                    )
+                    .ok_or_else(desk_diagnose_core::directory_tools::unavailable)?
+                    .to_rfc3339(),
                 )
             } else if uses_selected_objects {
                 desk_diagnose_core::future::boxed(|| async {
@@ -6590,7 +6594,7 @@ impl SignalAiAgentTools {
                 binding.bind(call, &mut bounded)?;
                 input = bounded;
                 Some(
-                    chrono::DateTime::from_timestamp_millis(
+                    sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
                         binding.expiry(call)?.min(authority_expiry) as i64,
                     )
                     .ok_or_else(|| {
@@ -6619,7 +6623,11 @@ impl SignalAiAgentTools {
             &grant.limits,
         )?;
         let envelope_expiry = object_expiry
-            .and_then(|expiry| chrono::DateTime::parse_from_rfc3339(&expiry).ok())
+            .and_then(|expiry| {
+                desk_utils::datetime::parse_rfc3339(&expiry)
+                    .map(desk_agent_data_store::datetime::to_database)
+                    .ok()
+            })
             .and_then(|expiry| u64::try_from(expiry.timestamp_millis()).ok())
             .map_or(authority_expiry, |expiry| expiry.min(authority_expiry));
         let request_id = uuid::Uuid::new_v4().to_string();
@@ -6646,7 +6654,7 @@ impl SignalAiAgentTools {
                 granted: vec![capability],
                 mode: ExecutionMode::ReadOnly,
                 expires_at: Some(
-                    chrono::DateTime::from_timestamp_millis(envelope_expiry as i64)
+                    sea_orm::prelude::DateTimeUtc::from_timestamp_millis(envelope_expiry as i64)
                         .ok_or_else(|| {
                             error(
                                 AgentErrorKind::Internal,
@@ -6988,7 +6996,7 @@ impl ToolSeam for SignalAiAgentTools {
                 )
             })?;
         let current = crate::computer_use_readiness::global_computer_use_readiness_cache()
-            .get_fresh(&self.target_connection_id, chrono::Utc::now());
+            .get_fresh(&self.target_connection_id, jiff::Timestamp::now());
         let revision = if self.target_device_id.is_empty() {
             desk_diagnose_core::web_research::CENTRAL_WEB_READINESS_REVISION
         } else {
@@ -7317,7 +7325,7 @@ impl ToolSeam for SignalAiAgentTools {
         } else {
             outcome
         };
-        let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
             error(
                 AgentErrorKind::Internal,
                 "system clock predates the Unix epoch",
@@ -7407,7 +7415,7 @@ impl ToolSeam for SignalAiAgentTools {
             Some(format!("{}:{}", self.target_device_id, call.id))
         };
         let observed_at_unix_ms =
-            u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+            u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
                 error(
                     AgentErrorKind::Internal,
                     "system clock predates the Unix epoch",
@@ -7497,7 +7505,7 @@ impl ToolSeam for SignalAiAgentTools {
                 _ => None,
             });
         let observed_at_unix_ms =
-            u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| {
+            u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| {
                 error(
                     AgentErrorKind::Internal,
                     "system clock predates the Unix epoch",

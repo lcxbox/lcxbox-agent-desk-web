@@ -27,7 +27,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant as StdInstant};
 
-use chrono::{DateTime, Duration, Utc};
 use desk_agent_protocol::browser_control::{
     BrowserActionRequest, BrowserActionResult, BrowserAdapterRef, BrowserEngineKind,
     BrowserReadiness, BrowserReadinessReason,
@@ -217,7 +216,7 @@ pub(crate) enum ResolvedObject {
 struct StoredObject {
     snapshot_id: String,
     object_kind: ObjectKind,
-    expires_at: DateTime<Utc>,
+    expires_at: jiff::Timestamp,
     incarnation: String,
     resolved: ResolvedObject,
 }
@@ -1244,7 +1243,7 @@ impl ComputerUseBroker {
             .list(
                 &self.incarnation_nonce,
                 &session,
-                chrono::Utc::now().timestamp_millis().max(1) as u64,
+                jiff::Timestamp::now().as_millisecond().max(1) as u64,
                 params,
                 || {
                     #[cfg(windows)]
@@ -1345,8 +1344,8 @@ impl ComputerUseBroker {
             .expect("compiled system command adapter is registered")
             .adapter_version
             .clone();
-        let observed_at = Utc::now();
-        let expires_at = observed_at + Duration::seconds(READINESS_VALIDITY_SECS);
+        let observed_at = jiff::Timestamp::now();
+        let expires_at = observed_at + jiff::SignedDuration::from_secs(READINESS_VALIDITY_SECS);
         let observation = if ceiling.observation_enabled() {
             Some(self.observe_desktop())
         } else {
@@ -1728,8 +1727,8 @@ impl ComputerUseBroker {
         let mut readiness = ComputerUseReadiness {
             schema_version: COMPUTER_USE_SCHEMA_VERSION,
             revision: 0,
-            observed_at: observed_at.to_rfc3339(),
-            expires_at: expires_at.to_rfc3339(),
+            observed_at: desk_utils::datetime::rfc3339(observed_at),
+            expires_at: desk_utils::datetime::rfc3339(expires_at),
             server_api_version: desk_server_version::SERVER_API_VERSION,
             os: std::env::consts::OS.into(),
             interactive_user_home: user_home::current(),
@@ -3876,14 +3875,16 @@ impl ComputerUseBroker {
             )
         })?;
         objects.retain(|_, object| {
-            object.object_kind.is_lifecycle_bound() || object.expires_at > Utc::now()
+            object.object_kind.is_lifecycle_bound() || object.expires_at > jiff::Timestamp::now()
         });
         // References from one snapshot share the earliest expiry; never extend a snapshot.
         let expires_at = objects
             .values()
             .find(|object| object.snapshot_id == snapshot_id)
             .map(|object| object.expires_at)
-            .unwrap_or_else(|| Utc::now() + Duration::seconds(OBJECT_REF_TTL_SECS));
+            .unwrap_or_else(|| {
+                jiff::Timestamp::now() + jiff::SignedDuration::from_secs(OBJECT_REF_TTL_SECS)
+            });
         let object_ref = ObjectRef {
             token: token.clone(),
             snapshot_id: snapshot_id.to_string(),
@@ -3891,7 +3892,7 @@ impl ComputerUseBroker {
             expires_at: if lifecycle {
                 String::new()
             } else {
-                expires_at.to_rfc3339()
+                desk_utils::datetime::rfc3339(expires_at)
             },
         };
 
@@ -3951,9 +3952,9 @@ impl ComputerUseBroker {
                 true,
             )
         })?;
-        let now = Utc::now();
+        let now = jiff::Timestamp::now();
         if !object_ref.object_kind.is_lifecycle_bound()
-            && chrono::DateTime::parse_from_rfc3339(&object_ref.expires_at)
+            && desk_utils::datetime::parse_rfc3339(&object_ref.expires_at)
                 .is_ok_and(|expiry| expiry <= now)
         {
             return Err(error(
@@ -3984,7 +3985,7 @@ impl ComputerUseBroker {
         if stored.snapshot_id != object_ref.snapshot_id
             || stored.object_kind != object_ref.object_kind
             || (!stored.object_kind.is_lifecycle_bound()
-                && stored.expires_at.to_rfc3339() != object_ref.expires_at)
+                && desk_utils::datetime::rfc3339(stored.expires_at) != object_ref.expires_at)
             || !object_ref
                 .snapshot_id
                 .starts_with(&self.current_incarnation_nonce())
@@ -4931,7 +4932,7 @@ mod tests {
             .unwrap()
             .get_mut(&reference_storage_key(&first.token, &first.snapshot_id))
             .unwrap()
-            .expires_at = Utc::now() - Duration::seconds(1);
+            .expires_at = jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1);
         assert!(broker.resolve_ref(&first).is_ok());
         assert_eq!(broker.resolve_ui_identity(&id).unwrap(), native);
         broker.note_external_input();
@@ -5171,7 +5172,9 @@ mod tests {
         assert!(broker.resolve_ref(&first).is_ok());
         assert!(broker.resolve_ref(&second).is_ok());
         let mut tampered = second;
-        tampered.expires_at = (Utc::now() + Duration::hours(1)).to_rfc3339();
+        tampered.expires_at = desk_utils::datetime::rfc3339(
+            jiff::Timestamp::now() + jiff::SignedDuration::from_hours(1),
+        );
         assert!(broker.resolve_ref(&tampered).is_ok());
     }
 
@@ -5189,7 +5192,9 @@ mod tests {
             )
             .unwrap();
         let mut expired = reference.clone();
-        expired.expires_at = (Utc::now() - Duration::seconds(1)).to_rfc3339();
+        expired.expires_at = desk_utils::datetime::rfc3339(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1),
+        );
         assert!(broker.resolve_ref(&expired).is_ok());
         let mut unknown = reference.clone();
         unknown.token = "never-issued".into();
@@ -5245,7 +5250,7 @@ mod tests {
                 execution_generation: "generation-before-respawn".into(),
                 approved_actor_id: "7".into(),
                 interactive_session_incarnation: "session-before-respawn".into(),
-                expires_at: Utc::now() + Duration::seconds(30),
+                expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30),
             })
             .unwrap();
 
@@ -5294,7 +5299,7 @@ mod tests {
             execution_generation: "generation".into(),
             approved_actor_id: "7".into(),
             interactive_session_incarnation: "session-stale".into(),
-            expires_at: Utc::now() + Duration::seconds(30),
+            expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30),
         };
         let error = broker.acquire_writer_lease(request.clone()).unwrap_err();
         assert_eq!(error.kind, AgentErrorKind::InvalidInput);
@@ -5336,7 +5341,7 @@ mod tests {
             execution_generation: "file-generation".into(),
             approved_actor_id: "7".into(),
             interactive_session_incarnation: readiness.interactive_session_incarnation,
-            expires_at: Utc::now() + Duration::seconds(30),
+            expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30),
         };
         assert!(
             broker
@@ -5396,7 +5401,7 @@ mod tests {
                 execution_generation: "generation".into(),
                 approved_actor_id: "7".into(),
                 interactive_session_incarnation: "session-a".into(),
-                expires_at: Utc::now() + Duration::seconds(30),
+                expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30),
             })
             .unwrap();
 
@@ -5432,7 +5437,7 @@ mod tests {
                 execution_generation: "macos-live-generation".into(),
                 approved_actor_id: "7".into(),
                 interactive_session_incarnation: session.into(),
-                expires_at: Utc::now() + Duration::seconds(30),
+                expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30),
             })
             .expect("acquire macOS live writer lease");
 
@@ -5512,7 +5517,7 @@ mod tests {
                 &reference.snapshot_id,
             ))
             .unwrap()
-            .expires_at = Utc::now() - Duration::seconds(1);
+            .expires_at = jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1);
         assert!(broker.resolve_ref(&reference).is_ok());
         let reference = broker
             .issue_ref(
@@ -5557,7 +5562,7 @@ mod tests {
                 &reference.snapshot_id,
             ))
             .unwrap()
-            .expires_at = Utc::now() - Duration::seconds(1);
+            .expires_at = jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1);
         assert!(broker.resolve_ref(&reference).is_ok());
     }
 
@@ -5795,9 +5800,9 @@ mod tests {
         };
         let readiness = broker.readiness(&computer_use_off, false, false);
         readiness.validate().unwrap();
-        let observed = chrono::DateTime::parse_from_rfc3339(&readiness.observed_at).unwrap();
-        let expires = chrono::DateTime::parse_from_rfc3339(&readiness.expires_at).unwrap();
-        assert_eq!((expires - observed).num_seconds(), 60);
+        let observed = desk_utils::datetime::parse_rfc3339(&readiness.observed_at).unwrap();
+        let expires = desk_utils::datetime::parse_rfc3339(&readiness.expires_at).unwrap();
+        assert_eq!((expires - observed).as_secs(), 60);
         assert_eq!(readiness.capabilities.len(), 43);
         assert!(readiness.capabilities.iter().all(|entry| {
             if matches!(

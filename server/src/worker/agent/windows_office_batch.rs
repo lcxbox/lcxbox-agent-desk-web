@@ -436,7 +436,7 @@ mod tests {
             let LiveDocumentProjection::Presentation { slide, .. } = observed.projection else {
                 panic!()
             };
-            let expires_at = chrono::Utc::now() + chrono::Duration::seconds(30);
+            let expires_at = jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30);
             let plan = SealedComputerActionPlan {
                 turn_scope: None,
                 schema_version: COMPUTER_USE_SCHEMA_VERSION,
@@ -449,7 +449,7 @@ mod tests {
                 approval_id: "approval".into(),
                 approved_actor_id: "owner".into(),
                 draft_hash: "a".repeat(64),
-                expires_at: expires_at.to_rfc3339(),
+                expires_at: desk_utils::datetime::rfc3339(expires_at),
                 timeout_ms: 30_000,
                 actions: vec![ComputerActionStep {
                     target: slide,
@@ -494,7 +494,7 @@ mod tests {
                 &plan.adapter,
                 &plan.actions[0].action,
                 &receipt,
-                chrono::Utc::now().timestamp_millis() as u64,
+                jiff::Timestamp::now().as_millisecond() as u64,
             )
             .unwrap();
             if scenario.starts_with("success") {

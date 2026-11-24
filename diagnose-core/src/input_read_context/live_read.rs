@@ -46,9 +46,9 @@ pub fn selectable_descriptor(descriptor: &crate::provider_registry::CapabilityDe
 }
 
 fn millis(value: &str) -> Result<u64, AgentError> {
-    chrono::DateTime::parse_from_rfc3339(value)
+    desk_utils::datetime::parse_rfc3339(value)
         .ok()
-        .and_then(|date| u64::try_from(date.timestamp_millis()).ok())
+        .and_then(|date| u64::try_from(desk_utils::datetime::unix_millis(date)).ok())
         .ok_or_else(|| invalid("invalid original live target deadline"))
 }
 

@@ -146,8 +146,8 @@ pub async fn cancel_continuation_wait_on<C: ConnectionTrait, H: ScheduleHostStor
         return Err(ScheduleStoreError::Conflict);
     }
     let now = authority_now(txn).await?;
-    let timestamp =
-        chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let timestamp = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     let reference = work
         .result_ref
         .as_deref()

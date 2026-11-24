@@ -10,7 +10,6 @@
 
 use std::sync::Mutex;
 
-use chrono::{DateTime, Utc};
 use desk_agent_protocol::{AgentError, AgentErrorKind};
 
 #[path = "computer_use_writer_scope.rs"]
@@ -38,7 +37,7 @@ pub struct WriterLeaseRequest {
     pub execution_generation: String,
     pub approved_actor_id: String,
     pub interactive_session_incarnation: String,
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: jiff::Timestamp,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -93,7 +92,7 @@ impl WriterLeaseCoordinator {
         current_input_epoch: u64,
     ) -> Result<WriterLeaseState, AgentError> {
         validate_request(&request)?;
-        let now = Utc::now();
+        let now = jiff::Timestamp::now();
         if request.expires_at <= now {
             return Err(error(
                 AgentErrorKind::Timeout,
@@ -146,7 +145,7 @@ impl WriterLeaseCoordinator {
                 false,
             ));
         }
-        if state.request.expires_at <= Utc::now() {
+        if state.request.expires_at <= jiff::Timestamp::now() {
             return Err(error(
                 AgentErrorKind::Timeout,
                 "Computer Use writer lease expired before the next step",
@@ -307,7 +306,6 @@ fn error(kind: AgentErrorKind, message: &str, retryable: bool) -> AgentError {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Duration;
 
     use super::*;
 
@@ -319,7 +317,7 @@ mod tests {
             execution_generation: generation.into(),
             approved_actor_id: "7".into(),
             interactive_session_incarnation: "session-1:worker-1".into(),
-            expires_at: Utc::now() + Duration::seconds(30),
+            expires_at: jiff::Timestamp::now() + jiff::SignedDuration::from_secs(30),
         }
     }
 
@@ -424,7 +422,7 @@ mod tests {
     fn expired_requests_and_epoch_changes_fail_closed() {
         let leases = WriterLeaseCoordinator::new();
         let mut expired = request("generation-expired");
-        expired.expires_at = Utc::now() - Duration::seconds(1);
+        expired.expires_at = jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1);
         assert_eq!(
             leases.acquire(expired, 0).unwrap_err().kind,
             AgentErrorKind::Timeout
@@ -506,7 +504,7 @@ mod tests {
                         .as_mut()
                         .unwrap()
                         .request
-                        .expires_at = Utc::now() - Duration::seconds(1);
+                        .expires_at = jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1);
                 }
                 "epoch" => epoch = 1,
                 _ => unreachable!(),
@@ -563,7 +561,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .request
-            .expires_at = Utc::now() - Duration::seconds(1);
+            .expires_at = jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1);
         assert!(leases.require_active("background", 10).is_err());
     }
 }

@@ -10,7 +10,8 @@ async fn offline_recovery_reads_original_snapshot_and_stops_only_the_original_ta
     f.bind().await;
     f.accept().await.unwrap();
     let mut row: agent_capability_dispatch_outbox::ActiveModel = f.outbox().await.into();
-    row.created_at = Set(Utc::now() - chrono::Duration::seconds(9));
+    row.created_at = Set(desk_agent_data_store::datetime::utc_now()
+        - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(9)));
     row.update(&f.store.db).await.unwrap();
     assert!(
         f.store

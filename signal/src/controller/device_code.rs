@@ -303,7 +303,7 @@ async fn apply_device_code_update_generated<
                 let mut active: device_code::ActiveModel = model.clone().into();
                 active.device_code = Set(code.clone());
                 active.capabilities = Set(capabilities.clone());
-                active.updated_at = Set(chrono::Utc::now());
+                active.updated_at = Set(desk_agent_data_store::datetime::utc_now());
                 if changed {
                     active.generation = Set(model
                         .generation
@@ -650,8 +650,8 @@ mod tests {
         device_code::ActiveModel {
             client_id: Set(client_id.to_string()),
             device_code: Set(code.to_string()),
-            created_at: Set(chrono::Utc::now()),
-            updated_at: Set(chrono::Utc::now()),
+            created_at: Set(desk_agent_data_store::datetime::utc_now()),
+            updated_at: Set(desk_agent_data_store::datetime::utc_now()),
             ..Default::default()
         }
         .insert(db)

@@ -98,7 +98,7 @@ pub(crate) async fn augment_owner_attention_on<
         .into_iter()
         .map(|row| (row.task_id.clone(), row))
         .collect::<HashMap<_, _>>();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     for event in events {
         let Some(parent) = roots
             .get(&event.root_conversation_id)

@@ -84,7 +84,7 @@ pub(super) fn digest(bytes: &[u8]) -> String {
 }
 
 pub(super) fn now_ms() -> u64 {
-    Utc::now().timestamp_millis().max(1) as u64
+    jiff::Timestamp::now().as_millisecond().max(1) as u64
 }
 
 /// The filesystem identity of a resolved directory as stored with a backup.

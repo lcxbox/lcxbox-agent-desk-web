@@ -38,7 +38,7 @@ async fn current_device_context(
     db: &DatabaseConnection,
     connections: &SharedConnectionMap,
     subject: &PendingPermissionReview,
-    now: chrono::DateTime<chrono::Utc>,
+    now: jiff::Timestamp,
 ) -> Option<ReviewDeviceContext> {
     if subject.kind == PendingRequestKind::Goal || subject.kind.is_turn_proposal() {
         return Some(ReviewDeviceContext {
@@ -74,7 +74,7 @@ async fn current_device_context(
     let reports = provider_readiness_reports(&readiness.readiness).ok()?;
     let search = crate::web_search_config::read(db).await.ok()?;
     let registry = ai_agent_provider_registry().with_web_search_binding(search.binding());
-    let now_unix_ms = u64::try_from(now.timestamp_millis()).ok()?;
+    let now_unix_ms = u64::try_from(now.as_millisecond()).ok()?;
     let session = crate::command_policy::stored_session(
         db,
         &subject.conversation_id,
@@ -142,14 +142,14 @@ async fn current_device_context(
 /// central capability context as the owner's decision for it.
 async fn targetless_context(
     db: &DatabaseConnection,
-    now: chrono::DateTime<chrono::Utc>,
+    now: jiff::Timestamp,
 ) -> Option<ReviewDeviceContext> {
     let search = crate::web_search_config::read(db).await.ok()?;
     let registry = ai_agent_provider_registry().with_web_search_binding(search.binding());
     let inventory = project_capability_availability(
         &registry,
         ProductSurface::OssPersonalOwner,
-        u64::try_from(now.timestamp_millis()).ok()?,
+        u64::try_from(now.as_millisecond()).ok()?,
         desk_diagnose_core::capability_availability::agent_central_capability_readiness(
             search.configured(),
             false,
@@ -175,7 +175,7 @@ pub(crate) async fn process_pending_unattended_command(
     if subject.owner_id.parse::<i32>().ok() != Some(SINGLE_ACCOUNT_USER_ID) {
         return false;
     }
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     let Some(device) = current_device_context(&db, connections.as_ref(), &subject, now).await
     else {
         return false;
@@ -197,11 +197,11 @@ pub(crate) async fn process_pending_unattended_command(
                 registry: &device.registry,
                 inventory: &device.inventory,
                 readiness_revision: device.readiness_revision,
-                now_unix_ms: u64::try_from(now.timestamp_millis()).unwrap_or(0),
+                now_unix_ms: u64::try_from(now.as_millisecond()).unwrap_or(0),
                 implicit_fresh_object_refs: &device.implicit_fresh_object_refs,
             },
             device.device_allows_unattended,
-            &now.to_rfc3339(),
+            &desk_utils::datetime::rfc3339(now),
         )
         .await
     else {
@@ -221,7 +221,7 @@ pub async fn process_pending_permission_review(
     if subject.owner_id.parse::<i32>().ok() != Some(SINGLE_ACCOUNT_USER_ID) {
         return false;
     }
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     let Some(device) = current_device_context(&db, connections.as_ref(), &subject, now).await
     else {
         if subject.kind == PendingRequestKind::Goal {
@@ -231,7 +231,7 @@ pub async fn process_pending_permission_review(
                 &subject.owner_id,
                 &subject.device_id,
                 &subject.request_id,
-                u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
                 desk_diagnose_core::approval_observation::ReviewReason::Policy,
             )
             .await
@@ -244,7 +244,7 @@ pub async fn process_pending_permission_review(
                 &subject.owner_id,
                 &subject.device_id,
                 &subject.request_id,
-                u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
                 true,
             )
             .await
@@ -252,7 +252,7 @@ pub async fn process_pending_permission_review(
         }
         return false;
     };
-    let now_unix_ms = u64::try_from(now.timestamp_millis()).unwrap_or(0);
+    let now_unix_ms = u64::try_from(now.as_millisecond()).unwrap_or(0);
     let candidates = match crate::agent_approval_store::prepare_permission_review_batch(
         &db,
         &subject.conversation_id,
@@ -303,7 +303,7 @@ pub async fn process_pending_permission_review(
             ProductSurface::OssPersonalOwner,
             &lease_owner,
             device.readiness_revision,
-            u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+            u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
         )
         .await
         {
@@ -326,7 +326,7 @@ pub async fn process_pending_permission_review(
                         &subject.owner_id,
                         &subject.device_id,
                         &subject.request_id,
-                        u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+                        u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
                         reason,
                     )
                     .await
@@ -361,7 +361,7 @@ pub async fn process_pending_permission_review(
         let response =
             crate::approval_reviewer::call_claimed_permission_review(&db, candidate, &claim).await;
         let current_revision =
-            current_device_context(&db, connections.as_ref(), &subject, chrono::Utc::now())
+            current_device_context(&db, connections.as_ref(), &subject, jiff::Timestamp::now())
                 .await
                 .map_or(0, |device| device.readiness_revision);
         let (decision, tokens) = match &response {
@@ -379,7 +379,7 @@ pub async fn process_pending_permission_review(
             decision,
             tokens,
             current_revision,
-            u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+            u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
             claim.statistics.try_lock().ok().map(|value| value.clone()),
         )
         .await
@@ -401,18 +401,18 @@ pub async fn process_pending_permission_review(
             &subject.owner_id,
             &subject.device_id,
             &subject.request_id,
-            u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+            u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
             false,
         )
         .await
         .is_ok();
     }
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     let Some(device) = current_device_context(&db, connections.as_ref(), &subject, now).await
     else {
         return false;
     };
-    let now_unix_ms = u64::try_from(now.timestamp_millis()).unwrap_or(0);
+    let now_unix_ms = u64::try_from(now.as_millisecond()).unwrap_or(0);
     let store = SignalAgentSessionStore::new(db.clone());
     let outcome = store
         .decide_permission_request_by_ai(
@@ -432,7 +432,7 @@ pub async fn process_pending_permission_review(
                 now_unix_ms,
                 implicit_fresh_object_refs: &device.implicit_fresh_object_refs,
             },
-            &now.to_rfc3339(),
+            &desk_utils::datetime::rfc3339(now),
         )
         .await;
     let outcome = match outcome {
@@ -468,7 +468,7 @@ async fn resume_permission_decision(
             &subject.owner_id,
             &subject.device_id,
             &subject.request_id,
-            chrono::Utc::now(),
+            desk_agent_data_store::datetime::utc_now(),
         )
         .await
         {

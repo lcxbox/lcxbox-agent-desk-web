@@ -217,7 +217,7 @@ async fn coordination_preserves_native_fences_and_defers_omissions_independently
         session::{AgentSessionSurface, PersistedAgentSession},
     };
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let scope = desk_agent_protocol::AgentScope {
         granted: vec![],
         mode: desk_agent_protocol::ExecutionMode::ReadOnly,
@@ -279,7 +279,7 @@ async fn coordination_preserves_native_fences_and_defers_omissions_independently
     assert!(projection.tools.is_empty());
     let mut rival = session.clone();
     let instant = |ms| {
-        chrono::DateTime::from_timestamp_millis(ms)
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis(ms)
             .unwrap()
             .to_rfc3339()
     };
@@ -365,7 +365,7 @@ async fn coordination_preserves_native_fences_and_defers_omissions_independently
             &txn,
             &activated,
             &mut session,
-            chrono::DateTime::from_timestamp_millis(now + 3).unwrap(),
+            sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now + 3).unwrap(),
             MainRequestFailure::SourceUnavailable
         )
         .await
@@ -393,7 +393,7 @@ async fn coordination_preserves_native_fences_and_defers_omissions_independently
 async fn coordination_attempts_survive_a_lost_lease() {
     use desk_diagnose_core::session::{AgentSessionSurface, PersistedAgentSession};
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let mut session = PersistedAgentSession::new(
         "root",
         "owner",
@@ -689,7 +689,7 @@ async fn workbench_dispatch_proposals_are_scoped_and_activation_is_atomic() {
         session::{AgentSessionSurface, PersistedAgentSession},
     };
     let TestStore { db } = setup().await;
-    let now = chrono::Utc::now();
+    let now = crate::datetime::utc_now();
     let ms = now.timestamp_millis();
     let mut root = PersistedAgentSession::new_workbench_coordinator(
         "owner",

@@ -8,7 +8,6 @@ mod task_authority;
 pub(crate) mod task_grant;
 mod turn_status;
 
-use chrono::{TimeZone, Utc};
 #[cfg(test)]
 use desk_agent_protocol::capability_grant::CAPABILITY_GRANT_SCHEMA_VERSION;
 use desk_agent_protocol::capability_grant::CapabilityGrant;
@@ -1286,8 +1285,10 @@ impl SignalCapabilityGrantStore {
                     event_id: Set(format!("signal-exec:{}:done", payload.call_id)),
                     delivery_state: Set(crate::agent_exec_store::DELIVERY_PENDING.into()),
                     deadline: Set(now
-                        + chrono::Duration::milliseconds(
-                            crate::agent_exec::result_wait_ms(timeout) + 60000,
+                        + desk_agent_data_store::datetime::database_interval(
+                            jiff::SignedDuration::from_millis(
+                                crate::agent_exec::result_wait_ms(timeout) + 60000,
+                            ),
                         )),
                     created_at: Set(now),
                     updated_at: Set(now),
@@ -1432,7 +1433,7 @@ impl SignalCapabilityGrantStore {
                     || session_row.lease_token != session.lease_token as i64
                     || session_row
                         .lease_deadline
-                        .is_none_or(|expiry| expiry <= chrono::Utc::now()))
+                        .is_none_or(|expiry| expiry <= desk_agent_data_store::datetime::utc_now()))
             {
                 return Err(DbErr::Custom(
                     "targetless dispatch lease is unavailable".into(),
@@ -1883,7 +1884,9 @@ async fn validate_selected_dispatch(
         || row.actor_id != held.actor_id
         || row.device_id != session.device_id
         || row.lease_token != held.lease_token as i64
-        || row.lease_deadline.is_none_or(|expiry| expiry <= Utc::now())
+        || row
+            .lease_deadline
+            .is_none_or(|expiry| expiry <= desk_agent_data_store::datetime::utc_now())
         || AgentTurnFence::for_device(session, request.call.target_device_id)
             .map_err(|_| unavailable())?
             .as_ref()
@@ -1891,9 +1894,14 @@ async fn validate_selected_dispatch(
     {
         return Err(unavailable());
     }
-    crate::issue_connections::check_work_on(txn, session, true, Utc::now().timestamp_millis())
-        .await
-        .map_err(|_| unavailable())?;
+    crate::issue_connections::check_work_on(
+        txn,
+        session,
+        true,
+        jiff::Timestamp::now().as_millisecond(),
+    )
+    .await
+    .map_err(|_| unavailable())?;
     let references = std::slice::from_ref(&held.device_id);
     if !desk_agent_data_store::device_roster::permits_current_target(txn, session, &held.device_id)
         .await
@@ -2157,11 +2165,10 @@ fn stable_id(prefix: &str, value: &str) -> String {
     format!("{prefix}-{:x}", Sha256::digest(value.as_bytes()))
 }
 
-fn timestamp(unix_ms: u64) -> Result<chrono::DateTime<Utc>, DbErr> {
+fn timestamp(unix_ms: u64) -> Result<sea_orm::prelude::DateTimeUtc, DbErr> {
     let unix_ms = i64::try_from(unix_ms)
         .map_err(|_| DbErr::Custom("timestamp exceeds SQLite range".into()))?;
-    Utc.timestamp_millis_opt(unix_ms)
-        .single()
+    sea_orm::prelude::DateTimeUtc::from_timestamp_millis(unix_ms)
         .ok_or_else(|| DbErr::Custom("invalid timestamp".into()))
 }
 
@@ -2545,7 +2552,7 @@ mod tests {
             },
             selected_source_tools: [grant.tool_name.clone()].into_iter().collect(),
             export_authorization_id: "original-owner-selection".into(),
-            now_unix_ms: Utc::now().timestamp_millis() as u64,
+            now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
             byte_cap: desk_diagnose_core::sink_authorizer::MAX_SINK_BYTES,
             permission_resume: false,
         };
@@ -2779,7 +2786,7 @@ mod tests {
                 event_id: finished.event_id.clone(),
                 chain_id: session.chain_id.clone(),
                 resolution_org_id: None,
-                since: Utc::now().to_rfc3339(),
+                since: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             });
         assert_eq!(
             store

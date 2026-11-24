@@ -660,9 +660,9 @@ async fn fresh_task_turn_rejects_extra_state_and_drives_without_reclaiming() {
             recovery_epoch: 1,
         },
         &contract,
-        chrono::DateTime::parse_from_rfc3339(&session.created_at)
-            .unwrap()
-            .timestamp_millis(),
+        desk_utils::datetime::parse_rfc3339(&session.created_at)
+            .map(desk_utils::datetime::unix_millis)
+            .unwrap(),
     )
     .unwrap();
     let creation = crate::subagent::creation::CreationEnvelope::capture_scheduled(

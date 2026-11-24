@@ -100,7 +100,7 @@ async fn prepare_plain(label: &str, needs_export: bool) -> PlainAdmission {
         .agent_data_request_manifest(
             &session,
             &request,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap()
@@ -117,7 +117,7 @@ async fn prepare_plain(label: &str, needs_export: bool) -> PlainAdmission {
         destination,
         selected_source_tools: Default::default(),
         export_authorization_id: "plain-export".into(),
-        now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+        now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
         byte_cap: desk_diagnose_core::sink_authorizer::MAX_SINK_BYTES,
         permission_resume: false,
     };
@@ -382,7 +382,7 @@ async fn unrelated_memory_forget_does_not_turn_a_source_free_answer_into_a_memor
                 operation_id: "forget-unused-by-call".into(),
             },
             &AgentDataPolicy::default(),
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
@@ -416,7 +416,7 @@ async fn a_plain_output_cannot_be_attached_to_a_later_input_and_archive_capacity
                 &mut session,
                 "UTC",
                 None,
-                chrono::Utc::now().timestamp_millis() as u64,
+                jiff::Timestamp::now().as_millisecond() as u64,
             )
             .await
             .unwrap();

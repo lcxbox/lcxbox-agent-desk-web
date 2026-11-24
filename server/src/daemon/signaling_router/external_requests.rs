@@ -351,7 +351,7 @@ pub(super) fn handle_support_code_issued_inbound(
         }
         log::info!("[support] manager issued temporary support code (expires_at={expires_at})");
         state.set_snapshot(code, expires_at).await;
-        let now = chrono::Utc::now().timestamp();
+        let now = jiff::Timestamp::now().as_second();
         let remaining = expires_at.saturating_sub(now).max(0) as u64;
         tokio::time::sleep(std::time::Duration::from_secs(remaining)).await;
         // Only tear down if this is still the same session — a manual stop or a

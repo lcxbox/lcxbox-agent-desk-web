@@ -471,7 +471,7 @@ expected_revision: 0, summary_max_output_tokens: 128000,
     let observation = crate::model_provider::ModelProbeObservation {
         connection_revision: original.connection_revision,
         profile_revision: original.profile_revision,
-        tested_at: chrono::Utc::now(),
+        tested_at: desk_agent_data_store::datetime::utc_now(),
         reasoning_observed: false,
         reasoning_tokens: None,
         stop_reason: Some("stop".into()),

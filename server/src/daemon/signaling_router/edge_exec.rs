@@ -797,7 +797,7 @@ async fn dispatch_root_fleet_pty(
             .record(
                 desk_agent_protocol::audit::AuditEvent::command_completed(
                     uuid::Uuid::new_v4().to_string(),
-                    chrono::Utc::now().to_rfc3339(),
+                    desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                     &payload.plan.exec_request_id.0,
                     success,
                     summary,
@@ -1092,8 +1092,8 @@ pub(super) async fn handle_computer_action_inbound(
             .granted
             .contains(&step.action.required_capability())
     });
-    let expiry_valid = chrono::DateTime::parse_from_rfc3339(&plan.expires_at)
-        .is_ok_and(|expiry| expiry > chrono::Utc::now());
+    let expiry_valid = desk_utils::datetime::parse_rfc3339(&plan.expires_at)
+        .is_ok_and(|expiry| expiry > jiff::Timestamp::now());
     let turn_matches = plan
         .turn_scope
         .as_ref()
@@ -1168,7 +1168,7 @@ pub(super) async fn handle_computer_action_cancel_inbound(
             .validate(
                 &model.request_id,
                 &authz.audience,
-                &chrono::Utc::now().to_rfc3339(),
+                &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             )
             .is_err()
     {

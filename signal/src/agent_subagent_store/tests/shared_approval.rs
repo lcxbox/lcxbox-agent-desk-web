@@ -14,7 +14,7 @@ use desk_diagnose_core::{
 use sea_orm::sea_query::Expr;
 
 pub(super) async fn enable(db: &DatabaseConnection, id: &str) -> ApprovalDelegation {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let value = ApprovalDelegation::new_usage_only(
         id.into(),
         "root".into(),
@@ -167,7 +167,7 @@ async fn child(
     super::paused_permission::publish(db, &mut session, &event).await;
     session.finish_turn(
         desk_diagnose_core::session::TurnState::Idle,
-        chrono::Utc::now().to_rfc3339(),
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     );
     save_child_session(db, &mut session).await.unwrap();
     session
@@ -204,7 +204,7 @@ async fn root_switch_discovers_existing_and_future_children_while_main_is_runnin
             &db,
             0,
             64,
-            chrono::Utc::now().timestamp_millis() as u64
+            jiff::Timestamp::now().as_millisecond() as u64
         )
         .await
         .unwrap()
@@ -217,13 +217,13 @@ async fn root_switch_discovers_existing_and_future_children_while_main_is_runnin
         &db,
         0,
         64,
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )
     .await
     .unwrap()
     .0;
     assert_eq!(pending.len(), 2);
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let scan = approval::pending_permission_reviews(&db, 0, 1, now);
     assert!(std::mem::size_of_val(&scan) <= 16 * 1024);
     let (empty_page, next) = scan.await.unwrap();
@@ -295,7 +295,7 @@ async fn root_switch_discovers_existing_and_future_children_while_main_is_runnin
             &db,
             0,
             64,
-            chrono::Utc::now().timestamp_millis() as u64
+            jiff::Timestamp::now().as_millisecond() as u64
         )
         .await
         .unwrap()
@@ -325,7 +325,7 @@ async fn root_switch_discovers_existing_and_future_children_while_main_is_runnin
             &db,
             0,
             64,
-            chrono::Utc::now().timestamp_millis() as u64
+            jiff::Timestamp::now().as_millisecond() as u64
         )
         .await
         .unwrap()
@@ -345,7 +345,7 @@ async fn shared_review_validates_the_frozen_child_relationship_and_open_source()
     )
     .await;
     let child = child(&db, &parent, &calls[0], false).await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     assert!(shared_approval_current_on(&db, &child, now).await.unwrap());
     for invalid in 0..4 {
         let mut altered = child.clone();
@@ -441,7 +441,7 @@ async fn active_child_directory_is_claimed_once_and_fault_ends_only_directory_co
     use desk_agent_protocol::capability_provider::ProductSurface;
     use desk_diagnose_core::file_scope::transaction::{self, FileScopeMutation, FileScopeUpdate};
     let (db, mut session, _) = review_child_fixture(database().await, false).await;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     session.turn_state = desk_diagnose_core::session::TurnState::Running;
     session.current_turn_id = Some("directory-child-turn".into());
     let id = desk_diagnose_core::native_ids::stable(
@@ -504,7 +504,11 @@ async fn active_child_directory_is_claimed_once_and_fault_ends_only_directory_co
                     token: "native-directory".into(),
                     snapshot_id: "generation".into(),
                     object_kind: desk_agent_protocol::computer_use::ObjectKind::Directory,
-                    expires_at: (now + chrono::Duration::hours(1)).to_rfc3339(),
+                    expires_at: (now
+                        + desk_agent_data_store::datetime::database_interval(
+                            jiff::SignedDuration::from_hours(1),
+                        ))
+                    .to_rfc3339(),
                 },
             },
         },
@@ -533,7 +537,7 @@ async fn active_child_directory_is_claimed_once_and_fault_ends_only_directory_co
         .col_expr(session_row::Column::Version, Expr::value(session.version))
         .col_expr(
             session_row::Column::LeaseDeadline,
-            Expr::value(Option::<chrono::DateTime<chrono::Utc>>::None),
+            Expr::value(Option::<sea_orm::prelude::DateTimeUtc>::None),
         )
         .filter(session_row::Column::ConversationId.eq(&session.conversation_id))
         .exec(&db)
@@ -652,7 +656,7 @@ async fn closed_child_claim_releases_the_root_reservation_without_dialing() {
     use desk_agent_protocol::capability_provider::ProductSurface;
     let (db, child, mut delegation) = review_child_fixture(database().await, false).await;
     let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let candidates = approval::prepare_permission_review_batch(
         &db,
         &child.conversation_id,
@@ -796,7 +800,7 @@ async fn reviewed_child_permission(command: bool, stack: Option<usize>) {
     } else {
         registry
     };
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let request_id = &child.permission_requests[0].request_id;
     let candidates = approval::prepare_permission_review_batch(
         &db,
@@ -884,7 +888,7 @@ async fn reviewed_child_permission(command: bool, stack: Option<usize>) {
             Some(&decision),
             Some(120),
             1,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
             None,
         )
         .await
@@ -933,10 +937,10 @@ async fn reviewed_child_permission(command: bool, stack: Option<usize>) {
                     registry: &registry,
                     inventory: &inventory,
                     readiness_revision: 1,
-                    now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+                    now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
                     implicit_fresh_object_refs: &[],
                 },
-                &chrono::Utc::now().to_rfc3339(),
+                &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             )
             .await
             .unwrap();
@@ -998,7 +1002,7 @@ async fn reviewed_child_permission(command: bool, stack: Option<usize>) {
                 &db,
                 0,
                 64,
-                chrono::Utc::now().timestamp_millis() as u64
+                jiff::Timestamp::now().as_millisecond() as u64
             )
             .await
             .unwrap()
@@ -1015,7 +1019,7 @@ async fn reviewed_child_permission(command: bool, stack: Option<usize>) {
             &txn,
             &child,
             &grants[0],
-            chrono::Utc::now().timestamp_millis() as u64
+            jiff::Timestamp::now().as_millisecond() as u64
         )
         .await
         .unwrap()

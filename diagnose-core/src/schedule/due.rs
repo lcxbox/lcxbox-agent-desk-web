@@ -41,9 +41,8 @@ pub fn due_window(
         }
         ScheduleRule::Weekly { weekdays, .. } => {
             let day_count = (now_ms - first) / 86_400_000 + 1;
-            let first_day =
-                DateTime::from_timestamp_millis(first).ok_or(ScheduleError::OutOfRange)?;
-            let first_weekday = first_day.weekday().number_from_monday() as i64;
+            let first_day = utc_at(first)?;
+            let first_weekday = first_day.weekday().to_monday_one_offset() as i64;
             let mut count = 0;
             let mut latest = first;
             for weekday in weekdays {
@@ -79,7 +78,7 @@ pub fn start_deadline(scheduled_at: i64, grace_seconds: u32) -> Result<i64, Sche
 mod tests {
     use super::*;
     fn ms(value: &str) -> i64 {
-        absolute(value).unwrap().timestamp_millis()
+        millis(absolute(value).unwrap())
     }
 
     #[test]

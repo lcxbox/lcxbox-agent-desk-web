@@ -14,11 +14,16 @@ fn live_input() -> AppendUserFollowupParams {
             token: "original-document".into(),
             snapshot_id: "snapshot-1".into(),
             object_kind: ObjectKind::Document,
-            expires_at: (Utc::now() + chrono::Duration::minutes(2)).to_rfc3339(),
+            expires_at: desk_utils::datetime::rfc3339(
+                jiff::Timestamp::now() + jiff::SignedDuration::from_mins(2),
+            ),
         },
         interactive_session_incarnation: "worker-1".into(),
-        readiness_expires_at_unix_ms: (Utc::now() + chrono::Duration::minutes(1)).timestamp_millis()
-            as u64,
+        readiness_expires_at_unix_ms: (desk_agent_data_store::datetime::utc_now()
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_mins(
+                1,
+            )))
+        .timestamp_millis() as u64,
     }];
     params
 }
@@ -67,7 +72,8 @@ async fn original_live_target_receipt_is_immutable_even_after_expiry() {
         .await
         .unwrap();
     let mut retry = params.clone();
-    retry.created_at = (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339();
+    retry.created_at =
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now() + jiff::SignedDuration::from_mins(5));
     let repeated = store.append_user_followup(&retry).await.unwrap();
     assert_eq!(repeated.event_seq, first.event_seq);
     assert!(!repeated.newly_appended);
@@ -112,7 +118,7 @@ async fn original_live_target_receipt_is_immutable_even_after_expiry() {
                 first.input_revision,
                 params.read_context.as_ref().unwrap(),
                 &changed_model,
-                Utc::now().timestamp_millis() as u64
+                jiff::Timestamp::now().as_millisecond() as u64
             )
             .await
             .is_err()

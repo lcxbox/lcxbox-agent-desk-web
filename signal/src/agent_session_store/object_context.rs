@@ -164,9 +164,9 @@ impl SignalAgentSessionStore {
         params: &UpdateObjectContext,
     ) -> Result<bool, AgentError> {
         self.validate_object_request(params)?;
-        let time = DateTime::parse_from_rfc3339(&params.created_at)
-            .map_err(|_| error())?
-            .with_timezone(&Utc);
+        let time = desk_utils::datetime::parse_rfc3339(&params.created_at)
+            .map(desk_agent_data_store::datetime::to_database)
+            .map_err(|_| error())?;
         let now_ms = u64::try_from(time.timestamp_millis()).map_err(|_| error())?;
         let id = event_id(params);
         for _ in 0..CLAIM_ATTEMPTS {
@@ -399,9 +399,9 @@ fn replay(
         || row.result_envelope_ids_json != "[]"
         || !event.source_envelope_ids.is_empty()
         || !event.result_envelope_ids.is_empty()
-        || DateTime::parse_from_rfc3339(&event.created_at)
+        || desk_utils::datetime::parse_rfc3339(&event.created_at)
+            .map(desk_agent_data_store::datetime::to_database)
             .map_err(|_| error())?
-            .with_timezone(&Utc)
             != row.created_at
     {
         return Err(error());
@@ -455,9 +455,9 @@ impl SignalAgentSessionStore {
                 actor_id: &params.actor_id,
                 device_id: &params.device_id,
                 destination: params.destination.as_ref().unwrap(),
-                now_unix_ms: chrono::DateTime::parse_from_rfc3339(&params.created_at)
-                    .unwrap()
-                    .timestamp_millis() as u64,
+                now_unix_ms: desk_utils::datetime::parse_rfc3339(&params.created_at)
+                    .map(desk_utils::datetime::unix_millis)
+                    .unwrap() as u64,
                 attachment_id: &attachment.attachment_id,
                 observation_id: &attachment.attachment_id,
             },

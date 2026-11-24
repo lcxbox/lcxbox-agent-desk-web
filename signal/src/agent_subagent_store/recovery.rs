@@ -83,7 +83,7 @@ impl SubAgentStore {
         task_context_on(&txn, &session)
             .await?
             .ok_or_else(|| invalid())?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let now_ms = now.timestamp_millis();
         if session.turn_state.is_active()
             && stored

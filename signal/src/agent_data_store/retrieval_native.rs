@@ -172,7 +172,7 @@ async fn prepare_data_on<'a>(
     if let Some(until) = source_deadline {
         deadline = deadline.min(until);
     }
-    if deadline <= now.max(chrono::Utc::now().timestamp_millis() as u64) {
+    if deadline <= now.max(jiff::Timestamp::now().as_millisecond() as u64) {
         return Err(AgentStoreError::Inaccessible);
     }
     Ok(Box::new(NativeAgentDataFence {
@@ -371,7 +371,7 @@ impl NativeAgentDataFence<'_> {
                 != self.archive.as_ref().map(|value| &value.row)
             || producer != self.producer
             || observed_sources != self.observed_sources
-            || deadline <= now.max(chrono::Utc::now().timestamp_millis() as u64)
+            || deadline <= now.max(jiff::Timestamp::now().as_millisecond() as u64)
         {
             return Err(AgentStoreError::Inaccessible);
         }

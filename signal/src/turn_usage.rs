@@ -9,7 +9,7 @@ use crate::config::connection::DatabaseConnection;
 use desk_agent_data_store::entity_table::EntityTableExt;
 use std::collections::HashMap;
 
-use chrono::{NaiveDateTime, Timelike};
+use sea_orm::prelude::DateTime as NaiveDateTime;
 use sea_orm::prelude::DateTimeUtc;
 use sea_orm::prelude::Expr;
 use sea_orm::sea_query::{ExprTrait, OnConflict};
@@ -55,10 +55,7 @@ impl TurnUsageDelta {
 
 /// Truncate a timestamp to the start of its UTC hour.
 pub fn truncate_to_hour(ts: DateTimeUtc) -> DateTimeUtc {
-    ts.with_minute(0)
-        .and_then(|t| t.with_second(0))
-        .and_then(|t| t.with_nanosecond(0))
-        .unwrap_or(ts)
+    desk_agent_data_store::datetime::hour_bucket(ts)
 }
 
 /// Atomically add `delta` to the `(device_code, hour_bucket)` rollup, inserting
@@ -70,7 +67,7 @@ pub async fn upsert_turn_usage(
     hour_bucket: DateTimeUtc,
     delta: &TurnUsageDelta,
 ) -> Result<(), DbErr> {
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let model = turn_usage::ActiveModel {
         device_code: Set(device_code.to_string()),
         hour_bucket: Set(hour_bucket),
@@ -241,16 +238,20 @@ mod tests {
     }
 
     fn hour(h: u32) -> DateTimeUtc {
-        use chrono::TimeZone;
-        chrono::Utc.with_ymd_and_hms(2026, 6, 24, h, 0, 0).unwrap()
+        sea_orm::prelude::Date::from_ymd_opt(2026, 6, 24)
+            .unwrap()
+            .and_hms_opt(h, 0, 0)
+            .unwrap()
+            .and_utc()
     }
 
     #[test]
     fn truncate_drops_sub_hour_components() {
-        use chrono::TimeZone;
-        let ts = chrono::Utc
-            .with_ymd_and_hms(2026, 6, 24, 9, 37, 42)
-            .unwrap();
+        let ts = sea_orm::prelude::Date::from_ymd_opt(2026, 6, 24)
+            .unwrap()
+            .and_hms_opt(9, 37, 42)
+            .unwrap()
+            .and_utc();
         assert_eq!(truncate_to_hour(ts), hour(9));
     }
 

@@ -40,7 +40,7 @@ async fn admit_followup(
         session,
         "UTC",
         None,
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )
     .await
     .unwrap();
@@ -80,7 +80,7 @@ async fn admit_followup(
         .agent_data_request_manifest(
             session,
             &request,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap()
@@ -97,7 +97,7 @@ async fn admit_followup(
         destination,
         selected_source_tools: Default::default(),
         export_authorization_id: "followup-export".into(),
-        now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+        now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
         byte_cap: desk_diagnose_core::sink_authorizer::MAX_SINK_BYTES,
         permission_resume: false,
     };

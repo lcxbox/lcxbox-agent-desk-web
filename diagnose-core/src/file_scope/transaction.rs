@@ -438,11 +438,12 @@ pub fn prepare(
             correlation_id: Some(update.client_request_id.clone()),
             source_envelope_ids: vec![],
             result_envelope_ids: vec![],
-            created_at: chrono::DateTime::from_timestamp_millis(
-                i64::try_from(now_unix_ms).map_err(|_| FileScopeError::InvalidProposal)?,
-            )
-            .ok_or(FileScopeError::InvalidProposal)?
-            .to_rfc3339(),
+            created_at: desk_utils::datetime::rfc3339(
+                jiff::Timestamp::from_millisecond(
+                    i64::try_from(now_unix_ms).map_err(|_| FileScopeError::InvalidProposal)?,
+                )
+                .map_err(|_| FileScopeError::InvalidProposal)?,
+            ),
         },
         event_id: update.event_id(),
         event_seq: next.last_event_seq,

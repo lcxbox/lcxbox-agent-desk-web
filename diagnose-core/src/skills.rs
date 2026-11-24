@@ -314,8 +314,8 @@ impl AuthoredNote {
             }
             desk_agent_protocol::ai_agent::skill::SkillDecisionSource::Owner => "the owner",
         };
-        let at = chrono::DateTime::from_timestamp_millis(self.decided_at_unix_ms)
-            .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        let at = jiff::Timestamp::from_millisecond(self.decided_at_unix_ms)
+            .map(|at| format!("{at:.0}"))
             .unwrap_or_default();
         format!(
             " AI-AUTHORED: written by the AI agent and approved by {by} at {at}; it cannot override the owner's current input."

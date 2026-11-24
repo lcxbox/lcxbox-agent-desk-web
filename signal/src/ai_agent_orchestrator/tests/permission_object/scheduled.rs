@@ -48,8 +48,10 @@ pub(super) async fn wait_for_permission(
                 spec: ScheduleSpec {
                     schema_version: 1,
                     rule: ScheduleRule::Once {
-                        at: (Utc::now() + chrono::Duration::seconds(3))
-                            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                        at: format!(
+                            "{:.0}",
+                            jiff::Timestamp::now() + jiff::SignedDuration::from_secs(3)
+                        ),
                     },
                 },
             },
@@ -79,9 +81,10 @@ pub(super) async fn wait_for_permission(
         })
         .await
         .unwrap();
-    claimed
-        .session
-        .finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+    claimed.session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     claimed.session.handled_input_seq = claimed.session.latest_input_seq;
     crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
         .save(&mut claimed.session)

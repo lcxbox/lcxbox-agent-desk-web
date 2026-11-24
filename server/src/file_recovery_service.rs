@@ -199,7 +199,7 @@ pub(crate) fn execute(
             }
             Some((used, reserved))
         };
-        let now = chrono::Utc::now().timestamp_millis().max(1) as u64;
+        let now = jiff::Timestamp::now().as_millisecond().max(1) as u64;
         let mut outcome = execute_locked(&mut locked, &scope, &payload.request.command, now)?;
         match &payload.request.command {
             FileRecoveryCommand::RetryCleanup => {
@@ -531,7 +531,7 @@ pub(crate) mod test_support {
         operation: &str,
         before: &[u8],
     ) -> Record {
-        let now = chrono::Utc::now().timestamp_millis().max(1) as u64;
+        let now = jiff::Timestamp::now().as_millisecond().max(1) as u64;
         let record = prepare(vault, scope, conversation, operation, before, now);
         vault
             .transition(scope, &record.id, ChangeState::CommitIntent)
@@ -766,7 +766,7 @@ mod tests {
             Err(FileRecoveryFailure::InvalidRequest)
         ));
         assert!(locked.cleanup_clock_paused());
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond() as u64;
         assert!(matches!(
             execute_locked(
                 &mut locked,

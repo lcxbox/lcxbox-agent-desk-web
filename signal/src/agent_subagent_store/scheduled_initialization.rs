@@ -64,7 +64,7 @@ impl SubAgentStore {
                 current.conversation[0] = creation.owner_requirement.clone();
                 current.version = current.version.checked_add(1).ok_or_else(|| invalid())?;
                 current.updated_at =
-                    chrono::DateTime::from_timestamp_millis(authority.verified_at())
+                    sea_orm::prelude::DateTimeUtc::from_timestamp_millis(authority.verified_at())
                         .ok_or_else(|| invalid())?
                         .to_rfc3339();
                 let changed = desk_diagnose_core::future::boxed(|| async {
@@ -74,7 +74,7 @@ impl SubAgentStore {
                                 .encode_json_for_storage()
                                 .map_err(|_| invalid())?),
                             version: Set(current.version),
-                            updated_at: Set(chrono::DateTime::from_timestamp_millis(
+                            updated_at: Set(sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
                                 authority.verified_at(),
                             )
                             .ok_or_else(|| invalid())?),

@@ -34,7 +34,7 @@ pub fn issue_local_proof(root: &Path) -> io::Result<String> {
     let os_user = crate::file_recovery_service::platform_user::current()?;
     let _lock = lock(root)?;
     let token = URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>());
-    let created_at = chrono::Utc::now().timestamp();
+    let created_at = jiff::Timestamp::now().as_second();
     save(
         root,
         &Proof {
@@ -57,7 +57,7 @@ pub(crate) fn consume(root: &Path, token: &str) -> io::Result<()> {
     let _lock = lock(root)?;
     let bytes = super::private_file::read(&root.join(RECORD), 4096)?;
     let mut proof: Proof = serde_json::from_slice(&bytes)?;
-    let now = chrono::Utc::now().timestamp();
+    let now = jiff::Timestamp::now().as_second();
     let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
     if proof.version != 2
         || proof.os_user != os_user
@@ -87,7 +87,7 @@ mod tests {
             return;
         };
         let token = URL_SAFE_NO_PAD.encode([7u8; 32]);
-        let now = chrono::Utc::now().timestamp();
+        let now = jiff::Timestamp::now().as_second();
         save(
             root.path(),
             &Proof {

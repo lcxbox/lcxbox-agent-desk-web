@@ -51,7 +51,7 @@ async fn seed(db: DatabaseConnection) -> (SignalAgentSessionStore, Vec<Permissio
                 reason: "Inspect selected target".into(),
             })
             .collect(),
-        created_at: Utc::now().to_rfc3339(),
+        created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         group: None,
     };
     session.add_permission_request(request.clone()).unwrap();
@@ -76,7 +76,10 @@ async fn seed(db: DatabaseConnection) -> (SignalAgentSessionStore, Vec<Permissio
         .save_permission_request(&mut session, &event)
         .await
         .unwrap();
-    session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     store.save(&mut session).await.unwrap();
     let decisions = vec![
         PermissionDecisionItem {
@@ -281,7 +284,7 @@ async fn decide_target(
                 now_unix_ms: if ready { 1_000 } else { 999_999 },
                 implicit_fresh_object_refs: &[],
             },
-            &Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             expected,
             stale,
         )
@@ -519,7 +522,12 @@ async fn damaged_or_missing_original_facts_never_manufacture_a_receipt() {
                 "actor" => changed.actor_id = Set(Some("other".into())),
                 "sequence" => changed.input_revision = Set(99),
                 "sources" => changed.source_envelope_ids_json = Set("[\"other\"]".into()),
-                "timestamp" => changed.created_at = Set(Utc::now() + Duration::hours(1)),
+                "timestamp" => {
+                    changed.created_at = Set(desk_agent_data_store::datetime::utc_now()
+                        + desk_agent_data_store::datetime::database_interval(
+                            jiff::SignedDuration::from_hours(1),
+                        ))
+                }
                 "payload" => changed.payload_json = Set("{}".into()),
                 "state" => {
                     changed.payload_json =

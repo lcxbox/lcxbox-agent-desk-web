@@ -9,7 +9,10 @@ mod egress;
 
 async fn age(f: &Fixture, seconds: i64) {
     let mut row: agent_capability_dispatch_outbox::ActiveModel = f.outbox().await.into();
-    row.created_at = Set(Utc::now() - chrono::Duration::seconds(seconds));
+    row.created_at = Set(desk_agent_data_store::datetime::utc_now()
+        - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(
+            seconds,
+        )));
     row.update(&f.store.db).await.unwrap();
 }
 
@@ -39,8 +42,9 @@ async fn prepare_delivery(f: &Fixture) {
         .unwrap();
     let mut state = PersistedAgentSession::decode_json(&row.state_json).unwrap();
     // The production publisher prunes an expired follow-up without calling a model.
-    state.scope_snapshot.expires_at =
-        Some((Utc::now() - chrono::Duration::seconds(1)).to_rfc3339());
+    state.scope_snapshot.expires_at = Some(desk_utils::datetime::rfc3339(
+        jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1),
+    ));
     let mut row: agent_session::ActiveModel = row.into();
     row.state_json = Set(state.encode_json_for_storage().unwrap());
     row.update(&f.store.db).await.unwrap();
@@ -163,7 +167,7 @@ async fn selectable_background_stays_in_the_root_snapshot_and_cancels_the_origin
             "run-1",
             "other-owner",
             "",
-            Utc::now().timestamp_millis() as u64
+            jiff::Timestamp::now().as_millisecond() as u64
         )
         .await
         .unwrap()
@@ -263,7 +267,7 @@ async fn original_background_requires_acceptance_and_budget_without_another_work
         f.store
             .claim_dispatch(
                 &f.plan.execution_generation,
-                Utc::now().timestamp_millis() as u64
+                jiff::Timestamp::now().as_millisecond() as u64
             )
             .await
             .is_err()
@@ -584,7 +588,10 @@ async fn expired_background_becomes_reconcilable_unknown_then_accepts_original_l
             WorkKind::ComputerAction,
         ),
     };
-    session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     let mut active: agent_session::ActiveModel = row.into();
     active.state_json = Set(session.encode_json_for_storage().unwrap());
     active.update(&f.store.db).await.unwrap();

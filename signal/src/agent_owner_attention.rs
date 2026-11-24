@@ -99,7 +99,7 @@ pub async fn list_goal_attention(
             && crate::agent_subagent_store::shared_approval_current_on(
                 db,
                 &session,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             )
             .await?;
         if let Some(pause) = &session.decision_pause

@@ -1,6 +1,6 @@
 use std::{fs::Metadata, path::PathBuf};
 
-use chrono::{DateTime, Local, TimeZone};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -43,15 +43,27 @@ pub struct FileListParams {
     /// Optional file extension list filtering, comma(,) separated values.
     pub file_extension_list: Option<String>,
     /// Optional time range filter for file creation.
+    #[schema(value_type = Option<String>, format = DateTime)]
+    #[param(value_type = Option<String>, format = DateTime)]
+    #[serde(serialize_with = "serialize_optional_local_time")]
     #[wincode(with = "Option<DateTimeLocalWincode>")]
-    pub start_created_time: Option<DateTime<Local>>,
+    pub start_created_time: Option<Timestamp>,
+    #[schema(value_type = Option<String>, format = DateTime)]
+    #[param(value_type = Option<String>, format = DateTime)]
+    #[serde(serialize_with = "serialize_optional_local_time")]
     #[wincode(with = "Option<DateTimeLocalWincode>")]
-    pub end_created_time: Option<DateTime<Local>>,
+    pub end_created_time: Option<Timestamp>,
     /// Optional time range filter for file modification.
+    #[schema(value_type = Option<String>, format = DateTime)]
+    #[param(value_type = Option<String>, format = DateTime)]
+    #[serde(serialize_with = "serialize_optional_local_time")]
     #[wincode(with = "Option<DateTimeLocalWincode>")]
-    pub start_modified_time: Option<DateTime<Local>>,
+    pub start_modified_time: Option<Timestamp>,
+    #[schema(value_type = Option<String>, format = DateTime)]
+    #[param(value_type = Option<String>, format = DateTime)]
+    #[serde(serialize_with = "serialize_optional_local_time")]
     #[wincode(with = "Option<DateTimeLocalWincode>")]
-    pub end_modified_time: Option<DateTime<Local>>,
+    pub end_modified_time: Option<Timestamp>,
 }
 
 #[derive(
@@ -65,13 +77,43 @@ pub struct FileInfo {
     pub is_file: bool,
     pub is_symlink: bool,
     pub permissions: u32,
+    #[schema(value_type = String, format = DateTime)]
+    #[serde(serialize_with = "serialize_local_time")]
     #[wincode(with = "DateTimeLocalWincode")]
-    pub accessed: DateTime<Local>,
+    pub accessed: Timestamp,
+    #[schema(value_type = String, format = DateTime)]
+    #[serde(serialize_with = "serialize_local_time")]
     #[wincode(with = "DateTimeLocalWincode")]
-    pub created: DateTime<Local>,
+    pub created: Timestamp,
+    #[schema(value_type = String, format = DateTime)]
+    #[serde(serialize_with = "serialize_local_time")]
     #[wincode(with = "DateTimeLocalWincode")]
-    pub modified: DateTime<Local>,
+    pub modified: Timestamp,
     pub err_msg: Option<String>,
+}
+
+fn local_wire_time(time: Timestamp) -> String {
+    let offset = jiff::tz::TimeZone::system().to_offset(time);
+    let text = desk_utils::datetime::rfc3339_at(time, offset);
+    if let Some(utc) = text.strip_suffix("+00:00") {
+        format!("{utc}Z")
+    } else {
+        text
+    }
+}
+
+fn serialize_local_time<S: serde::Serializer>(
+    time: &Timestamp,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&local_wire_time(*time))
+}
+
+fn serialize_optional_local_time<S: serde::Serializer>(
+    time: &Option<Timestamp>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    time.map(local_wire_time).serialize(serializer)
 }
 
 impl FileInfo {
@@ -120,9 +162,9 @@ impl FileInfo {
             is_file: false,
             is_symlink: false,
             permissions: 0,
-            accessed: Local.timestamp_opt(0, 0).unwrap(),
-            created: Local.timestamp_opt(0, 0).unwrap(),
-            modified: Local.timestamp_opt(0, 0).unwrap(),
+            accessed: Timestamp::UNIX_EPOCH,
+            created: Timestamp::UNIX_EPOCH,
+            modified: Timestamp::UNIX_EPOCH,
             err_msg: None,
         };
         match metadata {
@@ -132,21 +174,29 @@ impl FileInfo {
                 file_info.is_file = metadata.is_file();
                 file_info.is_symlink = metadata.is_symlink();
                 file_info.permissions = FileInfo::get_permissions(&metadata);
-                use chrono::{DateTime, Local};
-                match metadata.accessed() {
-                    Ok(accessed) => file_info.accessed = DateTime::<Local>::from(accessed),
+                match metadata
+                    .accessed()
+                    .and_then(|time| Timestamp::try_from(time).map_err(std::io::Error::other))
+                {
+                    Ok(accessed) => file_info.accessed = accessed,
                     Err(err) => {
                         file_info.add_err_msg(format!("Failed to get file accessed time: {}", err))
                     }
                 }
-                match metadata.created() {
-                    Ok(created) => file_info.created = DateTime::<Local>::from(created),
+                match metadata
+                    .created()
+                    .and_then(|time| Timestamp::try_from(time).map_err(std::io::Error::other))
+                {
+                    Ok(created) => file_info.created = created,
                     Err(err) => {
                         file_info.add_err_msg(format!("Failed to get file created time: {}", err))
                     }
                 }
-                match metadata.modified() {
-                    Ok(modified) => file_info.modified = DateTime::<Local>::from(modified),
+                match metadata
+                    .modified()
+                    .and_then(|time| Timestamp::try_from(time).map_err(std::io::Error::other))
+                {
+                    Ok(modified) => file_info.modified = modified,
                     Err(err) => {
                         file_info.add_err_msg(format!("Failed to get file modified time: {}", err))
                     }
@@ -197,7 +247,7 @@ mod wincode_tests {
         Configuration::new()
     }
 
-    /// `FileListParams` carries 4 `Option<DateTime<Local>>` fields
+    /// `FileListParams` carries 4 `Option<Timestamp>` fields
     /// that ride `DateTimeLocalWincode` via `#[wincode(with =
     /// "Option<...>")]`. Construct a payload with mixed `Some` /
     /// `None` plus distinct timestamps on each field, so a wrong
@@ -218,6 +268,26 @@ mod wincode_tests {
     }
 
     #[test]
+    fn file_time_filters_keep_rfc3339_precision_and_openapi_format() {
+        let instant: Timestamp = "2026-01-15T00:00:00.100Z".parse().unwrap();
+        let params = FileListParams {
+            start_created_time: Some(instant),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(params).unwrap();
+        let time = json["start_created_time"].as_str().unwrap();
+        assert!(time.contains(".100"));
+        assert_eq!(desk_utils::datetime::parse_rfc3339(time).unwrap(), instant);
+        assert!(json["end_created_time"].is_null());
+        let schema =
+            serde_json::to_value(<FileListParams as utoipa::PartialSchema>::schema()).unwrap();
+        assert_eq!(
+            schema["properties"]["start_created_time"]["format"],
+            "date-time"
+        );
+    }
+
+    #[test]
     fn file_list_params_round_trips_wincode_with_mixed_datetime_fields() {
         let original = FileListParams {
             path: r"C:\Users".to_string(),
@@ -230,25 +300,10 @@ mod wincode_tests {
             file_name: Some("readme".to_string()),
             file_extension: Some("md".to_string()),
             file_extension_list: Some("md,txt".to_string()),
-            start_created_time: Some(
-                Local
-                    .with_ymd_and_hms(2024, 1, 1, 0, 0, 0)
-                    .single()
-                    .expect("valid local time"),
-            ),
+            start_created_time: Some("2024-01-01T00:00:00Z".parse::<Timestamp>().unwrap()),
             end_created_time: None,
-            start_modified_time: Some(
-                Local
-                    .with_ymd_and_hms(2025, 6, 15, 12, 30, 0)
-                    .single()
-                    .expect("valid local time"),
-            ),
-            end_modified_time: Some(
-                Local
-                    .with_ymd_and_hms(2026, 5, 10, 23, 59, 59)
-                    .single()
-                    .expect("valid local time"),
-            ),
+            start_modified_time: Some("2025-06-15T12:30:00Z".parse::<Timestamp>().unwrap()),
+            end_modified_time: Some("2026-05-10T23:59:59Z".parse::<Timestamp>().unwrap()),
         };
         let config = unbounded_config();
         let bytes = wincode::config::serialize(&original, config).expect("encode");
@@ -267,7 +322,7 @@ mod wincode_tests {
         assert_eq!(back.end_modified_time, original.end_modified_time);
     }
 
-    /// `FileInfo` has 3 bare `DateTime<Local>` fields. Use distinct
+    /// `FileInfo` has 3 bare `Timestamp` fields. Use distinct
     /// instants so a swapped adapter wiring shows up.
     #[test]
     fn file_info_round_trips_wincode_with_distinct_datetime_fields() {
@@ -279,18 +334,9 @@ mod wincode_tests {
             is_file: true,
             is_symlink: false,
             permissions: 0o644,
-            accessed: Local
-                .with_ymd_and_hms(2026, 5, 10, 9, 0, 0)
-                .single()
-                .expect("valid local time"),
-            created: Local
-                .with_ymd_and_hms(2026, 1, 15, 14, 22, 33)
-                .single()
-                .expect("valid local time"),
-            modified: Local
-                .with_ymd_and_hms(2026, 5, 9, 18, 45, 0)
-                .single()
-                .expect("valid local time"),
+            accessed: "2026-05-10T09:00:00Z".parse::<Timestamp>().unwrap(),
+            created: "2026-01-15T14:22:33Z".parse::<Timestamp>().unwrap(),
+            modified: "2026-05-09T18:45:00Z".parse::<Timestamp>().unwrap(),
             err_msg: None,
         };
         let config = unbounded_config();
@@ -314,18 +360,9 @@ mod wincode_tests {
             is_file: true,
             is_symlink: false,
             permissions: 0o644,
-            accessed: Local
-                .with_ymd_and_hms(2026, 5, 10, 0, 0, 0)
-                .single()
-                .expect("valid local time"),
-            created: Local
-                .with_ymd_and_hms(2026, 5, 10, 0, 0, 0)
-                .single()
-                .expect("valid local time"),
-            modified: Local
-                .with_ymd_and_hms(2026, 5, 10, 0, 0, 0)
-                .single()
-                .expect("valid local time"),
+            accessed: "2026-05-10T00:00:00Z".parse::<Timestamp>().unwrap(),
+            created: "2026-05-10T00:00:00Z".parse::<Timestamp>().unwrap(),
+            modified: "2026-05-10T00:00:00Z".parse::<Timestamp>().unwrap(),
             err_msg: None,
         };
         let original = FileListResponse {

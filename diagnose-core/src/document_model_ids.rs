@@ -209,9 +209,9 @@ fn resolve_id(
 
 fn validate_lifetime(reference: &ObjectRef, now: u64) -> Result<(), AgentError> {
     if !reference.object_kind.is_lifecycle_bound() {
-        let expiry = chrono::DateTime::parse_from_rfc3339(&reference.expires_at)
+        let expiry = desk_utils::datetime::parse_rfc3339(&reference.expires_at)
             .map_err(|_| invalid("object expiry is invalid"))?;
-        if expiry.timestamp_millis() <= now as i64 {
+        if desk_utils::datetime::unix_millis(expiry) <= now as i64 {
             return Err(invalid("object observation expired"));
         }
     }

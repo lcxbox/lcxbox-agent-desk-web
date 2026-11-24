@@ -50,7 +50,7 @@ fn failure(error: SkillServiceError) -> HttpResponse {
 }
 
 fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
+    jiff::Timestamp::now().as_millisecond()
 }
 
 async fn list(scope: &str) -> Result<HttpResponse, DeskSignalError> {

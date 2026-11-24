@@ -60,7 +60,7 @@ pub async fn freeze(
             &original,
             &artifact.origin,
             &artifact.access,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .map_err(|error| error.into_agent_error())?
@@ -70,9 +70,14 @@ pub async fn freeze(
     } else {
         DeliveryMode::Internal
     };
-    let row = issue_reply::freeze(&txn, &artifact, mode, chrono::Utc::now().timestamp_millis())
-        .await
-        .map_err(|error| error.into_agent_error())?;
+    let row = issue_reply::freeze(
+        &txn,
+        &artifact,
+        mode,
+        jiff::Timestamp::now().as_millisecond(),
+    )
+    .await
+    .map_err(|error| error.into_agent_error())?;
     txn.commit().await.map_err(|_| unavailable())?;
     Ok(row)
 }

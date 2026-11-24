@@ -1490,19 +1490,21 @@ fn native_value_supported(value: CfTypeRef) -> bool {
         || kind == unsafe { CFNumberGetTypeID() }
 }
 
-fn native_date(value: CfTypeRef) -> Option<chrono::DateTime<chrono::Local>> {
+fn native_date(value: CfTypeRef) -> Option<jiff::ZonedDateTime> {
     let seconds = unsafe { CFDateGetAbsoluteTime(value) } + CF_DATE_UNIX_OFFSET;
     if !seconds.is_finite() {
         return None;
     }
-    chrono::DateTime::from_timestamp_millis((seconds * 1000.0) as i64)
-        .map(|at| at.with_timezone(&chrono::Local))
+    jiff::Timestamp::from_millisecond((seconds * 1000.0) as i64)
+        .ok()
+        .map(|at| at.to_zoned_datetime(jiff::tz::TimeZone::system()))
 }
 
 fn native_value_text(value: CfTypeRef) -> Option<String> {
     let kind = unsafe { CFGetTypeID(value) };
     if kind == unsafe { CFDateGetTypeID() } {
-        return native_date(value).map(|at| at.to_rfc3339());
+        return native_date(value)
+            .map(|at| desk_utils::datetime::rfc3339_at(at.timestamp(), at.offset()));
     }
     if kind == unsafe { CFNumberGetTypeID() } {
         let mut number = 0.0_f64;
@@ -1518,24 +1520,20 @@ fn native_value_text(value: CfTypeRef) -> Option<String> {
     cf_string(value)
 }
 
-fn parse_native_date(
-    value: &str,
-    current: chrono::DateTime<chrono::Local>,
-) -> Option<chrono::DateTime<chrono::Local>> {
-    use chrono::TimeZone;
-    if let Ok(at) = chrono::DateTime::parse_from_rfc3339(value) {
-        return Some(at.with_timezone(&chrono::Local));
+fn parse_native_date(value: &str, current: jiff::ZonedDateTime) -> Option<jiff::ZonedDateTime> {
+    let zone = current.time_zone();
+    if let Ok(at) = desk_utils::datetime::parse_rfc3339(value) {
+        return Some(at.to_zoned_datetime(zone.clone()));
     }
-    let local = if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
-        date.and_time(current.time())
+    let local = if let Ok(date) = jiff::civil::Date::strptime("%Y-%m-%d", value) {
+        current.time().to_datetime(date)
     } else {
-        let time = chrono::NaiveTime::parse_from_str(value, "%H:%M:%S")
-            .or_else(|_| chrono::NaiveTime::parse_from_str(value, "%H:%M"))
+        let time = jiff::civil::Time::strptime("%H:%M:%S", value)
+            .or_else(|_| jiff::civil::Time::strptime("%H:%M", value))
             .ok()?;
-        current.date_naive().and_time(time)
+        time.to_datetime(current.date())
     };
-    // Ambiguous/nonexistent local times require an explicit RFC3339 offset.
-    chrono::Local.from_local_datetime(&local).single()
+    zone.to_ambiguous_zoned_datetime(local).unambiguous().ok()
 }
 
 fn encode_native_value(current: CfTypeRef, value: &str) -> Result<OwnedCf, AgentError> {
@@ -1556,7 +1554,8 @@ fn encode_native_value(current: CfTypeRef, value: &str) -> Result<OwnedCf, Agent
         unsafe {
             CFDateCreate(
                 std::ptr::null(),
-                at.timestamp_millis() as f64 / 1000.0 - CF_DATE_UNIX_OFFSET,
+                desk_utils::datetime::unix_millis(at.timestamp()) as f64 / 1000.0
+                    - CF_DATE_UNIX_OFFSET,
             )
         }
     } else if kind == unsafe { CFNumberGetTypeID() } {
@@ -2630,13 +2629,13 @@ mod native_value_tests {
             CFDateGetTypeID()
         });
         let after = native_date(changed.0).unwrap();
-        assert_eq!(after.date_naive().to_string(), "2026-09-11");
+        assert_eq!(after.date().to_string(), "2026-09-11");
         assert_eq!(after.time(), before.time());
         let time = encode_native_value(changed.0, "09:00").unwrap();
         assert_eq!(
             native_date(time.0)
                 .unwrap()
-                .format("%Y-%m-%d %H:%M")
+                .strftime("%Y-%m-%d %H:%M")
                 .to_string(),
             "2026-09-11 09:00"
         );

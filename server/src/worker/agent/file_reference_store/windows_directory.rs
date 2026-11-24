@@ -146,7 +146,7 @@ pub(super) fn enumerate_directory_from(
                         display_name: display_name.chars().take(512).collect(),
                         is_directory,
                         byte_len,
-                        modified_at: modified_at.map(|timestamp| timestamp.to_rfc3339()),
+                        modified_at: modified_at.map(desk_utils::datetime::rfc3339),
                     });
                 }
             }

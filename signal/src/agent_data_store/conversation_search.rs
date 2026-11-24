@@ -299,7 +299,7 @@ async fn search_on(
 }
 
 pub(super) fn now_ms() -> Result<u64, AgentStoreError> {
-    unsigned(chrono::Utc::now().timestamp_millis())
+    unsigned(jiff::Timestamp::now().as_millisecond())
 }
 
 pub(super) fn validate_final_time<T>(

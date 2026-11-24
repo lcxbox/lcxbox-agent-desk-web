@@ -13,7 +13,6 @@ pub(crate) use preference::review_mode_current_on;
 pub(crate) use preference::{current_no_review_parent_on, preference_for_session_on};
 pub use preference::{load_preference, save_preference};
 
-use chrono::{DateTime, Utc};
 use desk_agent_protocol::ai_agent::approval_mode::AgentApprovalMode;
 use desk_diagnose_core::approval_delegation::{
     APPROVAL_DELEGATION_AUDIT_SCHEMA_VERSION, ApprovalDelegation, ApprovalDelegationAuditEvent,
@@ -1812,7 +1811,7 @@ pub async fn load_active_for_subject(
         && !crate::agent_subagent_store::shared_approval_current_on(
             db,
             session,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await?
     {
@@ -2099,7 +2098,7 @@ pub async fn load_latest_for_subject(
         && !crate::agent_subagent_store::shared_approval_current_on(
             db,
             session,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await?
     {
@@ -2168,7 +2167,7 @@ async fn append_audit_on(
     delegation: &ApprovalDelegation,
     kind: AgentRunEventKind,
     operation_authority: ApprovalDelegationAuthority,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<(), DbErr> {
     session.last_event_seq = session
         .last_event_seq
@@ -2292,9 +2291,10 @@ pub async fn open_for_subject(
     )
     .map_err(|_| invalid())?;
     project(&delegation)?.insert(&txn).await?;
-    let now =
-        DateTime::<Utc>::from_timestamp_millis(i64::try_from(now_unix_ms).map_err(|_| invalid())?)
-            .ok_or_else(|| invalid())?;
+    let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
+        i64::try_from(now_unix_ms).map_err(|_| invalid())?,
+    )
+    .ok_or_else(|| invalid())?;
     append_audit_on(
         &txn,
         &session_row,
@@ -2355,9 +2355,10 @@ pub async fn close_for_subject(
     if changed.rows_affected != 1 {
         return Err(invalid());
     }
-    let now =
-        DateTime::<Utc>::from_timestamp_millis(i64::try_from(now_unix_ms).map_err(|_| invalid())?)
-            .ok_or_else(|| invalid())?;
+    let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
+        i64::try_from(now_unix_ms).map_err(|_| invalid())?,
+    )
+    .ok_or_else(|| invalid())?;
     append_audit_on(
         &txn,
         &session_row,
@@ -2503,8 +2504,8 @@ async fn save_directory_decision_on(
         .await
         .map_err(|_| invalid())?;
     }
-    let timestamp =
-        DateTime::<Utc>::from_timestamp_millis(as_i64(now)?).ok_or_else(|| invalid())?;
+    let timestamp = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(as_i64(now)?)
+        .ok_or_else(|| invalid())?;
     let timestamp = timestamp.max(session_row.updated_at);
     next.updated_at = timestamp.to_rfc3339();
     let changed = agent_session::Entity::update_many()
@@ -2871,8 +2872,10 @@ async fn commit_goal_on(
         &row.device_id,
         &row.source_id,
         approved,
-        chrono::DateTime::from_timestamp_millis(now.try_into().map_err(|_| invalid())?)
-            .ok_or_else(|| invalid())?,
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
+            now.try_into().map_err(|_| invalid())?,
+        )
+        .ok_or_else(|| invalid())?,
         Some(decision),
     )
     .await?;
@@ -2951,8 +2954,10 @@ pub async fn deny_goal_unavailable(
         device,
         request_id,
         false,
-        chrono::DateTime::from_timestamp_millis(now.try_into().map_err(|_| invalid())?)
-            .ok_or_else(|| invalid())?,
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
+            now.try_into().map_err(|_| invalid())?,
+        )
+        .ok_or_else(|| invalid())?,
         Some(decision),
     )
     .await?;

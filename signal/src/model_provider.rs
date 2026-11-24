@@ -40,7 +40,8 @@ use crate::entity::model_probe_observation;
 pub struct ModelProbeObservation {
     pub connection_revision: i64,
     pub profile_revision: i64,
-    pub tested_at: chrono::DateTime<chrono::Utc>,
+    #[schema(value_type = String, format = DateTime)]
+    pub tested_at: sea_orm::prelude::DateTimeUtc,
     pub reasoning_observed: bool,
     pub reasoning_tokens: Option<i64>,
     pub stop_reason: Option<String>,
@@ -1106,7 +1107,7 @@ mod tests {
         let observation = ModelProbeObservation {
             connection_revision: 1,
             profile_revision: 1,
-            tested_at: chrono::Utc::now(),
+            tested_at: desk_agent_data_store::datetime::utc_now(),
             reasoning_observed: true,
             reasoning_tokens: Some(12),
             stop_reason: Some("end_turn".to_string()),

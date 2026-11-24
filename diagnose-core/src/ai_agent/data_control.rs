@@ -73,10 +73,7 @@ impl AgentDataSession {
             || self.current_input_recorded_at_unix_ms == 0
             || self.current_input_recorded_at_unix_ms > i64::MAX as u64
             || self.current_input_timezone.len() > 128
-            || self
-                .current_input_timezone
-                .parse::<chrono_tz::Tz>()
-                .is_err()
+            || crate::schedule::timezone::zone_name(&self.current_input_timezone).is_none()
             || self.memory_state_generation == 0
             || self.control_generation == 0
             || self.instructions.accepted_input_seq > self.current_actor_input_seq
@@ -111,7 +108,7 @@ impl AgentDataSession {
             if scope.current_device_ref != self.source_device_ref
                 || scope.retrieval_episode_id != self.retrieval_budget.episode_id
                 || scope.authorized_input_seq > self.current_actor_input_seq
-                || scope.timezone.parse::<chrono_tz::Tz>().is_err()
+                || crate::schedule::timezone::zone_name(&scope.timezone).is_none()
             {
                 return Err("history scope does not match its original agent input");
             }

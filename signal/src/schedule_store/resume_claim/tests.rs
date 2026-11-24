@@ -47,8 +47,8 @@ async fn base_fixture() -> (
         state_json: Set(session.encode_json_for_storage().unwrap()),
         version: Set(0),
         lease_token: Set(0),
-        created_at: Set(chrono::Utc::now()),
-        updated_at: Set(chrono::Utc::now()),
+        created_at: Set(desk_agent_data_store::datetime::utc_now()),
+        updated_at: Set(desk_agent_data_store::datetime::utc_now()),
         ..Default::default()
     }
     .insert(&store.db)
@@ -126,9 +126,10 @@ async fn materialize_fixture(
         serde_json::to_string(&desk_agent_protocol::schedule::ScheduleSpec {
             schema_version: 1,
             rule: ScheduleRule::Once {
-                at: chrono::DateTime::from_timestamp_millis(at)
+                at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
                     .unwrap()
-                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                    .format("%Y-%m-%dT%H:%M:%SZ")
+                    .to_string(),
             },
         })
         .unwrap(),
@@ -366,7 +367,7 @@ async fn active_goal_prevents_a_scheduled_continuation_from_claiming_its_convers
             model_id: "model".into(),
         },
         1,
-        u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap(),
+        u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap(),
         desk_diagnose_core::goal::GoalLimits::default(),
     )
     .unwrap();

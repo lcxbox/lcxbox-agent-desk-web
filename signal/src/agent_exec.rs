@@ -486,10 +486,10 @@ fn build_exec_frame(
         device: AuthzDevice { device_id: None },
         request_id: request_id.clone(),
         session_id,
-        expires_at: Some(
-            (chrono::Utc::now() + chrono::Duration::minutes(5))
-                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        ),
+        expires_at: Some(format!(
+            "{:.0}",
+            jiff::Timestamp::now() + jiff::SignedDuration::from_mins(5)
+        )),
         issuer: "signal".to_string(),
         audience,
         signature: None,
@@ -643,9 +643,13 @@ impl SignalAgentTools {
         let target = self.connection(&self.target_connection_id).await?;
         let request_id = plan.execution_generation.clone();
         let exec_store = crate::agent_exec_store::SignalAgentExecStore::new(self.db.clone());
-        let deadline = chrono::Utc::now()
-            + chrono::Duration::milliseconds(result_wait_ms(plan.timeout_ms))
-            + chrono::Duration::from_std(RESULT_SLACK).unwrap_or_default();
+        let deadline = desk_agent_data_store::datetime::utc_now()
+            + desk_agent_data_store::datetime::database_interval(
+                jiff::SignedDuration::from_millis(result_wait_ms(plan.timeout_ms)),
+            )
+            + desk_agent_data_store::datetime::database_interval(
+                jiff::SignedDuration::try_from(RESULT_SLACK).unwrap_or_default(),
+            );
         let task = if preclaimed {
             let task = exec_store
                 .find(&plan.exec_request_id.0, &request_id)
@@ -737,7 +741,7 @@ impl SignalAgentTools {
             desk_diagnose_core::model_observability::Stage::Dispatch,
             desk_diagnose_core::model_observability::StageOutcome::Attempted,
         );
-        let dispatch_started_at = chrono::Utc::now().timestamp_millis();
+        let dispatch_started_at = jiff::Timestamp::now().as_millisecond();
         if let Err(error) = send_frame(&target, &frame).await {
             if let Some(carrier_id) = dispatch_carrier_id.as_deref() {
                 crate::exec_pty_carrier::global_exec_pty_carriers()
@@ -883,7 +887,7 @@ impl SignalAgentTools {
                 && (current_mode != desk_agent_protocol::ExecutionMode::Automated
                     || draft.io_mode.is_pty()
                     || !crate::computer_use_readiness::global_computer_use_readiness_cache()
-                        .get_fresh(&self.target_connection_id, chrono::Utc::now())
+                        .get_fresh(&self.target_connection_id, jiff::Timestamp::now())
                         .is_some_and(|ready| ready.readiness.unattended_command_execution)))
         {
             self.observation
@@ -918,7 +922,7 @@ impl SignalAgentTools {
             &self.target_connection_id,
             &ctx.actor_id,
             session,
-            u64::try_from(chrono::Utc::now().timestamp_millis())
+            u64::try_from(jiff::Timestamp::now().as_millisecond())
                 .map_err(|_| internal("system clock predates the Unix epoch"))?,
         )
         .await?

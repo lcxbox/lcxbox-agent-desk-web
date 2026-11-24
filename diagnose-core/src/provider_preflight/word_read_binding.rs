@@ -177,9 +177,9 @@ pub(super) fn expiry(reference: &ObjectRef, now: u64) -> Result<u64, AgentError>
     {
         return Err(denied());
     }
-    chrono::DateTime::parse_from_rfc3339(&reference.expires_at)
+    desk_utils::datetime::parse_rfc3339(&reference.expires_at)
         .ok()
-        .and_then(|date| u64::try_from(date.timestamp_millis()).ok())
+        .and_then(|date| u64::try_from(desk_utils::datetime::unix_millis(date)).ok())
         .filter(|expiry| *expiry > now)
         .ok_or_else(denied)
 }

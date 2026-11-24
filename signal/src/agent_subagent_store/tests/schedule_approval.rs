@@ -54,7 +54,10 @@ pub(super) async fn pause_turn(
     mut session: PersistedAgentSession,
     pause: desk_diagnose_core::proposal_review::DecisionPause,
 ) -> PersistedAgentSession {
-    session.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     session.decision_pause = Some(pause);
     session.version += 1;
     session_row::Entity::update_many()
@@ -65,7 +68,7 @@ pub(super) async fn pause_turn(
         .col_expr(session_row::Column::Version, Expr::value(session.version))
         .col_expr(
             session_row::Column::LeaseDeadline,
-            Expr::value(Option::<chrono::DateTime<chrono::Utc>>::None),
+            Expr::value(Option::<sea_orm::prelude::DateTimeUtc>::None),
         )
         .filter(session_row::Column::ConversationId.eq(&session.conversation_id))
         .exec(db)
@@ -81,7 +84,7 @@ pub(super) async fn turn_fixture(
 ) -> (
     DatabaseConnection,
     PersistedAgentSession,
-    chrono::DateTime<chrono::Utc>,
+    sea_orm::prelude::DateTimeUtc,
 ) {
     let db = database().await;
     let schema = Schema::new(db.get_database_backend());
@@ -113,7 +116,7 @@ pub(super) async fn turn_fixture(
         .unwrap()
         .destination_identity()
         .unwrap();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let user = desk_diagnose_core::model_message_labels::model_bound_user_message(
         "schedule-user".into(),
         "Check the device every morning".into(),
@@ -174,7 +177,11 @@ pub(super) async fn turn_fixture(
         )
         .col_expr(
             session_row::Column::LeaseDeadline,
-            Expr::value(Some(now + chrono::Duration::minutes(5))),
+            Expr::value(Some(
+                now + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_mins(5),
+                ),
+            )),
         )
         .filter(session_row::Column::ConversationId.eq(&session.conversation_id))
         .exec(&db)

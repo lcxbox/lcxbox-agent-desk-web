@@ -65,7 +65,7 @@ fn elapsed(start:Instant) -> u64 { start.elapsed().as_millis().min(u64::MAX as u
 pub async fn run(store:&Store,count:usize) -> Result<serde_json::Value,Failure> {
     // Advance a reproducible logical clock across twelve days at the million
     // sample default. This exercises retention and budget pressure together.
-    let base=chrono::Utc::now().timestamp_millis()-count as i64*1_000-86_400_000;
+    let base=jiff::Timestamp::now().as_millisecond()-count as i64*1_000-86_400_000;
     store.initialize_settings(base-3_600_000).await?;
     let defaults=store.load_settings().await?;
     let started=Instant::now();

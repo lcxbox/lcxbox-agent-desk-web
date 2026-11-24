@@ -681,9 +681,9 @@ pub(super) async fn build_request(
                                     deps.registry,
                                     permission_candidates,
                                 )?;
-                                let now = chrono::DateTime::parse_from_rfc3339(&request.created_at)
+                                let now = desk_utils::datetime::parse_rfc3339(&request.created_at)
                                     .ok()
-                                    .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+                                    .and_then(|time| u64::try_from(desk_utils::datetime::unix_millis(time)).ok())
                                     .unwrap_or(0);
                                 if request.items.iter().any(|item| crate::provider_preflight::ArtifactCallPreflight::supports(&item.tool_name)) {
                                     let surface = authority.ok_or_else(|| crate::subagent::invalid("artifact permission has no current authorization context"))?.surface;

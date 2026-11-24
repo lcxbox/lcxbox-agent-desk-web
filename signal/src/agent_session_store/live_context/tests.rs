@@ -2,7 +2,7 @@ use super::*;
 use sea_orm::ConnectionTrait;
 
 fn params() -> UpdateLiveContext {
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut selection = crate::agent_session_store::tests::context_selection(
         true,
         "candidate-1",
@@ -61,9 +61,9 @@ fn clear(original: &UpdateLiveContext) -> UpdateLiveContext {
             selected_capability_ids: vec![],
             runtime_bindings: vec![],
             candidates: vec![],
-            now_unix_ms: Utc::now().timestamp_millis() as u64,
+            now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
         }),
-        created_at: Utc::now().to_rfc3339(),
+        created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         run_id: original.run_id.clone(),
         actor_id: original.actor_id.clone(),
         device_id: original.device_id.clone(),
@@ -190,7 +190,12 @@ async fn active_turn_even_with_expired_lease_and_stale_preparation_cannot_be_ove
         )
         .col_expr(
             agent_session::Column::LeaseDeadline,
-            Expr::value(Some(Utc::now() - Duration::seconds(1))),
+            Expr::value(Some(
+                desk_agent_data_store::datetime::utc_now()
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_secs(1),
+                    ),
+            )),
         )
         .exec(&store.db)
         .await

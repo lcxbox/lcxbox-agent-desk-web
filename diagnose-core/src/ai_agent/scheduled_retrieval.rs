@@ -374,7 +374,7 @@ impl TaskRetrievalConsent {
             if seed.input_recorded_at_unix_ms == 0
                 || seed.input_recorded_at_unix_ms > self.captured_at_unix_ms
                 || seed.input_timezone.len() > 128
-                || seed.input_timezone.parse::<chrono_tz::Tz>().is_err()
+                || crate::schedule::timezone::zone_name(&seed.input_timezone).is_none()
                 || seed.memory_state_generation == 0
                 || seed.control_generation == 0
                 || seed.instructions.accepted_input_seq > seed.actor_input_seq

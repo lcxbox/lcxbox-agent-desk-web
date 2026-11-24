@@ -61,9 +61,9 @@ pub fn validate(
         || &artifact.file_name != name
         || artifact.media_type != mime
         || artifact.size_bytes > 16 * 1024 * 1024
-        || chrono::DateTime::parse_from_rfc3339(&artifact.file.expires_at)
+        || desk_utils::datetime::parse_rfc3339(&artifact.file.expires_at)
             .ok()
-            .and_then(|value| u64::try_from(value.timestamp_millis()).ok())
+            .and_then(|value| u64::try_from(desk_utils::datetime::unix_millis(value)).ok())
             .is_none_or(|expiry| expiry <= now)
     {
         return Err(invalid());

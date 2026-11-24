@@ -639,9 +639,10 @@ impl BrowserExtensionBroker {
             ),
             snapshot_id: format!("browser-extension-connection-{revision}"),
             object_kind: desk_agent_protocol::computer_use::ObjectKind::BrowserSurface,
-            expires_at: (chrono::Utc::now()
-                + chrono::Duration::seconds(super::PERMISSION_FLOW_TTL_SECONDS))
-            .to_rfc3339(),
+            expires_at: desk_utils::datetime::rfc3339(
+                jiff::Timestamp::now()
+                    + jiff::SignedDuration::from_secs(super::PERMISSION_FLOW_TTL_SECONDS),
+            ),
         };
         let mut state = self
             .state
@@ -1288,7 +1289,7 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 }
 
 fn now_unix_ms() -> Result<u64, BrowserExtensionBridgeError> {
-    u64::try_from(chrono::Utc::now().timestamp_millis())
+    u64::try_from(jiff::Timestamp::now().as_millisecond())
         .map_err(|_| BrowserExtensionBridgeError::Clock)
 }
 
@@ -2012,7 +2013,9 @@ mod tests {
         let expired = {
             let mut state = broker.state.lock().unwrap();
             let surface = state.surface.as_mut().unwrap();
-            surface.expires_at = (chrono::Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
+            surface.expires_at = desk_utils::datetime::rfc3339(
+                jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1),
+            );
             surface.clone()
         };
         let renewed = broker.surface_ref().unwrap();

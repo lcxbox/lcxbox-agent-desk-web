@@ -44,7 +44,7 @@ impl SignalAgentRunEventStore {
                 client_conversation_id: held.client_conversation_id.as_deref(),
             },
         )?);
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         if u64::try_from(row.lease_token).ok() != Some(current.lease_token)
             || row.lease_deadline.is_none_or(|until| until <= now)
             || row.conversation_schema_version

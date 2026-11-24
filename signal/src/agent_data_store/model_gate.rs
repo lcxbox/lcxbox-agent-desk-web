@@ -55,7 +55,7 @@ pub(crate) async fn prepare_on(
         &row,
         &session,
         request,
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )?;
     let data = session
         .agent_data
@@ -68,7 +68,7 @@ pub(crate) async fn prepare_on(
     {
         return Err(AgentStoreError::Inaccessible);
     }
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     crate::issue_connections::check_work_on(db, &session, false, now).await?;
     task_deadline_on(db, &session, now as u64).await?;
     Ok(Some(Box::new(PreparedModelData {
@@ -106,7 +106,7 @@ pub(crate) fn authorize_on<'a>(
         {
             return Err(AgentStoreError::Inaccessible);
         }
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond() as u64;
         validate_session(&row, &prepared.session, request, now)?;
         let runtime = super::reconcile_settings_on(db, &manifest.actor_id).await?;
         let config = db.config_read().await;
@@ -232,7 +232,7 @@ pub(crate) fn authorize_on<'a>(
             deadline = deadline.min(grant.expires_at_unix_ms);
             grants.push(grant);
         }
-        if deadline <= chrono::Utc::now().timestamp_millis() as u64 {
+        if deadline <= jiff::Timestamp::now().as_millisecond() as u64 {
             return Err(AgentStoreError::Inaccessible);
         }
         let call = NativeAgentModelCall {
@@ -253,7 +253,7 @@ pub(crate) fn authorize_on<'a>(
             super::native_export::record_sealed_call_on(db, &set, &grants, &prepared.policy)
         })
         .await?;
-        if deadline <= chrono::Utc::now().timestamp_millis() as u64 {
+        if deadline <= jiff::Timestamp::now().as_millisecond() as u64 {
             return Err(AgentStoreError::Inaccessible);
         }
         Ok(Some(deadline))

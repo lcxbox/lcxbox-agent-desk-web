@@ -29,9 +29,9 @@ fn readiness() -> ComputerUseReadiness {
 }
 
 fn now() -> u64 {
-    chrono::DateTime::parse_from_rfc3339("2026-08-31T00:00:01Z")
-        .unwrap()
-        .timestamp_millis() as u64
+    desk_utils::datetime::parse_rfc3339("2026-08-31T00:00:01Z")
+        .map(desk_utils::datetime::unix_millis)
+        .unwrap() as u64
 }
 
 fn destination() -> DestinationIdentity {
@@ -231,15 +231,15 @@ fn live_metadata_uses_matching_edge_reference_expiry_beyond_readiness_heartbeat(
 
     assert_eq!(
         selection.candidates[0].expires_at_unix_ms,
-        chrono::DateTime::parse_from_rfc3339(reference_expiry)
-            .unwrap()
-            .timestamp_millis() as u64
+        desk_utils::datetime::parse_rfc3339(reference_expiry)
+            .map(desk_utils::datetime::unix_millis)
+            .unwrap() as u64
     );
     assert!(
         selection.candidates[0].expires_at_unix_ms
-            > chrono::DateTime::parse_from_rfc3339(&readiness.expires_at)
-                .unwrap()
-                .timestamp_millis() as u64
+            > desk_utils::datetime::parse_rfc3339(&readiness.expires_at)
+                .map(desk_utils::datetime::unix_millis)
+                .unwrap() as u64
     );
 }
 

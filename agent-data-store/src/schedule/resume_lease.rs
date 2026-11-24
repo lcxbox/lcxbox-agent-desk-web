@@ -302,7 +302,7 @@ mod tests {
     #[tokio::test]
     async fn renewal_extends_only_the_unchanged_session_version_and_token() {
         let db = Database::connect("sqlite::memory:").await.unwrap();
-        let far = chrono::Utc::now().timestamp_millis() + 600_000;
+        let far = jiff::Timestamp::now().as_millisecond() + 600_000;
         continuation_rows(&db, "running", Some(far), false, None).await;
         let mut session = continuation_session();
         session.turn_state = TurnState::Running;

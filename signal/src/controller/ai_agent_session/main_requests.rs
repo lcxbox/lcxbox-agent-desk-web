@@ -80,7 +80,7 @@ pub async fn cancel_ai_agent_main_request(
         &actor,
         &body.session,
         &body.request_id,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await;
     if result.is_ok() {

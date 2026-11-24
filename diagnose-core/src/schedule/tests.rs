@@ -22,7 +22,7 @@ fn publication_and_preview_share_strict_future_semantics() {
 }
 
 fn ms(value: &str) -> i64 {
-    absolute(value).unwrap().timestamp_millis()
+    millis(absolute(value).unwrap())
 }
 fn spec(rule: ScheduleRule) -> ScheduleSpec {
     ScheduleSpec {
@@ -115,6 +115,7 @@ fn invalid_or_ambiguous_wire_rules_are_rejected() {
         "2026-09-07T14:00:00",
         "2026-09-07T14:00:00.000Z",
         "2016-12-31T23:59:60Z",
+        "2026-09-07T14:00:00+24:00",
     ] {
         assert!(normalize(&spec(ScheduleRule::Once { at: at.into() })).is_err());
     }

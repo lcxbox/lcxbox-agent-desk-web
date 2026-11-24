@@ -133,7 +133,7 @@ impl Frame {
             destination: destination.clone(),
             selected_source_tools: Default::default(),
             export_authorization_id: "export".into(),
-            now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+            now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
             byte_cap: desk_diagnose_core::sink_authorizer::MAX_SINK_BYTES,
             permission_resume: false,
         }
@@ -156,7 +156,7 @@ impl Frame {
                 .await
                 .unwrap();
         }
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond() as u64;
         let mut producer = ChatMessage::agent_tool_calls(
             "read-producer",
             "",

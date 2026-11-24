@@ -62,7 +62,7 @@ pub(super) async fn relay_execution_completed(
         .record(
             AuditEvent::command_completed(
                 uuid::Uuid::new_v4().to_string(),
-                chrono::Utc::now().to_rfc3339(),
+                desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                 &payload.result.exec_request_id.0,
                 success,
                 summary,
@@ -169,7 +169,7 @@ pub(super) async fn settle_retired_worker(
             .record(
                 AuditEvent::command_completed(
                     uuid::Uuid::new_v4().to_string(),
-                    chrono::Utc::now().to_rfc3339(),
+                    desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                     &exec_request_id,
                     false,
                     "outcome_unknown:worker_exited".to_string(),

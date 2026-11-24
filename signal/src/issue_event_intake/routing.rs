@@ -98,7 +98,7 @@ async fn persist_header(
     if pending.header.is_some() {
         return Ok(());
     }
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     match header {
         Some(header)
             if pending.original.allows_issue(&header.issue)
@@ -132,7 +132,7 @@ pub(super) async fn commit_route(
     if pending.header.is_none() {
         return Ok(());
     }
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     if let Some(previous) = routing::latest_round_on(&txn, &pending, now)
         .await
         .map_err(store)?

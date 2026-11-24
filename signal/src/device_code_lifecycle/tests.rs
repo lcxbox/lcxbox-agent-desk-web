@@ -266,7 +266,7 @@ async fn bulk_deletion_rolls_back_all_chunks_and_releases_every_identity_on_fail
     let db = db().await;
     let lifecycle = Arc::new(DeviceCodeLifecycle::default());
     let map = SharedConnectionMap::new_oss();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     for chunk in 0..3 {
         device_code::Entity::insert_many((0..100).map(|i| {
             let i = chunk * 100 + i;

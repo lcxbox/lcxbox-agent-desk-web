@@ -298,9 +298,9 @@ impl ObjectReadBinding<'_> {
         let expiry = if let Some(scope_expiry) = &self.original.expires_at {
             expiry.min(
                 u64::try_from(
-                    chrono::DateTime::parse_from_rfc3339(scope_expiry)
-                        .map_err(|_| denied())?
-                        .timestamp_millis(),
+                    desk_utils::datetime::parse_rfc3339(scope_expiry)
+                        .map(desk_utils::datetime::unix_millis)
+                        .map_err(|_| denied())?,
                 )
                 .map_err(|_| denied())?,
             )

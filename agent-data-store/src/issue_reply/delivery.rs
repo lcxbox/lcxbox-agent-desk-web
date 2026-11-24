@@ -9,7 +9,7 @@ pub const CLAIM_LEASE_MS: i64 = 90_000;
 pub const RETRY_DELAY_MS: i64 = 30_000;
 
 fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
+    jiff::Timestamp::now().as_millisecond()
 }
 
 /// Only `commit_dispatch` may grant a POST. Hosts recheck their current policy

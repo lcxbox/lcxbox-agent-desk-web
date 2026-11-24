@@ -190,7 +190,7 @@ impl SignalMainRequestExecutor {
             &self.db,
             row,
             claim,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
             progress.error_code(returned),
         )
         .await
@@ -215,7 +215,7 @@ impl SignalMainRequestExecutor {
             .as_deref()
             .and_then(main_request::ActivationProgress::claim);
         let frozen = FrozenRequestInput::decode(&row).map_err(|error| error.into_agent_error())?;
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = jiff::Timestamp::now().as_millisecond();
         let issue_authority = frozen
             .issue_queue_authority(&self.db, &row.actor_id, now_ms)
             .await
@@ -366,7 +366,7 @@ impl SignalMainRequestExecutor {
         };
         let mut session = PersistedAgentSession::decode_boxed_json(&snapshot.state_json)
             .map_err(|_| transport_error("queued conversation state unavailable"))?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let execution = main_request::workbench_execution(&session, row)
             .map_err(|error| error.into_agent_error())?;
         if let Some(execution) = &execution {

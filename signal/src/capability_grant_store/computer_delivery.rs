@@ -177,7 +177,7 @@ impl SignalCapabilityGrantStore {
             let computer_original = original_on(&txn, generation).await?;
             let (outbox, work, payload) = computer_original.as_ref();
             let binding = bound(outbox, work, payload)?;
-            let now = Utc::now();
+            let now = desk_agent_data_store::datetime::utc_now();
             let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
             if now_ms < deadlines(outbox, &binding)?.0 {
                 return Ok(EventAppend::Busy);
@@ -455,7 +455,12 @@ impl SignalCapabilityGrantStore {
                     .await?
                     {
                         desk_diagnose_core::future::boxed(|| async {
-                            sessions.settle_lapsed_session(&session, Utc::now()).await
+                            sessions
+                                .settle_lapsed_session(
+                                    &session,
+                                    desk_agent_data_store::datetime::utc_now(),
+                                )
+                                .await
                         })
                         .await
                         .map_err(|_| invalid())?;
@@ -492,7 +497,7 @@ impl SignalCapabilityGrantStore {
                                 .follow_up_completion(
                                     &sessions,
                                     &row,
-                                    &Utc::now().to_rfc3339(),
+                                    &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                                     WorkKind::ComputerAction,
                                 )
                                 .await
@@ -542,7 +547,8 @@ impl SignalCapabilityGrantStore {
                 let computer_original = original?;
                 let (outbox, work, payload) = computer_original.as_ref();
                 let binding = bound(outbox, work, payload)?;
-                let now = u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+                let now = u64::try_from(jiff::Timestamp::now().as_millisecond())
+                    .map_err(|_| invalid())?;
                 if work.status == CAPABILITY_WORK_DISPATCHING
                     && now >= deadlines(outbox, &binding)?.1
                 {
@@ -591,7 +597,7 @@ impl SignalCapabilityGrantStore {
             if !matches!(session.execution_state.execution(&identity.execution_id), Some(ExecutionState::Executing { action }) if action == identity) {
                 return Ok(());
             }
-            let now = Utc::now();
+            let now = desk_agent_data_store::datetime::utc_now();
             if !session.mark_execution_unknown(generation, &binding.origin.tool_call_id, now.to_rfc3339()) {
                 return Err(invalid());
             }

@@ -432,7 +432,7 @@ impl SignalModelSeam {
                     } else {
                         desk_diagnose_core::model_observability::NotStartedReason::Unknown
                     },
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 );
             }
             let outcome = match error.kind {
@@ -443,7 +443,7 @@ impl SignalModelSeam {
             observation.finish(
                 outcome,
                 OutputOutcome::NotEvaluated,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             );
         }
         result
@@ -464,7 +464,7 @@ impl SignalModelSeam {
             if let Some(observation) = observation {
                 observation.not_started(
                     desk_diagnose_core::model_observability::NotStartedReason::RequestValidation,
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 );
             }
             return Err(AgentError {
@@ -487,7 +487,7 @@ impl SignalModelSeam {
             if let Some(observation) = observation {
                 observation.not_started(
                     desk_diagnose_core::model_observability::NotStartedReason::RequestValidation,
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 );
             }
             AgentError {
@@ -512,7 +512,7 @@ impl SignalModelSeam {
             if let Some(observation) = observation {
                 observation.not_started(
                     desk_diagnose_core::model_observability::NotStartedReason::Policy,
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 );
             }
             config_error(format!("model request failed: {e}"))
@@ -561,7 +561,7 @@ impl SignalModelSeam {
             if let Some(observation) = observation {
                 observation.not_started(
                     desk_diagnose_core::model_observability::NotStartedReason::RequestValidation,
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 );
             }
         })?;
@@ -612,7 +612,7 @@ impl SignalModelSeam {
                 if let Some(observation) = observation {
                     observation.not_started(
                         desk_diagnose_core::model_observability::NotStartedReason::Configuration,
-                        chrono::Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                     );
                 }
             })?;
@@ -626,18 +626,18 @@ impl SignalModelSeam {
         )?;
         desk_diagnose_core::schedule::model_admission::check_agent_data_deadline(
             agent_data_deadline,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .inspect_err(|_| {
             if let Some(observation) = observation {
                 observation.not_started(
                     desk_diagnose_core::model_observability::NotStartedReason::Permission,
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 );
             }
         })?;
         if let Some(observation) = observation {
-            observation.outbound(chrono::Utc::now().timestamp_millis());
+            observation.outbound(jiff::Timestamp::now().as_millisecond());
         }
         sink.on_provider_request(&body);
         let mut response = http
@@ -655,7 +655,7 @@ impl SignalModelSeam {
                     observation.finish(
                         outcome,
                         desk_diagnose_core::model_observability::OutputOutcome::NotEvaluated,
-                        chrono::Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                     );
                 }
                 transport_error(format!("model request failed: {e}"))
@@ -671,7 +671,7 @@ impl SignalModelSeam {
                 observation.finish(
                     desk_diagnose_core::model_observability::RequestOutcome::HttpError,
                     desk_diagnose_core::model_observability::OutputOutcome::NotEvaluated,
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 );
             }
             let retry_after = response
@@ -681,7 +681,7 @@ impl SignalModelSeam {
                 .and_then(|raw| {
                     desk_diagnose_core::model_http_error::retry_after_unix_ms(
                         raw,
-                        u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or_default(),
+                        u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or_default(),
                     )
                 });
             self.retry_after_unix_ms.set(retry_after);
@@ -722,7 +722,7 @@ impl SignalModelSeam {
                 observation.finish(
                     desk_diagnose_core::model_observability::RequestOutcome::StreamError,
                     desk_diagnose_core::model_observability::OutputOutcome::NotEvaluated,
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 );
             }
             return Err(transport_error(
@@ -741,7 +741,7 @@ impl SignalModelSeam {
                     observation.finish(
                         desk_diagnose_core::model_observability::RequestOutcome::StreamError,
                         desk_diagnose_core::model_observability::OutputOutcome::NotEvaluated,
-                        chrono::Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                     );
                 }
                 transport_error(format!("model stream interrupted: {e}"))
@@ -766,7 +766,7 @@ impl SignalModelSeam {
                     observation.finish(
                         desk_diagnose_core::model_observability::RequestOutcome::ProviderError,
                         desk_diagnose_core::model_observability::OutputOutcome::NotEvaluated,
-                        chrono::Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                     );
                 }
                 return Err(transport_error(err));
@@ -783,7 +783,7 @@ impl SignalModelSeam {
             observation.finish(
                 desk_diagnose_core::model_observability::RequestOutcome::Returned,
                 desk_diagnose_core::model_observability::OutputOutcome::NotEvaluated,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             );
         }
         desk_diagnose_core::prompt_cache::record_response(
@@ -807,7 +807,7 @@ impl SignalModelSeam {
             .unwrap_or_default()
             .with_usage(turn.usage, self.dialect == Dialect::Anthropic);
         context.conversation_id = request.context_conversation_id.clone();
-        context.observed_at_unix_ms = chrono::Utc::now().timestamp_millis();
+        context.observed_at_unix_ms = jiff::Timestamp::now().as_millisecond();
         context.source_context_key = Some(self.source_context_key.clone());
         context.profile_revision = self.profile.profile_revision;
         context.reasoning_tokens = turn.provider_meta.reasoning_tokens;
@@ -1099,7 +1099,7 @@ impl ModelSeam for SignalModelSeam {
                     context.call(
                         ObservationPhase::Terminal,
                         0,
-                        chrono::Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                         CallSnapshot {
                             not_started_reason: Some(if error.kind == AgentErrorKind::Cancelled {
                                 NotStartedReason::Cancelled

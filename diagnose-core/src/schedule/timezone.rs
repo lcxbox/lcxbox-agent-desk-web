@@ -1,10 +1,12 @@
 //! IANA local-time editing resolves once to a fixed UTC rule.
 
 use super::*;
-use chrono::{LocalResult, NaiveDate, Offset, TimeZone, Timelike};
-use chrono_tz::Tz;
 use desk_agent_protocol::schedule::{
     LocalScheduleRule, ScheduleTimeConversion, ScheduleTimeConverted, ScheduleTimeFold,
+};
+use jiff::{
+    civil::Date,
+    tz::{AmbiguousOffset, Offset, TimeZone},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,54 +21,67 @@ pub enum ConversionError {
     InvalidRule(ScheduleError),
 }
 
+/// Resolve IANA names from the same versioned data on every host.
+pub(crate) fn zone_name(name: &str) -> Option<&'static str> {
+    jiff_tzdb::get(name)
+        .map(|(canonical, _)| canonical)
+        .filter(|canonical| *canonical == name)
+}
+
+pub(crate) fn zone(name: &str) -> Result<TimeZone, ConversionError> {
+    let (canonical, data) = jiff_tzdb::get(name)
+        .filter(|(canonical, _)| *canonical == name)
+        .ok_or(ConversionError::InvalidZone)?;
+    TimeZone::tzif(canonical, data).map_err(|_| ConversionError::InvalidZone)
+}
+
 pub fn convert(input: &ScheduleTimeConversion) -> Result<ScheduleTimeConverted, ConversionError> {
     if input.timezone != "UTC" && !input.timezone.contains('/') {
         return Err(ConversionError::InvalidZone);
     }
-    let zone: Tz = input
-        .timezone
-        .parse()
-        .map_err(|_| ConversionError::InvalidZone)?;
+    let zone = zone(&input.timezone)?;
     if input.reference_date.len() != 10 {
         return Err(ConversionError::InvalidTime);
     }
-    let date = NaiveDate::parse_from_str(&input.reference_date, "%Y-%m-%d")
+    let date: Date = input
+        .reference_date
+        .parse()
         .map_err(|_| ConversionError::InvalidTime)?;
-    if date.format("%Y-%m-%d").to_string() != input.reference_date
-        || !(1970..=9999).contains(&date.year())
-    {
+    if date.to_string() != input.reference_date || !(1970..=9999).contains(&date.year()) {
         return Err(ConversionError::InvalidTime);
     }
     let time = clock(&input.local_time).map_err(ConversionError::InvalidRule)?;
-    let local = date.and_time(time);
-    let resolved = match zone.from_local_datetime(&local) {
-        LocalResult::None => return Err(ConversionError::NonexistentTime),
-        LocalResult::Single(at) => at,
-        LocalResult::Ambiguous(earlier, later) => match input.fold {
-            Some(ScheduleTimeFold::Earlier) => earlier,
-            Some(ScheduleTimeFold::Later) => later,
+    let local = time.to_datetime(date);
+    // Schedules cover the entire civil year 9999, including instants beyond Timestamp::MAX.
+    let utc_at_offset = |offset: Offset| {
+        local
+            .checked_sub(SignedDuration::from_secs(i64::from(offset.seconds())))
+            .map_err(|_| ConversionError::InvalidTime)
+    };
+    let offset = match zone.to_ambiguous_timestamp(local).offset() {
+        AmbiguousOffset::Gap { .. } => return Err(ConversionError::NonexistentTime),
+        AmbiguousOffset::Unambiguous { offset } => offset,
+        AmbiguousOffset::Fold { before, after } => match input.fold {
+            Some(ScheduleTimeFold::Earlier) => before,
+            Some(ScheduleTimeFold::Later) => after,
             None => {
                 return Err(ConversionError::AmbiguousTime {
-                    earlier_utc: earlier
-                        .with_timezone(&Utc)
-                        .to_rfc3339_opts(SecondsFormat::Secs, true),
-                    later_utc: later
-                        .with_timezone(&Utc)
-                        .to_rfc3339_opts(SecondsFormat::Secs, true),
+                    earlier_utc: format!("{}Z", utc_at_offset(before)?),
+                    later_utc: format!("{}Z", utc_at_offset(after)?),
                 });
             }
         },
     };
-    let offset_seconds = resolved.offset().fix().local_minus_utc();
-    let utc = resolved.with_timezone(&Utc);
-    let utc_time = utc.format("%H:%M:%S").to_string();
+    let offset_seconds = offset.seconds();
+    let resolved = utc_at_offset(offset)?;
+    let utc_time = resolved.time().to_string();
     let rule = match &input.rule {
         LocalScheduleRule::Once => ScheduleRule::Once {
-            at: utc.to_rfc3339_opts(SecondsFormat::Secs, true),
+            at: format!("{resolved}Z"),
         },
         LocalScheduleRule::Interval { every_seconds } => ScheduleRule::Interval {
             every_seconds: *every_seconds,
-            anchor_at: utc.to_rfc3339_opts(SecondsFormat::Secs, true),
+            anchor_at: format!("{resolved}Z"),
         },
         LocalScheduleRule::Daily => ScheduleRule::Daily { utc_time },
         LocalScheduleRule::Weekly { weekdays } => {
@@ -79,7 +94,9 @@ pub fn convert(input: &ScheduleTimeConversion) -> Result<ScheduleTimeConverted, 
                 },
             })
             .map_err(ConversionError::InvalidRule)?;
-            let day_shift = (i64::from(time.num_seconds_from_midnight())
+            let day_shift = ((i64::from(time.hour()) * 3600
+                + i64::from(time.minute()) * 60
+                + i64::from(time.second()))
                 - i64::from(offset_seconds))
             .div_euclid(86_400);
             ScheduleRule::Weekly {
@@ -99,7 +116,7 @@ pub fn convert(input: &ScheduleTimeConversion) -> Result<ScheduleTimeConverted, 
     Ok(ScheduleTimeConverted {
         spec,
         offset_seconds,
-        conversion_version: format!("utc-edit-v1/{}", chrono_tz::IANA_TZDB_VERSION),
+        conversion_version: format!("utc-edit-v1/{}", jiff_tzdb::VERSION),
     })
 }
 
@@ -114,6 +131,18 @@ mod tests {
             fold: None,
             rule: LocalScheduleRule::Daily,
         }
+    }
+
+    #[test]
+    fn last_civil_day_remains_schedulable() {
+        let mut edit = input("Asia/Tokyo", "9999-12-31", "23:59:59");
+        edit.rule = LocalScheduleRule::Once;
+        assert_eq!(
+            convert(&edit).unwrap().spec.rule,
+            ScheduleRule::Once {
+                at: "9999-12-31T14:59:59Z".into()
+            }
+        );
     }
 
     #[test]
@@ -190,11 +219,7 @@ pub fn verify_confirmation(
 pub fn upcoming_runs(spec: &ScheduleSpec, reference_ms: i64) -> Result<Vec<String>, ScheduleError> {
     preview(spec, reference_ms, 5)?
         .into_iter()
-        .map(|at| {
-            DateTime::<Utc>::from_timestamp_millis(at)
-                .map(|time| time.to_rfc3339_opts(SecondsFormat::Secs, true))
-                .ok_or(ScheduleError::OutOfRange)
-        })
+        .map(|at| utc_at(at).map(|time| format!("{time}Z")))
         .collect()
 }
 
@@ -250,9 +275,10 @@ mod confirmation_tests {
                 every_seconds: 3600
             }
         );
-        let reference = DateTime::parse_from_rfc3339("2026-09-07T08:14:59Z")
+        let reference = "2026-09-07T08:14:59Z"
+            .parse::<jiff::Timestamp>()
             .unwrap()
-            .timestamp_millis();
+            .as_millisecond();
         let values = upcoming_runs(&converted.spec, reference).unwrap();
         assert_eq!(values.len(), 5);
         assert_eq!(values[0], "2026-09-07T08:15:00Z");

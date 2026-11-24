@@ -122,7 +122,7 @@ pub(crate) async fn close_root_for_subject_on(
     tombstone_on(db, conversation, actor, device, now_ms).await?;
     let mut permission_ends =
         desk_diagnose_core::model_observability::permission::PendingEnds::default();
-    let now = chrono::DateTime::from_timestamp_millis(now_ms)
+    let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms)
         .ok_or_else(|| invalid())?
         .to_rfc3339();
     let mut after = 0;
@@ -814,7 +814,7 @@ pub(crate) async fn redact_deleted_content(
         let changed = group_row::Entity::update_many()
             .set(group_row::ActiveModel {
                 creation_envelope_json: Set(String::new()),
-                content_redacted_at_ms: Set(Some(chrono::Utc::now().timestamp_millis())),
+                content_redacted_at_ms: Set(Some(jiff::Timestamp::now().as_millisecond())),
                 ..Default::default()
             })
             .filter(group_row::Column::Id.eq(row.id))

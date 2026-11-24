@@ -3,7 +3,6 @@
 pub mod collector;
 pub mod unassociated;
 
-use chrono::{DateTime, Utc};
 use desk_diagnose_core::model_observability::{
     aggregate::{Histogram, RATES, Rate, Totals},
     *,
@@ -20,9 +19,9 @@ pub fn tag<T: Serialize>(value: &T) -> String {
 }
 
 pub fn timestamp(ms: i64) -> String {
-    DateTime::<Utc>::from_timestamp_millis(ms)
-        .map(|value| value.to_rfc3339())
-        .unwrap_or_else(|| "unknown".into())
+    jiff::Timestamp::from_millisecond(ms)
+        .map(desk_utils::datetime::rfc3339)
+        .unwrap_or_else(|_| "unknown".into())
 }
 
 /// Unknown identities remain absent in model choices and group drill-downs.
@@ -87,8 +86,8 @@ pub struct ResolvedQuery {
 impl ResolvedQuery {
     pub fn resolve(query: &MetricsQuery, now_ms: i64) -> Result<Self, &'static str> {
         let parse_time = |value: &str| {
-            DateTime::parse_from_rfc3339(value)
-                .map(|value| value.timestamp_millis())
+            desk_utils::datetime::parse_rfc3339(value)
+                .map(desk_utils::datetime::unix_millis)
                 .map_err(|_| "invalid metrics time")
         };
         let to = query

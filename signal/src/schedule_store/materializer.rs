@@ -102,9 +102,10 @@ mod tests {
             let mut draft = draft();
             draft.client_create_key = format!("calendar-{index}");
             draft.spec.rule = ScheduleRule::Once {
-                at: chrono::DateTime::from_timestamp_millis(at)
+                at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
                     .unwrap()
-                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                    .format("%Y-%m-%dT%H:%M:%SZ")
+                    .to_string(),
             };
             let task = store.create_pending_task(1, &draft, now).await.unwrap();
             let mut update = entity::ActiveModel {

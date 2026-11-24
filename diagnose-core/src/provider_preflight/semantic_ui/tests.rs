@@ -7,8 +7,8 @@ fn now() -> u64 {
 }
 fn call(action: UiSemanticAction) -> ToolCall {
     ToolCall { id: "call".into(), name: EXECUTE_CONFIRMED_UI_ACTION_TOOL.into(),
-        arguments_json: json!({"application":{"token":"app","snapshot_id":"apps","object_kind":"application","expires_at":chrono::DateTime::from_timestamp_millis((now()+60_000) as i64).unwrap().to_rfc3339()},"target":{"token":"edge-only-reference","snapshot_id":"snapshot",
-            "object_kind":"ui_element","expires_at":chrono::DateTime::from_timestamp_millis((now()+60_000) as i64).unwrap().to_rfc3339()},
+        arguments_json: json!({"application":{"token":"app","snapshot_id":"apps","object_kind":"application","expires_at":desk_utils::datetime::rfc3339(jiff::Timestamp::from_millisecond((now()+60_000) as i64).unwrap())},"target":{"token":"edge-only-reference","snapshot_id":"snapshot",
+            "object_kind":"ui_element","expires_at":desk_utils::datetime::rfc3339(jiff::Timestamp::from_millisecond((now()+60_000) as i64).unwrap())},
             "action":action}).to_string() }
 }
 

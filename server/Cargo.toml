@@ -7,8 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+jiff.workspace = true
 argon2 = "0.5"
 
+desk-agent-data-store.workspace = true
 desk-utils = { workspace = true }
 desk-turn = { workspace = true }
 # `clap`: the startup mode is declared in the facade but parsed from this
@@ -55,7 +57,6 @@ utoipa = { workspace = true }
 # unauthenticated public attack surface on a self-hosted server.
 utoipa-actix-web = { workspace = true }
 
-chrono = { workspace = true }
 sea-orm = { workspace = true }
 bollard = { workspace = true }
 

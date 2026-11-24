@@ -222,7 +222,7 @@ async fn publication_gateway_keeps_the_exact_original_issue_proof() {
     )
     .unwrap();
     artifact
-        .authorize_delivery(chrono::Utc::now().timestamp_millis() as u64)
+        .authorize_delivery(jiff::Timestamp::now().as_millisecond() as u64)
         .unwrap();
     assert_eq!(
         model
@@ -246,7 +246,7 @@ async fn publication_gateway_keeps_the_exact_original_issue_proof() {
         &db,
         paused,
         1,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     .unwrap();
@@ -346,7 +346,7 @@ async fn seed_native_publication(
         subscription_revision: 1,
         tool_ref: access.tool_ref(),
     });
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
     let params = crate::agent_run_event_store::AppendUserFollowupParams {
         client_timezone: "UTC".into(),
         temporary_conversation: None,

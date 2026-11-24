@@ -136,7 +136,7 @@ async fn scenario(stack_bytes: Option<usize>) {
             auth_context: AuthContext::token_auth(1, 1, RemoteDeskTypeEnum::Server),
         }
     });
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     crate::computer_use_readiness::global_computer_use_readiness_cache()
         .update(
             &host,
@@ -144,7 +144,11 @@ async fn scenario(stack_bytes: Option<usize>) {
                 schema_version: COMPUTER_USE_SCHEMA_VERSION,
                 revision: 1,
                 observed_at: now.to_rfc3339(),
-                expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                expires_at: (now
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(5),
+                    ))
+                .to_rfc3339(),
                 server_api_version: 1,
                 os: "macos".into(),
                 interactive_user_home: Some("/Users/fixture".into()),
@@ -160,7 +164,7 @@ async fn scenario(stack_bytes: Option<usize>) {
                 capabilities: vec![],
                 context_references: vec![],
             },
-            now,
+            desk_agent_data_store::datetime::from_database(now).unwrap(),
         )
         .unwrap();
     for (conversation, input, question) in [
@@ -204,7 +208,7 @@ async fn scenario(stack_bytes: Option<usize>) {
             let found = crate::agent_data_store::owner_history_search(
                 &db,
                 &query,
-                chrono::Utc::now().timestamp_millis() as u64,
+                jiff::Timestamp::now().as_millisecond() as u64,
             )
             .await
             .unwrap();
@@ -257,7 +261,7 @@ async fn scenario(stack_bytes: Option<usize>) {
     let found = crate::agent_data_store::owner_history_search(
         &db,
         &followup,
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )
     .await
     .unwrap();

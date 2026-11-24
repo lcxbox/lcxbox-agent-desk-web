@@ -171,7 +171,7 @@ async fn approved_child_with_source_on(
         directory_grants: desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
             &child,
             &child.device_id,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         ),
         exec_sandbox: desk_diagnose_core::command_confirmation::DeviceExecSandbox::for_test(
             desk_agent_protocol::exec::ExecSandboxSupport::Supported,
@@ -219,7 +219,7 @@ async fn approved_child_with_source_on(
             suggested_max_uses: 1,
             reason: "Run the delegated check".into(),
         }],
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         group: None,
     };
     child.add_permission_request(request.clone()).unwrap();
@@ -241,9 +241,12 @@ async fn approved_child_with_source_on(
         request,
     };
     super::paused_permission::publish(&db, &mut child, &event).await;
-    child.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    child.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_child_session(&db, &mut child).await.unwrap();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let inventory = [CapabilityAvailability {
         provider_id: provider.wire.provider_id.clone(),
         capability_id: capability.wire.capability_id.clone(),
@@ -338,7 +341,7 @@ fn prepared<'a>(
             item_count: 1,
             policy_revision: child.policy_revision,
             readiness_revision: grant.readiness_revision,
-            now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+            now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
         },
     }
 }
@@ -367,7 +370,7 @@ async fn newly_created_child_owner_approval_prepares_and_claims_command_once() {
     else {
         panic!("approved initial input must dispatch")
     };
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let origin = ActionResultOrigin::capture_confirmed_command(
         &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         &child,
@@ -610,7 +613,7 @@ async fn live_project_model_subagent_command() {
     else {
         panic!("initial delegated input must dispatch")
     };
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let origin = ActionResultOrigin::capture_confirmed_command(
         &registry,
         &child,

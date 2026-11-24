@@ -176,7 +176,7 @@ async fn load_snapshot_on(
     {
         return Ok(None);
     }
-    let now = u64::try_from(Utc::now().timestamp_millis())
+    let now = u64::try_from(jiff::Timestamp::now().as_millisecond())
         .map_err(|_| sea_orm::DbErr::Custom("invalid snapshot clock".into()))?;
     let mut tasks = computer_background::list_on(txn, run, actor, device, now).await?;
     let mut query = agent_action_item::Entity::find()

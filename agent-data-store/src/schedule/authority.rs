@@ -107,7 +107,7 @@ pub async fn authority_now<C: ConnectionTrait>(txn: &C) -> Result<i64, ScheduleS
         .await?
         .ok_or(ScheduleStoreError::Invalid)?;
     Ok(row
-        .try_get::<chrono::DateTime<chrono::Utc>>("", "now")?
+        .try_get::<sea_orm::prelude::DateTimeUtc>("", "now")?
         .timestamp_millis())
 }
 

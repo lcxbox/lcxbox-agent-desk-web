@@ -40,7 +40,7 @@ impl SignalAiAgentTools {
     > {
         let (held, connection) = self.selected_connection(session, target_ref).await?;
         if !crate::computer_use_readiness::global_computer_use_readiness_cache()
-            .get_fresh(&connection, chrono::Utc::now())
+            .get_fresh(&connection, jiff::Timestamp::now())
             .is_some_and(|current| {
                 current.readiness.capabilities.iter().any(|item| {
                     item.capability == desk_agent_protocol::Capability::FileMetadataRead
@@ -79,7 +79,7 @@ impl SignalAiAgentTools {
             &self.db,
             session,
             true,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .map_err(|error| error.into_agent_error())?;
@@ -133,7 +133,7 @@ impl SignalAiAgentTools {
             return Err(unavailable());
         }
         let readiness = crate::computer_use_readiness::global_computer_use_readiness_cache()
-            .get_fresh(&connection_id, chrono::Utc::now())
+            .get_fresh(&connection_id, jiff::Timestamp::now())
             .ok_or_else(unavailable)?;
         if !readiness.readiness.capabilities.iter().any(|item| {
             item.capability == desk_agent_protocol::Capability::ShellExecConfirmed
@@ -148,7 +148,7 @@ impl SignalAiAgentTools {
             &connection_id,
             &self.actor_id,
             session,
-            u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| unavailable())?,
+            u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| unavailable())?,
         )
         .await?;
         if policy.target_device_id != held.device_id {
@@ -171,7 +171,7 @@ impl SignalAiAgentTools {
         let (held, connection_id) = self.selected_connection(session, &reference).await?;
         let readiness_revision =
             crate::computer_use_readiness::global_computer_use_readiness_cache()
-                .get_fresh(&connection_id, chrono::Utc::now())
+                .get_fresh(&connection_id, jiff::Timestamp::now())
                 .map(|current| current.readiness.revision)
                 .ok_or_else(unavailable)?;
         if !desk_diagnose_core::request_devices::require_current_read_target(
@@ -248,7 +248,7 @@ impl SignalAiAgentTools {
             .map(|state| state.model.connection_id.clone())
             .ok_or_else(unavailable)?;
         let readiness = crate::computer_use_readiness::global_computer_use_readiness_cache()
-            .get_fresh(&connection_id, chrono::Utc::now())
+            .get_fresh(&connection_id, jiff::Timestamp::now())
             .ok_or_else(unavailable)?;
         let scoped = self.scoped_request_device(
             held.clone(),
@@ -273,7 +273,7 @@ impl SignalAiAgentTools {
             return Err(unavailable());
         }
         let current = crate::computer_use_readiness::global_computer_use_readiness_cache()
-            .get_fresh(&connection, chrono::Utc::now())
+            .get_fresh(&connection, jiff::Timestamp::now())
             .ok_or_else(unavailable)?;
         let browser =
             desk_diagnose_core::ai_agent::browser_surface_context(Some(&current.readiness));
@@ -346,7 +346,7 @@ impl SignalAiAgentTools {
             &self.db,
             session,
             true,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         {
@@ -360,7 +360,7 @@ impl SignalAiAgentTools {
                 .map_err(|error| error.into_agent_error())?;
         let mut devices = request_device_catalogue(&self.db, &self.connections, &selected).await?;
         let store = SignalCapabilityGrantStore::new(self.db.clone());
-        let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
+        let now = jiff::Timestamp::now().as_millisecond().max(0) as u64;
         for device in &mut devices {
             if let Some(target) = &device.read_target
                 && session
@@ -390,7 +390,7 @@ pub(crate) async fn request_device_catalogue(
 ) -> Result<Vec<RequestDevice>, AgentError> {
     let eligible = crate::agent_run_event_store::eligible_request_device_ids(db, selected).await?;
     let connections = connections.read().await;
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     let readiness = crate::computer_use_readiness::global_computer_use_readiness_cache();
     Ok(selected
         .iter()

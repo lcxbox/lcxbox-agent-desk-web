@@ -15,7 +15,6 @@ use crate::config::connection::DatabaseConnection;
 use desk_agent_data_store::entity_table::EntityTableExt;
 use std::time::Duration;
 
-use chrono::Utc;
 #[cfg(test)]
 use sea_orm::ActiveValue::Set;
 use sea_orm::prelude::DateTimeUtc;
@@ -444,7 +443,7 @@ async fn delete_expired_session_candidates(
             .filter(reclaimable_snapshot)
             .filter(|row| {
                 row.lease_deadline
-                    .is_none_or(|deadline| deadline < Utc::now())
+                    .is_none_or(|deadline| deadline < desk_agent_data_store::datetime::utc_now())
             })
             .collect();
         let mut kept = Vec::with_capacity(rows.len());
@@ -504,7 +503,7 @@ async fn delete_expired_session_candidates(
                             &row.conversation_id,
                             &row.actor_id,
                             &row.device_id,
-                            Utc::now().timestamp_millis(),
+                            jiff::Timestamp::now().as_millisecond(),
                         )
                         .await?,
                     );
@@ -514,7 +513,7 @@ async fn delete_expired_session_candidates(
                         &row.conversation_id,
                         &row.actor_id,
                         &row.device_id,
-                        Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                     )
                     .await?;
                 }
@@ -530,7 +529,7 @@ async fn delete_expired_session_candidates(
                     crate::agent_subagent_store::close_root_on(
                         &txn,
                         &session,
-                        Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                     )
                     .await?,
                 );
@@ -540,7 +539,7 @@ async fn delete_expired_session_candidates(
                     &row.conversation_id,
                     &session.actor_id,
                     &session.device_id,
-                    Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 )
                 .await?;
                 permission_ends.push(
@@ -572,7 +571,7 @@ async fn delete_expired_session_candidates(
             )
             .col_expr(
                 agent_schedule::Column::UpdatedAt,
-                sea_orm::sea_query::Expr::value(Utc::now().timestamp_millis()),
+                sea_orm::sea_query::Expr::value(jiff::Timestamp::now().as_millisecond()),
             )
             .filter(agent_schedule::Column::SourceConversationId.is_in(run_ids.clone()))
             .filter(agent_schedule::Column::Kind.eq("conversation_resume"))
@@ -685,7 +684,7 @@ async fn delete_expired_session_candidates(
     match result {
         Ok(deleted) => {
             txn.commit().await?;
-            let now_ms = Utc::now().timestamp_millis();
+            let now_ms = jiff::Timestamp::now().as_millisecond();
             for prepared in permission_ends {
                 prepared.submit(now_ms, crate::model_metrics::runtime::submit);
             }
@@ -711,12 +710,16 @@ pub async fn cleanup_once(
     let turn = cleanup_table(
         db,
         TURN_USAGE_TABLE,
-        now - chrono::Duration::days(cfg.turn_days as i64),
+        now - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(
+            24 * (cfg.turn_days as i64),
+        )),
     )
     .await?;
     let (settled, sessions) = cleanup_agent_sessions(
         db,
-        now - chrono::Duration::days(cfg.agent_session_days as i64),
+        now - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(
+            24 * (cfg.agent_session_days as i64),
+        )),
         now,
     )
     .await?;
@@ -729,7 +732,7 @@ pub async fn run_retention_cleanup_loop(db: DatabaseConnection) {
     let mut cadence = desk_agent_data_store::output_gc::CleanupCadence::new(CLEANUP_INTERVAL);
     loop {
         if cadence.take_retention(std::time::Instant::now()) {
-            match cleanup_once(&db, Utc::now()).await {
+            match cleanup_once(&db, desk_agent_data_store::datetime::utc_now()).await {
                 Ok((t, settled, sessions)) if t > 0 || settled > 0 || sessions > 0 => {
                     log::info!(
                         "Signal retention cleanup deleted {t} TURN rollup rows, \
@@ -890,12 +893,18 @@ mod tests {
     }
 
     fn now() -> DateTimeUtc {
-        use chrono::TimeZone;
-        Utc.with_ymd_and_hms(2026, 7, 8, 12, 0, 0).unwrap()
+        sea_orm::prelude::Date::from_ymd_opt(2026, 7, 8)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
     }
 
     fn days_ago(d: i64) -> DateTimeUtc {
-        now() - chrono::Duration::days(d)
+        now()
+            - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(
+                24 * d,
+            ))
     }
 
     async fn seed_turn(db: &DatabaseConnection, device: &str, hour: DateTimeUtc) {
@@ -1070,7 +1079,12 @@ mod tests {
             "old-live",
             days_ago(40),
             true,
-            Some(now() + chrono::Duration::hours(1)),
+            Some(
+                now()
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_hours(1),
+                    ),
+            ),
         )
         .await;
         seed_session(
@@ -1078,7 +1092,12 @@ mod tests {
             "old-lapsed",
             days_ago(40),
             true,
-            Some(now() - chrono::Duration::hours(1)),
+            Some(
+                now()
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_hours(1),
+                    ),
+            ),
         )
         .await;
 
@@ -1191,8 +1210,12 @@ mod tests {
         draft.source_conversation_id = Some("timer-source".into());
         draft.requirement_revision = Some(1);
         draft.spec.rule = ScheduleRule::Once {
-            at: (now() + chrono::Duration::days(1))
-                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            at: (now()
+                + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_hours(24),
+                ))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string(),
         };
         let timer = store
             .create_pending_task(1, &draft, now().timestamp_millis())
@@ -1274,8 +1297,12 @@ mod tests {
         draft.source_conversation_id = Some("timer-running".into());
         draft.requirement_revision = Some(1);
         draft.spec.rule = ScheduleRule::Once {
-            at: (now() + chrono::Duration::days(1))
-                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            at: (now()
+                + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_hours(24),
+                ))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string(),
         };
         let timer = store
             .create_pending_task(1, &draft, now().timestamp_millis())
@@ -1347,7 +1374,12 @@ mod tests {
                         .unwrap();
                     updated.state_json = Set(session.encode_json_for_storage().unwrap());
                     updated.lease_token = Set(session.lease_token as i64);
-                    updated.lease_deadline = Set(Some(now() + chrono::Duration::hours(1)));
+                    updated.lease_deadline = Set(Some(
+                        now()
+                            + desk_agent_data_store::datetime::database_interval(
+                                jiff::SignedDuration::from_hours(1),
+                            ),
+                    ));
                 }
                 "refreshed" => updated.updated_at = Set(now()),
                 _ => continue,

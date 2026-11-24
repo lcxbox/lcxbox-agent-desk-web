@@ -86,7 +86,7 @@ pub(crate) async fn spawn_on(
     if tools::parse(held, call).map_err(|_| invalid())? != Operation::Spawn(request.clone()) {
         return Err(invalid());
     }
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let current =
         desk_diagnose_core::future::boxed(|| parent_planning_on(txn, held, now.timestamp_millis()))
             .await?;
@@ -105,7 +105,7 @@ pub(crate) async fn first_dispatch_on(
     txn: &DatabaseTransaction,
     work: &mut PersistedAgentSession,
     queued: &desk_agent_data_store::entity::agent_main_request::Model,
-    now: chrono::DateTime<chrono::Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<String>, DbErr> {
     use desk_agent_data_store::main_request::dispatch::FirstDispatch;
     let Some(request) = FirstDispatch::request_from(queued, work).map_err(|_| invalid())? else {
@@ -163,7 +163,7 @@ async fn create_request_on(
     held: &PersistedAgentSession,
     origin: SpawnOrigin<'_>,
     request: &SpawnRequest,
-    now: chrono::DateTime<chrono::Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<AiAgentSubAgentSummary, DbErr> {
     let (kind, intent) = match origin {
         SpawnOrigin::NativeTool(call) => (CreationOrigin::NATIVE_TOOL, call.id.as_str()),

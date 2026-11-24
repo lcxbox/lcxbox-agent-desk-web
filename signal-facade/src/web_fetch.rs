@@ -193,7 +193,7 @@ where
     page_result(PageInput {
         requested_url: head.requested_url,
         final_url: head.final_url.to_string(),
-        fetched_at: chrono::Utc::now().to_rfc3339(),
+        fetched_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         content_type: media,
         content_length: head.content_length,
         sha256: format!("{:x}", Sha256::digest(source.as_slice())),

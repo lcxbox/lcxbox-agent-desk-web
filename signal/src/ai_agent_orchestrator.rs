@@ -140,7 +140,7 @@ pub(crate) async fn current_capability_projection<
     let cached_readiness = match target_connection_id {
         Some(target) if connections.read().await.contains_key(target) => {
             crate::computer_use_readiness::global_computer_use_readiness_cache()
-                .get_fresh(target, chrono::Utc::now())
+                .get_fresh(target, jiff::Timestamp::now())
         }
         _ => None,
     };
@@ -162,7 +162,7 @@ pub(crate) async fn current_capability_projection<
             Vec::new()
         }
     };
-    let generated_at_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis())
+    let generated_at_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond())
         .expect("current time is after the Unix epoch");
     let mut inventory = project_capability_availability(
         &provider_registry,
@@ -237,7 +237,7 @@ async fn capture_selectable_live_targets(
         context_attachment::ContextAttachmentKind,
         input_read_context::{ReadContextSelection, live_read},
     };
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     let mut selection = ReadContextSelection::default();
     for device_id in device_ids.iter().filter(|id| {
         attachments.iter().any(|item| {
@@ -268,7 +268,7 @@ async fn capture_selectable_live_targets(
                 attachments,
                 &readiness.readiness,
                 destination,
-                now.timestamp_millis().max(0) as u64,
+                now.as_millisecond().max(0) as u64,
             )?;
         }
     }
@@ -502,7 +502,7 @@ pub async fn render_document_preview_page(
                 &target_device_id,
                 &request.preview_id,
                 request.page,
-                u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(u64::MAX),
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(u64::MAX),
             )
     });
     let result = if accessible {
@@ -567,7 +567,7 @@ pub async fn update_context(
                 .context_key(&actor_id, &target_device_id, &update.conversation_id, update.conversation_target)
                 .map_err(transport_error)?,
             actor_id: actor_id.clone(), device_id: target_device_id.clone(), update: update.clone(),
-            selection: None, created_at: chrono::Utc::now().to_rfc3339(),
+            selection: None, created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         };
         if let Some(changed) = desk_diagnose_core::future::boxed(|| store.replay_live_context(&params)).await? {
             return Ok(changed);
@@ -575,9 +575,9 @@ pub async fn update_context(
         if update.selected_capability_ids.is_empty() {
             params.selection = Some(crate::agent_session_store::ContextSelectionClaim {
                 selected_capability_ids: vec![], runtime_bindings: vec![], candidates: vec![],
-                now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+                now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
             });
-            params.created_at = chrono::Utc::now().to_rfc3339();
+            params.created_at = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
             return desk_diagnose_core::future::boxed(|| store.update_live_context(&params)).await;
         }
         let config = crate::model_provider::load(&db).await.map_err(|error| {
@@ -618,7 +618,7 @@ pub async fn update_context(
             false,
         )?;
         params.selection = Some(selection);
-        params.created_at = chrono::Utc::now().to_rfc3339();
+        params.created_at = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
         desk_diagnose_core::future::boxed(|| store.update_live_context(&params)).await
     }
     .await;
@@ -756,7 +756,7 @@ pub(crate) async fn apply_object_context_update(
         device_id: target_device_id,
         update: update.clone(),
         destination: None,
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     };
     let store = crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
         .with_client_metadata(
@@ -773,7 +773,10 @@ pub(crate) async fn apply_object_context_update(
     ) {
         return Ok(desk_diagnose_core::future::boxed(|| async {
             store
-                .update_file_scope(&directory_update, chrono::Utc::now())
+                .update_file_scope(
+                    &directory_update,
+                    desk_agent_data_store::datetime::utc_now(),
+                )
                 .await
         })
         .await?
@@ -891,7 +894,7 @@ pub async fn update_object_context(
                     .map_err(|_| transport_error("Invalid directory selection"))?;
                 Ok(desk_diagnose_core::future::boxed(|| async {
                     store
-                        .update_file_scope(&selection, chrono::Utc::now())
+                        .update_file_scope(&selection, desk_agent_data_store::datetime::utc_now())
                         .await
                 })
                 .await?
@@ -954,7 +957,7 @@ impl LeaseHeartbeat for SignalStoreHeartbeat {
                         .heartbeat(
                             &conversation_id,
                             lease_token,
-                            &chrono::Utc::now().to_rfc3339(),
+                            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                         )
                         .await
                 },
@@ -1097,7 +1100,7 @@ pub async fn resume_after_permission_decision(
             &actor_user_id.to_string(),
             &target_device_id,
             &permission_request_id,
-            chrono::Utc::now(),
+            desk_agent_data_store::datetime::utc_now(),
         )
         .await
         {
@@ -1686,7 +1689,7 @@ async fn prepare_composed_turn(
                 )
             })
     };
-    let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis())
+    let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond())
         .expect("current time is after the Unix epoch");
     let conversation_id = match owner_queue
         .as_deref()
@@ -2069,7 +2072,7 @@ async fn prepare_composed_turn(
                                                 expires_at: None,
                                                 policy_name: None,
                                             },
-                                            chrono::Utc::now().to_rfc3339(),
+                                            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                                         ),
                                     );
                                     &*fresh
@@ -2193,7 +2196,7 @@ async fn prepare_composed_turn(
                                 let revision =
                                 crate::computer_use_readiness::global_computer_use_readiness_cache(
                                 )
-                                .get_fresh(connection, chrono::Utc::now())
+                                .get_fresh(connection, jiff::Timestamp::now())
                                 .map_or(0, |current| current.readiness.revision);
                                 (device, revision)
                             },
@@ -3039,7 +3042,7 @@ async fn prepare_composed_turn(
                                         return Ok(PreparationStep::Ready(None));
                                     }
                                 };
-                            let clock = || chrono::Utc::now().to_rfc3339();
+                            let clock = || desk_utils::datetime::rfc3339(jiff::Timestamp::now());
                             let (available_exec_shells, max_command_runtime_ms) = {
                                 let connections = desk_diagnose_core::future::boxed(|| async {
                                     connections.read().await
@@ -3448,7 +3451,7 @@ async fn prepare_composed_turn(
                                                 );
                                                 sink.set_provenance(AiProvenance::stamp(
                                                     config.model,
-                                                    Some(chrono::Utc::now().to_rfc3339()),
+                                                    Some(desk_utils::datetime::rfc3339(jiff::Timestamp::now())),
                                                 ));
                                                 sink.turn_started(&turn_id);
                                                 let outcome = desk_diagnose_core::future::boxed(|| {
@@ -3573,7 +3576,7 @@ async fn prepare_composed_turn(
                 }, request_id, 1);
             sink.set_provenance(AiProvenance::stamp(
                 config.model,
-                Some(chrono::Utc::now().to_rfc3339()),
+                Some(desk_utils::datetime::rfc3339(jiff::Timestamp::now())),
             ));
             match desk_diagnose_core::future::boxed(|| {
                 resume_agent_turn_after_permission(&deps, claim, decision_message, &mut sink)
@@ -3846,7 +3849,7 @@ async fn prepare_composed_turn(
         );
         sink.set_provenance(AiProvenance::stamp(
             config.model,
-            Some(chrono::Utc::now().to_rfc3339()),
+            Some(desk_utils::datetime::rfc3339(jiff::Timestamp::now())),
         ));
         sink.turn_started(&turn_id);
         if ask.start_goal {
@@ -4677,7 +4680,7 @@ expected_revision: 0, summary_max_output_tokens: 4096, strategy: desk_signal_fac
                 expires_at: None,
                 policy_name: None,
             },
-            chrono::Utc::now().to_rfc3339(),
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         );
         history.conversation = request.messages.clone();
         history

@@ -85,7 +85,7 @@ pub async fn retry_file_recovery_cleanup(
     .request_retry(
         &SINGLE_ACCOUNT_USER_ID.to_string(),
         &body.conversation_id,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await?;
     if scheduled {
@@ -290,7 +290,7 @@ mod tests {
         db.execute(&schema.entity_table(agent_session::Entity).to_owned())
             .await
             .unwrap();
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let owner = SINGLE_ACCOUNT_USER_ID.to_string();
         for (conversation, actor, device) in [
             ("bound", owner.as_str(), "device"),

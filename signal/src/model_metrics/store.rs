@@ -1297,7 +1297,7 @@ fn series_key(
 #[async_trait::async_trait]
 impl desk_signal_facade::service::model_metrics::collector::MetricsBackend for Store {
     async fn settings(&self) -> Result<MetricsSettings, ()> {
-        self.initialize_settings(chrono::Utc::now().timestamp_millis())
+        self.initialize_settings(jiff::Timestamp::now().as_millisecond())
             .await
             .map_err(|_| ())
     }

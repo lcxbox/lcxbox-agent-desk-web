@@ -41,7 +41,7 @@ async fn native_issue_transport(platform: desk_agent_protocol::external_tools::I
         params.device_id.clear();
         params.current_scope.granted.clear();
         params.current_scope.mode = ExecutionMode::ReadOnly;
-        params.created_at = chrono::Utc::now().to_rfc3339();
+        params.created_at = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
         params.run_id = desk_diagnose_core::conversation_key::derive_agent_conversation_key(
             &params.actor_id,
             desk_diagnose_core::conversation_key::AgentConversationScope::Personal,
@@ -172,7 +172,7 @@ async fn native_issue_transport(platform: desk_agent_protocol::external_tools::I
                         &store.db,
                         paused,
                         1,
-                        chrono::Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                     )
                     .await
                     .unwrap();
@@ -216,7 +216,7 @@ async fn native_issue_transport(platform: desk_agent_protocol::external_tools::I
                 destination: destination(),
                 selected_source_tools: Default::default(),
                 export_authorization_id: "issue-publication".into(),
-                now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+                now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
                 byte_cap: 1024 * 1024,
                 permission_resume: false,
             };
@@ -269,7 +269,7 @@ async fn native_issue_transport(platform: desk_agent_protocol::external_tools::I
 #[tokio::test]
 async fn external_read_input_is_native_device_independent_and_rejects_a_stale_lease() {
     let store = setup("sqlite::memory:").await;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut params = input("issue-input", vec![]);
     params.device_id.clear();
     params.run_id = desk_diagnose_core::conversation_key::derive_agent_conversation_key(
@@ -510,7 +510,7 @@ async fn freeze_publication(
     let artifact = issue_reply::decode(&row).unwrap();
     assert_eq!(artifact.body, sample.body);
     artifact
-        .authorize_delivery(chrono::Utc::now().timestamp_millis() as u64)
+        .authorize_delivery(jiff::Timestamp::now().as_millisecond() as u64)
         .unwrap();
     let mut retry = prepared(held, &sample);
     retry.random_marker = [8; 16];

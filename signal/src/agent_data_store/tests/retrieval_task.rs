@@ -16,7 +16,7 @@ async fn fixture(label: &str) -> (TestStore, Box<PersistedAgentSession>, GoalRun
         .unwrap()
         .unwrap();
     let mut session = Box::new(PersistedAgentSession::decode_json(&row.state_json).unwrap());
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let mut goal = GoalRun::new(
         "goal".into(),
         session.conversation_id.clone(),

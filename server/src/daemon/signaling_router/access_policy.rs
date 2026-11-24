@@ -165,7 +165,7 @@ pub(super) fn door1_permits(gate: &ConnectionGate, t: SignalingType) -> bool {
 
 /// RFC3339 timestamp for an audit event.
 pub(super) fn audit_now() -> String {
-    chrono::Utc::now().to_rfc3339()
+    desk_utils::datetime::rfc3339(jiff::Timestamp::now())
 }
 
 /// Revoke every session-scoped exec approval held by the connection that sent

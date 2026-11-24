@@ -290,7 +290,10 @@ async fn object_wire_replays_first_receipts_after_reconnect_and_model_removal() 
         session.context_attachments[0].expires_at_unix_ms,
         attachment.expires_at_unix_ms
     );
-    assert!(!session.context_attachments[0].is_active_at(Utc::now().timestamp_millis() as u64));
+    assert!(
+        !session.context_attachments[0]
+            .is_active_at(jiff::Timestamp::now().as_millisecond() as u64)
+    );
 
     // A historical receipt is not authority: the owner gate still runs first.
     let mut anonymous = map.read().await.get("controller").unwrap().clone();

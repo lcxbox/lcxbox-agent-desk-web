@@ -132,7 +132,7 @@ pub async fn control_ai_agent_directory(
                 })?
         };
     let receipt = event_store
-        .update_file_scope(&mutation, chrono::Utc::now())
+        .update_file_scope(&mutation, desk_agent_data_store::datetime::utc_now())
         .await
         .map_err(|_| {
             DeskSignalError::new_custom_error(

@@ -277,10 +277,9 @@ async fn every_request_device_read_projects_parses_and_keeps_its_exact_target() 
                         expires_at: expires_at.into(),
                     },
                     interactive_session_incarnation: "worker".into(),
-                    readiness_expires_at_unix_ms: chrono::DateTime::parse_from_rfc3339(expires_at)
-                        .unwrap()
-                        .timestamp_millis()
-                        as u64,
+                    readiness_expires_at_unix_ms: desk_utils::datetime::parse_rfc3339(expires_at)
+                        .map(desk_utils::datetime::unix_millis)
+                        .unwrap() as u64,
                 }],
                 ..ReadContextSelection::default()
             }
@@ -1047,9 +1046,9 @@ async fn selected_ui_scope_bundles_observation_and_keeps_each_grant_on_the_same_
         .unwrap();
         assert_eq!(request.items.len(), 3);
         assert_eq!(request.selected_device_id(), Some("a"));
-        let now = chrono::DateTime::parse_from_rfc3339(NOW)
-            .unwrap()
-            .timestamp_millis() as u64;
+        let now = desk_utils::datetime::parse_rfc3339(NOW)
+            .map(desk_utils::datetime::unix_millis)
+            .unwrap() as u64;
         let inventory = capabilities
             .iter()
             .map(
@@ -1243,9 +1242,9 @@ fn approved_command_visibility_uses_live_device_authority_across_continuations()
         ready: true,
         reason: None,
     }];
-    let now = chrono::DateTime::parse_from_rfc3339(NOW)
-        .unwrap()
-        .timestamp_millis() as u64;
+    let now = desk_utils::datetime::parse_rfc3339(NOW)
+        .map(desk_utils::datetime::unix_millis)
+        .unwrap() as u64;
     let grants = build_permission_grants(
         &session,
         &request,

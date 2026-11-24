@@ -798,7 +798,7 @@ pub struct ContextAttachmentDto {
 
 impl From<ContextAttachment> for ContextAttachmentDto {
     fn from(attachment: ContextAttachment) -> Self {
-        let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0);
+        let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0);
         Self::from_at(attachment, now_unix_ms)
     }
 }

@@ -83,7 +83,7 @@ async fn past_once_cannot_resume_until_explicitly_rescheduled() {
     let at = now - 60_000;
     let (store, task) = fixture(
         ScheduleRule::Once {
-            at: chrono::DateTime::from_timestamp_millis(at)
+            at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
                 .unwrap()
                 .to_rfc3339(),
         },
@@ -102,7 +102,7 @@ async fn past_once_cannot_resume_until_explicitly_rescheduled() {
     let spec = ScheduleSpec {
         schema_version: 1,
         rule: ScheduleRule::Once {
-            at: chrono::DateTime::from_timestamp_millis(now + 600_000)
+            at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now + 600_000)
                 .unwrap()
                 .to_rfc3339(),
         },
@@ -129,7 +129,7 @@ async fn edits_preserve_running_snapshot_and_do_not_reactivate_a_changed_require
     let (store, task) = fixture(
         ScheduleRule::Interval {
             every_seconds: 60,
-            anchor_at: chrono::DateTime::from_timestamp_millis(at)
+            anchor_at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
                 .unwrap()
                 .to_rfc3339(),
         },
@@ -234,7 +234,7 @@ async fn deleting_pending_task_keeps_history_and_prevents_recreation_by_retry() 
     let at = now - 30_000;
     let (store, task) = fixture(
         ScheduleRule::Once {
-            at: chrono::DateTime::from_timestamp_millis(at)
+            at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
                 .unwrap()
                 .to_rfc3339(),
         },
@@ -280,7 +280,7 @@ async fn cancel_unstarted_is_terminal_but_running_only_records_intent() {
     let now = database_now(&clock_db).await.unwrap();
     let at = now - 30_000;
     let rule = ScheduleRule::Once {
-        at: chrono::DateTime::from_timestamp_millis(at)
+        at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
             .unwrap()
             .to_rfc3339(),
     };
@@ -380,7 +380,7 @@ async fn finalization_counts_once_and_threshold_prevents_the_next_claim() {
     let (store, task) = fixture(
         ScheduleRule::Interval {
             every_seconds: 60,
-            anchor_at: chrono::DateTime::from_timestamp_millis(at)
+            anchor_at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
                 .unwrap()
                 .to_rfc3339(),
         },
@@ -468,7 +468,7 @@ async fn unknown_effect_pauses_without_waiting_for_failure_threshold() {
     let at = now - 30_000;
     let (store, task) = fixture(
         ScheduleRule::Once {
-            at: chrono::DateTime::from_timestamp_millis(at)
+            at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
                 .unwrap()
                 .to_rfc3339(),
         },
@@ -556,7 +556,7 @@ async fn due_materialization_claim_and_renew_are_fenced() {
     let at = now - 120_000;
     let rule = ScheduleRule::Interval {
         every_seconds: 60,
-        anchor_at: chrono::DateTime::from_timestamp_millis(at)
+        anchor_at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
             .unwrap()
             .to_rfc3339(),
     };
@@ -613,7 +613,7 @@ async fn once_expiry_completes_without_claim_or_failure_charge() {
     let at = now - 7_200_000;
     let (store, task) = fixture(
         ScheduleRule::Once {
-            at: chrono::DateTime::from_timestamp_millis(at)
+            at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
                 .unwrap()
                 .to_rfc3339(),
         },
@@ -646,7 +646,7 @@ async fn pause_between_materialization_and_claim_blocks_dispatch() {
     let at = now - 30_000;
     let (store, task) = fixture(
         ScheduleRule::Once {
-            at: chrono::DateTime::from_timestamp_millis(at)
+            at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
                 .unwrap()
                 .to_rfc3339(),
         },
@@ -764,7 +764,7 @@ async fn expired_execution_lease_is_never_treated_as_unstarted_work() {
     let now = database_now(&clock_db).await.unwrap();
     let (store, task) = fixture(
         ScheduleRule::Once {
-            at: chrono::DateTime::from_timestamp_millis(now)
+            at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
                 .unwrap()
                 .to_rfc3339(),
         },
@@ -832,7 +832,7 @@ async fn offline_wait_holds_only_the_slot_and_can_be_claimed_or_paused() {
         let now = database_now(&clock_db).await.unwrap();
         let (store, task) = fixture(
             ScheduleRule::Once {
-                at: chrono::DateTime::from_timestamp_millis(now)
+                at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
                     .unwrap()
                     .to_rfc3339(),
             },
@@ -910,7 +910,7 @@ async fn fresh_claim_rejects_reused_context_terminal_markers_and_changed_snapsho
     ] {
         let (store, task) = fixture(
             ScheduleRule::Once {
-                at: chrono::DateTime::from_timestamp_millis(now)
+                at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
                     .unwrap()
                     .to_rfc3339(),
             },
@@ -984,7 +984,7 @@ async fn caller_owned_claim_rolls_back_occurrence_and_task_together() {
     let now = database_now(&clock_db).await.unwrap();
     let (store, task) = fixture(
         ScheduleRule::Once {
-            at: chrono::DateTime::from_timestamp_millis(now)
+            at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
                 .unwrap()
                 .to_rfc3339(),
         },

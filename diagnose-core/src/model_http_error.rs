@@ -31,8 +31,10 @@ pub fn retry_after_unix_ms(raw: &str, now_unix_ms: u64) -> Option<u64> {
             .ok()
             .map(|seconds| now_unix_ms.saturating_add(seconds.saturating_mul(1_000)));
     }
-    let deadline = chrono::DateTime::parse_from_rfc2822(raw).ok()?;
-    u64::try_from(deadline.timestamp_millis()).ok()
+    let deadline = jiff::fmt::rfc2822::DateTimeParser::new()
+        .parse_timestamp(raw)
+        .ok()?;
+    u64::try_from(desk_utils::datetime::unix_millis(deadline)).ok()
 }
 
 #[cfg(test)]

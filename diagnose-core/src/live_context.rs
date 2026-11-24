@@ -145,9 +145,9 @@ pub fn build_live_context(
 
     let (incarnation, readiness_expires_at_unix_ms) = match readiness {
         Some(readiness) => {
-            let expires_at = chrono::DateTime::parse_from_rfc3339(&readiness.expires_at)
-                .map_err(|_| invalid("invalid context readiness expiry"))?
-                .timestamp_millis();
+            let expires_at = desk_utils::datetime::parse_rfc3339(&readiness.expires_at)
+                .map(desk_utils::datetime::unix_millis)
+                .map_err(|_| invalid("invalid context readiness expiry"))?;
             let expires_at_unix_ms = u64::try_from(expires_at)
                 .map_err(|_| invalid("context readiness expiry predates Unix epoch"))?;
             if expires_at_unix_ms <= now_unix_ms {
@@ -211,9 +211,9 @@ pub fn build_live_context(
                 }
                 Some(reference) => {
                     let expiry =
-                        chrono::DateTime::parse_from_rfc3339(&reference.object_ref.expires_at)
-                            .map_err(|_| invalid("invalid selected context reference expiry"))?
-                            .timestamp_millis();
+                        desk_utils::datetime::parse_rfc3339(&reference.object_ref.expires_at)
+                            .map(desk_utils::datetime::unix_millis)
+                            .map_err(|_| invalid("invalid selected context reference expiry"))?;
                     let expiry = u64::try_from(expiry).map_err(|_| {
                         invalid("selected context reference expiry predates Unix epoch")
                     })?;

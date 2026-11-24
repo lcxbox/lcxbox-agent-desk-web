@@ -148,13 +148,13 @@ impl<C: ConnectionTrait> SessionRows<C> for SignalScheduleHost {
         }
         if let Some(deadline) = patch.lease_deadline_ms {
             let deadline = deadline
-                .map(chrono::DateTime::from_timestamp_millis)
+                .map(sea_orm::prelude::DateTimeUtc::from_timestamp_millis)
                 .map(|at| at.ok_or_else(|| DbErr::Custom("invalid lease deadline".into())))
                 .transpose()?;
             update = update.col_expr(agent_session::Column::LeaseDeadline, Expr::value(deadline));
         }
         if let Some(at) = patch.updated_at_ms {
-            let at = chrono::DateTime::from_timestamp_millis(at)
+            let at = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at)
                 .ok_or_else(|| DbErr::Custom("invalid update time".into()))?;
             update = update.col_expr(agent_session::Column::UpdatedAt, Expr::value(at));
         }
@@ -232,7 +232,7 @@ impl ScheduleHostStores<DatabaseTransaction> for SignalScheduleHost {
         action: &ActionView<agent_action_item::Model>,
         at_ms: i64,
     ) -> Result<bool, DbErr> {
-        let at = chrono::DateTime::from_timestamp_millis(at_ms)
+        let at = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(at_ms)
             .ok_or_else(|| DbErr::Custom("invalid resolution time".into()))?;
         let changed = agent_action_item::Entity::update_many()
             .set(agent_action_item::ActiveModel {
@@ -887,7 +887,7 @@ mod tests {
 
     async fn action(db: &crate::config::connection::DatabaseConnection, id: i64, status: &str) {
         use sea_orm::ActiveModelTrait;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         agent_action_item::ActiveModel {
             id: Set(id),
             kind: Set(crate::capability_grant_store::CAPABILITY_WORK_KIND.into()),
@@ -962,7 +962,7 @@ mod tests {
             capability_id: "command".into(),
             tool_name: "tool".into(),
         };
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         outbox_row::ActiveModel {
             dispatch_id: Set(dispatch.into()),
             call_id: Set(format!("call-{dispatch}")),

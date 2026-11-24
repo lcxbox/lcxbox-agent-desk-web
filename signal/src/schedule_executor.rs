@@ -100,13 +100,13 @@ impl SignalScheduleExecutor {
         };
         report.review_expired = crate::agent_approval_store::expire_review_leases(
             &self.db,
-            u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+            u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
             BATCH_SIZE,
         )
         .await?;
         report.review_usage_reconciled = crate::agent_approval_usage::reconcile_usage(
             &self.db,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
             BATCH_SIZE,
         )
         .await?;
@@ -125,8 +125,18 @@ impl SignalScheduleExecutor {
                 DispatchResult::Reconcile => report.needs_reconciliation += 1,
             }
         }
-        crate::agent_goal_open_store::expire_due(&self.db, chrono::Utc::now(), BATCH_SIZE).await?;
-        crate::agent_goal_store::expire_due(&self.db, chrono::Utc::now(), BATCH_SIZE).await?;
+        crate::agent_goal_open_store::expire_due(
+            &self.db,
+            desk_agent_data_store::datetime::utc_now(),
+            BATCH_SIZE,
+        )
+        .await?;
+        crate::agent_goal_store::expire_due(
+            &self.db,
+            desk_agent_data_store::datetime::utc_now(),
+            BATCH_SIZE,
+        )
+        .await?;
         let after = self
             .goal_cursor
             .lock()
@@ -134,7 +144,7 @@ impl SignalScheduleExecutor {
             .unwrap_or_default();
         let mut goal_candidates = crate::agent_goal_store::continuation_candidates(
             &self.db,
-            u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+            u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
             BATCH_SIZE,
             after.as_ref(),
         )
@@ -154,7 +164,7 @@ impl SignalScheduleExecutor {
         goal_candidates.extend(
             crate::agent_goal_store::waiting_device_candidates(
                 &self.db,
-                u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
                 BATCH_SIZE,
             )
             .await?,
@@ -162,7 +172,7 @@ impl SignalScheduleExecutor {
         goal_candidates.extend(
             crate::agent_goal_store::waiting_model_candidates(
                 &self.db,
-                u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
                 BATCH_SIZE,
             )
             .await?,
@@ -170,7 +180,7 @@ impl SignalScheduleExecutor {
         goal_candidates.extend(
             crate::agent_goal_store::waiting_work_candidates(
                 &self.db,
-                u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
                 BATCH_SIZE,
             )
             .await?,
@@ -208,14 +218,18 @@ impl SignalScheduleExecutor {
             let _ = crate::agent_goal_store::wake_for_work_completion(
                 &self.db,
                 &goal,
-                chrono::Utc::now(),
+                desk_agent_data_store::datetime::utc_now(),
             )
             .await;
             return false;
         }
         if goal.state == GoalState::Waiting(GoalWaitReason::Model) {
-            let _ =
-                crate::agent_goal_store::wake_model_due(&self.db, &goal, chrono::Utc::now()).await;
+            let _ = crate::agent_goal_store::wake_model_due(
+                &self.db,
+                &goal,
+                desk_agent_data_store::datetime::utc_now(),
+            )
+            .await;
             return false;
         }
 
@@ -242,7 +256,7 @@ impl SignalScheduleExecutor {
         };
         let available = target.as_deref().is_some_and(|connection_id| {
             crate::computer_use_readiness::global_computer_use_readiness_cache()
-                .get_fresh(connection_id, chrono::Utc::now())
+                .get_fresh(connection_id, jiff::Timestamp::now())
                 .is_some()
         });
         if !available || goal.state == GoalState::Waiting(GoalWaitReason::Device) {
@@ -250,7 +264,7 @@ impl SignalScheduleExecutor {
                 &self.db,
                 &goal,
                 available,
-                chrono::Utc::now(),
+                desk_agent_data_store::datetime::utc_now(),
             )
             .await
             {
@@ -261,7 +275,7 @@ impl SignalScheduleExecutor {
         match crate::agent_goal_store::pause_if_goal_context_invalid(
             &self.db,
             &goal,
-            chrono::Utc::now(),
+            desk_agent_data_store::datetime::utc_now(),
         )
         .await
         {
@@ -283,7 +297,7 @@ impl SignalScheduleExecutor {
                 let _ = crate::agent_goal_store::pause_if_unresolved_work(
                     &self.db,
                     &observed_goal,
-                    chrono::Utc::now(),
+                    desk_agent_data_store::datetime::utc_now(),
                 )
                 .await;
                 false
@@ -301,14 +315,14 @@ impl SignalScheduleExecutor {
                         &self.db,
                         &observed_goal,
                         None,
-                        chrono::Utc::now(),
+                        desk_agent_data_store::datetime::utc_now(),
                     )
                     .await;
                 } else if error.kind == desk_agent_protocol::AgentErrorKind::ModelRejected {
                     let _ = crate::agent_goal_store::block_model_before_claim(
                         &self.db,
                         &observed_goal,
-                        chrono::Utc::now(),
+                        desk_agent_data_store::datetime::utc_now(),
                     )
                     .await;
                 }
@@ -396,7 +410,8 @@ impl SignalScheduleExecutor {
         let mut default_cursor = 0;
         loop {
             if self.gate.is_enabled() {
-                let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0);
+                let now_unix_ms =
+                    u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0);
                 match crate::agent_approval_store::discover_default_review_roots(
                     &self.db,
                     default_cursor,

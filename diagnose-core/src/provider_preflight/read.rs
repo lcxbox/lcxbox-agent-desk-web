@@ -170,9 +170,9 @@ impl ReadCallPreflight {
             .ok_or_else(unavailable)?;
         if let Some(expiry) = &binding.original.expires_at {
             deadline = deadline.min(
-                chrono::DateTime::parse_from_rfc3339(expiry)
+                desk_utils::datetime::parse_rfc3339(expiry)
                     .ok()
-                    .and_then(|d| u64::try_from(d.timestamp_millis()).ok())
+                    .and_then(|d| u64::try_from(desk_utils::datetime::unix_millis(d)).ok())
                     .ok_or_else(unavailable)?,
             );
         }
@@ -298,9 +298,9 @@ impl ReadCallPreflight {
             .ok_or_else(unavailable)?;
         if let Some(expiry) = &binding.original.expires_at {
             deadline = deadline.min(
-                chrono::DateTime::parse_from_rfc3339(expiry)
+                desk_utils::datetime::parse_rfc3339(expiry)
                     .ok()
-                    .and_then(|date| u64::try_from(date.timestamp_millis()).ok())
+                    .and_then(|date| u64::try_from(desk_utils::datetime::unix_millis(date)).ok())
                     .ok_or_else(unavailable)?,
             );
         }

@@ -6,7 +6,7 @@ use desk_diagnose_core::{
 
 pub(super) async fn funded_parent(db: &DatabaseConnection) -> (PersistedAgentSession, GoalRun) {
     let (mut parent, _) = super::creation::runnable_parent(db).await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let goal = GoalRun::new(
         "funding-goal".into(),
         "root".into(),
@@ -73,7 +73,7 @@ async fn one_call_reserves_both_constraints_and_late_usage_does_not_resume_the_s
         active_time_ms: 20,
         ..GoalUsage::default()
     };
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let receipt = match store
         .reserve_runtime_call(
             &parent,
@@ -219,7 +219,7 @@ async fn source_goal_exhaustion_rolls_back_the_group_reservation() {
                 DelegationCallKind::Model,
                 &"b".repeat(64),
                 upper,
-                chrono::Utc::now().timestamp_millis()
+                jiff::Timestamp::now().as_millisecond()
             )
             .await
             .unwrap(),
@@ -251,7 +251,7 @@ async fn linked_provider_usage_reconciles_after_crash_without_replaying_the_call
     let db = database().await;
     let (parent, _) = funded_parent(&db).await;
     let store = SubAgentStore::new(db.clone());
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let upper = GoalUsage {
         input_tokens: 200,
         output_tokens: 30,
@@ -339,8 +339,8 @@ pub(super) async fn insert_provider_usage(
     started: i64,
     completed: i64,
 ) {
-    let start = chrono::DateTime::from_timestamp_millis(started).unwrap();
-    let end = chrono::DateTime::from_timestamp_millis(completed).unwrap();
+    let start = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(started).unwrap();
+    let end = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(completed).unwrap();
     let usage = desk_diagnose_core::chat::TokenUsage {
         input_tokens: Some(11),
         output_tokens: Some(7),
@@ -374,7 +374,7 @@ async fn later_goal_segments_reuse_source_spending_count_and_deadline() {
     let (mut parent, goal) = funded_parent(&db).await;
     let id = parent.delegation_group_id.clone().unwrap();
     let store = SubAgentStore::new(db.clone());
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let upper = GoalUsage {
         input_tokens: 20,
         output_tokens: 10,
@@ -455,7 +455,7 @@ async fn unstarted_model_refunds_both_budgets_without_reopening_a_paused_source(
     let db = database().await;
     let (parent, _) = funded_parent(&db).await;
     let store = SubAgentStore::new(db.clone());
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let upper = GoalUsage {
         input_tokens: 200,
         output_tokens: 30,
@@ -536,7 +536,7 @@ async fn crashed_unstarted_call_is_reclaimed_only_after_the_original_lease_expir
     let db = database().await;
     let (parent, _) = funded_parent(&db).await;
     let store = SubAgentStore::new(db.clone());
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let upper = GoalUsage {
         input_tokens: 30,
         model_calls: 1,
@@ -560,7 +560,12 @@ async fn crashed_unstarted_call_is_reclaimed_only_after_the_original_lease_expir
     assert_eq!(store.reconcile_model_usage(0, 50).await.unwrap().1, 0);
     session_row::Entity::update_many()
         .set(session_row::ActiveModel {
-            lease_deadline: Set(Some(chrono::Utc::now() - chrono::Duration::seconds(1))),
+            lease_deadline: Set(Some(
+                desk_agent_data_store::datetime::utc_now()
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_secs(1),
+                    ),
+            )),
             ..Default::default()
         })
         .filter(session_row::Column::ConversationId.eq("root"))
@@ -584,7 +589,7 @@ async fn dispatch_linkage_rolls_back_with_a_failed_provider_start_transaction() 
     let db = database().await;
     let (parent, _) = funded_parent(&db).await;
     let store = SubAgentStore::new(db.clone());
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let upper = GoalUsage {
         input_tokens: 30,
         model_calls: 1,
@@ -630,10 +635,10 @@ async fn review_without_planner(
     desk_diagnose_core::subagent::reservation::ReviewCallAuthority,
 ) {
     let (mut parent, _) = funded_parent(db).await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     parent.finish_turn(
         desk_diagnose_core::session::TurnState::Idle,
-        chrono::Utc::now().to_rfc3339(),
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     );
     parent.version += 1;
     session_row::Entity::update_many()
@@ -718,7 +723,7 @@ async fn reserve_review(
     parent: &PersistedAgentSession,
     review: &desk_diagnose_core::subagent::reservation::ReviewCallAuthority,
 ) -> desk_diagnose_core::subagent::reservation::DelegationCallReservation {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let txn = db.begin().await.unwrap();
     super::super::review_budget::validate_review_lease_on(&txn, review, now)
         .await
@@ -814,7 +819,7 @@ async fn independent_review_reserves_without_planning_and_unstarted_pause_refund
             .get(&receipt.reservation_id),
         receipt.source_goal_upper.as_ref()
     );
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let store = SubAgentStore::new(db.clone());
     assert!(
         store
@@ -875,7 +880,7 @@ async fn dispatched_review_usage_is_canonical_and_does_not_reactivate_the_parent
     let db = database().await;
     let (parent, authority) = review_without_planner(&db).await;
     let receipt = reserve_review(&db, &parent, &authority).await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let id = "d".repeat(64);
     insert_provider_usage(&db, &id, now, now + 4).await;
     let txn = db.begin().await.unwrap();
@@ -962,7 +967,7 @@ async fn unknown_review_ledger(
     };
     let (parent, authority) = review_without_planner(db).await;
     let receipt = reserve_review(db, &parent, &authority).await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let provider_id = "9".repeat(64);
     let mut delegation = ApprovalDelegation::new_usage_only(
         authority.delegation_id.clone(),
@@ -1282,7 +1287,7 @@ async fn ordinary_input_reserves_more_than_the_old_total_without_skipping_accoun
         model_calls: 1,
         ..Default::default()
     };
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     for id in ["large-first", "large-second"] {
         let receipt = match store
             .reserve_runtime_call(
@@ -1312,7 +1317,7 @@ async fn stale_derived_deadline(db: &DatabaseConnection, parent: &PersistedAgent
         .unwrap()
         .unwrap();
     let mut group = decode_group(&row).unwrap();
-    group.limits.deadline_ms = chrono::Utc::now().timestamp_millis() - 7_200_000;
+    group.limits.deadline_ms = jiff::Timestamp::now().as_millisecond() - 7_200_000;
     group_row::Entity::update_many()
         .set(group_row::ActiveModel {
             deadline_ms: Set(group.limits.deadline_ms),
@@ -1331,7 +1336,7 @@ async fn current_goal_source_admits_model_after_the_derived_group_deadline() {
     let db = database().await;
     let (parent, _) = funded_parent(&db).await;
     let version = stale_derived_deadline(&db, &parent).await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let store = SubAgentStore::new(db.clone());
     let receipt = match store
         .reserve_runtime_call(
@@ -1376,7 +1381,7 @@ async fn current_goal_source_admits_review_after_the_derived_group_deadline() {
         &txn,
         &parent,
         230,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     .unwrap();
@@ -1412,7 +1417,7 @@ async fn source_expiry_rejects_new_model_and_review_without_reserving_budget() {
     )
     .await
     .unwrap();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let txn = db.begin().await.unwrap();
     assert!(matches!(
         super::super::review_budget::check_goal_review_funding_on(&txn, &parent, 230, now).await,

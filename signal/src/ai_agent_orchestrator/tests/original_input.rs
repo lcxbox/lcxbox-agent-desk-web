@@ -100,7 +100,7 @@ async fn queued_owner_input_roundtrip(workbench: bool, delete_workbench: bool, w
         let continuation = ask.conversation_id.as_deref().unwrap();
         let root =
             derive_agent_conversation_key(&actor, AgentConversationScope::Personal, continuation);
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let mut session = PersistedAgentSession::new_workbench_coordinator(
             &actor,
             &root,
@@ -354,7 +354,7 @@ async fn queued_owner_input_roundtrip(workbench: bool, delete_workbench: bool, w
             &db,
             &artifact,
             desk_agent_data_store::issue_reply::DeliveryMode::Automatic,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .unwrap();
@@ -685,7 +685,7 @@ async fn queued_owner_input_roundtrip(workbench: bool, delete_workbench: bool, w
                 current_scope: scope,
                 read_context: Some(frozen.reads),
                 message,
-                created_at: chrono::Utc::now().to_rfc3339(),
+                created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             };
             SignalAgentRunEventStore::new(db.clone())
                 .admit_user_input(
@@ -1133,7 +1133,7 @@ async fn verify_workbench_deletion(
         agent_subagent_inbox as inbox, agent_subagent_run as run,
     };
     use sea_orm::{ColumnTrait, QueryFilter};
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let action =
         seed_native_stop_test(db, &worker.child_conversation_id, "workbench-original").await;
     let [head]: [_; 1] = desk_agent_data_store::main_request::recovery_heads(db, 0, 8)
@@ -1452,7 +1452,7 @@ async fn assert_unreadable_reports_are_skipped(
     let destination = main_request::FrozenRequestInput::decode(head)
         .unwrap()
         .destination;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let workbench = &head.conversation_id;
     assert!(
         batch_report_read_scope_on(db, report, workbench, &destination, now)
@@ -1684,7 +1684,7 @@ async fn exercise_workbench_report_wake(
             crate::agent_owner_attention::list_goal_attention(
                 db,
                 actor,
-                chrono::Utc::now().timestamp_millis() as u64,
+                jiff::Timestamp::now().as_millisecond() as u64,
             )
         };
         let items = attention().await.unwrap();
@@ -2120,7 +2120,7 @@ async fn run_selected_command(finish: SelectedCommandFinish) {
         crate::ai_agent_gate::enable_test_host();
         crate::agent_runtime::register_continuation_connections(connections.clone());
     }
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut peers = Vec::new();
     for id in ["command-selected", "command-outside"] {
         crate::device_code_store::get_or_create(&db, id)
@@ -2136,7 +2136,11 @@ async fn run_selected_command(finish: SelectedCommandFinish) {
                     schema_version: COMPUTER_USE_SCHEMA_VERSION,
                     revision: 1,
                     observed_at: now.to_rfc3339(),
-                    expires_at: (now + chrono::Duration::minutes(2)).to_rfc3339(),
+                    expires_at: (now
+                        + desk_agent_data_store::datetime::database_interval(
+                            jiff::SignedDuration::from_mins(2),
+                        ))
+                    .to_rfc3339(),
                     server_api_version: 1,
                     os: "linux".into(),
                     interactive_user_home: None,
@@ -2161,7 +2165,7 @@ async fn run_selected_command(finish: SelectedCommandFinish) {
                     }],
                     context_references: vec![],
                 },
-                now,
+                desk_agent_data_store::datetime::from_database(now).unwrap(),
             )
             .unwrap();
     }
@@ -2389,7 +2393,7 @@ async fn run_selected_command(finish: SelectedCommandFinish) {
             &db,
             0,
             64,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
@@ -2475,7 +2479,7 @@ async fn run_selected_command(finish: SelectedCommandFinish) {
                 destination,
             )
             .unwrap(),
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         };
         let request_id = if retired {
             None
@@ -2613,7 +2617,7 @@ async fn run_selected_command(finish: SelectedCommandFinish) {
             &session,
             &next.request_id,
             1,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
@@ -2840,7 +2844,7 @@ async fn personal_input_reads_selected_devices_then_runs_the_queued_followup() {
     .await
     .unwrap();
     let connections = web::Data::new(SharedConnectionMap::new_oss());
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut peers = Vec::new();
     for (id, platform) in [
         ("compare-mac", OperationSystemEnum::Mac),
@@ -2858,7 +2862,11 @@ async fn personal_input_reads_selected_devices_then_runs_the_queued_followup() {
                     schema_version: COMPUTER_USE_SCHEMA_VERSION,
                     revision: 1,
                     observed_at: now.to_rfc3339(),
-                    expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                    expires_at: (now
+                        + desk_agent_data_store::datetime::database_interval(
+                            jiff::SignedDuration::from_mins(5),
+                        ))
+                    .to_rfc3339(),
                     server_api_version: 1,
                     os: "linux".into(),
                     interactive_user_home: None,
@@ -2883,7 +2891,7 @@ async fn personal_input_reads_selected_devices_then_runs_the_queued_followup() {
                     }],
                     context_references: vec![],
                 },
-                now,
+                desk_agent_data_store::datetime::from_database(now).unwrap(),
             )
             .unwrap();
         peers.push(peer);
@@ -3194,7 +3202,7 @@ async fn run_selected_device_reads(scenario: SelectedReadScenario) {
     } else {
         "Selected device read complete."
     };
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut peers = std::collections::BTreeMap::new();
     for device in cases
         .iter()
@@ -3272,7 +3280,11 @@ async fn run_selected_device_reads(scenario: SelectedReadScenario) {
                     schema_version: COMPUTER_USE_SCHEMA_VERSION,
                     revision: 1,
                     observed_at: now.to_rfc3339(),
-                    expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                    expires_at: (now
+                        + desk_agent_data_store::datetime::database_interval(
+                            jiff::SignedDuration::from_mins(5),
+                        ))
+                    .to_rfc3339(),
                     server_api_version: 1,
                     os: "macos".into(),
                     interactive_user_home: None,
@@ -3293,13 +3305,17 @@ async fn run_selected_device_reads(scenario: SelectedReadScenario) {
                                 token: "selected-live-pages".into(),
                                 snapshot_id: "selected-live-snapshot".into(),
                                 object_kind: ObjectKind::Document,
-                                expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                                expires_at: (now
+                                    + desk_agent_data_store::datetime::database_interval(
+                                        jiff::SignedDuration::from_mins(5),
+                                    ))
+                                .to_rfc3339(),
                             },
                         })
                         .into_iter()
                         .collect(),
                 },
-                now,
+                desk_agent_data_store::datetime::from_database(now).unwrap(),
             )
             .unwrap();
     }
@@ -3480,8 +3496,9 @@ async fn run_selected_device_reads(scenario: SelectedReadScenario) {
                             token: "selected-terminal-reference".into(),
                             snapshot_id: "terminal-snapshot".into(),
                             object_kind: ObjectKind::TerminalOutput,
-                            expires_at: (chrono::Utc::now() + chrono::Duration::minutes(5))
-                                .to_rfc3339(),
+                            expires_at: desk_utils::datetime::rfc3339(
+                                jiff::Timestamp::now() + jiff::SignedDuration::from_mins(5),
+                            ),
                         },
                         display_summary: "Selected terminal".into(),
                     },
@@ -3697,7 +3714,7 @@ async fn run_selected_device_reads(scenario: SelectedReadScenario) {
                 })
                 .await
                 .unwrap();
-            let now = chrono::Utc::now().timestamp_millis() as u64;
+            let now = jiff::Timestamp::now().as_millisecond() as u64;
             crate::agent_approval_store::discover_default_review_roots(&db, 0, 64, now)
                 .await
                 .unwrap();
@@ -3791,7 +3808,7 @@ async fn run_selected_device_reads(scenario: SelectedReadScenario) {
             file_result.send(listing.message_id.clone()).unwrap();
         }
         if name == "preview_document" {
-            let now = chrono::Utc::now().timestamp_millis() as u64;
+            let now = jiff::Timestamp::now().as_millisecond() as u64;
             assert!(desk_diagnose_core::document_preview::has_device_receipt(
                 &snapshot.messages,
                 target,
@@ -4930,7 +4947,9 @@ async fn production_input_entry_freezes_objects_and_rejects_changed_retry_withou
                 token: "opaque-original-file".into(),
                 snapshot_id: "worker".into(),
                 object_kind: ObjectKind::TerminalOutput,
-                expires_at: (chrono::Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+                expires_at: desk_utils::datetime::rfc3339(
+                    jiff::Timestamp::now() + jiff::SignedDuration::from_mins(5),
+                ),
             },
             display_summary: "not-file-type-authority".into(),
         },
@@ -5018,7 +5037,7 @@ async fn production_input_entry_freezes_objects_and_rejects_changed_retry_withou
             1,
             &frozen,
             &frozen.object_attachments[0].envelope.allowed_destinations[0],
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();
@@ -5145,8 +5164,10 @@ async fn selected_browser_on_signal(automatic: bool, artifact: bool, fixed: bool
     )
     .await
     .into_body();
-    let now = chrono::Utc::now();
-    let expires_at = (now + chrono::Duration::minutes(3)).to_rfc3339();
+    let now = desk_agent_data_store::datetime::utc_now();
+    let expires_at = (now
+        + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_mins(3)))
+    .to_rfc3339();
     let surface = ObjectRef {
         token: "paired-browser-surface".into(),
         snapshot_id: "paired-browser-snapshot".into(),
@@ -5204,7 +5225,7 @@ async fn selected_browser_on_signal(automatic: bool, artifact: bool, fixed: bool
                     object_ref: surface.clone(),
                 }],
             },
-            now,
+            desk_agent_data_store::datetime::from_database(now).unwrap(),
         )
         .unwrap();
 
@@ -5255,13 +5276,14 @@ async fn selected_browser_on_signal(automatic: bool, artifact: bool, fixed: bool
                                 token: "selected-output".into(),
                                 snapshot_id: "output-snapshot".into(),
                                 object_kind: ObjectKind::Directory,
-                                expires_at: (chrono::Utc::now() + chrono::Duration::minutes(5))
-                                    .to_rfc3339(),
+                                expires_at: desk_utils::datetime::rfc3339(
+                                    jiff::Timestamp::now() + jiff::SignedDuration::from_mins(5),
+                                ),
                             },
                         },
                     },
                 },
-                chrono::Utc::now(),
+                desk_agent_data_store::datetime::utc_now(),
             )
             .await
             .unwrap();
@@ -5388,7 +5410,7 @@ async fn selected_browser_on_signal(automatic: bool, artifact: bool, fixed: bool
             })
             .await
             .unwrap();
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond() as u64;
         crate::agent_approval_store::discover_default_review_roots(&db, 0, 64, now)
             .await
             .unwrap();
@@ -5492,7 +5514,9 @@ async fn selected_browser_on_signal(automatic: bool, artifact: bool, fixed: bool
                     token: "created-on-selected-device".into(),
                     snapshot_id: "created-snapshot".into(),
                     object_kind: ObjectKind::File,
-                    expires_at: (chrono::Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+                    expires_at: desk_utils::datetime::rfc3339(
+                        jiff::Timestamp::now() + jiff::SignedDuration::from_mins(5),
+                    ),
                 },
                 file_name: file_name.clone(),
                 media_type: "text/plain;charset=utf-8".into(),
@@ -5509,7 +5533,7 @@ async fn selected_browser_on_signal(automatic: bool, artifact: bool, fixed: bool
             let ComputerActionKind::Browser(action) = &plan.actions[0].action else {
                 panic!("expected browser action")
             };
-            let now = chrono::Utc::now().timestamp_millis() as u64;
+            let now = jiff::Timestamp::now().as_millisecond() as u64;
             let (outcome, page, snapshot) = match (&action.action, step) {
                 (BrowserAction::OpenPage { target: navigation }, 0) => {
                     assert_eq!(navigation.url, "https://example.com/");
@@ -5765,7 +5789,7 @@ async fn scheduler_scans_a_stale_policy_goal_only_once() {
         OperationSystemEnum::Mac,
     )
     .await;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
     let connection = format!("live-{}", input.device_id);
     cache
@@ -5775,7 +5799,11 @@ async fn scheduler_scans_a_stale_policy_goal_only_once() {
                 schema_version: desk_agent_protocol::computer_use::COMPUTER_USE_SCHEMA_VERSION,
                 revision: 1,
                 observed_at: now.to_rfc3339(),
-                expires_at: (now + chrono::Duration::seconds(45)).to_rfc3339(),
+                expires_at: (now
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_secs(45),
+                    ))
+                .to_rfc3339(),
                 os: "macos".into(),
                 server_api_version: desk_server_version::SERVER_API_VERSION,
                 interactive_session_incarnation: "fixture-worker".into(),
@@ -5791,7 +5819,7 @@ async fn scheduler_scans_a_stale_policy_goal_only_once() {
                 capabilities: vec![],
                 context_references: vec![],
             },
-            now,
+            desk_agent_data_store::datetime::from_database(now).unwrap(),
         )
         .unwrap();
     let executor = crate::schedule_executor::SignalScheduleExecutor::new(
@@ -5800,7 +5828,7 @@ async fn scheduler_scans_a_stale_policy_goal_only_once() {
         crate::ai_agent_gate::global_ai_agent_gate(),
     );
 
-    input.created_at = chrono::Utc::now().to_rfc3339();
+    input.created_at = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
     let start = StartUserGoal {
         goal_id: "legacy-policy-goal".into(),
         previous_completed_goal_id: None,

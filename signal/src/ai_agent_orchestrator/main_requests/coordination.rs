@@ -86,9 +86,15 @@ pub(super) async fn close_unclaimed(
     else {
         return Ok(());
     };
-    if main_request::fail_unclaimed(&txn, head, &mut session, chrono::Utc::now(), reason)
-        .await
-        .map_err(|error| error.into_agent_error())?
+    if main_request::fail_unclaimed(
+        &txn,
+        head,
+        &mut session,
+        desk_agent_data_store::datetime::utc_now(),
+        reason,
+    )
+    .await
+    .map_err(|error| error.into_agent_error())?
     {
         store_session(&txn, &row, &mut session).await?;
     }
@@ -122,7 +128,7 @@ pub(crate) async fn fail_destination(
             db,
             &row,
             claim,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
             MainRequestFailure::DestinationChanged,
         )
         .await
@@ -184,7 +190,7 @@ impl SignalMainRequestExecutor {
             && !agent_run_event_store::main_requests::ready_on(
                 &txn,
                 &session,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             )
             .await?
         {
@@ -193,7 +199,7 @@ impl SignalMainRequestExecutor {
         if agent_run_event_store::main_requests::slot_held(&txn, &session).await? {
             return Ok(Reservation::Unbatched);
         }
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = jiff::Timestamp::now().as_millisecond();
         let reports = report_candidates_on(&txn, &session, head, now_ms).await?;
         let disabled_skills = crate::agent_skills::disabled_bundled(&txn).await;
         let reservation = coordination::reserve(
@@ -229,7 +235,7 @@ impl SignalMainRequestExecutor {
         else {
             return Ok(());
         };
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = jiff::Timestamp::now().as_millisecond();
         if !batch.is_current(&session, now_ms) {
             return Ok(());
         }
@@ -346,7 +352,7 @@ impl SignalMainRequestExecutor {
         let session = PersistedAgentSession::decode_boxed_json(&snapshot.state_json)
             .map_err(|_| unavailable())?;
         if !self.gate.is_enabled()
-            || !batch.is_current(&session, chrono::Utc::now().timestamp_millis())
+            || !batch.is_current(&session, jiff::Timestamp::now().as_millisecond())
         {
             return Err(unavailable());
         }
@@ -354,7 +360,7 @@ impl SignalMainRequestExecutor {
             &self.db,
             batch,
             &head.conversation_id,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await?;
         if reports.len() != batch.reports().len() {

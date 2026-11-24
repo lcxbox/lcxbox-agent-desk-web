@@ -162,9 +162,9 @@ impl SignalAgentSessionStore {
         params: &UpdateLiveContext,
     ) -> Result<bool, AgentError> {
         self.validate_live_request(params)?;
-        let time = DateTime::parse_from_rfc3339(&params.created_at)
-            .map_err(|_| error())?
-            .with_timezone(&Utc);
+        let time = desk_utils::datetime::parse_rfc3339(&params.created_at)
+            .map(desk_agent_data_store::datetime::to_database)
+            .map_err(|_| error())?;
         let now_ms = u64::try_from(time.timestamp_millis()).map_err(|_| error())?;
         let id = event_id(params);
         for _ in 0..CLAIM_ATTEMPTS {
@@ -376,9 +376,9 @@ fn replay(
         || row.result_envelope_ids_json != "[]"
         || !event.source_envelope_ids.is_empty()
         || !event.result_envelope_ids.is_empty()
-        || DateTime::parse_from_rfc3339(&event.created_at)
+        || desk_utils::datetime::parse_rfc3339(&event.created_at)
+            .map(desk_agent_data_store::datetime::to_database)
             .map_err(|_| error())?
-            .with_timezone(&Utc)
             != row.created_at
     {
         return Err(error());

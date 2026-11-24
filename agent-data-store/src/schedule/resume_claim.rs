@@ -119,7 +119,8 @@ pub async fn claim_continuation_on<C: ConnectionTrait, H: ScheduleHostStores<C>>
     let deadline = now
         .checked_add(i64::from(input.lease_seconds) * 1000)
         .ok_or(ScheduleStoreError::Invalid)?;
-    let now_dt = chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let now_dt = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     let turn_id = if let Some(PermissionReceiptClaim {
         request_id, grants, ..
     }) = permission

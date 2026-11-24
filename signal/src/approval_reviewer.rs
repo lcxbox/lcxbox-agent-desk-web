@@ -169,7 +169,7 @@ async fn call_claimed_permission_review_inner(
     claim: &ClaimedPermissionReview,
     sink: &mut desk_signal_facade::service::approval_trace::ApprovalTraceSink,
 ) -> Result<ReviewerResponse, AgentError> {
-    let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0);
+    let now_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0);
     if claim.candidate_id != candidate.candidate_id
         || claim.call_authority.lease_deadline_ms != claim.lease_deadline_unix_ms
         || claim.call_authority.model_config_revision != claim.model_config_revision
@@ -205,7 +205,7 @@ async fn call_claimed_permission_review_inner(
     {
         return Err(reviewer_unavailable());
     }
-    let send_at = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(u64::MAX);
+    let send_at = u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(u64::MAX);
     if send_at >= claim.lease_deadline_unix_ms || send_at >= candidate.expires_at_unix_ms {
         return Err(reviewer_unavailable());
     }
@@ -242,7 +242,7 @@ async fn call_claimed_permission_review_inner(
     sink.event("admission");
     let permit =
         desk_diagnose_core::future::boxed(|| async { seam.acquire_admission().await }).await?;
-    let admitted_at = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(u64::MAX);
+    let admitted_at = u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(u64::MAX);
     if admitted_at >= claim.lease_deadline_unix_ms || admitted_at >= candidate.expires_at_unix_ms {
         return Err(reviewer_unavailable());
     }
@@ -271,7 +271,7 @@ async fn call_claimed_permission_review_inner(
                 &txn,
                 reservation,
                 &receipt_id,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             )
             .await
         })
@@ -287,7 +287,7 @@ async fn call_claimed_permission_review_inner(
                 &claim.call_authority,
                 "oss_model_egress",
                 &receipt_id,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             )
             .await
         })
@@ -367,13 +367,13 @@ async fn call_claimed_permission_review_inner(
     .await
     .map_err(|_| reviewer_unavailable())?;
     if let Some(observation) = &observation {
-        observation.metered(chrono::Utc::now().timestamp_millis());
+        observation.metered(jiff::Timestamp::now().as_millisecond());
     }
     let decision = reviewer_model_decision_observed(
         candidate,
         &turn,
         observation.as_ref(),
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .map_err(|error| {
         log::warn!(
@@ -396,7 +396,7 @@ async fn call_claimed_permission_review_inner(
         destination: claim.model_destination.clone(),
         selected_source_tools: Default::default(),
         export_authorization_id: export_id,
-        now_unix_ms: u64::try_from(chrono::Utc::now().timestamp_millis())
+        now_unix_ms: u64::try_from(jiff::Timestamp::now().as_millisecond())
             .map_err(|_| reviewer_unavailable())?,
         byte_cap: desk_diagnose_core::approval_review::MAX_APPROVAL_CONTEXT_BYTES,
         permission_resume: false,
@@ -428,7 +428,7 @@ async fn call_claimed_permission_review_inner(
             {
                 observation.output(
                     desk_diagnose_core::model_observability::OutputOutcome::PolicyRejected,
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 );
             }
             desk_diagnose_core::future::boxed(|| async { store.mark_failed(&receipt_id).await })

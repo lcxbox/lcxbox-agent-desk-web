@@ -46,7 +46,7 @@ async fn active_parent_for_group(db: &DatabaseConnection, group_id: &str) -> Per
         .begin_turn("main-turn", None, None, 1, scope(), "1970-01-01T00:00:00Z")
         .unwrap();
     parent.version = row.version + 1;
-    let deadline = chrono::DateTime::from_timestamp_millis(5_000).unwrap();
+    let deadline = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(5_000).unwrap();
     session_row::Entity::update_many()
         .set(session_row::ActiveModel {
             conversation_schema_version: Set(Some(i32::from(
@@ -427,7 +427,7 @@ async fn source_pause_rotates_child_session_fence_but_preserves_approval_recordi
         write_child_session_on(
             &txn,
             &old,
-            chrono::DateTime::from_timestamp_millis(120).unwrap()
+            sea_orm::prelude::DateTimeUtc::from_timestamp_millis(120).unwrap()
         )
         .await
         .is_err()
@@ -547,7 +547,7 @@ fn scope() -> AgentScope {
 }
 
 async fn insert_session(db: &DatabaseConnection, session: &PersistedAgentSession) {
-    let now = chrono::DateTime::from_timestamp_millis(1).unwrap();
+    let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(1).unwrap();
     session_row::ActiveModel {
         conversation_id: Set(session.conversation_id.clone()),
         actor_id: Set(session.actor_id.clone()),

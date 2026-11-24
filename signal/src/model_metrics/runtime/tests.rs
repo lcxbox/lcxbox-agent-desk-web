@@ -246,7 +246,7 @@ async fn a_real_sqlite_write_lock_or_page_limit_is_a_bounded_observation_failure
     ))
     .await
     .unwrap();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let result = tokio::time::timeout(
         Duration::from_secs(2),
         store.persist(&[sample_event(now)], now),

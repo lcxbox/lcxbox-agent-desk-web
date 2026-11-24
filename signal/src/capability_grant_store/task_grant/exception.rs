@@ -31,7 +31,8 @@ pub(super) async fn consume(
         }
         grant.remaining_uses = 0;
         grant.validate().map_err(|_| invalid())?;
-        let timestamp = chrono::DateTime::from_timestamp_millis(now).ok_or_else(invalid)?;
+        let timestamp =
+            sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now).ok_or_else(invalid)?;
         let changed = grant_row::Entity::update_many()
             .set(grant_row::ActiveModel {
                 remaining_uses: Set(0),

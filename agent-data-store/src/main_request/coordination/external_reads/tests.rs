@@ -73,7 +73,7 @@ async fn batch_skill_load_projects_first_party_text_and_rechecks_its_original_le
                 destination: batch.destination.clone(),
                 selected_source_tools: Default::default(),
                 export_authorization_id: batch.id.clone(),
-                now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+                now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
                 byte_cap: desk_diagnose_core::sink_authorizer::MAX_SINK_BYTES,
                 permission_resume: false,
             },
@@ -204,7 +204,7 @@ async fn setup_with_subscription(
         .sync(&db)
         .await
         .unwrap();
-    let now = chrono::Utc::now();
+    let now = crate::datetime::utc_now();
     let mut session = PersistedAgentSession::new_workbench_coordinator(
         "owner",
         "root",
@@ -399,7 +399,7 @@ async fn reads_bind_the_queued_request_without_advancing_the_active_input() {
     assert_eq!(b.content, c.content);
     assert_eq!(session.input_revision, 0);
     assert_eq!(session.automation_turns_used, 0);
-    assert!(batch.is_current(&session, chrono::Utc::now().timestamp_millis()));
+    assert!(batch.is_current(&session, jiff::Timestamp::now().as_millisecond()));
     for invalid in [
         call(&batch.items[0].request_id, 4, "add_comment"),
         call(&batch.items[0].request_id, 5, "get"),
@@ -430,7 +430,7 @@ async fn reads_bind_the_queued_request_without_advancing_the_active_input() {
         "owner",
         "root",
         &b.source.request_id,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     .unwrap();
@@ -490,7 +490,7 @@ async fn subscribed_batch_reads_use_the_original_workset_and_stop_when_its_autho
         &db,
         "owner",
         request,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     .unwrap();

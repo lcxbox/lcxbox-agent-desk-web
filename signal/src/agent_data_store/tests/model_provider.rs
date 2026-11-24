@@ -58,7 +58,7 @@ pub(super) async fn reserve_main_budget(
         owner,
         None,
         None,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
         Default::default(),
     )
     .await
@@ -86,7 +86,7 @@ pub(super) async fn reserve_main_budget(
                 model_calls: 1,
                 ..Default::default()
             },
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .unwrap();

@@ -30,7 +30,8 @@ pub(crate) async fn synchronize_control_on<C: ConnectionTrait + crate::config::C
     if !desk_diagnose_core::subagent::control::is_bound(&session, run) {
         return Ok(Default::default());
     }
-    let now = chrono::DateTime::from_timestamp_millis(now_ms).ok_or_else(|| invalid())?;
+    let now =
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms).ok_or_else(|| invalid())?;
     if matches!(
         run.state,
         SubAgentState::Failed | SubAgentState::Cancelled | SubAgentState::Cancelling
@@ -146,7 +147,7 @@ pub(crate) async fn append_state_event_on<C: ConnectionTrait + crate::config::Co
         task: run.summary(),
         parent_input_revision: group.parent_input_revision,
         parent_control_revision: group.parent_control_revision,
-        created_at: chrono::DateTime::from_timestamp_millis(now_ms)
+        created_at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms)
             .ok_or_else(|| invalid())?
             .to_rfc3339(),
     };

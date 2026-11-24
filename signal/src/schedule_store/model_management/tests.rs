@@ -210,7 +210,7 @@ async fn tool_turn_commits_cancellation_and_receipt_together_and_rejects_stale_s
         let aliased = case == 3;
         let (store, work, mut session) = fixture(true).await;
         let task = store.read(1, &work.schedule_id).await.unwrap();
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         session
             .begin_turn(
                 "cancel-turn",
@@ -338,7 +338,11 @@ async fn tool_turn_commits_cancellation_and_receipt_together_and_rejects_stale_s
         let mut row: agent_session::ActiveModel = row.into();
         row.state_json = Set(session.encode_json_for_storage().unwrap());
         row.lease_token = Set(session.lease_token as i64);
-        row.lease_deadline = Set(Some(now + chrono::Duration::minutes(2)));
+        row.lease_deadline = Set(Some(
+            now + desk_agent_data_store::datetime::database_interval(
+                jiff::SignedDuration::from_mins(2),
+            ),
+        ));
         row.update(&store.db).await.unwrap();
         if case == 1 {
             session.version += 1;

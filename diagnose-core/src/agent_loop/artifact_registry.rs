@@ -5,9 +5,9 @@ pub(super) fn live_reference(file: &ObjectRef, now: u64) -> bool {
     file.object_kind == ObjectKind::File
         && !file.token.is_empty()
         && !file.snapshot_id.is_empty()
-        && chrono::DateTime::parse_from_rfc3339(&file.expires_at)
+        && desk_utils::datetime::parse_rfc3339(&file.expires_at)
             .ok()
-            .and_then(|expiry| u64::try_from(expiry.timestamp_millis()).ok())
+            .and_then(|expiry| u64::try_from(desk_utils::datetime::unix_millis(expiry)).ok())
             .is_some_and(|expiry| {
                 expiry > now.saturating_add(crate::model_egress::MODEL_CALL_RETENTION_HEADROOM_MS)
             })

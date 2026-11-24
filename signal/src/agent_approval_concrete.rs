@@ -826,7 +826,7 @@ async fn review_prepared_call_inner(
     subject: &ConcreteSubject<'_>,
 ) -> Result<ConcreteReviewResult, DbErr> {
     let now_unix_ms =
-        u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+        u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?;
     let (candidate, claim) = match claim(db, subject, registry, now_unix_ms).await? {
         ClaimState::NotRequired => return Ok(ConcreteReviewResult::NotRequired),
         ClaimState::Existing(result) => return Ok(result),
@@ -834,7 +834,7 @@ async fn review_prepared_call_inner(
     };
     let remaining_ms = candidate
         .expires_at_unix_ms
-        .saturating_sub(u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0));
+        .saturating_sub(u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0));
     let response = tokio::time::timeout(
         std::time::Duration::from_millis(remaining_ms.saturating_sub(1_000)),
         crate::approval_reviewer::call_claimed_permission_review(db, &candidate, &claim),
@@ -861,7 +861,7 @@ async fn review_prepared_call_inner(
         &claim,
         decision,
         tokens,
-        u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0),
+        u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
     )
     .await
 }

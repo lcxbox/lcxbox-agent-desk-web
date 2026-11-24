@@ -18,7 +18,10 @@ async fn committed_response_and_ack_survive_separate_process_reopen_without_rede
     let db = database_at(&format!("sqlite://{}?mode=rwc", file.display())).await;
     let mut parent = super::observation::read_report(&db).await;
     super::observation::response(&db, &mut parent, true).await;
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_main_delegation_session(&db, &mut parent)
         .await
         .unwrap();

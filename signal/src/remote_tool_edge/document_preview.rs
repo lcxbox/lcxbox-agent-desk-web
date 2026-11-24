@@ -25,7 +25,8 @@ pub(crate) async fn render_page(
         return Err(fail("Invalid document preview page request"));
     }
     let request_id = uuid::Uuid::new_v4().to_string();
-    let expiry = chrono::Utc::now() + chrono::Duration::seconds(30);
+    let expiry = desk_agent_data_store::datetime::utc_now()
+        + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(30));
     let envelope = AgentEnvelope {
         protocol_version: ProtocolVersion::default(),
         request_id: RequestId(request_id.clone()),

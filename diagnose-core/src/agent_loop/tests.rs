@@ -538,9 +538,9 @@ impl SessionSeam for MemSession {
             .reserve_with_id(
                 id,
                 upper,
-                chrono::DateTime::parse_from_rfc3339(now)
-                    .unwrap()
-                    .timestamp_millis() as u64,
+                desk_utils::datetime::parse_rfc3339(now)
+                    .map(desk_utils::datetime::unix_millis)
+                    .unwrap() as u64,
             )
             .unwrap();
         Ok(())
@@ -559,9 +559,9 @@ impl SessionSeam for MemSession {
             .settle_with_id(
                 id,
                 actual,
-                chrono::DateTime::parse_from_rfc3339(now)
-                    .unwrap()
-                    .timestamp_millis() as u64,
+                desk_utils::datetime::parse_rfc3339(now)
+                    .map(desk_utils::datetime::unix_millis)
+                    .unwrap() as u64,
             )
             .unwrap();
         Ok(())

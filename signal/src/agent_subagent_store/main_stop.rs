@@ -51,7 +51,7 @@ impl SubAgentStore {
         {
             return Err(invalid());
         }
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let before = parent.clone();
         if desk_agent_data_store::main_request::resume_queue_control(
             &mut parent,
@@ -206,7 +206,7 @@ impl SubAgentStore {
         } else {
             BTreeSet::new()
         };
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         if control.subagent_choice == Some(SubAgentStopChoice::IncludeSubAgents) {
             let now = now.timestamp_millis();
             if let (Some(workbench), Some(request)) = (
@@ -293,7 +293,7 @@ struct StopScope<'a> {
     children: &'a [run_row::Model],
     key: &'a str,
     choice: Option<SubAgentStopChoice>,
-    now: chrono::DateTime<chrono::Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 }
 
 #[derive(Default)]

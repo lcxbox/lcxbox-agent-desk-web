@@ -171,7 +171,7 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
         .await
         .unwrap();
     use desk_agent_protocol::{Capability, computer_use::*};
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
     cache
         .update(
@@ -180,7 +180,11 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
                 schema_version: COMPUTER_USE_SCHEMA_VERSION,
                 revision: 1,
                 observed_at: now.to_rfc3339(),
-                expires_at: (now + Duration::seconds(60)).to_rfc3339(),
+                expires_at: (now
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_secs(60),
+                    ))
+                .to_rfc3339(),
                 server_api_version: desk_server_version::SERVER_API_VERSION,
                 os: "macos".into(),
                 interactive_user_home: None,
@@ -211,7 +215,7 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
                 .collect(),
                 context_references: vec![],
             },
-            now,
+            desk_agent_data_store::datetime::from_database(now).unwrap(),
         )
         .unwrap();
     let original = AiAgentContextUpdate {
@@ -315,7 +319,10 @@ async fn live_wire_replays_first_receipts_and_returns_correlated_rejections() {
         session.context_attachments[0].expires_at_unix_ms,
         attachment.expires_at_unix_ms
     );
-    assert!(!session.context_attachments[0].is_active_at(Utc::now().timestamp_millis() as u64));
+    assert!(
+        !session.context_attachments[0]
+            .is_active_at(jiff::Timestamp::now().as_millisecond() as u64)
+    );
 
     // A historical receipt is not authority: the owner gate still runs first.
     let mut anonymous = map.read().await.get("controller").unwrap().clone();

@@ -114,7 +114,7 @@ async fn finished_command_continues_with_history_and_tools_then_drains_its_trigg
             auth_context: AuthContext::token_auth(1, 1, RemoteDeskTypeEnum::Server),
         }
     });
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     crate::computer_use_readiness::global_computer_use_readiness_cache()
         .update(
             &host,
@@ -122,7 +122,11 @@ async fn finished_command_continues_with_history_and_tools_then_drains_its_trigg
                 schema_version: COMPUTER_USE_SCHEMA_VERSION,
                 revision: 1,
                 observed_at: now.to_rfc3339(),
-                expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                expires_at: (now
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(5),
+                    ))
+                .to_rfc3339(),
                 server_api_version: 1,
                 os: "macos".into(),
                 interactive_user_home: Some("/Users/fixture".into()),
@@ -138,7 +142,7 @@ async fn finished_command_continues_with_history_and_tools_then_drains_its_trigg
                 capabilities: vec![],
                 context_references: vec![],
             },
-            now,
+            desk_agent_data_store::datetime::from_database(now).unwrap(),
         )
         .unwrap();
     let sse = |text: &str| {
@@ -214,7 +218,7 @@ async fn finished_command_continues_with_history_and_tools_then_drains_its_trigg
             envelope,
             desk_diagnose_core::seam::ToolOutputFormat::Text,
             None,
-            &chrono::Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         )
         .await
         .unwrap();

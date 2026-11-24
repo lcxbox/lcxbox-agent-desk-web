@@ -367,7 +367,7 @@ pub(crate) async fn prepare_on<'a>(
         if !outputs.insert(output.envelope_id.clone()) {
             return Err(AgentStoreError::Inaccessible);
         }
-        let now = unsigned(chrono::Utc::now().timestamp_millis())?;
+        let now = unsigned(jiff::Timestamp::now().as_millisecond())?;
         let (policy, mut omit_policy, read_roots) = match native::retained_sources(proof) {
             Some(value) => (value.policy, false, value.read_roots),
             None => (
@@ -434,7 +434,7 @@ async fn prepare_native_status_on(
             .filter(crate::entity::agent_origin::Column::Kind.eq("native_status"))
             .one(db)
             .await?;
-        if existing.is_none() && expires > unsigned(chrono::Utc::now().timestamp_millis())? {
+        if existing.is_none() && expires > unsigned(jiff::Timestamp::now().as_millisecond())? {
             prepared.native_status = Some(status);
         }
     }

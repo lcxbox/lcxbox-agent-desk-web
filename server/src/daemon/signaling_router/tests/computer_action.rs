@@ -4,7 +4,8 @@ use desk_agent_protocol::computer_use::*;
 
 fn plan() -> SealedComputerActionPlan {
     use desk_agent_protocol::browser_control::*;
-    let expiry = (chrono::Utc::now() + chrono::Duration::minutes(1)).to_rfc3339();
+    let expiry =
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now() + jiff::SignedDuration::from_mins(1));
     SealedComputerActionPlan {
         turn_scope: None,
         schema_version: COMPUTER_USE_SCHEMA_VERSION,
@@ -221,7 +222,7 @@ async fn central_stop_preserves_identity_without_renewing_action_authority() {
             .initialize_from_store(crate::daemon::remote_access::RemoteAccessState::locked(
                 2,
                 "lock-1".into(),
-                chrono::Utc::now().to_rfc3339(),
+                desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                 false,
             ));
         let cancel = ComputerActionCancel {
@@ -255,7 +256,9 @@ async fn central_stop_preserves_identity_without_renewing_action_authority() {
             },
             request_id: model.request_id.clone(),
             session_id: None,
-            expires_at: Some((chrono::Utc::now() + chrono::Duration::seconds(10)).to_rfc3339()),
+            expires_at: Some(desk_utils::datetime::rfc3339(
+                jiff::Timestamp::now() + jiff::SignedDuration::from_secs(10),
+            )),
             issuer: issuer.into(),
             audience: "host-client".into(),
             signature: None,
@@ -277,7 +280,9 @@ async fn central_stop_preserves_identity_without_renewing_action_authority() {
                     .push_str("-other"),
                 "expired" => {
                     ctx.inbound_authz.as_mut().unwrap().expires_at =
-                        Some((chrono::Utc::now() - chrono::Duration::seconds(1)).to_rfc3339())
+                        Some(desk_utils::datetime::rfc3339(
+                            jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1),
+                        ))
                 }
                 "payload" => {
                     malformed = SignalingModel::new(
@@ -380,7 +385,7 @@ async fn turn_status_reaches_only_original_worker_even_while_remote_access_is_lo
         .initialize_from_store(crate::daemon::remote_access::RemoteAccessState::locked(
             2,
             "lock".into(),
-            chrono::Utc::now().to_rfc3339(),
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             false,
         ));
     let status = ComputerActionTurnStatus {

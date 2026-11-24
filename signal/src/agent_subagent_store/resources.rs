@@ -63,7 +63,7 @@ impl SubAgentStore {
         run_row::Entity::find()
             .filter(run_row::Column::Id.gt(after_id))
             .filter(run_row::Column::State.is_not_in(["completed", "failed", "cancelled"]))
-            .filter(run_row::Column::DeadlineMs.lte(chrono::Utc::now().timestamp_millis()))
+            .filter(run_row::Column::DeadlineMs.lte(jiff::Timestamp::now().as_millisecond()))
             .order_by_asc(run_row::Column::Id)
             .limit(limit)
             .all(&self.db)
@@ -71,13 +71,14 @@ impl SubAgentStore {
     }
 
     pub async fn expire_task(&self, task_id: &str) -> Result<bool, DbErr> {
-        self.expire_task_at(task_id, chrono::Utc::now()).await
+        self.expire_task_at(task_id, desk_agent_data_store::datetime::utc_now())
+            .await
     }
 
     pub(crate) async fn expire_task_at(
         &self,
         task_id: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: sea_orm::prelude::DateTimeUtc,
     ) -> Result<bool, DbErr> {
         let selected = run_row::Entity::find()
             .filter(run_row::Column::TaskId.eq(task_id))
@@ -182,7 +183,7 @@ impl SubAgentStore {
         {
             return Ok(false);
         }
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         if let Some(reason) = terminal_reason {
             run.fail(reason, &now.to_rfc3339()).map_err(|_| invalid())?;
         } else {
@@ -244,7 +245,7 @@ impl SubAgentStore {
             .await?
             .ok_or_else(|| invalid())?;
         let mut run = decode_run(&row)?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         if run.state != SubAgentState::WaitingResource
             || row
                 .next_attempt_at_ms

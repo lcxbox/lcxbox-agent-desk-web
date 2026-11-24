@@ -209,7 +209,7 @@ pub async fn init_db(
             verify_sqlite_durability(&db).await?;
 
             initialize_schema(&db).await?;
-            let recovery_now = u64::try_from(chrono::Utc::now().timestamp_millis())
+            let recovery_now = u64::try_from(jiff::Timestamp::now().as_millisecond())
                 .map_err(|_| DbErr::Custom("system clock is before Unix epoch".into()))?;
             let uncertain = crate::capability_grant_store::SignalCapabilityGrantStore::new(
                 db.clone(),

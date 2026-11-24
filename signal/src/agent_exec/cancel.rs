@@ -13,7 +13,7 @@ struct Candidate {
     actor_id: String,
     audience: String,
     origin: desk_diagnose_core::action_result::ActionResultOrigin,
-    requested_at: chrono::DateTime<chrono::Utc>,
+    requested_at: sea_orm::prelude::DateTimeUtc,
 }
 
 fn unavailable() -> AgentError {

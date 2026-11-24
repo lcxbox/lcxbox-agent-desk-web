@@ -23,7 +23,7 @@ pub(crate) async fn save_child_session(
         )
     })
     .await?;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let (row, mut run, group) = desk_diagnose_core::future::boxed(|| async {
         super::lifecycle::child_records_on(&txn, session, now.timestamp_millis()).await
     })
@@ -99,7 +99,7 @@ pub(crate) async fn save_child_session(
 pub(crate) async fn write_child_session_on(
     txn: &DatabaseTransaction,
     session: &PersistedAgentSession,
-    now: chrono::DateTime<chrono::Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<i64, DbErr> {
     if session.turn_state == desk_diagnose_core::session::TurnState::Failed
         && session.agent_role.binding().is_some()
@@ -120,10 +120,11 @@ pub(crate) async fn write_child_session_on(
         .map_err(|_| invalid())?;
     desk_diagnose_core::image_input::strip_session_images(&mut stored.conversation);
     stored.version = version;
-    let deadline = session
-        .turn_state
-        .is_active()
-        .then_some(now + chrono::Duration::seconds(90));
+    let deadline = session.turn_state.is_active().then_some(
+        now + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(
+            90,
+        )),
+    );
     let changed = session_row::Entity::update_many()
         .set(session_row::ActiveModel {
             state_json: Set(stored.encode_json_for_storage().map_err(|_| invalid())?),

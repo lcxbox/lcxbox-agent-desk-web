@@ -157,9 +157,10 @@ async fn model_capacity_failure_releases_the_lease_without_completing_or_resetti
     else {
         panic!("one lease");
     };
-    claimed
-        .session
-        .finish_turn(TurnState::Failed, chrono::Utc::now().to_rfc3339());
+    claimed.session.finish_turn(
+        TurnState::Failed,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     store
         .settle_turn_for_task(
             &mut claimed.session,
@@ -208,7 +209,7 @@ async fn deadline_settlement_is_independent_of_resource_waits_and_never_revives_
         .await
         .unwrap();
     let after_deadline =
-        chrono::DateTime::from_timestamp_millis(run.binding.deadline_ms + 1).unwrap();
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis(run.binding.deadline_ms + 1).unwrap();
     assert!(
         store
             .expire_task_at(&run.binding.task_id, after_deadline)
@@ -260,7 +261,10 @@ async fn root_wait_scan_skips_unreadable_active_and_duplicate_parents_without_lo
     let (candidates, next) = store.root_wait_candidates(0, 1).await.unwrap();
     assert!(candidates.is_empty());
     assert_eq!(next, Some(original.id));
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_main_delegation_session(&db, &mut parent)
         .await
         .unwrap();

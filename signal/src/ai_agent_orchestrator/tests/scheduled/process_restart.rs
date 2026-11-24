@@ -164,8 +164,10 @@ async fn exercise_process(reconnect: bool) {
         spec: ScheduleSpec {
             schema_version: 1,
             rule: ScheduleRule::Once {
-                at: (chrono::Utc::now() + chrono::Duration::seconds(15))
-                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                at: format!(
+                    "{:.0}",
+                    jiff::Timestamp::now() + jiff::SignedDuration::from_secs(15)
+                ),
             },
         },
         source_conversation_id: Some(conversation.clone()),
@@ -310,12 +312,16 @@ async fn exercise_process(reconnect: bool) {
             .connect()
             .await
             .unwrap();
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let readiness = desk_agent_protocol::computer_use::ComputerUseReadiness {
             schema_version: desk_agent_protocol::computer_use::COMPUTER_USE_SCHEMA_VERSION,
             revision: 1,
             observed_at: now.to_rfc3339(),
-            expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+            expires_at: (now
+                + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_mins(5),
+                ))
+            .to_rfc3339(),
             server_api_version: 1,
             os: "fixture".into(),
             interactive_user_home: None,

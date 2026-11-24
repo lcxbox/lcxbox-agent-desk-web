@@ -463,10 +463,8 @@ impl ArtifactCallPreflight {
         .operations;
         let valid_until_unix_ms = [source, destination]
             .iter()
-            .filter_map(|reference| {
-                chrono::DateTime::parse_from_rfc3339(&reference.expires_at).ok()
-            })
-            .filter_map(|value| u64::try_from(value.timestamp_millis()).ok())
+            .filter_map(|reference| desk_utils::datetime::parse_rfc3339(&reference.expires_at).ok())
+            .filter_map(|value| u64::try_from(desk_utils::datetime::unix_millis(value)).ok())
             .min()
             .filter(|expiry| *expiry > now_unix_ms)
             .ok_or_else(unavailable)?;

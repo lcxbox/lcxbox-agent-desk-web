@@ -54,7 +54,7 @@ fn update() -> FileScopeUpdate {
     }
 }
 
-fn now() -> DateTime<Utc> {
+fn now() -> sea_orm::prelude::DateTimeUtc {
     "2026-09-05T00:00:00.123456Z".parse().unwrap()
 }
 
@@ -151,7 +151,11 @@ async fn stale_directory_decisions_leave_no_receipt_or_partial_state() {
         proposal.source = DirectoryConsentSource::ModelProposal;
         proposal.requested_path = path.into();
         proposal.canonical_path = path.into();
-        proposal.directory.expires_at = (now() + chrono::Duration::seconds(1)).to_rfc3339();
+        proposal.directory.expires_at = (now()
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(
+                1,
+            )))
+        .to_rfc3339();
         proposed.mutation = FileScopeMutation::Propose { proposal };
         store.update_file_scope(&proposed, now()).await.unwrap();
         let before = state(&store).await;
@@ -168,7 +172,10 @@ async fn stale_directory_decisions_leave_no_receipt_or_partial_state() {
             (0, now()),
             (
                 before.file_scope.revision() + 1,
-                now() + chrono::Duration::seconds(1),
+                now()
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_secs(1),
+                    ),
             ),
         ] {
             decision.expected_revision = revision;
@@ -189,7 +196,10 @@ async fn stale_directory_decisions_leave_no_receipt_or_partial_state() {
             directory_request_id: "select".into(),
             approve: false,
         };
-        let expired = now() + chrono::Duration::seconds(2);
+        let expired = now()
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(
+                2,
+            ));
         let receipt = store.update_file_scope(&decision, expired).await.unwrap();
         let rejected = state(&store).await;
         assert_eq!(
@@ -418,7 +428,7 @@ async fn terminal_history_does_not_exhaust_a_long_lived_conversation() {
 async fn an_owner_directory_decision_records_one_resume_of_the_paused_turn() {
     for approve in [true, false] {
         let store = setup().await;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         store.update_file_scope(&update(), now).await.unwrap();
         let mut held = state(&store).await;
         held.turn_state = desk_diagnose_core::session::TurnState::Running;
@@ -430,7 +440,10 @@ async fn an_owner_directory_decision_records_one_resume_of_the_paused_turn() {
         );
         cached_result.resolved_result = Some(Box::new(cached_result.clone()));
         held.conversation.insert(0, cached_result);
-        let deadline = now + chrono::Duration::minutes(5);
+        let deadline = now
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_mins(
+                5,
+            ));
         agent_session::Entity::update_many()
             .col_expr(
                 agent_session::Column::StateJson,
@@ -474,7 +487,7 @@ async fn an_owner_directory_decision_records_one_resume_of_the_paused_turn() {
             .col_expr(agent_session::Column::Version, Expr::value(held.version))
             .col_expr(
                 agent_session::Column::LeaseDeadline,
-                Expr::value(Option::<chrono::DateTime<chrono::Utc>>::None),
+                Expr::value(Option::<sea_orm::prelude::DateTimeUtc>::None),
             )
             .exec(&store.db)
             .await
@@ -593,7 +606,7 @@ async fn verify_first_goal(db: DatabaseConnection, legacy: bool) {
         input.client_conversation_id.clone(),
         AgentSessionSurface::AiAgent,
     );
-    let now: DateTime<Utc> = input.created_at.parse().unwrap();
+    let now: sea_orm::prelude::DateTimeUtc = input.created_at.parse().unwrap();
     let events = SignalAgentRunEventStore::new(db.clone());
     let mut selection = update();
     selection.subject.actor_id.clone_from(&input.actor_id);
@@ -691,7 +704,7 @@ async fn verify_cancel_and_replay(
     store: SignalAgentSessionStore,
     input: AppendUserFollowupParams,
     start: StartUserGoal,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) {
     use crate::agent_goal_store as goals;
     use desk_diagnose_core::{

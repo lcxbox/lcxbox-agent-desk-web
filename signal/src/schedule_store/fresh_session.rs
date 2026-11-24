@@ -309,9 +309,9 @@ impl ScheduleStore {
         desk_agent_data_store::schedule::reserve_run_budget(txn, &current).await?;
         let task: entity::Model = serde_json::from_str(&work.task_snapshot_json)
             .map_err(|_| ScheduleStoreError::Invalid)?;
-        let now = chrono::DateTime::from_timestamp_millis(current.verified_at())
+        let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(current.verified_at())
             .ok_or(ScheduleStoreError::Invalid)?;
-        let deadline = chrono::DateTime::from_timestamp_millis(
+        let deadline = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(
             work.lease_deadline.ok_or(ScheduleStoreError::Conflict)?,
         )
         .ok_or(ScheduleStoreError::Invalid)?;
@@ -1031,7 +1031,7 @@ pub(crate) mod tests {
                     agent_session::Entity::update_many()
                         .set(agent_session::ActiveModel {
                             lease_deadline: Set(Some(
-                                chrono::DateTime::from_timestamp_millis(1).unwrap(),
+                                sea_orm::prelude::DateTimeUtc::from_timestamp_millis(1).unwrap(),
                             )),
                             ..Default::default()
                         })

@@ -103,7 +103,7 @@ impl NativeStatusScope {
         {
             return Ok(None);
         }
-        let now = unsigned(chrono::Utc::now().timestamp_millis())?;
+        let now = unsigned(jiff::Timestamp::now().as_millisecond())?;
         if capture
             .recorded_at_unix_ms
             .saturating_add(u64::from(self.policy.history_retention_days) * 86_400_000)
@@ -204,7 +204,7 @@ impl NativeStatusScope {
                     _ => "omitted_policy",
                 };
                 let gap = db.begin().await?;
-                let now = u64::try_from(chrono::Utc::now().timestamp_millis())
+                let now = u64::try_from(jiff::Timestamp::now().as_millisecond())
                     .map_err(|_| DbErr::Custom("invalid native history observation time".into()))?;
                 match super::super::history::record_scope_gap_on(
                     &gap,

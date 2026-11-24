@@ -388,7 +388,7 @@ async fn guessing_an_existing_source_id_in_an_output_does_not_make_it_an_observe
                 "unobserved-fragment",
                 "report retained but absent from this model input",
                 &[],
-                chrono::Utc::now().timestamp_millis() as u64,
+                jiff::Timestamp::now().as_millisecond() as u64,
             )
             .await;
             vec![ToolCall {

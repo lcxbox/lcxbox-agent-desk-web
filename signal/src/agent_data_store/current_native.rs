@@ -219,7 +219,7 @@ async fn access_on(
 }
 
 fn live_time(not_before: u64, deadline: u64) -> Result<(), AgentStoreError> {
-    let now = unsigned(chrono::Utc::now().timestamp_millis())?.max(not_before);
+    let now = unsigned(jiff::Timestamp::now().as_millisecond())?.max(not_before);
     if now >= deadline {
         return Err(AgentStoreError::Inaccessible);
     }

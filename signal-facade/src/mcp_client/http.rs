@@ -144,12 +144,17 @@ impl StreamableHttpClient for BoundedHttp {
     async fn get_stream(
         &self,
         uri: Arc<str>,
-        session_id: Arc<str>,
+        session_id: Option<Arc<str>>,
         last_event_id: Option<String>,
         auth: Option<String>,
         headers: HashMap<HeaderName, HeaderValue>,
     ) -> Result<EventStream, HttpError> {
-        let mut request = request(self.0.get(uri.as_ref()), Some(&session_id), auth, headers);
+        let mut request = request(
+            self.0.get(uri.as_ref()),
+            session_id.as_deref(),
+            auth,
+            headers,
+        );
         if let Some(id) = last_event_id {
             request = request.header("last-event-id", id);
         }

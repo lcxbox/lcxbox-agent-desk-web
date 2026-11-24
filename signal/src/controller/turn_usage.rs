@@ -62,7 +62,7 @@ pub async fn get_turn_usage(
     let db = crate::db::get_db();
     // Clamp the requested range to the configured TURN retention window, and resolve
     // the effective granularity (wide ranges force `day`).
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let retention = crate::usage_retention::load(db).await?;
     let range = usage_query::resolve_effective_range(
         query.from.as_deref(),
@@ -83,11 +83,7 @@ pub async fn get_turn_usage(
             .into_iter()
             .map(|row| TurnUsageItem {
                 device_code: row.device_code,
-                hour_bucket: chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                    row.hour_bucket,
-                    chrono::Utc,
-                )
-                .to_rfc3339(),
+                hour_bucket: row.hour_bucket.and_utc().to_rfc3339(),
                 relay_received_bytes: row.relay_received_bytes,
                 relay_sent_bytes: row.relay_sent_bytes,
                 relay_received_pkts: row.relay_received_pkts,

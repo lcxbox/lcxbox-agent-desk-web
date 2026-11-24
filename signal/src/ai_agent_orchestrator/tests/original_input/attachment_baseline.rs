@@ -115,7 +115,7 @@ async fn measure() {
         destination,
         selected_source_tools: ["generate_fixture".to_owned()].into(),
         export_authorization_id: "isolated-synthetic-source".into(),
-        now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+        now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
         byte_cap: desk_diagnose_core::sink_authorizer::MAX_SINK_BYTES,
         permission_resume: false,
     };
@@ -211,7 +211,7 @@ async fn measure() {
         println!(
             "BASELINE {}",
             serde_json::json!({
-                "time_ms": chrono::Utc::now().timestamp_millis(),
+                "time_ms": jiff::Timestamp::now().as_millisecond(),
                 "slice": goal.slice_seq,
                 "state": goal.state,
                 "reason": goal.status_reason,
@@ -245,7 +245,7 @@ async fn measure() {
                 &goal.goal_id,
                 goal.state_version,
                 GoalOwnerAction::RetryStalled,
-                chrono::Utc::now(),
+                desk_agent_data_store::datetime::utc_now(),
             )
             .await
             .unwrap()

@@ -13,7 +13,7 @@ async fn processing_status_reports_history_without_chat_bodies_or_obsolete_maint
         instance.as_deref(),
         &settings,
         &policy,
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )
     .await
     .unwrap();
@@ -30,7 +30,7 @@ async fn processing_status_reports_history_without_chat_bodies_or_obsolete_maint
         instance.as_deref(),
         &disabled,
         &policy,
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )
     .await
     .unwrap();

@@ -184,8 +184,10 @@ async fn exercise_with_restart(
         spec: ScheduleSpec {
             schema_version: 1,
             rule: ScheduleRule::Once {
-                at: (chrono::Utc::now() + chrono::Duration::seconds(3))
-                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                at: format!(
+                    "{:.0}",
+                    jiff::Timestamp::now() + jiff::SignedDuration::from_secs(3)
+                ),
             },
         },
         source_conversation_id: Some(conversation.clone()),
@@ -363,7 +365,7 @@ async fn exercise_with_restart(
         assert_eq!(waiting.attempt, 0);
         connections.write().await.insert(host.clone(), peer);
         assert_eq!(executor.scan_once(0).await.unwrap().deferred, 1);
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let cache = crate::computer_use_readiness::global_computer_use_readiness_cache();
         cache
             .update(
@@ -372,7 +374,11 @@ async fn exercise_with_restart(
                     schema_version: desk_agent_protocol::computer_use::COMPUTER_USE_SCHEMA_VERSION,
                     revision: 1,
                     observed_at: now.to_rfc3339(),
-                    expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                    expires_at: (now
+                        + desk_agent_data_store::datetime::database_interval(
+                            jiff::SignedDuration::from_mins(5),
+                        ))
+                    .to_rfc3339(),
                     server_api_version: 1,
                     os: "fixture".into(),
                     interactive_user_home: None,
@@ -388,7 +394,7 @@ async fn exercise_with_restart(
                     capabilities: vec![],
                     context_references: vec![],
                 },
-                now,
+                desk_agent_data_store::datetime::from_database(now).unwrap(),
             )
             .unwrap();
         let (a, b) = tokio::time::timeout(SCENARIO_TIMEOUT, async {
@@ -701,7 +707,7 @@ async fn exercise_with_restart(
             .await
             .is_err()
     );
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let action = crate::entity::agent_exec_task::ActiveModel {
         exec_request_id: Set("unresolved-execution".into()),
         execution_generation: Set("generation".into()),
@@ -714,7 +720,10 @@ async fn exercise_with_restart(
         result_text: Set(None),
         event_id: Set("completion".into()),
         delivery_state: Set("pending".into()),
-        deadline: Set(now + chrono::Duration::minutes(1)),
+        deadline: Set(now
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_mins(
+                1,
+            ))),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -775,7 +784,7 @@ async fn exercise_with_restart(
                 correlation_id: Some(request.request_id.clone()),
                 source_envelope_ids: vec![],
                 result_envelope_ids: vec![],
-                created_at: chrono::Utc::now().to_rfc3339(),
+                created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             },
             request,
         };
@@ -936,7 +945,7 @@ async fn owner_decision(
             &"b".repeat(64),
             desk_diagnose_core::ai_agent::history::RetrievalCallKind::Relevance,
             4096,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .unwrap();
     let original_retrieval_budget = retrieval.clone();
@@ -947,7 +956,7 @@ async fn owner_decision(
         );
     let request: PermissionRequest = serde_json::from_value(serde_json::json!({
         "schema_version":desk_diagnose_core::dynamic_run::PERMISSION_REQUEST_SCHEMA_VERSION, "request_id":"scheduled-permission", "input_revision":1,
-        "state":"pending", "created_at":chrono::Utc::now().to_rfc3339(), "items":[{
+        "state":"pending", "created_at":desk_utils::datetime::rfc3339(jiff::Timestamp::now()), "items":[{
             "item_id":"read", "provider_id":"desktop.session", "tool_name":"inspect_desktop_session",
             "selected_device_target":{"device_id":"device","target_ref":"device","connection_id":"host","readiness_revision":1},
             "expected_effect":"read_device", "resource_scope":["target:current_device"],
@@ -980,9 +989,10 @@ async fn owner_decision(
         .save_permission_request(&mut claimed.session, &event)
         .await
         .unwrap();
-    claimed
-        .session
-        .finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    claimed.session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     claimed.session.handled_input_seq = claimed.session.latest_input_seq;
     store.save(&mut claimed.session).await.unwrap();
     schedules
@@ -1014,10 +1024,10 @@ async fn owner_decision(
                 registry: &registry,
                 inventory: &[],
                 readiness_revision: 1,
-                now_unix_ms: chrono::Utc::now().timestamp_millis() as u64,
+                now_unix_ms: jiff::Timestamp::now().as_millisecond() as u64,
                 implicit_fresh_object_refs: &[],
             },
-            &chrono::Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         )
         .await
         .unwrap();

@@ -114,9 +114,9 @@ fn live_read_authority_uses_original_targets_on_both_surfaces() {
             object_kind: crate::input_read_context::live_read::target_kind(name)
                 .unwrap()
                 .1,
-            expires_at: chrono::DateTime::from_timestamp_millis((now + 60_000) as i64)
-                .unwrap()
-                .to_rfc3339(),
+            expires_at: desk_utils::datetime::rfc3339(
+                jiff::Timestamp::from_millisecond((now + 60_000) as i64).unwrap(),
+            ),
         };
         let original = ReadContextSelection {
             external_issues: Vec::new(),

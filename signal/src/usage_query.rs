@@ -8,7 +8,6 @@
 //! string that decodes into `NaiveDateTime`; `date()` must NOT be used — it returns
 //! a bare `YYYY-MM-DD` string that fails to decode.
 
-use chrono::{DateTime, Duration, Utc};
 use sea_orm::prelude::DateTimeUtc;
 use sea_orm::prelude::Expr;
 use sea_orm::sea_query::SimpleExpr;
@@ -83,8 +82,8 @@ impl EffectiveRange {
 }
 
 fn parse_rfc3339(raw: &str) -> Result<DateTimeUtc, String> {
-    DateTime::parse_from_rfc3339(raw)
-        .map(|dt| dt.with_timezone(&Utc))
+    desk_utils::datetime::parse_rfc3339(raw)
+        .map(desk_agent_data_store::datetime::to_database)
         .map_err(|e| format!("invalid timestamp '{raw}': {e}"))
 }
 
@@ -104,10 +103,18 @@ pub fn resolve_effective_range(
     };
     let mut from_ts = match from {
         Some(raw) => parse_rfc3339(raw)?,
-        None => now - Duration::days(DEFAULT_RANGE_DAYS),
+        None => {
+            now - desk_agent_data_store::datetime::database_interval(
+                jiff::SignedDuration::from_hours(24 * DEFAULT_RANGE_DAYS),
+            )
+        }
     };
     to_ts = to_ts.min(now);
-    from_ts = from_ts.max(now - Duration::days(retention_days as i64));
+    from_ts = from_ts.max(
+        now - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(
+            24 * (retention_days as i64),
+        )),
+    );
 
     if from_ts >= to_ts {
         return Ok(EffectiveRange {
@@ -117,7 +124,10 @@ pub fn resolve_effective_range(
             is_empty: true,
         });
     }
-    let granularity = if (to_ts - from_ts) > Duration::days(DAY_GRANULARITY_THRESHOLD_DAYS) {
+    let granularity = if (to_ts - from_ts)
+        > desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(
+            24 * DAY_GRANULARITY_THRESHOLD_DAYS,
+        )) {
         Granularity::Day
     } else {
         requested
@@ -133,10 +143,13 @@ pub fn resolve_effective_range(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
     fn at(y: i32, m: u32, d: u32, h: u32) -> DateTimeUtc {
-        Utc.with_ymd_and_hms(y, m, d, h, 0, 0).unwrap()
+        sea_orm::prelude::Date::from_ymd_opt(y, m, d)
+            .unwrap()
+            .and_hms_opt(h, 0, 0)
+            .unwrap()
+            .and_utc()
     }
 
     #[test]
@@ -151,7 +164,12 @@ mod tests {
         let now = at(2026, 7, 8, 12);
         let r = resolve_effective_range(None, None, Granularity::Hour, now, 30).unwrap();
         assert_eq!(r.to, now);
-        assert_eq!(r.from, now - Duration::days(DEFAULT_RANGE_DAYS));
+        assert_eq!(
+            r.from,
+            now - desk_agent_data_store::datetime::database_interval(
+                jiff::SignedDuration::from_hours(24 * DEFAULT_RANGE_DAYS)
+            )
+        );
         assert!(!r.is_empty);
     }
 
@@ -159,21 +177,41 @@ mod tests {
     fn from_clamped_to_retention() {
         let now = at(2026, 7, 8, 12);
         let r = resolve_effective_range(
-            Some(&(now - Duration::days(100)).to_rfc3339()),
+            Some(
+                &(now
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_hours(2400),
+                    ))
+                .to_rfc3339(),
+            ),
             Some(&now.to_rfc3339()),
             Granularity::Day,
             now,
             30,
         )
         .unwrap();
-        assert_eq!(r.from, now - Duration::days(30));
+        assert_eq!(
+            r.from,
+            now - desk_agent_data_store::datetime::database_interval(
+                jiff::SignedDuration::from_hours(720)
+            )
+        );
     }
 
     #[test]
     fn wide_range_forces_day() {
         let now = at(2026, 7, 8, 12);
         let over = resolve_effective_range(
-            Some(&(now - Duration::days(14) - Duration::hours(1)).to_rfc3339()),
+            Some(
+                &(now
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_hours(336),
+                    )
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_hours(1),
+                    ))
+                .to_rfc3339(),
+            ),
             Some(&now.to_rfc3339()),
             Granularity::Hour,
             now,
@@ -187,8 +225,20 @@ mod tests {
     fn empty_when_before_retention() {
         let now = at(2026, 7, 8, 12);
         let r = resolve_effective_range(
-            Some(&(now - Duration::days(90)).to_rfc3339()),
-            Some(&(now - Duration::days(60)).to_rfc3339()),
+            Some(
+                &(now
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_hours(2160),
+                    ))
+                .to_rfc3339(),
+            ),
+            Some(
+                &(now
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_hours(1440),
+                    ))
+                .to_rfc3339(),
+            ),
             Granularity::Hour,
             now,
             30,

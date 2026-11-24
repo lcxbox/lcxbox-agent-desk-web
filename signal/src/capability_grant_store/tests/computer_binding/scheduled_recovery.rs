@@ -10,7 +10,7 @@ async fn reconcile(f: &Fixture, session: &mut PersistedAgentSession) -> Result<(
     crate::capability_grant_store::scheduled_recovery::reconcile_on(
         &txn,
         session,
-        Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )
     .await?;
     txn.commit().await
@@ -99,7 +99,8 @@ async fn scheduled_recovery_preserves_running_then_accepts_original_late_receipt
     let f = fixture(&dir.path().join("running.db")).await;
     f.accept().await.unwrap();
     let mut row: agent_capability_dispatch_outbox::ActiveModel = f.outbox().await.into();
-    row.created_at = Set(Utc::now() - chrono::Duration::seconds(9));
+    row.created_at = Set(desk_agent_data_store::datetime::utc_now()
+        - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(9)));
     row.update(&f.store.db).await.unwrap();
     assert!(
         f.store

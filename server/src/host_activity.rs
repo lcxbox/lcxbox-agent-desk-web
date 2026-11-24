@@ -44,7 +44,7 @@ impl SessionState {
     fn new(actor: ActorSummary) -> Self {
         Self {
             actor: sanitize_actor(actor),
-            started_at: chrono::Utc::now().to_rfc3339(),
+            started_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             pc_connected: false,
             pc_handoff: false,
             video_negotiated: false,

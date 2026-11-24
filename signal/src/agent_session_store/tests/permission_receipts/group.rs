@@ -38,7 +38,7 @@ fn member(request_id: &str, order: u16, device: &str) -> PermissionRequest {
         input_revision: 1,
         state: PermissionRequestState::Pending,
         items: vec![item(device)],
-        created_at: Utc::now().to_rfc3339(),
+        created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         group: Some(desk_diagnose_core::dynamic_run::PermissionRequestGroup {
             group_id: GROUP.into(),
             order,
@@ -90,7 +90,10 @@ async fn seed_group(
         .save_permission_request_group(&mut session, &events)
         .await;
     if saved.is_ok() {
-        session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+        session.finish_turn(
+            TurnState::Idle,
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+        );
         store.save(&mut session).await.unwrap();
     }
     (store, saved)
@@ -143,7 +146,7 @@ async fn decide_member(
                 now_unix_ms,
                 implicit_fresh_object_refs: &[],
             },
-            &Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             None,
             None,
         )
@@ -176,7 +179,7 @@ async fn claimant(
 ) -> (SignalAgentSessionStore, ClaimTurnParams) {
     let candidate = row(store, request_id).await;
     let session = store
-        .pending_permission_resume(&candidate, Utc::now())
+        .pending_permission_resume(&candidate, desk_agent_data_store::datetime::utc_now())
         .await
         .unwrap()
         .unwrap();
@@ -287,7 +290,10 @@ async fn the_claim_waits_for_every_member_and_the_last_claim_supersedes_the_othe
     let mut session = last.claim_turn(params).await.unwrap();
     assert_eq!(row(&store, "permission-2").await.state, "started");
     assert_eq!(row(&store, "permission-1").await.state, "superseded");
-    session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     // The step answered its input; only the approval rows could still hold
     // the slot.
     session.handled_input_seq = session.latest_input_seq;
@@ -363,7 +369,7 @@ async fn waiting_goal(store: &SignalAgentSessionStore) {
             model_id: "model".into(),
         },
         1,
-        Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
         desk_diagnose_core::goal::GoalLimits::default(),
     )
     .unwrap();
@@ -456,7 +462,7 @@ async fn current_delegation(
     store: &SignalAgentSessionStore,
 ) -> desk_diagnose_core::approval_delegation::ApprovalDelegation {
     let session = PersistedAgentSession::decode_json(&state(store).await.0[0].state_json).unwrap();
-    let now = Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let delegation = desk_diagnose_core::approval_delegation::ApprovalDelegation::new_usage_only(
         "delegation-1".into(),
         session.approval_delegation_conversation_id().into(),

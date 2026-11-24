@@ -74,7 +74,7 @@ pub(super) fn plan(session: &PersistedAgentSession) -> (CompressionPlan, Validat
         &policy,
         1,
         "c".repeat(64),
-        &chrono::Utc::now().to_rfc3339(),
+        &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         session.current_turn_id.as_deref().unwrap(),
     );
     let result = parse_validated_context_summary(&raw, &plan, provenance).unwrap();
@@ -144,7 +144,10 @@ async fn child_completion_between_parent_checkpoint_plan_and_save_survives_inbox
         .unwrap();
     assert_eq!(events.len(), 1);
     assert!(events[0].model_observed_at_ms.is_none());
-    parent.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    parent.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_main_delegation_session(&db, &mut parent)
         .await
         .unwrap();

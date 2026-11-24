@@ -9,7 +9,6 @@ use crate::entity::{
     agent_attachment as attachment_row, agent_goal_run as goal_row,
     agent_permission_resume as resume_row, agent_run_event, agent_session,
 };
-use chrono::{DateTime, Duration, Utc};
 use desk_diagnose_core::dynamic_run::{AGENT_RUN_EVENT_SCHEMA_VERSION, AgentRunEventKind};
 use desk_diagnose_core::goal::{
     GoalControl, GoalLedgerEvent, GoalOwnerAction, GoalPauseReason, GoalPermissionWake,
@@ -255,7 +254,7 @@ pub async fn apply_owner_action(
     goal_id: &str,
     expected_state_version: u64,
     action: GoalOwnerAction,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<GoalRun>, crate::error::DeskSignalError> {
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
@@ -429,7 +428,7 @@ pub async fn wake_for_permission_decision(
     actor_id: &str,
     device_id: &str,
     request_id: &str,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<GoalPermissionWake, DbErr> {
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
@@ -669,7 +668,7 @@ pub async fn wake_for_decision(
     db: &DatabaseConnection,
     session: &PersistedAgentSession,
     record: &desk_agent_data_store::entity::agent_decision_resume::Model,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<GoalPermissionWake, DbErr> {
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
     if !session.agent_role.is_main() || session.surface != AgentSessionSurface::AiAgent {
@@ -912,7 +911,7 @@ pub async fn waiting_work_candidates(
 /// fence their session and account for any dispatched or unknown work.
 pub async fn expire_due(
     db: &DatabaseConnection,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
     limit: u64,
 ) -> Result<(), DbErr> {
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
@@ -942,7 +941,7 @@ pub async fn expire_due(
 async fn expire_settled(
     db: &DatabaseConnection,
     expected: &GoalRun,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<GoalRun>, DbErr> {
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
@@ -1066,7 +1065,7 @@ pub async fn update_device_availability(
     db: &DatabaseConnection,
     expected: &GoalRun,
     available: bool,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<GoalRun>, DbErr> {
     scheduler_transition(db, expected, SchedulerTransition::Device(available), now).await
 }
@@ -1075,7 +1074,7 @@ pub async fn wait_for_model(
     db: &DatabaseConnection,
     expected: &GoalRun,
     retry_after_unix_ms: Option<u64>,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<GoalRun>, DbErr> {
     scheduler_transition(
         db,
@@ -1089,7 +1088,7 @@ pub async fn wait_for_model(
 pub async fn wake_model_due(
     db: &DatabaseConnection,
     expected: &GoalRun,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<GoalRun>, DbErr> {
     scheduler_transition(db, expected, SchedulerTransition::ModelWake, now).await
 }
@@ -1097,7 +1096,7 @@ pub async fn wake_model_due(
 pub async fn block_model_before_claim(
     db: &DatabaseConnection,
     expected: &GoalRun,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<GoalRun>, DbErr> {
     scheduler_transition(db, expected, SchedulerTransition::ModelBlock, now).await
 }
@@ -1105,7 +1104,7 @@ pub async fn block_model_before_claim(
 pub async fn wake_for_work_completion(
     db: &DatabaseConnection,
     expected: &GoalRun,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<GoalRun>, DbErr> {
     if expected
         .status_reason
@@ -1126,7 +1125,7 @@ pub async fn wake_for_work_completion(
 pub async fn pause_if_unresolved_work(
     db: &DatabaseConnection,
     expected: &GoalRun,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<GoalRun>, DbErr> {
     scheduler_transition(db, expected, SchedulerTransition::RecoveryPause, now).await
 }
@@ -1134,7 +1133,7 @@ pub async fn pause_if_unresolved_work(
 pub async fn pause_if_goal_context_invalid(
     db: &DatabaseConnection,
     expected: &GoalRun,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<GoalRun>, DbErr> {
     scheduler_transition(db, expected, SchedulerTransition::ContextCheck, now).await
 }
@@ -1185,7 +1184,7 @@ async fn scheduler_transition(
     db: &DatabaseConnection,
     expected: &GoalRun,
     transition: SchedulerTransition,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<GoalRun>, DbErr> {
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
@@ -1453,7 +1452,7 @@ pub async fn load_claimed(
         .await?
         .ok_or_else(invalid)?;
     let mut goal = decode(&row)?;
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = jiff::Timestamp::now().as_millisecond();
     if session.trigger_origin != TriggerOrigin::GoalContinuation
         || goal.input_revision != session.input_revision
         || goal.slice_seq != segment.segment_seq
@@ -1485,7 +1484,7 @@ async fn mutate_budget(
     session: &PersistedAgentSession,
     identity: &str,
     mutation: BudgetMutation,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<bool, DbErr> {
     let segment = session
         .focus_epoch
@@ -1567,7 +1566,7 @@ pub async fn reserve_budget(
     session: &PersistedAgentSession,
     identity: &str,
     upper: GoalUsage,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<bool, DbErr> {
     mutate_budget(db, session, identity, BudgetMutation::Reserve(upper), now).await
 }
@@ -1577,7 +1576,7 @@ pub async fn settle_budget(
     session: &PersistedAgentSession,
     identity: &str,
     actual: GoalUsage,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<bool, DbErr> {
     mutate_budget(db, session, identity, BudgetMutation::Settle(actual), now).await
 }
@@ -1608,9 +1607,9 @@ pub fn claim_slice<'a>(
         {
             return Err(invalid());
         }
-        let now = DateTime::parse_from_rfc3339(&params.now)
-            .map_err(|_| invalid())?
-            .with_timezone(&Utc);
+        let now = desk_utils::datetime::parse_rfc3339(&params.now)
+            .map(desk_agent_data_store::datetime::to_database)
+            .map_err(|_| invalid())?;
         let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
         let txn = crate::db::begin_write(db, agent_session::Entity).await?;
         let history = desk_diagnose_core::future::boxed(|| {
@@ -1734,7 +1733,10 @@ pub fn claim_slice<'a>(
         ledger.bind_claim(&goal, &session).map_err(|_| invalid())?;
         session.version = session_row.version.checked_add(1).ok_or_else(invalid)?;
         let session_state = session.encode_json_for_storage().map_err(|_| invalid())?;
-        let deadline = now + Duration::seconds(90);
+        let deadline = now
+            + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(
+                90,
+            ));
         desk_diagnose_core::future::send_phase(|| async {
             let changed = agent_session::Entity::update_many()
                 .set(agent_session::ActiveModel {
@@ -1815,7 +1817,7 @@ async fn claim_slice_source_on(
     params: &ClaimTurnParams,
     expected_goal_id: &str,
     expected_state_version: Option<u64>,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<Box<PreparedGoalClaim>>, DbErr> {
     let Some(session_row) = agent_session::Entity::find()
         .filter(agent_session::Column::ConversationId.eq(&params.conversation_id))
@@ -1911,7 +1913,7 @@ pub async fn heartbeat_goal_if_running(
     db: &DatabaseConnection,
     conversation_id: &str,
     session_lease_token: u64,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Option<bool>, DbErr> {
     let running = goal_row::Entity::find()
         .filter(goal_row::Column::ConversationId.eq(conversation_id))
@@ -1959,7 +1961,8 @@ pub async fn heartbeat_goal_if_running(
     {
         return Ok(Some(false));
     }
-    let deadline = now + Duration::seconds(90);
+    let deadline = now
+        + desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(90));
     let deadline_ms = as_i64(u64::try_from(deadline.timestamp_millis()).map_err(|_| invalid())?)?;
     let session_changed = agent_session::Entity::update_many()
         .col_expr(
@@ -2045,7 +2048,7 @@ pub async fn settle_slice(
     session: &mut PersistedAgentSession,
     end: &GoalSegmentEnd,
     result_fingerprints: &[String],
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<GoalRun, DbErr> {
     let mut updated = session.clone_boxed();
     let goal = desk_diagnose_core::future::send_phase(|| {
@@ -2061,7 +2064,7 @@ async fn settle_slice_afterimage(
     session: &mut PersistedAgentSession,
     end: &GoalSegmentEnd,
     result_fingerprints: &[String],
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<GoalRun, DbErr> {
     let segment = session
         .focus_epoch
@@ -2265,7 +2268,7 @@ async fn validate_slice_session_on(
     session_row: &agent_session::Model,
     segment: &desk_diagnose_core::focus_epoch::GoalSegmentIdentity,
     end: &GoalSegmentEnd,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<Box<PersistedAgentSession>, DbErr> {
     let persisted = Box::new(
         PersistedAgentSession::decode_json(&session_row.state_json).map_err(|_| invalid())?,
@@ -2307,7 +2310,7 @@ async fn persist_slice_on(
     goal: &GoalRun,
     previous_state_version: u64,
     previous_lease_epoch: u64,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<(), DbErr> {
     let ledger = GoalLedgerEvent::new(
         goal,
@@ -2422,7 +2425,7 @@ mod lifecycle_tests {
                 expires_at: None,
                 policy_name: None,
             },
-            Utc::now().to_rfc3339(),
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         );
         session.surface = AgentSessionSurface::AiAgent;
         session.begin_focus_epoch(1, Vec::<String>::new()).unwrap();
@@ -2437,8 +2440,8 @@ mod lifecycle_tests {
             state_json: Set(session.encode_json_for_storage().unwrap()),
             version: Set(0),
             lease_token: Set(0),
-            created_at: Set(Utc::now()),
-            updated_at: Set(Utc::now()),
+            created_at: Set(desk_agent_data_store::datetime::utc_now()),
+            updated_at: Set(desk_agent_data_store::datetime::utc_now()),
             ..Default::default()
         }
         .insert(db)
@@ -2461,7 +2464,7 @@ mod lifecycle_tests {
                 .unwrap()
                 .unwrap();
             let mut session = PersistedAgentSession::decode_json(&original.state_json).unwrap();
-            let now = Utc::now();
+            let now = desk_agent_data_store::datetime::utc_now();
             let task = goal("native-status-direct", now.timestamp_millis() as u64);
             let txn = crate::db::begin_write(&db, agent_session::Entity)
                 .await
@@ -2543,7 +2546,7 @@ mod lifecycle_tests {
                 &task.goal_id,
                 task.state_version,
                 GoalOwnerAction::Cancel,
-                Utc::now(),
+                desk_agent_data_store::datetime::utc_now(),
             )
             .await
             .unwrap()
@@ -2597,7 +2600,7 @@ mod lifecycle_tests {
     #[tokio::test]
     async fn orphan_goal_is_cancelled_instead_of_holding_the_queue() {
         let db = db().await;
-        let now = Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let orphan = goal("missing", now.timestamp_millis() as u64 - 1_000);
         insert(&db, &orphan).await;
         let cancelled = update_device_availability(&db, &orphan, true, now)
@@ -2621,7 +2624,7 @@ mod lifecycle_tests {
     async fn device_outage_longer_than_the_maximum_cancels_the_goal() {
         let db = db().await;
         seed_session(&db, "conversation-1").await;
-        let start = Utc::now();
+        let start = desk_agent_data_store::datetime::utc_now();
         let queued = goal("conversation-1", start.timestamp_millis() as u64 - 1_000);
         insert(&db, &queued).await;
         let waiting = update_device_availability(&db, &queued, false, start)
@@ -2638,17 +2641,27 @@ mod lifecycle_tests {
             &db,
             &waiting,
             false,
-            start + Duration::milliseconds(max - 1),
+            start
+                + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_millis(max - 1),
+                ),
         )
         .await
         .unwrap()
         .unwrap();
         assert_eq!(recheck.state, GoalState::Waiting(GoalWaitReason::Device));
-        let ended =
-            update_device_availability(&db, &recheck, false, start + Duration::milliseconds(max))
-                .await
-                .unwrap()
-                .unwrap();
+        let ended = update_device_availability(
+            &db,
+            &recheck,
+            false,
+            start
+                + desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_millis(max),
+                ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(ended.state, GoalState::Cancelled);
         assert_eq!(
             ended.status_reason.as_deref(),

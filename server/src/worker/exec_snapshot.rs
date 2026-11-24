@@ -225,7 +225,7 @@ fn runs_as_system_identity() -> bool {
 }
 
 pub(crate) fn now_ms() -> u64 {
-    chrono::Utc::now().timestamp_millis().max(1) as u64
+    jiff::Timestamp::now().as_millisecond().max(1) as u64
 }
 
 /// The report of a plan with roots whose snapshot was not taken.

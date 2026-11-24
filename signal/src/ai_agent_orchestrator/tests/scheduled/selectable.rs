@@ -41,7 +41,7 @@ async fn selectable_timer_runs_on_original_device_after_owner_clears_selection()
             .unwrap();
     }
     use desk_agent_protocol::computer_use::*;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     crate::computer_use_readiness::global_computer_use_readiness_cache()
         .update(
             "live-timer-a",
@@ -49,7 +49,11 @@ async fn selectable_timer_runs_on_original_device_after_owner_clears_selection()
                 schema_version: COMPUTER_USE_SCHEMA_VERSION,
                 revision: 1,
                 observed_at: now.to_rfc3339(),
-                expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                expires_at: (now
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(5),
+                    ))
+                .to_rfc3339(),
                 server_api_version: 1,
                 os: "macos".into(),
                 interactive_user_home: None,
@@ -74,7 +78,7 @@ async fn selectable_timer_runs_on_original_device_after_owner_clears_selection()
                 }],
                 context_references: vec![],
             },
-            now,
+            desk_agent_data_store::datetime::from_database(now).unwrap(),
         )
         .unwrap();
     let gate =
@@ -140,8 +144,10 @@ async fn selectable_timer_runs_on_original_device_after_owner_clears_selection()
                         spec: ScheduleSpec {
                             schema_version: 1,
                             rule: ScheduleRule::Once {
-                                at: (chrono::Utc::now() + chrono::Duration::seconds(2))
-                                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                                at: format!(
+                                    "{:.0}",
+                                    jiff::Timestamp::now() + jiff::SignedDuration::from_secs(2)
+                                ),
                             },
                         },
                         source_conversation_id: Some(conversation.clone()),
@@ -361,7 +367,7 @@ async fn ai_proposed_timer_runs_on_the_selected_device() {
             .unwrap();
     }
     use desk_agent_protocol::computer_use::*;
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     crate::computer_use_readiness::global_computer_use_readiness_cache()
         .update(
             "live-timer-a",
@@ -369,7 +375,11 @@ async fn ai_proposed_timer_runs_on_the_selected_device() {
                 schema_version: COMPUTER_USE_SCHEMA_VERSION,
                 revision: 1,
                 observed_at: now.to_rfc3339(),
-                expires_at: (now + chrono::Duration::minutes(5)).to_rfc3339(),
+                expires_at: (now
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(5),
+                    ))
+                .to_rfc3339(),
                 server_api_version: 1,
                 os: "macos".into(),
                 interactive_user_home: None,
@@ -394,7 +404,7 @@ async fn ai_proposed_timer_runs_on_the_selected_device() {
                 }],
                 context_references: vec![],
             },
-            now,
+            desk_agent_data_store::datetime::from_database(now).unwrap(),
         )
         .unwrap();
     let gate =
@@ -404,8 +414,10 @@ async fn ai_proposed_timer_runs_on_the_selected_device() {
         });
     let client = "ai-timer";
     let conversation = derive_agent_conversation_key("1", AgentConversationScope::Personal, client);
-    let at = (chrono::Utc::now() + chrono::Duration::seconds(3))
-        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let at = format!(
+        "{:.0}",
+        jiff::Timestamp::now() + jiff::SignedDuration::from_secs(3)
+    );
     let arguments = json!({
         "kind": "conversation_resume",
         "title": "Read Mac time",

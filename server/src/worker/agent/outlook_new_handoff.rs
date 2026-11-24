@@ -138,7 +138,7 @@ pub fn execute(
             adapter_error(format!("failed to seal Outlook handoff input: {error}"))
         })?)
     );
-    let handed_off_at_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis())
+    let handed_off_at_unix_ms = u64::try_from(jiff::Timestamp::now().as_millisecond())
         .map_err(|_| adapter_error("system clock predates the Unix epoch"))?;
     let handoff = CommunicationDraftHandoff {
         schema_version: COMMUNICATION_SCHEMA_VERSION,

@@ -5,7 +5,6 @@ use crate::capability_grant_store::{
     computer_cancel::{CancelCandidate, wire_request_id},
 };
 use crate::config::connection::DatabaseConnection;
-use chrono::Utc;
 use desk_agent_protocol::{
     AgentScope, ExecutionMode, RiskLevel,
     authz::{
@@ -133,7 +132,9 @@ fn stop_frame(candidate: &CancelCandidate) -> Result<SignalingModel, DbErr> {
             device: AuthzDevice { device_id: None },
             request_id: request.clone(),
             session_id: None,
-            expires_at: Some((Utc::now() + chrono::Duration::seconds(10)).to_rfc3339()),
+            expires_at: Some(desk_utils::datetime::rfc3339(
+                jiff::Timestamp::now() + jiff::SignedDuration::from_secs(10),
+            )),
             issuer: "signal".into(),
             audience: candidate.audience.clone(),
             signature: None,

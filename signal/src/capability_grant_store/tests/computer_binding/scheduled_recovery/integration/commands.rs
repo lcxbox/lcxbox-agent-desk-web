@@ -75,14 +75,14 @@ async fn fixture(db: DatabaseConnection) -> (ScheduleStore, String, String) {
         "old-call",
         "old-host",
         "device-1",
-        Utc::now(),
+        desk_agent_data_store::datetime::utc_now(),
     )
     .await
     .unwrap();
     exec.mark_unsent("old-generation").await.unwrap();
     let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry();
     let mut origin = ActionResultOrigin::capture(&registry, &session, &call).unwrap();
-    let now = Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let context = desk_diagnose_core::command_completion::CommandCompletionContext::capture(
         &session,
         destination,
@@ -210,9 +210,9 @@ async fn scheduled_command_recovery_uses_original_exec_identity_and_atomic_recei
             .unwrap()
             .unwrap();
         let mut expired: agent_schedule_run::ActiveModel = original.clone().into();
-        expired.lease_deadline = Set(Some(Utc::now().timestamp_millis() - 1));
+        expired.lease_deadline = Set(Some(jiff::Timestamp::now().as_millisecond() - 1));
         if mode == 0 {
-            expired.cancel_requested_at = Set(Some(Utc::now().timestamp_millis()));
+            expired.cancel_requested_at = Set(Some(jiff::Timestamp::now().as_millisecond()));
         }
         expired.update(&db).await.unwrap();
         let mut expired: agent_session::ActiveModel = agent_session::Entity::find()
@@ -236,7 +236,7 @@ async fn scheduled_command_recovery_uses_original_exec_identity_and_atomic_recei
         let command = exec.find_by_generation(&generation).await.unwrap().unwrap();
         assert_ne!(command.id, outbox.work_id);
         let sessions = crate::agent_session_store::SignalAgentSessionStore::new(db.clone());
-        let now = Utc::now().to_rfc3339();
+        let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
         assert_eq!(
             sessions
                 .deliver_work_completion_with_envelope(

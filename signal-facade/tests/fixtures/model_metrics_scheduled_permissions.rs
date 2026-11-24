@@ -18,7 +18,7 @@ async fn seed_observed_schedule_waits<C: sea_orm::ConnectionTrait>(
             &desk_diagnose_core::chat::ToolCall { id:"private-provider-call".into(),name:"request_permissions".into(),
                 arguments_json:r#"{"items":[{"item_id":"capture","tool_name":"read_current_screen","exact_input":{"display":"private-display"},"suggested_ttl_seconds":300,"suggested_max_uses":1,"reason":"private-owner-reason"}]}"#.into() },
             &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
-            "server-scheduled-permission".into(),session.input_revision,chrono::Utc::now().to_rfc3339(),
+            "server-scheduled-permission".into(),session.input_revision,desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         ).unwrap();
         aliases.push(ObservationAlias::permission_request(conversation,&request.request_id).unwrap());
         session.permission_requests.push(request);
@@ -72,7 +72,7 @@ async fn committed_scheduled_cancellation_ends_waits_and_observer_panic_does_not
         let aliases=seed_observed_schedule_waits(&db,&parent,&child.child_conversation_id).await;
         let before=original_run(&db,&parent.conversation_id).await;
         run::Entity::update_many().set(run::ActiveModel {
-            cancel_requested_at:Set(Some(chrono::Utc::now().timestamp_millis())),..Default::default()
+            cancel_requested_at:Set(Some(jiff::Timestamp::now().as_millisecond())),..Default::default()
         }).filter(run::Column::Id.eq(before.id)).exec(&db).await.unwrap();
         let mut events=Vec::new();
         assert!(schedule.settle_fresh_children_wait_with_observer(&parent.conversation_id,|event| {

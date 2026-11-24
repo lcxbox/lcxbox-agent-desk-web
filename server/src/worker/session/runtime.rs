@@ -2240,9 +2240,8 @@ impl WorkerSession {
                                         execution_generation: plan.execution_generation.clone(),
                                         interactive_session_incarnation: plan.interactive_session_incarnation.clone(),
                                         approved_actor_id: plan.approved_actor_id.clone(),
-                                        expires_at: chrono::DateTime::parse_from_rfc3339(&plan.expires_at)
-                                            .map(|value| value.with_timezone(&chrono::Utc))
-                                            .unwrap_or_else(|_| chrono::Utc::now() - chrono::Duration::seconds(1)),
+                                        expires_at: desk_utils::datetime::parse_rfc3339(&plan.expires_at)
+                                            .unwrap_or_else(|_| jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1)),
                                     };
                                     let action_preflight = if crate::worker::agent::application_batch::supports(&plan.actions) { computer_use_broker.preflight_application_batch(&plan.actions,&ceiling).map_err(|e|e.message) } else { match &plan.actions[0].action {
                                         ComputerActionKind::UiInApplication { application, action } => computer_use_broker

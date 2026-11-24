@@ -803,7 +803,7 @@ async fn one_thousand_independent_facts_keep_sparse_retrieval_bounded_and_readab
         memory_state_generation: current.memory_state_generation as u64,
     };
     let device = devices.first().unwrap();
-    let clock = chrono::Utc::now().timestamp_millis() as u64;
+    let clock = jiff::Timestamp::now().as_millisecond() as u64;
     let scope = desk_diagnose_core::ai_agent::memory_access::owner_memory_scope(
         "1",
         "capacity-root",

@@ -82,7 +82,7 @@ async fn controller_replays_before_readiness_and_rejects_changed_target_without_
     });
     assert!(
         crate::computer_use_readiness::global_computer_use_readiness_cache()
-            .get_fresh(&host, Utc::now())
+            .get_fresh(&host, jiff::Timestamp::now())
             .is_none()
     );
     let db = store.db.clone();

@@ -74,9 +74,9 @@ async fn record(
         || row.input_revision
             != i64::try_from(decision.request_input_revision).map_err(|_| invalid())?
         || row.created_at
-            != DateTime::parse_from_rfc3339(&decision.event.created_at)
+            != desk_utils::datetime::parse_rfc3339(&decision.event.created_at)
+                .map(desk_agent_data_store::datetime::to_database)
                 .map_err(|_| invalid())?
-                .with_timezone(&Utc)
         || row.version < 1
         || !match (row.state.as_str(), row.turn_id.as_deref()) {
             ("pending" | "superseded" | "goal_handled" | "failed", None) => true,
@@ -98,7 +98,7 @@ async fn transition(
     row: &resume::Model,
     state: &str,
     started: bool,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<(), AgentError> {
     let result = resume::Entity::update_many()
         .col_expr(resume::Column::State, Expr::value(state))
@@ -130,7 +130,7 @@ pub(crate) async fn supersede_group_rows_on(
     txn: &DatabaseTransaction,
     session: &PersistedAgentSession,
     request_id: &str,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<bool, AgentError> {
     for member in group_members(session, request_id) {
         if let Some(decision) =
@@ -241,7 +241,7 @@ pub(crate) async fn permission_work_current(
         txn,
         session,
         request.selected_device_id().is_some() || !session.device_id.is_empty(),
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     {
@@ -372,7 +372,7 @@ impl SignalAgentSessionStore {
     pub async fn pending_permission_resume(
         &self,
         candidate: &resume::Model,
-        now: DateTime<Utc>,
+        now: sea_orm::prelude::DateTimeUtc,
     ) -> Result<Option<PersistedAgentSession>, AgentError> {
         let row = find(&self.db, &candidate.run_id)
             .await
@@ -487,9 +487,9 @@ impl SignalAgentSessionStore {
         {
             return Err(ClaimError::Backend(invalid()));
         }
-        let now = DateTime::parse_from_rfc3339(&params.now)
-            .map_err(|_| ClaimError::Backend(invalid()))?
-            .with_timezone(&Utc);
+        let now = desk_utils::datetime::parse_rfc3339(&params.now)
+            .map(desk_agent_data_store::datetime::to_database)
+            .map_err(|_| ClaimError::Backend(invalid()))?;
         let txn = crate::db::begin_write(&self.db, crate::entity::agent_session::Entity)
             .await
             .map_err(|e| ClaimError::Backend(storage(e)))?;
@@ -703,7 +703,11 @@ impl SignalAgentSessionStore {
             )
             .col_expr(
                 agent_session::Column::LeaseDeadline,
-                Expr::value(Some(now + Duration::seconds(LEASE_TTL_SECS))),
+                Expr::value(Some(
+                    now + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_secs(LEASE_TTL_SECS),
+                    ),
+                )),
             )
             .col_expr(agent_session::Column::UpdatedAt, Expr::value(now))
             .filter(agent_session::Column::Id.eq(row.id))
@@ -731,7 +735,7 @@ pub(crate) async fn consume_scheduled_decision_on(
     session: &PersistedAgentSession,
     request_id: &str,
     expected_grants: &[desk_agent_protocol::capability_grant::CapabilityGrant],
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<(), AgentError> {
     if !matches!(
         session.trigger_origin,
@@ -795,7 +799,7 @@ pub(crate) async fn scheduled_decision_on(
 pub(crate) async fn settle_scheduled_decision_on(
     txn: &DatabaseTransaction,
     session: &PersistedAgentSession,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<(), AgentError> {
     if !matches!(session.turn_state, TurnState::Idle | TurnState::Failed) {
         return Err(invalid());
@@ -843,7 +847,7 @@ pub(crate) async fn settle_fresh_decision_on(
     txn: &DatabaseTransaction,
     session: &PersistedAgentSession,
     request_id: &str,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<(), AgentError> {
     if session.trigger_origin != TriggerOrigin::ScheduledTask {
         return Err(invalid());
@@ -877,7 +881,7 @@ pub(crate) async fn close_fresh_wait_decision_on(
     txn: &DatabaseTransaction,
     session: &PersistedAgentSession,
     request_id: &str,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<(), AgentError> {
     if session.trigger_origin != TriggerOrigin::ScheduledTask {
         return Err(invalid());
@@ -889,7 +893,7 @@ pub(crate) async fn close_wait_decision_on(
     txn: &DatabaseTransaction,
     session: &PersistedAgentSession,
     request_id: &str,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<(), AgentError> {
     if !matches!(
         session.trigger_origin,

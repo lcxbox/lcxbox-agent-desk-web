@@ -8,7 +8,6 @@ use desk_agent_data_store::entity_table::EntityTableExt;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use desk_agent_protocol::capability_provider::{
     CapabilityCancelRequest, CapabilityCompletionClass, CapabilityCompletionEvent,
     CapabilityProgressEvent,
@@ -516,8 +515,11 @@ impl SignalBackgroundTaskStore {
                     request.request_id
                 ))
             })?;
-            self.ack_cancel_delivery(&request, &Utc::now().to_rfc3339())
-                .await?;
+            self.ack_cancel_delivery(
+                &request,
+                &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+            )
+            .await?;
         }
         Ok(())
     }
@@ -722,7 +724,7 @@ impl SignalBackgroundTaskStore {
                     .follow_up_completion(
                         &sessions,
                         &row,
-                        &Utc::now().to_rfc3339(),
+                        &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                         WorkKind::CapabilityProvider,
                     )
                     .await?
@@ -735,7 +737,7 @@ impl SignalBackgroundTaskStore {
             let execution_id = row.execution_id.as_deref().ok_or_else(|| {
                 DbErr::Custom("background delivery has no execution identity".into())
             })?;
-            let now = Utc::now().to_rfc3339();
+            let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
             let completion_payload: BackgroundCompletionPayload = serde_json::from_str(
                 row.result_json
                     .as_deref()
@@ -853,8 +855,9 @@ impl SignalBackgroundTaskStore {
             .expires_at
             .as_ref()
             .is_some_and(|raw| {
-                DateTime::parse_from_rfc3339(raw)
-                    .map(|deadline| deadline < Utc::now())
+                desk_utils::datetime::parse_rfc3339(raw)
+                    .map(desk_agent_data_store::datetime::to_database)
+                    .map(|deadline| deadline < desk_agent_data_store::datetime::utc_now())
                     .unwrap_or(true)
             });
         if pending.chain_id != session.chain_id || session.automation_turns_used >= limit || expired
@@ -893,7 +896,7 @@ impl SignalBackgroundTaskStore {
                             .prune_auto_trigger(
                                 &row.conversation_id,
                                 &row.completion_event_id,
-                                &Utc::now().to_rfc3339(),
+                                &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                                 None,
                             )
                             .await
@@ -920,7 +923,7 @@ impl SignalBackgroundTaskStore {
                             .prune_auto_trigger(
                                 &row.conversation_id,
                                 &row.completion_event_id,
-                                &Utc::now().to_rfc3339(),
+                                &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
                                 exhausted.then_some(limit),
                             )
                             .await
@@ -1139,10 +1142,10 @@ async fn persist_transition<C: sea_orm::ConnectionTrait + crate::config::ConfigC
     Ok(true)
 }
 
-fn parse_time(raw: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(raw)
-        .map(|value| value.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now())
+fn parse_time(raw: &str) -> sea_orm::prelude::DateTimeUtc {
+    desk_utils::datetime::parse_rfc3339(raw)
+        .map(desk_agent_data_store::datetime::to_database)
+        .unwrap_or_else(|_| desk_agent_data_store::datetime::utc_now())
 }
 
 fn json_error(error: serde_json::Error) -> DbErr {

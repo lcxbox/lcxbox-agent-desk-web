@@ -38,8 +38,9 @@ pub(super) fn unpack(bytes: &[u8]) -> Result<Unpacked, PackageError> {
         let entry = archive
             .by_index(index)
             .map_err(|_| PackageError::InvalidZip)?;
-        if !entry.is_dir() && !ignored(entry.name()) {
-            names.push((index, entry.name().to_owned()));
+        let name = entry.name().map_err(|_| PackageError::InvalidZip)?;
+        if !entry.is_dir() && !ignored(&name) {
+            names.push((index, name.into_owned()));
         }
     }
     let directory = if names.iter().any(|(_, name)| name == SKILL_FILE) {

@@ -26,7 +26,7 @@ async fn scheduled_approval_claim_consumes_original_receipt_and_preserves_occurr
     settled.handled_input_seq = settled.latest_input_seq;
     store.save(&mut settled).await.unwrap();
     let scheduler = ScheduleStore::new(store.db.clone());
-    let now = Utc::now().timestamp() * 1000;
+    let now = jiff::Timestamp::now().as_second() * 1000;
     let draft = ScheduleCreation {
         time_confirmation: None,
         client_create_key: "scheduled-permission".into(),
@@ -53,9 +53,10 @@ async fn scheduled_approval_claim_consumes_original_receipt_and_preserves_occurr
     active.spec_json = Set(serde_json::to_string(&ScheduleSpec {
         schema_version: 1,
         rule: ScheduleRule::Once {
-            at: chrono::DateTime::from_timestamp_millis(now - 1000)
+            at: sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now - 1000)
                 .unwrap()
-                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string(),
         },
     })
     .unwrap());
@@ -92,7 +93,10 @@ async fn scheduled_approval_claim_consumes_original_receipt_and_preserves_occurr
         request_id: "permission-1".into(),
         ..Default::default()
     });
-    session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     session.handled_input_seq = session.latest_input_seq;
     store.save(&mut session).await.unwrap();
     scheduler

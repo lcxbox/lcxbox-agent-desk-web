@@ -109,7 +109,7 @@ impl Frame {
             .unwrap();
         self.save().await;
         assert!(!calls.is_empty());
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond() as u64;
         let parent = ModelEgressPolicy {
             destination: self.destination.clone(),
             selected_source_tools: Default::default(),
@@ -195,7 +195,7 @@ impl Frame {
             .unwrap();
         // A tool reservation follows actual native acceptance, not the time
         // before preparing and recording that model call.
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond() as u64;
         self.producer_id = if ordinal == 1 {
             "window-producer".into()
         } else {

@@ -111,7 +111,7 @@ pub(super) async fn assert_still_current(
         "host",
         &child.actor_id,
         child,
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )
     .await
     .unwrap()
@@ -155,7 +155,7 @@ async fn dispatch_revalidates_the_plan_against_the_sessions_directory_approvals(
         desk_agent_protocol::evidence::EvidenceSnapshot::record(
             "fixture",
             "fixture",
-            chrono::Utc::now().to_rfc3339(),
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             Vec::new(),
         ),
         ExecAdmissionPolicy::OwnerInteractive,
@@ -285,7 +285,7 @@ async fn a_device_change_report_is_admitted_only_against_the_claimed_plan_roots(
     else {
         panic!("approved input must dispatch")
     };
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let origin = ActionResultOrigin::capture_confirmed_command(
         &desk_diagnose_core::ai_agent::ai_agent_provider_registry(),
         &child,

@@ -314,7 +314,7 @@ async fn acceptance_leaves_the_archive_as_the_only_copy_of_the_input_lists() {
 #[tokio::test]
 async fn gc_keeps_items_until_the_last_archive_of_the_conversation_is_removed() {
     let (store, parent, child) = chain("item-gc-order").await;
-    let now = chrono::Utc::now().timestamp_millis() as u64 + 100 * 86_400_000;
+    let now = jiff::Timestamp::now().as_millisecond() as u64 + 100 * 86_400_000;
     detach_execution(&store).await;
     assert_eq!(gc(&store, now, 1).await.unwrap().removed, 1);
     assert!(
@@ -439,7 +439,7 @@ async fn independent_memories_do_not_pin_original_model_archives_or_their_ancest
         .await
         .unwrap();
     detach_execution(&store).await;
-    let now = chrono::Utc::now().timestamp_millis() as u64 + 100 * 86_400_000;
+    let now = jiff::Timestamp::now().as_millisecond() as u64 + 100 * 86_400_000;
     let versions_before = version::Entity::find().all(&store.db).await.unwrap();
     let collected = gc(&store, now, 64).await.unwrap();
     assert_eq!((collected.removed, collected.held), (2, 0));
@@ -467,7 +467,7 @@ async fn malformed_scan_hint_does_not_change_source_permissions_or_block_a_new_s
         .await
         .unwrap();
     let before = quota::Entity::find().one(&store.db).await.unwrap().unwrap();
-    let now = chrono::Utc::now().timestamp_millis() as u64 + 100 * 86_400_000;
+    let now = jiff::Timestamp::now().as_millisecond() as u64 + 100 * 86_400_000;
     let result = gc(&store, now, 64).await.unwrap();
     assert_eq!((result.scanned, result.held, result.removed), (2, 2, 0));
     let after = quota::Entity::find().one(&store.db).await.unwrap().unwrap();
@@ -490,7 +490,7 @@ async fn an_untrusted_record_timestamp_is_not_a_deletion_authority_or_a_cursor_t
         .exec(&store.db)
         .await
         .unwrap();
-    let now = chrono::Utc::now().timestamp_millis() as u64 + 100 * 86_400_000;
+    let now = jiff::Timestamp::now().as_millisecond() as u64 + 100 * 86_400_000;
     assert_eq!(gc(&store, now, 64).await.unwrap().removed, 1);
     assert_eq!(archived::Entity::find().count(&store.db).await.unwrap(), 1);
     assert_eq!(gc(&store, now, 64).await.unwrap().scanned, 0);
@@ -510,7 +510,7 @@ async fn final_quota_failure_restores_gc_rows_pins_and_cursor() {
     let (store, _, _) = chain("pin-gc-rollback").await;
     detach_execution(&store).await;
     let before = quota::Entity::find().one(&store.db).await.unwrap().unwrap();
-    let now = chrono::Utc::now().timestamp_millis() as u64 + 100 * 86_400_000;
+    let now = jiff::Timestamp::now().as_millisecond() as u64 + 100 * 86_400_000;
     store.db.execute_unprepared("CREATE TRIGGER reject_gc_refund BEFORE UPDATE ON agent_quota BEGIN SELECT RAISE(ABORT, 'injected refund failure'); END").await.unwrap();
     assert!(gc(&store, now, 64).await.is_err());
     assert_eq!(

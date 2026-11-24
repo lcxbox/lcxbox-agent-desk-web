@@ -813,7 +813,7 @@ fn check_at(
                 ));
             }
         }
-        if schema["format"] == "date-time" && chrono::DateTime::parse_from_rfc3339(text).is_err() {
+        if schema["format"] == "date-time" && desk_utils::datetime::parse_rfc3339(text).is_err() {
             return Err(FormatError::new(
                 Issue::Pattern,
                 schema_path,

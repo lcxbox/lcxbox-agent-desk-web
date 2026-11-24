@@ -177,7 +177,7 @@ async fn attached_scan_is_recorded_on_the_saved_version() {
         PLATFORM_SCOPE,
         &parsed,
         &mut preview,
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     .unwrap();
@@ -195,7 +195,7 @@ async fn attached_scan_is_recorded_on_the_saved_version() {
             package: input(),
             scan_id: Some(scan_id),
         },
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     )
     .await
     .unwrap();

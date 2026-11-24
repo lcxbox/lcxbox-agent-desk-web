@@ -254,7 +254,7 @@ pub async fn test_approval_model_provider(
                 &probe,
                 &turn,
                 observation.as_ref(),
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             );
             if let Err(desk_diagnose_core::approval_review::ReviewOutputIssue::Format(issue)) =
                 desk_diagnose_core::approval_review::reviewer_output_diagnosed(
@@ -280,7 +280,7 @@ pub async fn test_approval_model_provider(
     let observation = ModelProbeObservation {
         connection_revision: candidate.gateway.connection_revision,
         profile_revision: candidate.gateway.profile_revision,
-        tested_at: chrono::Utc::now(),
+        tested_at: desk_agent_data_store::datetime::utc_now(),
         reasoning_observed,
         reasoning_tokens: reasoning_observed
             .then(|| i64::try_from(reasoning_tokens).ok())

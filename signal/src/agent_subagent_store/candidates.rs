@@ -90,7 +90,7 @@ async fn admit_worker_request_on(
         .await?
         .unwrap_or_default();
     let watermark = Ord::max(watermark, session.child_request_admission.action_watermark);
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     desk_agent_data_store::issue_reply::lifecycle::cancel_request_on(
         txn,
         &session.actor_id,
@@ -152,7 +152,7 @@ impl SubAgentStore {
             .filter(run_row::Column::ChildConversationId.in_subquery(compatible))
             .filter(run_row::Column::Id.gt(after_id))
             .filter(run_row::Column::State.is_in(["queued", "waiting_resource"]))
-            .filter(run_row::Column::NextAttemptAtMs.lte(chrono::Utc::now().timestamp_millis()))
+            .filter(run_row::Column::NextAttemptAtMs.lte(jiff::Timestamp::now().as_millisecond()))
             .order_by_asc(run_row::Column::Id)
             .limit(limit)
             .all(&self.db)
@@ -206,7 +206,7 @@ impl SubAgentStore {
             let wake_groups = desk_agent_data_store::worker_report::pending_wake_groups_on(
                 &self.db,
                 rows.iter().map(|row| row.group_id.clone()),
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             )
             .await?;
             let terminals = desk_agent_data_store::worker_report::pending_terminal_events_on(
@@ -321,7 +321,7 @@ impl SubAgentStore {
             &txn,
             &session,
             false,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         {
@@ -363,7 +363,7 @@ impl SubAgentStore {
             &txn,
             &session,
             false,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         {

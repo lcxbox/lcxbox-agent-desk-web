@@ -273,10 +273,11 @@ impl IssueConnection {
         since_ms: i64,
         page: std::num::NonZeroU32,
     ) -> Result<RepositoryCommentPage, McpClientError> {
-        let since = chrono::DateTime::from_timestamp_millis(since_ms)
+        let since = jiff::Timestamp::from_millisecond(since_ms)
+            .ok()
             .filter(|_| since_ms >= 0)
-            .ok_or(McpClientError::InvalidConfiguration)?
-            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            .ok_or(McpClientError::InvalidConfiguration)?;
+        let since = format!("{since:.0}");
         self.check_repository(expected).await?;
         let mut url = self.rest_url(&[
             "repos",
@@ -402,8 +403,8 @@ impl IssueConnection {
 }
 
 fn timestamp(value: &str) -> Result<i64, McpClientError> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .map(|time| time.timestamp_millis())
+    desk_utils::datetime::parse_rfc3339(value)
+        .map(desk_utils::datetime::unix_millis)
         .ok()
         .filter(|time| *time >= 0)
         .ok_or(McpClientError::Unavailable)

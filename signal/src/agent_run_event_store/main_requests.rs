@@ -301,7 +301,7 @@ mod tests {
         };
         assert!(!held(session.clone()).await);
 
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let action = agent_action_item::ActiveModel {
             kind: Set(CAPABILITY_WORK_KIND.into()),
             action_request_id: Set("action".into()),

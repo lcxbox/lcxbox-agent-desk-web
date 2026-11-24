@@ -22,7 +22,7 @@ pub async fn deliver_next(
             txn,
             &artifact.origin,
             &artifact.access,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .map_err(|error| error.into_agent_error())
@@ -36,7 +36,7 @@ async fn deliver_next_with_authority(
     token: &str,
     automatic: impl AsyncFn(&DatabaseTransaction, &FrozenIssueReply) -> Result<Option<u64>, AgentError>,
 ) -> Result<bool, AgentError> {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let txn = crate::db::begin_write(db, agent_issue_reply::Entity)
         .await
         .map_err(|_| unavailable())?;
@@ -52,7 +52,7 @@ async fn deliver_next_with_authority(
         let revision = automatic(&txn, artifact)
             .await?
             .filter(|revision| *revision >= artifact.origin.authorization_revision);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = jiff::Timestamp::now().as_millisecond();
         let reason = if revision.is_none() {
             Some("authorization_unavailable")
         } else if artifact.authorize_delivery(now as u64).is_err() {
@@ -87,7 +87,7 @@ async fn deliver_next_with_authority(
             return Ok(true);
         }
         Err(desk_diagnose_core::issue_reply::ReplyTransportError::Unavailable) => {
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = jiff::Timestamp::now().as_millisecond();
             if claim.needs_reconciliation() {
                 unavailable_connection(db, &claim).await?;
             } else {
@@ -106,7 +106,7 @@ async fn deliver_next_with_authority(
 }
 
 async fn unavailable_connection(db: &DatabaseConnection, claim: &Claim) -> Result<(), AgentError> {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     if claim.needs_reconciliation() {
         let page = u32::try_from(claim.row.reconciliation_page)
             .ok()
@@ -146,7 +146,7 @@ async fn commit_dispatch(
     let revision = automatic(&txn, artifact)
         .await?
         .filter(|revision| *revision >= artifact.origin.authorization_revision);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     if revision.is_none() || artifact.authorize_delivery(now as u64).is_err() {
         issue_reply::keep_internal(
             &txn,

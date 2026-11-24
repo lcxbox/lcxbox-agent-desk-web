@@ -828,7 +828,7 @@ mod test_support {
                 &context.conversation_id,
                 &receipt.recovery.recovery_id,
                 0,
-                Utc::now().timestamp_millis() as u64,
+                jiff::Timestamp::now().as_millisecond() as u64,
             )
             .ok()
             .and_then(|material| material.before);

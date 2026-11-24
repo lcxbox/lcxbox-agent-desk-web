@@ -38,7 +38,7 @@ impl SignalAiAgentTools {
             original: &input.selection,
             device_id: &self.target_device_id,
             destination: &input.destination,
-            now_unix_ms: u64::try_from(chrono::Utc::now().timestamp_millis())
+            now_unix_ms: u64::try_from(jiff::Timestamp::now().as_millisecond())
                 .map_err(|_| denied())?,
         })
     }
@@ -71,7 +71,7 @@ impl SignalAiAgentTools {
                 input.revision,
                 &input.selection,
                 &input.destination,
-                u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| denied())?,
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| denied())?,
             )
             .await?;
         if desk_diagnose_core::input_read_context::live_read::has_device_targets(
@@ -79,13 +79,13 @@ impl SignalAiAgentTools {
             &self.target_device_id,
         ) {
             let readiness = crate::computer_use_readiness::global_computer_use_readiness_cache()
-                .get_fresh(&self.target_connection_id, chrono::Utc::now())
+                .get_fresh(&self.target_connection_id, jiff::Timestamp::now())
                 .ok_or_else(denied)?;
             desk_diagnose_core::input_read_context::live_read::validate_current(
                 &input.selection,
                 &self.target_device_id,
                 Some(&readiness.readiness),
-                u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_| denied())?,
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| denied())?,
             )?;
         }
         Ok(())

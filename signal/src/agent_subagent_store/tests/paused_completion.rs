@@ -49,7 +49,7 @@ async fn original_receipt_backfills_paused_child_and_claim_waits_for_goal_resume
         source_envelope_ids: vec!["fixture-original-input".into()],
         sensitivity: desk_agent_protocol::data_lineage::Sensitivity::Sensitive,
         retention: desk_agent_protocol::data_lineage::RetentionBoundary {
-            expires_at_unix_ms: Some((chrono::Utc::now().timestamp_millis() + 120_000) as u64),
+            expires_at_unix_ms: Some((jiff::Timestamp::now().as_millisecond() + 120_000) as u64),
             delete_with_run: true,
         },
         ephemeral: false,
@@ -66,7 +66,10 @@ async fn original_receipt_backfills_paused_child_and_claim_waits_for_goal_resume
             "paused-completion",
         ),
     };
-    child.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
+    child.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     save_child_session(&db, &mut child).await.unwrap();
     let goal = super::input_sources::goal(&db).await;
     let paused = super::paused_permission::control(&db, &goal, GoalOwnerAction::Pause)
@@ -97,7 +100,7 @@ async fn original_receipt_backfills_paused_child_and_claim_waits_for_goal_resume
     assert!(native.command_result(&altered).await.is_err());
     let event = work.event_id.clone();
     let sessions = SignalAgentSessionStore::new(db.clone());
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
     for expected in [EventAppend::Appended, EventAppend::AlreadyPresent] {
         assert_eq!(
             sessions
@@ -142,7 +145,7 @@ async fn original_receipt_backfills_paused_child_and_claim_waits_for_goal_resume
         request_id: None,
         connection_id: None,
         trigger_origin: TriggerOrigin::ExecCompletion,
-        now: chrono::Utc::now().to_rfc3339(),
+        now: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     };
     assert!(
         store
@@ -264,8 +267,8 @@ async fn seed_origin(
         state: Set("claimed".into()),
         payload_json: Set(serde_json::to_string(&payload).unwrap()),
         payload_schema_version: Set(1),
-        created_at: Set(chrono::Utc::now()),
-        updated_at: Set(chrono::Utc::now()),
+        created_at: Set(desk_agent_data_store::datetime::utc_now()),
+        updated_at: Set(desk_agent_data_store::datetime::utc_now()),
         ..Default::default()
     }
     .insert(db)

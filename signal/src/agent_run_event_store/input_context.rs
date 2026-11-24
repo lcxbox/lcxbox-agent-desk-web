@@ -173,7 +173,7 @@ pub(super) fn validate_selection(
     session: &PersistedAgentSession,
     selection: &ReadContextSelection,
     message: &ChatMessage,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<(), AgentError> {
     selection.validate()?;
     if selection
@@ -391,7 +391,7 @@ pub(crate) async fn original_on(
 async fn original_with_time_on(
     txn: &crate::config::connection::DatabaseTransaction,
     session: &PersistedAgentSession,
-) -> Result<(Option<ReadContextSelection>, DateTime<Utc>), AgentError> {
+) -> Result<(Option<ReadContextSelection>, sea_orm::prelude::DateTimeUtc), AgentError> {
     if let Some(context) = crate::schedule_store::ScheduleStore::scheduled_context_on(txn, session)
         .await
         .map_err(|_| internal("scheduled input context changed"))?

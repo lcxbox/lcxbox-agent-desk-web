@@ -1,8 +1,12 @@
 //! Deterministic UTC rule validation and strictly-future occurrence calculation.
 
-use chrono::{DateTime, Datelike, Duration, NaiveTime, SecondsFormat, Utc};
 use desk_agent_protocol::schedule::{
     MAX_SCHEDULE_SPEC_BYTES, SCHEDULE_SCHEMA_VERSION, ScheduleRule, ScheduleSpec,
+};
+use jiff::{
+    SignedDuration,
+    civil::{DateTime, Time},
+    fmt::temporal::Pieces,
 };
 
 /// Requirements must fit the existing conversation input admission limit.
@@ -104,19 +108,53 @@ pub fn normalize_creation(
     Ok(normalized)
 }
 
-fn absolute(value: &str) -> Result<DateTime<Utc>, ScheduleError> {
-    let dt = DateTime::parse_from_rfc3339(value).map_err(|_| ScheduleError::InvalidTime)?;
-    if dt.timestamp_subsec_nanos() != 0 || value.contains('.') || value.contains(',') {
-        return Err(ScheduleError::InvalidTime);
-    }
-    let utc = dt.with_timezone(&Utc);
-    if !(1970..=9999).contains(&utc.year()) {
-        return Err(ScheduleError::OutOfRange);
-    }
-    Ok(utc)
+// Civil UTC arithmetic covers the complete schedule range through 9999-12-31.
+const EPOCH: DateTime = DateTime::constant(1970, 1, 1, 0, 0, 0, 0);
+
+fn utc_at(ms: i64) -> Result<DateTime, ScheduleError> {
+    EPOCH
+        .checked_add(SignedDuration::from_millis(ms))
+        .map_err(|_| ScheduleError::OutOfRange)
 }
 
-fn clock(value: &str) -> Result<NaiveTime, ScheduleError> {
+fn millis(utc: DateTime) -> i64 {
+    EPOCH.duration_until(utc).as_millis() as i64
+}
+
+fn absolute(value: &str) -> Result<DateTime, ScheduleError> {
+    // A schedule accepts a whole-second RFC 3339 instant with an explicit offset.
+    let bytes = value.as_bytes();
+    if !matches!(bytes.len(), 20 | 25)
+        || !matches!(bytes.get(10), Some(b'T' | b't' | b' '))
+        || bytes.get(13) != Some(&b':')
+        || bytes.get(16) != Some(&b':')
+        || &bytes[17..19] > b"59".as_slice()
+        || !(bytes.len() == 20 && matches!(bytes[19], b'Z' | b'z')
+            || bytes.len() == 25
+                && matches!(bytes[19], b'+' | b'-')
+                && bytes[22] == b':'
+                && &bytes[20..22] <= b"23".as_slice())
+    {
+        return Err(ScheduleError::InvalidTime);
+    }
+    let parts = Pieces::parse(value).map_err(|_| ScheduleError::InvalidTime)?;
+    let local = parts
+        .time()
+        .ok_or(ScheduleError::InvalidTime)?
+        .to_datetime(parts.date());
+    let offset = parts
+        .to_numeric_offset()
+        .ok_or(ScheduleError::InvalidTime)?;
+    let instant = local
+        .checked_sub(SignedDuration::from_secs(i64::from(offset.seconds())))
+        .map_err(|_| ScheduleError::OutOfRange)?;
+    if instant.year() < 1970 {
+        return Err(ScheduleError::OutOfRange);
+    }
+    Ok(instant)
+}
+
+fn clock(value: &str) -> Result<Time, ScheduleError> {
     if value.len() != 8
         || !value.bytes().enumerate().all(|(i, b)| {
             if i == 2 || i == 5 {
@@ -129,7 +167,7 @@ fn clock(value: &str) -> Result<NaiveTime, ScheduleError> {
     {
         return Err(ScheduleError::InvalidTime);
     }
-    NaiveTime::parse_from_str(value, "%H:%M:%S").map_err(|_| ScheduleError::InvalidTime)
+    value.parse().map_err(|_| ScheduleError::InvalidTime)
 }
 
 pub fn normalize(spec: &ScheduleSpec) -> Result<ScheduleSpec, ScheduleError> {
@@ -144,7 +182,7 @@ pub fn normalize(spec: &ScheduleSpec) -> Result<ScheduleSpec, ScheduleError> {
             }
         }
         ScheduleRule::Once { at } => {
-            *at = absolute(at)?.to_rfc3339_opts(SecondsFormat::Secs, true);
+            *at = format!("{}Z", absolute(at)?);
         }
         ScheduleRule::Interval {
             every_seconds,
@@ -153,7 +191,7 @@ pub fn normalize(spec: &ScheduleSpec) -> Result<ScheduleSpec, ScheduleError> {
             if !(MIN_INTERVAL_SECONDS..=MAX_INTERVAL_SECONDS).contains(every_seconds) {
                 return Err(ScheduleError::InvalidInterval);
             }
-            *anchor_at = absolute(anchor_at)?.to_rfc3339_opts(SecondsFormat::Secs, true);
+            *anchor_at = format!("{}Z", absolute(anchor_at)?);
         }
         ScheduleRule::Daily { utc_time } => {
             clock(utc_time)?;
@@ -219,10 +257,10 @@ pub fn validate_publication(
             .checked_add(i64::from(delay_seconds) * 1000)
             .and_then(|value| value.checked_add(999))
             .map(|value| value / 1000 * 1000)
-            .and_then(DateTime::from_timestamp_millis)
+            .and_then(|ms| utc_at(ms).ok())
             .ok_or(ScheduleError::OutOfRange)?;
         normalized.rule = ScheduleRule::Once {
-            at: at.to_rfc3339_opts(SecondsFormat::Secs, true),
+            at: format!("{at}Z"),
         };
         normalized = normalize(&normalized)?;
     }
@@ -238,22 +276,21 @@ pub fn validate_publication(
 /// Returns a whole-second occurrence strictly after the millisecond reference.
 pub fn next_after(spec: &ScheduleSpec, reference_ms: i64) -> Result<Option<i64>, ScheduleError> {
     let spec = normalize(spec)?;
-    let reference =
-        DateTime::from_timestamp_millis(reference_ms).ok_or(ScheduleError::OutOfRange)?;
-    if !(1970..=9999).contains(&reference.year()) {
+    let reference_date = utc_at(reference_ms)?.date();
+    if !(1970..=9999).contains(&reference_date.year()) {
         return Err(ScheduleError::OutOfRange);
     }
     let result = match &spec.rule {
         ScheduleRule::AfterConfirmation { .. } => return Err(ScheduleError::InvalidTime),
         ScheduleRule::Once { at } => {
-            let at = absolute(at)?.timestamp_millis();
+            let at = millis(absolute(at)?);
             (at > reference_ms).then_some(at)
         }
         ScheduleRule::Interval {
             every_seconds,
             anchor_at,
         } => {
-            let anchor = absolute(anchor_at)?.timestamp_millis();
+            let anchor = millis(absolute(anchor_at)?);
             let interval = i64::from(*every_seconds) * 1000;
             let next = if reference_ms < anchor {
                 anchor
@@ -269,16 +306,15 @@ pub fn next_after(spec: &ScheduleSpec, reference_ms: i64) -> Result<Option<i64>,
             let time = clock(utc_time)?;
             let mut result = None;
             for offset in 0..=7 {
-                let day = reference
-                    .date_naive()
-                    .checked_add_signed(Duration::days(offset))
-                    .ok_or(ScheduleError::OutOfRange)?;
+                let day = reference_date
+                    .checked_add(jiff::Span::new().days(offset))
+                    .map_err(|_| ScheduleError::OutOfRange)?;
                 if let ScheduleRule::Weekly { weekdays, .. } = &spec.rule
-                    && !weekdays.contains(&(day.weekday().number_from_monday() as u8))
+                    && !weekdays.contains(&(day.weekday().to_monday_one_offset() as u8))
                 {
                     continue;
                 }
-                let at = day.and_time(time).and_utc().timestamp_millis();
+                let at = millis(time.to_datetime(day));
                 if at > reference_ms {
                     result = Some(at);
                     break;
@@ -288,7 +324,7 @@ pub fn next_after(spec: &ScheduleSpec, reference_ms: i64) -> Result<Option<i64>,
         }
     };
     if let Some(at) = result
-        && DateTime::from_timestamp_millis(at).is_none_or(|t| t.year() > 9999)
+        && utc_at(at).is_err()
     {
         return Err(ScheduleError::OutOfRange);
     }

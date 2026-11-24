@@ -111,7 +111,7 @@ pub(crate) async fn advance(
     let Some(next) = claim.call_authority.attempt.next(issue) else {
         return Ok(None);
     };
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     settle_completed(db, claim, issue, now).await?;
     let txn = crate::db::begin_write(db, review::Entity).await?;
     let row = current(&txn, claim).await?;

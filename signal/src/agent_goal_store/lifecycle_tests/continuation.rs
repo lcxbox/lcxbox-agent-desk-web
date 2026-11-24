@@ -23,7 +23,11 @@ async fn store_fixture(db: &DatabaseConnection, session: &PersistedAgentSession)
         .unwrap();
 }
 
-fn params(session: &PersistedAgentSession, turn: &str, now: DateTime<Utc>) -> ClaimTurnParams {
+fn params(
+    session: &PersistedAgentSession,
+    turn: &str,
+    now: sea_orm::prelude::DateTimeUtc,
+) -> ClaimTurnParams {
     ClaimTurnParams {
         conversation_id: session.conversation_id.clone(),
         actor_id: session.actor_id.clone(),
@@ -41,7 +45,7 @@ fn params(session: &PersistedAgentSession, turn: &str, now: DateTime<Utc>) -> Cl
 async fn claimed_fixture(
     db: &DatabaseConnection,
     cid: &str,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> ClaimedGoalSlice {
     claimed_fixture_on(db, cid, now, None).await
 }
@@ -49,7 +53,7 @@ async fn claimed_fixture(
 async fn claimed_fixture_on(
     db: &DatabaseConnection,
     cid: &str,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
     model_binding: Option<&desk_diagnose_core::goal::GoalModelBinding>,
 ) -> ClaimedGoalSlice {
     seed_session(db, cid).await;
@@ -105,7 +109,7 @@ async fn deliver_fixture(
     db: &DatabaseConnection,
     action: &ActionIdentity,
     cid: &str,
-    now: DateTime<Utc>,
+    now: sea_orm::prelude::DateTimeUtc,
 ) -> String {
     let mut session = read_session(db, cid).await;
     let original = crate::goal_work::original_on(db, &session, action)
@@ -144,7 +148,7 @@ async fn deliver_fixture(
 #[tokio::test]
 async fn a_claim_moves_the_goal_to_the_owner_current_model() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let current = desk_diagnose_core::goal::GoalModelBinding {
         connection_id: "gateway".into(),
         connection_revision: 2,
@@ -158,7 +162,7 @@ async fn a_claim_moves_the_goal_to_the_owner_current_model() {
 #[tokio::test]
 async fn native_wait_wakes_on_any_member_and_claims_with_other_work_running() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "wait-any", now).await;
     let a = add_work(&db, &claimed.session, "a").await;
     let b = add_work(&db, &claimed.session, "b").await;
@@ -259,7 +263,7 @@ async fn native_wait_wakes_on_any_member_and_claims_with_other_work_running() {
 #[tokio::test]
 async fn completion_between_wait_preparation_and_settlement_is_not_lost() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "register-race", now).await;
     let a = add_work(&db, &claimed.session, "a").await;
     claimed.session.execution_state = ExecutionState::Executing { action: a.clone() };
@@ -303,7 +307,7 @@ async fn completion_between_wait_preparation_and_settlement_is_not_lost() {
 #[tokio::test]
 async fn normal_work_is_not_recovery_but_mixed_unknown_work_is() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "normal-and-unknown", now).await;
     let a = add_work(&db, &claimed.session, "a").await;
     claimed.session.execution_state = ExecutionState::Executing { action: a.clone() };
@@ -357,7 +361,7 @@ async fn normal_work_is_not_recovery_but_mixed_unknown_work_is() {
 #[tokio::test]
 async fn late_result_keeps_original_goal_owner_after_cancellation_and_new_goal() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "late-owner", now).await;
     let a = add_work(&db, &claimed.session, "a").await;
     claimed.session.execution_state = ExecutionState::Executing { action: a.clone() };
@@ -440,7 +444,7 @@ async fn add_work(
     session: &PersistedAgentSession,
     task: &str,
 ) -> ActionIdentity {
-    let now = Utc::now().to_rfc3339();
+    let now = desk_utils::datetime::rfc3339(jiff::Timestamp::now());
     let row = SignalBackgroundTaskStore::new(db.clone())
         .create(BackgroundTaskCreate {
             actor_id: session.actor_id.clone(),
@@ -499,7 +503,7 @@ async fn complete_work(db: &DatabaseConnection, action: &ActionIdentity) {
                     desk_agent_protocol::capability_provider::CapabilityCompletionClass::Succeeded,
                 result_envelope_ids: vec![format!("result-{}", action.action_request_id)],
             },
-            &Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         )
         .await
         .unwrap();
@@ -508,7 +512,7 @@ async fn complete_work(db: &DatabaseConnection, action: &ActionIdentity) {
 #[tokio::test]
 async fn a_paused_goal_keeps_receipts_without_waking_planning() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "owner-pause", now).await;
     let a = add_work(&db, &claimed.session, "a").await;
     claimed.session.execution_state = ExecutionState::Executing { action: a.clone() };
@@ -565,7 +569,7 @@ async fn a_paused_goal_keeps_receipts_without_waking_planning() {
 #[tokio::test]
 async fn ordinary_task_is_tracked_but_cannot_be_adopted_by_a_goal_wait() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "unrelated-work", now).await;
     let mut origin = claimed.session.clone();
     origin.current_turn_id = Some("ordinary-turn-outside-goal".into());
@@ -593,7 +597,7 @@ async fn ordinary_task_is_tracked_but_cannot_be_adopted_by_a_goal_wait() {
 #[tokio::test]
 async fn ready_wait_and_unreacted_receipt_survive_a_model_outage() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "model-outage", now).await;
     let a = add_work(&db, &claimed.session, "a").await;
     claimed.session.execution_state = ExecutionState::Executing { action: a.clone() };
@@ -695,7 +699,7 @@ async fn ready_wait_and_unreacted_receipt_survive_a_model_outage() {
 #[tokio::test]
 async fn an_unknown_native_outcome_does_not_wait_forever_after_metadata_delivery() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "unknown-outcome", now).await;
     let a = add_work(&db, &claimed.session, "a").await;
     claimed.session.execution_state = ExecutionState::Executing { action: a.clone() };
@@ -741,7 +745,7 @@ async fn unknown_work(db: &DatabaseConnection, action: &ActionIdentity) {
         .unwrap();
     let mut record: BackgroundTaskRecord = serde_json::from_str(&row.payload_json).unwrap();
     record.state = BackgroundTaskState::OutcomeUnknown;
-    record.terminal_at = Some(Utc::now().to_rfc3339());
+    record.terminal_at = Some(desk_utils::datetime::rfc3339(jiff::Timestamp::now()));
     record.updated_at = record.terminal_at.clone().unwrap();
     record.validate().unwrap();
     agent_action_item::Entity::update_many()
@@ -760,7 +764,7 @@ async fn unknown_work(db: &DatabaseConnection, action: &ActionIdentity) {
 #[tokio::test]
 async fn provider_publication_precedes_model_reaction_and_is_replayable() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "published-not-reacted", now).await;
     let a = add_work(&db, &claimed.session, "a").await;
     claimed.session.execution_state = ExecutionState::Executing { action: a.clone() };
@@ -809,7 +813,7 @@ async fn provider_publication_precedes_model_reaction_and_is_replayable() {
 async fn background_progress_can_advance_the_clock_without_losing_a_held_goal_turn() {
     use desk_diagnose_core::seam::SessionSeam;
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "clock-rebase", now).await;
     let a = add_work(&db, &claimed.session, "a").await;
     claimed.session.execution_state = ExecutionState::Executing { action: a.clone() };
@@ -832,7 +836,7 @@ async fn background_progress_can_advance_the_clock_without_losing_a_held_goal_tu
                 completed_units: None,
                 total_units: None,
             },
-            &Utc::now().to_rfc3339(),
+            &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
         )
         .await
         .unwrap();
@@ -854,7 +858,7 @@ async fn background_progress_can_advance_the_clock_without_losing_a_held_goal_tu
 #[tokio::test]
 async fn retention_preserves_claim_association_for_work_after_goal_cancellation() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "retained-origin", now).await;
     let a = add_work(&db, &claimed.session, "a").await;
     claimed.session.execution_state = ExecutionState::Executing { action: a.clone() };
@@ -881,7 +885,11 @@ async fn retention_preserves_claim_association_for_work_after_goal_cancellation(
     agent_session::Entity::update_many()
         .col_expr(
             agent_session::Column::UpdatedAt,
-            Expr::value(now - chrono::Duration::days(40)),
+            Expr::value(
+                now - desk_agent_data_store::datetime::database_interval(
+                    jiff::SignedDuration::from_hours(960),
+                ),
+            ),
         )
         .filter(agent_session::Column::ConversationId.eq("retained-origin"))
         .exec(&db)
@@ -909,7 +917,7 @@ async fn retention_preserves_claim_association_for_work_after_goal_cancellation(
 #[tokio::test]
 async fn a_new_wait_can_track_earlier_work_of_the_resumed_goal() {
     let db = db().await;
-    let now = Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let mut claimed = claimed_fixture(&db, "resumed-dependency", now).await;
     let a = add_work(&db, &claimed.session, "a").await;
     claimed.session.execution_state = ExecutionState::Executing { action: a.clone() };
@@ -935,8 +943,11 @@ async fn a_new_wait_can_track_earlier_work_of_the_resumed_goal() {
 async fn orphan_goal_uses_current_time_policy_before_deciding_whether_to_continue() {
     for finite in [false, true] {
         let db = db().await;
-        let now = Utc::now();
-        let old = now - Duration::days(8);
+        let now = desk_agent_data_store::datetime::utc_now();
+        let old = now
+            - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(
+                192,
+            ));
         let claimed = claimed_fixture(&db, "time-recovery", old).await;
         // Persist the inverse of today's policy to prove recovery reads authority.
         let mut stale = claimed.goal.clone();

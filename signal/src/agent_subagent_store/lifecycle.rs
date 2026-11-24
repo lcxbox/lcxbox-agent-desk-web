@@ -142,7 +142,7 @@ impl SubAgentStore {
             return Err(invalid());
         }
         let txn = begin_child_control(&self.db, held).await?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let (row, mut run, group, current) =
             child_records_with_session_on(&txn, held, now.timestamp_millis()).await?;
         if now.timestamp_millis() >= run.binding.deadline_ms
@@ -238,7 +238,7 @@ impl SubAgentStore {
             return Err(invalid());
         }
         let txn = begin_child_control(&self.db, held).await?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let (row, mut run, group, current) =
             child_records_with_session_on(&txn, held, now.timestamp_millis()).await?;
         if now.timestamp_millis() >= run.binding.deadline_ms
@@ -466,7 +466,7 @@ impl SubAgentStore {
             )
         })
         .await?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let (row, mut run, group) = desk_diagnose_core::future::boxed(|| async {
             child_records_on(&txn, held, now.timestamp_millis()).await
         })
@@ -561,7 +561,7 @@ impl SubAgentStore {
         held: &PersistedAgentSession,
     ) -> Result<desk_diagnose_core::chat::ChatMessage, DbErr> {
         let txn = begin_child_control(&self.db, held).await?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let (row, run, group) = child_records_on(&txn, held, now.timestamp_millis()).await?;
         let creation: TaskCreationEnvelope =
             serde_json::from_str(&row.creation_envelope_json).map_err(|_| invalid())?;
@@ -661,7 +661,7 @@ impl SubAgentStore {
             txn.rollback().await?;
             return Ok(ChildAdmission::SourcePaused);
         }
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = jiff::Timestamp::now().as_millisecond();
         child_records_on(&txn, held, now).await?;
         if now >= binding.deadline_ms || now >= group.limits.deadline_ms {
             return Err(invalid());
@@ -677,7 +677,7 @@ impl SubAgentStore {
         answer: &str,
     ) -> Result<Result<CompletionDisposition, &'static str>, DbErr> {
         let txn = begin_child_control(&self.db, held).await?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let (_, mut run, group) = child_records_on(&txn, held, now.timestamp_millis()).await?;
         if now.timestamp_millis() >= run.binding.deadline_ms
             || now.timestamp_millis() >= group.limits.deadline_ms
@@ -727,7 +727,7 @@ impl SubAgentStore {
             )
         })
         .await?;
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         let (row, mut run, group) = desk_diagnose_core::future::boxed(|| async {
             child_records_on(&txn, held, now.timestamp_millis()).await
         })

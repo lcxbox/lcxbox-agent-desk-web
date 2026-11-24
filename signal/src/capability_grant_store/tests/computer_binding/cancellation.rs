@@ -16,7 +16,8 @@ async fn ready(f: &Fixture) {
     f.bind().await;
     f.accept().await.unwrap();
     let mut outbox: agent_capability_dispatch_outbox::ActiveModel = f.outbox().await.into();
-    outbox.created_at = Set(Utc::now() - chrono::Duration::seconds(9));
+    outbox.created_at = Set(desk_agent_data_store::datetime::utc_now()
+        - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_secs(9)));
     outbox.update(&f.store.db).await.unwrap();
     assert!(
         f.store
@@ -370,7 +371,7 @@ async fn expiry_remains_unknown_and_only_native_pause_completes_as_cancelled() {
             &f.plan.execution_generation,
             &f.plan.action_request_id,
             1,
-            Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();

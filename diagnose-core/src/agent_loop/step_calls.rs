@@ -1174,9 +1174,9 @@ pub(super) async fn run<M: FnMut() -> String>(
                                 })?;
                         let created_at = (deps.clock)();
                         let now_unix_ms = u64::try_from(
-                            chrono::DateTime::parse_from_rfc3339(&created_at)
-                                .map_err(|_| crate::goal_tools::invalid("invalid goal clock"))?
-                                .timestamp_millis(),
+                            desk_utils::datetime::parse_rfc3339(&created_at)
+                                .map(desk_utils::datetime::unix_millis)
+                                .map_err(|_| crate::goal_tools::invalid("invalid goal clock"))?,
                         )
                         .map_err(|_| crate::goal_tools::invalid("invalid goal clock"))?;
                         let event_seq = session.last_event_seq.checked_add(1).ok_or_else(|| {

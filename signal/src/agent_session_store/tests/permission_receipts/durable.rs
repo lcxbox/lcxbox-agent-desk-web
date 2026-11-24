@@ -12,7 +12,7 @@ async fn candidate(store: &SignalAgentSessionStore) -> resume::Model {
 async fn prepare(store: &SignalAgentSessionStore) -> (SignalAgentSessionStore, ClaimTurnParams) {
     let candidate = candidate(store).await;
     let session = store
-        .pending_permission_resume(&candidate, Utc::now())
+        .pending_permission_resume(&candidate, desk_agent_data_store::datetime::utc_now())
         .await
         .unwrap()
         .unwrap();
@@ -51,7 +51,12 @@ async fn abrupt_process_exit_preserves_pending_and_started_fences() {
             agent_session::Entity::update_many()
                 .col_expr(
                     agent_session::Column::LeaseDeadline,
-                    Expr::value(Some(Utc::now() - Duration::minutes(2))),
+                    Expr::value(Some(
+                        desk_agent_data_store::datetime::utc_now()
+                            - desk_agent_data_store::datetime::database_interval(
+                                jiff::SignedDuration::from_mins(2),
+                            ),
+                    )),
                 )
                 .exec(&store.db)
                 .await
@@ -106,7 +111,10 @@ async fn abrupt_process_exit_preserves_pending_and_started_fences() {
         } else {
             assert!(
                 store
-                    .pending_permission_resume(&original, Utc::now())
+                    .pending_permission_resume(
+                        &original,
+                        desk_agent_data_store::datetime::utc_now()
+                    )
                     .await
                     .unwrap()
                     .is_none()
@@ -169,16 +177,19 @@ async fn decide_reopen_concurrent_claim_and_settlement_never_reclaim_a_started_r
     assert_eq!(candidate(&first).await.state, "started");
     assert!(
         first
-            .pending_permission_resume(&pending, Utc::now())
+            .pending_permission_resume(&pending, desk_agent_data_store::datetime::utc_now())
             .await
             .unwrap()
             .is_none()
     );
     assert!(a.claim_turn(ca.clone()).await.is_err());
-    session.finish_turn(TurnState::Idle, Utc::now().to_rfc3339());
+    session.finish_turn(
+        TurnState::Idle,
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
+    );
     first.save(&mut session).await.unwrap();
     first
-        .pending_permission_resume(&pending, Utc::now())
+        .pending_permission_resume(&pending, desk_agent_data_store::datetime::utc_now())
         .await
         .unwrap();
     assert_eq!(candidate(&first).await.state, "settled");
@@ -244,7 +255,7 @@ async fn new_input_supersedes_pending_but_preserves_original_receipt() {
     assert_eq!(candidate(&store).await.state, "superseded");
     assert!(
         store
-            .pending_permission_resume(&pending, Utc::now())
+            .pending_permission_resume(&pending, desk_agent_data_store::datetime::utc_now())
             .await
             .unwrap()
             .is_none()
@@ -286,7 +297,7 @@ async fn ended_resume_is_skipped_and_still_reads() {
     );
     assert!(
         store
-            .pending_permission_resume(&pending, Utc::now())
+            .pending_permission_resume(&pending, desk_agent_data_store::datetime::utc_now())
             .await
             .unwrap()
             .is_none()
@@ -316,7 +327,12 @@ async fn old_candidate_cannot_recover_a_new_input_turn_even_if_its_lease_lapsed(
     agent_session::Entity::update_many()
         .col_expr(
             agent_session::Column::LeaseDeadline,
-            Expr::value(Some(Utc::now() - Duration::minutes(2))),
+            Expr::value(Some(
+                desk_agent_data_store::datetime::utc_now()
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(2),
+                    ),
+            )),
         )
         .exec(&store.db)
         .await
@@ -324,7 +340,7 @@ async fn old_candidate_cannot_recover_a_new_input_turn_even_if_its_lease_lapsed(
     let saved = state(&store).await;
     assert!(
         store
-            .pending_permission_resume(&pending, Utc::now())
+            .pending_permission_resume(&pending, desk_agent_data_store::datetime::utc_now())
             .await
             .unwrap()
             .is_none()
@@ -386,14 +402,19 @@ async fn process_loss_after_claim_recovers_the_original_lease_without_repeating_
     agent_session::Entity::update_many()
         .col_expr(
             agent_session::Column::LeaseDeadline,
-            Expr::value(Some(Utc::now() - Duration::minutes(2))),
+            Expr::value(Some(
+                desk_agent_data_store::datetime::utc_now()
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(2),
+                    ),
+            )),
         )
         .exec(&store.db)
         .await
         .unwrap();
     assert!(
         store
-            .pending_permission_resume(&pending, Utc::now())
+            .pending_permission_resume(&pending, desk_agent_data_store::datetime::utc_now())
             .await
             .unwrap()
             .is_none()
@@ -460,7 +481,10 @@ async fn corrupted_resume_metadata_is_not_a_claim_or_recovery_authority() {
         let saved = state(&store).await;
         assert!(
             store
-                .pending_permission_resume(&candidate(&store).await, Utc::now())
+                .pending_permission_resume(
+                    &candidate(&store).await,
+                    desk_agent_data_store::datetime::utc_now()
+                )
                 .await
                 .is_err(),
             "{change}"
@@ -490,7 +514,7 @@ async fn ordinary_permission_resume_cannot_replace_scheduled_occurrence_identity
     let before = row.update(&store.db).await.unwrap();
     assert!(
         store
-            .pending_permission_resume(&pending, Utc::now())
+            .pending_permission_resume(&pending, desk_agent_data_store::datetime::utc_now())
             .await
             .unwrap()
             .is_none()

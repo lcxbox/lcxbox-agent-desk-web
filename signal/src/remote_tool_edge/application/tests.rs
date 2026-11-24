@@ -10,7 +10,7 @@ async fn application_catalog_passes_observation_gate_and_reaches_remote_dispatch
     let provider = registry
         .provider_for_capability(&capability.wire.capability_id)
         .unwrap();
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let grant = CapabilityGrant {
         schema_version: CAPABILITY_GRANT_SCHEMA_VERSION,
         grant_id: "catalog-read".into(),
@@ -158,7 +158,7 @@ async fn an_unapproved_launch_asks_for_approval_instead_of_failing() {
     session.surface = desk_diagnose_core::session::AgentSessionSurface::AiAgent;
     session.begin_focus_epoch(1, Vec::new()).unwrap();
     session.input_revision = 1;
-    let now = chrono::DateTime::from_timestamp_millis(1).unwrap();
+    let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(1).unwrap();
     crate::entity::agent_session::ActiveModel {
         conversation_id: Set(session.conversation_id.clone()),
         actor_id: Set(session.actor_id.clone()),

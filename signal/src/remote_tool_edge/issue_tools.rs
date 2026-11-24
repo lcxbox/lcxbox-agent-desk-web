@@ -25,7 +25,7 @@ impl SignalAiAgentTools {
             &self.db,
             session,
             &original,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .map_err(|error| error.into_agent_error())?
@@ -94,7 +94,7 @@ impl SignalAiAgentTools {
             session,
             &original,
             access,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .map_err(|error| error.into_agent_error())?;
@@ -187,7 +187,7 @@ impl SignalAiAgentTools {
         let config = crate::issue_connections::read(db)
             .await
             .map_err(|_| issue_unavailable())?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = jiff::Timestamp::now().as_millisecond();
         let mut allowed = Vec::new();
         for issue in &original.external_issues {
             if config
@@ -225,7 +225,7 @@ impl SignalAiAgentTools {
             &original,
             call,
             destination,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .await
         .map_err(|error| error.into_agent_error())?;
@@ -267,7 +267,7 @@ impl SignalAiAgentTools {
                 &current,
                 call,
                 destination,
-                chrono::Utc::now().timestamp_millis(),
+                jiff::Timestamp::now().as_millisecond(),
             )
             .await
             .map_err(|error| error.into_agent_error())?

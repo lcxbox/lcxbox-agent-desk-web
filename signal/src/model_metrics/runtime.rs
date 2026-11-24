@@ -57,7 +57,7 @@ pub fn store() -> Option<&'static Store> {
 pub fn context(attribution: Attribution) -> Option<ObservationContext> {
     COLLECTOR.get()?.context(
         uuid::Uuid::new_v4().to_string(),
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
         attribution,
     )
 }
@@ -132,7 +132,7 @@ async fn open_current_store(
     }
     let store = Store::new(db, false, "local".into());
     store
-        .initialize_settings(chrono::Utc::now().timestamp_millis())
+        .initialize_settings(jiff::Timestamp::now().as_millisecond())
         .await
         .map_err(|_| ())?;
     creating_current_schema.store(false, Ordering::Relaxed);

@@ -35,9 +35,8 @@ fn call(action: RawInputAction) -> ToolCall {
                 "token": "edge-only-application",
                 "snapshot_id": "snapshot",
                 "object_kind": "application",
-                "expires_at": chrono::DateTime::from_timestamp_millis((now() + 60_000) as i64)
-                    .unwrap()
-                    .to_rfc3339()
+                "expires_at": desk_utils::datetime::rfc3339(jiff::Timestamp::from_millisecond((now() + 60_000) as i64)
+                    .unwrap())
             },
             "action": action
         })

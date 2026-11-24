@@ -10,7 +10,8 @@ async fn native_reclaim_retains_the_actual_expired_timer_state_before_execution_
     let mut frame = Frame::new("native-reclaim-snapshot", true).await;
     crate::db::ensure_lifecycle_tables(&frame.store.db).await;
     frame.session.turn_state = desk_diagnose_core::session::TurnState::Idle;
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(1);
+    let cutoff = desk_agent_data_store::datetime::utc_now()
+        - desk_agent_data_store::datetime::database_interval(jiff::SignedDuration::from_hours(24));
     session_row::Entity::update_many()
         .col_expr(
             session_row::Column::StateJson,
@@ -18,17 +19,23 @@ async fn native_reclaim_retains_the_actual_expired_timer_state_before_execution_
         )
         .col_expr(
             session_row::Column::LeaseDeadline,
-            Expr::value(Option::<chrono::NaiveDateTime>::None),
+            Expr::value(Option::<sea_orm::prelude::DateTime>::None),
         )
         .col_expr(
             session_row::Column::UpdatedAt,
-            Expr::value((cutoff - chrono::Duration::days(1)).naive_utc()),
+            Expr::value(
+                (cutoff
+                    - desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_hours(24),
+                    ))
+                .naive_utc(),
+            ),
         )
         .filter(session_row::Column::ConversationId.eq(&frame.session.conversation_id))
         .exec(&frame.store.db)
         .await
         .unwrap();
-    let at = chrono::Utc::now().timestamp_millis();
+    let at = jiff::Timestamp::now().as_millisecond();
     timer::ActiveModel {
         schedule_id: Set("native-expiring-timer".into()),
         owner_user_id: Set(1),
@@ -75,7 +82,7 @@ async fn native_reclaim_retains_the_actual_expired_timer_state_before_execution_
         frame.session.device_id.clone(),
         frame.session.policy_revision,
         frame.session.scope_snapshot.clone(),
-        &chrono::Utc::now().to_rfc3339(),
+        &desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     );
     second.surface = desk_diagnose_core::session::AgentSessionSurface::AiAgent;
     second.version = 1;
@@ -131,10 +138,14 @@ async fn native_reclaim_retains_the_actual_expired_timer_state_before_execution_
         .unwrap()
         .unwrap();
     assert_eq!(
-        crate::usage_retention::cleanup_agent_sessions(&frame.store.db, cutoff, chrono::Utc::now())
-            .await
-            .unwrap()
-            .1,
+        crate::usage_retention::cleanup_agent_sessions(
+            &frame.store.db,
+            cutoff,
+            desk_agent_data_store::datetime::utc_now()
+        )
+        .await
+        .unwrap()
+        .1,
         2
     );
     assert!(

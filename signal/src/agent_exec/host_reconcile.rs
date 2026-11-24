@@ -126,7 +126,10 @@ mod tests {
                 "call-1",
                 "host-old",
                 "device-1",
-                chrono::Utc::now() + chrono::Duration::minutes(5),
+                desk_agent_data_store::datetime::utc_now()
+                    + desk_agent_data_store::datetime::database_interval(
+                        jiff::SignedDuration::from_mins(5),
+                    ),
             )
             .await
             .unwrap();

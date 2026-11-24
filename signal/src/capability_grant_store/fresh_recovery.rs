@@ -46,9 +46,10 @@ pub(crate) async fn restore_completed_calls(
         return Ok(false);
     }
     let mut next = session.clone_boxed();
-    let now_ms = chrono::DateTime::parse_from_rfc3339(now)
+    let now_ms = desk_utils::datetime::parse_rfc3339(now)
+        .map(desk_utils::datetime::unix_millis)
         .ok()
-        .and_then(|time| u64::try_from(time.timestamp_millis()).ok())
+        .and_then(|time| u64::try_from(time).ok())
         .ok_or_else(invalid)?;
     let mut command_work = std::collections::BTreeSet::new();
     for row in &rows {

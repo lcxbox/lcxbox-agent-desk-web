@@ -906,9 +906,9 @@ async fn drive_claimed_inner(
             && session.execution_state.states().is_empty()
         {
             if let Some(wait) = session.ready_subagent_wait.as_mut() {
-                let now_ms = chrono::DateTime::parse_from_rfc3339(&settled_at)
-                    .map_err(|_| crate::subagent::invalid("invalid root interpretation clock"))?
-                    .timestamp_millis();
+                let now_ms = desk_utils::datetime::parse_rfc3339(&settled_at)
+                    .map(desk_utils::datetime::unix_millis)
+                    .map_err(|_| crate::subagent::invalid("invalid root interpretation clock"))?;
                 wait.retry_after_ms = Some(
                     now_ms
                         .checked_add(30_000)
@@ -916,9 +916,9 @@ async fn drive_claimed_inner(
                 );
             }
             if let Some(notification) = session.ready_subagent_notification.as_mut() {
-                let now_ms = chrono::DateTime::parse_from_rfc3339(&settled_at)
-                    .map_err(|_| crate::subagent::invalid("invalid root interpretation clock"))?
-                    .timestamp_millis();
+                let now_ms = desk_utils::datetime::parse_rfc3339(&settled_at)
+                    .map(desk_utils::datetime::unix_millis)
+                    .map_err(|_| crate::subagent::invalid("invalid root interpretation clock"))?;
                 notification.retry_after_ms = Some(
                     now_ms
                         .checked_add(30_000)
@@ -2726,7 +2726,7 @@ fn stable_lineage_id(prefix: &str, value: &impl serde::Serialize) -> String {
 }
 
 fn current_unix_ms(clock: &dyn Fn() -> String) -> Result<u64, AgentError> {
-    chrono::DateTime::parse_from_rfc3339(&clock())
+    desk_utils::datetime::parse_rfc3339(&clock())
         .map_err(|_| AgentError {
             kind: AgentErrorKind::Internal,
             message: "agent clock returned an invalid server timestamp".into(),
@@ -2734,7 +2734,7 @@ fn current_unix_ms(clock: &dyn Fn() -> String) -> Result<u64, AgentError> {
             safe_for_model: false,
             error_code: None,
         })?
-        .timestamp_millis()
+        .as_millisecond()
         .try_into()
         .map_err(|_| AgentError {
             kind: AgentErrorKind::Internal,
@@ -3223,7 +3223,7 @@ fn validate_browser_permission_references(
         }
     }
 
-    let now_unix_ms = chrono::DateTime::parse_from_rfc3339(&request.created_at)
+    let now_unix_ms = desk_utils::datetime::parse_rfc3339(&request.created_at)
         .map_err(|_| AgentError {
             kind: AgentErrorKind::Internal,
             message: "permission request has an invalid server timestamp".into(),
@@ -3231,7 +3231,7 @@ fn validate_browser_permission_references(
             safe_for_model: false,
             error_code: None,
         })?
-        .timestamp_millis()
+        .as_millisecond()
         .try_into()
         .map_err(|_| AgentError {
             kind: AgentErrorKind::Internal,

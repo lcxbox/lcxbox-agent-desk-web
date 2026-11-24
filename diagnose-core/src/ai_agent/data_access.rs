@@ -594,7 +594,7 @@ mod tests {
     }
     #[test]
     fn client_timezones_keep_relative_dates_distinct_and_follow_regional_dst() {
-        let utc = chrono::DateTime::parse_from_rfc3339("2026-10-28T17:30:00Z").unwrap();
+        let utc = "2026-10-28T17:30:00Z".parse::<jiff::Timestamp>().unwrap();
         let yesterday = |timezone: &str| {
             let scope = owner_history_scope(
                 "owner",
@@ -610,18 +610,19 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-            utc.with_timezone(&scope.timezone.parse::<chrono_tz::Tz>().unwrap())
-                .date_naive()
-                .pred_opt()
+            crate::schedule::timezone::zone(&scope.timezone)
+                .unwrap()
+                .to_datetime(utc)
+                .date()
+                .yesterday()
                 .unwrap()
         };
         assert_eq!(yesterday("Asia/Shanghai").to_string(), "2026-10-28");
         assert_eq!(yesterday("America/Los_Angeles").to_string(), "2026-10-27");
         let local = |instant: &str| {
-            chrono::DateTime::parse_from_rfc3339(instant)
-                .unwrap()
-                .with_timezone(&"America/Los_Angeles".parse::<chrono_tz::Tz>().unwrap())
-                .to_rfc3339()
+            let ts = instant.parse::<jiff::Timestamp>().unwrap();
+            let zone = crate::schedule::timezone::zone("America/Los_Angeles").unwrap();
+            desk_utils::datetime::rfc3339_at(ts, zone.to_offset(ts))
         };
         assert!(local("2026-07-01T12:00:00Z").ends_with("-07:00"));
         assert!(local("2026-12-01T12:00:00Z").ends_with("-08:00"));

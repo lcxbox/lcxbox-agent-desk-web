@@ -311,7 +311,7 @@ async fn run_probe(
             &turn,
             false,
             observation.as_ref(),
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         );
         return Err(DeskSignalError::new_custom_error(
             DeskErrorCode::PRECONDITION_FAILED,
@@ -323,7 +323,7 @@ async fn run_probe(
         &turn,
         validation.is_ok(),
         observation.as_ref(),
-        chrono::Utc::now().timestamp_millis(),
+        jiff::Timestamp::now().as_millisecond(),
     );
     validation.map_err(|message| {
         DeskSignalError::new_custom_error(
@@ -342,9 +342,12 @@ async fn run_probe(
         Some(trimmed.chars().take(200).collect())
     };
     // Mark the AI-generated snippet (Art.50(2)) only when the probe returned text.
-    let provenance = sample
-        .is_some()
-        .then(|| AiProvenance::stamp(model, Some(chrono::Utc::now().to_rfc3339())));
+    let provenance = sample.is_some().then(|| {
+        AiProvenance::stamp(
+            model,
+            Some(desk_utils::datetime::rfc3339(jiff::Timestamp::now())),
+        )
+    });
     Ok(ProviderTestDto {
         latency_ms,
         sample,
@@ -405,7 +408,7 @@ pub async fn test_model_provider(
         model_provider::ModelProbeObservation {
             connection_revision: config.connection_revision,
             profile_revision: config.profile_revision,
-            tested_at: chrono::Utc::now(),
+            tested_at: desk_agent_data_store::datetime::utc_now(),
             reasoning_observed: dto.reasoning_observed,
             reasoning_tokens: dto.reasoning_tokens,
             stop_reason: Some(dto.stop_reason.clone()),

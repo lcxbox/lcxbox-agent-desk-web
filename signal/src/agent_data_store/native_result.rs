@@ -139,7 +139,7 @@ async fn capture_prepared_on(
                     .checked_add(u64::from(copy.policy.history_retention_days) * 86_400_000),
             )
             .min();
-        if deadline.is_some_and(|until| until <= chrono::Utc::now().timestamp_millis() as u64) {
+        if deadline.is_some_and(|until| until <= jiff::Timestamp::now().as_millisecond() as u64) {
             return Err(AgentStoreError::Inaccessible);
         }
     }

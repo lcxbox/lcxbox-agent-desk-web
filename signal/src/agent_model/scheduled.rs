@@ -98,7 +98,7 @@ impl MeteredModel {
                         &txn,
                         reservation,
                         &ordinary_id,
-                        chrono::Utc::now().timestamp_millis(),
+                        jiff::Timestamp::now().as_millisecond(),
                     )
                     .await
                 })
@@ -203,7 +203,7 @@ impl MeteredModel {
                     &txn,
                     reservation,
                     &ordinary_id,
-                    chrono::Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                 )
                 .await
             })

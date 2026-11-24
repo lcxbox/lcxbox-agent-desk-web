@@ -91,7 +91,7 @@ impl Store {
                 source_id,
                 lease_epoch: claim.lease_epoch as i64,
                 model_revision: claim.model_config_revision as i64,
-                created_at_ms: chrono::Utc::now().timestamp_millis(),
+                created_at_ms: jiff::Timestamp::now().as_millisecond(),
             },
             settings,
         ));
@@ -405,7 +405,7 @@ impl Store {
             .filter(trace::Column::DeviceId.eq(&row.device_id))
             .one(&self.db)
             .await?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = jiff::Timestamp::now().as_millisecond();
         let owner = row.actor_id.clone();
         let tracking = row
             .statistics_json
@@ -831,7 +831,7 @@ impl Store {
         let settings = load_settings(&self.db).await?;
         let txn = self.db.begin().await?;
         self.quota(&txn).await?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = jiff::Timestamp::now().as_millisecond();
         trace::Entity::update_many()
             .col_expr(
                 trace::Column::ExpiresAtMs,
@@ -949,7 +949,7 @@ impl Store {
         reviews_after: &mut i64,
         events_after: &mut i64,
     ) -> Result<(), DbErr> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = jiff::Timestamp::now().as_millisecond();
         let rows = review::Entity::find()
             .filter(review::Column::Id.gt(*reviews_after))
             .filter(review::Column::StatisticsJson.is_not_null())
@@ -1084,7 +1084,7 @@ impl TraceBackend for Store {
         let row = trace::Entity::find_by_id(&id.id)
             .filter(trace::Column::LeaseEpoch.eq(id.lease_epoch))
             .filter(trace::Column::RecordingState.eq("collecting"))
-            .filter(trace::Column::ExpiresAtMs.gt(chrono::Utc::now().timestamp_millis()))
+            .filter(trace::Column::ExpiresAtMs.gt(jiff::Timestamp::now().as_millisecond()))
             .one(&txn)
             .await
             .map_err(|_| TraceAppendError::Unavailable)?

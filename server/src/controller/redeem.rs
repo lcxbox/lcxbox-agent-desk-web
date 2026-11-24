@@ -572,7 +572,7 @@ mod tests {
             locked: Set(true),
             state_version: Set(4),
             lock_id: Set(Some("lock-a".into())),
-            updated_at: Set(chrono::Utc::now()),
+            updated_at: Set(desk_agent_data_store::datetime::utc_now()),
         }
         .insert(&db)
         .await

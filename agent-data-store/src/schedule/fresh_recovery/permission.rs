@@ -97,8 +97,8 @@ pub(in crate::schedule) async fn recover<C: ConnectionTrait, H: ScheduleHostStor
         .checked_add(1)
         .filter(|token| *token <= i64::MAX as u64)
         .ok_or(ScheduleStoreError::Invalid)?;
-    let timestamp =
-        chrono::DateTime::from_timestamp_millis(now).ok_or(ScheduleStoreError::Invalid)?;
+    let timestamp = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now)
+        .ok_or(ScheduleStoreError::Invalid)?;
     if unfinished.is_some() {
         session.finish_turn(TurnState::Idle, timestamp.to_rfc3339());
         session.handled_input_seq = session.latest_input_seq;

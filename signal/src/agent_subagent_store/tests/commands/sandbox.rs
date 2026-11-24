@@ -81,7 +81,7 @@ async fn dispatch_refuses_an_approval_after_a_readiness_change() {
         desk_agent_protocol::evidence::EvidenceSnapshot::record(
             "fixture",
             "fixture",
-            chrono::Utc::now().to_rfc3339(),
+            desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
             Vec::new(),
         ),
         ExecAdmissionPolicy::OwnerInteractive,

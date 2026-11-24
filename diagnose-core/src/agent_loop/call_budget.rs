@@ -74,9 +74,9 @@ async fn reserve_direct_goal(
 ) -> Result<(), AgentError> {
     let goal = deps.session_seam.load_claimed_goal(session).await?;
     if (deps.clock)()
-        .parse::<chrono::DateTime<chrono::Utc>>()
+        .parse::<jiff::Timestamp>()
         .map_err(|_| crate::subagent::invalid("invalid call clock"))?
-        .timestamp_millis() as u64
+        .as_millisecond() as u64
         >= goal.deadline_unix_ms
     {
         return Err(CallRejection::SourceExpired.into_error());

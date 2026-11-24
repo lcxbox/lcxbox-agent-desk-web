@@ -128,7 +128,7 @@ pub async fn get_agent_memories(
         match crate::agent_data_store::memories(
             db()?,
             &query,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         {
@@ -147,7 +147,7 @@ pub async fn delete_agent_memory(
         match crate::agent_data_store::forget_memory(
             db()?,
             &body,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         {
@@ -166,7 +166,7 @@ pub async fn clear_agent_memories(
         match crate::agent_data_store::clear_memories(
             db()?,
             &body,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         {
@@ -185,7 +185,7 @@ pub async fn get_agent_source(
         match crate::agent_data_store::owner_source(
             db()?,
             &query.source_id,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         {
@@ -225,7 +225,7 @@ pub async fn get_agent_history_window(
         match crate::agent_data_store::owner_history_window(
             db()?,
             &query,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         {
@@ -245,7 +245,7 @@ pub async fn search_agent_history(
         match crate::agent_data_store::owner_history_search(
             db()?,
             &body,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         {
@@ -267,7 +267,7 @@ pub async fn list_retained_agent_conversations(
         match crate::agent_data_store::owner_history_conversations(
             db()?,
             &body,
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         {

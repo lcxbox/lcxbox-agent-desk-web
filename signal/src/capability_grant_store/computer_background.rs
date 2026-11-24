@@ -52,9 +52,9 @@ pub(super) fn deadlines(
         .ok_or_else(invalid)?
         .min(
             u64::try_from(
-                chrono::DateTime::parse_from_rfc3339(&binding.plan.expires_at)
-                    .map_err(|_| invalid())?
-                    .timestamp_millis(),
+                desk_utils::datetime::parse_rfc3339(&binding.plan.expires_at)
+                    .map(desk_utils::datetime::unix_millis)
+                    .map_err(|_| invalid())?,
             )
             .map_err(|_| invalid())?,
         );
@@ -242,12 +242,13 @@ impl SignalCapabilityGrantStore {
                 log::warn!(
                     "[computer-action] background promotion refused: generation={generation} \
                      reason=not_accepted now_ms={} deadlines_ms={:?}",
-                    Utc::now().timestamp_millis(),
+                    jiff::Timestamp::now().as_millisecond(),
                     deadlines(outbox, &binding).ok()
                 );
                 return Ok(false);
             };
-            let now = u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+            let now =
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?;
             let (foreground, hard) = deadlines(outbox, &binding)?;
             // Diagnostic only; the refusal conditions are unchanged.
             let refused = if outbox.state != DISPATCH_OUTBOX_SENDING {
@@ -324,7 +325,8 @@ impl SignalCapabilityGrantStore {
             let (outbox, work, payload) = computer_original.as_ref();
             let binding = bound(outbox, work, payload)?;
             let deadline = deadlines(outbox, &binding)?.0;
-            let now = u64::try_from(Utc::now().timestamp_millis()).map_err(|_| invalid())?;
+            let now =
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).map_err(|_| invalid())?;
             Ok(std::time::Duration::from_millis(
                 deadline.saturating_sub(now),
             ))

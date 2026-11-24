@@ -90,7 +90,7 @@ mod tests {
         session
             .context_notices
             .push(ContextNotice::compacted("turn-7", 1, 2));
-        let now = chrono::Utc::now();
+        let now = desk_agent_data_store::datetime::utc_now();
         crate::entity::agent_session::ActiveModel {
             conversation_id: Set("owned".into()),
             actor_id: Set("1".into()),

@@ -81,7 +81,7 @@ async fn personal_input_selects_current_facts_by_device_and_rechecks_before_mode
             destination.clone(),
         )
         .unwrap(),
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     };
     let inputs = SignalAgentRunEventStore::new(store.db.clone());
     let receipt = inputs.append_user_followup(&input).await.unwrap();
@@ -153,7 +153,7 @@ async fn personal_input_selects_current_facts_by_device_and_rechecks_before_mode
                 locked: Set(true),
                 state_version: Set(1),
                 lock_id: Set(Some("selected-memory-lock".into())),
-                updated_at: Set(chrono::Utc::now()),
+                updated_at: Set(desk_agent_data_store::datetime::utc_now()),
             }
             .insert(&fixture.store.db)
             .await
@@ -217,7 +217,7 @@ async fn assert_explicit_read_scope(
         super::super::memory_search::index_fact(&fixture.store, &row).await;
     }
     let txn = fixture.store.db.begin().await.unwrap();
-    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let now = jiff::Timestamp::now().as_millisecond() as u64;
     let fence = current_native::prepare_on(&txn, &fixture.session, now)
         .await
         .unwrap();

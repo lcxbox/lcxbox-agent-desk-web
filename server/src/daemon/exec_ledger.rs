@@ -142,7 +142,7 @@ impl ExecLedger {
         plan_fingerprint: &str,
         containment_identity: Option<&str>,
     ) -> Result<Reservation, DbErr> {
-        let now = chrono::Utc::now().naive_utc();
+        let now = desk_agent_data_store::datetime::naive_utc_now();
         let insert = exec_ledger_entry::Entity::insert(exec_ledger_entry::ActiveModel {
             execution_generation: Set(generation.to_string()),
             task_id: Set(task_id.to_string()),
@@ -237,7 +237,7 @@ impl ExecLedger {
             .col_expr(exec_ledger_entry::Column::State, Expr::value(to.as_str()))
             .col_expr(
                 exec_ledger_entry::Column::UpdatedAt,
-                Expr::value(chrono::Utc::now().naive_utc()),
+                Expr::value(desk_agent_data_store::datetime::naive_utc_now()),
             );
         if let Some(id) = containment_identity {
             update = update.col_expr(
@@ -292,7 +292,7 @@ impl ExecLedger {
 
         // Elapsed time is only meaningful while the command may still be running.
         let running_ms = (!state.is_settled()).then(|| {
-            (chrono::Utc::now().naive_utc() - row.created_at)
+            (desk_agent_data_store::datetime::naive_utc_now() - row.created_at)
                 .num_milliseconds()
                 .max(0) as u64
         });
@@ -363,8 +363,12 @@ impl ExecLedger {
     /// be spawned again and so "I have no result for that" stays distinguishable
     /// from "I never accepted that".
     pub async fn forget_results_older_than(&self, retain: Duration) -> Result<u64, DbErr> {
-        let cutoff = chrono::Utc::now().naive_utc()
-            - chrono::Duration::from_std(retain).unwrap_or_else(|_| chrono::Duration::hours(24));
+        let cutoff = desk_agent_data_store::datetime::to_database(
+            jiff::Timestamp::now()
+                - jiff::SignedDuration::try_from(retain)
+                    .unwrap_or_else(|_| jiff::SignedDuration::from_hours(24)),
+        )
+        .naive_utc();
         let res = exec_ledger_entry::Entity::update_many()
             .col_expr(
                 exec_ledger_entry::Column::ResultJson,

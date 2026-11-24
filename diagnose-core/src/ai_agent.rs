@@ -901,9 +901,9 @@ pub fn provider_readiness_reports(
 }
 
 fn parse_unix_ms(field: &str, value: &str) -> Result<u64, String> {
-    let timestamp = chrono::DateTime::parse_from_rfc3339(value)
-        .map_err(|_| format!("{field} is not RFC3339"))?
-        .timestamp_millis();
+    let timestamp = desk_utils::datetime::parse_rfc3339(value)
+        .map(desk_utils::datetime::unix_millis)
+        .map_err(|_| format!("{field} is not RFC3339"))?;
     u64::try_from(timestamp).map_err(|_| format!("{field} predates the Unix epoch"))
 }
 
@@ -4203,21 +4203,19 @@ pub fn scope_disclosed_instructions(system: &mut ChatMessage, disclosed_provider
 pub fn current_time_prompt(now_unix_ms: u64) -> String {
     let Some(now) = i64::try_from(now_unix_ms)
         .ok()
-        .and_then(chrono::DateTime::from_timestamp_millis)
+        .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
     else {
         return String::new();
     };
     format!(
-        "\nCURRENT TIME (server clock): {}. This is UTC, not the user's or target device's local timezone. Never use a remembered/model-training date for today, tomorrow or the day after tomorrow. For a native Calendar UI task, establish the current local date/time and offset from current device/application evidence or the user's explicit instructions; a selected event date is not today's date. Do not infer timezone from language or the server timezone. Ask only when the required local date/time remains ambiguous. Scheduling-tool timezone requirements remain separate.\n",
-        now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        "\nCURRENT TIME (server clock): {now:.0}. This is UTC, not the user's or target device's local timezone. Never use a remembered/model-training date for today, tomorrow or the day after tomorrow. For a native Calendar UI task, establish the current local date/time and offset from current device/application evidence or the user's explicit instructions; a selected event date is not today's date. Do not infer timezone from language or the server timezone. Ask only when the required local date/time remains ambiguous. Scheduling-tool timezone requirements remain separate.\n"
     )
 }
 
 /// An IANA timezone name the server recognizes, or `unknown`; never the
 /// client's raw text.
 pub fn recognized_timezone(raw: &str) -> &'static str {
-    raw.parse::<chrono_tz::Tz>()
-        .map_or("unknown", |timezone| timezone.name())
+    crate::schedule::timezone::zone_name(raw).unwrap_or("unknown")
 }
 
 /// Dynamic, device-authored path guidance. It does not select a directory and

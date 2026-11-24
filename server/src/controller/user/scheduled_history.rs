@@ -48,8 +48,8 @@ async fn scheduled_result_rest_owner_guard_and_original_subject() {
     let db = desk_signal::db::init_db(dir.path().to_str().unwrap(), configuration)
         .await
         .unwrap();
-    let now = chrono::Utc::now();
-    let ms = now.timestamp_millis();
+    let now = jiff::Timestamp::now();
+    let ms = now.as_millisecond();
     let schedules = desk_signal::schedule_store::ScheduleStore::new(db.clone());
     let draft = ScheduleCreation {
         client_create_key: "result-rest".into(),
@@ -62,8 +62,7 @@ async fn scheduled_result_rest_owner_guard_and_original_subject() {
         spec: ScheduleSpec {
             schema_version: SCHEDULE_SCHEMA_VERSION,
             rule: ScheduleRule::Once {
-                at: (now + chrono::Duration::hours(1))
-                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                at: format!("{:.0}", now + jiff::SignedDuration::from_hours(1)),
             },
         },
         time_confirmation: None,
@@ -85,7 +84,7 @@ async fn scheduled_result_rest_owner_guard_and_original_subject() {
             expires_at: None,
             policy_name: None,
         },
-        &now.to_rfc3339(),
+        &desk_utils::datetime::rfc3339(now),
     );
     session.surface = AgentSessionSurface::AiAgent;
     session.conversation.push(ChatMessage::text(
@@ -107,8 +106,8 @@ async fn scheduled_result_rest_owner_guard_and_original_subject() {
         lease_deadline: Set(None),
         snapshot_seq: Set(None),
         snapshot_fingerprint: Set(None),
-        created_at: Set(now),
-        updated_at: Set(now),
+        created_at: Set(desk_agent_data_store::datetime::to_database(now)),
+        updated_at: Set(desk_agent_data_store::datetime::to_database(now)),
         ..Default::default()
     }
     .insert(db)

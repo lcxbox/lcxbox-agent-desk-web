@@ -73,9 +73,9 @@ pub fn build_read_attachment(
     let expires_at_unix_ms = if object_ref.object_kind.is_lifecycle_bound() {
         u64::MAX
     } else {
-        let expiry = chrono::DateTime::parse_from_rfc3339(&object_ref.expires_at)
-            .map_err(|_| invalid())?
-            .timestamp_millis();
+        let expiry = desk_utils::datetime::parse_rfc3339(&object_ref.expires_at)
+            .map(desk_utils::datetime::unix_millis)
+            .map_err(|_| invalid())?;
         u64::try_from(expiry).map_err(|_| invalid())?
     };
     if expires_at_unix_ms <= context.now_unix_ms

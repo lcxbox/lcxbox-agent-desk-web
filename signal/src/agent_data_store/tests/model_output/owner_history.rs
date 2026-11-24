@@ -50,7 +50,7 @@ async fn accepted_owner_use_keeps_its_identity_after_model_revocation_and_cached
                 operation_id: "forget-after-accepted-native".into(),
             },
             &AgentDataPolicy::default(),
-            chrono::Utc::now().timestamp_millis() as u64,
+            jiff::Timestamp::now().as_millisecond() as u64,
         )
         .await
         .unwrap();

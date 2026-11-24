@@ -996,7 +996,7 @@ async fn unreadable_issue_authority_of_a_follower_does_not_hold_the_head() {
         model_id: "model".into(),
         profile_revision: 1,
     };
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let head = FrozenRequestInput {
         issue_source: None,
         ask: AiAgentAsk {
@@ -1144,7 +1144,7 @@ async fn subscribed_request() -> (
         model_id: "model".into(),
         profile_revision: 1,
     };
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     page(&db, &policy, std::slice::from_ref(&first), None, 2000).await;
     let hint = routing::candidates_on(&db, 0, 4)
         .await
@@ -1205,7 +1205,7 @@ async fn a_source_paused_at_admission_is_not_charged_and_admits_after_resuming()
     use crate::main_request::{self, ActivationProgress, FrozenRequestInput, IssueAuthorization};
     let (db, policy, row) = subscribed_request().await;
     let frozen = FrozenRequestInput::decode(&row).unwrap();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     assert_eq!(
         frozen
             .issue_queue_authority(&db, &row.actor_id, now)
@@ -1263,7 +1263,7 @@ async fn a_source_revoked_at_admission_closes_as_unavailable_on_the_next_scan() 
     use desk_agent_protocol::ai_agent::MainRequestFailure;
     let (db, _, row) = subscribed_request().await;
     let frozen = FrozenRequestInput::decode(&row).unwrap();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     crate::issue_authority::stop_request(&db, &row.actor_id, &row.request_id, now)
         .await
         .unwrap();
@@ -1317,7 +1317,7 @@ async fn unreadable_authority_at_admission_is_charged_until_the_request_fails() 
     };
     let (db, _, row) = subscribed_request().await;
     let frozen = FrozenRequestInput::decode(&row).unwrap();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     admission::Entity::update_many()
         .col_expr(
             admission::Column::SnapshotJson,

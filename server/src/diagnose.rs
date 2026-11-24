@@ -89,7 +89,7 @@ impl DiagnoseOrchestrator {
 
 /// Current time as an RFC3339 string (the evidence snapshot timestamp format).
 fn now_rfc3339() -> String {
-    chrono::Utc::now().to_rfc3339()
+    desk_utils::datetime::rfc3339(jiff::Timestamp::now())
 }
 
 /// Skeleton collector that gathers nothing. Used where no in-process agent is

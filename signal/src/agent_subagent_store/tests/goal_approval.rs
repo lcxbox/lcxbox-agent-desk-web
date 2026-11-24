@@ -51,7 +51,7 @@ async fn fixture() -> (
         .unwrap()
         .destination_identity()
         .unwrap();
-    let now = chrono::Utc::now();
+    let now = desk_agent_data_store::datetime::utc_now();
     let user = desk_diagnose_core::model_message_labels::model_bound_user_message(
         "goal-user".into(),
         "Please keep working until the report is finished".into(),
@@ -114,7 +114,7 @@ async fn fixture() -> (
         )
         .col_expr(
             session_row::Column::LeaseDeadline,
-            Expr::value(Option::<chrono::NaiveDateTime>::None),
+            Expr::value(Option::<sea_orm::prelude::DateTime>::None),
         )
         .filter(session_row::Column::ConversationId.eq(&session.conversation_id))
         .exec(&db)
@@ -291,7 +291,7 @@ async fn goal_approval_queues_once_without_device_permissions() {
         &session.device_id,
         &request.request_id,
         true,
-        chrono::DateTime::from_timestamp_millis((now + 2) as i64).unwrap(),
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis((now + 2) as i64).unwrap(),
     )
     .await
     .unwrap();
@@ -382,7 +382,7 @@ async fn human_decision_wins_over_a_late_ai_approval() {
         &session.device_id,
         &request.request_id,
         false,
-        chrono::DateTime::from_timestamp_millis((now + 1) as i64).unwrap(),
+        sea_orm::prelude::DateTimeUtc::from_timestamp_millis((now + 1) as i64).unwrap(),
     )
     .await
     .unwrap()

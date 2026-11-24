@@ -34,7 +34,7 @@ impl SignalAgentSessionStore {
 
         let row = lock_deletion_row_on(&txn, id, actor, device).await?;
         let Some(row) = row else {
-            let now_ms = chrono::Utc::now().timestamp_millis();
+            let now_ms = jiff::Timestamp::now().as_millisecond();
             let removed = desk_diagnose_core::future::boxed(|| {
                 crate::agent_data_store::delete_retained_root_on(&txn, actor, device, id, now_ms)
             })
@@ -47,7 +47,7 @@ impl SignalAgentSessionStore {
             self.delete_traces_later(vec![id.into()], actor);
             return Ok(None);
         };
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = jiff::Timestamp::now().as_millisecond();
         let current = current_deletion_session(&row)?;
         let mut removed = vec![id.to_owned()];
         let mut permission_ends = PendingEnds::default();
@@ -276,7 +276,7 @@ pub(super) async fn stop_removed_work_on(
     actor: &str,
     now_ms: i64,
 ) -> Result<(), sea_orm::DbErr> {
-    let now = chrono::DateTime::from_timestamp_millis(now_ms)
+    let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms)
         .ok_or_else(|| sea_orm::DbErr::Custom("invalid clock".into()))?;
     // Undispatched work becomes terminal and its queued outbox entries are
     // dropped; work that may already be on the device keeps its evidence

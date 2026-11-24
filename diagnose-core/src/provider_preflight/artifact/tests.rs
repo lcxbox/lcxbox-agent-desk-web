@@ -58,9 +58,9 @@ fn directory() -> ObjectRef {
         token: "opaque-directory".into(),
         snapshot_id: "directory-snapshot".into(),
         object_kind: ObjectKind::Directory,
-        expires_at: chrono::DateTime::from_timestamp_millis((NOW + 60_000) as i64)
-            .unwrap()
-            .to_rfc3339(),
+        expires_at: desk_utils::datetime::rfc3339(
+            jiff::Timestamp::from_millisecond((NOW + 60_000) as i64).unwrap(),
+        ),
     }
 }
 
@@ -254,9 +254,9 @@ fn document_conversion_binds_both_resources_and_the_earliest_expiry_on_both_host
     let mut source = directory();
     source.object_kind = ObjectKind::File;
     source.token = "source-file".into();
-    source.expires_at = chrono::DateTime::from_timestamp_millis((NOW + 30_000) as i64)
-        .unwrap()
-        .to_rfc3339();
+    source.expires_at = desk_utils::datetime::rfc3339(
+        jiff::Timestamp::from_millisecond((NOW + 30_000) as i64).unwrap(),
+    );
     let action = call(
         "convert_document",
         json!({"source":{"kind":"artifact_result", "file_result_call_id":"observed-source"}, "output_name":"converted.pdf", "conversion":{"kind":"markdown_to_pdf"}}),

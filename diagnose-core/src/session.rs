@@ -2674,9 +2674,9 @@ impl PersistedAgentSession {
             .map_err(|_| TurnClaimError::Busy)?;
         let now = now.into();
         if self.main_coordination.is_some() {
-            let now_ms = chrono::DateTime::parse_from_rfc3339(&now)
-                .map_err(|_| TurnClaimError::Busy)?
-                .timestamp_millis();
+            let now_ms = desk_utils::datetime::parse_rfc3339(&now)
+                .map(desk_utils::datetime::unix_millis)
+                .map_err(|_| TurnClaimError::Busy)?;
             if self.has_live_main_coordination(now_ms) {
                 return Err(TurnClaimError::Busy);
             }

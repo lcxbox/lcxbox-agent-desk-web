@@ -14,7 +14,7 @@ pub(crate) fn run_due_once(
 async fn run_due_once_inner(
     db: &crate::config::connection::DatabaseConnection,
 ) -> Result<OutputGcSweep, AgentStoreError> {
-    let now = u64::try_from(chrono::Utc::now().timestamp_millis())
+    let now = u64::try_from(jiff::Timestamp::now().as_millisecond())
         .map_err(|_| AgentStoreError::Inaccessible)?;
     let policy = crate::agent_data_config::policy(db).await;
     run_with_policy(db, now, &policy.limits.processing, 1).await

@@ -112,7 +112,7 @@ async fn a_revoked_original_input_does_not_withdraw_an_already_accepted_answer()
     origins::Entity::update_many()
         .col_expr(
             origins::Column::DeletedAtMs,
-            Expr::value(Some(chrono::Utc::now().timestamp_millis())),
+            Expr::value(Some(jiff::Timestamp::now().as_millisecond())),
         )
         .col_expr(
             origins::Column::DeletionGeneration,
@@ -228,7 +228,7 @@ async fn actual_session_save_retains_visible_body_native_time_and_independent_li
         "1",
         &row,
         &AgentDataPolicy::default(),
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )
     .await
     .unwrap();
@@ -240,7 +240,7 @@ async fn actual_session_save_retains_visible_body_native_time_and_independent_li
     let counted = quota::Entity::find().one(&store.db).await.unwrap().unwrap();
     session.finish_turn(
         desk_diagnose_core::session::TurnState::Idle,
-        chrono::Utc::now().to_rfc3339(),
+        desk_utils::datetime::rfc3339(jiff::Timestamp::now()),
     );
     host(&store).save(&mut session).await.unwrap();
     assert_eq!(
@@ -671,7 +671,7 @@ async fn ai_task_prompt_keeps_original_copy_policy_and_rolls_back_on_small_stack
                 "creation_source": "ai_proposal", "time_confirmation": null
             })).unwrap();
             let mut task = crate::schedule_store::ScheduleStore::new(store.db.clone())
-                .create_pending_task(1, &draft, chrono::Utc::now().timestamp_millis())
+                .create_pending_task(1, &draft, jiff::Timestamp::now().as_millisecond())
                 .await
                 .unwrap();
             assert!(task.prompt_retention_json.is_none());
@@ -848,7 +848,7 @@ async fn native_inventory_save_retains_a_verified_empty_snapshot_once_without_ex
         &session.actor_id,
         row,
         &AgentDataPolicy::default(),
-        chrono::Utc::now().timestamp_millis() as u64,
+        jiff::Timestamp::now().as_millisecond() as u64,
     )
     .await
     .unwrap();
