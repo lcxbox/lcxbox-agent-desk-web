@@ -167,7 +167,7 @@ The long-lived ServiceDaemon owns signaling, the WebRTC PeerConnection, and work
 
 AI inference is centrally orchestrated, while the controlled device is a thin evidence and execution edge. In `default` mode the bundled signaling service supplies that central brain, so the portable build remains self-contained. A standalone `desk-server` connects to an external signaling service or manager for AI orchestration.
 
-![AI diagnostics and owner-confirmed execution flow](assets/architecture/ai-diagnostics.svg)
+![AI diagnostics and approved execution flow](assets/architecture/ai-diagnostics.svg)
 
 - **Bounded Agent Loop**: The central orchestrator selects read capabilities, requests evidence, calls the configured model, and may continue through multiple tool turns within configured step and repeat limits.
 - **Edge Collection & Redaction**: System information, processes, listening ports, services, logs, and optional screenshots are collected on demand. Logs and screenshots are locally gated; every evidence item is strictly redacted on the edge, and redaction failure blocks the request.

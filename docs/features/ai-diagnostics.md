@@ -297,7 +297,7 @@ When you connect by an [access code](/guide/access-codes) rather than as the own
 
 AI is orchestrated by the **central signaling server** (the "central brain"). The device is a **thin edge** that supplies read-only evidence on request; owner-confirmed commands return through a separate, sealed execution path. When a user asks a question during a session (e.g. *"Why is this system slow?"*), the central server drives a strict pipeline:
 
-![AI diagnostics and owner-confirmed execution flow](/architecture/ai-diagnostics.svg)
+![AI diagnostics and approved execution flow](/architecture/ai-diagnostics.svg)
 
 1. The central brain requests **read-only evidence** from the edge (system info, processes, ports, logs, screenshots).
 2. The edge **collects and redacts** the evidence locally — redaction **fails closed**, and raw screenshot bytes are stripped before anything leaves the host.

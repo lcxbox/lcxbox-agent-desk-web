@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
-  <title id="title">LCXBOX Agent Desk 中心化 AI 诊断与 owner 确认执行</title>
-  <desc id="desc">中心信令大脑编排有边界的模型调用；瘦被控端在本地采集并严格脱敏证据。模型建议的命令必须经 owner 确认、服务端冻结 argv 计划和被控端复校后才会执行。</desc>
+  <title id="title">LCXBOX Agent Desk 中心化 AI 诊断与审批执行</title>
+  <desc id="desc">中心信令大脑编排有边界的模型调用；瘦被控端在本地采集并严格脱敏证据。每个动作须按会话审批模式获批（默认 AI 审批，需要时由 owner 决定），再经服务端冻结 argv 计划和被控端复校后才会执行。</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0b1020"/><stop offset="1" stop-color="#111b33"/></linearGradient>
     <linearGradient id="central" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#312e81"/><stop offset="1" stop-color="#1e1b4b"/></linearGradient>
@@ -17,7 +17,7 @@
   </defs>
 
   <rect width="1200" height="760" rx="28" fill="url(#bg)"/><circle cx="1104" cy="78" r="200" fill="#7c3aed" opacity=".07"/><circle cx="90" cy="720" r="190" fill="#10b981" opacity=".05"/>
-  <text x="54" y="48" class="eyebrow">AI 诊断 · 信任边界</text><text x="54" y="83" class="title">中心大脑，瘦被控端，owner 明确确认。</text>
+  <text x="54" y="48" class="eyebrow">AI 诊断 · 信任边界</text><text x="54" y="83" class="title">中心大脑，瘦被控端，逐项动作审批。</text>
 
   <!-- 浏览器 -->
   <rect x="42" y="120" width="236" height="580" rx="23" fill="#0f172a" fill-opacity=".55" stroke="#334155"/>
@@ -25,7 +25,7 @@
   <g filter="url(#shadow)"><rect x="66" y="194" width="188" height="102" rx="18" fill="#172554" stroke="#3b82f6" stroke-opacity=".62"/><rect x="66" y="346" width="188" height="106" rx="18" fill="#152238" stroke="#38bdf8" stroke-opacity=".5"/><rect x="66" y="520" width="188" height="120" rx="18" fill="url(#warn)" stroke="#f59e0b" stroke-opacity=".68"/></g>
   <circle cx="96" cy="225" r="17" fill="#2563eb"/><path d="M89 223c0-5 3-8 7-8s7 3 7 8-3 7-7 7h-3l-5 4 2-7c-1-1-1-2-1-4z" fill="none" stroke="#dbeafe" stroke-width="1.8" stroke-linejoin="round"/><text x="122" y="230" class="section">用户提问</text><text x="88" y="264" class="muted">登录用户用自然语言</text><text x="88" y="282" class="muted">描述需要排查的问题</text>
   <circle cx="96" cy="377" r="17" fill="#0369a1"/><path d="M88 377l5 5 11-12" fill="none" stroke="#e0f2fe" stroke-width="2.2" stroke-linecap="round"/><text x="122" y="382" class="section">诊断结果</text><text x="88" y="416" class="muted">问题发现 · 证据摘要</text><text x="88" y="434" class="muted">修复建议</text>
-  <circle cx="96" cy="551" r="17" fill="#b45309"/><path d="M96 541v12M96 559h.1" stroke="#fef3c7" stroke-width="2.5" stroke-linecap="round"/><text x="122" y="556" class="section">Owner 确认门</text><text x="88" y="588" class="muted">核对完整命令</text><text x="88" y="607" class="muted">逐条确认，逐条生效</text><text x="88" y="626" class="muted">拒绝 / 超时 = 不执行</text>
+  <circle cx="96" cy="551" r="17" fill="#b45309"/><path d="M96 541v12M96 559h.1" stroke="#fef3c7" stroke-width="2.5" stroke-linecap="round"/><text x="122" y="556" class="section">审批</text><text x="88" y="588" class="muted">默认由 AI 审批</text><text x="88" y="607" class="muted">需本人时由 owner 决定</text><text x="88" y="626" class="muted">拒绝 / 超时 = 不执行</text>
 
   <!-- 中心信令大脑 -->
   <rect x="315" y="120" width="520" height="580" rx="23" fill="#111827" fill-opacity=".72" stroke="#6366f1" stroke-opacity=".55" stroke-width="1.5"/>
@@ -36,8 +36,8 @@
 
   <path d="M366 365H784" stroke="#334155" stroke-width="1"/><circle cx="385" cy="365" r="6" fill="#60a5fa"/><text x="402" y="370" class="label">证据请求受能力约束；原始采集始终留在被控端。</text>
 
-  <rect x="345" y="454" width="460" height="156" rx="18" fill="#0f172a" stroke="#475569"/><text x="367" y="481" class="tag">执行裁决 · 只有确认后才能进入</text>
-  <rect x="367" y="500" width="188" height="84" rx="14" fill="url(#warn)" stroke="#f59e0b" stroke-opacity=".65"/><circle cx="389" cy="523" r="13" fill="#b45309"/><text x="385" y="527" class="step">1</text><text x="412" y="528" class="label">分级与授权</text><text x="385" y="554" class="muted">黑名单 · 风险 · owner 决策</text><text x="385" y="573" class="muted">没有批准就不执行</text>
+  <rect x="345" y="454" width="460" height="156" rx="18" fill="#0f172a" stroke="#475569"/><text x="367" y="481" class="tag">执行裁决 · 只有批准后才能进入</text>
+  <rect x="367" y="500" width="188" height="84" rx="14" fill="url(#warn)" stroke="#f59e0b" stroke-opacity=".65"/><circle cx="389" cy="523" r="13" fill="#b45309"/><text x="385" y="527" class="step">1</text><text x="412" y="528" class="label">分级与授权</text><text x="385" y="554" class="muted">黑名单 · 风险 · 审批模式</text><text x="385" y="573" class="muted">没有批准就不执行</text>
   <path d="M563 542H583" stroke="#fbbf24" stroke-width="2.5" marker-end="url(#amber)"/>
   <rect x="591" y="500" width="192" height="84" rx="14" fill="#27204d" stroke="#8b5cf6" stroke-opacity=".65"/><circle cx="613" cy="523" r="13" fill="#6d28d9"/><text x="609" y="527" class="step">2</text><text x="636" y="528" class="label">冻结 argv 计划</text><text x="609" y="554" class="muted">字段不可变</text><text x="609" y="573" class="muted">绝不重解析命令字符串</text>
   <rect x="345" y="635" width="460" height="40" rx="12" fill="#171d2d"/><circle cx="365" cy="655" r="5" fill="#94a3b8"/><text x="380" y="660" class="tiny">审计只保存元数据与摘要，不保存原始提问、输出或截图</text>

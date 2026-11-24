@@ -18,7 +18,7 @@ Daemon 与 worker 使用三条独立传输：双向 event pipe 承载信令和�
 
 ## AI 诊断流水线
 
-![AI 诊断与所有者确认执行流程](/architecture/ai-diagnostics-cn.svg)
+![AI 诊断与审批执行流程](/architecture/ai-diagnostics-cn.svg)
 
 中心编排器按照 **采集 → 脱敏 → 模型 → 展示** 的顺序运行；被控端脱敏失败会立即中止请求。模型可以建议命令，但只有经过认证的 owner 才能批准完整预览；被控端收到密封计划后仍会复校再执行。MCP 服务始终只读。见 [AI 安全模型](/zh/security/ai-security-model)。
 

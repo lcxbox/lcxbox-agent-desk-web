@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
-  <title id="title">LCXBOX Agent Desk central AI diagnostics and owner-confirmed execution</title>
-  <desc id="desc">The central signaling brain orchestrates bounded model turns. A thin controlled edge collects and strictly redacts evidence locally. Suggested commands require owner confirmation, a server-sealed argv plan, and edge re-validation before execution.</desc>
+  <title id="title">LCXBOX Agent Desk central AI diagnostics and approved execution</title>
+  <desc id="desc">The central signaling brain orchestrates bounded model turns. A thin controlled edge collects and strictly redacts evidence locally. Each proposed action is approved under the session approval mode (AI review by default, the device owner when needed), sealed into a server-side argv plan, and re-validated on the edge before execution.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0b1020"/><stop offset="1" stop-color="#111b33"/></linearGradient>
     <linearGradient id="central" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#312e81"/><stop offset="1" stop-color="#1e1b4b"/></linearGradient>
@@ -17,7 +17,7 @@
   </defs>
 
   <rect width="1200" height="760" rx="28" fill="url(#bg)"/><circle cx="1104" cy="78" r="200" fill="#7c3aed" opacity=".07"/><circle cx="90" cy="720" r="190" fill="#10b981" opacity=".05"/>
-  <text x="54" y="48" class="eyebrow">AI DIAGNOSTICS · TRUST BOUNDARIES</text><text x="54" y="83" class="title">Central brain, thin edge, explicit owner approval.</text>
+  <text x="54" y="48" class="eyebrow">AI DIAGNOSTICS · TRUST BOUNDARIES</text><text x="54" y="83" class="title">Central brain, thin edge, approval for every action.</text>
 
   <!-- Browser -->
   <rect x="42" y="120" width="236" height="580" rx="23" fill="#0f172a" fill-opacity=".55" stroke="#334155"/>
@@ -25,7 +25,7 @@
   <g filter="url(#shadow)"><rect x="66" y="194" width="188" height="102" rx="18" fill="#172554" stroke="#3b82f6" stroke-opacity=".62"/><rect x="66" y="346" width="188" height="106" rx="18" fill="#152238" stroke="#38bdf8" stroke-opacity=".5"/><rect x="66" y="520" width="188" height="120" rx="18" fill="url(#warn)" stroke="#f59e0b" stroke-opacity=".68"/></g>
   <circle cx="96" cy="225" r="17" fill="#2563eb"/><path d="M89 223c0-5 3-8 7-8s7 3 7 8-3 7-7 7h-3l-5 4 2-7c-1-1-1-2-1-4z" fill="none" stroke="#dbeafe" stroke-width="1.8" stroke-linejoin="round"/><text x="122" y="230" class="section">Question</text><text x="88" y="264" class="muted">Plain-language troubleshooting</text><text x="88" y="282" class="muted">from an authenticated user</text>
   <circle cx="96" cy="377" r="17" fill="#0369a1"/><path d="M88 377l5 5 11-12" fill="none" stroke="#e0f2fe" stroke-width="2.2" stroke-linecap="round"/><text x="122" y="382" class="section">Diagnosis</text><text x="88" y="416" class="muted">Findings · evidence summary</text><text x="88" y="434" class="muted">suggested remediation</text>
-  <circle cx="96" cy="551" r="17" fill="#b45309"/><path d="M96 541v12M96 559h.1" stroke="#fef3c7" stroke-width="2.5" stroke-linecap="round"/><text x="122" y="556" class="section">Owner gate</text><text x="88" y="588" class="muted">Inspect the exact command</text><text x="88" y="607" class="muted">confirm one at a time</text><text x="88" y="626" class="muted">decline / timeout = stop</text>
+  <circle cx="96" cy="551" r="17" fill="#b45309"/><path d="M96 541v12M96 559h.1" stroke="#fef3c7" stroke-width="2.5" stroke-linecap="round"/><text x="122" y="556" class="section">Approval</text><text x="88" y="588" class="muted">AI review by default</text><text x="88" y="607" class="muted">owner decides when asked</text><text x="88" y="626" class="muted">deny / timeout = stop</text>
 
   <!-- Central signaling brain -->
   <rect x="315" y="120" width="520" height="580" rx="23" fill="#111827" fill-opacity=".72" stroke="#6366f1" stroke-opacity=".55" stroke-width="1.5"/>
@@ -36,8 +36,8 @@
 
   <path d="M366 365H784" stroke="#334155" stroke-width="1"/><circle cx="385" cy="365" r="6" fill="#60a5fa"/><text x="402" y="370" class="label">Evidence requests are capability-scoped; raw collection stays on the edge.</text>
 
-  <rect x="345" y="454" width="460" height="156" rx="18" fill="#0f172a" stroke="#475569"/><text x="367" y="481" class="tag">EXECUTION AUTHORITY · ONLY AFTER CONFIRMATION</text>
-  <rect x="367" y="500" width="188" height="84" rx="14" fill="url(#warn)" stroke="#f59e0b" stroke-opacity=".65"/><circle cx="389" cy="523" r="13" fill="#b45309"/><text x="385" y="527" class="step">1</text><text x="412" y="528" class="label">Classify + authorize</text><text x="385" y="554" class="muted">blocklist · risk · owner decision</text><text x="385" y="573" class="muted">no approval, no execution</text>
+  <rect x="345" y="454" width="460" height="156" rx="18" fill="#0f172a" stroke="#475569"/><text x="367" y="481" class="tag">EXECUTION AUTHORITY · ONLY AFTER APPROVAL</text>
+  <rect x="367" y="500" width="188" height="84" rx="14" fill="url(#warn)" stroke="#f59e0b" stroke-opacity=".65"/><circle cx="389" cy="523" r="13" fill="#b45309"/><text x="385" y="527" class="step">1</text><text x="412" y="528" class="label">Classify + authorize</text><text x="385" y="554" class="muted">blocklist · risk · approval</text><text x="385" y="573" class="muted">no approval, no execution</text>
   <path d="M563 542H583" stroke="#fbbf24" stroke-width="2.5" marker-end="url(#amber)"/>
   <rect x="591" y="500" width="192" height="84" rx="14" fill="#27204d" stroke="#8b5cf6" stroke-opacity=".65"/><circle cx="613" cy="523" r="13" fill="#6d28d9"/><text x="609" y="527" class="step">2</text><text x="636" y="528" class="label">Seal argv plan</text><text x="609" y="554" class="muted">immutable fields</text><text x="609" y="573" class="muted">never re-parse a string</text>
   <rect x="345" y="635" width="460" height="40" rx="12" fill="#171d2d"/><circle cx="365" cy="655" r="5" fill="#94a3b8"/><text x="380" y="660" class="tiny">Audit stores metadata and summaries — never raw prompts, output, or screenshots</text>

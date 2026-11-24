@@ -18,7 +18,7 @@ Daemon and worker use three independent transports: a bidirectional event pipe f
 
 ## AI Diagnostic Pipeline
 
-![AI diagnostics and owner-confirmed execution flow](/architecture/ai-diagnostics.svg)
+![AI diagnostics and approved execution flow](/architecture/ai-diagnostics.svg)
 
 The central orchestrator runs **collect → redact → model → render** and fails closed on edge redaction. A model may suggest a command, but only the authenticated owner can approve the exact preview; the host receives a sealed plan and revalidates it before execution. The MCP service remains read-only. See the [AI Security Model](/security/ai-security-model).
 
