@@ -7,6 +7,18 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
+pub const GOAL_POLICY_CHANGED: &str = "goal_policy_changed";
+
+pub fn cancelled_goal_input_error() -> desk_agent_protocol::AgentError {
+    desk_agent_protocol::AgentError {
+        kind: desk_agent_protocol::AgentErrorKind::SessionUnavailable,
+        message: "This goal was cancelled before its first segment.".into(),
+        retryable: false,
+        safe_for_model: false,
+        error_code: None,
+    }
+}
+
 pub const GOAL_SCHEMA_VERSION: u16 = 5;
 
 fn validate_execution_target(
@@ -2393,6 +2405,38 @@ impl GoalRun {
         self.validate()
     }
 
+    /// Close only the unclaimed owner input that opened this cancelled goal.
+    pub fn settle_cancelled_input(&self, session: &mut PersistedAgentSession) {
+        if !self.cancelled_before_first_claim()
+            || self.input_revision != session.input_revision
+            || session.latest_input_seq <= session.handled_input_seq
+        {
+            return;
+        }
+        let mut inputs = session.conversation.iter().rev().filter(|message| {
+            message.role == crate::chat::ChatRole::User
+                && !crate::permission_resume::is_resume_control_message(message)
+        });
+        if inputs.next().is_some_and(|message| message.message_id == self.original_source_message_id && message.turn_id.is_none())
+            // A failed prior turn can leave the watermark behind its already bound input.
+            && (session.latest_input_seq - session.handled_input_seq == 1 || inputs.next().is_some_and(|prior| prior.turn_id.is_some()))
+        {
+            session.handled_input_seq = session.latest_input_seq;
+        }
+    }
+
+    pub fn cancelled_before_first_claim(&self) -> bool {
+        self.opening == GoalOpening::OwnerRequest
+            && self.slice_seq == 0
+            && self.state == GoalState::Cancelled
+    }
+
+    pub fn pause_for_changed_policy(&mut self, now_unix_ms: u64) -> Result<(), GoalError> {
+        self.pause_settled(GoalPauseReason::Recovery, now_unix_ms)?;
+        self.status_reason = Some(GOAL_POLICY_CHANGED.into());
+        self.validate()
+    }
+
     /// Do not claim a new slice while an earlier device action still needs
     /// reconciliation. The owner must see why the queued goal stopped.
     pub fn pause_for_unresolved_work(&mut self, now_unix_ms: u64) -> Result<(), GoalError> {
@@ -3066,6 +3110,69 @@ mod tests {
         goal.deadline_unix_ms = 1_000 + 7 * 86_400_000;
         goal.limits.active_time_ms = 7_200_000;
         goal
+    }
+
+    #[test]
+    fn cancelling_an_unclaimed_goal_settles_only_its_own_pending_input() {
+        use crate::chat::{ChatMessage, ChatRole};
+        let mut cancelled = goal();
+        cancelled.cancel_settled(1_001).unwrap();
+        let mut pending = PersistedAgentSession::new(
+            "run",
+            "owner",
+            "device",
+            1,
+            desk_agent_protocol::AgentScope {
+                granted: vec![],
+                mode: desk_agent_protocol::ExecutionMode::ReadOnly,
+                expires_at: None,
+                policy_name: None,
+            },
+            "2026-08-25T00:00:00Z",
+        );
+        pending.input_revision = cancelled.input_revision;
+        pending.latest_input_seq = 1;
+        pending.conversation.push(ChatMessage::text(
+            "message",
+            ChatRole::User,
+            "Finish the report",
+        ));
+        for (seq, revision, message, turn) in [
+            (2, 1, "message", None),
+            (1, 2, "message", None),
+            (1, 1, "later", None),
+            (1, 1, "message", Some("turn")),
+        ] {
+            let mut other = pending.clone();
+            other.latest_input_seq = seq;
+            other.input_revision = revision;
+            other.conversation[0].message_id = message.into();
+            other.conversation[0].turn_id = turn.map(str::to_owned);
+            cancelled.settle_cancelled_input(&mut other);
+            assert_eq!(other.handled_input_seq, 0);
+        }
+        let mut after_failure = pending.clone();
+        after_failure.latest_input_seq = 2;
+        after_failure.conversation.insert(
+            0,
+            ChatMessage::text("earlier", ChatRole::User, "Previous request")
+                .with_turn_id("failed-turn"),
+        );
+        cancelled.settle_cancelled_input(&mut after_failure);
+        assert_eq!(after_failure.handled_input_seq, 2);
+        assert!(crate::agent_loop::committed_input_outcome(&after_failure, "earlier").is_none());
+        let mut claimed = cancelled.clone();
+        claimed.slice_seq = 1;
+        claimed.settle_cancelled_input(&mut pending);
+        let mut proposed = cancelled.clone();
+        proposed.opening = GoalOpening::AiRequestApproved {
+            request_id: "proposal".into(),
+            decision_event_id: "decision".into(),
+        };
+        proposed.settle_cancelled_input(&mut pending);
+        assert_eq!(pending.handled_input_seq, 0);
+        cancelled.settle_cancelled_input(&mut pending);
+        assert_eq!(pending.handled_input_seq, 1);
     }
 
     #[test]

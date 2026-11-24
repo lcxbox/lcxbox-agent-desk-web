@@ -241,7 +241,12 @@ impl SignalAgentRunEventStore {
                         .ok_or_else(|| internal("goal input event has no goal"))?;
                     let goal = crate::agent_goal_store::decode(&row)
                         .map_err(|error| internal(format!("decode idempotent goal: {error}")))?;
-                    if goal.source_message_id != params.message.message_id
+                    let source_id = if goal.cancelled_before_first_claim() {
+                        &goal.original_source_message_id
+                    } else {
+                        &goal.source_message_id
+                    };
+                    if source_id != &params.message.message_id
                         || goal.opening != GoalOpening::OwnerRequest
                         || goal
                             .previous_completion
@@ -251,6 +256,27 @@ impl SignalAgentRunEventStore {
                     {
                         return Err(internal("idempotent goal input changed"));
                     }
+                    if goal.cancelled_before_first_claim() {
+                        return Err(desk_diagnose_core::goal::cancelled_goal_input_error());
+                    }
+                } else if let Some(next) = existing.event_seq.checked_add(1)
+                    // Direct admission appends GoalOpened immediately after its input.
+                    // A model proposal instead opens after a separate owner decision.
+                    && agent_run_event::Entity::find()
+                        .select_only().column(agent_run_event::Column::Id)
+                        .filter(agent_run_event::Column::RunId.eq(&params.run_id))
+                        .filter(agent_run_event::Column::EventSeq.eq(next))
+                        .filter(agent_run_event::Column::Kind.eq(AgentRunEventKind::GoalOpened.as_str()))
+                        .into_tuple::<i64>().one(&txn).await.map_err(|error| internal(format!("load goal opening: {error}")))?
+                        .is_some()
+                {
+                    return Err(desk_agent_protocol::AgentError {
+                        kind: desk_agent_protocol::AgentErrorKind::InvalidInput,
+                        message: "This input was accepted as a goal.".into(),
+                        retryable: false,
+                        safe_for_model: false,
+                        error_code: None,
+                    });
                 }
                 txn.commit().await.map_err(|error| {
                     internal(format!("commit idempotent user follow-up: {error}"))
@@ -334,6 +360,9 @@ impl SignalAgentRunEventStore {
                 && session.has_live_main_coordination(now.timestamp_millis())
             {
                 return Ok(OwnerAdmissionResult::Waiting);
+            }
+            if goal_start.is_some() {
+                main_request::require_goal_input_slot(&session)?;
             }
             let activation = match admission {
                 OwnerAdmission::Native => None,
@@ -802,6 +831,22 @@ async fn prepare_input_goals_on(
         if active_goal_row.is_some() {
             return Err(internal("this conversation already has an active goal"));
         }
+        desk_diagnose_core::agent_policy::require_current_policy(params.policy_revision)?;
+        let queued_id = main_request::owner_request_id(
+            &params.actor_id,
+            &params.run_id,
+            &params.message.message_id,
+        );
+        if main_request::load(db, &params.actor_id, &params.run_id, &queued_id)
+            .await
+            .map_err(|error| error.into_agent_error())?
+            .is_some()
+        {
+            return Err(internal(
+                "This input was already queued as an ordinary request",
+            ));
+        }
+        session.policy_revision = params.policy_revision;
         let opened_at = u64::try_from(now.timestamp_millis())
             .map_err(|_| internal("invalid goal opening time"))?;
         let mut goal = GoalRun::new(
@@ -831,7 +876,7 @@ async fn prepare_input_goals_on(
         // The owner's own message is the goal text.
         let owner_source = desk_diagnose_core::model_content::StoredTextSource::owner(
             &params.actor_id,
-            std::cmp::Ord::max(u64::try_from(session.policy_revision).unwrap_or(1), 1),
+            params.policy_revision as u64,
         );
         goal.text_sources.goal_text = Some(owner_source.clone());
         goal.text_sources.original_goal_text = Some(owner_source);
@@ -1277,7 +1322,7 @@ fn transport(message: impl Into<String>) -> AgentError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use desk_agent_protocol::data_lineage::{
         ContentRef, DATA_ENVELOPE_SCHEMA_VERSION, DataEnvelope, DataProvenance, RetentionBoundary,
@@ -1346,6 +1391,17 @@ mod tests {
             read_context: None,
             message,
             created_at: "2026-08-25T00:00:00Z".into(),
+        }
+    }
+
+    pub(crate) fn goal_input(
+        event_id: &str,
+        message_id: &str,
+        text: &str,
+    ) -> AppendUserFollowupParams {
+        AppendUserFollowupParams {
+            policy_revision: desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
+            ..params(event_id, message_id, text)
         }
     }
 
@@ -3578,14 +3634,14 @@ mod tests {
         };
         let first = store
             .append_user_goal(
-                &params("event-goal-input", "message-goal", "Finish the report"),
+                &goal_input("event-goal-input", "message-goal", "Finish the report"),
                 start.clone(),
             )
             .await
             .unwrap();
         let retry = store
             .append_user_goal(
-                &params("event-goal-input", "message-goal", "Finish the report"),
+                &goal_input("event-goal-input", "message-goal", "Finish the report"),
                 start.clone(),
             )
             .await
@@ -3629,7 +3685,7 @@ mod tests {
         );
         let retry_after_policy_change = store
             .append_user_goal(
-                &params("event-goal-input", "message-goal", "Finish the report"),
+                &goal_input("event-goal-input", "message-goal", "Finish the report"),
                 start,
             )
             .await
@@ -3677,10 +3733,33 @@ mod tests {
             .unwrap();
         crate::db::initialize_schema(&db).await.unwrap();
         let store = SignalAgentRunEventStore::new(db.clone());
-        store
-            .append_user_followup(&params("event-1", "message-1", "Original goal"))
+        use desk_diagnose_core::seam::{ClaimTurnParams, SessionSeam};
+        let original = goal_input("event-1", "message-1", "Original goal");
+        let receipt = store.append_user_followup(&original).await.unwrap();
+        let sessions = crate::agent_session_store::SignalAgentSessionStore::new(db.clone())
+            .with_client_metadata(original.client_conversation_id.clone(), original.surface)
+            .with_expected_input_revision(receipt.input_revision);
+        let mut session = sessions
+            .claim_turn(ClaimTurnParams {
+                conversation_id: original.run_id.clone(),
+                actor_id: original.actor_id.clone(),
+                device_id: original.device_id.clone(),
+                policy_revision: original.policy_revision,
+                current_pdp_scope: original.current_scope.clone(),
+                turn_id: "previous-turn".into(),
+                request_id: None,
+                connection_id: None,
+                trigger_origin: desk_diagnose_core::session::TriggerOrigin::User,
+                now: original.created_at.clone(),
+            })
             .await
             .unwrap();
+        session.handled_input_seq = receipt.input_seq;
+        session.finish_turn(
+            desk_diagnose_core::session::TurnState::Idle,
+            original.created_at,
+        );
+        sessions.save(&mut session).await.unwrap();
         let now = chrono::DateTime::parse_from_rfc3339("2026-08-25T00:00:00Z")
             .unwrap()
             .timestamp_millis() as u64;
@@ -3743,7 +3822,7 @@ mod tests {
             previous_completed_goal_id: Some("old-goal".into()),
             model_binding,
         };
-        let input = params("event-2", "message-2", "Finish the original goal");
+        let input = goal_input("event-2", "message-2", "Finish the original goal");
         store.append_user_goal(&input, start.clone()).await.unwrap();
         let new_goal =
             crate::agent_goal_store::load_for_subject(&db, "run-1", &owner_actor(), "device-1")
@@ -3784,7 +3863,7 @@ mod tests {
         let store = SignalAgentRunEventStore::new(db.clone());
         store
             .append_user_goal(
-                &params(
+                &goal_input(
                     "event-control-input",
                     "message-control",
                     "Finish the report",
@@ -3881,7 +3960,7 @@ mod tests {
                 model_id: "model".into(),
             },
         };
-        let original = params("event-goal", "message-goal", "Finish the report");
+        let original = goal_input("event-goal", "message-goal", "Finish the report");
         let first = store
             .append_user_goal(&original, start.clone())
             .await

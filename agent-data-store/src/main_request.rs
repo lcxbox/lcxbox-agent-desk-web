@@ -290,18 +290,36 @@ pub fn holds_input_slot(session: &PersistedAgentSession) -> bool {
             .pending_auto_triggers
             .iter()
             .any(|trigger| trigger.chain_id == session.chain_id)
-        || (session.latest_input_seq > session.handled_input_seq
-            && session
-                .conversation
-                .iter()
-                .rev()
-                .find(|message| {
-                    message.role == ChatRole::User
-                        && !desk_diagnose_core::permission_resume::is_resume_control_message(
-                            message,
-                        )
-                })
-                .is_some_and(|message| message.turn_id.is_none()))
+        || has_unclaimed_input(session)
+}
+
+fn has_unclaimed_input(session: &PersistedAgentSession) -> bool {
+    session.latest_input_seq > session.handled_input_seq
+        && session
+            .conversation
+            .iter()
+            .rev()
+            .find(|message| {
+                message.role == ChatRole::User
+                    && !desk_diagnose_core::permission_resume::is_resume_control_message(message)
+            })
+            .is_some_and(|message| message.turn_id.is_none())
+}
+
+/// Called before the new goal advances the input revision under the conversation lock.
+pub fn require_goal_input_slot(
+    session: &PersistedAgentSession,
+) -> Result<(), desk_agent_protocol::AgentError> {
+    if has_unclaimed_input(session) {
+        return Err(desk_agent_protocol::AgentError {
+            kind: desk_agent_protocol::AgentErrorKind::SessionUnavailable,
+            message: "The previous input is starting. Send the goal again after it starts.".into(),
+            retryable: true,
+            safe_for_model: false,
+            error_code: None,
+        });
+    }
+    Ok(())
 }
 
 pub fn same_input(fence: &AgentTurnFence, session: &PersistedAgentSession) -> bool {
@@ -838,7 +856,7 @@ fn submission_sha256(ask: &AiAgentAsk, device_id: &str) -> Result<String, AgentS
     Ok(format!("{:x}", Sha256::digest(submitted)))
 }
 
-fn owner_request_id(actor_id: &str, conversation_id: &str, message_id: &str) -> String {
+pub fn owner_request_id(actor_id: &str, conversation_id: &str, message_id: &str) -> String {
     native_ids::stable(
         Kind::AgentMainRequest,
         &(actor_id, conversation_id, message_id),

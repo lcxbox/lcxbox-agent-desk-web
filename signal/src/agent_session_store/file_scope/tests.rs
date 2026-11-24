@@ -536,3 +536,368 @@ fn directory_call(held: &mut PersistedAgentSession, call: &str) -> String {
         ),
     )
 }
+
+use crate::agent_run_event_store::{
+    AppendUserFollowupParams, SignalAgentRunEventStore, StartUserGoal,
+};
+#[tokio::test]
+async fn first_goal_after_directory_confirmation_can_claim_two_segments() {
+    run_goal_on_small_stacks(false).await;
+}
+
+#[tokio::test]
+async fn cancelling_a_policy_paused_goal_releases_only_its_input() {
+    run_goal_on_small_stacks(true).await;
+}
+
+async fn run_goal_on_small_stacks(legacy: bool) {
+    for bytes in [1_048_576, 2_097_152] {
+        let db = crate::config::test_support::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::initialize_schema(&db).await.unwrap();
+        let (done, finished) = tokio::sync::oneshot::channel();
+        let thread = std::thread::Builder::new()
+            .name("first-goal-stack".into())
+            .stack_size(bytes)
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                runtime.block_on(desk_diagnose_core::future::boxed(|| {
+                    verify_first_goal(db, legacy)
+                }));
+                let _ = done.send(());
+            })
+            .unwrap();
+        let _ = finished.await;
+        thread.join().unwrap();
+    }
+}
+
+async fn verify_first_goal(db: DatabaseConnection, legacy: bool) {
+    use crate::agent_goal_store as goals;
+    use desk_diagnose_core::goal::GoalModelBinding;
+    use desk_diagnose_core::{
+        goal::GoalSegmentEnd,
+        seam::ClaimTurnParams,
+        session::{TriggerOrigin, TurnState},
+    };
+    let input = crate::agent_run_event_store::tests::goal_input(
+        "event-goal",
+        "owner-goal",
+        "Read the report",
+    );
+    let store = SignalAgentSessionStore::new(db.clone()).with_client_metadata(
+        input.client_conversation_id.clone(),
+        AgentSessionSurface::AiAgent,
+    );
+    let now: DateTime<Utc> = input.created_at.parse().unwrap();
+    let events = SignalAgentRunEventStore::new(db.clone());
+    let mut selection = update();
+    selection.subject.actor_id.clone_from(&input.actor_id);
+    selection.subject.device_id.clone_from(&input.device_id);
+    selection.subject.conversation_id.clone_from(&input.run_id);
+    selection.client_conversation_id = input.client_conversation_id.clone().unwrap();
+    let selected = store.update_file_scope(&selection, now).await.unwrap();
+    let decision = FileScopeUpdate {
+        client_request_id: "confirm-directory".into(),
+        expected_revision: selected.scope_revision,
+        mutation: FileScopeMutation::Decide {
+            directory_request_id: selection.client_request_id.clone(),
+            approve: true,
+        },
+        ..selection
+    };
+    store.update_file_scope(&decision, now).await.unwrap();
+    let initial = state(&store).await;
+    assert_eq!(initial.policy_revision, 0);
+    let start = StartUserGoal {
+        goal_id: "directory-goal".into(),
+        previous_completed_goal_id: None,
+        model_binding: GoalModelBinding::from_destination(
+            &input
+                .message
+                .data_envelope
+                .as_ref()
+                .unwrap()
+                .allowed_destinations[0],
+        )
+        .unwrap(),
+    };
+    let mut obsolete = input.clone();
+    obsolete.policy_revision = 0;
+    assert!(
+        events
+            .append_user_goal(&obsolete, start.clone())
+            .await
+            .is_err()
+    );
+    assert_eq!(state(&store).await, initial);
+
+    events
+        .append_user_goal(&input, start.clone())
+        .await
+        .unwrap();
+    let ordinary_replay = || events.append_user_followup(&input);
+    assert_eq!(
+        ordinary_replay().await.unwrap_err().kind,
+        desk_agent_protocol::AgentErrorKind::InvalidInput
+    );
+    if legacy {
+        desk_diagnose_core::future::boxed(|| verify_cancel_and_replay(store, input, start, now))
+            .await;
+        return;
+    }
+    let mut claim = ClaimTurnParams {
+        conversation_id: input.run_id,
+        actor_id: input.actor_id,
+        device_id: input.device_id,
+        policy_revision: input.policy_revision,
+        current_pdp_scope: input.current_scope,
+        turn_id: "first".into(),
+        request_id: None,
+        connection_id: None,
+        trigger_origin: TriggerOrigin::GoalContinuation,
+        now: now.to_rfc3339(),
+    };
+    let mut first = goals::claim_slice(&db, &claim, &start.goal_id, None, "worker", None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.goal.slice_seq, 1);
+    assert_eq!(first.session.file_scope, initial.file_scope);
+    first.session.finish_turn(TurnState::Idle, now.to_rfc3339());
+    let queued = goals::settle_slice(&db, &mut first.session, &GoalSegmentEnd::Yield, &[], now)
+        .await
+        .unwrap();
+    claim.turn_id = "second".into();
+    let second = goals::claim_slice(
+        &db,
+        &claim,
+        &start.goal_id,
+        Some(queued.state_version),
+        "worker",
+        None,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(second.goal.slice_seq, 2);
+}
+
+async fn verify_cancel_and_replay(
+    store: SignalAgentSessionStore,
+    input: AppendUserFollowupParams,
+    start: StartUserGoal,
+    now: DateTime<Utc>,
+) {
+    use crate::agent_goal_store as goals;
+    use desk_diagnose_core::{
+        seam::ClaimTurnParams,
+        session::{TriggerOrigin, TurnState},
+    };
+    let db = store.db.clone();
+    let events = SignalAgentRunEventStore::new(db.clone());
+    let ordinary_replay = || events.append_user_followup(&input);
+    let row = agent_session::Entity::find()
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut stale = PersistedAgentSession::decode_json(&row.state_json).unwrap();
+    stale.policy_revision = 0;
+    agent_session::Entity::update_many()
+        .set(agent_session::ActiveModel {
+            state_json: Set(stale.encode_json_for_storage().unwrap()),
+            ..Default::default()
+        })
+        .filter(agent_session::Column::Id.eq(row.id))
+        .exec(&db)
+        .await
+        .unwrap();
+    let owner = input.actor_id.as_str();
+    let goal = goals::load_for_subject(&db, &input.run_id, owner, &input.device_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let paused = goals::pause_if_goal_context_invalid(&db, &goal, now)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        paused.status_reason.as_deref(),
+        Some(desk_diagnose_core::goal::GOAL_POLICY_CHANGED)
+    );
+    assert!(
+        goals::pause_if_goal_context_invalid(&db, &goal, now)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        goals::apply_owner_action(
+            &db,
+            &input.run_id,
+            owner,
+            &input.device_id,
+            &goal.goal_id,
+            paused.state_version,
+            desk_diagnose_core::goal::GoalOwnerAction::Resume,
+            now
+        )
+        .await
+        .is_err()
+    );
+    let mut next = crate::agent_run_event_store::tests::goal_input("next", "next", "Next question");
+    next.created_at = now.to_rfc3339();
+    use desk_agent_data_store::main_request::{OwnerAdmission, OwnerAdmissionResult};
+    next.read_context = Some(
+        desk_diagnose_core::input_read_context::ReadContextSelection::capture(
+            &[],
+            &next.current_scope,
+        )
+        .unwrap(),
+    );
+    let ask = desk_agent_protocol::ai_agent::AiAgentAsk {
+        conversation_id: next.client_conversation_id.clone(),
+        client_message_id: next.message.message_id.clone(),
+        client_timezone: next.client_timezone.clone(),
+        question: next.message.text.clone(),
+        ..Default::default()
+    };
+    let OwnerAdmissionResult::Queued { row, waiting } = events
+        .admit_user_input(
+            &next,
+            None,
+            OwnerAdmission::Enqueue {
+                ask: &ask,
+                limit: 4,
+                reply_connection_id: None,
+            },
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("expected queued follow-up");
+    };
+    assert_eq!(waiting, Some(true));
+    let activate = OwnerAdmission::Activate {
+        request_id: &row.request_id,
+        issue_source: None,
+    };
+    assert!(matches!(
+        events
+            .admit_user_input(&next, None, activate)
+            .await
+            .unwrap(),
+        OwnerAdmissionResult::Waiting
+    ));
+    let cancelled = goals::apply_owner_action(
+        &db,
+        &input.run_id,
+        owner,
+        &input.device_id,
+        &goal.goal_id,
+        paused.state_version,
+        desk_diagnose_core::goal::GoalOwnerAction::Cancel,
+        now,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        cancelled.state,
+        desk_diagnose_core::goal::GoalState::Cancelled
+    );
+    let saved = state(&store).await;
+    assert_eq!((saved.handled_input_seq, saved.latest_input_seq), (1, 1));
+    assert!(!desk_agent_data_store::main_request::holds_input_slot(
+        &saved
+    ));
+    let replay = || events.append_user_goal(&input, start.clone());
+    assert_eq!(
+        replay().await.unwrap_err(),
+        desk_diagnose_core::goal::cancelled_goal_input_error()
+    );
+    let new_goal = StartUserGoal {
+        goal_id: "conflicting-goal".into(),
+        ..start.clone()
+    };
+    assert_eq!(
+        events
+            .append_user_goal(&next, new_goal)
+            .await
+            .unwrap_err()
+            .message,
+        "This input was already queued as an ordinary request"
+    );
+    let receipt = events
+        .admit_user_input(&next, None, activate)
+        .await
+        .unwrap()
+        .native()
+        .unwrap();
+    // A different goal must not supersede an activated input before its first claim.
+    let racing =
+        crate::agent_run_event_store::tests::goal_input("racing", "racing", "Start another goal");
+    let busy = events
+        .append_user_goal(
+            &racing,
+            StartUserGoal {
+                goal_id: "racing-goal".into(),
+                ..start.clone()
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        busy.kind,
+        desk_agent_protocol::AgentErrorKind::SessionUnavailable
+    );
+    assert!(busy.retryable);
+    let mut held = store
+        .clone()
+        .with_expected_input_revision(receipt.input_revision)
+        .with_queued_input(row.request_id.clone(), next.message.message_id.clone())
+        .claim_turn(ClaimTurnParams {
+            conversation_id: next.run_id.clone(),
+            actor_id: next.actor_id.clone(),
+            device_id: next.device_id.clone(),
+            policy_revision: next.policy_revision,
+            current_pdp_scope: next.current_scope.clone(),
+            turn_id: "next-turn".into(),
+            request_id: None,
+            connection_id: None,
+            trigger_origin: TriggerOrigin::User,
+            now: next.created_at.clone(),
+        })
+        .await
+        .unwrap();
+    held.conversation.push(
+        desk_diagnose_core::chat::ChatMessage::text(
+            "answer",
+            desk_diagnose_core::chat::ChatRole::Assistant,
+            "Only the later request receives this answer",
+        )
+        .with_turn_id("next-turn"),
+    );
+    held.handled_input_seq = receipt.input_seq;
+    held.finish_turn(TurnState::Idle, now.to_rfc3339());
+    store.save(&mut held).await.unwrap();
+    let answered = state(&store).await;
+    assert_eq!(
+        answered.conversation.last().unwrap().text,
+        "Only the later request receives this answer"
+    );
+    assert_eq!(
+        replay().await.unwrap_err(),
+        desk_diagnose_core::goal::cancelled_goal_input_error()
+    );
+    assert_eq!(state(&store).await, answered);
+    assert_eq!(
+        ordinary_replay().await.unwrap_err().kind,
+        desk_agent_protocol::AgentErrorKind::InvalidInput
+    );
+}

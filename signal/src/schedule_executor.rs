@@ -258,7 +258,7 @@ impl SignalScheduleExecutor {
             }
             return false;
         }
-        match crate::agent_goal_store::pause_if_missing_attachments(
+        match crate::agent_goal_store::pause_if_goal_context_invalid(
             &self.db,
             &goal,
             chrono::Utc::now(),
@@ -268,7 +268,7 @@ impl SignalScheduleExecutor {
             Ok(Some(_)) => return false,
             Ok(None) => {}
             Err(error) => {
-                log::warn!("[goal-executor] attachment preflight failed: {error}");
+                log::warn!("[goal-executor] goal context preflight failed: {error}");
                 return false;
             }
         }

@@ -256,7 +256,7 @@ pub async fn apply_owner_action(
     expected_state_version: u64,
     action: GoalOwnerAction,
     now: DateTime<Utc>,
-) -> Result<Option<GoalRun>, DbErr> {
+) -> Result<Option<GoalRun>, crate::error::DeskSignalError> {
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
     let txn = crate::db::begin_write(db, agent_session::Entity).await?;
     let history = desk_diagnose_core::future::boxed(|| {
@@ -309,6 +309,17 @@ pub async fn apply_owner_action(
     {
         return Ok(None);
     }
+    if matches!(
+        action,
+        GoalOwnerAction::Resume | GoalOwnerAction::RetryStalled
+    ) && desk_diagnose_core::agent_policy::require_current_policy(session.policy_revision)
+        .is_err()
+    {
+        return Err(crate::error::DeskSignalError::new_custom_error(
+            desk_utils::error::DeskErrorCode::PRECONDITION_FAILED,
+            "The agent policy changed. Cancel this goal and send it again.",
+        ));
+    }
     if action == GoalOwnerAction::Resume
         && goal.state == GoalState::Paused(GoalPauseReason::Recovery)
         && (desk_diagnose_core::goal_continuation::unresolved_work(&session)
@@ -324,6 +335,9 @@ pub async fn apply_owner_action(
         .map_err(|_| invalid())?;
     goal.apply_owner_action(action, now_ms)
         .map_err(|_| invalid())?;
+    if action == GoalOwnerAction::Cancel {
+        goal.settle_cancelled_input(&mut session);
+    }
     let permission_ends = crate::agent_subagent_store::apply_goal_source_on(
         &txn,
         conversation_id,
@@ -375,7 +389,7 @@ pub async fn apply_owner_action(
         )
         .await?
     {
-        return Err(invalid());
+        return Err(invalid().into());
     }
     agent_run_event::ActiveModel {
         event_id: Set(ledger.event.event_id.clone()),
@@ -1117,12 +1131,12 @@ pub async fn pause_if_unresolved_work(
     scheduler_transition(db, expected, SchedulerTransition::RecoveryPause, now).await
 }
 
-pub async fn pause_if_missing_attachments(
+pub async fn pause_if_goal_context_invalid(
     db: &DatabaseConnection,
     expected: &GoalRun,
     now: DateTime<Utc>,
 ) -> Result<Option<GoalRun>, DbErr> {
-    scheduler_transition(db, expected, SchedulerTransition::AttachmentCheck, now).await
+    scheduler_transition(db, expected, SchedulerTransition::ContextCheck, now).await
 }
 
 async fn attachments_available_on(
@@ -1164,7 +1178,7 @@ enum SchedulerTransition {
     ModelBlock,
     WorkWake,
     RecoveryPause,
-    AttachmentCheck,
+    ContextCheck,
 }
 
 async fn scheduler_transition(
@@ -1328,7 +1342,7 @@ async fn scheduler_transition(
         {
             goal.pause_for_unresolved_work(now_ms)
         }
-        (GoalState::Queued, SchedulerTransition::AttachmentCheck)
+        (GoalState::Queued, SchedulerTransition::ContextCheck)
             if !desk_diagnose_core::future::boxed(|| {
                 attachments_available_on(&txn, &goal, &session)
             })
@@ -1339,6 +1353,14 @@ async fn scheduler_transition(
                     goal.status_reason = Some("attachment_missing".into());
                     goal.validate()
                 })
+        }
+        (GoalState::Queued, SchedulerTransition::ContextCheck)
+            if desk_diagnose_core::agent_policy::require_current_policy(
+                session.policy_revision,
+            )
+            .is_err() =>
+        {
+            goal.pause_for_changed_policy(now_ms)
         }
         _ => return Ok(None),
     }

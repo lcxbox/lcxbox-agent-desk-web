@@ -2275,6 +2275,7 @@ export default {
   'pages.aiAgent.goalStates.completed': 'Completed',
   'pages.aiAgent.goalStates.failed': 'Failed',
   'pages.aiAgent.goalStates.cancelled': 'Cancelled',
+  'pages.aiAgent.goalReasons.goal_policy_changed': 'The agent policy changed. Cancel this goal and send it again.',
   'pages.aiAgent.goalReasons.reconcile_interrupted_work': 'An earlier action was interrupted or its outcome is unknown. Check its receipt before continuing.',
   'pages.aiAgent.goalReasons.recovered_after_reconciliation': 'The earlier action was reconciled. The goal will continue.',
   'pages.aiAgent.goalReasons.absolute_deadline_reached': 'The goal deadline has passed.',

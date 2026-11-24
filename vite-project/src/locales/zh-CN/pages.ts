@@ -2272,6 +2272,7 @@ export default {
   'pages.aiAgent.goalStates.completed': '已完成',
   'pages.aiAgent.goalStates.failed': '失败',
   'pages.aiAgent.goalStates.cancelled': '已取消',
+  'pages.aiAgent.goalReasons.goal_policy_changed': '智能体策略已变更。请取消此目标，然后重新发送。',
   'pages.aiAgent.goalReasons.reconcile_interrupted_work': '上一次操作已中断或结果未知，请先核对任务回执再继续。',
   'pages.aiAgent.goalReasons.recovered_after_reconciliation': '上一次操作已核对，目标将继续。',
   'pages.aiAgent.goalReasons.absolute_deadline_reached': '目标的截止时间已到。',

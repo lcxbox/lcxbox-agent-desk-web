@@ -77,6 +77,7 @@ pub(super) async fn release_parent(db: &DatabaseConnection) {
         .unwrap()
         .unwrap();
     let mut session = PersistedAgentSession::decode_json(&row.state_json).unwrap();
+    session.handled_input_seq = session.latest_input_seq;
     session.finish_turn(TurnState::Idle, chrono::Utc::now().to_rfc3339());
     session.version += 1;
     session_row::Entity::update_many()
@@ -124,7 +125,7 @@ pub(super) async fn append_input(db: &DatabaseConnection, start: bool, id: &str)
         device_id: "1".into(),
         client_conversation_id: None,
         surface: AgentSessionSurface::AiAgent,
-        policy_revision: 2,
+        policy_revision: desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
         current_scope: scope(),
         read_context: None,
         message,
@@ -169,7 +170,7 @@ pub(super) async fn spawn_goal_child(
             "goal-parent-turn",
             Some("goal-parent-request".into()),
             None,
-            2,
+            desk_diagnose_core::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
             scope(),
             now.to_rfc3339(),
         )

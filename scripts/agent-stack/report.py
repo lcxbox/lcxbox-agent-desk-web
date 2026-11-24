@@ -55,7 +55,7 @@ def protected(symbol):
         or ('schedule' in symbol and any(word in symbol for word in ('context_wait', 'published_input', 'proposal', 'management_tools', 'run_approval', 'dispatch')))
     )) or ('agent_goal_store' in symbol and any(word in symbol for word in (
         'settle_slice', 'persist_slice_on', 'validate_slice_session_on',
-        'claim_slice', 'PreparedGoalClaim', 'scheduler_transition', 'wake_for_agent_context', 'continuation_candidates',
+        'claim_slice', 'apply_owner_action', 'PreparedGoalClaim', 'scheduler_transition', 'wake_for_agent_context', 'continuation_candidates',
     ))) or ('schedule_store' in symbol and any(word in symbol for word in (
         'retrieval_consent', 'fresh_session', 'context_wait', 'fresh_children_settlement', 'fresh_recovery',
         'cancel_run', 'record_run_cancellation',
