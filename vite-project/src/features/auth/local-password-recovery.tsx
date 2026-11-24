@@ -19,11 +19,18 @@ export function LocalPasswordRecovery({ onSuccess }: { onSuccess: () => void }) 
     const [password, setPassword] = useState('');
     const [confirm, setConfirm] = useState('');
     const host = window.location.hostname;
-    if (!['localhost', '[::1]'].includes(host) && !/^127(?:\.\d{1,3}){3}$/.test(host)) {
+    const isLocal = ['localhost', '[::1]'].includes(host) || /^127(?:\.\d{1,3}){3}$/.test(host);
+    const trigger = (
+        <Button
+            type="button" variant="link" size="sm" disabled={busy} onClick={isLocal ? start : undefined}
+            className="h-6 p-0 font-normal text-muted-foreground hover:text-foreground"
+        >
+            {t('pages.login.forgotPassword')}
+        </Button>
+    );
+    if (!isLocal) {
         return <Dialog>
-            <DialogTrigger asChild>
-                <Button type="button" variant="link">{t('pages.login.forgotPassword')}</Button>
-            </DialogTrigger>
+            <DialogTrigger asChild>{trigger}</DialogTrigger>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>{t('pages.recovery.title')}</DialogTitle>
@@ -92,10 +99,8 @@ export function LocalPasswordRecovery({ onSuccess }: { onSuccess: () => void }) 
         }
     }
     return <>
-        <Button type="button" variant="link" disabled={busy} onClick={start}>
-            {t('pages.login.forgotPassword')}
-        </Button>
-        {!location && error && <p role="alert">{error}</p>}
+        {trigger}
+        {!location && error && <p role="alert" className="w-full text-sm text-destructive">{error}</p>}
         <Dialog open={location !== null} onOpenChange={(open) => { if (!open) void close(); }}>
             <DialogContent>
                 <DialogHeader>

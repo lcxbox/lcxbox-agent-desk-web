@@ -230,7 +230,7 @@ export default function LoginPage() {
                         )}
                         <TabsContent value="account">
                             <Form {...form}>
-                                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                                <form id="account-login" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                                     <FormField
                                         control={form.control}
                                         name="username"
@@ -261,24 +261,29 @@ export default function LoginPage() {
                                             </FormItem>
                                         )}
                                     />
-                                    <AsyncButton
-                                        type="submit"
-                                        className="w-full"
-                                        disabled={lockedRemainingSec > 0}
-                                        pending={form.formState.isSubmitting || tauriAutoLoginPending}
-                                        pendingLabel={t('pages.login.loggingIn')}
-                                    >
-                                        {lockedRemainingSec > 0
-                                            ? t('pages.login.accountLogin.retryAfter', { seconds: lockedRemainingSec })
-                                            : t('pages.login.submit')}
-                                    </AsyncButton>
                                 </form>
                             </Form>
-                            {!tauriAutoLoginPending && <LocalPasswordRecovery onSuccess={() => {
-                                setLockedUntilMs(0);
-                                form.setValue("password", "");
-                                toast({ title: t("pages.recovery.success") });
-                            }} />}
+                            {!tauriAutoLoginPending && (
+                                <div className="mt-1 flex flex-col items-end">
+                                    <LocalPasswordRecovery onSuccess={() => {
+                                        setLockedUntilMs(0);
+                                        form.setValue("password", "");
+                                        toast({ title: t("pages.recovery.success") });
+                                    }} />
+                                </div>
+                            )}
+                            <AsyncButton
+                                type="submit"
+                                form="account-login"
+                                className="mt-3 w-full"
+                                disabled={lockedRemainingSec > 0}
+                                pending={form.formState.isSubmitting || tauriAutoLoginPending}
+                                pendingLabel={t('pages.login.loggingIn')}
+                            >
+                                {lockedRemainingSec > 0
+                                    ? t('pages.login.accountLogin.retryAfter', { seconds: lockedRemainingSec })
+                                    : t('pages.login.submit')}
+                            </AsyncButton>
                         </TabsContent>
                         <TabsContent value="device_code">
                             <Form {...form}>
