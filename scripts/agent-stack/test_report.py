@@ -262,6 +262,29 @@ class Reports(unittest.TestCase):
             self.assertEqual(report.check_ceiling({'frames':{poll:4096}},report.HARD_FRAME_LIMIT,patterns),[])
             self.assertTrue(report.check_ceiling({'frames':{symbol:64}},report.HARD_FRAME_LIMIT,patterns))
 
+    def test_manager_inlined_schedule_and_admission_require_exact_owner_polls(self):
+        host = 'lcxbox_agent_desk_manager::service'
+        schedule = host + '::schedule_store::'
+        namespace = '_<impl ' + schedule + 'ScheduleStore>::'
+        stores = ('_<' + schedule + 'session_host::ManagerScheduleHost as '
+                  'desk_agent_data_store::schedule::session::ScheduleHostStores'
+                  '<sea_orm::database::transaction::DatabaseTransaction>>::')
+        package = 'lcxbox-agent-desk-manager'
+        for child, owner in [
+            ('::owner_prompt_retention_on', stores + 'owner_prompt_retention'),
+            ('::record_prompt_retention_on', stores + 'record_prompt_retention'),
+            ('desk_agent_data_store::schedule::resume_claim::claim_continuation_on', schedule + 'resume_claim::' + namespace + 'claim_continuation_on'),
+            ('desk_agent_data_store::schedule::resume_admission::agent_retrieval_deadline_on', schedule + 'resume_admission::' + namespace + 'agent_retrieval_deadline_on'),
+            ('::agent_data_store::accept_input_on', host + '::agent_run_event_store::ManagerRunEventStore::admit_user_input'),
+        ]:
+            pattern, = [p for p in gate.required_patterns(package, 'release') if child in p and p.startswith('(?:')]
+            poll = owner + '::_{{closure}}'
+            self.assertRegex(poll, pattern)
+            for invalid in [owner, poll + '::_{{closure}}', 'core::ptr::drop_in_place<' + poll + '>', poll.replace(host, 'desk_signal')]:
+                self.assertNotRegex(invalid, pattern)
+            debug, = [p for p in gate.required_patterns(package, 'debug') if child in p]
+            self.assertNotRegex(poll, debug)
+
     def test_optimized_memory_helpers_require_the_real_owner_poll(self):
         for package, host in [('desk-signal','desk_signal'), ('lcxbox-agent-desk-manager','lcxbox_agent_desk_manager::service')]:
             for child, owner in [('memory_write::sources::load_on','memory_write::write_on'),

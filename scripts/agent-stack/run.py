@@ -314,6 +314,23 @@ def required_patterns(package, profile):
         'memory_write::sources::load_on': '^' + host + r'::agent_data_store::memory_write::write_on::_\{\{closure\}\}$',
         'memory_write::receipts::collect_on': '^' + host + r'::agent_data_store::output_archive::gc::collect_actor_transaction::_\{\{closure\}\}$',
     }
+    if package == 'lcxbox-agent-desk-manager':
+        module = host + '::schedule_store::'
+        impl = '_<impl ' + module + 'ScheduleStore>::'
+        trait = ('^_<' + module + 'session_host::ManagerScheduleHost as '
+                 'desk_agent_data_store::schedule::session::ScheduleHostStores'
+                 '<sea_orm::database::transaction::DatabaseTransaction>>::')
+        poll = r'::_\{\{closure\}\}$'
+        owners.update({
+            '::owner_prompt_retention_on': trait + 'owner_prompt_retention' + poll,
+            '::record_prompt_retention_on': trait + 'record_prompt_retention' + poll,
+            'desk_agent_data_store::schedule::resume_claim::claim_continuation_on':
+                '^' + module + 'resume_claim::' + impl + 'claim_continuation_on' + poll,
+            'desk_agent_data_store::schedule::resume_admission::agent_retrieval_deadline_on':
+                '^' + module + 'resume_admission::' + impl + 'agent_retrieval_deadline_on' + poll,
+            '::agent_data_store::accept_input_on':
+                '^' + host + '::agent_run_event_store::ManagerRunEventStore::admit_user_input' + poll,
+        })
     return ['(?:' + pattern + '|' + owner + ')' if (owner := next((owner for child, owner in owners.items() if child in pattern), None)) else pattern
             for pattern in patterns]
 
