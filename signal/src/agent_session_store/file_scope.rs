@@ -266,7 +266,6 @@ impl SignalAgentSessionStore {
                     || existing.input_seq.is_some()
                     || desk_utils::datetime::parse_rfc3339(&receipt.event.created_at)
                         .map(desk_agent_data_store::datetime::to_database)
-                        .map(|time| time)
                         .ok()
                         != Some(existing.created_at)
                 {

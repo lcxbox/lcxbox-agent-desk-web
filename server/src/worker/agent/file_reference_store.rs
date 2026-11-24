@@ -330,7 +330,7 @@ fn issue_opened_with_lifetime(
         snapshot_id: snapshot_id.clone(),
         object_kind,
         expires_at: expires_at
-            .map(|expiry| desk_utils::datetime::rfc3339(expiry))
+            .map(desk_utils::datetime::rfc3339)
             .unwrap_or_default(),
     };
     state.objects.insert(
@@ -509,7 +509,7 @@ pub fn inspect(
                 .modified()
                 .ok()
                 .and_then(|time| jiff::Timestamp::try_from(time).ok())
-                .map(|value| desk_utils::datetime::rfc3339(value)),
+                .map(desk_utils::datetime::rfc3339),
         };
         let mut candidate = entries.clone();
         candidate.push(projection.clone());
@@ -656,7 +656,7 @@ fn inspect_paginated(
             .modified()
             .ok()
             .and_then(|time| jiff::Timestamp::try_from(time).ok())
-            .map(|value| desk_utils::datetime::rfc3339(value)),
+            .map(desk_utils::datetime::rfc3339),
     };
     let pagination_id = prior.as_ref().map_or_else(
         || format!("file-page-{}", uuid::Uuid::new_v4()),
@@ -1027,7 +1027,7 @@ fn enumerate_directory_from(
             display_name: display_name.chars().take(512).collect(),
             is_directory,
             byte_len,
-            modified_at: modified_at.map(|timestamp| desk_utils::datetime::rfc3339(timestamp)),
+            modified_at: modified_at.map(desk_utils::datetime::rfc3339),
         });
     }
 }
@@ -2198,7 +2198,7 @@ fn resolve(object_ref: &ObjectRef) -> Result<StoredFile, AgentError> {
         || stored.object_kind != object_ref.object_kind
         || stored
             .expires_at
-            .map(|expiry| desk_utils::datetime::rfc3339(expiry))
+            .map(desk_utils::datetime::rfc3339)
             .unwrap_or_default()
             != object_ref.expires_at
         || (!stored.durable_artifact && !object_ref.snapshot_id.starts_with(&state.incarnation))
