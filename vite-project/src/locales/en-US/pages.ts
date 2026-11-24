@@ -1833,7 +1833,7 @@ export default {
   'pages.aiAgent.observationCountdown': 'Observing in {{count}} seconds. Switch to the target app on the controlled device; nothing is captured during the countdown.',
   'pages.aiAgent.cancelObservation': 'Cancel observation',
   'pages.aiAgent.phase.scheduled': 'Scheduled',
-  'pages.aiAgent.applicationRestrictionHint': 'The local advanced application policy blocks this app. Sign in as the owner on the controlled device’s own web console, then open System settings → AI policy → Application restriction to check the full executable path or select no additional restriction. This is not a macOS system permission error.',
+  'pages.aiAgent.applicationRestrictionHint': 'The local advanced application policy blocks this app. Sign in as the owner on the controlled device’s own web console, then open Settings → Local AI Policy → Application restriction to check the full executable path or select no additional restriction. This is not a macOS system permission error.',
   'pages.aiAgent.windowSelectorTitle': 'Limit AI vision to one window',
   'pages.aiAgent.windowSelectorDescription': 'Choose an edge-issued macOS window reference. Later CurrentScreen reads are cropped to this exact window; the model cannot provide a title, process ID, handle, or coordinates.',
   'pages.aiAgent.windowSelectorUntitled': 'Untitled window',

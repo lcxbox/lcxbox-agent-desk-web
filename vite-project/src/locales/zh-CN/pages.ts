@@ -1830,7 +1830,7 @@ export default {
   'pages.aiAgent.observationCountdown': '{{count}} 秒后观察，请切换到被控端目标应用；倒计时期间不会采集。',
   'pages.aiAgent.cancelObservation': '取消观察',
   'pages.aiAgent.phase.scheduled': '等待观察',
-  'pages.aiAgent.applicationRestrictionHint': '当前应用被本地高级策略限制。请以 owner 登录被控端自己的网页控制台，前往系统设置 → AI 策略 → 应用限制，检查完整可执行路径或选择不额外限制。此错误不是 macOS 系统权限错误。',
+  'pages.aiAgent.applicationRestrictionHint': '当前应用被本地高级策略限制。请以 owner 登录被控端自己的网页控制台，前往设置 → 本地 AI 策略 → 应用限制，检查完整可执行路径或选择不额外限制。此错误不是 macOS 系统权限错误。',
   'pages.aiAgent.windowSelectorTitle': '将 AI 视觉限制到单个窗口',
   'pages.aiAgent.windowSelectorDescription': '选择由被控端签发的 macOS 窗口引用。后续 CurrentScreen 只截取这个窗口；模型不能自行填写窗口标题、进程 ID、句柄或坐标。',
   'pages.aiAgent.windowSelectorUntitled': '未命名窗口',

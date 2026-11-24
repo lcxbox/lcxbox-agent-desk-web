@@ -5,23 +5,33 @@ Manager and standalone Signal. It uses the caller's connection or transaction;
 it does not open databases, select a SQL driver, create runtime tasks, or acquire
 native account/device/session authority.
 
-- `entity`: shared table shapes and explicit schema registration.
+- `entity`, `entity_table`: shared table shapes, explicit schema registration
+  and single-statement table creation that keeps an entity's unique keys.
 - `projection`, `retrieval_cache`, `citations`: immutable read snapshots, frozen
   query pages and display-only navigation references.
-- `keyword_search`, `memory_keyword`, `history_query`: bounded SQL candidates and
-  sparse ranking. Host source readers retain all original source authorization.
+- `keyword_search`, `memory_keyword`, `history_query`, `history_native`: bounded
+  SQL candidates, sparse ranking and exact native metadata verification. Host
+  source readers retain all original source authorization.
 - `memory_control`, `suppression`, `evidence`: forgetting, source suppression and
   authenticated evidence-link decoding.
-- `daily_budget`, `maintenance_request`: metadata accounting and immutable
-  maintenance request bindings. Host adapters check current policy, funds and
-  native call receipts.
-- `registered_fact`: exact registered-family inspection and original SQL fences.
-- `fact_mutation`: shared replay, row CAS, version retirement and runtime updates.
-- `memory_publication`: immutable publication receipts, including a source-only
-  registered insert with no relation provider call.
-- `source_lifecycle`: generation revocation after the host authenticates deletion.
-- `memory_quota`, `memory_index`, `memory_write_images`: exact resource deltas,
-  index writes and original/post-write row validation.
+- `memory_write`, `memory_history`: synchronous storage of model-authored
+  memories and bounded revision selection.
+- `memory_quota`, `memory_index`: exact resource deltas and search index writes.
+- `source_lifecycle`, `source_rows`: generation revocation after the host
+  authenticates deletion, and row keys of model-visible source ids.
+- `output_store`, `output_gc`: accepted-output proofs and output GC discovery,
+  scan hints and final quota cursor writes.
+- `main_request`, `worker_request`, `worker_report`, `delegation_group`,
+  `workbench`, `device_roster`: main request intake, the Worker queue and its
+  immutable reports, delegation groups, workbench identity and session device
+  configuration.
+- `proposal_review`, `decision_resume`: proposals waiting for the AI reviewer or
+  the owner, and resume records for turns paused on a decision.
+- `schedule`: scheduled-task storage rules.
+- `skill_package`, `skill_store`: Agent Skills package validation and platform
+  and personal skill storage.
+- `issue_authority`, `issue_events`, `issue_reply`: issue source policy and
+  accepted facts, source polling, and durable reply publication facts.
 
 A snapshot establishes immutable content identity. It does not authorize model
 use, revive a deleted source, extend expiry, or replace the original host's
@@ -29,8 +39,8 @@ SELECT/version/lease/raw-JSON fences. Native writes finish before the original
 transaction's final agent quota mutation. Errors require rollback of the
 whole caller transaction.
 
-Maintenance workers belong to each host's application layer and construct its
-model adapter there; storage modules do not construct provider adapters.
+Storage modules do not construct model provider adapters; each host's
+application layer owns them.
 
 Manager keeps PostgreSQL actor locking, platform configuration, personal account
 and device checks, and billing. Signal keeps SQLite writer admission, file-based

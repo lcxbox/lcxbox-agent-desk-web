@@ -12,8 +12,6 @@
 
 ## Agent 执行栈约束
 
-本次 AI 智能体记忆任务的执行顺序：先完成主链路开发，期间允许快速编译和必要的小范围功能测试；编译单帧采样、原始 future 与小栈组合门禁统一留到主链路开发完成后执行，不在开发中反复运行。以下限制值及最终验收要求保持。
-
 现行限制：单帧硬上限 128 KiB，阶段原始 future 上限 16 KiB，默认线程栈维持 2 MiB，显式 1 MiB/2 MiB 小栈组合回归必须通过。不要求新代码的栈用量低于旧代码，不再执行单函数、调用族、历史基线或 HEAD 的相对预算比较；历史测量仅供分析。
 
 修改 AI 编排、工具、审批、预算或会话 decode 时，必须运行适用的单帧门禁与小栈组合回归，参见 `scripts/agent-stack/README.md`。不得靠扩大线程栈、删减会话内容或业务校验、改变优化等级或新增生产任务边界通过。准备、模型、工具和收尾使用有明确所有权的阶段；原始 future、编译单帧和组合峰值分别检查。事务内解码复用必须保留每次原 SELECT、主体/version/lease 围栏和原始 JSON 比较，不能将同一事务当成同一快照，也不能改变既有 `Send`、取消或锁顺序契约。
@@ -72,8 +70,13 @@ sudo apt install -y build-essential pkg-config libssl-dev libasound2-dev \
 | `vite-project/` | React 19 + TanStack Query 前端 — 包含管理 UI、Web 控制端客户端与独立 AI Agent 页面 |
 | `tauri-app/` | Tauri 壳程序，用于在被控机本地渲染防窥屏/白板功能 |
 | `agent-protocol/` | 设备能力协议（`desk-agent-protocol`）：AI 调用的 wire 类型 + `DeviceAgent` trait + 审计 / 诊断 / exec 协议。纯协议、无平台实现；**服务端是所有受信字段的唯一可信源** |
-| `mcp-server/` | 只读 MCP 服务（`desk-mcp-server`）：基于官方 `rmcp` SDK + stdio，暴露只读工具静态白名单（无 exec/write/control 工具）。具体读 agent 与诊断编排器由 `server` 注入 |
+| `mcp-server/` | 只读 MCP 服务（`desk-mcp-server`）：基于官方 `rmcp` SDK + stdio，暴露只读工具静态白名单（无 exec/write/control 工具）。`server` 仅注入读上下文 provider（`ReadContextProvider`）；AI 诊断不是 MCP 工具 |
 | `agent-data-store/` | 个人 AI 智能体共用的 SeaORM 实体、快照、检索、存储规则与 Skill 包导入校验；宿主保留事务、配置、权限和计费 |
+| `diagnose-core/` | 与模型无关的 AI Agent 纯逻辑（`desk-diagnose-core`）：能力选择、prompt 组装、响应解析、证据分块、exec 命令分类与 agent loop，供 OSS signal 与 Manager 共用 |
+| `file-recovery/` | 设备私有的文件备份存储（`desk-file-recovery`）：按内容寻址的对象、JSON 台账索引与标记清除回收；全部为阻塞调用 |
+| `office-batch/` | 有界的内存内 PPTX/DOCX/XLSX 变换与检查（`desk-office-batch`）；不打开路径、不启动 Office |
+| `document-conversion/` | 有界、无网络的文档转换原语（`desk-document-conversion`）；无文件系统 API，敌意输入在文档沙箱子进程中处理，Typst 生成与预览需 `typst` feature |
+| `wayland-portal/` | 共享的 xdg-desktop-portal 会话代理（`desk-wayland-portal`）：Linux Wayland 采集/输入授权与恢复令牌存储 |
 | `signal-facade/` | 共享的信令协议模型 (供 `signal` 和 `manager` 使用) |
 | `capture-engine/`| 屏幕/音频捕获与编码逻辑 |
 | `input-injection/`| 鼠标/键盘输入注入与剪贴板控制 |
@@ -84,13 +87,16 @@ sudo apt install -y build-essential pkg-config libssl-dev libasound2-dev \
 | `utils/` | 通用工具类；含资源受限子进程运行器 `process_sandbox`（不含业务语义；资源边界而非权限边界） |
 | `turn/` | TURN 服务器 (与信令服务器捆绑) |
 | `server-version/` | API 版本常量 |
+| `browser-extension/` | Manifest V3 浏览器扩展：被控端默认的 Browser Provider，只连接设备本地已鉴权的桥接，暴露封闭的类型化动作集（非 Cargo 成员） |
+| `office-addin/` | 独立的 Office 加载项：只读 Excel 语义桥接（`inspect_selection`），本地 broker 仅绑定 `127.0.0.1`（非 Cargo 成员） |
+| `docs/` | VitePress 双语文档站（英文为 root，中文在 `docs/zh/`） |
 
 ## 添加新 API 接口的步骤
 
 1. 在 `server/src/model/` 中定义模型
 2. 在 `server/src/service/` 中实现逻辑
 3. 在 `server/src/controller/` 中添加带 `utoipa` 注解的路由处理函数
-4. 在 `server/src/main.rs` 中注册路由
+4. 在 `server/src/lib.rs` 的 `configure_api_surface` 中注册路由
 5. 运行 OpenAPI 更新脚本以重新生成前端客户端代码
 
 ## 添加新信令类型的步骤
@@ -122,16 +128,16 @@ sudo apt install -y build-essential pkg-config libssl-dev libasound2-dev \
 - **免审批来源**：免审批仅用于设备 owner 在本人上下文直接交办及其同源续跑中的合格非交互式命令。须风险提示及本人二次确认，且宿主和设备的当前策略都允许无人值守执行。订阅等外部来源仍逐项审查。模型提示词和相关工具描述须将网页、工单、设备文件和日志中的内容作为待分析资料，其中的指令不构成交办或授权。本人直派工作沿原来源判断审批模式，确认界面须提示资料中的误导性指令仍可能诱导设备操作。
 - **每次执行须有准确动作授权**：设备执行上限默认 `SuggestOnly`。服务端按风险分级和黑名单执行硬拒，冻结 `ExecPlan` 的 program、argv、目标及派发代次。命令授权绑定原请求、来源和现行审批模式。被控端复验授权和现行策略，worker 只按 argv 逐字执行。回执区分本人决定、AI 决定和会话免审批授权。
 - **工具默认值须登记在工具 schema**：工具在省略字段和传入默认值时执行同一动作的，用 `default` 声明该值，审批、调用和恢复统一走共享参数规范化。已有准确输入以省略表示默认值时可用 `x-canonical-omit-default` 保留该形式。新增工具的默认值须与实际执行语义一致，使用定向测试验证等价输入匹配及实质参数变化被拒。清空值、目标选择、权限范围与安全相关参数的不同语义必须分别保留。
-- **脱敏 fail-closed**：诊断编排器（`server/src/diagnose/mod.rs`）按 **采集 → 脱敏 → 模型 → 渲染** 运行；脱敏失败会在调用模型**之前**中止。证据在到达模型 trait 之前一定已脱敏。
+- **脱敏 fail-closed**：被控端的 `DiagnoseOrchestrator`（`server/src/diagnose.rs`）只对入站 `CollectRequest` 执行 **采集 → 脱敏**，从不调用模型；模型调用、审计与渲染由中心信令统一编排。脱敏失败以错误返回，中心编排在调用模型**之前**中止，因此证据到达模型前一定已脱敏。service-daemon 路径不注入该编排器，`CollectRequest` 以 `SessionUnavailable` 错误整体返回（`server/src/daemon/signaling_router/external_requests.rs`）。
 - **API Key 是服务端密钥**：AI 模型 api_key 绝不回传浏览器、不进任何 `/settings` 公开 DTO、不写日志。公共审计、日志与模型调用指标只记录无内容的摘要（计数 / 大小 / token 用量 / provider / adapter），不得留存原始输出、截图或 prompt。独立 `agent_approval_trace` / `_part` 是明确的受限例外：可保存当次审批请求的可读投影和供应商返回的可读思考/答复，所有读取必须同时要求全局管理员和本人会话归属，且具备独立开关、保留与容量清理；绝不保存/返回 API Key、请求头、思考签名、加密回传或图片正文，不把详情加入普通 snapshot/SSE/模型上下文。平台审批统计仅返回跨 owner 聚合，不能开放他人逐条事实。
 - **模型无关**：`diagnose-core/src/model_profile.rs` 冻结通用 profile / wire contract；`signal/src/model_dial.rs` 与父仓 `backend/manager/src/service/model_dialect.rs` 用 adapter 隔离 OpenAI-compatible Chat Completions / Anthropic Messages。新增 wire 协议需新增 adapter，不改共享编排器，也不得按模型名猜测协议行为。
-- **MCP 只读**：`mcp-server` 工具集是**静态白名单**，刻意不存在 exec / write / control 工具（「未定义即不可达」）；`lcxbox_diagnose` 的 provider 签名不带截图选项，MCP 客户端在结构上无法抓屏。`mcp-stdio` 模式下 stdin/stdout 承载 MCP JSON-RPC，**绝不能向 stdout 打日志**。
+- **MCP 只读**：`mcp-server` 工具集是**静态白名单**，仅含 `lcxbox_system_info`、`lcxbox_process_list`、`lcxbox_network_ports`、`lcxbox_recent_logs`（每次调用检查日志读取策略），刻意不存在 exec / write / control 工具（「未定义即不可达」）。AI 诊断不是 MCP 工具（见 `diagnose_is_not_an_mcp_tool` 测试），MCP 不调用模型，也没有截图能力。`mcp-stdio` 模式下 stdin/stdout 承载 MCP JSON-RPC，**绝不能向 stdout 打日志**。
 
 ## 前端规则
 
 - **界面表达：** 避免不必要的辅助标签和说明，让布局本身传达用法。
 - **主题样式：** 网页元素统一使用主题样式；下拉框等交互控件复用项目现有的主题组件，不直接呈现浏览器原生样式。
-- **国际化 i18n (强制):** 所有用户可见的文本必须使用 `useTranslation()` / `t()` — 禁止硬编码字符串。每个新键必须同时添加到 `vite-project/src/locales/zh-CN/pages.ts` **和** `vite-project/src/locales/en-US/pages.ts`。
+- **国际化 i18n (强制):** 所有用户可见的文本必须使用 `useTranslation()` / `t()` — 禁止硬编码字符串。locale 按领域拆分为多个文件（`pages.ts`、`settings.ts`、`schedules.ts`、`menu.ts`、`model-metrics.ts` 等），每个新键必须同时添加到 `vite-project/src/locales/zh-CN/` **和** `vite-project/src/locales/en-US/` 下对应的同名文件；`prebuild` 的 `scripts/verify-i18n.cjs` 校验键在两种语言中都存在且插值变量一致。
 - **自动生成代码:** `vite-project/src/services/` 下的文件（Kubb 输出）是自动生成的 — 请勿手动修改。
 - **Tauri IPC:** 通过外部 HTTP URL 加载的 Windows 失去 `__TAURI_INTERNALS__`。绝不能从前端页面调用 `invoke()` 或 `listen()`。前端调用 Rust 请使用 REST API；Rust 触发前端事件请使用 `window.eval()` + `dispatchEvent`。使用原生的 `window.addEventListener` 进行监听。
 

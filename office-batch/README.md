@@ -1,11 +1,23 @@
 # Office batch core
 
-Pure in-memory OOXML package checks and PPTX copy transformations. The crate uses
-the existing `PresentationLivePatchAction` protocol type; it does not define a
-second command protocol. A call replaces either the selected slide title or its
-presenter notes, and returns a new package without modifying the input bytes.
+Bounded, pure in-memory transformations and inspections of PPTX, DOCX and XLSX
+packages, on top of shared OOXML package checks. Every call takes input bytes and
+returns a new package or a bounded projection without modifying the input. The
+typed actions reuse the existing `desk-agent-protocol` live-patch types; the crate
+does not define a second command protocol.
 
-The initial title operation preserves run properties within one paragraph.
+- DOCX: `docx_copy` replaces the main body text (`DocumentLivePatchAction`) and
+  reads the result back; `docx_inspect` returns bounded stored body text without
+  evaluating fields.
+- XLSX: `xlsx_edit` prepares a typed cell edit whose package still needs
+  recalculation and independent readback before publication; `xlsx_formula_inventory`
+  inspects cells and rule formulas across all sheets; `xlsx_native_preflight`
+  admits package contents before a host opens a private copy in Excel, and
+  `xlsx_native_merge` imports only verified native formula caches.
+
+For PPTX, `pptx_copy` uses `PresentationLivePatchAction`. A call replaces either
+the selected slide title or its presenter notes. The title operation preserves run
+properties within one paragraph.
 `pptx_inspect::inspect` reads the same selected parts into a bounded title/notes
 projection, distinguishes missing placeholders from empty text, and reports format
 editability separately from authorization. Text limits reject oversized projections

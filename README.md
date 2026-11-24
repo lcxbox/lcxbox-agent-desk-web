@@ -30,7 +30,7 @@ LCXBOX Agent Desk Web is an **AI-native**, open-source high-performance remote d
 - **Cross-Platform Capture**: Windows WASAPI, Linux PipeWire, and macOS ScreenCaptureKit system-audio paths, with desktop capture and input support across Windows, Linux, and macOS.
 - **AI Diagnostics**: Ask troubleshooting questions in plain language. The signaling service drives a bounded tool-calling loop, while the controlled device collects only requested evidence and strictly redacts it before transmission. OpenAI-compatible and Anthropic APIs are supported.
 - **Model Call Metrics**: Device owners can open a separate page from Usage to view call results, tool parameter checks, durations and Token usage. Statistics may be incomplete in exceptional situations and are for reference; a statistics outage does not affect model calls. Collection and retention are managed on the settings page, and records start when enabled. See [Model Call Metrics](docs/features/model-metrics.md).
-- **Owner-Confirmed Command Execution**: The model suggests commands but never executes them directly. The server risk-classifies and blocklist-checks each proposal; after the device owner confirms the exact command, it seals an argv-level plan that the edge re-validates field-for-field before execution. Results are backfilled into the diagnosis and audited.
+- **Approved Command Execution**: The model suggests commands but never executes them directly. The server risk-classifies and blocklist-checks each proposal and freezes an argv-level plan. Each plan is approved under the conversation's approval mode: AI review by default, the device owner's manual approval, or no review for work the owner assigns directly after an explicit risk confirmation. The edge re-validates the authorization, the plan fields, and its current policy before execution. Results are backfilled into the diagnosis and audited.
 - **Read-Only MCP Server (experimental)**: `--startup-mode mcp-stdio` exposes a static four-tool whitelist for system information, processes, listening ports, and policy-gated recent logs. It contains no model call, screenshot, execution, control, or write tool.
 - **Multi-language Support**: UI and documentation are available in English and Chinese.
 
@@ -157,7 +157,7 @@ All controlled-device modes use the same logical daemon → PeerConnection manag
 
 The long-lived ServiceDaemon owns signaling, the WebRTC PeerConnection, and worker lifecycle. A SessionWorker performs capture, encoding, system audio, input injection, clipboard, and file operations inside the desktop session. Three IPC lanes separate traffic: a bidirectional event pipe, a one-way worker-to-daemon media pipe for encoded audio/video frames, and a bidirectional file-transfer pipe. The worker can restart during a user-session switch while the browser's PeerConnection stays online.
 
-Windows currently provides the actual system-service integration. On other platforms, `service-daemon` runs interactively rather than through a native service manager.
+`--install-service` / `--uninstall-service` register `service-daemon` with the Windows Service Control Manager or as a Linux systemd unit; on these two platforms, `service-daemon` started outside a service manager runs interactively. macOS has no daemon/worker split: the Tauri app embeds the server in process and starts at login through a per-user LaunchAgent.
 
 > For the full component breakdown and data flow see [Architecture](docs/reference/architecture.md), for terminology and roles see [Core Concepts](docs/guide/concepts.md), for the per-mode process layout see [Startup Modes](docs/guide/startup-modes.md), and for the frame definitions see [Signaling Protocol](docs/reference/signaling-protocol.md).
 
@@ -173,7 +173,7 @@ AI inference is centrally orchestrated, while the controlled device is a thin ev
 - **Edge Collection & Redaction**: System information, processes, listening ports, services, logs, and optional screenshots are collected on demand. Logs and screenshots are locally gated; every evidence item is strictly redacted on the edge, and redaction failure blocks the request.
 - **Server-Side Model Access**: OpenAI-compatible and Anthropic dialects are supported. API keys remain in the central service and are never sent to the browser or controlled device.
 - **Explicit Image Capability**: The provider setting declares whether the configured model accepts image input. The existing provider test automatically switches from the text pong probe to a repository-owned visual marker probe when enabled; diagnosis screenshots fail closed unless permission, local collection policy, and this model capability all agree.
-- **Suggest-Only by Default**: A proposed command crosses a separate authorization path. It requires risk and blocklist checks plus per-command owner confirmation; the server seals the approved argv plan, and the edge independently checks its immutable fields and risk ceiling before execution.
+- **Suggest-Only by Default**: Device execution is disabled until host policy allows it. A proposed command crosses a separate authorization path: risk and blocklist checks, then a decision under the conversation's approval mode (AI review, manual owner approval, or owner-confirmed no review). The server freezes the approved argv plan, and the edge independently re-validates the authorization, its immutable fields, and the current policy and risk ceiling before execution.
 - **Privacy-Preserving Audit**: Model calls, approvals, denials, redaction failures, and execution outcomes emit audit metadata and summaries; raw prompts, model responses, stdout, and screenshots are not stored in audit events.
 
 **MCP Server.** `mcp-stdio` is intentionally separate from the AI agent. It exposes exactly `lcxbox_system_info`, `lcxbox_process_list`, `lcxbox_network_ports`, and `lcxbox_recent_logs`; the last tool is evaluated against `allow_logs` on every call. The MCP server never calls a model and never exposes screenshots, execution, remote control, or writes.
@@ -187,7 +187,7 @@ AI inference is centrally orchestrated, while the controlled device is a thin ev
 - **`server`**: The multi-mode Rust binary. It can run the portable all-in-one application, signaling/control plane, controlled-device edge, Windows service daemon, internal worker, or read-only MCP stdio server.
 - **`signal`**: Signaling, access grants, the central AI orchestrator/model gateway, authorization, and audit persistence.
 - **`diagnose-core` / `agent-protocol`**: Shared model-neutral agent logic and the typed evidence/exec wire contracts.
-- **`capture-engine` / `input` / `ipc-protocol`**: Capture and encoding, input injection, and daemon-worker transports.
+- **`capture-engine` / `input-injection` / `ipc-protocol`**: Capture and encoding, input injection, and daemon-worker transports.
 - **`tauri-app`**: Desktop GUI shell and local integrations such as Privacy Screen and Whiteboard.
 - **`vite-project`**: React web console and browser remote-control client.
 
@@ -205,7 +205,7 @@ AI inference is centrally orchestrated, while the controlled device is a thin ev
 - [x] Windows virtual display in service-daemon mode
 - [x] Central AI diagnostics (OpenAI-compatible / Anthropic)
 - [x] Read-only MCP server integration
-- [x] AI command execution with per-command owner confirmation, sealed plans, and edge re-validation
+- [x] AI command execution with session approval modes, frozen argv plans, and edge re-validation
 - [ ] Mobile interface optimizations
 - [ ] Session recording support
 
