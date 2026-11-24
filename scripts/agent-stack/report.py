@@ -78,7 +78,7 @@ def protected(symbol):
     ))
 
 
-def collect(lines):
+def collect(lines, error_constructor_frames=None):
     frames = {}
     records = 0
     format_errors = []
@@ -95,6 +95,12 @@ def collect(lines):
             continue
         records += 1
         count, symbol = int(match[1]), match[2]
+        if error_constructor_frames is not None and re.search(
+            r'^_*ZN18desk_diagnose_core.*(?:7invalid|13invalid_input)17h[0-9a-f]{16}E$', symbol
+        ):
+            # Keep the mangled identity: different monomorphizations may have the same report name.
+            symbol_id = symbol.lstrip('_')
+            error_constructor_frames[symbol_id] = max(count, error_constructor_frames.get(symbol_id, 0))
         if not protected(symbol):
             continue
         try:

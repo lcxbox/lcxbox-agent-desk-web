@@ -297,11 +297,6 @@ for _package in ('desk-signal', 'lcxbox-agent-desk-manager'):
 
 def required_patterns(package, profile):
     patterns = list(REQUIRED[package])
-    if package == 'desk-diagnose-core' and profile == 'release':
-        # LLVM coalesces these identical InvalidInput constructors to one address.
-        patterns = [r'^(?:desk_diagnose_core::schedule::proposal::invalid_input|desk_diagnose_core::agent_loop::retrieval_accounting::invalid)$'
-                    if pattern == '^desk_diagnose_core::schedule::proposal::invalid_input$' else pattern
-                    for pattern in patterns]
     if package == 'desk-diagnose-core' and profile == 'debug':
         patterns.append(r'^desk_diagnose_core::agent_loop::task_permission::pause::_\{\{closure\}\}$')
     if package == 'desk-agent-protocol' and profile == 'debug':

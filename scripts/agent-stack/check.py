@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import re
+import shutil
 import json
 import os
 import subprocess
@@ -14,6 +15,48 @@ from pathlib import Path
 import report
 
 ROOT = Path(__file__).resolve().parents[2]
+
+SCHEDULE_ERROR = 'desk_diagnose_core::schedule::proposal::invalid_input'
+
+
+def schedule_error_frame(lines, measured):
+    """Find a measured function at the exact location of the required constructor."""
+    locations = {}
+    required = None
+    member = 0
+    object_format = ''
+    for line in lines:
+        if 'file format' in line:
+            member += 1
+            object_format = line.partition('file format')[2].strip().lower()
+            continue
+        if not member or 'desk_diagnose_core' not in line or 'invalid' not in line:
+            continue
+        fields = line.split()
+        raw = fields[-1]
+        symbol = raw.lstrip('_')
+        is_required = re.fullmatch(r'ZN18desk_diagnose_core8schedule8proposal13invalid_input17h[0-9a-f]{16}E', symbol)
+        if symbol not in measured and not is_required:
+            continue
+        # ELF and Mach-O objdump tables report the section of a defined function.
+        if object_format.startswith(('elf', 'mach-o')) and 'F' in fields and re.fullmatch(r'[0-9a-fA-F]+', fields[0]):
+            section = fields[fields.index('F') + 1]
+            if section != '__TEXT,__text' and not section.startswith('.text'):
+                continue
+            position = (member, section, int(fields[0], 16))
+        elif object_format.startswith(('coff', 'pe')):
+            # COFF may give many sections the same name. Use the section number.
+            coff = re.search(r'\(sec\s+(\d+)\).*\(ty\s+20\).*\b0x([0-9a-fA-F]+)\s+' + re.escape(raw) + r'$', line.rstrip())
+            if not coff or int(coff[1]) == 0:
+                continue
+            position = (member, int(coff[1]), int(coff[2], 16))
+        else:
+            continue
+        if is_required:
+            required = position
+        if symbol in measured and (position not in locations or measured[symbol] > locations[position][0]):
+            locations[position] = (measured[symbol], raw)
+    return locations.get(required)
 
 
 def known_overflow_probe(workspace=None):
@@ -47,6 +90,7 @@ def collect_package(workspace, package, profile, target, features, no_defaults):
     nonce = f'desk_stack_codegen_{uuid.uuid4().hex}'
     args.extend(['--', '--cfg', nonce, '-C', 'remark=prologepilog'])
     state = {'finished': False, 'fresh_artifact': False}
+    constructors = {} if package == 'desk-diagnose-core' and profile == 'release' else None
     with subprocess.Popen(args, cwd=workspace, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           text=True, bufsize=1) as process:
         def lines():
@@ -64,14 +108,24 @@ def collect_package(workspace, package, profile, target, features, no_defaults):
                     state['fresh_artifact'] = item.get('fresh') is False
                     state['cargo_profile'] = item.get('profile', {})
                     state['resolved_features'] = item.get('features', [])
+                    state['rlib'] = next((p for p in item.get('filenames', []) if p.endswith('.rlib')), None)
                 diagnostic = item.get('message')
                 if isinstance(diagnostic, dict) and diagnostic.get('level') in ('error', 'warning'):
                     print(diagnostic.get('rendered', diagnostic.get('message', '')), file=sys.stderr)
                 yield line
-        parsed = report.collect(lines())
+        parsed = report.collect(lines(), constructors)
         code = process.wait()
     if code or not state['finished'] or not state['fresh_artifact']:
         raise ValueError('analysis requires a successful, freshly code-generated selected artifact')
+    if constructors and SCHEDULE_ERROR not in parsed['frames'] and state['rlib']:
+        objdump = shutil.which('llvm-objdump') or shutil.which('objdump')
+        if objdump:
+            with subprocess.Popen([objdump, '-t', state['rlib']], stdout=subprocess.PIPE, text=True) as table:
+                aliased = schedule_error_frame(table.stdout, constructors)
+                if table.wait() == 0 and aliased:
+                    size, symbol = aliased
+                    parsed['frames'][SCHEDULE_ERROR] = size
+                    parsed['schedule_error_frame_symbol'] = symbol
     parsed.update(cargo_profile=state['cargo_profile'], resolved_features=state['resolved_features'])
     return parsed
 

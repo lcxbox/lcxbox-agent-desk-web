@@ -131,12 +131,27 @@ class Reports(unittest.TestCase):
     def test_release_schedule_error_alias_still_requires_the_real_constructor(self):
         patterns = [p for p in gate.required_patterns('desk-diagnose-core', 'release') if 'proposal::invalid_input' in p]
         self.assertEqual(len(patterns), 1)
-        for symbol in ['desk_diagnose_core::schedule::proposal::invalid_input',
-                       'desk_diagnose_core::agent_loop::retrieval_accounting::invalid']:
-            self.assertEqual(report.check_ceiling({'frames': {symbol: 64}}, report.HARD_FRAME_LIMIT, patterns), [])
-            self.assertTrue(report.check_ceiling({'frames': {symbol: report.HARD_FRAME_LIMIT + 1}}, report.HARD_FRAME_LIMIT, patterns))
-            self.assertTrue(report.check_ceiling({'frames': {'core::ptr::drop_in_place::' + symbol: 32}}, report.HARD_FRAME_LIMIT, patterns))
-        self.assertTrue(report.check_ceiling({'frames': {}}, report.HARD_FRAME_LIMIT, patterns))
+        original = '_ZN18desk_diagnose_core8schedule8proposal13invalid_input17h0123456789abcdefE'
+        emitted = '_ZN18desk_diagnose_core14external_tools7invalid17h123456789abcdef0E'
+        measured = {}
+        parsed = report.collect([record(64, emitted), record(32)], measured)
+        self.assertTrue(report.check_ceiling(parsed, report.HARD_FRAME_LIMIT, patterns))
+        for section, binary_format in [('__TEXT,__text', 'mach-o arm64'), ('.text.some_function', 'elf64-x86-64')]:
+            table = [f'one.o: file format {binary_format}', f'0000 g F {section} _{original}']
+            alias = f'0000 g F {section} _{emitted}'
+            self.assertEqual(stack_check.schedule_error_frame(table + [alias], measured), (64, '_' + emitted))
+            for different in [[alias.replace('0000', '0040')], [alias.replace(section, '.text.other')],
+                              [f'two.o: file format {binary_format}', alias], [f'0000 *UND* _{emitted}']]:
+                self.assertIsNone(stack_check.schedule_error_frame(table + different, measured))
+        table = ['one.obj: file format coff', f'[0] (sec 3)(fl 0x00)(ty 20)(scl 2) (nx 0) 0x0000 {original}']
+        alias = f'[1] (sec 3)(fl 0x00)(ty 20)(scl 2) (nx 0) 0x0000 {emitted}'
+        self.assertEqual(stack_check.schedule_error_frame(table + [alias], measured), (64, emitted))
+        self.assertIsNone(stack_check.schedule_error_frame(table + [alias.replace('sec 3', 'sec 4')], measured))
+        self.assertIsNone(stack_check.schedule_error_frame(table + [alias], {}))
+        symbol = report.symbol_key(original)
+        self.assertEqual(report.check_ceiling({'frames': {symbol: 64}}, report.HARD_FRAME_LIMIT, patterns), [])
+        self.assertTrue(report.check_ceiling({'frames': {symbol: report.HARD_FRAME_LIMIT + 1}}, report.HARD_FRAME_LIMIT, patterns))
+        self.assertTrue(report.check_ceiling({'frames': {'desk_diagnose_core::agent_loop::retrieval_accounting::invalid': 64}}, report.HARD_FRAME_LIMIT, patterns))
 
     def test_schedule_input_boundaries_require_actual_execution(self):
         symbols = [

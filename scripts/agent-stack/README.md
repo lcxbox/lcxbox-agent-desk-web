@@ -132,6 +132,8 @@ Manager 目录授权更新还须覆盖 `file_scope::update_file_scope_guarded`�
 
 定时工具的原始参数保留须覆盖共享 `ui_model_ids::resolve_session_call_with_context`、定时提议 Schema/解析及两宿主 `manage_schedule_tool` 的真实执行。创建、查询与取消仍按原始调用、会话版本和租约核验，不用 JSON 重序列化替代原参数；输入错误与会话不可用分别处理。显式 1 MiB/2 MiB 组合通过真实模型出口覆盖非法周期规则的反馈、原始格式查询及待演练草稿创建，保持 16 KiB 原始 future 和 128 KiB 单帧上限。
 
+Release 中 LLVM 可能将 `schedule::proposal::invalid_input` 与另一个错误构造函数合并。若栈备注仅给出别名，门禁通过 `llvm-objdump -t` 或 `objdump -t` 核对本次 Cargo 生成的 rlib，仅采用同一对象成员、代码段和地址上的实测帧。报告在 `schedule_error_frame_symbol` 记录该编译符号；缺少同址证据时仍按缺失必检帧报错。
+
 定时任务的参数表示转换还需覆盖共享读取摘要与试运行来源核验的实际函数、Debug 审批暂停 poll，以及 Manager 读取完成事务的实际 poll。审批暂停在原始调用上唯一定位、复用既有引用/内容比较，读取摘要复用同一规范化规则；显式 1 MiB/2 MiB 组合验证格式差异、真实参数变化、重复调用和保存失败回滚，原模型参数保持原样。Release 内联的审批逻辑沿原调用方阶段验收，不增加生产边界或改变优化等级。
 
 租约续租还须覆盖两宿主实例化的共享 `desk_signal_facade::service::lease_heartbeat::renew_until_lost` 实际 poll。复用原心跳任务与 guard，擦除前检查 16 KiB 原始 future；确定性时钟测试覆盖暂时数据库故障、恢复、真实失去租约和卡住的存储，失败重试不得越过最后确认的租约。普通会话的子任务通知更新投影，显式等待恢复继续原任务并核验原授权。工作台报告可在原工作及原预算内驱动有界协调，审批恢复优先，重复或迟到通知仍按持久报告状态和原来源判断。保留已发布定时合同的报告收尾边界。
