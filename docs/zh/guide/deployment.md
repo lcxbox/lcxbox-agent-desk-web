@@ -125,3 +125,19 @@ Computer Use 总开关及桌面与应用能力在被控端 **设置 → 本地 A
 - 把 server 置于反向代理之后，由其终结 TLS、透传 `Host`，并为信令转发 WebSocket `Upgrade` 头。
 - 同机原生反向代理通常从 loopback 连接，可直接使用默认信任；代理容器通常从 bridge/container 地址连接，必须显式加入其实际 peer CIDR。若 Docker 或四层代理已经丢失真实源地址且不提供 XFF，应用无法恢复，所有客户端只能共享一个限流 bucket。
 - server 当前没有 CORS 中间件，浏览器无法通过跨源预检向 loopback peer 发送自定义 XFF。未来增加 CORS、Private Network Access 放行或 XFF 请求头放行时，必须重新评审默认 loopback 信任边界。
+
+## 在无桌面服务器上重置登录密码
+
+通过 SSH 登录运行服务的机器，以服务账号或本机管理员身份，在交互式终端执行：
+
+```sh
+lcxbox-agent-desk-server reset-password
+```
+
+如果启动服务时指定了配置文件，给命令加上同一份 `--config-file-path /path/to/config.toml`。使用仓库的 Compose 部署时，在项目目录执行：
+
+```sh
+docker compose exec remote-desk /app/lcxbox-agent-desk-server reset-password
+```
+
+核对终端显示的配置路径，按提示输入两次新密码。输入时字符隐藏。服务需要正在运行，新密码立即生效，原浏览器会话需要重新登录。容器默认采用桥接网络，端口映射来的请求可能被识别为非本机；在容器内执行上述命令即可。

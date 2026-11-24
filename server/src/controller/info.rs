@@ -155,7 +155,7 @@ pub async fn query_server_info(
     let (startup_mode, initialized, wayland_default_mode, local_device_id) = {
         let settings = settings.read().await;
         let mode = settings.args.startup_mode.clone();
-        let init = !settings.user.login_password.is_empty();
+        let init = settings.user.login_password_hash.is_some();
         let local_device_id = matches!(
             mode,
             StartupMode::Default | StartupMode::DeskServer | StartupMode::ServiceDaemon

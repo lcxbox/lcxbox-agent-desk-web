@@ -172,7 +172,23 @@ pub async fn run_service_daemon_inner(
     args: Args,
     shutdown_signal: Option<oneshot::Receiver<()>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let settings = Settings::new(&args).map_err(|e| format!("Failed to load settings: {e}"))?;
+    let mut shutdown_signal = shutdown_signal;
+    let settings = loop {
+        match Settings::open_host(&args) {
+            Ok(settings) => break settings,
+            Err(crate::error::DeskError::IoError(_, ref error))
+                if error.kind() == std::io::ErrorKind::WouldBlock && shutdown_signal.is_some() =>
+            {
+                // SCM reports Running before the portable shell can relaunch and
+                // release this profile. Remain stoppable throughout the handoff.
+                tokio::select! {
+                    _ = shutdown_signal.as_mut().expect("SCM shutdown receiver") => return Ok(()),
+                    _ = tokio::time::sleep(Duration::from_millis(500)) => (),
+                }
+            }
+            Err(error) => return Err(format!("Failed to load settings: {error}").into()),
+        }
+    };
     // Keep this service's device quota apart from a portable run's ledger.
     crate::file_recovery_service::use_service_quota_ledger();
     let paths = settings.paths().clone();

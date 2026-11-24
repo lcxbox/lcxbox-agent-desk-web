@@ -15,6 +15,10 @@ Password-login thresholds are fixed. The IPv6 grouping prefix and bounded
 login/redemption capacity tier are configurable. Access-code redemption has its
 own protection settings, described below.
 
+## Forgotten password
+
+Open the login page through the host's loopback address and select **Forgot password**. Follow the prompt to obtain the code. Each reset generates a new random salt and requires existing browser sessions to sign in again. On a remote host, use SSH to run `lcxbox-agent-desk-server reset-password` as the deployment account. [Configuration and recovery codes](/config/config-toml) · [Deployment and CLI reset](/guide/deployment)
+
 ## Initialization token
 
 Set `LAD_BOOTSTRAP_TOKEN` before the first initialization to prevent an

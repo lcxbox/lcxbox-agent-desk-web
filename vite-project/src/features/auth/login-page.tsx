@@ -1,3 +1,4 @@
+import { LocalPasswordRecovery } from './local-password-recovery';
 import { sessionPath } from '@/features/desk/device-target-paths';
 import { useState, useEffect, useRef } from "react"
 import { useForm } from "react-hook-form"
@@ -273,6 +274,11 @@ export default function LoginPage() {
                                     </AsyncButton>
                                 </form>
                             </Form>
+                            {!tauriAutoLoginPending && <LocalPasswordRecovery onSuccess={() => {
+                                setLockedUntilMs(0);
+                                form.setValue("password", "");
+                                toast({ title: t("pages.recovery.success") });
+                            }} />}
                         </TabsContent>
                         <TabsContent value="device_code">
                             <Form {...form}>

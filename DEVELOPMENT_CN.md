@@ -140,7 +140,7 @@ traceback = true              # 是否启用 Rust 错误回溯
 
 [user]
 login_user_name = "admin"     # 登录用户名
-login_password = "admin"      # 登录密码
+# 首次访问初始化页面时设置登录密码。
 
 [turn]
 realm = "localhost"           # TURN 域
@@ -232,7 +232,7 @@ npm run build
 #### 用户设置 [user]
 
 - `login_user_name`: 登录用户名
-- `login_password`: 登录密码
+- `login_password_hash`: 由宿主设密时生成的 Argon2id 哈希（含随机盐）
 
 #### TURN 服务器 [turn]
 

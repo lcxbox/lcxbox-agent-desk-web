@@ -31,13 +31,13 @@ pub const TAG: &str = "Auth";
 #[post("/api/auth/login")]
 pub async fn login_account(
     req: HttpRequest,
-    request_json: web::Json<LoginRequest>,
+    request_json: crate::service::password::CredentialJson<LoginRequest>,
     settings: web::Data<SharedSettings>,
     client_ip: web::Data<ClientIpExtractor>,
     rate_limiter: web::Data<std::sync::Arc<AuthRateLimiter>>,
     session: Session,
 ) -> Result<HttpResponse, AWError> {
-    let params = request_json.into_inner();
+    let params = request_json.0;
     let network_key = client_ip.network_key(&req);
     let startup_mode = {
         let settings = settings.read().await;
@@ -57,12 +57,19 @@ pub async fn login_account(
     // redeemer is a capability-scoped code-session minted by `redeem_code`
     // (`/api/desk/redeem-code`), never the owner. Account login is
     // username/password only.
-    let credentials_match = {
-        let settings = settings.read().await;
-        settings.user.login_user_name == params.username
-            && settings.user.login_password == params.password
+    let account = settings.read().await.user.clone();
+    let verified = match account.login_password_hash.as_ref() {
+        Some(encoded) if account.login_user_name == params.username => {
+            crate::service::password::verify(params.password, encoded.clone()).await?
+        }
+        _ => false,
     };
-    if !credentials_match {
+    let live = settings.read().await;
+    if !verified
+        || live.user.login_user_name != account.login_user_name
+        || live.user.login_password_hash != account.login_password_hash
+        || live.user.auth_revision != account.auth_revision
+    {
         error!("Account login credentials do not match");
         return Ok(match rate_limiter.record_login_failure(network_key) {
             LoginFailureResult::Locked { retry_after_sec } => login_failure_response(
@@ -91,7 +98,7 @@ pub async fn login_account(
         email_masked: None,
     };
     let user_info = CurrentUser::new_admin(&params.username);
-    // Store user information in session
+    crate::service::password::begin_session(&session, account.auth_revision)?;
     session.set_current_user(&user_info)?;
     info!("Login successful, username: {}", params.username);
     Ok(HttpResponse::Ok().json(RestResponse::succeed_with_data(result)))
@@ -142,65 +149,65 @@ pub async fn logout_account(session: Session) -> Result<HttpResponse, AWError> {
 )]
 #[patch("/auth/credentials")]
 pub async fn change_password(
-    request_json: web::Json<UpdateCredentialsRequest>,
+    request_json: crate::service::password::CredentialJson<UpdateCredentialsRequest>,
+    coordinator: web::Data<crate::model::settings_coordinator::SettingsCoordinator>,
     settings: web::Data<SharedSettings>,
     session: Session,
 ) -> Result<HttpResponse, AWError> {
-    let params = request_json.into_inner();
-    let mut settings = settings.write().await;
-    if params.current_password.is_empty() || params.current_username.is_empty() {
-        error!("Username or password is empty");
-        return Ok(HttpResponse::Ok().json(RestResponse::<()>::failed(
+    let params = request_json.0;
+    let account = settings.read().await.user.clone();
+    let invalid = || {
+        HttpResponse::Ok().json(RestResponse::<()>::failed(
             DeskErrorCode::ILLEGAL_CREDENTIALS,
-            "Illegal username or password".to_string(),
-        )));
+            "Illegal username or password".into(),
+        ))
+    };
+    let Some(encoded) = account.login_password_hash.as_ref() else {
+        return Ok(invalid());
+    };
+    if params.current_username != account.login_user_name
+        || params.current_password.is_empty()
+        || !crate::service::password::verify(params.current_password, encoded.clone()).await?
+    {
+        return Ok(invalid());
     }
-    if params.new_password.is_none() && params.new_username.is_none() {
-        error!("All new username and new  password are  empty");
+    if params.new_password.as_deref() == Some("")
+        || params.new_username.as_deref() == Some("")
+        || (params.new_password.is_none() && params.new_username.is_none())
+    {
         return Ok(HttpResponse::Ok().json(RestResponse::<()>::failed(
             DeskErrorCode::INVALID_PARAMS,
-            "Illegal new username or new password".to_string(),
+            "Invalid new credentials".into(),
         )));
     }
-
-    if settings.user.login_user_name != params.current_username {
-        error!("Username does not match");
-        return Ok(HttpResponse::Ok().json(RestResponse::<()>::failed(
-            DeskErrorCode::ILLEGAL_CREDENTIALS,
-            "Illegal username or password".to_string(),
-        )));
-    }
-    if settings.user.login_password != params.current_password {
-        error!("Password does not match");
-        return Ok(HttpResponse::Ok().json(RestResponse::<()>::failed(
-            DeskErrorCode::ILLEGAL_CREDENTIALS,
-            "Illegal username or password".to_string(),
-        )));
-    }
-
-    if let Some(new_username) = params.new_username
-        && !new_username.is_empty()
-    {
-        info!(
-            "Change username from {} to {}",
-            settings.user.login_user_name, new_username
-        );
-        settings.user.login_user_name = new_username;
-    }
-
-    if let Some(new_password) = params.new_password
-        && !new_password.is_empty()
-    {
-        info!("Change password successfully");
-        settings.user.login_password = new_password;
-    }
-
-    // save new settings to file
-    settings.save()?;
-    info!("Username / password changed successfully");
-
+    let hash = match params.new_password {
+        Some(value) => Some(crate::service::password::hash(value).await?),
+        None => None,
+    };
+    coordinator
+        .commit_account(move |user| {
+            if user.login_user_name != account.login_user_name
+                || user.login_password_hash != account.login_password_hash
+                || user.auth_revision != account.auth_revision
+            {
+                return crate::error::DeskError::custom_error(
+                    DeskErrorCode::ILLEGAL_CREDENTIALS,
+                    "Credentials changed",
+                );
+            }
+            if let Some(value) = params.new_username {
+                user.login_user_name = value;
+            }
+            if let Some(value) = hash {
+                user.login_password_hash = Some(value);
+            }
+            user.recovery_binding = None;
+            user.password_reset_code = None;
+            Ok(())
+        })
+        .await?;
     // logout
-    session.remove_current_user();
+    session.purge();
     Ok(HttpResponse::Ok().json(RestResponse::succeed()))
 }
 
@@ -255,12 +262,12 @@ pub async fn login_tauri(
     }
 
     // Check system is initialized
-    let (startup_mode, initialized, username) = {
+    let (startup_mode, initialized, username, revision) = {
         let settings = settings.read().await;
         let mode = settings.args.startup_mode.clone();
-        let init = !settings.user.login_password.is_empty();
+        let init = settings.user.login_password_hash.is_some();
         let name = settings.user.login_user_name.clone();
-        (mode, init, name)
+        (mode, init, name, settings.user.auth_revision)
     };
 
     if !initialized {
@@ -275,6 +282,7 @@ pub async fn login_tauri(
     }
 
     // Auto-login as admin
+    crate::service::password::begin_session(&session, revision)?;
     let user_info = CurrentUser::new_admin(&username);
     session.set_current_user(&user_info)?;
 
@@ -309,7 +317,8 @@ mod tests {
         temp_path.push(format!("desk_test_config_{}.toml", uuid::Uuid::new_v4()));
         let mut settings = Settings::for_test_config(&temp_path);
         settings.user.login_user_name = "admin".to_string();
-        settings.user.login_password = "password".to_string();
+        settings.user.login_password_hash =
+            Some(crate::service::password::hash_sync("password").unwrap());
 
         SharedSettings::from(settings)
     }
@@ -322,6 +331,37 @@ mod tests {
             web::Data::new(ClientIpExtractor::default()),
             web::Data::new(std::sync::Arc::new(AuthRateLimiter::new(64))),
         )
+    }
+
+    #[actix_web::test]
+    async fn credential_body_errors_are_bounded_and_redacted() {
+        let (ip, limiter) = auth_data();
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(create_test_settings()))
+                .app_data(ip)
+                .app_data(limiter)
+                .wrap(SessionMiddleware::new(
+                    CookieSessionStore::default(),
+                    Key::generate(),
+                ))
+                .service(login_account),
+        )
+        .await;
+        for password in [
+            serde_json::json!({"private-test-value": 1}),
+            serde_json::json!("private-test-value".repeat(5000)),
+        ] {
+            let req = TestRequest::post()
+                .uri("/api/auth/login")
+                .set_json(serde_json::json!({"username":"user","password":password}))
+                .to_request();
+            let response = test::call_service(&app, req).await;
+            assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+            let body: RestResponse<()> = test::read_body_json(response).await;
+            assert_eq!(body.code, DeskErrorCode::INVALID_PARAMS.code());
+            assert!(!body.message.unwrap().contains("private-test-value"));
+        }
     }
 
     #[actix_web::test]
@@ -492,10 +532,15 @@ mod tests {
 
     #[actix_web::test]
     async fn test_change_password_success() {
-        let settings = create_test_settings();
+        let settings = std::sync::Arc::new(create_test_settings());
+        let coordinator = crate::model::settings_coordinator::SettingsCoordinator::from_settings(
+            settings.clone(),
+        )
+        .await;
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(settings))
+                .app_data(web::Data::from(settings.clone()))
+                .app_data(web::Data::new(coordinator))
                 .wrap(SessionMiddleware::new(
                     CookieSessionStore::default(),
                     Key::generate(),
@@ -517,7 +562,19 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
 
-        assert!(resp.status().is_success());
+        let body: RestResponse<()> = test::read_body_json(resp).await;
+        assert!(body.success);
+        assert_eq!(settings.read().await.user.auth_revision, 0);
+        assert!(crate::service::password::matches_sync(
+            "new_password",
+            settings
+                .read()
+                .await
+                .user
+                .login_password_hash
+                .as_deref()
+                .unwrap()
+        ));
     }
 
     #[actix_web::test]
@@ -526,7 +583,8 @@ mod tests {
         // Set password to mark as initialized
         {
             let mut s = settings.write().await;
-            s.user.login_password = "test_password".to_string();
+            s.user.login_password_hash =
+                Some(crate::service::password::hash_sync("test_password").unwrap());
         }
         let token = "test-token-12345";
         let tauri_token = web::Data::new(Some(crate::TauriLoginToken::new(token.to_string())));
@@ -557,7 +615,8 @@ mod tests {
         let settings = create_test_settings();
         {
             let mut s = settings.write().await;
-            s.user.login_password = "test_password".to_string();
+            s.user.login_password_hash =
+                Some(crate::service::password::hash_sync("test_password").unwrap());
         }
         let tauri_token = web::Data::new(Some(crate::TauriLoginToken::new(
             "correct-token".to_string(),
@@ -590,7 +649,8 @@ mod tests {
         let settings = create_test_settings();
         {
             let mut s = settings.write().await;
-            s.user.login_password = "test_password".to_string();
+            s.user.login_password_hash =
+                Some(crate::service::password::hash_sync("test_password").unwrap());
         }
         let token = "one-time-token";
         let tauri_token = web::Data::new(Some(crate::TauriLoginToken::new(token.to_string())));

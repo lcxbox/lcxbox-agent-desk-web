@@ -197,7 +197,10 @@ fn foreground_sessions_win_when_sessions_exceed_the_cap() {
 #[test]
 fn workers_receive_settings_without_the_daemon_secrets() {
     let mut settings = crate::model::settings::Settings::default();
-    settings.user.login_password = "secret-password-value".into();
+    settings.user.login_password_hash = Some("secret-password-value".into());
+    settings.user.password_reset_code = Some("12345678".into());
+    let ordinary = worker_account_redacted_json(&settings).unwrap();
+    assert!(!ordinary.contains("secret-password-value") && !ordinary.contains("12345678"));
     settings.system.session_secret_key = Some("secret-session-value".into());
     settings.system.local_signaling_token = Some("secret-signaling-value".into());
     settings.system.manager_api_token = Some("secret-manager-value".into());
@@ -207,6 +210,7 @@ fn workers_receive_settings_without_the_daemon_secrets() {
         let json = worker_settings_json(&settings, profile).unwrap();
         for secret in [
             "secret-password-value",
+            "12345678",
             "secret-session-value",
             "secret-signaling-value",
             "secret-manager-value",

@@ -11544,6 +11544,13 @@ export type ReadAttachment = {
     start_line?: number | null;
 };
 
+export type RecoveryLocation = {
+    /**
+     * @type string,null
+    */
+    config_file?: string | null;
+};
+
 export type RedeemCodeParams = {
     /**
      * @description The access-grant code (device code or support code) to redeem.
@@ -12017,6 +12024,17 @@ export type RequestRemoteModel = {
      * @type string,null
     */
     session_target_id?: string | null;
+};
+
+export type ResetPassword = {
+    /**
+     * @type string
+    */
+    code: string;
+    /**
+     * @type string
+    */
+    new_password: string;
 };
 
 export type RestResponseAccessCodeProtectionSettings = {
@@ -15988,6 +16006,30 @@ export type RestResponseProviderTestDto = {
          * @type array
         */
         validated_capabilities: string[];
+    };
+    /**
+     * @type string,null
+    */
+    message?: string | null;
+    /**
+     * @type boolean
+    */
+    success: boolean;
+};
+
+export type RestResponseRecoveryLocation = {
+    /**
+     * @type integer, int32
+    */
+    code: number;
+    /**
+     * @type object | undefined
+    */
+    data?: {
+        /**
+         * @type string,null
+        */
+        config_file?: string | null;
     };
     /**
      * @type string,null
@@ -21297,6 +21339,36 @@ export type ChangePasswordMutation = {
     Response: ChangePassword200;
     Request: ChangePasswordMutationRequest;
     Errors: ChangePassword401 | ChangePassword403;
+};
+
+export type CancelLocalRecovery200 = RestResponseEmptyResponseDto;
+
+export type CancelLocalRecoveryMutationResponse = CancelLocalRecovery200;
+
+export type CancelLocalRecoveryMutation = {
+    Response: CancelLocalRecovery200;
+    Errors: any;
+};
+
+export type FinishLocalRecovery200 = RestResponseEmptyResponseDto;
+
+export type FinishLocalRecoveryMutationRequest = ResetPassword;
+
+export type FinishLocalRecoveryMutationResponse = FinishLocalRecovery200;
+
+export type FinishLocalRecoveryMutation = {
+    Response: FinishLocalRecovery200;
+    Request: FinishLocalRecoveryMutationRequest;
+    Errors: any;
+};
+
+export type StartLocalRecovery200 = RestResponseRecoveryLocation;
+
+export type StartLocalRecoveryMutationResponse = StartLocalRecovery200;
+
+export type StartLocalRecoveryMutation = {
+    Response: StartLocalRecovery200;
+    Errors: any;
 };
 
 /**

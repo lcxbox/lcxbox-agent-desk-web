@@ -146,6 +146,12 @@ impl HostDataPaths {
             .config_file
             .parent()
             .ok_or_else(|| HostDataPathError::MissingConfigParent(self.config_file.clone()))?;
+        // Explicit profiles share this directory for configuration and runtime
+        // data. The operator owns its existing permissions (it may be a mount).
+        if self.explicit_config && config_parent.is_dir() {
+            fs::create_dir_all(&self.log_dir)?;
+            return Ok(());
+        }
         create_private_directory(config_parent)?;
         create_private_directory(&self.data_root)?;
         if let Some(runtime_root) = &self.runtime_root {
@@ -181,6 +187,26 @@ impl HostDataPaths {
 
     pub fn config_file(&self) -> &Path {
         &self.config_file
+    }
+
+    /// Anchor configuration reads and replacements to the resolved parent directory.
+    pub fn resolve_config_parent(&mut self) -> std::io::Result<()> {
+        let parent = self
+            .config_file
+            .parent()
+            .ok_or(std::io::ErrorKind::InvalidInput)?
+            .canonicalize()?;
+        self.config_file = parent.join(
+            self.config_file
+                .file_name()
+                .ok_or(std::io::ErrorKind::InvalidInput)?,
+        );
+        self.config_lock_file = parent.join(
+            self.config_lock_file
+                .file_name()
+                .ok_or(std::io::ErrorKind::InvalidInput)?,
+        );
+        Ok(())
     }
 
     pub fn config_lock_file(&self) -> &Path {

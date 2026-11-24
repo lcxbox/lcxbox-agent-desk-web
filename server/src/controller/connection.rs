@@ -502,7 +502,7 @@ pub async fn verify_connection(
     let (initialized, require_secure_signaling) = {
         let s = settings.read().await;
         (
-            !s.user.login_password.is_empty(),
+            s.user.login_password_hash.is_some(),
             s.system.require_secure_signaling,
         )
     };
@@ -907,9 +907,10 @@ mod tests {
         let mut settings = Settings::default();
         if initialized {
             settings.user.login_user_name = "admin".to_string();
-            settings.user.login_password = "pw".to_string();
+            settings.user.login_password_hash =
+                Some(crate::service::password::hash_sync("pw").unwrap());
         } else {
-            settings.user.login_password = String::new();
+            settings.user.login_password_hash = None;
         }
         let mut temp_path = std::env::temp_dir();
         temp_path.push(format!("desk_verify_test_{}.toml", uuid::Uuid::new_v4()));

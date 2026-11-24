@@ -89,11 +89,14 @@ pub async fn redeem_code(
     // Topology gate — strictly before any code resolution (never leak a target
     // off a topology that must not redeem). Only the portable `Default` mode is a
     // trusted-central unit; every other mode hard-rejects.
-    let is_trusted_central = {
+    let (is_trusted_central, revision) = {
         let settings = settings.read().await;
-        matches!(
-            settings.args.startup_mode,
-            crate::model::settings::StartupMode::Default
+        (
+            matches!(
+                settings.args.startup_mode,
+                crate::model::settings::StartupMode::Default
+            ),
+            settings.user.auth_revision,
         )
     };
     if !is_trusted_central {
@@ -217,6 +220,7 @@ pub async fn redeem_code(
         }
     };
 
+    crate::service::password::begin_session(&session, revision)?;
     let cookie = CodeSessionCookie {
         code_session_id,
         grant_session_id: minted.grant_session_id.clone(),

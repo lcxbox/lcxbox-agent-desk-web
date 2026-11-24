@@ -41,6 +41,24 @@ pub enum FileMode {
 /// Write `contents` to `path` so that the target is only ever the complete old
 /// value or the complete new one.
 pub fn durable_atomic_write(path: &Path, contents: &[u8], mode: FileMode) -> io::Result<()> {
+    durable_atomic_write_with_status(path, contents, mode)?
+}
+
+/// The inner error means the replacement is visible but directory sync failed.
+pub fn durable_atomic_write_with_status(
+    path: &Path,
+    contents: &[u8],
+    mode: FileMode,
+) -> io::Result<io::Result<()>> {
+    atomic_write_and_sync(path, contents, mode, sync_parent_directory)
+}
+
+fn atomic_write_and_sync(
+    path: &Path,
+    contents: &[u8],
+    mode: FileMode,
+    sync: impl FnOnce(&Path) -> io::Result<()>,
+) -> io::Result<io::Result<()>> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
     let file_name = path
@@ -84,7 +102,8 @@ pub fn durable_atomic_write(path: &Path, contents: &[u8], mode: FileMode) -> io:
             fs::set_permissions(&temporary, existing.permissions())?;
         }
 
-        durable_replace(&temporary, path)
+        replace_file(&temporary, path)?;
+        Ok(sync(parent))
     })();
 
     if result.is_err() {
@@ -223,6 +242,19 @@ mod tests {
         assert!(durable_atomic_write(&unwritable, b"new", FileMode::OwnerOnly).is_err());
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "old");
+    }
+
+    #[test]
+    fn directory_sync_failure_reports_a_published_replacement() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings");
+        fs::write(&path, b"old").unwrap();
+        let status = atomic_write_and_sync(&path, b"new", FileMode::Preserve, |_| {
+            Err(io::Error::other("sync failure"))
+        })
+        .unwrap();
+        assert!(status.is_err());
+        assert_eq!(fs::read(path).unwrap(), b"new");
     }
 
     #[test]

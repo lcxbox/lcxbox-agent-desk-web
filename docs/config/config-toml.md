@@ -79,7 +79,10 @@ settings, so a change to the values above would not reach them.
 ## User `[user]`
 
 - `login_user_name` — initial login username.
-- `login_password` — initial login password.
+- `login_password_hash` stores the Argon2id hash, including a fresh random salt each time you set the password. Set the initial password in the setup wizard.
+- `password_reset_code` appears temporarily during local browser recovery. The eight-digit code expires after five minutes. Cancellation, five incorrect guesses, or a successful reset clears it.
+
+Open the account login page on the host through its loopback address and select **Forgot password**. Read the code from the `[user]` section of the configuration file shown on the page, or from the native dialog on an embedded desktop host. Enter the code and the new password twice, then sign in again. Restrict the configuration file and its directory to the trusted service account and system administrators.
 
 ## TURN Server `[turn]`
 
@@ -209,7 +212,7 @@ the user answered is still honored on its own.
 
 ## OSS global configuration
 
-OSS saves AI gateways, search and global policies in the same `config.toml` as host settings, selected by the active profile or `--config-file-path`. Settings pages persist changes immediately. To edit the file manually, stop the service, edit, and restart. These sections and `[oss_config_metadata]` do not accept `LAD_*` overrides; other host settings keep their existing environment behavior.
+OSS saves AI gateways, search and global policies in the same `config.toml` as host settings, selected by the active profile or `--config-file-path`. Settings pages persist changes immediately. To edit the file manually, stop the service, edit, and restart. These sections, `[user]`, and `[oss_config_metadata]` do not accept `LAD_*` overrides; other host settings keep their existing environment behavior.
 
 | Section | Fields and meaning |
 | --- | --- |

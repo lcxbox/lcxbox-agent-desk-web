@@ -46,10 +46,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("config must be inside the isolated validation directory".into());
     }
     let settings =
-        Settings::new(&args).map_err(|error| std::io::Error::other(error.to_string()))?;
+        Settings::open_host(&args).map_err(|error| std::io::Error::other(error.to_string()))?;
     let (server, _telemetry) = lcxbox_agent_desk_server::run_with_hub(
         &settings,
         Some(Arc::new(HostControlHub::new_local())),
+        None,
     )
     .await
     .map_err(|error| std::io::Error::other(error.to_string()))?;

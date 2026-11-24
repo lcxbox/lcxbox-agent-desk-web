@@ -59,7 +59,7 @@ fn is_loopback_url_host(url: &url::Url) -> bool {
 }
 
 #[allow(clippy::result_large_err)]
-pub(super) fn validate_local_mutation(req: &HttpRequest) -> Result<(), DeskError> {
+pub(super) fn validate_local_mutation(req: &HttpRequest) -> Result<url::Url, DeskError> {
     let peer = req
         .peer_addr()
         .ok_or_else(|| permission_error("Local permission requests require a TCP peer address"))?;
@@ -74,7 +74,7 @@ pub(super) fn validate_local_mutation(req: &HttpRequest) -> Result<(), DeskError
             "Open this host UI locally using localhost or 127.0.0.1 to request desktop permissions",
         ));
     }
-    Ok(())
+    Ok(origin_url)
 }
 
 /// The browser boundary of an owner request: an `Origin` header whose origin

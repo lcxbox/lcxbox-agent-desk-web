@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::durable_file::{FileMode, durable_atomic_write};
+use crate::durable_file::FileMode;
 use crate::error::DeskError;
+use desk_utils::durable_file::durable_atomic_write_with_status;
 
 mod ai_agent;
 mod ai_policy;
@@ -51,17 +52,20 @@ impl Source for HostEnvironment {
 
 fn retain_host_environment(values: &mut config::Map<String, config::Value>) {
     values.retain(|key, _| {
-        !desk_signal::config::SECTION_NAMES.iter().any(|section| {
-            key == section
-                || key.starts_with(&format!("{section}."))
-                || key.starts_with(&format!("{section}_"))
-        })
+        !std::iter::once("user")
+            .chain(desk_signal::config::SECTION_NAMES.iter().copied())
+            .any(|section| {
+                key == section
+                    || key.starts_with(&format!("{section}."))
+                    || key.starts_with(&format!("{section}_"))
+            })
     });
 }
 
 #[derive(Clone, Debug)]
 pub struct SettingsStore {
     paths: Arc<HostDataPaths>,
+    writer: Option<Arc<std::fs::File>>,
 }
 
 impl SettingsStore {
@@ -71,12 +75,14 @@ impl SettingsStore {
         Self::new(paths)
     }
 
-    pub fn new(paths: HostDataPaths) -> Result<Self, std::io::Error> {
+    pub fn new(mut paths: HostDataPaths) -> Result<Self, std::io::Error> {
         paths
             .ensure_directories()
             .map_err(|error| std::io::Error::other(error.to_string()))?;
+        paths.resolve_config_parent()?;
         Ok(Self {
             paths: Arc::new(paths),
+            writer: None,
         })
     }
 
@@ -170,13 +176,47 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Acquire ownership before loading or repairing a running host configuration.
+    pub fn open_host(args: &Args) -> Result<Self, DeskError> {
+        let mut store = SettingsStore::resolve(args)?;
+        let path = store.paths().config_file();
+        if path.is_symlink() {
+            return Err(std::io::Error::other("Host configuration must be a regular file").into());
+        }
+        let file = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path.with_extension("host.lock"))?;
+        file.try_lock().map_err(|e| match e {
+            std::fs::TryLockError::WouldBlock => std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "This configuration already has a running host",
+            ),
+            std::fs::TryLockError::Error(error) => error,
+        })?;
+        store.writer = Some(Arc::new(file));
+        Self::new_with_store(args, store)
+    }
+
+    pub fn open_reader(args: &Args) -> Result<Self, DeskError> {
+        let paths = HostDataPaths::resolve_current(args.config_file_path.as_deref())
+            .map_err(std::io::Error::other)?;
+        let store = SettingsStore {
+            paths: Arc::new(paths),
+            writer: None,
+        };
+        Self::load_readonly_from_store(args, store)
+    }
+    #[cfg(test)]
     pub fn new(args: &Args) -> Result<Self, DeskError> {
         let store = SettingsStore::resolve(args)?;
         Self::new_with_store(args, store)
     }
 
     #[allow(clippy::result_large_err)]
-    pub fn new_with_store(args: &Args, store: SettingsStore) -> Result<Self, DeskError> {
+    fn new_with_store(args: &Args, store: SettingsStore) -> Result<Self, DeskError> {
         info!(
             "Loading config file from: {}",
             store.paths().config_file().display()
@@ -184,18 +224,31 @@ impl Settings {
         let config = Config::builder()
             .add_source(File::from(store.paths().config_file()).required(false))
             .add_source(HostEnvironment)
-            .build()?;
-        let mut settings = config.try_deserialize::<Settings>()?;
+            .build()
+            .map_err(|_| {
+                DeskError::new_custom_error(
+                    desk_utils::error::DeskErrorCode::INVALID_PARAMS,
+                    "Cannot load host configuration",
+                )
+            })?;
+        let mut settings = config.try_deserialize::<Settings>().map_err(|_| {
+            DeskError::new_custom_error(
+                desk_utils::error::DeskErrorCode::INVALID_PARAMS,
+                "Invalid host configuration fields",
+            )
+        })?;
         settings.args = args.clone();
         settings.store = Some(store);
         // Validate and persist file identity before any generated host setting
         // can cause the complete document to be saved.
+        let stale_code = settings.user.password_reset_code.take().is_some();
         if settings.global_config.initialize_metadata().map_err(|_| {
             DeskError::new_custom_error(
                 desk_utils::error::DeskErrorCode::INVALID_PARAMS,
                 "invalid OSS file configuration",
             )
-        })? {
+        })? || stale_code
+        {
             settings.save()?;
         }
         if settings.system.get_client_id().is_err() {
@@ -282,8 +335,19 @@ impl Settings {
         let config = Config::builder()
             .add_source(File::from(store.paths().config_file()).required(false))
             .add_source(HostEnvironment)
-            .build()?;
-        let mut settings = config.try_deserialize::<Settings>()?;
+            .build()
+            .map_err(|_| {
+                DeskError::new_custom_error(
+                    desk_utils::error::DeskErrorCode::INVALID_PARAMS,
+                    "Cannot load host configuration",
+                )
+            })?;
+        let mut settings = config.try_deserialize::<Settings>().map_err(|_| {
+            DeskError::new_custom_error(
+                desk_utils::error::DeskErrorCode::INVALID_PARAMS,
+                "Invalid host configuration fields",
+            )
+        })?;
         settings.args = args.clone();
         settings.store = Some(store);
         Ok(settings)
@@ -311,16 +375,17 @@ impl Settings {
             args,
             store: Some(SettingsStore {
                 paths: Arc::new(paths),
+                writer: None,
             }),
             ..Self::default()
         }
     }
 
     pub fn save(&self) -> Result<(), DeskError> {
-        self.save_inner()
+        self.save_with_status()?.map_err(DeskError::from)
     }
 
-    fn save_inner(&self) -> Result<(), DeskError> {
+    pub(crate) fn save_with_status(&self) -> Result<std::io::Result<()>, DeskError> {
         let store = self.store();
         let config_file_path = store.paths().config_file();
 
@@ -349,8 +414,16 @@ impl Settings {
         // file reachable by whichever role wrote it first: the daemon runs as
         // SYSTEM / root while a portable host runs as the desktop user, and both
         // read this same path.
-        durable_atomic_write(config_file_path, toml_str.as_bytes(), FileMode::Preserve)?;
-        Ok(())
+        if self.user.password_reset_code.is_some() {
+            crate::service::recovery::check_config_delivery(config_file_path).map_err(|_| {
+                DeskError::new_custom_error(desk_utils::error::DeskErrorCode::PERMISSION_ERROR, "A private configuration file and directory outside the static directory are required")
+            })?;
+        }
+        Ok(durable_atomic_write_with_status(
+            config_file_path,
+            toml_str.as_bytes(),
+            FileMode::Preserve,
+        )?)
     }
 }
 
@@ -382,10 +455,63 @@ mod tests {
             values.insert(format!("{section}.enabled"), config::Value::from(true));
             values.insert(format!("{section}_enabled"), config::Value::from(true));
         }
+        for key in [
+            "user",
+            "user.login_password_hash",
+            "user_auth_revision",
+            "user_password_reset_code",
+        ] {
+            values.insert(key.into(), config::Value::from("ignored"));
+        }
         values.insert("system_port".into(), config::Value::from(8082));
         retain_host_environment(&mut values);
         assert_eq!(values.len(), 1);
         assert!(values.contains_key("system_port"));
+    }
+
+    #[test]
+    fn config_owner_clears_abandoned_codes_only_after_handoff() {
+        let dir = tempfile::tempdir().unwrap();
+        let template = Settings::for_test_config(&dir.path().join("host.toml"));
+        let args = template.args.clone();
+        let first = Settings::open_host(&args).unwrap();
+        let path = first.paths().config_file().to_owned();
+        let file = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("[user]", "[user]\npassword_reset_code = '01234567'");
+        std::fs::write(&path, file).unwrap();
+        assert!(Settings::open_host(&args).is_err());
+        assert_eq!(
+            Settings::open_reader(&args)
+                .unwrap()
+                .user
+                .password_reset_code
+                .as_deref(),
+            Some("01234567")
+        );
+        drop(first);
+        let next = Settings::open_host(&args).unwrap();
+        assert!(next.user.password_reset_code.is_none());
+        assert!(
+            !std::fs::read_to_string(path)
+                .unwrap()
+                .contains("password_reset_code")
+        );
+    }
+
+    #[test]
+    fn malformed_or_plaintext_account_fails_without_echo() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("host.toml");
+        let settings = Settings::for_test_config(&path);
+        for invalid in [
+            "login_password = 'private-test-value'",
+            "login_password_hash = 'private-test-value",
+        ] {
+            std::fs::write(&path, format!("[user]\n{invalid}")).unwrap();
+            let error = Settings::open_reader(&settings.args).unwrap_err();
+            assert!(!format!("{error:?}").contains("private-test-value"));
+        }
     }
 
     /// Host overrides are read from `LAD_`-prefixed process variables.

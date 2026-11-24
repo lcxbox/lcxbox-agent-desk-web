@@ -154,7 +154,7 @@ async fn authorize_service_management(
     settings: &SharedSettings,
     session: &Session,
 ) -> Result<Option<HttpResponse>, AWError> {
-    if settings.read().await.user.login_password.is_empty() {
+    if settings.read().await.user.login_password_hash.is_none() {
         return Ok(Some(HttpResponse::Ok().json(RestResponse::<()>::failed(
             DeskErrorCode::PRECONDITION_FAILED,
             "Initialize the system before managing the service".to_string(),
@@ -254,11 +254,7 @@ mod tests {
 
     fn settings_data(initialized: bool) -> web::Data<SharedSettings> {
         let mut settings = crate::model::settings::Settings::default();
-        settings.user.login_password = if initialized {
-            "initialized".to_string()
-        } else {
-            String::new()
-        };
+        settings.user.login_password_hash = initialized.then(|| "configured".into());
         web::Data::new(SharedSettings::from(settings))
     }
 

@@ -45,6 +45,7 @@ windows = { workspace = true }
 desk-virtual-display = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
 x11rb = { workspace = true }
 raw-window-handle = { workspace = true }
 evdev = { workspace = true }

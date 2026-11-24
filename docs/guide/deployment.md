@@ -135,3 +135,19 @@ When exposing the server to the public internet (typically behind a TLS-terminat
 - Put the server behind a reverse proxy that terminates TLS, passes through `Host`, and forwards the WebSocket `Upgrade` headers for signaling.
 - A native reverse proxy on the same host normally connects from loopback and works with the default trust. A proxy container normally connects from a bridge/container address, so add that actual peer CIDR explicitly. If Docker or a layer-4 proxy has already discarded the original source address and supplies no XFF, the application cannot reconstruct it and clients share one rate-limit bucket.
 - The server currently has no CORS middleware. Browsers therefore cannot use a cross-origin preflight to send a custom XFF header to a loopback peer. Adding CORS, Private Network Access allowances, or XFF header allowances requires re-reviewing the default loopback trust boundary.
+
+## Reset the login password on a headless server
+
+Connect to the running host over SSH. As the service account or a local administrator, run this command in an interactive terminal:
+
+```sh
+lcxbox-agent-desk-server reset-password
+```
+
+For a custom configuration, add the same `--config-file-path /path/to/config.toml` used to start the service. For the repository's Compose deployment, run this from the project directory:
+
+```sh
+docker compose exec remote-desk /app/lcxbox-agent-desk-server reset-password
+```
+
+Check the configuration path displayed and enter the new password twice at the hidden prompts. The host must be running. The password takes effect immediately and existing browser sessions must sign in again. With the default Docker bridge, a published port may deliver a non-loopback peer address. Run the command inside the container for that deployment.

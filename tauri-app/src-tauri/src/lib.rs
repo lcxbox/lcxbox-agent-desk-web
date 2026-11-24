@@ -8,6 +8,7 @@ mod linux_ai_input_control;
 #[cfg(target_os = "macos")]
 mod macos_relocate;
 mod overlay_window;
+mod password_recovery;
 mod platform;
 mod private_screen;
 mod security_approval;
@@ -244,10 +245,10 @@ pub fn run() -> Result<(), DeskTauriError> {
 
     if desk_utils::permission::is_service_running(SERVICE_NAME) {
         log::info!("ServiceDaemon is running — launching as service shell (no embedded server)");
-        let daemon_settings = Settings::new(&args)?;
+        let daemon_settings = Settings::open_reader(&args)?;
         run_tauri_service_shell(&daemon_settings)?;
     } else {
-        let settings = Settings::new(&args)?;
+        let settings = Settings::open_host(&args)?;
         run_tauri_app(&settings)?;
     }
 
@@ -504,22 +505,20 @@ fn run_tauri_service_shell(settings: &Settings) -> Result<(), DeskTauriError> {
     app.run(|app, event| match event {
         tauri::RunEvent::WindowEvent {
             label,
-            event: window_event,
+            event: tauri::WindowEvent::CloseRequested { api, .. },
             ..
         } => {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = &window_event {
-                if label == MAIN_WINDOW_LABEL {
-                    api.prevent_close();
-                    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                        let _ = window.hide();
-                    }
-                } else if label.starts_with(security_approval::APPROVAL_LABEL_PREFIX) {
-                    // A user closed an approval window: keep it alive long enough
-                    // to submit a Deny via the page's hook, then let the backend
-                    // tear it down. The webview can't detect a native close itself.
-                    api.prevent_close();
-                    security_approval::on_approval_window_close(app, &label);
+            if label == MAIN_WINDOW_LABEL {
+                api.prevent_close();
+                if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                    let _ = window.hide();
                 }
+            } else if label.starts_with(security_approval::APPROVAL_LABEL_PREFIX) {
+                // A user closed an approval window: keep it alive long enough
+                // to submit a Deny via the page's hook, then let the backend
+                // tear it down. The webview can't detect a native close itself.
+                api.prevent_close();
+                security_approval::on_approval_window_close(app, &label);
             }
         }
         tauri::RunEvent::ExitRequested { api, .. } => {
@@ -643,7 +642,7 @@ fn handle_service_op(
         use lcxbox_agent_desk_server::host_control::service_operations::{
             ServiceOperationError as Error, ServiceOperationState as State,
         };
-        return (State::Failed, Some(Error::Unsupported), None);
+        (State::Failed, Some(Error::Unsupported), None)
     }
 }
 
@@ -868,12 +867,14 @@ pub fn run_tauri_app(settings: &Settings) -> Result<(), DeskTauriError> {
             let startup_mode = settings.args.startup_mode.clone();
             let server_settings = settings.clone();
             let hub_for_server = host_control_hub.clone();
+            let dialog_app = handle.clone();
             std::thread::spawn(move || {
                 let system = actix_rt::System::new();
                 system.block_on(async {
                     match lcxbox_agent_desk_server::run_with_hub(
                         &server_settings,
                         Some(hub_for_server),
+                        Some(std::sync::Arc::new(move |code| password_recovery::display(&dialog_app, code))),
                     )
                     .await
                     {
@@ -1219,23 +1220,21 @@ pub fn run_tauri_app(settings: &Settings) -> Result<(), DeskTauriError> {
         match event {
             tauri::RunEvent::WindowEvent {
                 label,
-                event: window_event,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
                 ..
             } => {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = &window_event {
-                    if label == MAIN_WINDOW_LABEL {
-                        api.prevent_close();
-                        if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                            let _ = window.hide();
-                        }
-                    } else if label.starts_with(security_approval::APPROVAL_LABEL_PREFIX) {
-                        // A user closed an approval window: keep it alive long
-                        // enough to submit a Deny via the page's hook, then let
-                        // the backend tear it down. The webview can't detect a
-                        // native close itself.
-                        api.prevent_close();
-                        security_approval::on_approval_window_close(app, &label);
+                if label == MAIN_WINDOW_LABEL {
+                    api.prevent_close();
+                    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                        let _ = window.hide();
                     }
+                } else if label.starts_with(security_approval::APPROVAL_LABEL_PREFIX) {
+                    // A user closed an approval window: keep it alive long
+                    // enough to submit a Deny via the page's hook, then let
+                    // the backend tear it down. The webview can't detect a
+                    // native close itself.
+                    api.prevent_close();
+                    security_approval::on_approval_window_close(app, &label);
                 }
             }
             tauri::RunEvent::ExitRequested { api, .. } => {

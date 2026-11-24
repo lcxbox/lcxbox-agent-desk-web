@@ -5,7 +5,6 @@ use crate::{
     model::settings::{SharedSettings, StartupMode},
     service::signaling::LocalNodeTokenValidator,
 };
-use actix_files;
 use actix_service::fn_service;
 use actix_session::{SessionMiddleware, storage::CookieSessionStore};
 use actix_web::{App, HttpServer, dev::ServiceResponse, middleware::Logger, web};
@@ -89,7 +88,7 @@ pub async fn run_local_api(
     }
 
     let settings_data = web::Data::from(settings.clone());
-    let settings_coordinator_data = web::Data::from(settings_coordinator);
+    let settings_coordinator_data = web::Data::from(settings_coordinator.clone());
     // The embedded OSS signaling indexes each device's current connection by
     // client id, as Default and DeskServer do; without it every device lookup
     // reports the device offline.
@@ -151,7 +150,17 @@ pub async fn run_local_api(
         tauri_is_admin: Some(tauri_is_admin_data),
     };
 
+    let recovery = crate::service::recovery::Recovery::new(
+        settings.clone(),
+        settings_coordinator.clone(),
+        None,
+    )
+    .await;
+    crate::service::recovery::native::start(recovery.clone());
+    let recovery_data = web::Data::from(recovery);
+    let protected_config = settings.read().await.paths().config_file().to_owned();
     let server = HttpServer::new(move || {
+        let index_config = protected_config.clone();
         let default_path = static_file_path.clone();
         let rc = route_config.clone();
         let endpoint_state_for_routes = Arc::clone(&endpoint_state);
@@ -164,6 +173,7 @@ pub async fn run_local_api(
             // App-level `app_data` (previously mounted inside `configure_api_routes`).
             .app_data(rc.settings.clone())
             .app_data(settings_coordinator_data.clone())
+            .app_data(recovery_data.clone())
             .app_data(rc.tauri_login_token.clone())
             .app_data(rc.connection_map.clone())
             .app_data(rc.host_control_hub.clone())
@@ -215,6 +225,9 @@ pub async fn run_local_api(
                 )
             })
             .into_app()
+            .wrap(actix_web::middleware::from_fn(
+                crate::service::password::enforce_revision,
+            ))
             .wrap(
                 SessionMiddleware::builder(CookieSessionStore::default(), secret_key.clone())
                     .cookie_secure(false)
@@ -225,13 +238,17 @@ pub async fn run_local_api(
                     .build(),
             )
             .service(
-                actix_files::Files::new("/", static_file_path.clone())
-                    .index_file("index.html")
-                    .default_handler(fn_service(move |req: actix_web::dev::ServiceRequest| {
+                crate::service::static_assets::files(
+                    static_file_path.clone(),
+                    protected_config.clone(),
+                )
+                .default_handler(fn_service(
+                    move |req: actix_web::dev::ServiceRequest| {
                         let (http_req, _) = req.into_parts();
+                        let config = index_config.clone();
                         let path = default_path.clone().join("index.html");
                         async move {
-                            match actix_files::NamedFile::open(&path) {
+                            match crate::service::static_assets::open_index(&path, &config) {
                                 Ok(file) => {
                                     let resp = file.into_response(&http_req);
                                     Ok(ServiceResponse::new(http_req, resp))
@@ -251,7 +268,8 @@ pub async fn run_local_api(
                                 }
                             }
                         }
-                    })),
+                    },
+                )),
             )
     });
     // The local console's per-user operations (file recovery, sandbox label

@@ -20,7 +20,7 @@ use crate::{
 
 pub const TAG: &str = "System";
 
-#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Clone)]
 pub struct InitParams {
     pub username: String,
     pub password: String,
@@ -78,7 +78,7 @@ pub async fn init_requirements(bootstrap: web::Data<BootstrapToken>) -> HttpResp
 #[post("/api/init")]
 pub async fn init_system(
     req: HttpRequest,
-    request_json: web::Json<InitParams>,
+    request_json: crate::service::password::CredentialJson<InitParams>,
     settings: web::Data<SharedSettings>,
     coordinator: web::Data<crate::model::settings_coordinator::SettingsCoordinator>,
     manager_link_gate: web::Data<Arc<ManagerLinkGate>>,
@@ -87,8 +87,8 @@ pub async fn init_system(
     client_ip: web::Data<ClientIpExtractor>,
     rate_limiter: web::Data<Arc<AuthRateLimiter>>,
 ) -> Result<HttpResponse, DeskError> {
-    let params = request_json.into_inner();
-    if !settings.read().await.user.login_password.is_empty() {
+    let params = request_json.0;
+    if settings.read().await.user.login_password_hash.is_some() {
         return Err(DeskError::new_custom_error(
             desk_utils::error::DeskErrorCode::SYSTEM_ERROR,
             "System is already initialized",
@@ -117,19 +117,20 @@ pub async fn init_system(
             );
         }
     }
+    let password_hash = crate::service::password::hash(params.password).await?;
     coordinator
         .commit_with_effect(
             move |settings| {
                 // Checked inside the commit so two first-run requests arriving
                 // together cannot both pass the check and each write an account.
-                if !settings.user.login_password.is_empty() {
+                if settings.user.login_password_hash.is_some() {
                     return Err(DeskError::new_custom_error(
                         desk_utils::error::DeskErrorCode::SYSTEM_ERROR,
                         "System is already initialized",
                     ));
                 }
                 settings.user.login_user_name = params.username;
-                settings.user.login_password = params.password;
+                settings.user.login_password_hash = Some(password_hash);
                 settings.system.telemetry_consent = Some(params.telemetry_consent);
                 settings.system.host_access_indicator_enabled =
                     params.host_access_indicator_enabled;
@@ -206,7 +207,7 @@ mod tests {
         temp_path.push(format!("desk_init_test_{}.toml", uuid::Uuid::new_v4()));
         let mut settings = Settings::for_test_config(&temp_path);
         // Ensure it's not "initialized"
-        settings.user.login_password = "".to_string();
+        settings.user.login_password_hash = None;
 
         SharedSettings::from(settings)
     }
@@ -323,7 +324,7 @@ mod tests {
             body.code,
             desk_utils::error::DeskErrorCode::PERMISSION_ERROR.code()
         );
-        assert!(settings.read().await.user.login_password.is_empty());
+        assert!(settings.read().await.user.login_password_hash.is_none());
 
         params.bootstrap_token = Some("correct-token".to_string());
         let correct = test::TestRequest::post()
@@ -334,7 +335,16 @@ mod tests {
         let body: desk_utils::rest::RestResponse<()> =
             test::call_and_read_body_json(&app, correct).await;
         assert!(body.success);
-        assert_eq!(settings.read().await.user.login_password, "new_password");
+        assert!(crate::service::password::matches_sync(
+            "new_password",
+            settings
+                .read()
+                .await
+                .user
+                .login_password_hash
+                .as_deref()
+                .unwrap()
+        ));
     }
 
     #[actix_web::test]
@@ -388,10 +398,16 @@ mod tests {
                 .count(),
             1
         );
-        assert!(matches!(
-            settings.read().await.user.login_password.as_str(),
-            "first-password" | "second-password"
-        ));
+        let settings = settings.read().await;
+        let stored = settings.user.login_password_hash.as_deref().unwrap();
+        assert_eq!(
+            crate::service::password::matches_sync("first-password", stored),
+            first_body.success
+        );
+        assert_eq!(
+            crate::service::password::matches_sync("second-password", stored),
+            second_body.success
+        );
     }
 
     #[actix_web::test]
@@ -400,7 +416,8 @@ mod tests {
         let (_, client_ip, limiter) = auth_data();
         {
             let mut s = settings.write().await;
-            s.user.login_password = "already_set".to_string();
+            s.user.login_password_hash =
+                Some(crate::service::password::hash_sync("already_set").unwrap());
         }
 
         let app = test::init_service(

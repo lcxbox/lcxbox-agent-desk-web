@@ -166,7 +166,7 @@ async fn build_mcp_server(
 /// MCP server over stdio until the client disconnects. Logging is file-only
 /// (stdout is the protocol channel).
 pub fn run_mcp_stdio(args: Args) -> Result<(), DeskError> {
-    let settings = Settings::new(&args)?;
+    let settings = Settings::open_reader(&args)?;
     let store = settings.store().clone();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

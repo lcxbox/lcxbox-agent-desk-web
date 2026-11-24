@@ -42,12 +42,7 @@ pub(crate) mod windows_local_user;
 pub mod windows_office_helper;
 pub mod worker;
 
-use std::{
-    env,
-    fs::{File, TryLockError},
-    io::ErrorKind,
-    sync::Arc,
-};
+use std::{env, io::ErrorKind, sync::Arc};
 
 use crate::telemetry::TelemetryGuards;
 use crate::{
@@ -294,7 +289,10 @@ pub fn configure_api_surface(
     );
 
     // Public routes (no login required).
-    cfg.service(login_account)
+    cfg.service(crate::controller::password_recovery::start_local_recovery)
+        .service(crate::controller::password_recovery::finish_local_recovery)
+        .service(crate::controller::password_recovery::cancel_local_recovery)
+        .service(login_account)
         .service(login_tauri)
         .service(logout_account)
         .service(get_current_user)
@@ -733,8 +731,8 @@ pub type ServerHandle = (Server, Option<TelemetryGuards>);
 
 pub async fn run() -> Result<ServerHandle, DeskError> {
     let args = Args::parse();
-    let settings = Settings::new(&args)?;
-    run_with_hub(&settings, None).await
+    let settings = Settings::open_host(&args)?;
+    run_with_hub(&settings, None, None).await
 }
 
 /// Run the embedded server with an optional caller-supplied
@@ -748,18 +746,8 @@ pub async fn run() -> Result<ServerHandle, DeskError> {
 pub async fn run_with_hub(
     settings: &Settings,
     host_control_hub: Option<Arc<host_control::HostControlHub>>,
+    display_reset_code: Option<service::recovery::DisplayResetCode>,
 ) -> Result<ServerHandle, DeskError> {
-    // Create a lock file to prevent multiple instances of the server from running simultaneously.
-    let lock_file_path = env::temp_dir().join("lcxbox_agent_desk_server.lock");
-    let lock_file = File::create(lock_file_path)?;
-    if let Err(TryLockError::WouldBlock) = lock_file.try_lock() {
-        error!("Failed to lock file, is another instance running?");
-        return Err(DeskError::from(std::io::Error::new(
-            ErrorKind::PermissionDenied,
-            "Failed to lock file, is another instance running?",
-        )));
-    }
-
     // Install default crypto provider
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
@@ -844,6 +832,14 @@ pub async fn run_with_hub(
     info!("Server static file path: {:?}", static_file_path);
     let secret_key = settings.session_cookie_key();
     let shared_settings_data = web::Data::from(shared_settings.clone());
+    let recovery = service::recovery::Recovery::new(
+        shared_settings.clone(),
+        settings_coordinator.clone(),
+        display_reset_code,
+    )
+    .await;
+    service::recovery::native::start(recovery.clone());
+    let recovery_data = web::Data::from(recovery);
     let settings_coordinator_data = web::Data::from(settings_coordinator.clone());
 
     // The TauriLoginToken is shared between the HTTP `/api/auth/tauri-login` route (which
@@ -1077,7 +1073,9 @@ pub async fn run_with_hub(
     });
 
     // Start the Actix web server
+    let protected_config = settings.paths().config_file().to_owned();
     let mut http_server = HttpServer::new(move || {
+        let index_config = protected_config.clone();
         let default_static_file_path = static_file_path.clone();
 
         let turn_runtime_view = turn_runtime_view.clone();
@@ -1145,6 +1143,7 @@ pub async fn run_with_hub(
             })
             .app_data(shared_settings_data.clone())
             .app_data(settings_coordinator_data.clone())
+            .app_data(recovery_data.clone())
             .app_data(tauri_login_token.clone())
             .app_data(connection_map.clone())
             .app_data(conn_device_map.clone())
@@ -1189,6 +1188,7 @@ pub async fn run_with_hub(
             // ([`build_openapi`]), so serving them at runtime would only add an
             // unauthenticated public attack surface to a self-hosted server.
             .into_app()
+            .wrap(actix_web::middleware::from_fn(crate::service::password::enforce_revision))
             .wrap(
                 SessionMiddleware::builder(CookieSessionStore::default(), secret_key.clone())
                     .cookie_secure(cookie_secure_from_env())
@@ -1200,19 +1200,19 @@ pub async fn run_with_hub(
                     .build(),
             )
             .service(
-                actix_files::Files::new("/", static_file_path.clone())
-                    .index_file("index.html")
+                crate::service::static_assets::files(static_file_path.clone(), protected_config.clone())
                     .default_handler(fn_service(move |req: ServiceRequest| {
                         // support html5 history mode
                         let (http_req, _payload) = req.into_parts();
+                        let config = index_config.clone();
                         let path = default_static_file_path.clone().join("index.html");
                         log::debug!(
                             "Default handler hit for path: {}, serving index.html",
                             http_req.path()
                         );
-                        async {
+                        async move {
                             let response =
-                                actix_files::NamedFile::open(path)?.into_response(&http_req);
+                                crate::service::static_assets::open_index(&path,&config)?.into_response(&http_req);
                             Ok(ServiceResponse::new(http_req, response))
                         }
                     })),

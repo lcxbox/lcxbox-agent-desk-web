@@ -219,6 +219,33 @@ impl SettingsCoordinator {
         self.commit_locked(change, effect).await
     }
 
+    /// Account changes only publish file-owned credentials. Keep the write guard
+    /// inside the blocking task through publication even if the caller disconnects.
+    pub(crate) async fn commit_account<T, F>(&self, change: F) -> Result<T, DeskError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut crate::model::settings::UserSettings) -> Result<T, DeskError>
+            + Send
+            + 'static,
+    {
+        let settings = self.settings.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut live = settings.blocking_write();
+            let mut candidate = live.clone();
+            let result = change(&mut candidate.user)?;
+            let durability = candidate.save_with_status()?;
+            live.user = candidate.user;
+            durability.map_err(|_| {
+                DeskError::new_custom_error(
+                    DeskErrorCode::SYSTEM_ERROR,
+                    "Account update applied; storage sync failed",
+                )
+            })?;
+            Ok(result)
+        })
+        .await?
+    }
+
     /// Make a remembered approval the standing answer for one capability.
     ///
     /// `expected_generation` is the capability's stamp as it stood when the
@@ -266,7 +293,7 @@ impl SettingsCoordinator {
         F: FnOnce(&mut Settings) -> Result<(), DeskError>,
         E: FnOnce(&Settings),
     {
-        let (outcome, published, application_policy, label_idle_moved) = {
+        let (outcome, published, application_policy, label_idle_moved, durability) = {
             let mut live = self.settings.write().await;
             let mut candidate = live.clone();
             change(&mut candidate)?;
@@ -303,7 +330,7 @@ impl SettingsCoordinator {
 
             // The one durable write. Everything below this line assumes the
             // file already holds the candidate.
-            candidate.save()?;
+            let durability = candidate.save_with_status()?;
 
             let locale_moved = candidate.system.locale != live.system.locale;
             let label_idle_moved = (candidate.ai_policy.windows_sandbox_label_idle_minutes()
@@ -347,6 +374,7 @@ impl SettingsCoordinator {
                 policy_changed.then_some(snapshot),
                 application_policy,
                 label_idle_moved,
+                durability,
             )
             // The settings write guard drops here, before anything is sent to
             // the worker. `WorkerManager::start_worker` takes its own lock and
@@ -374,6 +402,12 @@ impl SettingsCoordinator {
                     DeskError::new_custom_error(DeskErrorCode::PRECONDITION_FAILED, &error)
                 })?;
         }
+        durability.map_err(|_| {
+            DeskError::new_custom_error(
+                DeskErrorCode::SYSTEM_ERROR,
+                "Settings update applied; storage sync failed",
+            )
+        })?;
         Ok(outcome)
     }
 

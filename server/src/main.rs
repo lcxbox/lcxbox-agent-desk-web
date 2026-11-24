@@ -221,6 +221,23 @@ fn main() {
         return;
     }
 
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("reset-password")) {
+        #[derive(clap::Parser)]
+        #[command(about = "Reset this running host's login password from a local terminal")]
+        struct ResetPasswordCli {
+            #[arg(short, long)]
+            config_file_path: Option<PathBuf>,
+        }
+        let cli = ResetPasswordCli::parse_from(std::env::args_os().skip(1));
+        if let Err(error) =
+            lcxbox_agent_desk_server::service::recovery::native::run(cli.config_file_path)
+        {
+            eprintln!("reset-password: {error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     // Local access control is deliberately handled before the permissive
     // legacy parser and before any server infrastructure is initialized.
     if std::env::args().nth(1).as_deref() == Some("access") {

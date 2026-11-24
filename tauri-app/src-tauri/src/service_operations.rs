@@ -33,6 +33,22 @@ pub(crate) fn start(handle: tauri::AppHandle, rx: Receiver<ServiceJob>, config: 
                 ServiceOp::Uninstall => ServiceOpKind::Uninstall,
             };
             let (state, error, exit_code) = crate::handle_service_op(job.op, config.as_deref());
+            #[cfg(windows)]
+            if op == ServiceOpKind::Install && state == ServiceOperationState::Submitted {
+                let app = handle.clone();
+                std::thread::spawn(move || {
+                    // UAC may be cancelled. Relaunch as a shell only after SCM
+                    // actually starts the daemon, releasing the embedded writer.
+                    for _ in 0..300 {
+                        if desk_utils::permission::is_service_running(crate::SERVICE_NAME) {
+                            crate::IS_EXITING.store(true, std::sync::atomic::Ordering::SeqCst);
+                            app.request_restart();
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                    }
+                });
+            }
             let Some(operation_id) = job.operation_id else {
                 continue;
             };
@@ -51,7 +67,7 @@ pub(crate) fn start(handle: tauri::AppHandle, rx: Receiver<ServiceJob>, config: 
             if let Some(window) = handle.get_webview_window(crate::MAIN_WINDOW_LABEL)
                 && let Ok(json) = serde_json::to_string(&status)
             {
-                let _ = window.eval(&format!(
+                let _ = window.eval(format!(
                     "window.dispatchEvent(new CustomEvent('lad-service-operation', {{detail:{json}}}));"
                 ));
             }

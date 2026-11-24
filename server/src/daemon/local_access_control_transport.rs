@@ -191,7 +191,7 @@ pub async fn serve(_endpoint: PathBuf, service: Arc<LocalAccessControlService>) 
         };
         let allowed_sid = choose_local_access_user_sid(session_sid, daemon_sid);
         let sddl = super::pipe_security::build_pipe_sddl(allowed_sid.as_deref());
-        let server = create_windows_pipe(LOCAL_ACCESS_CONTROL_ENDPOINT, &sddl)?;
+        let server = create_windows_pipe(LOCAL_ACCESS_CONTROL_ENDPOINT, &sddl, false)?;
         server.connect().await?;
         let peer = windows_peer(&server)?;
         let service = service.clone();
@@ -212,9 +212,10 @@ fn choose_local_access_user_sid(
 }
 
 #[cfg(target_os = "windows")]
-fn create_windows_pipe(
+pub(crate) fn create_windows_pipe(
     endpoint: &str,
     sddl: &str,
+    first: bool,
 ) -> Result<tokio::net::windows::named_pipe::NamedPipeServer> {
     use std::ffi::c_void;
     use std::os::windows::ffi::OsStrExt as _;
@@ -241,17 +242,20 @@ fn create_windows_pipe(
             lpSecurityDescriptor: descriptor.0 as *mut c_void,
             bInheritHandle: FALSE,
         };
-        let result = ServerOptions::new().create_with_security_attributes_raw(
-            endpoint,
-            &mut attributes as *mut _ as *mut c_void,
-        );
+        let result = ServerOptions::new()
+            .first_pipe_instance(first)
+            .reject_remote_clients(true)
+            .create_with_security_attributes_raw(
+                endpoint,
+                &mut attributes as *mut _ as *mut c_void,
+            );
         let _ = LocalFree(Some(HLOCAL(descriptor.0)));
         Ok(result?)
     }
 }
 
 #[cfg(target_os = "windows")]
-fn windows_peer(
+pub(crate) fn windows_peer(
     pipe: &tokio::net::windows::named_pipe::NamedPipeServer,
 ) -> Result<VerifiedLocalPeer> {
     use std::os::windows::io::AsRawHandle as _;
@@ -511,7 +515,7 @@ mod tests {
             r"\\.\pipe\lcxbox-agent-desk-local-access-control-test-{}",
             uuid::Uuid::new_v4()
         );
-        let server = create_windows_pipe(&endpoint, &sddl).unwrap();
+        let server = create_windows_pipe(&endpoint, &sddl, false).unwrap();
         let client_endpoint = endpoint.clone();
         let client =
             tokio::task::spawn_blocking(move || ClientOptions::new().open(client_endpoint));

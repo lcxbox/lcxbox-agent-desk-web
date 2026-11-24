@@ -1136,7 +1136,7 @@ impl WorkerManager {
         let (config_json, ipc_token) = {
             let settings = self.settings.read().await;
             (
-                serde_json::to_string(&*settings)
+                worker_account_redacted_json(&settings)
                     .map_err(|error| format!("failed to serialize worker settings: {error}"))?,
                 settings.system.tauri_ipc_token.clone(),
             )
@@ -1772,7 +1772,7 @@ impl WorkerManager {
 
         let (config_json, ipc_token, log_dir, data_dir) = {
             let settings = self.settings.read().await;
-            let json = serde_json::to_string(&*settings)
+            let json = worker_account_redacted_json(&settings)
                 .map_err(|e| format!("Failed to serialize settings: {e}"))?;
             let token = settings.system.tauri_ipc_token.clone();
             let log_dir = settings.paths().log_dir().to_string_lossy().into_owned();
@@ -1942,7 +1942,7 @@ impl WorkerManager {
 
         let (config_json, log_dir, data_dir) = {
             let s = self.settings.read().await;
-            let json = serde_json::to_string(&*s)
+            let json = worker_account_redacted_json(&s)
                 .map_err(|e| format!("Failed to serialize settings: {e}"))?;
             let log_dir = s.paths().log_dir().to_string_lossy().into_owned();
             let data_dir = s.paths().data_root().to_string_lossy().into_owned();
@@ -4661,6 +4661,21 @@ pub(crate) fn cap_windows_sessions(
     registrations
 }
 
+fn worker_account_redacted_json(
+    settings: &crate::model::settings::Settings,
+) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&settings_without_account_secrets(settings))
+}
+
+fn settings_without_account_secrets(
+    settings: &crate::model::settings::Settings,
+) -> crate::model::settings::Settings {
+    let mut filtered = settings.clone();
+    filtered.user.login_password_hash = None;
+    filtered.user.password_reset_code = None;
+    filtered
+}
+
 /// The settings a worker receives in Init. The daemon's own secrets (the
 /// login password, session signing key, local signaling, manager and TURN
 /// credentials) never leave the daemon; a restricted worker also gets no
@@ -4670,11 +4685,10 @@ pub(crate) fn worker_settings_json(
     settings: &crate::model::settings::Settings,
     profile: WorkerProfile,
 ) -> Result<String, String> {
-    let mut settings = settings.clone();
+    let mut settings = settings_without_account_secrets(settings);
     settings.system.manager_api_token = None;
     settings.system.local_signaling_token = None;
     settings.system.session_secret_key = None;
-    settings.user.login_password = String::new();
     settings.turn.static_auth_secret = None;
     settings.turn.static_credentials = Default::default();
     if profile == WorkerProfile::RestrictedDesktop {

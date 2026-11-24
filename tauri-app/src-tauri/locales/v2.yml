@@ -132,3 +132,7 @@ permission:
 linux_ai_input_title:
   en: AI Input Control
   zh-CN: AI 输入控制
+
+password_recovery_title:
+  en: "Local password reset code"
+  zh-CN: "本机密码重置验证码"
