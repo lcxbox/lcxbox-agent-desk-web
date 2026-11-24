@@ -470,15 +470,14 @@ fn required_inputs_cannot_be_pruned_rebound_or_mutated_before_compression() {
     assert!(authorize_compression_input(&policy(), &forged, &conversation).is_err());
 }
 
-#[test]
-fn checkpoint_keeps_completed_receipts_without_new_read_selection() {
+fn completed_read_history(tool_name: &str) -> Vec<ChatMessage> {
     let mut conversation = history();
     let mut agent = ChatMessage::agent_tool_calls(
         "call-message",
         "",
         vec![ToolCallRef {
             id: "read-1".into(),
-            name: "read_processes".into(),
+            name: tool_name.into(),
             arguments_json: "{}".into(),
         }],
     );
@@ -489,14 +488,14 @@ fn checkpoint_keeps_completed_receipts_without_new_read_selection() {
             .unwrap()
             .data_envelope
             .unwrap();
-    envelope.provenance.source_tool_name = "read_processes".into();
+    envelope.provenance.source_tool_name = tool_name.into();
     envelope.allowed_destinations.clear();
     tool.data_envelope = Some(envelope);
     tool.turn_id = Some("turn-old".into());
     let mut output = ModelTurn {
         tool_calls: vec![crate::chat::ToolCall {
             id: "read-1".into(),
-            name: "read_processes".into(),
+            name: tool_name.into(),
             arguments_json: "{}".into(),
         }],
         ..Default::default()
@@ -513,6 +512,62 @@ fn checkpoint_keeps_completed_receipts_without_new_read_selection() {
     agent.turn_id = Some("turn-old".into());
     conversation.insert(1, agent);
     conversation.insert(2, tool);
+    conversation
+}
+
+#[test]
+fn released_attachment_preserves_covered_history_after_reload_and_strict_egress() {
+    use crate::conversation_attachment::{READ_ATTACHMENT_TOOL, model_read};
+    let mut conversation = completed_read_history(READ_ATTACHMENT_TOOL);
+    let page = &mut conversation[2];
+    page.attachment_read = Some(Box::new(model_read::ReadReceipt {
+        input: serde_json::from_value(serde_json::json!({"attachment_id":"attachment"})).unwrap(),
+        projection_version: 2,
+        body_bytes: page.text.len(),
+        original_envelope: page.data_envelope.clone(),
+        consumed: true,
+        released: false,
+    }));
+    let (state, _) = checkpoint(&conversation);
+    let saved = &state.entries[0].checkpoint.as_ref().unwrap().v1();
+    assert!(
+        conversation
+            .iter()
+            .position(|m| m.message_id == saved.covered_through_message_id)
+            .unwrap()
+            >= 2
+    );
+    assert_eq!(
+        model_read::release_consumed(&mut conversation, &Default::default()).unwrap(),
+        1
+    );
+    let encoded = serde_json::to_vec(&(state, conversation)).unwrap();
+    let (state, conversation): (ModelContextState, Vec<ChatMessage>) =
+        serde_json::from_slice(&encoded).unwrap();
+    authorize_context_checkpoint(&policy(), &state, &context_policy().key(), &conversation)
+        .unwrap();
+    let ContextBuildPlan::Ready(ready) = plan_model_context(
+        &conversation,
+        &state,
+        &context_policy(),
+        &Default::default(),
+        8,
+    )
+    .unwrap() else {
+        panic!("released page invalidated the covered prefix");
+    };
+    assert!(
+        ready
+            .view
+            .messages
+            .iter()
+            .any(|m| m.role == ChatRole::ContextSummary)
+    );
+}
+
+#[test]
+fn checkpoint_keeps_completed_receipts_without_new_read_selection() {
+    let conversation = completed_read_history("read_processes");
     let (state, _) = checkpoint(&conversation);
     let mut deselected = policy();
     deselected.selected_source_tools.clear();

@@ -14,18 +14,14 @@ pub(super) async fn apply_checkpoint(
     planning_policy: &crate::model_context::PinnedContextPolicy,
     authority_observed_at: Option<u64>,
     configuration_changed: bool,
+    thinking_bound: bool,
     plan: Box<crate::model_context::CompressionPlan>,
     compatible_state: &crate::model_context::ModelContextState,
 ) -> Result<crate::model_context::ModelContextView, AgentError> {
-    if planning_policy.anthropic_prefix_binding {
-        let protected = crate::thinking_context::protected_replay_ids(session);
-        if session.conversation.iter().any(|message| protected.contains(&message.message_id)
-            && matches!(&message.replay_disposition, Some(crate::replay::ReplayDisposition::Present { envelope })
-                if envelope.codec == crate::replay::ReplayCodec::AnthropicContentBlocks)) {
-            return Err(AgentError { kind: AgentErrorKind::InvalidInput,
+    if planning_policy.anthropic_prefix_binding && thinking_bound {
+        return Err(AgentError { kind: AgentErrorKind::InvalidInput,
                 message: "Anthropic thinking is bound to an active tool-chain prefix. Compression must wait until this chain finishes; no summary request was sent.".into(),
                 retryable: false, safe_for_model: true, error_code: None });
-        }
     }
     if configuration_changed {
         return Err(AgentError { kind: AgentErrorKind::InvalidInput,

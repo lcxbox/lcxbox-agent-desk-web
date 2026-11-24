@@ -205,6 +205,9 @@ async fn measure() {
             .filter(|p| p.consumed && !p.released)
             .map(|p| p.body_bytes)
             .sum::<usize>();
+        if std::env::var_os("LAD_BASELINE_EXPECT_RELEASED").is_some() {
+            assert!(pages.iter().all(|page| page.consumed && page.released));
+        }
         println!(
             "BASELINE {}",
             serde_json::json!({

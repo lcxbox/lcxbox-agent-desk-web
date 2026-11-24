@@ -67,11 +67,37 @@ fn fixture(background: bool) -> (MemSession, PersistedAgentSession) {
     (store, session)
 }
 
+fn seed_goal_page(session: &mut PersistedAgentSession, store: &mut MemSession) {
+    super::context_boundaries::append_consumed_page(
+        session,
+        store,
+        SourceContextKey::derive(WireProtocol::OpenAiChatCompletions, "test", "test", "test"),
+    );
+    *store.inner.borrow_mut() = Some(session.clone());
+}
+
+fn page_is_released(store: &MemSession) -> bool {
+    store
+        .inner
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .conversation
+        .iter()
+        .find(|m| m.message_id == "read-result")
+        .unwrap()
+        .attachment_read
+        .as_ref()
+        .unwrap()
+        .released
+}
+
 async fn run_script(
     turns: Vec<ModelTurn>,
     background: bool,
 ) -> (LoopOutcome, MemSession, Vec<ModelRequest>) {
-    let (store, session) = fixture(background);
+    let (mut store, mut session) = fixture(background);
+    seed_goal_page(&mut session, &mut store);
     let requests = Rc::new(RefCell::new(vec![]));
     let model = ScriptModel {
         turns: RefCell::new(turns.into()),
@@ -92,6 +118,109 @@ async fn run_script(
     .unwrap();
     let captured = requests.borrow().clone();
     (result, store, captured)
+}
+
+#[tokio::test]
+async fn goal_control_settles_with_a_protected_sibling_or_an_unrewritable_page() {
+    for protect_sibling in [true, false] {
+        let (mut store, mut session) = fixture(false);
+        seed_goal_page(&mut session, &mut store);
+        let call = session
+            .conversation
+            .iter()
+            .position(|m| m.message_id == "read-call")
+            .unwrap();
+        if protect_sibling {
+            let mut sibling = session.conversation[call].tool_calls[0].clone();
+            sibling.id = "peer".into();
+            session.conversation[call].tool_calls.push(sibling);
+            session
+                .conversation
+                .push(ChatMessage::tool_result("ready-peer", "peer", "OK"));
+            let mut goal = store.goal.borrow_mut();
+            let goal = goal.as_mut().unwrap();
+            let mut wait = crate::goal_continuation::GoalWorkWait::new(
+                goal,
+                &session,
+                "wait",
+                vec![crate::session::ActionIdentity::agent_exec(
+                    1,
+                    "task",
+                    "generation",
+                )],
+            )
+            .unwrap();
+            wait.ready = true;
+            wait.ready_event_ids.push("ready-peer".into());
+            goal.work_wait = Some(wait);
+        } else {
+            let mut malformed = session.conversation[0].data_envelope.clone().unwrap();
+            malformed.envelope_id.clear();
+            session.conversation[call].data_envelope = Some(malformed);
+            assert!(
+                crate::conversation_attachment::model_read::release_consumed(
+                    &mut session.conversation.clone(),
+                    &Default::default()
+                )
+                .is_err()
+            );
+        }
+        *store.inner.borrow_mut() = Some(session.clone());
+        let model = ScriptModel {
+            turns: RefCell::new(
+                [tool_use_args(
+                    "control",
+                    "control_goal",
+                    r#"{"decision":"continue","message":"Completed the read"}"#,
+                )]
+                .into(),
+            ),
+            requests: Default::default(),
+        };
+        let tools = RecordingTools {
+            calls: Default::default(),
+            reply: String::new(),
+        };
+        let registry = crate::goal_tools::registry();
+        let clock = || "2026-06-20T00:00:01Z".to_string();
+        let outcome = run_preclaimed_goal_slice(
+            &deps(&store, &model, &tools, &registry, &clock),
+            session,
+            &mut NullTurnSink,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(outcome, LoopOutcome::GoalControlled { .. }));
+        assert_eq!(store.goal_ends.borrow().len(), 1);
+        assert!(!page_is_released(&store));
+    }
+}
+
+#[tokio::test]
+async fn goal_control_keeps_earlier_pages_while_its_thinking_prefix_is_bound() {
+    use crate::replay::{ProviderReplayEnvelope, ReplayCodec, ReplayDisposition};
+    let mut turn = tool_use_args(
+        "control",
+        "control_goal",
+        r#"{"decision":"continue","message":"Read the first group"}"#,
+    );
+    turn.provider_meta.data_envelope = crate::model_message_labels::model_bound_user_message(
+        "model-response".into(),
+        "Read the first group".into(),
+        crate::agent_loop::tests::scheduled_continuation::scheduled_policy().destination,
+    )
+    .unwrap()
+    .data_envelope;
+    turn.provider_meta.replay = Some(ReplayDisposition::Present {
+        envelope: ProviderReplayEnvelope::new(
+            ReplayCodec::AnthropicContentBlocks,
+            SourceContextKey::derive(WireProtocol::AnthropicMessages, "anthropic", "model", "1"),
+            serde_json::json!([{"type":"thinking","thinking":"synthetic","signature":"test"}]),
+        ),
+    });
+    let (outcome, store, _) = run_script(vec![turn], false).await;
+    assert!(matches!(outcome, LoopOutcome::GoalControlled { .. }));
+    assert!(!page_is_released(&store));
 }
 
 #[tokio::test]
@@ -184,7 +313,8 @@ async fn ordinary_text_with_background_work_does_not_infer_a_wait() {
 
 #[tokio::test]
 async fn normal_step_limit_yields_without_claiming_a_goal_completed() {
-    let (store, mut session) = fixture(true);
+    let (mut store, mut session) = fixture(true);
+    seed_goal_page(&mut session, &mut store);
     session.current_turn_steps = 1;
     let model = ScriptModel {
         turns: RefCell::new(vec![].into()),
@@ -202,6 +332,7 @@ async fn normal_step_limit_yields_without_claiming_a_goal_completed() {
         .await
         .unwrap();
     assert_eq!(outcome, LoopOutcome::GoalYielded);
+    assert!(!page_is_released(&store));
     assert_eq!(*store.goal_ends.borrow(), vec![GoalSegmentEnd::Yield]);
     assert!(model.requests.borrow().is_empty());
 }
@@ -230,6 +361,17 @@ async fn the_current_complete_call_is_not_its_own_pending_dependency() {
     let mut session = store.inner.borrow().as_ref().unwrap().clone();
     let durable = session.encode_json_for_storage().unwrap();
     session = PersistedAgentSession::decode_json(&durable).unwrap();
+    assert!(
+        session
+            .conversation
+            .iter()
+            .find(|m| m.message_id == "read-result")
+            .unwrap()
+            .attachment_read
+            .as_ref()
+            .unwrap()
+            .released
+    );
     let copy = session.conversation.last().unwrap().message_id.clone();
     assert_eq!(
         crate::goal_projection::display_summary_ids(&session.conversation),
@@ -355,7 +497,8 @@ async fn normal_background_work_keeps_model_errors_out_of_recovery() {
         AgentErrorKind::ModelUnavailable,
         AgentErrorKind::ModelRejected,
     ] {
-        let (store, session) = fixture(true);
+        let (mut store, mut session) = fixture(true);
+        seed_goal_page(&mut session, &mut store);
         let model = FailingModel(kind);
         let tools = RecordingTools {
             calls: Rc::new(RefCell::new(vec![])),
@@ -373,6 +516,7 @@ async fn normal_background_work_keeps_model_errors_out_of_recovery() {
             .is_err()
         );
         let ends = store.goal_ends.borrow();
+        assert!(!page_is_released(&store));
         if kind == AgentErrorKind::ModelUnavailable {
             assert!(matches!(ends[0], GoalSegmentEnd::WaitForModel { .. }));
         } else {
@@ -487,4 +631,37 @@ async fn a_ready_receipt_is_included_once_without_a_formatting_marker() {
             .count(),
         1
     );
+}
+
+#[test]
+fn an_attachment_page_with_a_reused_device_call_id_is_not_goal_progress() {
+    let (mut store, mut session) = fixture(false);
+    session.conversation.push(ChatMessage::agent_tool_calls(
+        "old",
+        "",
+        vec![ToolCallRef {
+            id: "read".into(),
+            name: "inspect".into(),
+            arguments_json: "{}".into(),
+        }],
+    ));
+    session.conversation.push(ChatMessage::tool_result(
+        "old-result",
+        "read",
+        "real device evidence",
+    ));
+    let old = session
+        .conversation
+        .iter()
+        .map(|m| m.message_id.clone())
+        .collect();
+    seed_goal_page(&mut session, &mut store);
+    let registry = [read_tool("inspect", Capability::SystemInfo)];
+    assert!(settled_goal_result_fingerprints(&session, &registry, &old).is_empty());
+    crate::conversation_attachment::model_read::release_consumed(
+        &mut session.conversation,
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(settled_goal_result_fingerprints(&session, &registry, &old).is_empty());
 }

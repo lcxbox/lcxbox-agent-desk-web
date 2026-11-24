@@ -188,6 +188,17 @@ impl ChildSessions {
 
 #[async_trait(?Send)]
 impl SessionSeam for ChildSessions {
+    async fn read_attachment(
+        &self,
+        session: &PersistedAgentSession,
+        id: &str,
+        touch: bool,
+    ) -> Result<crate::conversation_attachment::batch::PreparedAttachment, AgentError> {
+        self.budget
+            .sessions
+            .read_attachment(session, id, touch)
+            .await
+    }
     async fn claim_turn(&self, _: ClaimTurnParams) -> Result<PersistedAgentSession, ClaimError> {
         panic!("child execution must keep its preclaimed lease");
     }
@@ -234,10 +245,14 @@ impl SubAgentSeam for ChildSessions {
     ) -> Result<Option<ChatMessage>, AgentError> {
         let binding = session.agent_role.binding().unwrap();
         let label = session.conversation[0].data_envelope.clone().unwrap();
+        let mut facts = crate::subagent::facts::RuntimeFacts::default();
+        facts
+            .retained_evidence(session, 1000)
+            .map_err(crate::subagent::invalid)?;
         crate::subagent::projection::runtime_message(
             "child-projection",
             &serde_json::json!({"objective": binding.objective,
-            "acceptance_criteria": binding.acceptance_criteria}),
+            "acceptance_criteria": binding.acceptance_criteria, "runtime_facts": facts.projection()}),
             &[label],
         )
         .map(Some)
@@ -254,7 +269,11 @@ impl SubAgentSeam for ChildSessions {
             panic!("a child cannot reach main delegation tools");
         };
         assert!(content.kind.is_terminal());
-        let facts = CompletionFacts::default();
+        let mut runtime = crate::subagent::facts::RuntimeFacts::default();
+        runtime
+            .retained_evidence(session, 1000)
+            .map_err(crate::subagent::invalid)?;
+        let facts = runtime.completion;
         let report = crate::subagent::report::from_terminal_submission(&content, &facts)?;
         {
             let mut run = self.run.borrow_mut();
@@ -665,4 +684,188 @@ async fn committed_terminal_report_exits_without_another_model_call_or_save() {
     assert!(stored.conversation.iter().any(|message| {
         message.tool_call_id.as_deref() == Some("worker-final") && message.tool_ok == Some(true)
     }));
+}
+
+#[tokio::test]
+async fn child_cites_evidence_from_the_request_rebuilt_after_pressure_release() {
+    struct ReportingModel;
+    fn source() -> SourceContextKey {
+        SourceContextKey::derive(WireProtocol::OpenAiChatCompletions, "child", "model", "1")
+    }
+    #[async_trait(?Send)]
+    impl ModelSeam for ReportingModel {
+        fn model_output_token_limit(&self, _: &ModelRequest) -> Result<i64, AgentError> {
+            Ok(1024)
+        }
+        async fn context_policy(
+            &self,
+            _: crate::model_capability::ModelRequirements,
+        ) -> Result<crate::model_context::PinnedContextPolicy, AgentError> {
+            Ok(
+                crate::model_context::PinnedContextPolicy::checkpoint_summary(
+                    source(),
+                    1,
+                    54_000,
+                    1,
+                )
+                .unwrap(),
+            )
+        }
+        async fn call(
+            &self,
+            request: ModelRequest,
+            _: &mut dyn TurnSink,
+        ) -> Result<ModelTurn, AgentError> {
+            assert_eq!(request.use_case, crate::model_profile::ModelUseCase::Agent);
+            let page = request
+                .messages
+                .iter()
+                .find(|m| m.message_id == "read-result")
+                .unwrap();
+            assert!(page.attachment_read.as_ref().unwrap().released);
+            let projection = request
+                .messages
+                .iter()
+                .find(|m| m.message_id == "child-projection")
+                .unwrap();
+            let payload: serde_json::Value = serde_json::from_str(&projection.text).unwrap();
+            let ids =
+                payload["runtime_delegation_state"]["runtime_facts"]["available_evidence_ids"]
+                    .as_array()
+                    .unwrap();
+            assert_eq!(
+                ids,
+                &[serde_json::json!(
+                    page.data_envelope.as_ref().unwrap().envelope_id
+                )]
+            );
+            let mut result = tool_use_args(
+                "report",
+                crate::subagent::tools::REPORT,
+                &serde_json::json!({"kind":"completed","summary":"Finished","evidence_refs":ids})
+                    .to_string(),
+            );
+            result.provider_meta.replay = Some(crate::replay::ReplayDisposition::NotRequired {
+                source_context_key: source(),
+            });
+            Ok(result)
+        }
+    }
+    struct ChangingDisclosure {
+        queries: Cell<usize>,
+        change_at: usize,
+        snapshot: crate::grant_disclosure::GrantDisclosureSnapshot,
+    }
+    #[async_trait(?Send)]
+    impl ToolSeam for ChangingDisclosure {
+        async fn current_grant_disclosure(
+            &self,
+        ) -> Result<Option<crate::grant_disclosure::GrantDisclosureSnapshot>, AgentError> {
+            let query = self.queries.get() + 1;
+            self.queries.set(query);
+            let mut current = self.snapshot.clone();
+            current.readiness_revision += u64::from(query >= self.change_at);
+            Ok(Some(current))
+        }
+        async fn run_read(&self, _: &ToolCall) -> Result<ToolRunOutput, AgentError> {
+            panic!("unexpected device read")
+        }
+        async fn confirm_and_exec(
+            &self,
+            _: &ToolCall,
+            _: &crate::seam::ExecContext,
+        ) -> Result<ExecOutcome, AgentError> {
+            panic!("unexpected device action")
+        }
+    }
+    let mut saves = Vec::new();
+    for pre_released in [true, false] {
+        let (mut sessions, mut child) = ChildSessions::prepared();
+        for id in ["earlier-a", "earlier-b"] {
+            child.conversation.push(ChatMessage::text(
+                id,
+                ChatRole::User,
+                "prior fact ".repeat(1200),
+            ));
+        }
+        super::context_boundaries::append_consumed_page(
+            &mut child,
+            &mut sessions.budget.sessions,
+            source(),
+        );
+        let label = child.conversation[0].data_envelope.clone();
+        for m in child
+            .conversation
+            .iter_mut()
+            .filter(|m| matches!(m.message_id.as_str(), "read-call" | "read-result"))
+        {
+            m.data_envelope.clone_from(&label);
+        }
+        child.conversation.push(ChatMessage::text(
+            "previous-answer",
+            ChatRole::Assistant,
+            "Recorded findings",
+        ));
+        if pre_released {
+            let protection = child.context_protection_set();
+            assert_eq!(
+                crate::conversation_attachment::model_read::release_session_reads(
+                    &mut child,
+                    &protection
+                )
+                .unwrap(),
+                1
+            );
+        }
+        child.observe_references().unwrap();
+        *sessions.budget.sessions.inner.borrow_mut() = Some(child.clone());
+        let lease = child.lease_token;
+        let (_, providers, mut snapshot) = crate::grant_disclosure::tests::fixture();
+        snapshot.grants.clear();
+        let tools = ChangingDisclosure {
+            queries: Cell::new(0),
+            change_at: if pre_released { 2 } else { 3 },
+            snapshot,
+        };
+        let clock = || "2026-06-20T00:00:01Z".into();
+        let registry = crate::subagent::tools::registry();
+        let mut runtime = deps(
+            &sessions.budget.sessions,
+            &ReportingModel,
+            &tools,
+            &registry,
+            &clock,
+        );
+        runtime.provider_registry = Some(&providers);
+        runtime.capability_inventory = Some(&[]);
+        runtime.session_seam = &sessions;
+        runtime.heartbeat = Some(&HealthyChildLease);
+        let outcome = run_preclaimed_subagent_turn(&runtime, child, &mut NullTurnSink)
+            .await
+            .unwrap();
+        assert_eq!(outcome, LoopOutcome::SubAgentYielded);
+        let reservations = sessions.budget.reservations.borrow();
+        assert_eq!(
+            reservations
+                .iter()
+                .filter(|r| r.kind == DelegationCallKind::Model)
+                .count(),
+            1
+        );
+        let report = sessions.run.borrow().terminal_report.clone().unwrap();
+        assert_eq!(report.evidence_refs.len(), 1);
+        assert_ne!(report.evidence_refs[0], label.unwrap().envelope_id);
+        assert!(
+            reservations
+                .iter()
+                .all(|r| r.planning_lease_token == Some(lease))
+        );
+        assert_eq!(tools.queries.get(), if pre_released { 4 } else { 5 });
+        saves.push(*sessions.budget.sessions.saves.borrow());
+    }
+    assert_eq!(
+        saves[1],
+        saves[0] + 1,
+        "the pressure restart repeats the disclosure save under the same lease"
+    );
 }

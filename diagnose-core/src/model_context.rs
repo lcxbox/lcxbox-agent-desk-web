@@ -760,6 +760,16 @@ pub(crate) fn upsert_entry(state: &mut ModelContextState, entry: ModelContextEnt
     state.entries.push(entry);
 }
 
+/// End of the contiguous receipts owned by an assistant tool batch.
+pub(crate) fn tool_group_end(conversation: &[ChatMessage], start: usize) -> usize {
+    start
+        + 1
+        + conversation[start + 1..]
+            .iter()
+            .take_while(|m| m.role == ChatRole::Tool)
+            .count()
+}
+
 pub(crate) fn group_messages(
     conversation: &[ChatMessage],
     source: &SourceContextKey,
@@ -775,10 +785,7 @@ pub(crate) fn group_messages(
         }
         if message.role == ChatRole::Assistant && !message.tool_calls.is_empty() {
             let start = index;
-            index += 1;
-            while index < conversation.len() && conversation[index].role == ChatRole::Tool {
-                index += 1;
-            }
+            index = tool_group_end(conversation, start);
             let expected: HashSet<&str> = conversation[start]
                 .tool_calls
                 .iter()

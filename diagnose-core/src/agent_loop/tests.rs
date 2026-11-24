@@ -415,6 +415,7 @@ fn selected_object_lineage_keeps_explicit_sources_without_later_context_expansio
 /// An in-memory session store: one session, claimed via the pure transition.
 #[derive(Default)]
 struct MemSession {
+    attachment: Option<crate::conversation_attachment::batch::PreparedAttachment>,
     title_limit: Option<usize>,
     title: RefCell<Option<String>>,
     data_access: Option<crate::ai_agent::data_access::AgentDataToolAccess>,
@@ -438,6 +439,20 @@ struct MemSession {
 }
 #[async_trait(?Send)]
 impl SessionSeam for MemSession {
+    async fn read_attachment(
+        &self,
+        _: &PersistedAgentSession,
+        id: &str,
+        _: bool,
+    ) -> Result<crate::conversation_attachment::batch::PreparedAttachment, AgentError> {
+        self.attachment
+            .as_ref()
+            .filter(|p| p.metadata.attachment_id == id)
+            .cloned()
+            .ok_or_else(|| {
+                crate::conversation_attachment::invalid("Attachment reading is unavailable")
+            })
+    }
     async fn conversation_title_limit(
         &self,
         _: &PersistedAgentSession,

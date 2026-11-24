@@ -146,9 +146,7 @@ pub fn project_anthropic_prefix(
                         )
                     })
                 });
-            let originally_thinking = matches!(&original.replay_disposition,
-                Some(ReplayDisposition::Present { envelope }) if envelope.codec == ReplayCodec::AnthropicContentBlocks
-                    && envelope.payload.as_array().is_some_and(|blocks| blocks.iter().any(|block| matches!(block["type"].as_str(),Some("thinking"|"redacted_thinking")))));
+            let originally_thinking = has_thinking_replay(original);
             if (thinking || originally_thinking)
                 && (invalidated.contains(&original.message_id)
                     || state.bindings.get(&original.message_id) != Some(&digest(&prefix)))
@@ -206,6 +204,47 @@ pub fn protected_replay_ids(session: &crate::session::PersistedAgentSession) -> 
         }
     }
     ids
+}
+
+/// A protected thinking block binds every preceding message in the wire request.
+pub(crate) fn thinking_chain_blocks_release(
+    session: &crate::session::PersistedAgentSession,
+    protection: &crate::model_context::ContextProtectionSet,
+    portable_source: Option<&SourceContextKey>,
+) -> bool {
+    let mut protected_replay = None;
+    session
+        .conversation
+        .iter()
+        .enumerate()
+        .any(|(index, message)| {
+            if !has_thinking_replay(message)
+                || portable_source.is_some_and(|source| {
+                    message
+                        .replay_disposition
+                        .as_ref()
+                        .and_then(ReplayDisposition::source_context_key)
+                        != Some(source)
+                })
+            {
+                return false;
+            }
+            let end = if message.tool_calls.is_empty() {
+                index + 1
+            } else {
+                crate::model_context::tool_group_end(&session.conversation, index)
+            };
+            protection.protects_group(&session.conversation[index..end])
+                || protected_replay
+                    .get_or_insert_with(|| protected_replay_ids(session))
+                    .contains(&message.message_id)
+        })
+}
+
+fn has_thinking_replay(message: &ChatMessage) -> bool {
+    matches!(&message.replay_disposition, Some(ReplayDisposition::Present { envelope })
+        if envelope.codec == ReplayCodec::AnthropicContentBlocks &&
+        envelope.payload.as_array().is_some_and(|blocks| blocks.iter().any(|b| matches!(b["type"].as_str(), Some("thinking" | "redacted_thinking")))))
 }
 
 /// Known invalid completed blocks are omitted only from the prepared copy.
@@ -297,6 +336,50 @@ mod tests {
     }
     fn body(messages: Vec<Value>) -> Value {
         json!({"system":"stable","tools":[],"messages":messages})
+    }
+
+    #[test]
+    fn a_protected_signed_sibling_binds_earlier_pages() {
+        use crate::{chat::ToolCallRef, model_context::ContextProtectionSet};
+        let mut session = crate::session::PersistedAgentSession::new(
+            "s",
+            "a",
+            "d",
+            1,
+            desk_agent_protocol::AgentScope {
+                granted: vec![],
+                mode: desk_agent_protocol::ExecutionMode::ReadOnly,
+                expires_at: None,
+                policy_name: None,
+            },
+            "2026-01-01T00:00:00Z",
+        );
+        let mut signed = bound_message("signed", &source());
+        signed.tool_calls = vec![ToolCallRef {
+            id: "one".into(),
+            name: "read".into(),
+            arguments_json: "{}".into(),
+        }];
+        session.conversation.extend([
+            signed,
+            ChatMessage::tool_result("ready-event", "one", "done"),
+            ChatMessage::text("after", ChatRole::Assistant, "done"),
+        ]);
+        let mut protection = ContextProtectionSet::default();
+        assert!(!thinking_chain_blocks_release(&session, &protection, None));
+        protection.protect_message("ready-event");
+        assert!(thinking_chain_blocks_release(&session, &protection, None));
+        let portable = SourceContextKey::derive(
+            crate::model_profile::WireProtocol::OpenAiChatCompletions,
+            "other",
+            "model",
+            "1",
+        );
+        assert!(!thinking_chain_blocks_release(
+            &session,
+            &protection,
+            Some(&portable)
+        ));
     }
     #[test]
     fn prefix_preserves_early_blocks_and_drops_only_invalid_completed_blocks() {

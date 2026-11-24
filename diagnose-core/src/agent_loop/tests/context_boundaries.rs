@@ -2,6 +2,7 @@ use super::*;
 use crate::model_preparation::ModelRequestPreparation;
 
 struct RebuildingModel<'a> {
+    recorder: Option<std::sync::Arc<super::tool_input_metrics::Recorder>>,
     requests: RefCell<Vec<ModelRequest>>,
     main_steps: std::cell::Cell<usize>,
     preparation_calls: std::cell::Cell<usize>,
@@ -68,6 +69,19 @@ impl RebuildingModel<'_> {
 
 #[async_trait(?Send)]
 impl ModelSeam for RebuildingModel<'_> {
+    fn observation_context(
+        &self,
+        _: crate::model_profile::ModelUseCase,
+        origin: crate::model_observability::Origin,
+    ) -> Option<crate::model_observability::ObservationContext> {
+        use crate::model_observability::{Attribution, ObservationContext, Purpose, Surface};
+        Some(ObservationContext::new(
+            format!("preparation-{}", self.preparation_calls.get()),
+            1000,
+            Attribution::unresolved(Purpose::Agent, Surface::Agent, origin),
+            self.recorder.clone()?,
+        ))
+    }
     fn model_output_token_limit(&self, request: &ModelRequest) -> Result<i64, AgentError> {
         Ok(request.caller_output_hard_cap.unwrap_or(65536).min(65536))
     }
@@ -160,6 +174,10 @@ impl ModelSeam for RebuildingModel<'_> {
         request: ModelRequest,
         _: &mut dyn TurnSink,
     ) -> Result<ModelTurn, AgentError> {
+        if let Some(context) = &request.observation {
+            use crate::model_observability::{CallSnapshot, ObservationPhase};
+            context.call(ObservationPhase::Started, 0, 1000, CallSnapshot::default());
+        }
         let authorized = self
             .policy
             .as_ref()
@@ -247,6 +265,7 @@ async fn one_long_turn_can_compress_two_new_prefixes_without_replaying_tools() {
     let sess = MemSession::default();
     *sess.inner.borrow_mut() = Some(seeded_history());
     let model = RebuildingModel {
+        recorder: None,
         requests: RefCell::new(vec![]),
         main_steps: std::cell::Cell::new(0),
         preparation_calls: std::cell::Cell::new(0),
@@ -319,6 +338,7 @@ async fn an_unsendable_compression_candidate_never_advances_the_durable_floor() 
     let original_state = initial.model_context_state.clone();
     *sess.inner.borrow_mut() = Some(initial);
     let model = RebuildingModel {
+        recorder: None,
         requests: RefCell::new(vec![]),
         main_steps: std::cell::Cell::new(0),
         preparation_calls: std::cell::Cell::new(0),
@@ -546,6 +566,7 @@ async fn run_permission_compaction_case(mutation: u8) {
         _ => {}
     };
     let model = RebuildingModel {
+        recorder: None,
         requests: RefCell::new(vec![]),
         main_steps: std::cell::Cell::new(0),
         preparation_calls: std::cell::Cell::new(0),
@@ -702,6 +723,7 @@ async fn saving_a_new_permission_request_pauses_without_starting_another_model_o
         reason: None,
     }];
     let model = RebuildingModel {
+        recorder: None,
         requests: RefCell::new(vec![]),
         main_steps: std::cell::Cell::new(0),
         preparation_calls: std::cell::Cell::new(0),
@@ -751,4 +773,248 @@ async fn saving_a_new_permission_request_pauses_without_starting_another_model_o
             .iter()
             .all(|entry| entry.checkpoint.is_none())
     );
+}
+
+pub(super) fn append_consumed_page(
+    session: &mut PersistedAgentSession,
+    store: &mut MemSession,
+    source: SourceContextKey,
+) {
+    use crate::conversation_attachment::{batch::*, model_read::*};
+    let text = format!("{}\n", "attachment text ".repeat(100)).repeat(6);
+    let mut delivery = prepare_delivery(
+        &DeliveryIdentity {
+            conversation_id: "conv",
+            actor_id: "actor",
+            device_id: "device",
+            message_id: "source",
+            tool_call_id: "capture",
+        },
+        vec![OutputPart {
+            name: "log".into(),
+            content: PartContent::Text(text),
+            source_truncated: false,
+        }],
+        1,
+    )
+    .unwrap();
+    let part = delivery.attachments.remove(0);
+    let input: Input =
+        serde_json::from_value(serde_json::json!({"attachment_id":part.metadata.attachment_id}))
+            .unwrap();
+    let (body, mut receipt) =
+        text_page(&part, &input, "read", 32_768, &Default::default()).unwrap();
+    receipt.consumed = true;
+    session
+        .ui_references
+        .register_attachment(&part.metadata.attachment_id, "source")
+        .unwrap();
+    store.attachment = Some(part);
+    session.conversation.push(ChatMessage::agent_tool_calls(
+        "read-call",
+        "",
+        vec![crate::chat::ToolCallRef {
+            id: "read".into(),
+            name: crate::conversation_attachment::READ_ATTACHMENT_TOOL.into(),
+            arguments_json: serde_json::to_string(&input).unwrap(),
+        }],
+    ));
+    session.conversation.last_mut().unwrap().replay_disposition =
+        Some(crate::replay::ReplayDisposition::NotRequired {
+            source_context_key: source,
+        });
+    let mut result = ChatMessage::tool_result("read-result", "read", &body);
+    result.attachment_read = Some(Box::new(receipt));
+    session.conversation.push(result);
+}
+
+#[tokio::test]
+async fn pressure_rebuilds_the_step_and_compresses_only_if_the_receipt_still_does_not_fit() {
+    #[derive(Default)]
+    struct CompressionEvents(usize);
+    impl TurnSink for CompressionEvents {
+        fn on_text_delta(&mut self, _: &str) {}
+        fn on_context_compressing(&mut self, _: &str, _: u32) {
+            self.0 += 1;
+        }
+    }
+    for (needs_summary, switched) in [(false, false), (true, false), (false, true)] {
+        let mut store = MemSession::default();
+        let mut session = seeded_history();
+        session.surface = AgentSessionSurface::AiAgent;
+        session.conversation.pop();
+        session.conversation.push(ChatMessage::text(
+            "previous-evidence",
+            ChatRole::Assistant,
+            "earlier fact ".repeat(850),
+        ));
+        if needs_summary {
+            session.conversation.push(ChatMessage::text(
+                "more-evidence",
+                ChatRole::User,
+                "another fact ".repeat(210),
+            ));
+        }
+        append_consumed_page(
+            &mut session,
+            &mut store,
+            SourceContextKey::derive(
+                WireProtocol::OpenAiChatCompletions,
+                "context-boundary",
+                "model",
+                "1",
+            ),
+        );
+        session.conversation.push(ChatMessage::text(
+            "prior-answer",
+            ChatRole::Assistant,
+            "Read the log",
+        ));
+        if switched {
+            let old = crate::model_context::PinnedContextPolicy::checkpoint_summary(
+                SourceContextKey::derive(
+                    WireProtocol::OpenAiChatCompletions,
+                    "previous",
+                    "old",
+                    "1",
+                ),
+                1,
+                65536,
+                1,
+            )
+            .unwrap();
+            session
+                .model_context_state
+                .entries
+                .push(crate::model_context::ModelContextEntry {
+                    policy_key: old.key(),
+                    strategy: old.strategy,
+                    floor_group_head_message_id: None,
+                    floor_after_group_head_message_id: None,
+                    checkpoint: None,
+                    last_used_session_version: session.version,
+                });
+        }
+        *store.inner.borrow_mut() = Some(session);
+        let recorder = std::sync::Arc::new(super::tool_input_metrics::Recorder::default());
+        let model = RebuildingModel {
+            recorder: Some(recorder.clone()),
+            requests: RefCell::new(vec![]),
+            main_steps: std::cell::Cell::new(2),
+            preparation_calls: std::cell::Cell::new(0),
+            maximum: 16_384,
+            reject_summary_candidate: false,
+            policy: None,
+            action: None,
+            during_summary: None,
+        };
+        let tools = RecordingTools {
+            calls: Default::default(),
+            reply: String::new(),
+        };
+        let clock = || "2026-06-20T00:00:01Z".to_string();
+        let mut dependencies = deps(&store, &model, &tools, &[], &clock);
+        dependencies.system_prompt =
+            ChatMessage::public_system("system", "Continue the requested task");
+        let mut events = CompressionEvents::default();
+        let result = run_agent_turn(
+            &dependencies,
+            claim(),
+            ChatMessage::text("next", ChatRole::User, "Continue"),
+            &mut events,
+        )
+        .await;
+        if switched {
+            let error = result.unwrap_err();
+            assert!(
+                error.message.contains("No history was removed"),
+                "{error:?}"
+            );
+            assert_eq!(events.0, 0);
+            assert!(model.requests.borrow().is_empty());
+            assert!(
+                !store
+                    .inner
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .conversation
+                    .iter()
+                    .find(|m| m.message_id == "read-result")
+                    .unwrap()
+                    .attachment_read
+                    .as_ref()
+                    .unwrap()
+                    .released
+            );
+            continue;
+        }
+        let result = result.unwrap();
+        use crate::model_observability::{ObservationPayload, ObservationPhase};
+        let observed = recorder.0.lock().unwrap();
+        assert_eq!(
+            observed
+                .iter()
+                .filter(|e| matches!(e.payload, ObservationPayload::Call(_))
+                    && e.phase == ObservationPhase::Started)
+                .count(),
+            1 + usize::from(needs_summary)
+        );
+        assert!(!observed.iter().any(
+            |e| matches!(&e.payload, ObservationPayload::Call(c) if c.not_started_reason.is_some())
+        ));
+        assert_eq!(result, LoopOutcome::Answered("done".into()));
+        assert_eq!(events.0, usize::from(needs_summary));
+        let requests = model.requests.borrow();
+        assert_eq!(requests.len(), 1 + usize::from(needs_summary));
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|r| r.use_case == crate::model_profile::ModelUseCase::ContextCompression)
+                .count(),
+            usize::from(needs_summary)
+        );
+        assert!(requests.iter().all(|r| {
+            !r.messages
+                .iter()
+                .any(|m| m.text.contains("attachment text attachment text"))
+        }));
+        if !needs_summary {
+            assert!(
+                requests
+                    .last()
+                    .unwrap()
+                    .messages
+                    .iter()
+                    .any(|m| m.text.contains("its body was released")),
+                "projected messages: {:?}",
+                requests
+                    .last()
+                    .unwrap()
+                    .messages
+                    .iter()
+                    .map(|m| (
+                        &m.message_id,
+                        m.text.len(),
+                        m.text.chars().take(180).collect::<String>()
+                    ))
+                    .collect::<Vec<_>>()
+            );
+        }
+        let saved = store.inner.borrow();
+        assert_eq!(saved.as_ref().unwrap().current_turn_steps, 1);
+        assert!(
+            saved
+                .as_ref()
+                .unwrap()
+                .conversation
+                .iter()
+                .find(|m| m.message_id == "read-result")
+                .unwrap()
+                .attachment_read
+                .as_ref()
+                .unwrap()
+                .released
+        );
+    }
 }

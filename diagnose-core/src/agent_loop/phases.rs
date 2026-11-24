@@ -10,6 +10,7 @@ pub(super) struct LoopState<M> {
     pub same_tool: HashMap<String, u32>,
     pub compression_attempted: HashSet<String>,
     pub projection_rebuilds: u8,
+    pub pressure_release_step: Option<u32>,
     pub pending_protocol_correction: Option<PendingProtocolCorrection>,
     pub completion_protocol_retries: u8,
     pub empty_end_turn_retries: u8,
@@ -1516,7 +1517,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             {
                 context.attribution.surface = crate::model_observability::Surface::Terminal;
             }
-            let _observation_preflight =
+            let mut _observation_preflight =
                 crate::model_observability::PreflightObservation::new(request.observation.clone());
             let mut request = if let Some(event_id) = deps.model.command_completion_event_id() {
                 project_command_completion(deps, session, event_id, request).await?
@@ -1533,6 +1534,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                         turn_id,
                         &mut history_policy,
                         &mut state.compression_attempted,
+                        &mut state.pressure_release_step,
                         &request,
                         authority.as_ref(),
                         sink,
@@ -1540,7 +1542,11 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 })
                 .await
                 {
-                    Ok(view) => view,
+                    Ok(Some(view)) => view,
+                    Ok(None) => {
+                        _observation_preflight.bind(None);
+                        return Ok(PhaseResult::Complete(None));
+                    }
                     Err(error) => return Err(error),
                 };
                 // Compression may have registered aliases for a new checkpoint.

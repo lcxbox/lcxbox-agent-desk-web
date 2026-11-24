@@ -738,7 +738,11 @@ mod tests {
         );
         issuing.data_envelope = Some(original_envelope.clone());
         let mut conversation = vec![issuing, released];
-        crate::conversation_attachment::model_read::release_consumed(&mut conversation).unwrap();
+        crate::conversation_attachment::model_read::release_consumed(
+            &mut conversation,
+            &Default::default(),
+        )
+        .unwrap();
         let released = conversation.pop().unwrap();
         vec![reference, page, released]
     }
@@ -1022,7 +1026,7 @@ mod tests {
                     .is_some_and(|receipt| receipt.released)
                 {
                     assert!(!authorized.prompt.contains("current-ui-evidence"));
-                    assert!(authorized.prompt.contains("This page was consumed"));
+                    assert!(authorized.prompt.contains("its body was released"));
                 } else if projection.attachment_read.is_some() {
                     assert!(authorized.prompt.contains("current-ui-evidence"));
                 }

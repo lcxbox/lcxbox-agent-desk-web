@@ -379,6 +379,17 @@ pub(crate) fn rewrite_result(
     content: &crate::model_content::ModelContent,
     source: ServerResultSource,
 ) -> Result<(), AgentError> {
+    messages[index] = rewritten_result(messages, index, call_id, content, source)?;
+    Ok(())
+}
+
+pub(crate) fn rewritten_result(
+    messages: &[ChatMessage],
+    index: usize,
+    call_id: &str,
+    content: &crate::model_content::ModelContent,
+    source: ServerResultSource,
+) -> Result<ChatMessage, AgentError> {
     let issuing = messages
         .get(..index)
         .ok_or_else(invalid_label)?
@@ -393,8 +404,7 @@ pub(crate) fn rewrite_result(
         None if messages[index].data_envelope.is_none() => None,
         None => return Err(invalid_label()),
     };
-    let message = &mut messages[index];
-    *message = message.clone().with_content(
+    messages[index].clone().with_content(
         content,
         crate::model_content::Labelling {
             issuing: parent.as_ref(),
@@ -402,8 +412,7 @@ pub(crate) fn rewrite_result(
             source,
             request_only: false,
         },
-    )?;
-    Ok(())
+    )
 }
 
 /// A history page is a deterministic projection of several older message

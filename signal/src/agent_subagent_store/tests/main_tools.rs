@@ -1583,3 +1583,171 @@ async fn owner_reads_worker_report_pages_and_answers_only_the_open_question_once
         1,
     );
 }
+
+#[tokio::test]
+async fn report_settlement_preserves_active_pages_and_releases_eligible_pages() {
+    use desk_diagnose_core::{
+        chat::{ChatMessage, ToolCallRef},
+        conversation_attachment::{
+            READ_ATTACHMENT_TOOL,
+            model_read::{Input, ReadReceipt},
+        },
+        session::PendingAutoTrigger,
+        subagent::report::ReportKind,
+    };
+    for (case, kind, released) in [
+        ("progress", ReportKind::Progress, false),
+        ("question", ReportKind::NeedsInput, true),
+        ("terminal", ReportKind::Completed, true),
+        ("broken", ReportKind::NeedsInput, false),
+        ("sibling", ReportKind::NeedsInput, false),
+        ("thinking", ReportKind::NeedsInput, false),
+        ("cite", ReportKind::NeedsInput, true),
+    ] {
+        let db = database().await;
+        let mut child = super::lifecycle::child(&db).await;
+        let label = child.conversation[0].data_envelope.clone().unwrap();
+        let mut issuer = ChatMessage::agent_tool_calls(
+            "reads",
+            "",
+            ["page", "peer"]
+                .map(|id| ToolCallRef {
+                    id: id.into(),
+                    name: READ_ATTACHMENT_TOOL.into(),
+                    arguments_json: "{}".into(),
+                })
+                .to_vec(),
+        );
+        issuer.data_envelope = Some(label.clone());
+        child.conversation.push(issuer);
+        let mut page = ChatMessage::tool_result("page-result", "page", "original attachment page");
+        page.attachment_read = Some(Box::new(ReadReceipt {
+            input: serde_json::from_value::<Input>(
+                serde_json::json!({"attachment_id":"synthetic-attachment"}),
+            )
+            .unwrap(),
+            projection_version: 1,
+            body_bytes: page.text.len(),
+            original_envelope: Some(label.clone()),
+            consumed: true,
+            released: false,
+        }));
+        page.data_envelope = Some(label.clone());
+        child.conversation.push(page.clone());
+        child
+            .conversation
+            .push(ChatMessage::tool_result("peer-result", "peer", "OK"));
+        if case == "broken" {
+            page.message_id = "unpaired-page".into();
+            page.tool_call_id = Some("unknown-call".into());
+            child.conversation.push(page);
+        }
+        if case == "sibling" {
+            child.pending_auto_triggers.push(PendingAutoTrigger {
+                work_id: 1,
+                kind: Default::default(),
+                execution_id: "execution".into(),
+                tool_call_id: "peer".into(),
+                event_id: "peer-result".into(),
+                chain_id: "chain".into(),
+                resolution_org_id: None,
+                since: chrono::Utc::now().to_rfc3339(),
+            });
+        }
+        let mut call = commit_worker_report_call(&db, &mut child, "report", kind).await;
+        let store = SubAgentStore::new(db.clone());
+        if case == "thinking" {
+            use desk_diagnose_core::{model_profile::WireProtocol, replay::*};
+            child.conversation.last_mut().unwrap().replay_disposition = Some(
+                ReplayDisposition::Present {
+                    envelope: ProviderReplayEnvelope::new(
+                        ReplayCodec::AnthropicContentBlocks,
+                        SourceContextKey::derive(
+                            WireProtocol::AnthropicMessages,
+                            "fixture",
+                            "model",
+                            "1",
+                        ),
+                        serde_json::json!([{"type":"thinking","thinking":"synthetic","signature":"fixture"}]),
+                    ),
+                },
+            );
+            save_child_session(&db, &mut child).await.unwrap();
+        }
+        if case == "cite" {
+            let protection = child.context_protection_set();
+            assert_eq!(
+                desk_diagnose_core::conversation_attachment::model_read::release_session_reads(
+                    &mut child,
+                    &protection
+                )
+                .unwrap(),
+                1
+            );
+            save_child_session(&db, &mut child).await.unwrap();
+            let evidence = child
+                .conversation
+                .iter()
+                .find(|m| m.message_id == "page-result")
+                .unwrap()
+                .data_envelope
+                .as_ref()
+                .unwrap()
+                .envelope_id
+                .clone();
+            assert_ne!(evidence, label.envelope_id);
+            let projection = store.child_projection_for_turn(&child).await.unwrap();
+            let payload: serde_json::Value = serde_json::from_str(&projection.text).unwrap();
+            assert!(
+                payload["runtime_delegation_state"]["runtime_facts"]["available_evidence_ids"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!(evidence))
+            );
+            let mut args: serde_json::Value = serde_json::from_str(&call.arguments_json).unwrap();
+            args["evidence_refs"] = serde_json::json!([evidence]);
+            call.arguments_json = args.to_string();
+            child.conversation.last_mut().unwrap().tool_calls[0]
+                .arguments_json
+                .clone_from(&call.arguments_json);
+            save_child_session(&db, &mut child).await.unwrap();
+        }
+        let Operation::Report(content) = tools::parse(&child, &call).unwrap() else {
+            panic!("expected report")
+        };
+        store
+            .report_for_turn(&mut child, &call, content, "report-result")
+            .await
+            .unwrap();
+        let row = session_row::Entity::find()
+            .filter(session_row::Column::ConversationId.eq(&child.conversation_id))
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        let stored = PersistedAgentSession::decode_json(&row.state_json).unwrap();
+        let page = stored
+            .conversation
+            .iter()
+            .find(|m| m.message_id == "page-result")
+            .unwrap();
+        assert_eq!(
+            page.attachment_read.as_ref().unwrap().released,
+            released,
+            "{case}"
+        );
+        assert_eq!(page.text == "original attachment page", !released, "{case}");
+        assert_eq!(
+            stored.pending_auto_triggers.len(),
+            usize::from(case == "sibling")
+        );
+        if kind == ReportKind::NeedsInput {
+            assert_eq!(
+                load(&db, &child.agent_role.binding().unwrap().task_id)
+                    .await
+                    .state,
+                SubAgentState::WaitingInput
+            );
+        }
+    }
+}

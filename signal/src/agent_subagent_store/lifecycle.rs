@@ -408,14 +408,15 @@ impl SubAgentStore {
         }
         message.tool_ok = Some(true);
         next.conversation.push(message);
-        if terminal_report.is_some() {
-            desk_diagnose_core::conversation_attachment::model_read::release_consumed(
-                &mut next.conversation,
-            )
-            .map_err(|_| invalid())?;
-            next.pending_auto_triggers.clear();
-        }
         if yields {
+            let protection = next.context_protection_set();
+            let _ = desk_diagnose_core::conversation_attachment::model_read::release_session_reads(
+                &mut next,
+                &protection,
+            );
+            if terminal_report.is_some() {
+                next.pending_auto_triggers.clear();
+            }
             next.handled_input_seq = next.latest_input_seq;
             next.finish_turn(TurnState::Idle, now.to_rfc3339());
         }

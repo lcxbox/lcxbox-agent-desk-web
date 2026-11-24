@@ -169,6 +169,20 @@ pub struct ContextProtectionSet {
 }
 
 impl ContextProtectionSet {
+    pub(crate) fn protects_group(&self, messages: &[ChatMessage]) -> bool {
+        messages.iter().any(|message| {
+            self.protected_message_ids.contains(&message.message_id)
+                || message
+                    .tool_call_id
+                    .as_ref()
+                    .is_some_and(|id| self.protected_tool_call_ids.contains(id))
+                || message
+                    .tool_calls
+                    .iter()
+                    .any(|call| self.protected_tool_call_ids.contains(&call.id))
+        })
+    }
+
     pub fn validate_references(
         &self,
         conversation: &[ChatMessage],
@@ -1254,19 +1268,7 @@ fn protected_group_indices(
     let mut protected = BTreeSet::new();
     for (index, group) in groups.iter().enumerate() {
         let messages = &conversation[group.start..group.end];
-        if messages.iter().any(|message| {
-            protection
-                .protected_message_ids
-                .contains(&message.message_id)
-                || message
-                    .tool_call_id
-                    .as_ref()
-                    .is_some_and(|id| protection.protected_tool_call_ids.contains(id))
-                || message
-                    .tool_calls
-                    .iter()
-                    .any(|call| protection.protected_tool_call_ids.contains(&call.id))
-        }) {
+        if protection.protects_group(messages) {
             protected.insert(index);
         }
     }

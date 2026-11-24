@@ -1,4 +1,4 @@
-//! Model reads retain their body until an accepted response and a completed turn.
+//! Model reads retain their body until accepted and safe to release.
 use super::{ContentKind, MAX_PAGE_BYTES, batch::PreparedAttachment, invalid, read::*};
 use crate::chat::ChatMessage;
 use desk_agent_protocol::AgentError;
@@ -240,7 +240,7 @@ fn receipt_content(receipt: &ReadReceipt) -> String {
             "attachment_id": receipt.input.attachment_id,
             "selection": receipt.input,
             "body_bytes": receipt.body_bytes,
-            "notice": "This page was consumed in a completed turn. Read the attachment again if its body is needed."
+            "notice": "This page was read earlier and its body was released. Read it again if needed. An evicted attachment or exhausted read budget prevents rereading."
         }}).to_string()
 }
 
@@ -320,34 +320,67 @@ pub fn page_message(
     )
 }
 
-/// Caller invokes only after a successfully answered turn, never for a pause/error.
-/// `messages` is the whole conversation: each receipt is labelled from the
-/// model output that made its read call.
-pub fn release_consumed(messages: &mut [ChatMessage]) -> Result<(), AgentError> {
-    for index in 0..messages.len() {
-        let message = &messages[index];
-        let Some(receipt) = &message.attachment_read else {
-            continue;
+/// Release complete groups atomically. A protected member keeps every sibling intact.
+pub fn release_consumed(
+    messages: &mut [ChatMessage],
+    protection: &crate::model_context::ContextProtectionSet,
+) -> Result<usize, AgentError> {
+    let mut replacements = Vec::new();
+    let mut start = 0;
+    while start < messages.len() {
+        let head = &messages[start];
+        let end = if head.role == crate::chat::ChatRole::Assistant && !head.tool_calls.is_empty() {
+            crate::model_context::tool_group_end(messages, start)
+        } else {
+            start + 1
         };
-        if !receipt.consumed || receipt.released {
-            continue;
+        if !protection.protects_group(&messages[start..end]) {
+            for (offset, message) in messages[start..end].iter().enumerate() {
+                let Some(receipt) = message
+                    .attachment_read
+                    .as_ref()
+                    .filter(|r| r.consumed && !r.released)
+                else {
+                    continue;
+                };
+                let index = start + offset;
+                let mut replacement = crate::model_message_labels::rewritten_result(
+                    messages,
+                    index,
+                    message
+                        .tool_call_id
+                        .as_deref()
+                        .unwrap_or(&message.message_id),
+                    &crate::model_content::ModelContent::server_text(receipt_content(receipt)),
+                    crate::model_message_labels::ServerResultSource::AttachmentReadReceipt,
+                )?;
+                replacement.attachment_read.as_mut().unwrap().released = true;
+                replacement.prepared_context_cost.0 = None;
+                replacements.push((index, replacement));
+            }
         }
-        let content = receipt_content(receipt);
-        let call_id = message
-            .tool_call_id
-            .clone()
-            .unwrap_or_else(|| message.message_id.clone());
-        crate::model_message_labels::rewrite_result(
-            messages,
-            index,
-            &call_id,
-            // The selection is the validated attachment id and page range.
-            &crate::model_content::ModelContent::server_text(content),
-            crate::model_message_labels::ServerResultSource::AttachmentReadReceipt,
-        )?;
-        messages[index].attachment_read.as_mut().unwrap().released = true;
+        start = end;
     }
-    Ok(())
+    let count = replacements.len();
+    for (index, message) in replacements {
+        messages[index] = message;
+    }
+    Ok(count)
+}
+
+pub fn release_session_reads(
+    session: &mut crate::session::PersistedAgentSession,
+    protection: &crate::model_context::ContextProtectionSet,
+) -> Result<usize, AgentError> {
+    if !session.conversation.iter().any(|m| {
+        m.attachment_read
+            .as_ref()
+            .is_some_and(|r| r.consumed && !r.released)
+    }) || crate::thinking_context::thinking_chain_blocks_release(session, protection, None)
+    {
+        return Ok(0);
+    }
+    release_consumed(&mut session.conversation, protection)
 }
 
 #[cfg(test)]
@@ -570,7 +603,7 @@ mod tests {
         receipt.consumed = true;
         let mut message = ChatMessage::tool_result("page", "read", &content);
         message.attachment_read = Some(Box::new(receipt));
-        release_consumed(std::slice::from_mut(&mut message)).unwrap();
+        release_consumed(std::slice::from_mut(&mut message), &Default::default()).unwrap();
         assert!(message.text.contains(&native));
         let mut projected = message.clone();
         references.project_message(&mut projected);
@@ -686,13 +719,13 @@ mod tests {
         assert!(crate::trim::model_context_cost(&message) <= 2500);
         let proof = serde_json::to_string(&canonical_source(&message).unwrap()).unwrap();
         let mut messages = vec![message];
-        release_consumed(&mut messages).unwrap();
+        release_consumed(&mut messages, &Default::default()).unwrap();
         assert_eq!(messages[0].text, content);
         mark_consumed(
             &mut messages,
             &std::collections::HashSet::from(["another-page".into()]),
         );
-        release_consumed(&mut messages).unwrap();
+        release_consumed(&mut messages, &Default::default()).unwrap();
         assert_eq!(messages[0].text, content);
         mark_consumed(
             &mut messages,
@@ -702,7 +735,7 @@ mod tests {
             messages[0].text, content,
             "acceptance alone cannot clear a still-running turn"
         );
-        release_consumed(&mut messages).unwrap();
+        release_consumed(&mut messages, &Default::default()).unwrap();
         assert!(messages[0].attachment_read.as_ref().unwrap().released);
         assert_eq!(
             proof,
@@ -710,8 +743,76 @@ mod tests {
         );
         assert_eq!(messages[0].tool_call_id.as_deref(), Some("read-call"));
         let receipt = messages[0].text.clone();
-        release_consumed(&mut messages).unwrap();
+        release_consumed(&mut messages, &Default::default()).unwrap();
         assert_eq!(messages[0].text, receipt);
+    }
+
+    #[test]
+    fn release_is_atomic_and_skips_every_sibling_of_a_protected_call() {
+        use crate::{chat::ToolCallRef, model_context::ContextProtectionSet};
+        let (part, input) = fixture();
+        let (body, mut receipt) = text_page(&part, &input, "a", 2500, &Default::default()).unwrap();
+        receipt.consumed = true;
+        let mut page = ChatMessage::tool_result("page", "a", &body);
+        page.attachment_read = Some(Box::new(receipt));
+        page.prepared_context_cost.0 = Some(crate::trim::PreparedMessageCost {
+            bytes: 9_000,
+            replay_bytes: 0,
+        });
+        let mut history = vec![
+            ChatMessage::agent_tool_calls(
+                "caller",
+                "",
+                ["a", "b"]
+                    .map(|id| ToolCallRef {
+                        id: id.into(),
+                        name: "read".into(),
+                        arguments_json: "{}".into(),
+                    })
+                    .to_vec(),
+            ),
+            page.clone(),
+            ChatMessage::tool_result("sibling", "b", "OK"),
+        ];
+        for by_call in [false, true] {
+            let mut protection = ContextProtectionSet::default();
+            if by_call {
+                protection.protect_tool_call("b");
+            } else {
+                protection.protect_message("sibling");
+            }
+            assert_eq!(release_consumed(&mut history, &protection).unwrap(), 0);
+            assert_eq!(history[1], page);
+        }
+        let mut invalid = page.clone();
+        invalid.message_id = "orphan".into();
+        invalid.tool_call_id = Some("missing-issuer".into());
+        invalid.data_envelope = crate::model_message_labels::model_bound_user_message(
+            "label".into(),
+            "fixture".into(),
+            desk_agent_protocol::data_lineage::DestinationIdentity::Model {
+                connection_id: "gateway".into(),
+                connection_revision: 1,
+                model_id: "model".into(),
+                profile_revision: 1,
+            },
+        )
+        .unwrap()
+        .data_envelope;
+        history.push(invalid);
+        assert!(release_consumed(&mut history, &Default::default()).is_err());
+        assert_eq!(history[1], page);
+        history.pop();
+        assert_eq!(
+            release_consumed(&mut history, &Default::default()).unwrap(),
+            1
+        );
+        assert!(history[1].prepared_context_cost.0.is_none());
+        assert!(history[1].text.contains("its body was released"));
+        assert_eq!(
+            release_consumed(&mut history, &Default::default()).unwrap(),
+            0
+        );
     }
     #[test]
     fn image_read_accepts_the_prepared_arguments_of_a_bare_attachment_id() {

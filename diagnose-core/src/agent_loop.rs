@@ -871,8 +871,31 @@ async fn drive_claimed_inner(
         // CircuitBreak also return to Idle so a follow-up can be claimed.
         _ => TurnState::Idle,
     };
-    if matches!(&result, Ok(LoopOutcome::Answered(_))) {
-        crate::conversation_attachment::model_read::release_consumed(&mut session.conversation)?;
+    // A successful control receipt identifies the following display copy and
+    // keeps the issuing tool group visible to prefix protection before release.
+    if session.trigger_origin == TriggerOrigin::GoalContinuation
+        && let Ok(LoopOutcome::GoalControlled { call_id, .. }) = &result
+    {
+        record_tool_completion(&mut session, call_id, true);
+    }
+    if matches!(
+        &result,
+        Ok(LoopOutcome::Answered(_) | LoopOutcome::GoalControlled { .. })
+    ) && session.conversation.iter().any(|m| {
+        m.attachment_read
+            .as_ref()
+            .is_some_and(|r| r.consumed && !r.released)
+    }) {
+        let mut protection = session.context_protection_set();
+        if protect_goal_events(deps, &session, &mut protection)
+            .await
+            .is_ok()
+        {
+            let _ = crate::conversation_attachment::model_read::release_session_reads(
+                &mut session,
+                &protection,
+            );
+        }
     }
     let settled_at = (deps.clock)();
     if session.is_subagent_result_turn()
@@ -1027,9 +1050,6 @@ async fn drive_claimed_inner(
             .settle_child_turn(&mut session, reason, allow_continue)
             .await
     } else if session.trigger_origin == crate::session::TriggerOrigin::GoalContinuation {
-        if let Ok(LoopOutcome::GoalControlled { call_id, .. }) = &result {
-            record_tool_completion(&mut session, call_id, true);
-        }
         let result_fingerprints =
             settled_goal_result_fingerprints(&session, deps.registry, &prior_message_ids);
         let end = match &result {
@@ -1187,6 +1207,7 @@ fn settled_goal_result_fingerprints(
     let mut fingerprints = std::collections::BTreeSet::new();
     for result in &session.conversation {
         if result.role != ChatRole::Tool
+            || result.attachment_read.is_some()
             || prior_message_ids.contains(&result.message_id)
             || result.text.trim().is_empty()
             || result.text.starts_with("tool error:")
@@ -1798,6 +1819,22 @@ fn assemble_context_request(
     Ok(request)
 }
 
+async fn protect_goal_events(
+    deps: &LoopDeps<'_>,
+    session: &PersistedAgentSession,
+    protection: &mut crate::model_context::ContextProtectionSet,
+) -> Result<(), AgentError> {
+    if session.trigger_origin == TriggerOrigin::GoalContinuation {
+        let goal = deps.session_seam.load_claimed_goal(session).await?;
+        if let Some(wait) = goal.work_wait.as_ref().filter(|wait| wait.ready) {
+            for id in &wait.ready_event_ids {
+                protection.protect_message(id.clone());
+            }
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn prepare_model_context(
     deps: &LoopDeps<'_>,
@@ -1805,10 +1842,11 @@ async fn prepare_model_context(
     turn_id: &str,
     pinned_context: &mut crate::model_context::PinnedContextPolicy,
     compression_attempted: &mut HashSet<String>,
+    pressure_release_step: &mut Option<u32>,
     template: &ModelRequest,
     authority: Option<&crate::grant_disclosure::GrantDisclosureSnapshot>,
     sink: &mut dyn TurnSink,
-) -> Result<crate::model_context::ModelContextView, AgentError> {
+) -> Result<Option<crate::model_context::ModelContextView>, AgentError> {
     let mut planning_policy = pinned_context.clone();
     let authority_observed_at = authority.map(|_| current_unix_ms(deps.clock)).transpose()?;
     let options = deps.model.context_planning_options();
@@ -1827,13 +1865,13 @@ async fn prepare_model_context(
         .await?;
         // This is an ephemeral exact-result view, not a replacement history
         // checkpoint. The assembled request below still enforces the byte cap.
-        return Ok(crate::model_context::ModelContextView {
+        return Ok(Some(crate::model_context::ModelContextView {
             notice_kind: crate::model_context::ContextNoticeKind::Trimmed,
             messages: projected.messages,
             policy_key: pinned_context.key(),
             floor_group_head_message_id: None,
             floor_advanced: false,
-        });
+        }));
     }
     if let Some(base) = deps.model.prepare_request(template)? {
         base.require_fit()?;
@@ -1929,14 +1967,7 @@ async fn prepare_model_context(
                     })
             });
         let mut protection = session.context_protection_since(floor);
-        if session.trigger_origin == TriggerOrigin::GoalContinuation {
-            let goal = deps.session_seam.load_claimed_goal(session).await?;
-            if let Some(wait) = goal.work_wait.as_ref().filter(|wait| wait.ready) {
-                for id in &wait.ready_event_ids {
-                    protection.protect_message(id.clone());
-                }
-            }
-        }
+        protect_goal_events(deps, session, &mut protection).await?;
         let configuration_changed = planning_policy.preserve_history
             && !session.model_context_state.entries.is_empty()
             && !compatible_state
@@ -2104,7 +2135,7 @@ async fn prepare_model_context(
                     }
                 }
                 *pinned_context = planning_policy.clone();
-                return Ok(ready.view);
+                return Ok(Some(ready.view));
             }
             crate::model_context::ContextBuildPlan::NeedsFloorReconciliation(plan) => {
                 let previous_state = session.model_context_state.clone();
@@ -2181,6 +2212,24 @@ async fn prepare_model_context(
                 // Rebuild protection and re-plan against the new version/floor.
             }
             crate::model_context::ContextBuildPlan::NeedsCompression(plan) => {
+                let thinking_bound = crate::thinking_context::thinking_chain_blocks_release(
+                    session,
+                    &protection,
+                    planning_policy
+                        .preserve_history
+                        .then_some(&planning_policy.source_context_key),
+                );
+                if !configuration_changed
+                    && !thinking_bound
+                    && *pressure_release_step != Some(session.current_turn_steps)
+                    && crate::conversation_attachment::model_read::release_consumed(
+                        &mut session.conversation,
+                        &protection,
+                    )? > 0
+                {
+                    *pressure_release_step = Some(session.current_turn_steps);
+                    return Ok(None);
+                }
                 return crate::future::phase(|| {
                     compression::apply_checkpoint(
                         deps,
@@ -2194,11 +2243,13 @@ async fn prepare_model_context(
                         &planning_policy,
                         authority_observed_at,
                         configuration_changed,
+                        thinking_bound,
                         plan,
                         &compatible_state,
                     )
                 })
-                .await;
+                .await
+                .map(Some);
             }
         }
     }
@@ -2472,6 +2523,7 @@ async fn run_inner_impl(
         same_tool,
         compression_attempted,
         projection_rebuilds,
+        pressure_release_step: None,
         pending_protocol_correction,
         completion_protocol_retries,
         empty_end_turn_retries,
