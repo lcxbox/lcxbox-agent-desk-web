@@ -1819,6 +1819,43 @@ fn assemble_context_request(
     Ok(request)
 }
 
+/// Releases consumed pages that the request still carries, i.e. those after
+/// the checkpoint floor; pages a checkpoint already covers never reach the
+/// model, so releasing them cannot make the request fit. A failed rewrite
+/// leaves the history unchanged and lets compression proceed.
+fn release_for_pressure(
+    conversation: &mut [ChatMessage],
+    protection: &crate::model_context::ContextProtectionSet,
+    floor: Option<(&str, bool)>,
+) -> usize {
+    let first = pressure_release_start(conversation, floor);
+    crate::conversation_attachment::model_read::release_consumed_from(
+        conversation,
+        protection,
+        first,
+    )
+    .unwrap_or(0)
+}
+
+/// The first group the planner keeps after the floor. `(id, false)` keeps the
+/// group headed by `id`; `(id, true)` starts after that group.
+fn pressure_release_start(conversation: &[ChatMessage], floor: Option<(&str, bool)>) -> usize {
+    let Some((id, after)) = floor else {
+        return 0;
+    };
+    let Some(head) = conversation.iter().position(|m| m.message_id == id) else {
+        return conversation.len();
+    };
+    if !after {
+        return head;
+    }
+    if conversation[head].role == ChatRole::Assistant && !conversation[head].tool_calls.is_empty() {
+        crate::model_context::tool_group_end(conversation, head)
+    } else {
+        head + 1
+    }
+}
+
 async fn protect_goal_events(
     deps: &LoopDeps<'_>,
     session: &PersistedAgentSession,
@@ -2222,10 +2259,7 @@ async fn prepare_model_context(
                 if !configuration_changed
                     && !thinking_bound
                     && *pressure_release_step != Some(session.current_turn_steps)
-                    && crate::conversation_attachment::model_read::release_consumed(
-                        &mut session.conversation,
-                        &protection,
-                    )? > 0
+                    && release_for_pressure(&mut session.conversation, &protection, floor) > 0
                 {
                     *pressure_release_step = Some(session.current_turn_steps);
                     return Ok(None);

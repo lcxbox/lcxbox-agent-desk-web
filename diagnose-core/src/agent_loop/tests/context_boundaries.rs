@@ -1018,3 +1018,118 @@ async fn pressure_rebuilds_the_step_and_compresses_only_if_the_receipt_still_doe
         );
     }
 }
+
+#[test]
+fn pressure_release_starts_at_the_first_group_the_planner_keeps() {
+    use crate::agent_loop::pressure_release_start;
+    let call = |id: &str| crate::chat::ToolCallRef {
+        id: id.into(),
+        name: "read".into(),
+        arguments_json: "{}".into(),
+    };
+    let conversation = vec![
+        ChatMessage::text("question", ChatRole::User, "q"),
+        ChatMessage::agent_tool_calls("batch", "", vec![call("a"), call("b")]),
+        ChatMessage::tool_result("a-result", "a", "A"),
+        ChatMessage::tool_result("b-result", "b", "B"),
+        ChatMessage::text("answer", ChatRole::Assistant, "done"),
+    ];
+    assert_eq!(pressure_release_start(&conversation, None), 0);
+    assert_eq!(
+        pressure_release_start(&conversation, Some(("batch", false))),
+        1
+    );
+    assert_eq!(
+        pressure_release_start(&conversation, Some(("batch", true))),
+        4
+    );
+    assert_eq!(
+        pressure_release_start(&conversation, Some(("question", true))),
+        1
+    );
+    assert_eq!(
+        pressure_release_start(&conversation, Some(("missing", false))),
+        conversation.len(),
+        "an unknown floor releases nothing"
+    );
+}
+
+#[test]
+fn pressure_release_leaves_covered_pages_and_falls_back_on_a_rewrite_error() {
+    use crate::agent_loop::release_for_pressure;
+    let released = |session: &PersistedAgentSession| {
+        session
+            .conversation
+            .iter()
+            .find(|m| m.message_id == "read-result")
+            .unwrap()
+            .attachment_read
+            .as_ref()
+            .unwrap()
+            .released
+    };
+    let source = SourceContextKey::derive(
+        WireProtocol::OpenAiChatCompletions,
+        "pressure",
+        "model",
+        "1",
+    );
+    let mut store = MemSession::default();
+    let mut session = seeded_history();
+    append_consumed_page(&mut session, &mut store, source);
+    session.conversation.push(ChatMessage::text(
+        "after-floor",
+        ChatRole::Assistant,
+        "kept",
+    ));
+    let protection = crate::model_context::ContextProtectionSet::default();
+
+    // A checkpoint already covers the page: the request never carries it.
+    let mut covered = session.clone();
+    assert_eq!(
+        release_for_pressure(
+            &mut covered.conversation,
+            &protection,
+            Some(("after-floor", false))
+        ),
+        0
+    );
+    assert!(!released(&covered));
+
+    // A page whose label cannot be rewritten leaves every page intact.
+    let mut broken = session.clone();
+    let mut orphan = broken
+        .conversation
+        .iter()
+        .find(|m| m.message_id == "read-result")
+        .unwrap()
+        .clone();
+    orphan.message_id = "orphan".into();
+    orphan.tool_call_id = Some("missing-issuer".into());
+    orphan.data_envelope = crate::model_message_labels::model_bound_user_message(
+        "label".into(),
+        "fixture".into(),
+        desk_agent_protocol::data_lineage::DestinationIdentity::Model {
+            connection_id: "gateway".into(),
+            connection_revision: 1,
+            model_id: "model".into(),
+            profile_revision: 1,
+        },
+    )
+    .unwrap()
+    .data_envelope;
+    broken.conversation.push(orphan);
+    let before = broken.conversation.clone();
+    assert_eq!(
+        release_for_pressure(&mut broken.conversation, &protection, None),
+        0
+    );
+    assert_eq!(broken.conversation, before);
+
+    // After the floor, the same page is released.
+    assert_eq!(
+        release_for_pressure(&mut session.conversation, &protection, None),
+        1
+    );
+    assert!(released(&session));
+}

@@ -325,8 +325,18 @@ pub fn release_consumed(
     messages: &mut [ChatMessage],
     protection: &crate::model_context::ContextProtectionSet,
 ) -> Result<usize, AgentError> {
+    release_consumed_from(messages, protection, 0)
+}
+
+/// As [`release_consumed`], limited to the groups starting at `first`, which
+/// must be a group boundary. Earlier messages are left untouched.
+pub fn release_consumed_from(
+    messages: &mut [ChatMessage],
+    protection: &crate::model_context::ContextProtectionSet,
+    first: usize,
+) -> Result<usize, AgentError> {
     let mut replacements = Vec::new();
-    let mut start = 0;
+    let mut start = first;
     while start < messages.len() {
         let head = &messages[start];
         let end = if head.role == crate::chat::ChatRole::Assistant && !head.tool_calls.is_empty() {
