@@ -23,6 +23,7 @@ fn label(reason: AiAgentAttentionReason, locale: &str) -> String {
         AiAgentAttentionReason::GoalOpenApproval => "ai_attention.goal_open",
         AiAgentAttentionReason::PermissionApproval => "ai_attention.permission",
         AiAgentAttentionReason::DecisionApproval => "ai_attention.decision",
+        AiAgentAttentionReason::OwnerQuestion => "ai_attention.owner_question",
         AiAgentAttentionReason::GoalNeedsInput => "ai_attention.needs_input",
         AiAgentAttentionReason::GoalBudget => "ai_attention.budget",
         AiAgentAttentionReason::GoalStalled => "ai_attention.stalled",
@@ -145,6 +146,11 @@ mod tests {
     #[test]
     fn workbench_notifications_use_localized_status() {
         for (reason, english, chinese) in [
+            (
+                AiAgentAttentionReason::OwnerQuestion,
+                "The AI agent has a question for you",
+                "AI 智能体有问题想问你",
+            ),
             (
                 AiAgentAttentionReason::WorkerQuestion,
                 "Worker needs your answer",
