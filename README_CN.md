@@ -87,7 +87,7 @@ LCXBOX Agent Desk Web 是一款 **AI 原生（AI-Native）**的开源高性能�
 
 ### 方式 3：源码运行
 
-1. 安装仓库钉定的 Rust 1.90 工具链、Node.js 22.16+，以及[开发指南](DEVELOPMENT_CN.md)列出的平台依赖。
+1. 安装仓库钉定的 Rust 1.100.0 工具链、Node.js 22.16+，以及[开发指南](DEVELOPMENT_CN.md)列出的平台依赖。
 
 2. **先启动前端。**Debug 构建的桌面外壳会加载 Vite 开发服务器，前端没起来会白屏：
 

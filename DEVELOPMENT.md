@@ -23,7 +23,7 @@ This document provides a comprehensive guide for the LCXBOX Agent Desk Web proje
 
 #### Backend
 
-- **Language**: Rust (Edition 2024, Rust 1.90+)
+- **Language**: Rust (Edition 2024, Rust 1.100.0+)
 - **Web Framework**: Actix-Web 4.11
 - **WebRTC**: webrtc-rs 0.17
 - **Session Management**: Actix-Session with Cookie
@@ -54,7 +54,7 @@ This document provides a comprehensive guide for the LCXBOX Agent Desk Web proje
 
 ### Rust Development
 
-- Rust 1.90 or higher
+- Rust 1.100.0 or higher
 - Cargo
 
 ### Frontend Development
@@ -293,7 +293,7 @@ Use `./build_docker.sh` for easy building, or `docker compose up --build -d` for
 A: Ensure all required system dependencies are installed (see [Requirements](#requirements)).
 
 **Q: Rust version is too old.**
-A: Run `rustup update` to update Rust to the latest version.
+A: Run `rustup toolchain install` from the repository root to install the pinned toolchain.
 
 ### Runtime Errors
 

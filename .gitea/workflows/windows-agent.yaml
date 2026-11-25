@@ -11,7 +11,7 @@ jobs:
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.90.0
+          toolchain: 1.100.0
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
       - name: Shared agent contracts and file batch processing

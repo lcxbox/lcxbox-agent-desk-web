@@ -83,7 +83,7 @@ impl Service {
         session: Arc<dyn desk_wayland_portal::LivePortalSession>,
     ) -> Result<Arc<Self>, AgentError> {
         THREADS
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 (count < MAX_THREADS).then_some(count + 1)
             })
             .map_err(|_| internal("Wayland snapshot thread capacity exhausted"))?;

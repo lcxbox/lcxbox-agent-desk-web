@@ -15,7 +15,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN: "1.90.0"
+  RUST_TOOLCHAIN: "1.100.0"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -134,7 +134,7 @@ jobs:
           echo "macOS SDK: $(xcrun --sdk macosx --show-sdk-version)"
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}

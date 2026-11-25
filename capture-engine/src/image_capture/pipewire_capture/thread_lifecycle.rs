@@ -22,7 +22,7 @@ impl Drop for Permit {
 impl Budget {
     fn acquire(self: &Arc<Self>) -> io::Result<Permit> {
         self.active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < self.limit).then(|| active + 1)
             })
             .map_err(|_| io::Error::other("PipeWire capture thread budget is exhausted"))?;

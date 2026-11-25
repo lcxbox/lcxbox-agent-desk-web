@@ -4,7 +4,7 @@ Contributions are welcome! This page summarizes the workflow and coding standard
 
 ## Development Workflow
 
-1. Set up the toolchain — Rust 1.90+ and Node.js 20+ (see [Quick Start](/guide/quick-start) and [Deployment](/guide/deployment) for system dependencies).
+1. Set up the toolchain — Rust 1.100.0+ and Node.js 20+ (see [Quick Start](/guide/quick-start) and [Deployment](/guide/deployment) for system dependencies).
 2. Run the backend with `cargo run` and the frontend with `npm run dev` in `vite-project/`.
 3. Add tests for your change — **every code change must add test cases.**
 4. Format and lint before submitting.

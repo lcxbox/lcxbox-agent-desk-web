@@ -57,7 +57,7 @@ Hosts refuse plaintext `ws://` dials to **public** signaling addresses by defaul
 
 ### Prerequisites
 
-- Install the repository-pinned [Rust](https://www.rust-lang.org/) toolchain (Edition 2024, Rust 1.90).
+- Install the repository-pinned [Rust](https://www.rust-lang.org/) toolchain (Edition 2024, Rust 1.100.0).
 - Install [Node.js](https://nodejs.org/) 22.16 or higher.
 - **AV1 Encoding (Optional)** — requires [nasm](https://www.nasm.us/) on Windows:
 

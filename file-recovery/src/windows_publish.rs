@@ -149,7 +149,7 @@ impl PrivateDirectoryLock {
 fn temporary_name() -> io::Result<String> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let sequence = NEXT
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
         .map_err(|_| io::Error::other("private temporary sequence exhausted"))?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

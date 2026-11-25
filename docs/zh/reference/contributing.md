@@ -4,7 +4,7 @@
 
 ## 开发工作流
 
-1. 配置工具链——Rust 1.90+ 与 Node.js 20+（系统依赖见[快速开始](/zh/guide/quick-start)与[部署](/zh/guide/deployment)）。
+1. 配置工具链——Rust 1.100.0+ 与 Node.js 20+（系统依赖见[快速开始](/zh/guide/quick-start)与[部署](/zh/guide/deployment)）。
 2. 用 `cargo run` 跑后端，在 `vite-project/` 用 `npm run dev` 跑前端。
 3. 为你的改动添加测试——**每次代码改动都必须增加测试用例。**
 4. 提交前格式化并 lint。

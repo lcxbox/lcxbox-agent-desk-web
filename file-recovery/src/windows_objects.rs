@@ -316,7 +316,7 @@ fn delete_handle(file: &File) -> io::Result<()> {
 fn temporary_name(name: &str) -> io::Result<String> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let sequence = NEXT
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
         .map_err(|_| io::Error::other("private temporary sequence exhausted"))?;
     // FILE_CREATE, not name unpredictability, guarantees non-overwrite.
     Ok(format!(

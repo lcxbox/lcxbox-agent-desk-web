@@ -30,10 +30,7 @@ description = "LCXBOX Agent Desk Web Server"
 license = "Apache-2.0"
 version = "0.1.0"
 edition = "2024"
-# need file lock feature 1.89.0
-# see https://doc.rust-lang.org/stable/std/fs/struct.File.html#method.try_lock
-# need 1.90.0 for rust-analyzer
-rust-version = "1.90"
+rust-version = "1.100.0"
 
 
 [workspace.dependencies]
@@ -210,14 +207,12 @@ ureq = { version = "2", features = ["json"] }
 hound = "3.5"
 tempfile = "3"
 
-# In-process document conversion. Keep these exact: Typst 0.15 requires
-# Rust 1.92 while this workspace is intentionally pinned to Rust 1.90.
+# Keep the Typst conversion crates on the same release.
 typst = "=0.14.2"
 typst-pdf = "=0.14.2"
 typst-render = "=0.14.2"
 pulldown-cmark = "=0.13.6"
 unpdf = { version = "=0.12.0", default-features = false }
-flate2 = "=1.1.2"
 
 # for windows
 windows = { version = "0.61", features = [

@@ -19,7 +19,7 @@
 
 #### 后端
 
-- **语言**: Rust (Edition 2024, Rust 1.90+)
+- **语言**: Rust (Edition 2024, Rust 1.100.0+)
 - **Web 框架**: Actix-Web 4.11
 - **WebRTC**: webrtc-rs 0.17
 - **会话管理**: Actix-Session with Cookie
@@ -50,7 +50,7 @@
 
 ### Rust 开发环境
 
-- Rust 1.90 或更高版本
+- Rust 1.100.0 或更高版本
 - Cargo (随 Rust 一起安装)
 
 ### Node.js 前端开发
@@ -435,7 +435,7 @@ npm run build
 `Dockerfile` 采用了三阶段构建以优化镜像大小：
 
 - **frontend-builder**: 基于 `node:20-slim`，利用 `npm` 缓存挂载构建前端。
-- **rust-builder**: 基于 `rust:1.90-bookworm`，安装 C 库依赖，并将前端产物内置到 `server/static` 进行后端编译。
+- **rust-builder**: 基于 `rust:1.100.0-bookworm`，安装 C 库依赖，并将前端产物内置到 `server/static` 进行后端编译。
 - **runtime**: 基于 `debian:bookworm-slim`，精简运行环境。
 
 #### 2. 构建加速
@@ -500,7 +500,7 @@ cargo run -- --help
 **解决**：确保已安装所有必需的系统依赖（参见[环境要求](#环境要求)）
 
 **问题**：Rust 版本过旧
-**解决**：运行 `rustup update` 更新 Rust 到最新版本
+**解决**：在仓库根目录运行 `rustup toolchain install` 安装项目指定的工具链。
 
 ### 运行时错误
 

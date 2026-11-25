@@ -57,7 +57,7 @@
 
 ### 前置条件
 
-- 安装仓库钉定的 [Rust](https://www.rust-lang.org/) 工具链（Edition 2024，Rust 1.90）。
+- 安装仓库钉定的 [Rust](https://www.rust-lang.org/) 工具链（Edition 2024，Rust 1.100.0）。
 - 安装 [Node.js](https://nodejs.org/) 22.16 或更高版本。
 - **AV1 编码（可选）**——在 Windows 上需要 [nasm](https://www.nasm.us/)：
 

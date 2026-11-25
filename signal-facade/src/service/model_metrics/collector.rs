@@ -137,7 +137,7 @@ impl Collector {
     fn drop_event(&self) {
         let _ = self
             .dropped
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 Some(value.saturating_add(1))
             });
     }

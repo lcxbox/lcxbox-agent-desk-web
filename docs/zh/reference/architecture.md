@@ -24,7 +24,7 @@ Daemon 与 worker 使用三条独立传输：双向 event pipe 承载信令和�
 
 ## 技术栈
 
-**后端**——Rust（Edition 2024，1.90+）、Actix-Web 4.11、webrtc-rs 0.17、Actix-Session、Utoipa 5（OpenAPI）、turn 0.17、Prometheus。
+**后端**——Rust（Edition 2024，1.100.0+）、Actix-Web 4.11、webrtc-rs 0.17、Actix-Session、Utoipa 5（OpenAPI）、turn 0.17、Prometheus。
 
 **前端**——React 19、TailwindCSS + Shadcn UI（Radix）、Vite 7、Kubb（OpenAPI → React Query / TS）、TypeScript 5.9、xterm.js 5.5、TanStack Query v5。
 

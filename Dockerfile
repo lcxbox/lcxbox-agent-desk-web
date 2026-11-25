@@ -18,7 +18,7 @@ COPY vite-project/ ./vite-project/
 RUN cd vite-project && npm run build
 
 # Stage 2: Rust Builder
-FROM rust:1.90-bookworm AS rust-builder
+FROM rust:1.100.0-bookworm AS rust-builder
 WORKDIR /app
 ARG ENABLE_MIRROR=false
 

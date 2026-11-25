@@ -87,7 +87,7 @@ Use this when the controlled device has no public IP and you want to own the who
 
 ### Option 3: Run from Source
 
-1. Install the repository-pinned Rust 1.90 toolchain, Node.js 22.16+, and the platform dependencies listed in the [Development Guide](DEVELOPMENT.md).
+1. Install the repository-pinned Rust 1.100.0 toolchain, Node.js 22.16+, and the platform dependencies listed in the [Development Guide](DEVELOPMENT.md).
 
 2. **Start the frontend first.** A debug build of the desktop shell loads the Vite dev server, so it shows a blank window if the frontend is not up yet:
 

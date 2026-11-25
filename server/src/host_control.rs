@@ -354,7 +354,7 @@ impl HostControlHub {
         let prev = self
             .inner
             .tauri_client_count
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |v| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |v| {
                 if v == 0 { None } else { Some(v - 1) }
             })
             .unwrap_or(0);
