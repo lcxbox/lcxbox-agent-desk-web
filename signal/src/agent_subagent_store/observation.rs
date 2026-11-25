@@ -299,6 +299,7 @@ pub(crate) async fn save_main_delegation_session(
         return Err(invalid());
     }
     let now = desk_agent_data_store::datetime::utc_now();
+    desk_agent_data_store::owner_question::publish_on(&txn, held).await?;
     let version = if held.surface == desk_diagnose_core::session::AgentSessionSurface::AiAgent
         && held.agent_data.is_some()
     {

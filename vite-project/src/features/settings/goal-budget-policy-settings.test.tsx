@@ -5,7 +5,8 @@ import GoalBudgetPolicySettings from './goal-budget-policy-settings';
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 const policy = (revision: number, deviceUnavailableMaxMs = 86_400_000) => ({
-    schemaVersion: 1,
+    schemaVersion: 2,
+    ownerQuestionTimeoutMs: 60_000,
     revision,
     limits: {
         activeTimeMs: 7_200_000, deadlineMs: null, modelTokens: 10_000_000, modelCalls: 160,
@@ -43,6 +44,9 @@ describe('goal budget policy settings', () => {
         render(<GoalBudgetPolicySettings />);
         const hours = await screen.findByLabelText('pages.aiAgent.goalBudgetDeviceUnavailableHours');
         expect(hours).toHaveValue(24);
+        const seconds = screen.getByLabelText('pages.aiAgent.goalQuestionTimeoutSeconds');
+        expect(seconds).toHaveValue(60);
+        fireEvent.change(seconds, { target: { value: '90' } });
         const save = screen.getByRole('button', { name: 'pages.aiAgent.goalBudgetSave' });
         fireEvent.change(hours, { target: { value: '0' } });
         expect(save).toBeDisabled();
@@ -53,7 +57,7 @@ describe('goal budget policy settings', () => {
         fireEvent.click(save);
         await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
         const body = JSON.parse(fetchMock.mock.calls[1][1].body);
-        expect(body).toMatchObject({ expectedRevision: 4, deviceUnavailableMaxMs: 7_200_000 });
+        expect(body).toMatchObject({ expectedRevision: 4, deviceUnavailableMaxMs: 7_200_000, ownerQuestionTimeoutMs: 90_000 });
         expect(body.limits.deadlineMs).toBeNull();
         await screen.findByText('pages.aiAgent.goalBudgetSaved');
     });

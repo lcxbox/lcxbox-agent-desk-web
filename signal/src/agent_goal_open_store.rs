@@ -48,7 +48,15 @@ pub async fn save_model_request(
         .map_err(|_| failed("invalid goal opening request"))?;
     if !session.agent_role.is_main()
         || session.surface != AgentSessionSurface::AiAgent
-        || session.trigger_origin != TriggerOrigin::User
+        || (session.trigger_origin != TriggerOrigin::User
+            && !(desk_diagnose_core::owner_question::planning_reply(session)
+                && event.request.target_goal_id.as_deref().is_some_and(|id| {
+                    session
+                        .owner_question
+                        .as_ref()
+                        .and_then(|w| w.goal.as_ref())
+                        .is_some_and(|g| g.goal_id == id)
+                })))
         || session.turn_state != TurnState::Running
         || event.event.run_id != session.conversation_id
         || event.request.owner_id != session.actor_id

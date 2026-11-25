@@ -116,6 +116,11 @@ pub async fn list_goal_attention(
                 &row.conversation_id,
                 &row.device_id,
                 pause,
+                session
+                    .owner_question
+                    .as_ref()
+                    .filter(|w| w.open && w.view.wait_id == pause.id)
+                    .and_then(|w| w.view.deadline_unix_ms),
                 u64::try_from(row.updated_at.timestamp_millis()).unwrap_or_default(),
             ));
         }

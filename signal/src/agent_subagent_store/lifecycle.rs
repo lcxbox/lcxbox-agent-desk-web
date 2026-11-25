@@ -12,6 +12,28 @@ use desk_diagnose_core::{
     },
 };
 
+async fn store_question_deadline_on(
+    txn: &DatabaseTransaction,
+    run_id: i64,
+    now_ms: i64,
+) -> Result<(), DbErr> {
+    let timeout = crate::goal_budget_policy::read(txn)
+        .await?
+        .owner_question_timeout_ms;
+    let deadline = now_ms
+        .checked_add(i64::try_from(timeout).map_err(|_| invalid())?)
+        .ok_or_else(invalid)?;
+    run_row::Entity::update_many()
+        .col_expr(
+            run_row::Column::OwnerQuestionDeadlineMs,
+            sea_orm::sea_query::Expr::value(deadline),
+        )
+        .filter(run_row::Column::Id.eq(run_id))
+        .exec(txn)
+        .await?;
+    Ok(())
+}
+
 pub(crate) async fn child_records_on(
     txn: &DatabaseTransaction,
     held: &PersistedAgentSession,
@@ -386,6 +408,12 @@ impl SubAgentStore {
             run.ask_question(question_id, &now.to_rfc3339())
                 .map_err(|_| invalid())?;
             replace_run_on(&txn, &row, &run, now.timestamp_millis()).await?;
+            if run.binding.source.goal_id().is_some() {
+                desk_diagnose_core::future::send_phase(|| {
+                    store_question_deadline_on(&txn, row.id, now.timestamp_millis())
+                })
+                .await?;
+            }
         }
         let text = payload.to_string();
         let mut message = ChatMessage::tool_result(result_message_id, &call.id, &text);

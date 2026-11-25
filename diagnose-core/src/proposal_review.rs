@@ -56,6 +56,7 @@ pub enum DecisionKind {
     Skill,
     /// An interactive directory request of the model.
     Directory,
+    OwnerQuestion,
 }
 
 impl DecisionKind {
@@ -64,6 +65,7 @@ impl DecisionKind {
             Self::Schedule => "schedule",
             Self::Skill => "skill",
             Self::Directory => "directory",
+            Self::OwnerQuestion => "owner_question",
         }
     }
 
@@ -72,6 +74,7 @@ impl DecisionKind {
             "schedule" => Some(Self::Schedule),
             "skill" => Some(Self::Skill),
             "directory" => Some(Self::Directory),
+            "owner_question" => Some(Self::OwnerQuestion),
             _ => None,
         }
     }
@@ -80,7 +83,7 @@ impl DecisionKind {
         match self {
             Self::Schedule => Some(ProposalKind::Schedule),
             Self::Skill => Some(ProposalKind::Skill),
-            Self::Directory => None,
+            Self::Directory | Self::OwnerQuestion => None,
         }
     }
 }
@@ -214,6 +217,13 @@ pub fn awaiting_owner(facts: OwnerDecisionFacts) -> bool {
 /// rejected by the system and the turn is not resumed. The host withdraws a
 /// paused proposal's own row and its resume record in the same transaction.
 pub fn withdraw_pause(session: &mut PersistedAgentSession) -> Option<DecisionPause> {
+    if session
+        .decision_pause
+        .as_ref()
+        .is_some_and(|p| p.kind == DecisionKind::OwnerQuestion)
+    {
+        crate::owner_question::withdraw(session);
+    }
     let pause = session.decision_pause.take()?;
     if pause.kind == DecisionKind::Directory {
         session.file_scope.withdraw_pending(

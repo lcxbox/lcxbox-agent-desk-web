@@ -32,6 +32,7 @@ pub async fn update(
                 &config.goal_budget_policy,
                 request.limits,
                 request.device_unavailable_max_ms,
+                request.owner_question_timeout_ms,
             )
             .map_err(|_| WriteError::Invalid)?;
             config.goal_budget_policy = next.clone();

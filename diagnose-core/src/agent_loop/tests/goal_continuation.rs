@@ -665,3 +665,47 @@ fn an_attachment_page_with_a_reused_device_call_id_is_not_goal_progress() {
     .unwrap();
     assert!(settled_goal_result_fingerprints(&session, &registry, &old).is_empty());
 }
+
+#[tokio::test]
+async fn owner_question_goal_waits_on_the_original_call_and_deadline() {
+    let (store, session) = fixture(false);
+    let model = ScriptModel {
+        turns: RefCell::new(
+            [tool_use_args(
+                "q",
+                "ask_user",
+                r#"{"questions":[{"question":"Which zone?"}]}"#,
+            )]
+            .into(),
+        ),
+        requests: Default::default(),
+    };
+    let tools = RecordingTools {
+        calls: Default::default(),
+        reply: String::new(),
+    };
+    let mut registry = crate::goal_tools::registry();
+    registry.extend(crate::owner_question::registry());
+    let clock = || "2026-06-20T00:00:01Z".to_owned();
+    let out = run_preclaimed_goal_slice(
+        &deps(&store, &model, &tools, &registry, &clock),
+        session,
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    let LoopOutcome::DecisionRequested { pause } = out else {
+        panic!("{out:?}")
+    };
+    let stored = store.inner.borrow();
+    let wait = stored.as_ref().unwrap().owner_question.as_ref().unwrap();
+    assert_eq!(
+        wait.view.deadline_unix_ms,
+        Some(pause.requested_at_unix_ms + 60_000)
+    );
+    assert_eq!(wait.goal.as_ref().unwrap().goal_id, "goal");
+    assert!(
+        matches!(&store.goal_ends.borrow()[0],GoalSegmentEnd::Control(crate::goal::GoalControl::Wait{reason:crate::goal::GoalWaitReason::OwnerQuestion,reference_id}) if reference_id==&pause.id)
+    );
+    assert_eq!(model.requests.borrow().len(), 1);
+}

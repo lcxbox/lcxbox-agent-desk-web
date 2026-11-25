@@ -29,6 +29,8 @@ REQUIRED = {
         '^desk_agent_data_store::memory_control::project_receipt$',
     ],
     'desk-diagnose-core': [
+        '^desk_diagnose_core::owner_question::insert_result$',
+        '^desk_diagnose_core::owner_question::begin_goal_reply$',
         '^desk_diagnose_core::model_input::check_at$',
         '^desk_diagnose_core::ai_agent::data_tools::(?:decode_error|parse_impl|forget_batch)$',
         '^desk_diagnose_core::ui_model_ids::project_request$',

@@ -50,6 +50,8 @@ pub struct GoalBudgetPolicy {
     /// `limits`, this bound cannot be disabled and is independent of the goal
     /// deadline, so every waiting goal eventually ends.
     pub device_unavailable_max_ms: u64,
+    /// Time allowed for a single owner question group during a goal.
+    pub owner_question_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -58,6 +60,8 @@ pub struct UpdateGoalBudgetPolicy {
     pub expected_revision: u64,
     pub limits: GoalBudgetLimits,
     pub device_unavailable_max_ms: u64,
+    /// Time allowed for a single owner question group during a goal.
+    pub owner_question_timeout_ms: u64,
 }
 
 #[cfg(test)]

@@ -22,6 +22,7 @@ export type GoalBudgetPolicy = {
     limits: GoalBudgetLimits;
     /** How long a goal may wait for an unavailable device; always enforced. */
     deviceUnavailableMaxMs: number;
+    ownerQuestionTimeoutMs: number;
 };
 
 const HOUR_MS = 3_600_000;
@@ -45,7 +46,8 @@ const fields = [
 ] as const;
 
 function validPolicy(value: GoalBudgetPolicy): boolean {
-    return value.schemaVersion === 1 && Number.isSafeInteger(value.revision)
+    return value.schemaVersion === 2
+        && Number.isSafeInteger(value.ownerQuestionTimeoutMs) && value.ownerQuestionTimeoutMs > 0 && value.ownerQuestionTimeoutMs % 1000 === 0 && Number.isSafeInteger(value.revision)
         && validDeviceUnavailableMax(value.deviceUnavailableMaxMs)
         && fields.every(({ key, scale, maximum }) => value.limits[key] === null
             || (Number.isSafeInteger(value.limits[key]) && value.limits[key]! >= scale
@@ -66,6 +68,7 @@ export default function GoalBudgetPolicySettings() {
     const [current, setCurrent] = useState<GoalBudgetPolicy | null>(null);
     const [draft, setDraft] = useState<GoalBudgetLimits | null>(null);
     const [input, setInput] = useState<Record<keyof GoalBudgetLimits, string> | null>(null);
+    const [questionSeconds, setQuestionSeconds] = useState('');
     const [deviceHours, setDeviceHours] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
@@ -75,6 +78,7 @@ export default function GoalBudgetPolicySettings() {
         setDraft(policy.limits);
         setInput(Object.fromEntries(fields.map(({ key, scale, defaultValue }) => [key,
             String(policy.limits[key] === null ? defaultValue : policy.limits[key]! / scale)])) as Record<keyof GoalBudgetLimits, string>);
+        setQuestionSeconds(String(policy.ownerQuestionTimeoutMs / 1000));
         setDeviceHours(String(policy.deviceUnavailableMaxMs / HOUR_MS));
     };
     const reload = async () => {
@@ -89,10 +93,11 @@ export default function GoalBudgetPolicySettings() {
         return [key, draft[key] === null ? null : number * scale];
     })) as GoalBudgetLimits : null;
     const nextDeviceMax = Number(deviceHours) * HOUR_MS;
-    const valid = next !== null && validDeviceUnavailableMax(nextDeviceMax) && fields.every(({ key, scale, maximum }) =>
+    const questionTimeout = Number(questionSeconds) * 1000;
+    const valid = Number.isSafeInteger(Number(questionSeconds)) && questionTimeout > 0 && Number.isSafeInteger(questionTimeout) && next !== null && validDeviceUnavailableMax(nextDeviceMax) && fields.every(({ key, scale, maximum }) =>
         next[key] === null || (Number.isSafeInteger(next[key]) && next[key]! >= scale && next[key]! <= scale * maximum));
     const dirty = !!current && !!next && (fields.some(({ key }) => current.limits[key] !== next[key])
-        || current.deviceUnavailableMaxMs !== nextDeviceMax);
+        || current.deviceUnavailableMaxMs !== nextDeviceMax || current.ownerQuestionTimeoutMs !== questionTimeout);
     const save = async () => {
         if (!current || !next || !valid || !dirty || busy) return;
         setBusy(true); setError(''); setSaved(false);
@@ -104,6 +109,7 @@ export default function GoalBudgetPolicySettings() {
                     expectedRevision: current.revision,
                     limits: next,
                     deviceUnavailableMaxMs: nextDeviceMax,
+                    ownerQuestionTimeoutMs: questionTimeout,
                 }),
             });
             const body = await response.json();
@@ -148,6 +154,11 @@ export default function GoalBudgetPolicySettings() {
                 </div>
                 <p className="text-sm text-muted-foreground">{t('pages.aiAgent.goalBudgetDeviceUnavailableDescription')}</p>
             </div>
+            <label className="flex flex-wrap items-center gap-3">
+                <span className="min-w-56">{t('pages.aiAgent.goalQuestionTimeoutSeconds')}</span>
+                <Input className="w-32" type="number" min={1} step={1} value={questionSeconds}
+                    disabled={!draft || busy} onChange={event => setQuestionSeconds(event.target.value)} />
+            </label>
             {error && <p role="alert" className="text-destructive">{error}</p>}
             {draft && !valid && <p role="alert" className="text-destructive">{t('pages.aiAgent.goalBudgetInvalid')}</p>}
             {saved && <p role="status">{t('pages.aiAgent.goalBudgetSaved')}</p>}

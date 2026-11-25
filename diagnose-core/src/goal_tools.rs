@@ -4,7 +4,7 @@ use desk_agent_protocol::{AgentError, AgentErrorKind};
 use serde_json::json;
 
 use crate::chat::{ToolCall, ToolSpec};
-use crate::goal::{GoalControl, GoalWaitReason};
+use crate::goal::GoalControl;
 use crate::registry::{RegisteredTool, ToolEffect};
 
 pub const CONTROL_GOAL_TOOL_NAME: &str = "control_goal";
@@ -20,7 +20,6 @@ pub enum GoalDecision {
     Wait,
     Complete,
     Blocked,
-    AskUser,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -46,10 +45,6 @@ impl GoalControlProposal {
             },
             GoalDecision::Blocked => GoalControl::Blocked {
                 reason: self.message,
-            },
-            GoalDecision::AskUser => GoalControl::Wait {
-                reason: GoalWaitReason::User,
-                reference_id: self.message,
             },
         };
         control
@@ -109,11 +104,11 @@ pub fn registry() -> Vec<RegisteredTool> {
     vec![RegisteredTool {
         spec: ToolSpec {
             name: CONTROL_GOAL_TOOL_NAME.into(),
-            description: "End the current long-running goal segment using exactly decision and message. Choose continue when independent work remains, even while background tasks run; wait when no independent work remains until a current goal background task finishes (the server binds task identities; supply no task IDs); complete and explain the verified result; blocked and explain the concrete blocker; or ask_user and write the exact question for the owner. The server binds completion sources and handles pending approvals and work automatically. ask_user stops the goal until the owner replies. This changes planning state and grants no device authority. Call it alone after earlier tool results are saved. Example: {\"decision\":\"complete\",\"message\":\"Read 6+8=14 from the calculator.\"}".into(),
+            description: "End the current long-running goal segment using exactly decision and message. Choose continue when independent work remains, even while background tasks run; wait when no independent work remains until a current goal background task finishes (the server binds task identities; supply no task IDs); complete and explain the verified result; blocked and explain the concrete blocker. The server binds completion sources and handles pending approvals and work automatically. Use the separate ask_user tool for owner questions. Prefer asking once at the start. This changes planning state and grants no device authority. Call it alone after earlier tool results are saved. Example: {\"decision\":\"complete\",\"message\":\"Read 6+8=14 from the calculator.\"}".into(),
             parameters_schema: json!({
                 "type": "object",
                 "properties": {
-                    "decision": {"type": "string", "enum": ["continue", "wait", "complete", "blocked", "ask_user"]},
+                    "decision": {"type": "string", "enum": ["continue", "wait", "complete", "blocked"]},
                     "message": {"type": "string", "minLength": 1, "maxLength": MAX_CONTROL_MESSAGE_CHARS}
                 },
                 "required": ["decision", "message"],
@@ -160,7 +155,7 @@ pub fn recorded_decision(call: &ToolCall) -> Result<GoalDecision, AgentError> {
         GoalControl::Complete { .. } => GoalDecision::Complete,
         GoalControl::WaitForWork { .. } => GoalDecision::Wait,
         GoalControl::Blocked { .. } => GoalDecision::Blocked,
-        GoalControl::Wait { .. } => GoalDecision::AskUser,
+        GoalControl::Wait { .. } => GoalDecision::Wait,
     })
 }
 
@@ -201,7 +196,7 @@ mod tests {
         let spec = &registry()[0].spec.parameters_schema;
         assert_eq!(spec["required"], json!(["decision", "message"]));
         assert_eq!(spec["properties"].as_object().unwrap().len(), 2);
-        for decision in ["continue", "wait", "complete", "blocked", "ask_user"] {
+        for decision in ["continue", "wait", "complete", "blocked"] {
             let proposal = parse(&call(
                 json!({"decision": decision, "message": "下一步：验证结果"}),
             ))
@@ -233,9 +228,9 @@ mod tests {
     #[test]
     fn unicode_limit_matches_schema_and_persistent_utf8_bounds() {
         for scalar in ["中", "😀"] {
-            let proposal = parse(&call(json!({"decision": "ask_user", "message": scalar.repeat(MAX_CONTROL_MESSAGE_CHARS)}))).unwrap();
+            let proposal = parse(&call(json!({"decision": "continue", "message": scalar.repeat(MAX_CONTROL_MESSAGE_CHARS)}))).unwrap();
             proposal.into_control(vec![]).unwrap().validate().unwrap();
-            assert!(parse(&call(json!({"decision": "ask_user", "message": scalar.repeat(MAX_CONTROL_MESSAGE_CHARS + 1)}))).is_err());
+            assert!(parse(&call(json!({"decision": "continue", "message": scalar.repeat(MAX_CONTROL_MESSAGE_CHARS + 1)}))).is_err());
         }
         assert_eq!(
             registry()[0].spec.parameters_schema["properties"]["message"]["maxLength"],

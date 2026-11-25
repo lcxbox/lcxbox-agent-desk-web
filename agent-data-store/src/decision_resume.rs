@@ -226,6 +226,7 @@ pub async fn withdraw_on<C: ConnectionTrait>(
         }
         // The session write rejects the pending directory request.
         DecisionKind::Directory => {}
+        DecisionKind::OwnerQuestion => crate::owner_question::withdraw_on(txn, &pause.id).await?,
     }
     supersede_conversation_on(txn, &session.conversation_id, now_ms).await
 }

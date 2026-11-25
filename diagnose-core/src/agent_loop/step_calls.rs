@@ -936,7 +936,7 @@ pub(super) async fn run<M: FnMut() -> String>(
                                     (state.mint)(),
                                     &call.id,
                                     &crate::model_content::ModelContent::constant(
-                                        "no_goal_background_tasks: no normal background task of this goal is available to wait for. Inspect saved results and choose continue, ask_user, complete, or blocked. Use wait_subagent_reports for child dependencies.",
+                                        "no_goal_background_tasks: no normal background task of this goal is available to wait for. Inspect saved results and choose continue, complete, or blocked. Use wait_subagent_reports for child dependencies.",
                                     ),
                                     ServerResultSource::ControlGoal,
                                 )?;
@@ -1145,7 +1145,9 @@ pub(super) async fn run<M: FnMut() -> String>(
                     sink.on_tool_started(&call.name, &call.id, &call.arguments_json);
                     let prepared = (|| -> Result<_, AgentError> {
                         if session.surface != AgentSessionSurface::AiAgent
-                            || session.trigger_origin != TriggerOrigin::User
+                            || (session.trigger_origin != TriggerOrigin::User
+                                && !(planning_goal.is_some()
+                                    && crate::owner_question::planning_reply(session)))
                         {
                             return Err(crate::goal_tools::unavailable());
                         }
@@ -1397,6 +1399,39 @@ pub(super) async fn run<M: FnMut() -> String>(
                     Ok(None)
                 })
             }
+            ToolEffect::OwnerQuestion => crate::future::phase(|| async {
+                let questions = match crate::owner_question::parse(call) {
+                    Ok(questions) => questions,
+                    Err(error) => {
+                        append_tool_error(
+                            session,
+                            parent_envelope,
+                            (state.mint)(),
+                            call,
+                            &crate::model_content::ToolError::validation(&error),
+                        )?;
+                        deps.session_seam.save(session).await?;
+                        finish_tool(session, &call.id, false, sink);
+                        return Ok(None);
+                    }
+                };
+                let timeout = if session.trigger_origin == TriggerOrigin::GoalContinuation {
+                    Some(deps.session_seam.owner_question_timeout_ms().await?)
+                } else {
+                    None
+                };
+                sink.on_tool_started(&call.name, &call.id, &call.arguments_json);
+                let pause = crate::owner_question::publish(
+                    session,
+                    call,
+                    response_message_id,
+                    (state.mint)(),
+                    current_unix_ms(deps.clock)?,
+                    timeout,
+                    questions,
+                )?;
+                Ok(Some(LoopOutcome::DecisionRequested { pause }))
+            }),
             ToolEffect::DirectoryPlanning => {
                 crate::future::phase(|| async {
                     sink.on_tool_started(&call.name, &call.id, &call.arguments_json);
@@ -1682,6 +1717,7 @@ pub(super) fn continuable(effect: ToolEffect) -> bool {
         ToolEffect::SchedulePlanning
         | ToolEffect::ScheduleQuery
         | ToolEffect::SkillAuthoring
+        | ToolEffect::OwnerQuestion
         | ToolEffect::DirectoryPlanning
         | ToolEffect::GoalOpenPlanning
         | ToolEffect::GoalControl

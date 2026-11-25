@@ -25,6 +25,7 @@ pub mod memory_quota;
 pub mod memory_write;
 pub mod output_gc;
 pub mod output_store;
+pub mod owner_question;
 pub mod projection;
 pub mod proposal_review;
 pub mod retrieval_cache;

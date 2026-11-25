@@ -359,6 +359,7 @@ pub fn configure_api_surface(
                         .service(desk_signal::controller::ai_agent_session::get_ai_agent_subagent_status)
                         .service(desk_signal::controller::ai_agent_session::read_ai_agent_subagent_result)
                         .service(desk_signal::controller::ai_agent_session::control_ai_agent_subagent)
+                        .service(desk_signal::controller::ai_agent_session::respond_to_owner_question)
                         .service(desk_signal::controller::ai_agent_session::stop_ai_agent_session)
                         .service(desk_signal::controller::ai_agent_session::cancel_ai_agent_command)
                         .service(desk_signal::controller::ai_agent_session::control_ai_agent_directory)

@@ -1236,6 +1236,7 @@ fn extend_internal_tools(registry: &mut Vec<desk_diagnose_core::registry::Regist
     registry.extend(desk_diagnose_core::task_status_tools::task_status_tool_registry());
     registry.extend(desk_diagnose_core::subagent::tools::registry());
     registry.extend(desk_diagnose_core::goal_tools::registry());
+    registry.extend(desk_diagnose_core::owner_question::registry());
     registry.extend(desk_diagnose_core::goal_tools::open_registry());
     registry.extend(desk_diagnose_core::directory_tools::registry());
     registry.extend(desk_diagnose_core::schedule::proposal::registry());

@@ -1165,6 +1165,7 @@ export const aiAgentAttentionReasonEnum = {
     goal_open_approval: "goal_open_approval",
     permission_approval: "permission_approval",
     decision_approval: "decision_approval",
+    owner_question: "owner_question",
     goal_needs_input: "goal_needs_input",
     goal_budget: "goal_budget",
     goal_stalled: "goal_stalled",
@@ -2579,6 +2580,7 @@ export type ContextUsageDto = {
 };
 
 export const decisionPauseKindDtoEnum = {
+    owner_question: "owner_question",
     schedule: "schedule",
     skill: "skill",
     directory: "directory"
@@ -2587,6 +2589,65 @@ export const decisionPauseKindDtoEnum = {
 export type DecisionPauseKindDtoEnumKey = (typeof decisionPauseKindDtoEnum)[keyof typeof decisionPauseKindDtoEnum];
 
 export type DecisionPauseKindDto = DecisionPauseKindDtoEnumKey;
+
+export type OwnerQuestion = {
+    /**
+     * @type array,null
+    */
+    options?: string[] | null;
+    /**
+     * @type string
+    */
+    question: string;
+};
+
+export const ownerPromptKindEnum = {
+    questions: "questions"
+} as const;
+
+export type OwnerPromptKindEnumKey = (typeof ownerPromptKindEnum)[keyof typeof ownerPromptKindEnum];
+
+export const ownerPromptKindEnum2 = {
+    follow_up: "follow_up"
+} as const;
+
+export type OwnerPromptKindEnum2Key = (typeof ownerPromptKindEnum2)[keyof typeof ownerPromptKindEnum2];
+
+export type OwnerPrompt = ({
+    /**
+     * @type string
+    */
+    kind: OwnerPromptKindEnumKey;
+    /**
+     * @type array
+    */
+    questions: OwnerQuestion[];
+} | {
+    /**
+     * @type string
+    */
+    kind: OwnerPromptKindEnum2Key;
+    /**
+     * @type string
+    */
+    text: string;
+});
+
+/**
+ * @description An open wait in a conversation snapshot.
+*/
+export type OwnerQuestionView = {
+    /**
+     * @minLength 0
+     * @type integer,null, int64
+    */
+    deadlineUnixMs?: number | null;
+    prompt: OwnerPrompt;
+    /**
+     * @type string
+    */
+    waitId: string;
+};
 
 /**
  * @description The request the conversation\'s last turn paused on. The AI reviewer or the\nowner decides it, and the server then continues the requirement.
@@ -2601,6 +2662,7 @@ export type DecisionPauseDto = {
      * @type string
     */
     kind: DecisionPauseKindDto;
+    ownerQuestion?: (null | OwnerQuestionView);
     /**
      * @type string
     */
@@ -8902,6 +8964,12 @@ export type GoalBudgetPolicy = {
     */
     limits: GoalBudgetLimits;
     /**
+     * @description Time allowed for a single owner question group during a goal.
+     * @minLength 0
+     * @type integer, int64
+    */
+    ownerQuestionTimeoutMs: number;
+    /**
      * @minLength 0
      * @type integer, int64
     */
@@ -11227,6 +11295,95 @@ export type MouseEventData = {
     y: number;
 };
 
+export const ownerAnswerKindEnum = {
+    choice: "choice"
+} as const;
+
+export type OwnerAnswerKindEnumKey = (typeof ownerAnswerKindEnum)[keyof typeof ownerAnswerKindEnum];
+
+export const ownerAnswerKindEnum2 = {
+    text: "text"
+} as const;
+
+export type OwnerAnswerKindEnum2Key = (typeof ownerAnswerKindEnum2)[keyof typeof ownerAnswerKindEnum2];
+
+export const ownerAnswerKindEnum3 = {
+    skipped: "skipped"
+} as const;
+
+export type OwnerAnswerKindEnum3Key = (typeof ownerAnswerKindEnum3)[keyof typeof ownerAnswerKindEnum3];
+
+export type OwnerAnswer = ({
+    /**
+     * @type string
+    */
+    kind: OwnerAnswerKindEnumKey;
+    /**
+     * @type string
+    */
+    value: string;
+} | {
+    /**
+     * @type string
+    */
+    kind: OwnerAnswerKindEnum2Key;
+    /**
+     * @type string
+    */
+    value: string;
+} | {
+    /**
+     * @type string
+    */
+    kind: OwnerAnswerKindEnum3Key;
+});
+
+export const ownerQuestionActionKindEnum = {
+    answer: "answer"
+} as const;
+
+export type OwnerQuestionActionKindEnumKey = (typeof ownerQuestionActionKindEnum)[keyof typeof ownerQuestionActionKindEnum];
+
+export const ownerQuestionActionKindEnum2 = {
+    decline: "decline"
+} as const;
+
+export type OwnerQuestionActionKindEnum2Key = (typeof ownerQuestionActionKindEnum2)[keyof typeof ownerQuestionActionKindEnum2];
+
+export const ownerQuestionActionKindEnum3 = {
+    reply: "reply"
+} as const;
+
+export type OwnerQuestionActionKindEnum3Key = (typeof ownerQuestionActionKindEnum3)[keyof typeof ownerQuestionActionKindEnum3];
+
+/**
+ * @description Only a host can settle a timeout. The client can answer or close the card\nand can reply to the later, separately identified adjustment prompt.
+*/
+export type OwnerQuestionAction = ({
+    /**
+     * @type array
+    */
+    answers: OwnerAnswer[];
+    /**
+     * @type string
+    */
+    kind: OwnerQuestionActionKindEnumKey;
+} | {
+    /**
+     * @type string
+    */
+    kind: OwnerQuestionActionKindEnum2Key;
+} | {
+    /**
+     * @type string
+    */
+    kind: OwnerQuestionActionKindEnum3Key;
+    /**
+     * @type string
+    */
+    text: string;
+});
+
 export const permissionItemDecisionBodyDecisionEnum = {
     approve: "approve"
 } as const;
@@ -12035,6 +12192,25 @@ export type ResetPassword = {
      * @type string
     */
     new_password: string;
+};
+
+export type RespondToOwnerQuestion = {
+    /**
+     * @description Only a host can settle a timeout. The client can answer or close the card\nand can reply to the later, separately identified adjustment prompt.
+    */
+    action: OwnerQuestionAction;
+    /**
+     * @type string
+    */
+    clientRequestId: string;
+    /**
+     * @type string
+    */
+    session: string;
+    /**
+     * @type string
+    */
+    waitId: string;
 };
 
 export type RestResponseAccessCodeProtectionSettings = {
@@ -14834,6 +15010,12 @@ export type RestResponseGoalBudgetPolicy = {
          * @type object
         */
         limits: GoalBudgetLimits;
+        /**
+         * @description Time allowed for a single owner question group during a goal.
+         * @minLength 0
+         * @type integer, int64
+        */
+        ownerQuestionTimeoutMs: number;
         /**
          * @minLength 0
          * @type integer, int64
@@ -20632,6 +20814,12 @@ export type UpdateGoalBudgetPolicy = {
      * @type object
     */
     limits: GoalBudgetLimits;
+    /**
+     * @description Time allowed for a single owner question group during a goal.
+     * @minLength 0
+     * @type integer, int64
+    */
+    ownerQuestionTimeoutMs: number;
 };
 
 export type UpdateScheduleBudgetPolicy = {
@@ -24101,6 +24289,18 @@ export type DecideAiAgentPermissionMutationResponse = DecideAiAgentPermission200
 export type DecideAiAgentPermissionMutation = {
     Response: DecideAiAgentPermission200;
     Request: DecideAiAgentPermissionMutationRequest;
+    Errors: any;
+};
+
+export type RespondToOwnerQuestion200 = RestResponseString;
+
+export type RespondToOwnerQuestionMutationRequest = RespondToOwnerQuestion;
+
+export type RespondToOwnerQuestionMutationResponse = RespondToOwnerQuestion200;
+
+export type RespondToOwnerQuestionMutation = {
+    Response: RespondToOwnerQuestion200;
+    Request: RespondToOwnerQuestionMutationRequest;
     Errors: any;
 };
 

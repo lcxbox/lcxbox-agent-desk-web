@@ -2,6 +2,8 @@
 
 由 `diagnose-core/src/output_contracts.rs` 生成。目录版本是映射版本，并不表示每个业务对象都有 `schema_version` 字段。错误可能以安全文本返回；结果外置时须先读取附件，再判断业务内容。
 
+`ask_user` 的 `answered` 结果按原题顺序逐项返回答案，每项类型为 `choice`、`text` 或 `skipped`。用户关闭提问卡时返回 `declined`。目标阶段等待到期时返回 `timed_out`，并附上 `reason` 字段，其值为 `user may be away`。
+
 `read_subagent_reports` 返回 `WorkerReportPage`。报告按序号排列，有报告时附验收标准，并给出下一页游标及是否还有后续页。正文和可用的证据、回执引用随每条报告返回。
 
 `fetch_public_web_page` 返回 `FetchOutput`：请求与最终 URL、找到时的标题与发布时间、读取时间、媒体类型、下载字节数及其 SHA-256、表示下载或输出达到上限的 `truncated`，以及由网页或文档转换得到、不可信的 Markdown `excerpt`。读取 PDF 时另有 `document`，给出原文页数与已转换页数。
@@ -23,6 +25,7 @@
 | `cancel_subagent_request` | `SubAgentControlReceipt` | 1 | inline |
 | `adjust_subagent_request` | `SubAgentControlReceipt` | 1 | inline |
 | `update_task_status` | `TaskStatusUpdateReceipt` | 1 | inline |
+| `ask_user` | `OwnerQuestionResult` | 1 | inline |
 | `control_goal` | `GoalControlReceipt` | 1 | inline |
 | `request_goal` | `GoalRequestReceipt` | 1 | inline |
 | `request_directory` | `DirectoryRequestReceipt` | 1 | inline |

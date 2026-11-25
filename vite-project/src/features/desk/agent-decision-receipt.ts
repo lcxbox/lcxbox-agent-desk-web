@@ -111,6 +111,7 @@ export function decisionResolver(sources: AgentDecisionSources) {
 export function decisionPauseResuming(sources: AgentDecisionSources): boolean {
     const pause = sources.decisionPause;
     if (!pause) return false;
+    if (pause.kind === 'owner_question') return !pause.ownerQuestion;
     return !['pending', 'submitted'].includes(decisionResolver(sources)(pause.kind, pause.requestId).state);
 }
 

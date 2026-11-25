@@ -1,0 +1,1 @@
+{"type":"object","required":["question"],"properties":{"options":{"type":["array","null"],"items":{"type":"string"}},"question":{"type":"string"}},"additionalProperties":false,"x-readme-ref-name":"OwnerQuestion"}

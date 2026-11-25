@@ -41,6 +41,7 @@ server_result_sources! {
     DirectoryProposalFailed => "directory_proposal_failed",
     DirectoryProposalPending => "directory_proposal_pending",
     FreshVisualVerificationRequired => "fresh_visual_verification_required",
+    OwnerQuestion => crate::owner_question::TOOL,
     GoalControlBatchRejected => "goal_control_batch_rejected",
     GoalOpenFailed => "goal_open_failed",
     GoalOpenPending => "goal_open_pending",

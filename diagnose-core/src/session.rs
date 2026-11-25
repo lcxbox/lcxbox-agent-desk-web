@@ -34,7 +34,7 @@ use crate::context_attachment::{
 use crate::model_context::{ContextNotice, MAX_CONTEXT_NOTICES, ModelContextState};
 use crate::replay::{ReplayDisposition, ReplayUnavailableReason};
 
-pub const CONVERSATION_SCHEMA_VERSION: u16 = 44;
+pub const CONVERSATION_SCHEMA_VERSION: u16 = 45;
 /// Opaque replay is bounded independently from visible transcript text.
 pub const MAX_REPLAY_ENVELOPE_BYTES: usize = 256 * 1024;
 pub const MAX_SESSION_REPLAY_BYTES: usize = 2 * 1024 * 1024;
@@ -744,6 +744,8 @@ pub struct PersistedAgentSession {
     /// permission grant. See [`crate::proposal_review::DecisionPause`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_pause: Option<crate::proposal_review::DecisionPause>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_question: Option<Box<crate::owner_question::OwnerQuestionWait>>,
     pub execution_state: ExecutionState,
     /// The most recent manual disposition. It is not execution authority and is
     /// retained separately from the provider outcome and model-visible transcript.
@@ -1725,6 +1727,7 @@ impl PersistedAgentSession {
             terminal_error: None,
             terminal_permission_request_id: None,
             decision_pause: None,
+            owner_question: None,
             execution_state: ExecutionState::None,
             manual_outcome_disposition: None,
             pending_auto_triggers: Vec::new(),
@@ -2815,6 +2818,9 @@ impl PersistedAgentSession {
                 protection.protect_message(result.result_message_id.clone());
             }
         }
+        if let Some(wait) = &self.owner_question {
+            protection.protect_message(wait.issuing_message_id.clone());
+        }
         if let Some(notification) = &self.ready_subagent_notification {
             protection.protect_message(notification.message_id.clone());
         }
@@ -2905,6 +2911,9 @@ impl PersistedAgentSession {
         }
 
         if origin == TriggerOrigin::User {
+            if self.owner_question.as_ref().is_some_and(|wait| !wait.open) {
+                self.owner_question = None;
+            }
             self.scheduled_request = None;
             self.subagent_result_only = false;
         }
@@ -3381,6 +3390,15 @@ impl PersistedAgentSession {
     /// [`SessionSeam`]: crate::seam::SessionSeam
     pub fn unclosed_tool_call_ids(&self) -> Vec<String> {
         let mut open = unclosed_tool_call_ids(&self.conversation);
+        if let Some(pause) = &self.decision_pause
+            && pause.kind == crate::proposal_review::DecisionKind::OwnerQuestion
+            && self
+                .owner_question
+                .as_ref()
+                .is_some_and(|wait| wait.view.wait_id == pause.id)
+        {
+            open.retain(|id| id != &pause.call_id);
+        }
         // A paused step runs nothing: neither its held call nor the later calls
         // of the step are in flight. Released calls are ordinary open calls.
         if let Some(waiting) = &self.awaiting_permission {

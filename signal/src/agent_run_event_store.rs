@@ -745,7 +745,6 @@ async fn persist_input_on(
     followup: &UserFollowupEvent,
     now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<bool, AgentError> {
-    let event = &followup.event;
     let state_json = session
         .encode_json_for_storage()
         .map_err(|error| internal(format!("encode user follow-up run: {error}")))?;
@@ -795,7 +794,17 @@ async fn persist_input_on(
         }
     }
 
-    let payload_json = input_context::encode_event(followup, params.read_context.as_ref())?;
+    insert_input_event_on(txn, followup, params.read_context.as_ref(), now).await
+}
+
+async fn insert_input_event_on(
+    txn: &DatabaseTransaction,
+    followup: &UserFollowupEvent,
+    selection: Option<&ReadContextSelection>,
+    now: sea_orm::prelude::DateTimeUtc,
+) -> Result<bool, AgentError> {
+    let event = &followup.event;
+    let payload_json = input_context::encode_event(followup, selection)?;
     let event_row = agent_run_event::ActiveModel {
         event_id: Set(event.event_id.clone()),
         run_id: Set(event.run_id.clone()),
@@ -804,12 +813,12 @@ async fn persist_input_on(
         kind: Set(event.kind.as_str().into()),
         correlation_id: Set(event.correlation_id.clone()),
         input_seq: Set(Some(to_i64("input_seq", followup.input_seq)?)),
-        actor_id: Set(Some(params.actor_id.clone())),
+        actor_id: Set(Some(followup.actor_id.clone())),
         source_envelope_ids_json: Set(serde_json::to_string(&event.source_envelope_ids)
             .map_err(|error| internal(format!("encode source envelope ids: {error}")))?),
         result_envelope_ids_json: Set("[]".into()),
         payload_json: Set(payload_json),
-        payload_schema_version: Set(input_context::payload_version(params.read_context.as_ref())),
+        payload_schema_version: Set(input_context::payload_version(selection)),
         created_at: Set(now),
         ..Default::default()
     };
@@ -1339,6 +1348,49 @@ fn transport(message: impl Into<String>) -> AgentError {
         safe_for_model: false,
         error_code: None,
     }
+}
+
+pub(super) async fn record_goal_reply_on(
+    txn: &DatabaseTransaction,
+    session: &mut PersistedAgentSession,
+    goal: &mut GoalRun,
+    now: sea_orm::prelude::DateTimeUtc,
+) -> Result<(), sea_orm::DbErr> {
+    let msg = desk_diagnose_core::owner_question::directed_goal_reply(session)
+        .ok_or_else(|| sea_orm::DbErr::Custom("Missing goal reply".into()))?;
+    let id = format!("input-{}", msg.message_id);
+    let owner = msg.clone();
+    let event = desk_diagnose_core::owner_question::begin_goal_reply(
+        session,
+        goal,
+        id,
+        now.timestamp_millis() as u64,
+        now.to_rfc3339(),
+    )
+    .map_err(|e| sea_orm::DbErr::Custom(e.message))?;
+    let work = session.agent_role.workbench_request_id().map(str::to_owned);
+    desk_diagnose_core::future::send_phase(|| {
+        super::agent_subagent_store::initialize_input_group_on(
+            txn,
+            session,
+            owner,
+            None,
+            None,
+            now.timestamp_millis(),
+            desk_diagnose_core::subagent::creation::AcceptedOwnerSource {
+                targets: &event.targets,
+                main_request_id: work.as_deref(),
+            },
+        )
+    })
+    .await?;
+    if !insert_input_event_on(txn, &event, None, now)
+        .await
+        .map_err(|e| sea_orm::DbErr::Custom(e.message))?
+    {
+        return Err(sea_orm::DbErr::Custom("Conflicting goal reply".into()));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -3644,6 +3696,8 @@ pub(crate) mod tests {
             &desk_agent_protocol::ai_agent::goal_budget::UpdateGoalBudgetPolicy {
                 expected_revision: 0,
                 limits: configured,
+                owner_question_timeout_ms:
+                    desk_diagnose_core::goal_budget::DEFAULT_OWNER_QUESTION_TIMEOUT_MS,
                 device_unavailable_max_ms:
                     desk_diagnose_core::goal_budget::DEFAULT_DEVICE_UNAVAILABLE_MAX_MS,
             },
@@ -3694,6 +3748,8 @@ pub(crate) mod tests {
             &desk_agent_protocol::ai_agent::goal_budget::UpdateGoalBudgetPolicy {
                 expected_revision: 1,
                 limits: extended,
+                owner_question_timeout_ms:
+                    desk_diagnose_core::goal_budget::DEFAULT_OWNER_QUESTION_TIMEOUT_MS,
                 device_unavailable_max_ms:
                     desk_diagnose_core::goal_budget::DEFAULT_DEVICE_UNAVAILABLE_MAX_MS,
             },

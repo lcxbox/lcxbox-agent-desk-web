@@ -920,6 +920,7 @@ impl GoalPauseReason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GoalWaitReason {
+    OwnerQuestion,
     Approval,
     Work,
     Device,
@@ -1063,7 +1064,11 @@ impl GoalControl {
                 next_step,
             } if bounded(progress) && bounded(next_step) => {}
             Self::Wait {
-                reason: GoalWaitReason::Approval | GoalWaitReason::Work | GoalWaitReason::User,
+                reason:
+                    GoalWaitReason::OwnerQuestion
+                    | GoalWaitReason::Approval
+                    | GoalWaitReason::Work
+                    | GoalWaitReason::User,
                 reference_id,
             } if bounded(reference_id) => {}
             Self::Complete {
@@ -1347,6 +1352,7 @@ impl GoalRun {
         match self.state {
             GoalState::Queued => "queued",
             GoalState::Running => "running",
+            GoalState::Waiting(GoalWaitReason::OwnerQuestion) => "waiting_owner_question",
             GoalState::Waiting(GoalWaitReason::Approval) => "waiting_approval",
             GoalState::Waiting(GoalWaitReason::Work) => "waiting_work",
             GoalState::Waiting(GoalWaitReason::Device) => "waiting_device",

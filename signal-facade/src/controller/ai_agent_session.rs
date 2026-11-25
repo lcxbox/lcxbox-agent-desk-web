@@ -872,6 +872,8 @@ fn stale_reason_name(reason: AttachmentStaleReason) -> &'static str {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DecisionPauseDto {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_question: Option<desk_agent_protocol::ai_agent::owner_question::OwnerQuestionView>,
     pub kind: DecisionPauseKindDto,
     pub request_id: String,
     pub tool_call_id: String,
@@ -882,6 +884,7 @@ pub struct DecisionPauseDto {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DecisionPauseKindDto {
+    OwnerQuestion,
     Schedule,
     Skill,
     Directory,
@@ -894,10 +897,12 @@ impl DecisionPauseDto {
     ) -> Self {
         use desk_diagnose_core::proposal_review::DecisionKind;
         Self {
+            owner_question: None,
             kind: match pause.kind {
                 DecisionKind::Schedule => DecisionPauseKindDto::Schedule,
                 DecisionKind::Skill => DecisionPauseKindDto::Skill,
                 DecisionKind::Directory => DecisionPauseKindDto::Directory,
+                DecisionKind::OwnerQuestion => DecisionPauseKindDto::OwnerQuestion,
             },
             request_id: pause.id.clone(),
             tool_call_id: pause.call_id.clone(),
@@ -2363,6 +2368,7 @@ pub enum AiAgentAttentionReason {
     PermissionApproval,
     /// A proposal or directory request the owner must decide.
     DecisionApproval,
+    OwnerQuestion,
     GoalNeedsInput,
     GoalBudget,
     GoalStalled,
@@ -2378,6 +2384,7 @@ impl AiAgentAttentionReason {
         match self {
             Self::GoalOpenApproval => "goal_open_approval",
             Self::PermissionApproval => "permission_approval",
+            Self::OwnerQuestion => "owner_question",
             Self::DecisionApproval => "decision_approval",
             Self::GoalNeedsInput => "goal_needs_input",
             Self::GoalBudget => "goal_budget",
@@ -2580,6 +2587,7 @@ impl AiAgentAttentionItemDto {
         session_id: &str,
         device_id: &str,
         pause: &desk_diagnose_core::proposal_review::DecisionPause,
+        deadline_unix_ms: Option<u64>,
         updated_at_unix_ms: u64,
     ) -> Self {
         let identity = format!(
@@ -2595,10 +2603,16 @@ impl AiAgentAttentionItemDto {
             device_id: device_id.to_owned(),
             goal_id: None,
             request_id: Some(pause.id.clone()),
-            reason: AiAgentAttentionReason::DecisionApproval,
+            reason: if pause.kind
+                == desk_diagnose_core::proposal_review::DecisionKind::OwnerQuestion
+            {
+                AiAgentAttentionReason::OwnerQuestion
+            } else {
+                AiAgentAttentionReason::DecisionApproval
+            },
             state_version: pause.input_revision,
             updated_at_unix_ms,
-            deadline_unix_ms: None,
+            deadline_unix_ms,
             workbench: None,
         }
     }

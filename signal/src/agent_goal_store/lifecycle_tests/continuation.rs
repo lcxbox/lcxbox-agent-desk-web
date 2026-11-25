@@ -56,6 +56,17 @@ async fn claimed_fixture_on(
     now: sea_orm::prelude::DateTimeUtc,
     model_binding: Option<&desk_diagnose_core::goal::GoalModelBinding>,
 ) -> ClaimedGoalSlice {
+    let goal = goal(cid, now.timestamp_millis() as u64 - 1_000);
+    claimed_fixture_for_goal(db, goal, now, model_binding).await
+}
+
+async fn claimed_fixture_for_goal(
+    db: &DatabaseConnection,
+    goal: GoalRun,
+    now: sea_orm::prelude::DateTimeUtc,
+    model_binding: Option<&desk_diagnose_core::goal::GoalModelBinding>,
+) -> ClaimedGoalSlice {
+    let cid = &goal.conversation_id;
     seed_session(db, cid).await;
     let mut session = read_session(db, cid).await;
     session.latest_input_seq = 1;
@@ -64,16 +75,15 @@ async fn claimed_fixture_on(
             "message-1".into(),
             "Finish the report".into(),
             desk_agent_protocol::data_lineage::DestinationIdentity::Model {
-                connection_id: "gateway".into(),
-                connection_revision: 1,
-                model_id: "model".into(),
-                profile_revision: 1,
+                connection_id: goal.model_binding.connection_id.clone(),
+                connection_revision: goal.model_binding.connection_revision,
+                model_id: goal.model_binding.model_id.clone(),
+                profile_revision: goal.model_binding.profile_revision.try_into().unwrap(),
             },
         )
         .unwrap(),
     );
     store_fixture(db, &session).await;
-    let goal = goal(cid, now.timestamp_millis() as u64 - 1_000);
     insert(db, &goal).await;
     let txn = crate::db::begin_write(db, agent_session::Entity)
         .await
@@ -975,6 +985,7 @@ async fn orphan_goal_uses_current_time_policy_before_deciding_whether_to_continu
                 &desk_agent_protocol::ai_agent::goal_budget::UpdateGoalBudgetPolicy {
                     expected_revision: revision,
                     limits: policy.limits,
+                    owner_question_timeout_ms: policy.owner_question_timeout_ms,
                     device_unavailable_max_ms: policy.device_unavailable_max_ms,
                 },
             )
@@ -1008,5 +1019,505 @@ async fn orphan_goal_uses_current_time_policy_before_deciding_whether_to_continu
         assert_eq!(current.goal_id, stale.goal_id);
         assert_eq!(current.source_message_id, stale.source_message_id);
         assert!(!store.settle_lapsed_session(&row, now).await.unwrap());
+    }
+}
+
+#[tokio::test]
+async fn owner_question_closes_once_at_its_server_deadline_and_resumes_the_same_goal() {
+    use desk_agent_data_store::{
+        decision_resume, owner_question as store,
+        schedule::session::{OrgMode, SessionKey, SessionRows},
+    };
+    use desk_agent_protocol::ai_agent::owner_question::{OwnerAnswer, OwnerQuestionAction};
+    use desk_diagnose_core::{
+        chat::{ChatMessage, ToolCall},
+        goal::GoalWaitReason,
+        owner_question,
+    };
+
+    for (offset, expected) in [(-1, "answered"), (0, "timed_out")] {
+        let db = db().await;
+        let now = desk_agent_data_store::datetime::utc_now();
+        let cid = "owner-question-boundary";
+        let mut claimed = claimed_fixture(&db, cid, now).await;
+        let call = ToolCall {
+            id: "zone-call".into(),
+            name: owner_question::TOOL.into(),
+            arguments_json: r#"{"questions":[{"question":"Which time zone?"}]}"#.into(),
+        };
+        let mut issuing = ChatMessage::agent_tool_calls(
+            "asked-zone",
+            "Select the report time zone.",
+            vec![call.to_ref()],
+        );
+        issuing.turn_id = claimed.session.current_turn_id.clone();
+        issuing.set_label(Some(
+            desk_diagnose_core::subagent::projection::envelope(
+                "asked-zone",
+                &issuing.text,
+                "model-output",
+                &[claimed.session.conversation[0]
+                    .data_envelope
+                    .clone()
+                    .unwrap()],
+            )
+            .unwrap(),
+        ));
+        claimed.session.conversation.push(issuing);
+        let pause = owner_question::publish(
+            &mut claimed.session,
+            &call,
+            "asked-zone",
+            "wait-zone".into(),
+            now.timestamp_millis() as u64,
+            Some(60_000),
+            owner_question::parse(&call).unwrap(),
+        )
+        .unwrap();
+        claimed.session.decision_pause = Some(pause.clone());
+        claimed
+            .session
+            .finish_turn(TurnState::Idle, now.to_rfc3339());
+        let wait = GoalWaitReason::OwnerQuestion;
+        let goal = settle_slice(
+            &db,
+            &mut claimed.session,
+            &GoalSegmentEnd::Control(GoalControl::Wait {
+                reason: wait,
+                reference_id: pause.id.clone(),
+            }),
+            &[],
+            now,
+        )
+        .await
+        .unwrap();
+        assert_eq!(goal.state, GoalState::Waiting(wait));
+        let deadline = claimed
+            .session
+            .owner_question
+            .as_ref()
+            .unwrap()
+            .view
+            .deadline_unix_ms
+            .unwrap() as i64;
+        assert!(
+            store::due_on(&db, deadline - 1, 1)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            store::due_on(&db, deadline, 1).await.unwrap()[0].wait_id,
+            pause.id
+        );
+
+        let txn = crate::db::begin_write(&db, agent_session::Entity)
+            .await
+            .unwrap();
+        let host = crate::schedule_store::SignalScheduleHost;
+        let row = host
+            .find_session(
+                &txn,
+                SessionKey::Conversation {
+                    conversation: cid,
+                    actor: Some("1"),
+                    device: Some("device-1"),
+                },
+                OrgMode::PersonalOnly,
+                true,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let action = OwnerQuestionAction::Answer {
+            answers: vec![OwnerAnswer::Text {
+                value: "UTC".into(),
+            }],
+        };
+        let now_ms = deadline + offset;
+        assert_eq!(
+            store::settle_on(
+                &host,
+                &txn,
+                &row,
+                &pause.id,
+                Some(("submit-zone", &action)),
+                now_ms
+            )
+            .await
+            .unwrap(),
+            expected
+        );
+        assert_eq!(
+            store::settle_on(
+                &host,
+                &txn,
+                &row,
+                &pause.id,
+                Some(("submit-zone", &action)),
+                deadline + 1,
+            )
+            .await
+            .unwrap(),
+            expected
+        );
+        txn.commit().await.unwrap();
+
+        assert!(store::due_on(&db, deadline, 1).await.unwrap().is_empty());
+        let resumes = decision_resume::pending_on(&db, 0, 2).await.unwrap();
+        assert_eq!(resumes.len(), 1);
+        let when = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms).unwrap();
+        let waiting_session = read_session(&db, cid).await;
+        assert!(matches!(
+            wake_for_decision(&db, &waiting_session, &resumes[0], when)
+                .await
+                .unwrap(),
+            GoalPermissionWake::Queued
+        ));
+        let session = read_session(&db, cid).await;
+        let next = claim_slice(
+            &db,
+            &params(&session, "second-slice", when),
+            &goal.goal_id,
+            None,
+            "second-node",
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(next.goal.goal_id, goal.goal_id);
+        assert_eq!(next.goal.slice_seq, goal.slice_seq + 1);
+        assert_eq!(next.goal.goal_revision, goal.goal_revision);
+        let results: Vec<_> = next
+            .session
+            .conversation
+            .iter()
+            .filter(|m| m.tool_call_id.as_deref() == Some("zone-call"))
+            .collect();
+        assert_eq!(results.len(), 1);
+        let value: serde_json::Value = serde_json::from_str(&results[0].text).unwrap();
+        assert_eq!(value["status"], expected);
+        if expected == "timed_out" {
+            assert_eq!(value["reason"], "user may be away");
+            assert!(value.get("answers").is_none());
+        } else {
+            assert_eq!(value["answers"][0]["value"], "UTC");
+        }
+    }
+}
+
+#[tokio::test]
+async fn directed_goal_reply_proposes_a_revision_and_requires_the_owner_decision() {
+    use crate::{
+        agent_goal_open_store, agent_session_store::SignalAgentSessionStore,
+        config::ConfigConnection,
+    };
+    use desk_agent_protocol::ai_agent::owner_question::OwnerQuestionAction;
+    use desk_diagnose_core::{
+        chat::{ChatMessage, ChatRole, ToolCall},
+        goal::{GoalModelBinding, GoalOpenRequest, GoalOpenRequestEvent, GoalOpenRequestState},
+        goal_tools, owner_question,
+        proposal_review::DecisionKind,
+        registry,
+        seam::SessionSeam,
+    };
+
+    for decision in [None, Some(false), Some(true)] {
+        let db = db().await;
+        db.config_context()
+            .update::<_, DbErr, _>(|file| {
+                file.ai_gateway.base_url = Some("http://127.0.0.1:1".into());
+                file.ai_gateway.max_context_bytes = Some(1_048_576);
+                file.ai_gateway.model = Some("revision-model".into());
+                file.ai_gateway.api_key = Some("fixture-key".into());
+                file.ai_gateway.wire_protocol =
+                    Some(desk_diagnose_core::model_profile::WireProtocol::OpenAiChatCompletions);
+                file.ai_gateway.output_limit_field =
+                    desk_diagnose_core::model_profile::OutputLimitField::MaxTokens;
+                Ok(Some(()))
+            })
+            .await
+            .unwrap();
+        let destination = crate::model_provider::load(&db)
+            .await
+            .unwrap()
+            .destination_identity()
+            .unwrap();
+        let binding = GoalModelBinding::from_destination(&destination).unwrap();
+        let cid = "directed-goal";
+        let now = desk_agent_data_store::datetime::utc_now();
+        let mut original_goal = goal(cid, now.timestamp_millis() as u64 - 1_000);
+        original_goal.model_binding = binding.clone();
+        let mut claimed = claimed_fixture_for_goal(&db, original_goal, now, Some(&binding)).await;
+        let target = claimed.goal.execution_target.clone();
+        claimed
+            .session
+            .bind_agent_input_targets(std::slice::from_ref(&target))
+            .unwrap();
+        let mut prompt = ChatMessage::text(
+            "adjustment-question",
+            ChatRole::Assistant,
+            "What should change?",
+        )
+        .with_turn_id("random-first-turn");
+        let source = claimed.session.conversation[0]
+            .data_envelope
+            .clone()
+            .unwrap();
+        prompt.set_label(Some(
+            desk_diagnose_core::subagent::projection::envelope(
+                &prompt.message_id,
+                &prompt.text,
+                "model-output",
+                &[source],
+            )
+            .unwrap(),
+        ));
+        claimed.session.conversation.push(prompt);
+        let pause = owner_question::publish_follow_up(
+            &mut claimed.session,
+            "random-first-turn",
+            "adjust-report".into(),
+            now.timestamp_millis() as u64,
+            Some(60_000),
+        )
+        .unwrap();
+        claimed.session.decision_pause = Some(pause.clone());
+        claimed
+            .session
+            .finish_turn(TurnState::Idle, now.to_rfc3339());
+        let original = settle_slice(
+            &db,
+            &mut claimed.session,
+            &GoalSegmentEnd::Control(GoalControl::Wait {
+                reason: GoalWaitReason::OwnerQuestion,
+                reference_id: pause.id.clone(),
+            }),
+            &[],
+            now,
+        )
+        .await
+        .unwrap();
+        let revised_text = "Finish the report in French";
+        let action = OwnerQuestionAction::Reply {
+            text: if decision.is_some() {
+                revised_text
+            } else {
+                "Keep the original report"
+            }
+            .into(),
+        };
+        assert_eq!(
+            crate::decision_resume::settle_question(
+                &db,
+                "1",
+                cid,
+                &pause.id,
+                Some(("adjust-report-submit", &action))
+            )
+            .await
+            .unwrap(),
+            "replied"
+        );
+
+        let pending = || desk_agent_data_store::decision_resume::pending_on(&db, 0, 2);
+        let session = read_session(&db, cid).await;
+        let records = pending().await.unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(session.input_revision, original.input_revision);
+        let now = desk_agent_data_store::datetime::utc_now();
+        assert!(matches!(
+            wake_for_decision(&db, &session, &records[0], now)
+                .await
+                .unwrap(),
+            GoalPermissionWake::Held
+        ));
+        let session = read_session(&db, cid).await;
+        let waiting = load_for_subject(&db, cid, "1", "device-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(waiting.state, GoalState::Waiting(GoalWaitReason::User));
+        assert_eq!(
+            waiting.user_reply_floor_revision,
+            Some(original.input_revision)
+        );
+        assert_eq!(waiting.input_revision, original.input_revision + 1);
+        assert_eq!(session.input_revision, waiting.input_revision);
+        assert_eq!(session.single_agent_request_target().unwrap(), &target);
+        let receipt = agent_run_event::Entity::find()
+            .filter(agent_run_event::Column::RunId.eq(cid))
+            .filter(agent_run_event::Column::Kind.eq(AgentRunEventKind::UserFollowup.as_str()))
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(receipt.input_revision, waiting.input_revision as i64);
+        assert_eq!(
+            receipt.correlation_id.as_deref(),
+            Some("owner-response-adjust-report")
+        );
+        let records = pending().await.unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].input_revision, waiting.input_revision as i64);
+        assert!(matches!(
+            wake_for_decision(&db, &session, &records[0], now)
+                .await
+                .unwrap(),
+            GoalPermissionWake::NoGoal
+        ));
+
+        let store = SignalAgentSessionStore::new(db.clone())
+            .with_client_metadata(None, AgentSessionSurface::AiAgent)
+            .with_expected_input_revision(session.input_revision)
+            .with_decision_resume(DecisionKind::OwnerQuestion, pause.id.clone());
+        let mut claim = params(&session, "adjustment-planning", now);
+        claim.trigger_origin = TriggerOrigin::ProposalDecision;
+        let mut planning = store.claim_turn(claim).await.unwrap();
+        assert!(owner_question::planning_reply(&planning));
+        assert!(
+            registry::lookup_for_session(
+                &goal_tools::open_registry(),
+                goal_tools::REQUEST_GOAL_TOOL_NAME,
+                &planning
+            )
+            .is_some()
+        );
+        let Some(approve) = decision else {
+            planning.conversation.push(
+                ChatMessage::text(
+                    "clarified",
+                    ChatRole::Assistant,
+                    "I will finish the original report.",
+                )
+                .with_turn_id("adjustment-planning"),
+            );
+            planning.finish_turn(TurnState::Idle, now.to_rfc3339());
+            store.save(&mut planning).await.unwrap();
+            let records = desk_agent_data_store::decision_resume::started_on(&db, 2)
+                .await
+                .unwrap();
+            assert_eq!(records.len(), 1);
+            let when = desk_agent_data_store::datetime::utc_now();
+            assert!(matches!(
+                wake_for_decision(&db, &planning, &records[0], when)
+                    .await
+                    .unwrap(),
+                GoalPermissionWake::Queued
+            ));
+            let session = read_session(&db, cid).await;
+            let next = claim_slice(
+                &db,
+                &params(&session, "continue-original", when),
+                &original.goal_id,
+                None,
+                "second-node",
+                None,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(next.goal.goal_text, original.goal_text);
+            assert_eq!(next.goal.goal_revision, original.goal_revision);
+            assert_eq!(next.goal.source_message_id, original.source_message_id);
+            continue;
+        };
+        let call = ToolCall {
+            id: "propose-french".into(),
+            name: goal_tools::REQUEST_GOAL_TOOL_NAME.into(),
+            arguments_json: serde_json::json!({"goal_text": revised_text}).to_string(),
+        };
+        let parsed = goal_tools::parse_open(&call).unwrap();
+        let source = owner_question::directed_goal_reply(&planning)
+            .unwrap()
+            .message_id
+            .clone();
+        let request = GoalOpenRequest::new_revision(
+            "revision-of-report".into(),
+            &waiting,
+            source,
+            planning.input_revision,
+            parsed.goal_text,
+            binding,
+            now.timestamp_millis() as u64,
+        )
+        .unwrap();
+        planning.conversation.push(
+            ChatMessage::agent_tool_calls("proposed-french", "", vec![call.to_ref()])
+                .with_turn_id("adjustment-planning"),
+        );
+        planning.conversation.push(
+            ChatMessage::tool_result(
+                "revision-submitted",
+                &call.id,
+                serde_json::json!({"status":"pending_approval","request_id":request.request_id,"goal_text":revised_text}).to_string(),
+            ).with_turn_id("adjustment-planning")
+        );
+        planning.last_event_seq += 1;
+        let event = GoalOpenRequestEvent::new(
+            &request,
+            AgentRunEventKind::GoalOpenRequested,
+            planning.last_event_seq,
+            now.to_rfc3339(),
+        )
+        .unwrap();
+        agent_goal_open_store::save_model_request(&db, &mut planning, &event)
+            .await
+            .unwrap();
+        planning.finish_turn(TurnState::Idle, now.to_rfc3339());
+        store.save(&mut planning).await.unwrap();
+        let (decided, change) = agent_goal_open_store::decide_for_subject(
+            &db,
+            cid,
+            "1",
+            "device-1",
+            &request.request_id,
+            approve,
+            desk_agent_data_store::datetime::utc_now(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let latest = load_for_subject(&db, cid, "1", "device-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.goal_id, original.goal_id);
+        assert_eq!(
+            latest.original_source_message_id,
+            original.original_source_message_id
+        );
+        assert_eq!(latest.execution_target, target);
+        if approve {
+            assert_eq!(decided.state, GoalOpenRequestState::Approved);
+            assert_eq!(change.unwrap(), latest);
+            assert_eq!(latest.goal_revision, original.goal_revision + 1);
+            assert_eq!(latest.goal_text, revised_text);
+            assert_eq!(latest.state, GoalState::Queued);
+            let resumed = read_session(&db, cid).await;
+            let next = claim_slice(
+                &db,
+                &params(
+                    &resumed,
+                    "revised-slice",
+                    desk_agent_data_store::datetime::utc_now(),
+                ),
+                &latest.goal_id,
+                Some(latest.state_version),
+                "second-node",
+                None,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(next.goal.goal_revision, latest.goal_revision);
+            assert_eq!(next.goal.source_message_id, "owner-response-adjust-report");
+        } else {
+            assert_eq!(decided.state, GoalOpenRequestState::Denied);
+            assert!(change.is_none());
+            assert_eq!(latest.goal_revision, original.goal_revision);
+            assert_eq!(latest.goal_text, original.goal_text);
+        }
     }
 }

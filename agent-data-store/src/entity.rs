@@ -24,6 +24,7 @@ pub mod agent_memory_use;
 pub mod agent_model_input_item;
 pub mod agent_model_output;
 pub mod agent_origin;
+pub mod agent_owner_question;
 pub mod agent_quota;
 pub mod agent_read_projection;
 pub mod agent_retrieval_query;
@@ -89,4 +90,5 @@ pub fn register_schema(schema: sea_orm::SchemaBuilder) -> sea_orm::SchemaBuilder
         .register(agent_skill_proposal::Entity)
         .register(agent_skill_scan::Entity)
         .register(agent_decision_resume::Entity)
+        .register(agent_owner_question::Entity)
 }

@@ -10,6 +10,7 @@ fn tools(limits: &AgentDataLimits) -> Vec<RegisteredTool> {
     tools.extend(crate::subagent::tools::registry());
     tools.extend(crate::capability_disclosure::capability_discovery_tool_registry());
     tools.extend(crate::goal_tools::registry());
+    tools.extend(crate::owner_question::registry());
     tools.extend(crate::goal_tools::open_registry());
     tools.extend(crate::directory_tools::registry());
     tools.extend(crate::schedule::proposal::registry());

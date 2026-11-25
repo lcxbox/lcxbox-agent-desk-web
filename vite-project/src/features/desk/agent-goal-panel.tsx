@@ -7,7 +7,7 @@ import type { AiAgentGoal, AiAgentGoalOwnerAction } from './use-ai-agent-chat';
 export function goalPlanningAction(goal: Pick<AiAgentGoal, 'state' | 'pauseReason'>): AiAgentGoalOwnerAction | null {
     if (['completed', 'failed', 'cancelled', 'waiting_user'].includes(goal.state)) return null;
     if (goal.state === 'paused') return goal.pauseReason === 'stalled' ? 'retry_stalled' : 'resume';
-    return ['queued', 'running', 'waiting_approval', 'waiting_work', 'waiting_device', 'waiting_model', 'blocked'].includes(goal.state) ? 'pause' : null;
+    return ['queued', 'running', 'waiting_approval', 'waiting_owner_question', 'waiting_work', 'waiting_device', 'waiting_model', 'blocked'].includes(goal.state) ? 'pause' : null;
 }
 
 export function goalProgressMessage(goal: Pick<AiAgentGoal, 'state' | 'statusReason' | 'checkpointSummary'>): string | null {

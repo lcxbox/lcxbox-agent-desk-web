@@ -1,1 +1,1 @@
-{"type":"string","enum":["schedule","skill","directory"],"x-readme-ref-name":"DecisionPauseKindDto"}
+{"type":"string","enum":["owner_question","schedule","skill","directory"],"x-readme-ref-name":"DecisionPauseKindDto"}

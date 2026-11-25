@@ -235,7 +235,8 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             });
     let planning_goal = if session.surface == AgentSessionSurface::AiAgent
         && session.agent_role.is_main()
-        && session.trigger_origin == TriggerOrigin::User
+        && (session.trigger_origin == TriggerOrigin::User
+            || crate::owner_question::planning_reply(session))
     {
         deps.session_seam
             .load_goal_for_planning(session)
@@ -385,7 +386,12 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             )
         });
     }
-    let goal_control_only = session.trigger_origin == TriggerOrigin::GoalContinuation
+    let adjustment = session
+        .owner_question
+        .as_ref()
+        .is_some_and(|w| w.needs_adjustment);
+    let goal_control_only = !adjustment
+        && session.trigger_origin == TriggerOrigin::GoalContinuation
         && (state.goal_correction_attempted
             || deps
                 .max_steps_per_turn
@@ -694,6 +700,9 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
         exposed.retain(|candidate| candidate.name() != tool.name());
         exposed.push(tool);
     }
+    if adjustment {
+        exposed.clear();
+    }
     let require_tool_choice = goal_control_only;
     exposed.sort_by_key(|tool| tool.name());
     let tool_requirements =
@@ -969,6 +978,14 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             _ => None,
         };
         let mut messages = vec![*system_prompt];
+        if adjustment {
+            messages.push(ChatMessage::public_system(format!("owner-adjustment-{turn_id}"), "The owner closed the question card. Ask one brief question in the current conversation about what they want adjusted. Use their language and ordinary text. Wait for their reply."));
+        } else if crate::owner_question::planning_reply(session) {
+            messages.push(ChatMessage::public_system(
+                format!("owner-goal-adjustment-{turn_id}"),
+                "The owner has replied to your adjustment question. If their reply changes the goal itself, propose the complete revised goal with request_goal. If it only clarifies how to proceed, acknowledge it briefly in ordinary text and the existing goal will resume.",
+            ));
+        }
         if session.surface == AgentSessionSurface::AiAgent
             && deps.model.command_completion_event_id().is_none()
             && let Some(policy) = deps.model.model_egress_policy()?
@@ -1369,7 +1386,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                 .model
                 .model_egress_policy()?
                 .map(|policy| policy.destination);
-            if session.trigger_origin == TriggerOrigin::GoalContinuation {
+            if !adjustment && session.trigger_origin == TriggerOrigin::GoalContinuation {
                 let goal = deps.session_seam.load_claimed_goal(session).await?;
                 // Goal markers show these message ids; they are rebuilt every step.
                 session.ui_references.register_message_ids(
@@ -1460,7 +1477,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
             }
             if state.goal_correction_attempted {
                 let marker_id = format!("goal-control-correction-{turn_id}");
-                let marker_text = "The preceding answer did not end this goal segment. Call control_goal now with a factual continue, wait, ask_user, complete, or blocked decision using exactly decision and message. Do not call a device tool in this response.";
+                let marker_text = "The preceding answer did not end this goal segment. Call control_goal now with a factual continue, wait, complete, or blocked decision using exactly decision and message. Do not call a device tool in this response.";
                 let parent =
                     crate::permission_resume::latest_user_requirement(&session.conversation)
                         .and_then(|message| message.data_envelope.as_ref());
@@ -2270,6 +2287,24 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                     &response_message_id,
                                     true,
                                 )?;
+                                if adjustment {
+                                    let timeout = if session.trigger_origin
+                                        == TriggerOrigin::GoalContinuation
+                                    {
+                                        Some(deps.session_seam.owner_question_timeout_ms().await?)
+                                    } else {
+                                        None
+                                    };
+                                    let pause = crate::owner_question::publish_follow_up(
+                                        session,
+                                        turn_id,
+                                        (state.mint)(),
+                                        current_unix_ms(deps.clock)?,
+                                        timeout,
+                                    )?;
+                                    sink.on_answer_committed(&turn.text);
+                                    return Ok(Some(LoopOutcome::DecisionRequested { pause }));
+                                }
                                 deps.session_seam.save(session).await?;
                                 if session.trigger_origin == TriggerOrigin::GoalContinuation
                                     && !state.goal_correction_attempted
@@ -2456,7 +2491,9 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
 
                                 if turn.tool_calls.len() != 1
                                     && turn.tool_calls.iter().any(|call| {
-                                        call.name == crate::goal_tools::CONTROL_GOAL_TOOL_NAME
+                                        call.name == crate::owner_question::TOOL
+                                            || call.name
+                                                == crate::goal_tools::CONTROL_GOAL_TOOL_NAME
                                             || call.name
                                                 == crate::goal_tools::REQUEST_GOAL_TOOL_NAME
                                     })
@@ -2468,7 +2505,7 @@ async fn prepare_iteration_inner<'a, 'd: 'a, M: FnMut() -> String + 'a>(
                                             (state.mint)(),
                                             &call.id,
                                             &crate::model_content::ModelContent::constant(
-                                                "not executed: goal control or goal opening must be the only tool in its model response",
+                                                "not executed: ask_user, goal control or goal opening must be the only tool in its model response",
                                             ),
                                             ServerResultSource::GoalControlBatchRejected,
                                         )?;

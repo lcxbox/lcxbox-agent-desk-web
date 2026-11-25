@@ -2,6 +2,8 @@
 
 Generated from `diagnose-core/src/output_contracts.rs`. Catalog version describes this mapping, not a payload schema field. All errors may instead be returned as safe text; an externalized attachment must be read before interpreting its business payload.
 
+`ask_user` returns `answered` with one entry per question in the original order. An entry has kind `choice`, `text` or `skipped`. Closing the card returns `declined`. An expired goal question returns `timed_out` with the reason `user may be away`.
+
 The `read_subagent_reports` tool returns a `WorkerReportPage` with reports in sequence order, acceptance criteria when reports are present, a next cursor, and an indication of further pages. Report text and available evidence and receipt references stay with the individual report.
 
 `fetch_public_web_page` returns a `FetchOutput`: the requested and final URL, title and publication time when found, fetch time, media type, the size and SHA-256 of the downloaded bytes, a `truncated` flag for a download or output limit, and an untrusted Markdown `excerpt` converted from the page or document. A PDF read also has `document` with its source and converted page counts.
@@ -23,6 +25,7 @@ Model results retain business text, outcomes, times, coverage and usable referen
 | `cancel_subagent_request` | `SubAgentControlReceipt` | 1 | inline |
 | `adjust_subagent_request` | `SubAgentControlReceipt` | 1 | inline |
 | `update_task_status` | `TaskStatusUpdateReceipt` | 1 | inline |
+| `ask_user` | `OwnerQuestionResult` | 1 | inline |
 | `control_goal` | `GoalControlReceipt` | 1 | inline |
 | `request_goal` | `GoalRequestReceipt` | 1 | inline |
 | `request_directory` | `DirectoryRequestReceipt` | 1 | inline |

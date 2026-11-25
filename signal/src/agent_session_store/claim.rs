@@ -127,7 +127,7 @@ impl SignalAgentSessionStore {
         }
         session.adopt_trigger(params.trigger_origin, &params.turn_id);
         if self.decision_resume.is_some() {
-            session.decision_pause = None;
+            desk_diagnose_core::owner_question::claim_resume(&mut session);
         }
         if let Some((_, message_id)) = &self.queued_input {
             if !params.trigger_origin.is_request_input()

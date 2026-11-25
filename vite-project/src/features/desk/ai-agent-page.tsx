@@ -1,3 +1,4 @@
+import { AgentOwnerQuestion } from './agent-owner-question';
 import { useOptionalDeviceTarget } from './device-target-context';
 import { readAgentDraft, writeAgentDraft } from './agent-draft';
 import { agentModelMissing } from './agent-model-readiness';
@@ -1152,6 +1153,7 @@ export function AiAgentWorkspace({
                                 </Link>
                             </p>
                         )}
+                        {chat.sessionId && pause?.ownerQuestion && <AgentOwnerQuestion key={pause.ownerQuestion.waitId} session={chat.sessionId} wait={pause.ownerQuestion} refresh={chat.refreshSnapshot} />}
                         <AgentComposerInput
                             ref={goalReplyRef}
                             sendDisabled={sendDisabled}

@@ -2422,7 +2422,7 @@ export function useAiAgentChat({
         stopConfirmation,
         dismissStopConfirmation: () => { if (!stopPending.current) setStopConfirmation(null); },
         confirmStop,
-        canStop: !hydrating && !!snapshotWatermark.current && (remoteActive || !!(activeRequest.current ?? snapshotActiveRequest.current)
+        canStop: !hydrating && !!snapshotWatermark.current && (!!decisionPause?.ownerQuestion || remoteActive || !!(activeRequest.current ?? snapshotActiveRequest.current)
             || (subagents.tasks?.unfinished ?? 0) > 0 || subagents.active_tasks.length > 0
             || commandTasks.some(task => task.state === 'running')
             || backgroundTasks.some(task => task.state === 'running')

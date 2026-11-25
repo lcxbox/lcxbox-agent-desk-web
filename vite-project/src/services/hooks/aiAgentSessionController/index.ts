@@ -55,6 +55,7 @@ export type { OpenAiAgentApprovalDelegationMutationKey } from "./useOpenAiAgentA
 export type { ReadAgentAttachmentMutationKey } from "./useReadAgentAttachment.ts";
 export type { ReadAiAgentSubagentResultQueryKey } from "./useReadAiAgentSubagentResult.ts";
 export type { ReadAiAgentSubagentResultSuspenseQueryKey } from "./useReadAiAgentSubagentResultSuspense.ts";
+export type { RespondToOwnerQuestionMutationKey } from "./useRespondToOwnerQuestion.ts";
 export type { ResumeAiAgentMainRequestsMutationKey } from "./useResumeAiAgentMainRequests.ts";
 export type { RevokeAiAgentCapabilityGrantMutationKey } from "./useRevokeAiAgentCapabilityGrant.ts";
 export type { SaveAiAgentIssueSubscriptionMutationKey } from "./useSaveAiAgentIssueSubscription.ts";
@@ -233,6 +234,9 @@ export { useReadAiAgentSubagentResult } from "./useReadAiAgentSubagentResult.ts"
 export { readAiAgentSubagentResultSuspenseQueryKey } from "./useReadAiAgentSubagentResultSuspense.ts";
 export { readAiAgentSubagentResultSuspenseQueryOptions } from "./useReadAiAgentSubagentResultSuspense.ts";
 export { useReadAiAgentSubagentResultSuspense } from "./useReadAiAgentSubagentResultSuspense.ts";
+export { respondToOwnerQuestionMutationKey } from "./useRespondToOwnerQuestion.ts";
+export { respondToOwnerQuestionMutationOptions } from "./useRespondToOwnerQuestion.ts";
+export { useRespondToOwnerQuestion } from "./useRespondToOwnerQuestion.ts";
 export { resumeAiAgentMainRequestsMutationKey } from "./useResumeAiAgentMainRequests.ts";
 export { resumeAiAgentMainRequestsMutationOptions } from "./useResumeAiAgentMainRequests.ts";
 export { useResumeAiAgentMainRequests } from "./useResumeAiAgentMainRequests.ts";

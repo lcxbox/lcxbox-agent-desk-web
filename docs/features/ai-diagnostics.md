@@ -4,6 +4,12 @@ Device owners can open [Model call metrics](/features/model-metrics) from **Usag
 
 Fixed-device and multi-device conversations both support temporary chats. Follow-ups and retries retain the original temporary mode. Temporary chats neither read nor write long-term memory and are excluded from cross-conversation search.
 
+## Answer a question from the agent
+
+The agent can ask up to five questions together. Open the conversation or the work item in Super Agent. For each question, choose an option, type your own answer, or select **Skip**. Submit the group once to continue the original task.
+
+Close the question card to decline the group. The agent then asks what you would like to adjust, and you can reply in the same conversation. Leaving the page keeps the question open. Ordinary conversations wait for you. During a Goal, the agent prefers to ask early and continues with the information it has when the displayed deadline passes. The default wait is one minute.
+
 ## Get started
 
 A conversation opened from a device page is fixed to that device. Personal conversations let you select devices. For the same selected device, both entries use the same device tools, approvals, execution and receipts.

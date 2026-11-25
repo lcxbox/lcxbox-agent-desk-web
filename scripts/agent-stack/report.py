@@ -74,7 +74,7 @@ def protected(symbol):
     ))) or ('schedule_executor' in symbol and any(word in symbol for word in (
         'process_goal', 'scan_goals_once', 'scan_once',
     ))) or any(word in symbol for word in (
-        'agent_loop', 'ai_agent_orchestrator', 'remote_tool_edge', 'remote_tool_routing',
+        'owner_question', 'decision_resume', 'wake_for_decision', 'agent_loop', 'ai_agent_orchestrator', 'remote_tool_edge', 'remote_tool_routing',
         'agent_model', 'agent_model', 'SignalModelSeam', 'capability_provider_work', 'capability_grant_store',
         'agent_approval_concrete', 'approval_reviewer', 'manager_provider_tools', 'agent_subagent_store',
         'PersistedAgentSession', 'SessionManagementMetadata', 'retire_unsupported', 'conversation_title', 'load_title_limit', 'store_title',

@@ -1471,6 +1471,11 @@ pub trait SessionSeam {
     /// save — the loop ends the turn rather than overwriting the new owner's work.
     async fn save(&self, session: &mut PersistedAgentSession) -> Result<(), AgentError>;
 
+    /// Current platform policy, sampled once per goal question.
+    async fn owner_question_timeout_ms(&self) -> Result<u64, AgentError> {
+        Ok(crate::goal_budget::DEFAULT_OWNER_QUESTION_TIMEOUT_MS)
+    }
+
     /// Close the dangling tool calls of a turn that is settling as failed, so the
     /// next turn replays a well-formed history and new input is not held behind
     /// them. Hosts judge each call with the same durable records their

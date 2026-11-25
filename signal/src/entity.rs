@@ -12,6 +12,7 @@ pub mod agent_run_event;
 pub use desk_agent_data_store::entity::agent_schedule;
 pub use desk_agent_data_store::entity::agent_schedule_run;
 pub mod agent_session;
+pub use desk_agent_data_store::entity::agent_owner_question;
 pub mod approval_model_probe_observation;
 pub mod device_code;
 pub mod host_remote_access_state;

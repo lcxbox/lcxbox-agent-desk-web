@@ -143,7 +143,11 @@ pub(crate) async fn persist_on<C: ConnectionTrait>(
             .filter(agent_session::Column::DeviceId.eq(&row.device_id))
             .filter(agent_session::Column::StateJson.eq(&row.state_json));
     }
-    query.exec(db).await
+    let result = query.exec(db).await?;
+    if result.rows_affected == 1 && session.owner_question.is_some() {
+        desk_agent_data_store::owner_question::publish_on(db, session).await?;
+    }
+    Ok(result)
 }
 
 fn history_error(error: impl Into<AgentStoreError>) -> AgentError {

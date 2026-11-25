@@ -311,3 +311,112 @@ async fn a_skill_proposal_ends_the_turn_and_later_calls_wait_for_the_decision() 
             .any(|tool| tool.name == crate::skills::authoring::PROPOSE_TOOL)
     );
 }
+
+#[test]
+fn owner_question_pauses_once_and_decline_publishes_a_separate_text_wait_on_small_stacks() {
+    for bytes in [1024 * 1024, 2 * 1024 * 1024] {
+        std::thread::Builder::new()
+            .stack_size(bytes)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(Box::pin(exercise_owner_question_decline()));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
+
+async fn exercise_owner_question_decline() {
+    let mem = MemSession::default();
+    let store = ProposalStore { mem: &mem };
+    let questions =
+        r#"{"questions":[{"question":"Zone?","options":["UTC","Local"]},{"question":"Day?"}]}"#;
+    let model = ScriptModel {
+        turns: RefCell::new(
+            [
+                tool_use_args("question", "ask_user", questions),
+                answer("What would you like me to adjust?"),
+            ]
+            .into(),
+        ),
+        requests: Default::default(),
+    };
+    let tools = RecordingTools {
+        calls: Default::default(),
+        reply: String::new(),
+    };
+    let registry = crate::owner_question::registry();
+    assert!(
+        registry
+            .iter()
+            .all(crate::agent_policy::is_targetless_web_tool)
+    );
+    let clock = || "2026-09-09T00:00:00Z".to_owned();
+    let mut deps = deps(&mem, &model, &tools, &registry, &clock);
+    deps.session_seam = &store;
+    let outcome = run_agent_turn(
+        &deps,
+        claim(),
+        ChatMessage::text("user", ChatRole::User, "Report outages"),
+        &mut NullTurnSink,
+    )
+    .await
+    .unwrap();
+    let LoopOutcome::DecisionRequested { pause } = outcome else {
+        panic!("{outcome:?}")
+    };
+    assert_eq!(model.requests.borrow().len(), 1);
+    {
+        let mut stored = mem.inner.borrow_mut();
+        let session = stored.as_mut().unwrap();
+        let wait = session.owner_question.as_ref().unwrap();
+        assert_eq!(wait.view.deadline_unix_ms, None);
+        assert_eq!(pause.id, wait.view.wait_id);
+        session
+            .conversation
+            .push(ChatMessage::system_event("later", "Background detail"));
+        crate::owner_question::insert_result(
+            session,
+            &desk_agent_protocol::ai_agent::owner_question::OwnerQuestionResult::Declined,
+            None,
+        )
+        .unwrap();
+        let issuing = session
+            .conversation
+            .iter()
+            .position(|m| {
+                m.message_id == session.owner_question.as_ref().unwrap().issuing_message_id
+            })
+            .unwrap();
+        assert_eq!(
+            session.conversation[issuing + 1].text,
+            r#"{"status":"declined"}"#
+        );
+        assert_eq!(session.conversation[issuing + 2].message_id, "later");
+        session.owner_question.as_mut().unwrap().open = false;
+        session.owner_question.as_mut().unwrap().needs_adjustment = true;
+        session.decision_pause = None;
+    }
+    let resumed =
+        resume_agent_turn_after_permission(&deps, resume_claim(), bridge(), &mut NullTurnSink)
+            .await
+            .unwrap();
+    let LoopOutcome::DecisionRequested { pause: follow_up } = resumed else {
+        panic!("{resumed:?}")
+    };
+    assert_ne!(follow_up.id, pause.id);
+    let stored = mem.inner.borrow();
+    let wait = stored.as_ref().unwrap().owner_question.as_ref().unwrap();
+    assert!(wait.accepts_reply("Use both"));
+    assert!(
+        model.requests.borrow()[1]
+            .tools
+            .iter()
+            .all(|spec| crate::model_controls::is_control(&spec.name))
+    );
+    assert!(tools.calls.borrow().is_empty());
+}

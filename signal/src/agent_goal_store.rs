@@ -334,6 +334,15 @@ pub async fn apply_owner_action(
         .map_err(|_| invalid())?;
     goal.apply_owner_action(action, now_ms)
         .map_err(|_| invalid())?;
+    if matches!(action, GoalOwnerAction::Cancel | GoalOwnerAction::Pause) {
+        desk_agent_data_store::owner_question::withdraw_goal_on(
+            &txn,
+            &mut session,
+            &goal.goal_id,
+            now.timestamp_millis(),
+        )
+        .await?;
+    }
     if action == GoalOwnerAction::Cancel {
         goal.settle_cancelled_input(&mut session);
     }
@@ -348,6 +357,18 @@ pub async fn apply_owner_action(
     )
     .await?;
     if action == GoalOwnerAction::Resume {
+        if desk_diagnose_core::owner_question::directed_goal_reply(&session).is_some()
+            && session
+                .owner_question
+                .as_ref()
+                .and_then(|w| w.goal.as_ref())
+                .is_some_and(|g| g.goal_id == goal.goal_id && g.goal_revision == goal.goal_revision)
+        {
+            desk_diagnose_core::future::send_phase(|| {
+                bind_clarified_goal_on(&txn, &mut session, &goal, now.timestamp_millis())
+            })
+            .await?;
+        }
         crate::agent_subagent_store::resume_goal_parent_on(
             &txn,
             &mut session,
@@ -661,6 +682,41 @@ pub async fn wake_for_permission_decision(
     Ok(outcome)
 }
 
+async fn bind_clarified_goal_on(
+    txn: &DatabaseTransaction,
+    session: &mut PersistedAgentSession,
+    goal: &GoalRun,
+    now_ms: i64,
+) -> Result<(), DbErr> {
+    let original = session
+        .conversation
+        .iter()
+        .find(|m| m.message_id == goal.source_message_id)
+        .cloned()
+        .ok_or_else(invalid)?;
+    let targets = session
+        .agent_request_targets()
+        .ok_or_else(invalid)?
+        .to_vec();
+    let work = session.agent_role.workbench_request_id().map(str::to_owned);
+    desk_diagnose_core::future::send_phase(|| {
+        super::agent_subagent_store::initialize_input_group_on(
+            txn,
+            session,
+            original,
+            None,
+            Some(goal),
+            now_ms,
+            desk_diagnose_core::subagent::creation::AcceptedOwnerSource {
+                targets: &targets,
+                main_request_id: work.as_deref(),
+            },
+        )
+    })
+    .await?;
+    Ok(())
+}
+
 /// Wakes the goal whose segment paused on the decided proposal or directory
 /// request of `record`, clears the pause and ends the record. `NoGoal` leaves
 /// an ordinary conversation to the decision resume.
@@ -695,29 +751,80 @@ pub async fn wake_for_decision(
     };
     let mut session =
         PersistedAgentSession::decode_json(&session_row.state_json).map_err(|_| invalid())?;
+    use sea_orm::QueryTrait;
+    if i64::try_from(session.input_revision).ok() != Some(record.input_revision) {
+        return Ok(GoalPermissionWake::Held);
+    }
+    let question = record.kind == "owner_question";
+    let binding = session
+        .owner_question
+        .as_ref()
+        .filter(|w| w.view.wait_id == record.request_id)
+        .and_then(|w| w.goal.as_ref());
+    if question && binding.is_none() {
+        return Ok(GoalPermissionWake::NoGoal);
+    }
+    let completed_clarification = record.state == desk_agent_data_store::decision_resume::STARTED
+        && desk_diagnose_core::owner_question::finished_goal_clarification(
+            &session,
+            &record.request_id,
+        );
+    let wait_reason = if completed_clarification {
+        GoalWaitReason::User
+    } else if question {
+        GoalWaitReason::OwnerQuestion
+    } else {
+        GoalWaitReason::Approval
+    };
+    let unavailable = if question {
+        GoalPermissionWake::Held
+    } else {
+        GoalPermissionWake::NoGoal
+    };
     let Some(goal_record) = goal_row::Entity::find()
         .filter(goal_row::Column::ConversationId.eq(&record.conversation_id))
         .filter(goal_row::Column::ActorId.eq(&record.actor_id))
         .filter(goal_row::Column::DeviceId.eq(&record.device_id))
+        .apply_if(binding.filter(|_| question), |query, source| {
+            query.filter(goal_row::Column::GoalId.eq(&source.goal_id))
+        })
         .order_by_desc(goal_row::Column::CreatedAt)
         .order_by_desc(goal_row::Column::Id)
         .one(&txn)
         .await?
     else {
-        return Ok(GoalPermissionWake::NoGoal);
+        return Ok(unavailable);
     };
     let mut goal = decode(&goal_record)?;
-    if goal.state.is_terminal() || goal.input_revision != session.input_revision {
+    if binding.filter(|_| question).is_some_and(|b| {
+        goal.goal_revision != b.goal_revision
+            || goal.slice_seq != b.segment_seq
+            || goal.source_message_id != b.source_message_id
+    }) || goal.state.is_terminal()
+        || goal.input_revision != session.input_revision
+    {
+        return Ok(unavailable);
+    }
+    let directed =
+        question && desk_diagnose_core::owner_question::directed_goal_reply(&session).is_some();
+    if directed
+        && !completed_clarification
+        && goal.can_propose_revision(session.input_revision).is_ok()
+    {
         return Ok(GoalPermissionWake::NoGoal);
     }
     if goal.state == GoalState::Running {
         // The segment may not have settled into waiting yet.
         return Ok(GoalPermissionWake::Held);
     }
-    if goal.state != GoalState::Waiting(GoalWaitReason::Approval)
-        || goal.status_reason.as_deref() != Some(record.request_id.as_str())
+    if goal.state != GoalState::Waiting(wait_reason)
+        || if completed_clarification {
+            goal.can_propose_revision(session.input_revision).is_err()
+        } else {
+            goal.status_reason.as_deref() != Some(record.request_id.as_str())
+        }
     {
-        return Ok(GoalPermissionWake::NoGoal);
+        return Ok(unavailable);
     }
     if !session.turn_state.can_claim()
         || session_row
@@ -728,9 +835,21 @@ pub async fn wake_for_decision(
     }
     let previous_state_version = goal.state_version;
     let previous_lease_epoch = goal.lease_epoch;
-    goal.wake_from(GoalWaitReason::Approval, now_ms)
-        .map_err(|_| invalid())?;
-    session.decision_pause = None;
+    if directed && !completed_clarification {
+        desk_diagnose_core::future::send_phase(|| {
+            super::agent_run_event_store::record_goal_reply_on(&txn, &mut session, &mut goal, now)
+        })
+        .await?;
+    } else {
+        if completed_clarification {
+            desk_diagnose_core::future::send_phase(|| {
+                bind_clarified_goal_on(&txn, &mut session, &goal, now.timestamp_millis())
+            })
+            .await?;
+        }
+        goal.wake_from(wait_reason, now_ms).map_err(|_| invalid())?;
+        session.decision_pause = None;
+    }
     session.last_event_seq = session.last_event_seq.checked_add(1).ok_or_else(invalid)?;
     session.version = session_row.version.checked_add(1).ok_or_else(invalid)?;
     let ledger = GoalLedgerEvent::new(
@@ -783,10 +902,25 @@ pub async fn wake_for_decision(
     }
     .insert(&txn)
     .await?;
-    if !desk_agent_data_store::decision_resume::transition_on(
+    if directed && !completed_clarification {
+        use desk_agent_data_store::entity::agent_decision_resume as resume;
+        let changed = resume::Entity::update_many()
+            .col_expr(
+                resume::Column::InputRevision,
+                sea_orm::sea_query::Expr::value(as_i64(session.input_revision)?),
+            )
+            .filter(resume::Column::Id.eq(record.id))
+            .filter(resume::Column::InputRevision.eq(record.input_revision))
+            .filter(resume::Column::State.eq(desk_agent_data_store::decision_resume::PENDING))
+            .exec(&txn)
+            .await?;
+        if changed.rows_affected != 1 {
+            return Err(invalid());
+        }
+    } else if !desk_agent_data_store::decision_resume::transition_on(
         &txn,
         record.id,
-        desk_agent_data_store::decision_resume::PENDING,
+        &record.state,
         desk_agent_data_store::decision_resume::DONE,
         now.timestamp_millis(),
     )
@@ -799,7 +933,11 @@ pub async fn wake_for_decision(
         desk_diagnose_core::future::boxed(|| history.capture_on(&txn)).await?;
     }
     txn.commit().await?;
-    Ok(GoalPermissionWake::Queued)
+    Ok(if directed && !completed_clarification {
+        GoalPermissionWake::Held
+    } else {
+        GoalPermissionWake::Queued
+    })
 }
 
 /// Keyset position in the FIFO of runnable goals.
@@ -1007,6 +1145,13 @@ async fn expire_settled(
     let previous_version = goal.state_version;
     let previous_epoch = goal.lease_epoch;
     goal.fail_expired_settled(now_ms).map_err(|_| invalid())?;
+    desk_agent_data_store::owner_question::withdraw_goal_on(
+        &txn,
+        &mut session,
+        &goal.goal_id,
+        now.timestamp_millis(),
+    )
+    .await?;
     session.last_event_seq = session.last_event_seq.checked_add(1).ok_or_else(invalid)?;
     session.version = session_row.version.checked_add(1).ok_or_else(invalid)?;
     session.updated_at = now.to_rfc3339();
@@ -1900,10 +2045,7 @@ async fn claim_slice_readiness_on(
     }
     goal.apply_budget_policy(&crate::goal_budget_policy::read(txn).await?)
         .map_err(|_| invalid())?;
-    if now_ms >= goal.deadline_unix_ms {
-        return Ok(false);
-    }
-    Ok(true)
+    Ok(now_ms < goal.deadline_unix_ms)
 }
 
 /// Renew the goal and session deadlines together. `None` means this is an
@@ -2008,6 +2150,14 @@ fn no_pending_work(session: &PersistedAgentSession) -> bool {
 fn control_has_required_fact(session: &PersistedAgentSession, control: &GoalControl) -> bool {
     use desk_diagnose_core::dynamic_run::PermissionRequestState;
     match control {
+        GoalControl::Wait {
+            reason: GoalWaitReason::OwnerQuestion,
+            reference_id,
+        } => session.owner_question.as_ref().is_some_and(|wait| {
+            wait.view.wait_id == *reference_id
+                && wait.goal.is_some()
+                && wait.goal == session.focus_epoch.goal_segment
+        }),
         GoalControl::Wait {
             reason: GoalWaitReason::Approval,
             reference_id,
@@ -2212,7 +2362,11 @@ async fn settle_slice_afterimage(
     // A control's checkpoint repeats that output's arguments; a yield's is
     // fixed server text.
     match end {
-        GoalSegmentEnd::Yield => {
+        GoalSegmentEnd::Yield
+        | GoalSegmentEnd::Control(GoalControl::Wait {
+            reason: GoalWaitReason::OwnerQuestion,
+            ..
+        }) => {
             goal.text_sources.checkpoint = desk_diagnose_core::goal::CheckpointSource::Server;
         }
         GoalSegmentEnd::Control(_) => {
@@ -2312,6 +2466,12 @@ async fn persist_slice_on(
     previous_lease_epoch: u64,
     now: sea_orm::prelude::DateTimeUtc,
 ) -> Result<(), DbErr> {
+    desk_diagnose_core::owner_question::anchor_deadline(
+        session,
+        jiff::Timestamp::now().as_millisecond() as u64,
+    )
+    .map_err(|_| invalid())?;
+    desk_agent_data_store::owner_question::publish_on(txn, session).await?;
     let ledger = GoalLedgerEvent::new(
         goal,
         AgentRunEventKind::GoalSliceSettled,

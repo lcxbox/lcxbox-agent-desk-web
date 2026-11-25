@@ -1,6 +1,10 @@
 import modelMetrics from './model-metrics';
 
 export default {
+    'pages.aiAgent.ownerQuestionTimedOut': 'The question timed out. The agent has continued.',
+    'pages.aiAgent.ownerQuestions': 'Questions from the agent',
+    'pages.aiAgent.skipQuestion': 'Skip this question',
+    'pages.aiAgent.questionDeadline': 'Waiting until {{time}}',
     'pages.aiAgent.workbench.title': 'Super Agent',
     'pages.aiAgent.workbench.description': 'Assign work and manage the agents that handle it.',
     'pages.aiAgent.workbench.name': 'Agent name',
@@ -328,6 +332,8 @@ export default {
     "pages.aiAgentAttention.moreItems": "Load more",
     "pages.aiAgentAttention.reasons.goal_open_approval": "Review AI request to start a goal",
     "pages.aiAgentAttention.reasons.permission_approval": "Review AI permission request",
+    "pages.aiAgentAttention.reasons.owner_question": "Agent needs your answer",
+    "pages.aiAgent.goalStates.waiting_owner_question": "Waiting for your answer",
     "pages.aiAgentAttention.reasons.decision_approval": "Review AI proposal or directory request",
     "pages.aiAgentAttention.reasons.goal_needs_input": "Goal needs more information",
     "pages.aiAgentAttention.reasons.goal_budget": "Goal budget exhausted",
@@ -2264,6 +2270,7 @@ export default {
   'pages.aiAgent.goalBudgetDisabled': 'Unlimited',
   'pages.aiAgent.goalBudgetInvalid': 'Enter a positive whole number within the allowed range.',
   'pages.aiAgent.goalBudgetSaved': 'Budget saved.',
+  'pages.aiAgent.goalQuestionTimeoutSeconds': 'Goal question timeout (seconds)',
   'pages.aiAgent.goalBudgetDeviceUnavailableHours': 'Longest wait for an unavailable device (hours)',
   'pages.aiAgent.goalBudgetDeviceUnavailableDescription': 'When the device is offline, disabled or remote-access locked, a goal waits at most this long before the system ends it. This limit always applies, is independent of the goal deadline, and accepts 1 to 720 hours.',
   'pages.aiAgent.goalBudgetSave': 'Save',

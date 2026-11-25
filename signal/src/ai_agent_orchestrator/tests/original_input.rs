@@ -1919,6 +1919,13 @@ async fn personal_input_roundtrip(target_refs: Vec<String>, temporary: bool) {
                 .collect::<Vec<_>>(),
         );
         assert_targetless_web_tools(&request, false);
+        assert!(
+            request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool["function"]["name"] == desk_diagnose_core::owner_question::TOOL)
+        );
         if !target_refs.is_empty() {
             let catalogue = request["messages"]
                 .as_array()
@@ -4226,6 +4233,7 @@ fn assert_targetless_web_tools(request: &serde_json::Value, approved: bool) {
         names.iter().all(|name| matches!(
             *name,
             "describe_tools"
+                | desk_diagnose_core::owner_question::TOOL
                 | "load_skill"
                 | "fetch_public_web_page"
                 | "read_conversation_attachment"

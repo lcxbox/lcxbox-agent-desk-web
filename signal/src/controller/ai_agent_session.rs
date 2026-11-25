@@ -45,7 +45,9 @@ pub use issue_subscriptions::{
 };
 mod directories;
 mod main_requests;
+mod questions;
 mod stop;
+pub use questions::respond_to_owner_question;
 mod subagents;
 mod workbenches;
 pub use directories::control_ai_agent_directory;

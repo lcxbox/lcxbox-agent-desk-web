@@ -1248,6 +1248,121 @@ async fn worker_terminal_tool_commits_once_and_preserves_pending_approval() {
 }
 
 #[tokio::test]
+async fn goal_worker_times_out_once_and_resumes_its_original_request() {
+    use crate::entity::agent_subagent_inbox as inbox;
+    use desk_diagnose_core::subagent::report::ReportKind;
+
+    let db = database().await;
+    let (parent, goal) = super::funding::funded_parent(&db).await;
+    let scheduled_call = &parent.conversation.last().unwrap().tool_calls[0];
+    let spawn = ToolCall {
+        id: scheduled_call.id.clone(),
+        name: scheduled_call.name.clone(),
+        arguments_json: scheduled_call.arguments_json.clone(),
+    };
+    let store = SubAgentStore::new(db.clone());
+    let task = store
+        .spawn_for_turn(&parent, &spawn, &super::creation::spawn_request())
+        .await
+        .unwrap();
+    let original = load(&db, &task.task_id).await;
+    assert_eq!(
+        original.binding.source.goal_id(),
+        Some(goal.goal_id.as_str())
+    );
+    let SubAgentClaimOutcome::Claimed(claimed) = store
+        .claim_child(
+            &super::creation::claim_params(&original),
+            &task.task_id,
+            original.fence(),
+            &super::creation::destination(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("goal worker can be claimed");
+    };
+    let mut child = claimed.session;
+    let call =
+        commit_worker_report_call(&db, &mut child, "goal-question", ReportKind::NeedsInput).await;
+    let Operation::Report(content) = tools::parse(&child, &call).unwrap() else {
+        panic!("worker question report");
+    };
+    let question = store
+        .report_for_turn(&mut child, &call, content, "goal-question-receipt")
+        .await
+        .unwrap();
+    let id = question.payload["question_id"].as_str().unwrap();
+    let waiting = run_row::Entity::find()
+        .filter(run_row::Column::TaskId.eq(&task.task_id))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        waiting.owner_question_deadline_ms,
+        Some(waiting.updated_at + 60_000)
+    );
+    assert_eq!(waiting.state, SubAgentState::WaitingInput.as_str());
+    // Report retention may remove the body before the owner's question deadline.
+    assert_eq!(
+        inbox::Entity::delete_many()
+            .filter(inbox::Column::EventId.eq(id))
+            .exec(&db)
+            .await
+            .unwrap()
+            .rows_affected,
+        1,
+    );
+    // Put the persisted deadline in the past to drive the real scanner without a wall-clock sleep.
+    let now = desk_agent_data_store::datetime::utc_now().timestamp_millis();
+    run_row::Entity::update_many()
+        .set(run_row::ActiveModel {
+            owner_question_deadline_ms: Set(Some(now - 1)),
+            ..Default::default()
+        })
+        .filter(run_row::Column::Id.eq(waiting.id))
+        .exec(&db)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        super::super::task_control::expire_owner_questions(&db, now, 8)
+            .await
+            .unwrap();
+    }
+    let resumed = load(&db, &task.task_id).await;
+    assert_eq!(resumed.binding, original.binding);
+    assert!(resumed.pending_question_id.is_none());
+    assert_eq!(resumed.state, SubAgentState::Queued);
+    let mut params = super::creation::claim_params(&resumed);
+    params.turn_id = "after-question-timeout".into();
+    let SubAgentClaimOutcome::Claimed(claimed) = store
+        .claim_child(
+            &params,
+            &task.task_id,
+            resumed.fence(),
+            &super::creation::destination(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("same goal worker can continue");
+    };
+    let messages = claimed
+        .session
+        .conversation
+        .iter()
+        .filter(|m| m.message_id == format!("reply-{id}"))
+        .collect::<Vec<_>>();
+    assert_eq!(messages.len(), 1);
+    let value: serde_json::Value = serde_json::from_str(&messages[0].text).unwrap();
+    let observation = &value["runtime_delegation_state"];
+    assert_eq!(observation["status"], "timed_out");
+    assert_eq!(observation["reason"], "user may be away");
+    assert!(observation.get("reply").is_none());
+}
+
+#[tokio::test]
 async fn question_reply_resumes_only_the_original_request_with_its_budget() {
     use desk_diagnose_core::subagent::report::{QUESTION_NOT_OPEN, ReportKind};
 
@@ -1291,6 +1406,13 @@ async fn question_reply_resumes_only_the_original_request_with_its_budget() {
     let waiting = load(&db, &task.task_id).await;
     assert_eq!(waiting.state, SubAgentState::WaitingInput);
     assert_eq!(waiting.pending_question_id.as_deref(), Some(question_id));
+    let row = run_row::Entity::find()
+        .filter(run_row::Column::TaskId.eq(&task.task_id))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(row.owner_question_deadline_ms.is_none());
     assert!(
         store
             .child_runtime_candidate(&task.task_id)

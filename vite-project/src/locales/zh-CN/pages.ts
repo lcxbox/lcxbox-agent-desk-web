@@ -1,6 +1,10 @@
 import modelMetrics from './model-metrics';
 
 export default {
+    'pages.aiAgent.ownerQuestionTimedOut': '提问已超时，智能体已继续处理。',
+    'pages.aiAgent.ownerQuestions': 'AI 的提问',
+    'pages.aiAgent.skipQuestion': '跳过此题',
+    'pages.aiAgent.questionDeadline': '等待至 {{time}}',
     'pages.aiAgent.workbench.title': '超级智能体',
     'pages.aiAgent.workbench.description': '交办任务，管理负责处理任务的主 Agent。',
     'pages.aiAgent.workbench.name': '主 Agent 名称',
@@ -328,6 +332,8 @@ export default {
     "pages.aiAgentAttention.moreItems": "加载更多",
     "pages.aiAgentAttention.reasons.goal_open_approval": "审批 AI 申请开启目标",
     "pages.aiAgentAttention.reasons.permission_approval": "审批 AI 申请的权限",
+    "pages.aiAgentAttention.reasons.owner_question": "AI 等待你回答",
+    "pages.aiAgent.goalStates.waiting_owner_question": "等待你回答",
     "pages.aiAgentAttention.reasons.decision_approval": "审批 AI 的提议或目录申请",
     "pages.aiAgentAttention.reasons.goal_needs_input": "目标需要补充信息",
     "pages.aiAgentAttention.reasons.goal_budget": "目标预算已用完",
@@ -2261,6 +2267,7 @@ export default {
   'pages.aiAgent.goalBudgetDisabled': '不限制',
   'pages.aiAgent.goalBudgetInvalid': '请填写允许范围内的正整数。',
   'pages.aiAgent.goalBudgetSaved': '预算已保存。',
+  'pages.aiAgent.goalQuestionTimeoutSeconds': '目标提问等待时间（秒）',
   'pages.aiAgent.goalBudgetDeviceUnavailableHours': '设备不可用时的最长等待（小时）',
   'pages.aiAgent.goalBudgetDeviceUnavailableDescription': '设备离线、停用或被远程锁定时，长期目标最多等待这么久，超时后由系统终止。该限制始终生效，与目标期限相互独立，可设置 1～720 小时。',
   'pages.aiAgent.goalBudgetSave': '保存',

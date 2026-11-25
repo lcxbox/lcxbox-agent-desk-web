@@ -1,3 +1,4 @@
+import { AgentOwnerQuestion } from './agent-owner-question';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -196,7 +197,7 @@ function WorkbenchExecution({ workbench, task, worker, permission, active, refre
     const native = snapshot.data;
     const projection = native && projectPersistedSnapshot(native);
     const canStop = task.receipt.state === 'queued'
-        || (!!native && !native.mainStopped && (native.active || agents.unfinished > 0
+        || (!!native && !native.mainStopped && (native.active || native.decisionPause?.ownerQuestion || agents.unfinished > 0
             || task.deliveries.some(item => ['ready', 'claimed'].includes(item.state))));
     return <section className="space-y-3">
         {canStop && <Button size="sm" variant="outline" onClick={() => { stop.reset(); setConfirming(true); }}>
@@ -218,6 +219,7 @@ function WorkbenchExecution({ workbench, task, worker, permission, active, refre
             </AlertDialogContent>
         </AlertDialog>
         {session && snapshot.isError && <p className="text-sm text-muted-foreground">{t('pages.aiAgent.workbench.taskUnavailable')}</p>}
+        {session && native?.decisionPause?.ownerQuestion && <AgentOwnerQuestion key={native.decisionPause.ownerQuestion.waitId} session={session} wait={native.decisionPause.ownerQuestion} refresh={refreshExecution} />}
         <AgentSubagentApprovalNotice agents={agents} />
         <AgentConversationTabs agents={agents} attentionTasks={native?.subagents.attention_tasks} />
         {agents.selected ? <div className="flex min-h-[32rem] max-h-[75vh] flex-col overflow-hidden rounded-md border p-3">

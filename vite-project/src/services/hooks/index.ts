@@ -113,6 +113,7 @@ export type { OpenAiAgentApprovalDelegationMutationKey } from "./aiAgentSessionC
 export type { ReadAgentAttachmentMutationKey } from "./aiAgentSessionController/useReadAgentAttachment.ts";
 export type { ReadAiAgentSubagentResultQueryKey } from "./aiAgentSessionController/useReadAiAgentSubagentResult.ts";
 export type { ReadAiAgentSubagentResultSuspenseQueryKey } from "./aiAgentSessionController/useReadAiAgentSubagentResultSuspense.ts";
+export type { RespondToOwnerQuestionMutationKey } from "./aiAgentSessionController/useRespondToOwnerQuestion.ts";
 export type { ResumeAiAgentMainRequestsMutationKey } from "./aiAgentSessionController/useResumeAiAgentMainRequests.ts";
 export type { RevokeAiAgentCapabilityGrantMutationKey } from "./aiAgentSessionController/useRevokeAiAgentCapabilityGrant.ts";
 export type { SaveAiAgentIssueSubscriptionMutationKey } from "./aiAgentSessionController/useSaveAiAgentIssueSubscription.ts";
@@ -665,6 +666,9 @@ export { useReadAiAgentSubagentResult } from "./aiAgentSessionController/useRead
 export { readAiAgentSubagentResultSuspenseQueryKey } from "./aiAgentSessionController/useReadAiAgentSubagentResultSuspense.ts";
 export { readAiAgentSubagentResultSuspenseQueryOptions } from "./aiAgentSessionController/useReadAiAgentSubagentResultSuspense.ts";
 export { useReadAiAgentSubagentResultSuspense } from "./aiAgentSessionController/useReadAiAgentSubagentResultSuspense.ts";
+export { respondToOwnerQuestionMutationKey } from "./aiAgentSessionController/useRespondToOwnerQuestion.ts";
+export { respondToOwnerQuestionMutationOptions } from "./aiAgentSessionController/useRespondToOwnerQuestion.ts";
+export { useRespondToOwnerQuestion } from "./aiAgentSessionController/useRespondToOwnerQuestion.ts";
 export { resumeAiAgentMainRequestsMutationKey } from "./aiAgentSessionController/useResumeAiAgentMainRequests.ts";
 export { resumeAiAgentMainRequestsMutationOptions } from "./aiAgentSessionController/useResumeAiAgentMainRequests.ts";
 export { useResumeAiAgentMainRequests } from "./aiAgentSessionController/useResumeAiAgentMainRequests.ts";

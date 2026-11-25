@@ -1054,6 +1054,31 @@ impl SignalAgentSessionStore {
         {
             return Ok(false);
         }
+        if let Some(pause) = session
+            .owner_question
+            .as_ref()
+            .and_then(|wait| wait.resumed_from.as_ref())
+            && let Some(record) =
+                desk_agent_data_store::decision_resume::find_on(&txn, pause.kind, &pause.id)
+                    .await
+                    .map_err(|_| internal("load owner question resume"))?
+            && record.state == desk_agent_data_store::decision_resume::STARTED
+            && desk_diagnose_core::future::send_phase(|| {
+                desk_agent_data_store::owner_question::recover_unpublished_on(
+                    &crate::schedule_store::SignalScheduleHost,
+                    &txn,
+                    &record,
+                    now.timestamp_millis(),
+                )
+            })
+            .await
+            .map_err(|_| internal("recover owner question resume"))?
+        {
+            txn.commit()
+                .await
+                .map_err(|_| internal("commit owner question recovery"))?;
+            return Ok(true);
+        }
         let recovered_goal = if session.trigger_origin
             == desk_diagnose_core::session::TriggerOrigin::GoalContinuation
         {
@@ -2411,6 +2436,13 @@ impl SessionSeam for SignalAgentSessionStore {
         Err(ClaimError::Busy)
     }
 
+    async fn owner_question_timeout_ms(&self) -> Result<u64, AgentError> {
+        crate::goal_budget_policy::read(&self.db)
+            .await
+            .map(|p| p.owner_question_timeout_ms)
+            .map_err(|_| internal("goal question timeout policy is unavailable"))
+    }
+
     async fn save(&self, session: &mut PersistedAgentSession) -> Result<(), AgentError> {
         let started = std::time::Instant::now();
         let result = desk_diagnose_core::future::boxed(|| async {
@@ -2460,6 +2492,25 @@ impl SessionSeam for SignalAgentSessionStore {
                     )
                 })
                 .await?
+            } else if session.owner_question.as_ref().is_some_and(|w| w.open) {
+                let txn = crate::db::begin_write(&self.db, agent_session::Entity)
+                    .await
+                    .map_err(|error| internal(format!("open question transaction: {error}")))?;
+                let update = history_save::persist_on(
+                    &txn,
+                    session,
+                    &state_json,
+                    new_version,
+                    now,
+                    lease_deadline,
+                    None,
+                )
+                .await
+                .map_err(|e| internal(format!("save question: {e}")))?;
+                txn.commit()
+                    .await
+                    .map_err(|e| internal(format!("commit question: {e}")))?;
+                update
             } else {
                 history_save::persist_on(
                     &self.db,

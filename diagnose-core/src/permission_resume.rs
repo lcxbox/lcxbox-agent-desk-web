@@ -114,7 +114,7 @@ fn model_bound_resume_message(
         ResumeKind::ProposalDecision => (
             "decision-resume",
             crate::model_message_labels::sources::PROPOSAL_DECISION_RESUME,
-            "a decision was recorded for your pending proposal or directory request. Its result is now the result of that tool call. Do not submit the same proposal or request again. Continue the existing user requirement now; if it was rejected or could not be saved, adapt or report the blocker to the owner.",
+            "a result was recorded for your pending request. Use the recorded outcome and any owner answers to continue the original work. If the owner declined a question card, ask what to adjust in ordinary text. Do not repeat the same request. Continue the existing user requirement now; if it was rejected or could not be saved, adapt or report the blocker to the owner.",
         ),
         ResumeKind::PermissionDecision => (
             "permission-resume",

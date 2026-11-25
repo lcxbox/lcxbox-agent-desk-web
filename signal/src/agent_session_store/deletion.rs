@@ -175,6 +175,12 @@ async fn delete_live_session_on(
     now_ms: i64,
 ) -> Result<(PendingEnds, Option<String>), AgentError> {
     let id = row.conversation_id.as_str();
+    use desk_agent_data_store::entity::agent_owner_question;
+    agent_owner_question::Entity::delete_many()
+        .filter(agent_owner_question::Column::ConversationId.eq(id))
+        .exec(txn)
+        .await
+        .map_err(save_backend)?;
     let actor = row.actor_id.as_str();
     let device = row.device_id.as_str();
     let (permission_ends, current_request_id) = if let Some(session) = session {

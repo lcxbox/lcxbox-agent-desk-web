@@ -24,6 +24,7 @@ fn review_source_kind(kind: DecisionKind) -> &'static str {
         DecisionKind::Schedule => "schedule_proposal",
         DecisionKind::Skill => "skill_proposal",
         DecisionKind::Directory => "directory_proposal",
+        DecisionKind::OwnerQuestion => "owner_question",
     }
 }
 
@@ -35,6 +36,12 @@ pub async fn awaiting_owner_on(
     request_id: &str,
     requested_at_unix_ms: u64,
 ) -> Result<bool, DbErr> {
+    if kind == DecisionKind::OwnerQuestion {
+        return Ok(session
+            .owner_question
+            .as_ref()
+            .is_some_and(|w| w.open && w.view.wait_id == request_id));
+    }
     let manual = crate::agent_approval_store::preference_for_session_on(db, session)
         .await?
         .is_some_and(|preference| preference.mode == AgentApprovalMode::Manual);
@@ -84,7 +91,17 @@ pub async fn pause_view_on(
         pause.requested_at_unix_ms,
     )
     .await?;
-    Ok(desk_signal_facade::controller::ai_agent_session::DecisionPauseDto::new(pause, awaiting))
+    let mut view =
+        desk_signal_facade::controller::ai_agent_session::DecisionPauseDto::new(pause, awaiting);
+    if pause.kind == DecisionKind::OwnerQuestion {
+        view.owner_question = session
+            .owner_question
+            .as_deref()
+            .filter(|wait| wait.view.wait_id == pause.id && wait.open)
+            .map(|wait| wait.view.clone());
+        view.awaiting_owner = view.owner_question.is_some();
+    }
+    Ok(view)
 }
 
 /// Fills `awaiting_owner` of the pending proposals among `views`.
@@ -168,8 +185,11 @@ impl DecisionResumeExecutor {
 
     pub async fn run(self) {
         let mut cursor = 0;
+        let mut question_cursor = None;
         loop {
-            match desk_diagnose_core::future::boxed(|| self.scan_once(cursor)).await {
+            match desk_diagnose_core::future::boxed(|| self.scan_page(cursor, &mut question_cursor))
+                .await
+            {
                 Ok(next) => cursor = next.unwrap_or(0),
                 Err(error) => {
                     cursor = 0;
@@ -182,7 +202,44 @@ impl DecisionResumeExecutor {
 
     /// One pass over pending records after `after_id`, then a settlement of
     /// started records whose resumed turn ended or was lost.
+    #[cfg(test)]
     pub async fn scan_once(&self, after_id: i64) -> Result<Option<i64>, DbErr> {
+        self.scan_page(after_id, &mut None).await
+    }
+
+    async fn scan_page(
+        &self,
+        after_id: i64,
+        question_cursor: &mut Option<(i64, String)>,
+    ) -> Result<Option<i64>, DbErr> {
+        let now = jiff::Timestamp::now().as_millisecond();
+        crate::agent_subagent_store::expire_owner_questions(&self.db, now, BATCH_SIZE).await?;
+        let waits = desk_agent_data_store::owner_question::due_after_on(
+            &self.db,
+            now,
+            BATCH_SIZE,
+            question_cursor.as_ref(),
+        )
+        .await?;
+        *question_cursor = waits
+            .last()
+            .filter(|_| waits.len() == BATCH_SIZE as usize)
+            .and_then(|w| Some((w.deadline_ms?, w.wait_id.clone())));
+        for wait in waits {
+            if let Err(error) = desk_diagnose_core::future::send_phase(|| {
+                settle_question(
+                    &self.db,
+                    &wait.actor_id,
+                    &wait.conversation_id,
+                    &wait.wait_id,
+                    None,
+                )
+            })
+            .await
+            {
+                log::warn!("Owner question expiry deferred: {error}");
+            }
+        }
         let records = decision_resume::pending_on(&self.db, after_id, BATCH_SIZE)
             .await
             .map_err(store_error)?;
@@ -315,6 +372,36 @@ impl DecisionResumeExecutor {
                     && row.lease_deadline.is_some_and(|deadline| deadline > now)
             });
             if !running {
+                if record.kind == "owner_question" {
+                    let txn = crate::db::begin_write(&self.db, agent_session::Entity).await?;
+                    let handled = desk_agent_data_store::owner_question::recover_unpublished_on(
+                        &crate::schedule_store::SignalScheduleHost,
+                        &txn,
+                        &record,
+                        jiff::Timestamp::now().as_millisecond(),
+                    )
+                    .await
+                    .map_err(store_error)?;
+                    txn.commit().await?;
+                    if handled {
+                        continue;
+                    }
+                    if let Some(snapshot) = row
+                        .as_ref()
+                        .and_then(|r| PersistedAgentSession::decode_boxed_json(&r.state_json).ok())
+                        && desk_diagnose_core::owner_question::finished_goal_clarification(
+                            &snapshot,
+                            &record.request_id,
+                        )
+                    {
+                        desk_diagnose_core::future::boxed(|| {
+                            crate::agent_goal_store::wake_for_decision(
+                                &self.db, &snapshot, &record, now,
+                            )
+                        })
+                        .await?;
+                    }
+                }
                 self.finish(&record, decision_resume::DONE).await?;
             }
         }
@@ -342,3 +429,45 @@ fn store_error(error: desk_agent_data_store::schedule::ScheduleStoreError) -> Db
         other => DbErr::Custom(format!("{other:?}")),
     }
 }
+
+pub(crate) async fn settle_question(
+    db: &DatabaseConnection,
+    actor: &str,
+    conversation: &str,
+    wait_id: &str,
+    submission: Option<(
+        &str,
+        &desk_agent_protocol::ai_agent::owner_question::OwnerQuestionAction,
+    )>,
+) -> Result<String, DbErr> {
+    use desk_agent_data_store::schedule::session::{OrgMode, SessionKey, SessionRows};
+    let host = crate::schedule_store::SignalScheduleHost;
+    let txn = crate::db::begin_write(db, agent_session::Entity).await?;
+    let key = SessionKey::Conversation {
+        conversation,
+        actor: Some(actor),
+        device: None,
+    };
+    let row = host
+        .find_session(&txn, key, OrgMode::PersonalOnly, true)
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound("owner question".into()))?;
+
+    let status = desk_diagnose_core::future::send_phase(|| {
+        desk_agent_data_store::owner_question::settle_on(
+            &host,
+            &txn,
+            &row,
+            wait_id,
+            submission,
+            jiff::Timestamp::now().as_millisecond(),
+        )
+    })
+    .await
+    .map_err(store_error)?;
+    txn.commit().await?;
+    Ok(status)
+}
+
+#[cfg(test)]
+mod tests;

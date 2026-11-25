@@ -190,6 +190,7 @@ async fn source_goal_exhaustion_rolls_back_the_group_reservation() {
         &desk_agent_protocol::ai_agent::goal_budget::UpdateGoalBudgetPolicy {
             expected_revision: old_revision,
             limits: policy.limits,
+            owner_question_timeout_ms: policy.owner_question_timeout_ms,
             device_unavailable_max_ms: policy.device_unavailable_max_ms,
         },
     )
@@ -1412,6 +1413,7 @@ async fn source_expiry_rejects_new_model_and_review_without_reserving_budget() {
         &desk_agent_protocol::ai_agent::goal_budget::UpdateGoalBudgetPolicy {
             expected_revision: policy.revision,
             limits: policy.limits,
+            owner_question_timeout_ms: policy.owner_question_timeout_ms,
             device_unavailable_max_ms: policy.device_unavailable_max_ms,
         },
     )

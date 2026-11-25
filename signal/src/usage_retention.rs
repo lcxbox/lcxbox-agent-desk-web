@@ -666,6 +666,14 @@ async fn delete_expired_session_candidates(
             .filter(agent_action_item::Column::ConversationId.is_in(run_ids.clone()))
             .exec(&txn)
             .await?;
+        use desk_agent_data_store::entity::agent_owner_question;
+        agent_owner_question::Entity::delete_many()
+            .filter(
+                agent_owner_question::Column::ConversationId
+                    .is_in(rows.iter().map(|row| row.conversation_id.as_str())),
+            )
+            .exec(&txn)
+            .await?;
         agent_exec_task::Entity::delete_many()
             .filter(agent_exec_task::Column::ConversationId.is_in(run_ids))
             .exec(&txn)

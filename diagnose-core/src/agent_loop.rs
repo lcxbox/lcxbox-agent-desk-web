@@ -1071,7 +1071,11 @@ async fn drive_claimed_inner(
             }
             Ok(LoopOutcome::DecisionRequested { pause }) => {
                 crate::goal::GoalSegmentEnd::Control(crate::goal::GoalControl::Wait {
-                    reason: crate::goal::GoalWaitReason::Approval,
+                    reason: if pause.kind == crate::proposal_review::DecisionKind::OwnerQuestion {
+                        crate::goal::GoalWaitReason::OwnerQuestion
+                    } else {
+                        crate::goal::GoalWaitReason::Approval
+                    },
                     reference_id: pause.id.clone(),
                 })
             }

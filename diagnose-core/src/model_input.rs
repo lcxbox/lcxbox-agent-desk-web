@@ -16,6 +16,7 @@ fn built_in_specs() -> impl Iterator<Item = ToolSpec> {
         .chain(crate::task_status_tools::task_status_tool_registry())
         .chain(crate::subagent::tools::registry())
         .chain(crate::goal_tools::registry())
+        .chain(crate::owner_question::registry())
         .chain(crate::goal_tools::open_registry())
         .chain(crate::directory_tools::registry())
         .chain(crate::schedule::proposal::registry())

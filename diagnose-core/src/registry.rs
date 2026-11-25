@@ -55,6 +55,8 @@ pub enum ToolEffect {
     MemoryWrite,
     /// Resolves one candidate directory and stores pending owner consent only.
     DirectoryPlanning,
+    /// Ask the owner to clarify the original work.
+    OwnerQuestion,
     /// Creates only an owner-reviewable schedule draft from a user turn.
     SchedulePlanning,
     /// Reads schedule state within this session's existing owner/device scope.
@@ -136,6 +138,7 @@ fn mode_allows_effect(mode: ExecutionMode, effect: ToolEffect) -> bool {
         | ToolEffect::AgentHistory
         | ToolEffect::MemoryQuery
         | ToolEffect::MemoryWrite
+        | ToolEffect::OwnerQuestion
         | ToolEffect::DirectoryPlanning
         | ToolEffect::SchedulePlanning
         | ToolEffect::ScheduleQuery
@@ -218,6 +221,13 @@ pub fn exposure_block_reason(
             TriggerOrigin::ExecCompletion | TriggerOrigin::WorkCompletion { .. }
         )
         .then_some("command_completion_has_no_tools");
+    }
+    if tool.effect == ToolEffect::OwnerQuestion {
+        return (!matches!(
+            origin,
+            TriggerOrigin::User | TriggerOrigin::GoalContinuation
+        ))
+        .then_some("owner_question_requires_interactive_work");
     }
     if tool.effect == ToolEffect::GoalControl {
         return (origin != TriggerOrigin::GoalContinuation).then_some("not_a_goal_segment");
@@ -325,15 +335,19 @@ pub fn exposed_for_session<'a>(
     registry: &'a [RegisteredTool],
     session: &crate::session::PersistedAgentSession,
 ) -> Vec<&'a RegisteredTool> {
-    exposed_tools(
-        registry,
-        &session.scope_snapshot,
-        &session.execution_state,
-        session.trigger_origin,
-    )
-    .into_iter()
-    .filter(|tool| available_to_session(tool, session))
-    .collect()
+    registry
+        .iter()
+        .filter(|tool| {
+            (is_exposed(
+                tool,
+                &session.scope_snapshot,
+                &session.execution_state,
+                session.trigger_origin,
+            ) || (tool.effect == ToolEffect::GoalOpenPlanning
+                && crate::owner_question::planning_reply(session)))
+                && available_to_session(tool, session)
+        })
+        .collect()
 }
 
 pub fn lookup_for_session<'a>(
@@ -347,7 +361,9 @@ pub fn lookup_for_session<'a>(
         .iter()
         .find(|tool| {
             tool.name() == name
-                && (crate::request_devices::is_selected_read_tool(tool, session)
+                && ((tool.effect == ToolEffect::GoalOpenPlanning
+                    && crate::owner_question::planning_reply(session))
+                    || crate::request_devices::is_selected_read_tool(tool, session)
                     || crate::request_devices::is_selected_action_tool(tool, session)
                     || (selected_command
                         && tool.effect == ToolEffect::Mutating
@@ -371,6 +387,7 @@ fn available_to_session(
     session: &crate::session::PersistedAgentSession,
 ) -> bool {
     session.agent_role.allows_effect(tool.effect)
+        && (tool.effect != ToolEffect::OwnerQuestion || crate::owner_question::available(session))
         && crate::ai_agent::data_tools::session_allows(tool, session)
         && crate::subagent::tools::available_for_session(tool.name(), session)
         && (!session.is_subagent_result_turn()

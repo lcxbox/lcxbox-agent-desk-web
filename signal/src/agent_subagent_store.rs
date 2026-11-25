@@ -29,6 +29,7 @@ pub(crate) use retention::{
     close_root_for_subject_on, close_root_on, deleted_on, pinned_conversation_ids, pinned_goal_ids,
     purge_authority, purge_groups, reclaim_condition, redact_deleted_content, tombstone_on,
 };
+pub(crate) use task_control::expire_owner_questions;
 mod main_stop;
 pub use main_stop::MainStopOutcome;
 pub(crate) use main_stop::resume_goal_parent_on;
@@ -484,6 +485,11 @@ pub(crate) async fn replace_run_on<C: ConnectionTrait + crate::config::ConfigCon
     let changed = run_row::Entity::update_many()
         .set(run_row::ActiveModel {
             state: Set(run.state.as_str().into()),
+            owner_question_deadline_ms: Set(if run.pending_question_id.is_some() {
+                old.owner_question_deadline_ms
+            } else {
+                None
+            }),
             input_revision: Set(i64::try_from(run.binding.input_revision).map_err(|_| invalid())?),
             control_revision: Set(
                 i64::try_from(run.binding.control_revision).map_err(|_| invalid())?

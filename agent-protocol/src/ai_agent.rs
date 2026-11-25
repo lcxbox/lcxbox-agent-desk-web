@@ -20,6 +20,7 @@ pub mod history_window;
 pub mod issue_subscription;
 pub mod memory;
 pub mod owner_history;
+pub mod owner_question;
 pub mod policy;
 pub mod processing;
 pub mod skill;

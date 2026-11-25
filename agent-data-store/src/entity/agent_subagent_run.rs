@@ -42,6 +42,8 @@ pub struct Model {
     #[sea_orm(indexed)]
     pub next_attempt_at_ms: Option<i64>,
     #[sea_orm(indexed)]
+    pub owner_question_deadline_ms: Option<i64>,
+    #[sea_orm(indexed)]
     pub deadline_ms: i64,
     pub created_at: i64,
     pub updated_at: i64,
