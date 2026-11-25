@@ -8,7 +8,7 @@ Fixed-device and multi-device conversations both support temporary chats. Follow
 
 The agent can ask up to five questions together. Open the conversation or the work item in Super Agent. For each question, choose an option, type your own answer, or select **Skip**. Submit the group once to continue the original task.
 
-Close the question card to decline the group. The agent then asks what you would like to adjust, and you can reply in the same conversation. Leaving the page keeps the question open. Ordinary conversations wait for you. During a Goal, the agent prefers to ask early and continues with the information it has when the displayed deadline passes. The default wait is one minute.
+Close the question card to decline the group. The agent then asks what you would like to adjust, and you can reply in the same conversation. Ordinary conversations wait for you. During a Goal, the agent prefers to ask early and gives you one minute by default to start answering. Select an option, skip a question, tap an answer field, or start typing to clear the deadline. You can then take your time or leave and return to the question. If you leave the card untouched until the deadline, the agent continues with the information it has.
 
 ## Get started
 

@@ -1,1 +1,1 @@
-{"type":"object","required":["question_id","text"],"properties":{"question_id":{"type":"string"},"text":{"type":"string"}},"x-readme-ref-name":"AiAgentSubAgentQuestion"}
+{"type":"object","required":["question_id","text"],"properties":{"deadline_unix_ms":{"type":["integer","null"],"format":"int64"},"question_id":{"type":"string"},"text":{"type":"string"}},"x-readme-ref-name":"AiAgentSubAgentQuestion"}

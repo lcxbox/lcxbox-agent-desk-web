@@ -32,11 +32,12 @@ pub enum OwnerAnswer {
     Skipped,
 }
 
-/// Only a host can settle a timeout. The client can answer or close the card
-/// and can reply to the later, separately identified adjustment prompt.
+/// Interact stops the deadline for an open goal prompt without submitting an answer.
+/// Only a host can settle a timeout.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OwnerQuestionAction {
+    Interact {},
     Answer { answers: Vec<OwnerAnswer> },
     Decline,
     Reply { text: String },
@@ -188,6 +189,22 @@ mod tests {
             })
         );
         assert!(from_value::<OwnerQuestionAction>(json!({"kind":"timed_out"})).is_err());
+    }
+
+    #[test]
+    fn interaction_carries_no_draft_or_timeout_decision() {
+        assert_eq!(
+            to_value(OwnerQuestionAction::Interact {}).unwrap(),
+            json!({"kind":"interact"})
+        );
+        assert_eq!(
+            from_value::<OwnerQuestionAction>(json!({"kind":"interact"})).unwrap(),
+            OwnerQuestionAction::Interact {}
+        );
+        assert!(
+            from_value::<OwnerQuestionAction>(json!({"kind":"interact", "text":"unsent draft"}))
+                .is_err()
+        );
     }
 
     #[test]

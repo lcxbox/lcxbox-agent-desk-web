@@ -105,6 +105,9 @@ impl OwnerQuestionWait {
             return Err(invalid("this wait accepts a text reply"));
         };
         match action {
+            OwnerQuestionAction::Interact {} => {
+                Err(invalid("interaction does not submit an answer"))
+            }
             OwnerQuestionAction::Answer { answers } => {
                 OwnerQuestions::validate_ordered_answers(questions, &answers).map_err(invalid)?;
                 Ok(OwnerQuestionResult::Answered { answers })
@@ -124,19 +127,11 @@ impl OwnerQuestionWait {
     }
 }
 
-pub fn publish(
-    session: &mut PersistedAgentSession,
-    call: &ToolCall,
-    issuing_message_id: &str,
-    wait_id: String,
+fn new_deadline(
+    session: &PersistedAgentSession,
     now: u64,
     timeout_ms: Option<u64>,
-    questions: OwnerQuestions,
-) -> Result<DecisionPause, AgentError> {
-    let turn_id = session
-        .current_turn_id
-        .clone()
-        .ok_or_else(|| invalid("missing issuing turn"))?;
+) -> Result<(Option<GoalSegmentIdentity>, Option<u64>), AgentError> {
     let goal = (session.trigger_origin == TriggerOrigin::GoalContinuation)
         .then(|| session.focus_epoch.goal_segment.clone())
         .flatten();
@@ -150,6 +145,23 @@ pub fn publish(
     if goal.is_some() != deadline_unix_ms.is_some() {
         return Err(invalid("owner question timeout must match the active goal"));
     }
+    Ok((goal, deadline_unix_ms))
+}
+
+pub fn publish(
+    session: &mut PersistedAgentSession,
+    call: &ToolCall,
+    issuing_message_id: &str,
+    wait_id: String,
+    now: u64,
+    timeout_ms: Option<u64>,
+    questions: OwnerQuestions,
+) -> Result<DecisionPause, AgentError> {
+    let turn_id = session
+        .current_turn_id
+        .clone()
+        .ok_or_else(|| invalid("missing issuing turn"))?;
+    let (goal, deadline_unix_ms) = new_deadline(session, now, timeout_ms)?;
     session.owner_question = Some(Box::new(OwnerQuestionWait {
         issuing_message_id: issuing_message_id.into(),
         goal,
@@ -285,16 +297,7 @@ pub fn publish_follow_up(
                 && m.tool_calls.is_empty()
         })
         .ok_or_else(|| invalid("missing adjustment question"))?;
-    let deadline = timeout
-        .map(|ms| {
-            now.checked_add(ms)
-                .filter(|t| *t <= i64::MAX as u64)
-                .ok_or_else(|| invalid("invalid question deadline"))
-        })
-        .transpose()?;
-    let goal = (session.trigger_origin == TriggerOrigin::GoalContinuation)
-        .then(|| session.focus_epoch.goal_segment.clone())
-        .flatten();
+    let (goal, deadline) = new_deadline(session, now, timeout)?;
     session.owner_question = Some(Box::new(OwnerQuestionWait {
         issuing_message_id: message.message_id.clone(),
         goal,
@@ -374,10 +377,12 @@ pub fn anchor_deadline(session: &mut PersistedAgentSession, now: u64) -> Result<
         .as_mut()
         .filter(|p| p.is(DecisionKind::OwnerQuestion, &wait.view.wait_id))
         .ok_or_else(|| invalid("goal question pause missing"))?;
-    let duration = wait
-        .view
-        .deadline_unix_ms
-        .and_then(|d| d.checked_sub(pause.requested_at_unix_ms))
+    let Some(deadline) = wait.view.deadline_unix_ms else {
+        // A confirmed interaction keeps this wait open without a deadline.
+        return Ok(());
+    };
+    let duration = deadline
+        .checked_sub(pause.requested_at_unix_ms)
         .ok_or_else(|| invalid("invalid goal question duration"))?;
     wait.view.deadline_unix_ms = Some(
         now.checked_add(duration)

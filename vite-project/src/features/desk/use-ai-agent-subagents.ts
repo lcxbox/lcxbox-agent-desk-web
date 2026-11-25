@@ -67,6 +67,7 @@ export function useAiAgentSubagents({ connection, conversation, session, snapsho
     const [updating, setUpdating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const operation = useRef<object | null>(null);
+    const begunQuestion = useRef<string | null>(null);
     const listOperation = useRef<object | null>(null);
     const detailOrder = useRef(0);
     const acceptedDetailOrder = useRef(0);
@@ -277,13 +278,20 @@ export function useAiAgentSubagents({ connection, conversation, session, snapsho
     }, [snapshot, session, page, olderTasks, listUrl, scope]);
 
     const control = useCallback(async (task: AiAgentSubAgentSummary, action: { kind: 'cancel' } | { kind: 'adjust'; message: string }
-        | { kind: 'reply'; question_id: string; message: string }) => {
+        | { kind: 'reply'; question_id: string; message: string } | { kind: 'begin_answer'; question_id: string }) => {
         if (!session || currentScope.current !== scope || dataScope !== scope || operation.current || subagentIsTerminal(task)) return false;
-        if (action.kind === 'reply' && (selectedId.current !== task.task_id
+        if ((action.kind === 'reply' || action.kind === 'begin_answer') && (selectedId.current !== task.task_id
             || detailRef.current?.result.open_question?.question_id !== action.question_id)) return false;
         const epoch = selectionEpoch.current;
-        const token = {}; operation.current = token; setUpdating(true); setError(null);
-        const isCurrent = () => currentScope.current === scope && operation.current === token && selectionEpoch.current === epoch;
+        const beginning = action.kind === 'begin_answer';
+        const key = beginning ? JSON.stringify([scope, task.task_id, action.question_id]) : null;
+        if (beginning && (begunQuestion.current === key || detailRef.current?.result.open_question?.deadline_unix_ms == null)) return false;
+        const token = {};
+        if (beginning) begunQuestion.current = key;
+        else { operation.current = token; setUpdating(true); }
+        setError(null);
+        const isCurrent = () => currentScope.current === scope && selectionEpoch.current === epoch
+            && (beginning ? begunQuestion.current === key && !operation.current : operation.current === token);
         try {
             const value: AiAgentSubAgentControl = { task_id: task.task_id, client_request_id: v4(),
                 expected_input_revision: task.input_revision, expected_control_revision: task.control_revision,
@@ -305,6 +313,7 @@ export function useAiAgentSubagents({ connection, conversation, session, snapsho
                 if (selectedId.current === task.task_id) await loadDetail(task, true);
                 if (isCurrent()) setError(reason instanceof Error ? reason.message : t('pages.aiAgent.subagents.controlFailed'));
             }
+            if (beginning && begunQuestion.current === key) begunQuestion.current = null;
             return false;
         } finally { if (currentScope.current === scope && operation.current === token) { operation.current = null; setUpdating(false); } }
     }, [session, scope, dataScope, connection, conversation, onChanged, loadDetail, t]);

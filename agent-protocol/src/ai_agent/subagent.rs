@@ -244,6 +244,7 @@ pub struct AiAgentSubAgentReports {
 pub struct AiAgentSubAgentQuestion {
     pub question_id: String,
     pub text: String,
+    pub deadline_unix_ms: Option<i64>,
 }
 
 /// Durable attention/progress notification. Reading it in the UI does not mark
@@ -313,6 +314,9 @@ pub enum SubAgentControlAction {
     Reply {
         question_id: String,
         message: String,
+    },
+    BeginAnswer {
+        question_id: String,
     },
 }
 

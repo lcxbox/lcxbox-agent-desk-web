@@ -89,7 +89,15 @@ async fn owner_question_deadline_and_late_answer_commit_one_timeout_and_resume()
         }],
     };
     let settle = |action| settle_question(&db, "1", "goal-conversation", wait_id, action);
-    let (scanner, answer) = tokio::join!(settle(None), settle(Some(("late", &late))));
+    let (scanner, answer, touch) = tokio::join!(
+        settle(None),
+        settle(Some(("late", &late))),
+        settle(Some((
+            "late-interaction",
+            &OwnerQuestionAction::Interact {}
+        )))
+    );
+    assert_eq!(touch.unwrap(), "timed_out");
     assert_eq!(scanner.unwrap(), "timed_out");
     assert_eq!(answer.unwrap(), "timed_out");
     assert_eq!(settle(None).await.unwrap(), "timed_out");

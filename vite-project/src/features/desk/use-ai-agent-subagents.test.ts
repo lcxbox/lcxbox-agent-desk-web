@@ -66,7 +66,7 @@ describe('owner subagent views', () => {
         const item = (seq: number) => ({ report_id: `report-${seq}`, seq, kind: 'progress' as const,
             summary: `Report ${seq}`, question: null, evidence_refs: [], receipt_refs: [] });
         const latest = { ...report, reports: { items: [item(2)], next_before_seq: 2 },
-            open_question: { question_id: 'original-question', text: 'Which environment?' } };
+            open_question: { question_id: 'original-question', text: 'Which environment?', deadline_unix_ms: 60_000 } };
         const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
             if (url.includes('before_report_seq=2')) {
                 return ok({ ...latest, reports: { items: [item(1)], next_before_seq: null },
@@ -89,11 +89,19 @@ describe('owner subagent views', () => {
         expect(earlier).toContain('task_id=task-1');
         act(() => result.current.showLatestReports());
         expect(result.current.reports?.items[0].seq).toBe(2);
+        await act(async () => {
+            expect(await result.current.control(task, { kind: 'begin_answer', question_id: 'old-question' })).toBe(false);
+            expect(await result.current.control(task, { kind: 'begin_answer', question_id: 'original-question' })).toBe(true);
+            expect(await result.current.control(task, { kind: 'begin_answer', question_id: 'original-question' })).toBe(false);
+        });
+        const begin = fetch.mock.calls.filter(([url]) => url.endsWith('/subagents/control'));
+        expect(begin).toHaveLength(1);
+        expect(JSON.parse(begin[0][1]!.body as string).control.action).toEqual({ kind: 'begin_answer', question_id: 'original-question' });
         expect(await result.current.control(task, { kind: 'reply', question_id: 'old-question', message: 'Ignore.' })).toBe(false);
         await act(async () => {
             expect(await result.current.control(task, { kind: 'reply', question_id: 'original-question', message: 'Staging.' })).toBe(true);
         });
-        const submitted = fetch.mock.calls.find(([url]) => url.endsWith('/subagents/control'));
+        const submitted = fetch.mock.calls.filter(([url]) => url.endsWith('/subagents/control')).at(-1);
         expect(JSON.parse(submitted![1]!.body as string).control).toMatchObject({
             task_id: task.task_id, expected_input_revision: task.input_revision, expected_control_revision: task.control_revision,
             action: { kind: 'reply', question_id: 'original-question', message: 'Staging.' },

@@ -26,10 +26,10 @@ export function respondToOwnerQuestionMutationOptions<TContext = unknown>(config
 }
 
 /**
- * @summary Answer or close the open question in this conversation
+ * @summary Interact with, answer or close the open question in this conversation
  * {@link /api/my/ai-agent-session/questions/respond}
  */
-export function useRespondToOwnerQuestion<TContext>(options:
+export function useRespondToOwnerQuestion<TContext>(options: 
 {
   mutation?: UseMutationOptions<RespondToOwnerQuestionMutationResponse, ResponseErrorConfig<Error>, {data: RespondToOwnerQuestionMutationRequest}, TContext> & { client?: QueryClient },
   client?: Partial<RequestConfig<RespondToOwnerQuestionMutationRequest>> & { client?: Client },
@@ -41,12 +41,12 @@ export function useRespondToOwnerQuestion<TContext>(options:
           const mutationKey = mutationOptions.mutationKey ?? respondToOwnerQuestionMutationKey()
 
           const baseOptions = respondToOwnerQuestionMutationOptions(config) as UseMutationOptions<RespondToOwnerQuestionMutationResponse, ResponseErrorConfig<Error>, {data: RespondToOwnerQuestionMutationRequest}, TContext>
-
+          
 
           return useMutation<RespondToOwnerQuestionMutationResponse, ResponseErrorConfig<Error>, {data: RespondToOwnerQuestionMutationRequest}, TContext>({
             ...baseOptions,
             mutationKey,
             ...mutationOptions,
           }, queryClient) as UseMutationResult<RespondToOwnerQuestionMutationResponse, ResponseErrorConfig<Error>, {data: RespondToOwnerQuestionMutationRequest}, TContext>
-
+      
 }

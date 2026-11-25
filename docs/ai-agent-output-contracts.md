@@ -2,7 +2,7 @@
 
 Generated from `diagnose-core/src/output_contracts.rs`. Catalog version describes this mapping, not a payload schema field. All errors may instead be returned as safe text; an externalized attachment must be read before interpreting its business payload.
 
-`ask_user` returns `answered` with one entry per question in the original order. An entry has kind `choice`, `text` or `skipped`. Closing the card returns `declined`. An expired goal question returns `timed_out` with the reason `user may be away`.
+`ask_user` returns `answered` with one entry per question in the original order. An entry has kind `choice`, `text` or `skipped`. Closing the card returns `declined`. Once the owner starts answering, the goal question stays open until they respond or stop the work. An untouched goal question that expires returns `timed_out` with the reason `user may be away`.
 
 The `read_subagent_reports` tool returns a `WorkerReportPage` with reports in sequence order, acceptance criteria when reports are present, a next cursor, and an indication of further pages. Report text and available evidence and receipt references stay with the individual report.
 

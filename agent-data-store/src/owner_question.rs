@@ -99,6 +99,49 @@ pub async fn withdraw_on(db: &impl ConnectionTrait, id: &str) -> Result<(), DbEr
     Ok(())
 }
 
+async fn stored_wait(
+    db: &impl ConnectionTrait,
+    actor: &str,
+    conversation: &str,
+    id: &str,
+) -> Result<wait::Model, ScheduleStoreError> {
+    wait::Entity::find_by_id(id)
+        .filter(wait::Column::ActorId.eq(actor))
+        .filter(wait::Column::ConversationId.eq(conversation))
+        .one(db)
+        .await?
+        .ok_or(ScheduleStoreError::Conflict)
+}
+
+fn replay(stored: wait::Model, request_id: Option<&str>) -> Result<String, ScheduleStoreError> {
+    if stored.status == "timed_out"
+        || (stored.status != OPEN
+            && stored
+                .client_request_id
+                .as_deref()
+                .zip(request_id)
+                .is_some_and(|(a, b)| a == b))
+    {
+        Ok(stored.status)
+    } else {
+        Err(ScheduleStoreError::Conflict)
+    }
+}
+
+/// A request which did not review any owner text may only replay a settled receipt.
+pub async fn replay_on(
+    db: &impl ConnectionTrait,
+    actor: &str,
+    conversation: &str,
+    id: &str,
+    request_id: &str,
+) -> Result<String, ScheduleStoreError> {
+    replay(
+        stored_wait(db, actor, conversation, id).await?,
+        Some(request_id),
+    )
+}
+
 pub async fn settle_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     host: &H,
     txn: &C,
@@ -108,23 +151,9 @@ pub async fn settle_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     now: i64,
 ) -> Result<String, ScheduleStoreError> {
     use ScheduleStoreError::{Conflict, Invalid};
-    let stored = wait::Entity::find_by_id(id)
-        .filter(wait::Column::ActorId.eq(&row.actor_id))
-        .filter(wait::Column::ConversationId.eq(&row.conversation_id))
-        .one(txn)
-        .await?
-        .ok_or(Conflict)?;
+    let stored = stored_wait(txn, &row.actor_id, &row.conversation_id, id).await?;
     if stored.status != OPEN {
-        if stored.status == "timed_out"
-            || stored
-                .client_request_id
-                .as_deref()
-                .zip(submission)
-                .is_some_and(|(a, (b, _))| a == b)
-        {
-            return Ok(stored.status);
-        }
-        return Err(Conflict);
+        return replay(stored, submission.map(|(key, _)| key));
     }
     let mut session =
         PersistedAgentSession::decode_boxed_json(&row.state_json).map_err(|_| Invalid)?;
@@ -136,87 +165,35 @@ pub async fn settle_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     }
     let question = session
         .owner_question
-        .as_deref()
+        .as_deref_mut()
         .filter(|w| w.view.wait_id == id && w.open)
         .ok_or(Conflict)?;
     let expired = stored.deadline_ms.is_some_and(|d| now >= d);
-    let client_id = if expired {
-        None
-    } else {
-        Some(submission.ok_or(Conflict)?.0.to_owned())
-    };
-    let action = submission.filter(|_| !expired).map(|(_, a)| a);
-    let issuing = session
-        .conversation
-        .iter()
-        .find(|m| m.message_id == question.issuing_message_id)
-        .ok_or(Conflict)?;
-    let label_owner = |text: String| {
-        let destination = issuing
-            .data_envelope
-            .as_ref()
-            .and_then(|e| {
-                e.allowed_destinations.iter().find(|d| {
-                    matches!(
-                        d,
-                        desk_agent_protocol::data_lineage::DestinationIdentity::Model { .. }
-                    )
-                })
-            })
-            .ok_or(Invalid)?;
-        model_bound_user_message(format!("owner-response-{id}"), text, destination.clone())
-            .map_err(|_| Invalid)
-    };
-    let status = match &question.view.prompt {
-        OwnerPrompt::Questions { .. } => {
-            let result = match action {
-                Some(a) => question.resolve(a.clone()).map_err(|_| Invalid)?,
-                None => OwnerQuestionResult::timed_out(),
-            };
-            let (status, label) = match &result {
-                OwnerQuestionResult::Answered { .. } => (
-                    "answered",
-                    label_owner(serde_json::to_string(&result).map_err(|_| Invalid)?)?
-                        .data_envelope,
-                ),
-                OwnerQuestionResult::Declined => ("declined", None),
-                OwnerQuestionResult::TimedOut { .. } => ("timed_out", None),
-            };
-            insert_result(&mut session, &result, label.as_ref()).map_err(|_| Invalid)?;
-            status
+    let action = submission.filter(|_| !expired).map(|(_, action)| action);
+    let interacting = matches!(action, Some(OwnerQuestionAction::Interact {}));
+    let status = if interacting {
+        if question.goal.is_none() {
+            return Err(Invalid);
         }
-        OwnerPrompt::FollowUp { .. } => match action {
-            Some(OwnerQuestionAction::Reply { text }) if question.accepts_reply(text) => {
-                let message = label_owner(text.clone())?;
-                if question.goal.is_some() {
-                    session.conversation.push(message);
-                } else {
-                    let owner = message.data_envelope.ok_or(Invalid)?;
-                    let content = desk_diagnose_core::owner_question::owner_content(
-                        &session,
-                        id,
-                        text.clone(),
-                        owner.allowed_destinations,
-                    )
-                    .map_err(|_| Invalid)?;
-                    let reply = question_event(issuing, id, &content)?;
-                    session.conversation.push(reply);
-                }
-                "replied"
-            }
-            None => {
-                let content =
-                    desk_diagnose_core::owner_question::timeout_content().map_err(|_| Invalid)?;
-                let event = question_event(issuing, id, &content)?;
-                session.conversation.push(event);
-                "timed_out"
-            }
-            _ => return Err(Invalid),
-        },
+        if question.view.deadline_unix_ms.take().is_none() {
+            return Ok("interacting".into());
+        }
+        "interacting"
+    } else {
+        if !expired && submission.is_none() {
+            // A scanner can hold a candidate whose deadline the owner already cancelled.
+            return if question.goal.is_some() && stored.deadline_ms.is_none() {
+                Ok("interacting".into())
+            } else {
+                Err(Conflict)
+            };
+        }
+        let status = close_question(&mut session, id, action)?;
+        let question = session.owner_question.as_deref_mut().ok_or(Conflict)?;
+        question.open = false;
+        question.needs_adjustment = status == "declined";
+        status
     };
-    let question = session.owner_question.as_deref_mut().ok_or(Conflict)?;
-    question.open = false;
-    question.needs_adjustment = status == "declined";
     session.last_event_seq = session.last_event_seq.checked_add(1).ok_or(Invalid)?;
     session.version = row.version.checked_add(1).ok_or(Invalid)?;
     session.updated_at = timestamp(now)?.to_rfc3339();
@@ -244,15 +221,27 @@ pub async fn settle_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     if count != 1 {
         return Err(Conflict);
     }
-    let changed = wait::Entity::update_many()
-        .col_expr(wait::Column::Status, Expr::value(status))
-        .col_expr(wait::Column::ClientRequestId, Expr::value(client_id))
+    let update = wait::Entity::update_many();
+    let update = if interacting {
+        update.col_expr(wait::Column::DeadlineMs, Expr::value(Option::<i64>::None))
+    } else {
+        let client_id = submission
+            .filter(|_| !expired)
+            .map(|(key, _)| key.to_owned());
+        update
+            .col_expr(wait::Column::Status, Expr::value(status))
+            .col_expr(wait::Column::ClientRequestId, Expr::value(client_id))
+    };
+    let changed = update
         .filter(wait::Column::WaitId.eq(id))
         .filter(wait::Column::Status.eq(OPEN))
         .exec(txn)
         .await?;
     if changed.rows_affected != 1 {
         return Err(Conflict);
+    }
+    if interacting {
+        return Ok(status.into());
     }
     decision_resume::insert_on(
         txn,
@@ -264,6 +253,83 @@ pub async fn settle_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     )
     .await?;
     Ok(status.into())
+}
+
+fn close_question(
+    session: &mut PersistedAgentSession,
+    id: &str,
+    action: Option<&OwnerQuestionAction>,
+) -> Result<&'static str, ScheduleStoreError> {
+    use ScheduleStoreError::{Conflict, Invalid};
+    let question = session.owner_question.as_deref().ok_or(Conflict)?;
+    let issuing = session
+        .conversation
+        .iter()
+        .find(|m| m.message_id == question.issuing_message_id)
+        .ok_or(Conflict)?;
+    let label_owner = |text: String| {
+        let destination = issuing
+            .data_envelope
+            .as_ref()
+            .and_then(|e| {
+                e.allowed_destinations.iter().find(|d| {
+                    matches!(
+                        d,
+                        desk_agent_protocol::data_lineage::DestinationIdentity::Model { .. }
+                    )
+                })
+            })
+            .ok_or(Invalid)?;
+        model_bound_user_message(format!("owner-response-{id}"), text, destination.clone())
+            .map_err(|_| Invalid)
+    };
+    Ok(match &question.view.prompt {
+        OwnerPrompt::Questions { .. } => {
+            let result = match action {
+                Some(a) => question.resolve(a.clone()).map_err(|_| Invalid)?,
+                None => OwnerQuestionResult::timed_out(),
+            };
+            let (status, label) = match &result {
+                OwnerQuestionResult::Answered { .. } => (
+                    "answered",
+                    label_owner(serde_json::to_string(&result).map_err(|_| Invalid)?)?
+                        .data_envelope,
+                ),
+                OwnerQuestionResult::Declined => ("declined", None),
+                OwnerQuestionResult::TimedOut { .. } => ("timed_out", None),
+            };
+            insert_result(session, &result, label.as_ref()).map_err(|_| Invalid)?;
+            status
+        }
+        OwnerPrompt::FollowUp { .. } => match action {
+            Some(OwnerQuestionAction::Reply { text }) if question.accepts_reply(text) => {
+                let message = label_owner(text.clone())?;
+                if question.goal.is_some() {
+                    session.conversation.push(message);
+                } else {
+                    let owner = message.data_envelope.ok_or(Invalid)?;
+                    let content = desk_diagnose_core::owner_question::owner_content(
+                        session,
+                        id,
+                        text.clone(),
+                        owner.allowed_destinations,
+                    )
+                    .map_err(|_| Invalid)?;
+                    let reply = question_event(issuing, id, &content)?;
+                    session.conversation.push(reply);
+                }
+                "replied"
+            }
+            None => {
+                let content =
+                    desk_diagnose_core::owner_question::timeout_content().map_err(|_| Invalid)?;
+                let event = question_event(issuing, id, &content)?;
+                session.conversation.push(event);
+                "timed_out"
+            }
+            _ => return Err(Invalid),
+        },
+    })
 }
 
 fn question_event(

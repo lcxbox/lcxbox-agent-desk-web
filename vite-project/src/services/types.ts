@@ -4900,6 +4900,12 @@ export const subAgentControlActionKindEnum3 = {
 
 export type SubAgentControlActionKindEnum3Key = (typeof subAgentControlActionKindEnum3)[keyof typeof subAgentControlActionKindEnum3];
 
+export const subAgentControlActionKindEnum4 = {
+    begin_answer: "begin_answer"
+} as const;
+
+export type SubAgentControlActionKindEnum4Key = (typeof subAgentControlActionKindEnum4)[keyof typeof subAgentControlActionKindEnum4];
+
 export type SubAgentControlAction = ({
     /**
      * @type string
@@ -4927,6 +4933,15 @@ export type SubAgentControlAction = ({
      * @type string
     */
     message: string;
+    /**
+     * @type string
+    */
+    question_id: string;
+} | {
+    /**
+     * @type string
+    */
+    kind: SubAgentControlActionKindEnum4Key;
     /**
      * @type string
     */
@@ -4979,6 +4994,10 @@ export type AiAgentSubAgentControlBody = {
 };
 
 export type AiAgentSubAgentQuestion = {
+    /**
+     * @type integer,null, int64
+    */
+    deadline_unix_ms?: number | null;
     /**
      * @type string
     */
@@ -8964,7 +8983,7 @@ export type GoalBudgetPolicy = {
     */
     limits: GoalBudgetLimits;
     /**
-     * @description Time allowed for a single owner question group during a goal.
+     * @description Time to begin answering a question group during a goal.
      * @minLength 0
      * @type integer, int64
     */
@@ -11339,36 +11358,42 @@ export type OwnerAnswer = ({
 });
 
 export const ownerQuestionActionKindEnum = {
-    answer: "answer"
+    interact: "interact"
 } as const;
 
 export type OwnerQuestionActionKindEnumKey = (typeof ownerQuestionActionKindEnum)[keyof typeof ownerQuestionActionKindEnum];
 
 export const ownerQuestionActionKindEnum2 = {
-    decline: "decline"
+    answer: "answer"
 } as const;
 
 export type OwnerQuestionActionKindEnum2Key = (typeof ownerQuestionActionKindEnum2)[keyof typeof ownerQuestionActionKindEnum2];
 
 export const ownerQuestionActionKindEnum3 = {
-    reply: "reply"
+    decline: "decline"
 } as const;
 
 export type OwnerQuestionActionKindEnum3Key = (typeof ownerQuestionActionKindEnum3)[keyof typeof ownerQuestionActionKindEnum3];
 
+export const ownerQuestionActionKindEnum4 = {
+    reply: "reply"
+} as const;
+
+export type OwnerQuestionActionKindEnum4Key = (typeof ownerQuestionActionKindEnum4)[keyof typeof ownerQuestionActionKindEnum4];
+
 /**
- * @description Only a host can settle a timeout. The client can answer or close the card\nand can reply to the later, separately identified adjustment prompt.
+ * @description Interact stops the deadline for an open goal prompt without submitting an answer.\nOnly a host can settle a timeout.
 */
 export type OwnerQuestionAction = ({
-    /**
-     * @type array
-    */
-    answers: OwnerAnswer[];
     /**
      * @type string
     */
     kind: OwnerQuestionActionKindEnumKey;
 } | {
+    /**
+     * @type array
+    */
+    answers: OwnerAnswer[];
     /**
      * @type string
     */
@@ -11378,6 +11403,11 @@ export type OwnerQuestionAction = ({
      * @type string
     */
     kind: OwnerQuestionActionKindEnum3Key;
+} | {
+    /**
+     * @type string
+    */
+    kind: OwnerQuestionActionKindEnum4Key;
     /**
      * @type string
     */
@@ -12196,7 +12226,7 @@ export type ResetPassword = {
 
 export type RespondToOwnerQuestion = {
     /**
-     * @description Only a host can settle a timeout. The client can answer or close the card\nand can reply to the later, separately identified adjustment prompt.
+     * @description Interact stops the deadline for an open goal prompt without submitting an answer.\nOnly a host can settle a timeout.
     */
     action: OwnerQuestionAction;
     /**
@@ -15011,7 +15041,7 @@ export type RestResponseGoalBudgetPolicy = {
         */
         limits: GoalBudgetLimits;
         /**
-         * @description Time allowed for a single owner question group during a goal.
+         * @description Time to begin answering a question group during a goal.
          * @minLength 0
          * @type integer, int64
         */
@@ -20815,7 +20845,7 @@ export type UpdateGoalBudgetPolicy = {
     */
     limits: GoalBudgetLimits;
     /**
-     * @description Time allowed for a single owner question group during a goal.
+     * @description Time to begin answering a question group during a goal.
      * @minLength 0
      * @type integer, int64
     */

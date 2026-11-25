@@ -71,6 +71,9 @@ fn validate_control(request: &AiAgentSubAgentControl) -> Result<(), DbErr> {
         || request.expected_control_revision > i64::MAX as u64
         || match &request.action {
             SubAgentControlAction::Cancel => false,
+            SubAgentControlAction::BeginAnswer { question_id } => {
+                !desk_diagnose_core::subagent::valid_id(question_id)
+            }
             SubAgentControlAction::Reply {
                 question_id,
                 message,
@@ -277,6 +280,30 @@ async fn apply_task_control_with_source_on(
     }
     input_observation.stage(Stage::Reference, StageOutcome::Passed);
     let prepared = desk_diagnose_core::future::send_phase(|| async {
+        if let SubAgentControlAction::BeginAnswer { question_id } = &request.action {
+            let task = if desk_agent_data_store::worker_report::begin_answer_on(
+                txn,
+                &row,
+                &run,
+                question_id,
+                now_ms,
+            )
+            .await?
+            {
+                run.summary()
+            } else {
+                let now = sea_orm::prelude::DateTimeUtc::from_timestamp_millis(now_ms)
+                    .ok_or_else(invalid)?;
+                reply_to_question_on(txn, &row, question_id, "", None, None, now).await?
+            };
+            return Ok(PreparedControl {
+                outcome: SubAgentControlOutcome {
+                    task,
+                    cancel_request_id: None,
+                },
+                permission_ends: Default::default(),
+            });
+        }
         if let SubAgentControlAction::Reply {
             question_id,
             message,
@@ -332,7 +359,9 @@ async fn apply_task_control_with_source_on(
             .to_rfc3339();
         let mut cancellation = None;
         let changed = match &request.action {
-            SubAgentControlAction::Reply { .. } => return Err(invalid()),
+            SubAgentControlAction::BeginAnswer { .. } | SubAgentControlAction::Reply { .. } => {
+                return Err(invalid());
+            }
             SubAgentControlAction::Cancel => {
                 let changed = run
                     .request_cancel(run.fence(), &now)

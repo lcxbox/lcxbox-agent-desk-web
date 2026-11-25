@@ -2,7 +2,7 @@
 use super::*;
 use desk_agent_protocol::ai_agent::owner_question::RespondToOwnerQuestion;
 
-#[utoipa::path(tag = TAG, summary = "Answer or close the open question in this conversation",
+#[utoipa::path(tag = TAG, summary = "Interact with, answer or close the open question in this conversation",
     request_body = RespondToOwnerQuestion,
     responses((status=200, body=RestResponse<String>)))]
 #[post("/my/ai-agent-session/questions/respond")]

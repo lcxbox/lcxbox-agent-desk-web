@@ -1247,13 +1247,12 @@ async fn worker_terminal_tool_commits_once_and_preserves_pending_approval() {
     }
 }
 
-#[tokio::test]
-async fn goal_worker_times_out_once_and_resumes_its_original_request() {
-    use crate::entity::agent_subagent_inbox as inbox;
+async fn waiting_goal_worker(
+    db: &DatabaseConnection,
+) -> (PersistedAgentSession, SubAgentRun, String) {
     use desk_diagnose_core::subagent::report::ReportKind;
 
-    let db = database().await;
-    let (parent, goal) = super::funding::funded_parent(&db).await;
+    let (parent, goal) = super::funding::funded_parent(db).await;
     let scheduled_call = &parent.conversation.last().unwrap().tool_calls[0];
     let spawn = ToolCall {
         id: scheduled_call.id.clone(),
@@ -1265,7 +1264,7 @@ async fn goal_worker_times_out_once_and_resumes_its_original_request() {
         .spawn_for_turn(&parent, &spawn, &super::creation::spawn_request())
         .await
         .unwrap();
-    let original = load(&db, &task.task_id).await;
+    let original = load(db, &task.task_id).await;
     assert_eq!(
         original.binding.source.goal_id(),
         Some(goal.goal_id.as_str())
@@ -1284,7 +1283,7 @@ async fn goal_worker_times_out_once_and_resumes_its_original_request() {
     };
     let mut child = claimed.session;
     let call =
-        commit_worker_report_call(&db, &mut child, "goal-question", ReportKind::NeedsInput).await;
+        commit_worker_report_call(db, &mut child, "goal-question", ReportKind::NeedsInput).await;
     let Operation::Report(content) = tools::parse(&child, &call).unwrap() else {
         panic!("worker question report");
     };
@@ -1292,9 +1291,21 @@ async fn goal_worker_times_out_once_and_resumes_its_original_request() {
         .report_for_turn(&mut child, &call, content, "goal-question-receipt")
         .await
         .unwrap();
-    let id = question.payload["question_id"].as_str().unwrap();
+    (
+        parent,
+        original,
+        question.payload["question_id"].as_str().unwrap().to_owned(),
+    )
+}
+
+#[tokio::test]
+async fn goal_worker_times_out_once_and_resumes_its_original_request() {
+    use crate::entity::agent_subagent_inbox as inbox;
+    let db = database().await;
+    let (_, original, id) = waiting_goal_worker(&db).await;
+    let store = SubAgentStore::new(db.clone());
     let waiting = run_row::Entity::find()
-        .filter(run_row::Column::TaskId.eq(&task.task_id))
+        .filter(run_row::Column::TaskId.eq(&original.binding.task_id))
         .one(&db)
         .await
         .unwrap()
@@ -1307,7 +1318,7 @@ async fn goal_worker_times_out_once_and_resumes_its_original_request() {
     // Report retention may remove the body before the owner's question deadline.
     assert_eq!(
         inbox::Entity::delete_many()
-            .filter(inbox::Column::EventId.eq(id))
+            .filter(inbox::Column::EventId.eq(&id))
             .exec(&db)
             .await
             .unwrap()
@@ -1330,7 +1341,7 @@ async fn goal_worker_times_out_once_and_resumes_its_original_request() {
             .await
             .unwrap();
     }
-    let resumed = load(&db, &task.task_id).await;
+    let resumed = load(&db, &original.binding.task_id).await;
     assert_eq!(resumed.binding, original.binding);
     assert!(resumed.pending_question_id.is_none());
     assert_eq!(resumed.state, SubAgentState::Queued);
@@ -1339,7 +1350,7 @@ async fn goal_worker_times_out_once_and_resumes_its_original_request() {
     let SubAgentClaimOutcome::Claimed(claimed) = store
         .claim_child(
             &params,
-            &task.task_id,
+            &original.binding.task_id,
             resumed.fence(),
             &super::creation::destination(),
         )
@@ -1360,6 +1371,130 @@ async fn goal_worker_times_out_once_and_resumes_its_original_request() {
     assert_eq!(observation["status"], "timed_out");
     assert_eq!(observation["reason"], "user may be away");
     assert!(observation.get("reply").is_none());
+}
+
+#[tokio::test]
+async fn goal_worker_owner_interaction_cancels_only_the_live_question_deadline() {
+    use desk_agent_protocol::ai_agent::subagent::{AiAgentSubAgentControl, SubAgentControlAction};
+    let db = database().await;
+    let (parent, original, id) = waiting_goal_worker(&db).await;
+    let store = SubAgentStore::new(db.clone());
+    let read = || store.result_for_owner("root", "1", "1", &original.binding.task_id, None);
+    let question = read().await.unwrap().open_question.unwrap();
+    let deadline = question.deadline_unix_ms.unwrap();
+    let mut action = AiAgentSubAgentControl {
+        client_request_id: "wrong-question".into(),
+        task_id: original.binding.task_id.clone(),
+        expected_input_revision: original.binding.input_revision,
+        expected_control_revision: original.binding.control_revision,
+        action: SubAgentControlAction::BeginAnswer {
+            question_id: "superseded-question".into(),
+        },
+    };
+    assert!(
+        store
+            .control_for_owner("root", "1", "1", &action)
+            .await
+            .is_err()
+    );
+    assert_eq!(read().await.unwrap().open_question.unwrap(), question);
+    action.client_request_id = "first-gesture".into();
+    action.action = SubAgentControlAction::BeginAnswer {
+        question_id: id.clone(),
+    };
+    let txn = db.begin().await.unwrap();
+    let begun =
+        super::super::task_control::apply_task_control_on(&txn, &parent, &action, deadline - 1)
+            .await
+            .unwrap();
+    assert_eq!(begun.task.state, SubAgentState::WaitingInput);
+    txn.commit().await.unwrap();
+    assert_eq!(
+        read()
+            .await
+            .unwrap()
+            .open_question
+            .unwrap()
+            .deadline_unix_ms,
+        None
+    );
+    assert_eq!(
+        store
+            .control_for_owner("root", "1", "1", &action)
+            .await
+            .unwrap(),
+        begun
+    );
+    super::super::task_control::expire_owner_questions(&db, deadline + 2, 8)
+        .await
+        .unwrap();
+    let txn = db.begin().await.unwrap();
+    action.client_request_id = "owner-finished".into();
+    action.action = SubAgentControlAction::Reply {
+        question_id: id,
+        message: "Use staging".into(),
+    };
+    let replied =
+        super::super::task_control::apply_task_control_on(&txn, &parent, &action, deadline + 3)
+            .await
+            .unwrap();
+    assert_eq!(replied.task.state, SubAgentState::Queued);
+    txn.commit().await.unwrap();
+    assert!(read().await.unwrap().open_question.is_none());
+    let child = super::paused_permission::session(&db, &original.child_conversation_id).await;
+    let observation: serde_json::Value =
+        serde_json::from_str(&child.conversation.last().unwrap().text).unwrap();
+    assert_eq!(
+        observation["runtime_delegation_state"]["reply"],
+        "Use staging"
+    );
+}
+
+#[tokio::test]
+async fn goal_worker_interaction_at_deadline_settles_the_timeout() {
+    use desk_agent_protocol::ai_agent::subagent::{AiAgentSubAgentControl, SubAgentControlAction};
+    let db = database().await;
+    let (parent, original, id) = waiting_goal_worker(&db).await;
+    let store = SubAgentStore::new(db.clone());
+    let question = store
+        .result_for_owner("root", "1", "1", &original.binding.task_id, None)
+        .await
+        .unwrap()
+        .open_question
+        .unwrap();
+    let action = AiAgentSubAgentControl {
+        client_request_id: "late-gesture".into(),
+        task_id: original.binding.task_id.clone(),
+        expected_input_revision: original.binding.input_revision,
+        expected_control_revision: original.binding.control_revision,
+        action: SubAgentControlAction::BeginAnswer { question_id: id },
+    };
+    let txn = db.begin().await.unwrap();
+    let timed_out = super::super::task_control::apply_task_control_on(
+        &txn,
+        &parent,
+        &action,
+        question.deadline_unix_ms.unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(timed_out.task.state, SubAgentState::Queued);
+    txn.commit().await.unwrap();
+    let child = super::paused_permission::session(&db, &original.child_conversation_id).await;
+    let observation: serde_json::Value =
+        serde_json::from_str(&child.conversation.last().unwrap().text).unwrap();
+    assert_eq!(
+        observation["runtime_delegation_state"]["status"],
+        "timed_out"
+    );
+    assert!(
+        store
+            .result_for_owner("root", "1", "1", &original.binding.task_id, None)
+            .await
+            .unwrap()
+            .open_question
+            .is_none()
+    );
 }
 
 #[tokio::test]

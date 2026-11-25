@@ -3055,7 +3055,7 @@ function getRespondToOwnerQuestionUrl() {
 }
 
 /**
- * @summary Answer or close the open question in this conversation
+ * @summary Interact with, answer or close the open question in this conversation
  * {@link /api/my/ai-agent-session/questions/respond}
  */
 export async function respondToOwnerQuestion(data: RespondToOwnerQuestionMutationRequest, config: Partial<RequestConfig<RespondToOwnerQuestionMutationRequest>> & { client?: Client } = {}) {

@@ -268,9 +268,7 @@ impl SubAgentStore {
         task_id: &str,
     ) -> Result<AiAgentSubAgentSummary, DbErr> {
         let txn = self.db.begin().await?;
-        let task = owned_task_on(&txn, root, actor, device, task_id)
-            .await?
-            .summary();
+        let task = decode_run(&owned_task_on(&txn, root, actor, device, task_id).await?)?.summary();
         txn.commit().await?;
         Ok(task)
     }
@@ -284,10 +282,12 @@ impl SubAgentStore {
         before_report_seq: Option<u64>,
     ) -> Result<AiAgentSubAgentResult, DbErr> {
         let txn = self.db.begin().await?;
-        let task = owned_task_on(&txn, root, actor, device, task_id).await?;
+        let row = owned_task_on(&txn, root, actor, device, task_id).await?;
+        let task = decode_run(&row)?;
         let result = desk_agent_data_store::worker_report::owner_result_on(
             &txn,
             &task,
+            row.owner_question_deadline_ms,
             before_report_seq,
             jiff::Timestamp::now().as_millisecond(),
         )
@@ -303,17 +303,16 @@ async fn owned_task_on(
     actor: &str,
     device: &str,
     task_id: &str,
-) -> Result<SubAgentRun, DbErr> {
+) -> Result<run_row::Model, DbErr> {
     parent_on(txn, root, actor, device).await?;
-    let row = run_row::Entity::find()
+    run_row::Entity::find()
         .filter(run_row::Column::RootConversationId.eq(root))
         .filter(run_row::Column::ActorId.eq(actor))
         .filter(run_row::Column::DeviceId.eq(device))
         .filter(run_row::Column::TaskId.eq(task_id))
         .one(txn)
         .await?
-        .ok_or_else(invalid)?;
-    decode_run(&row)
+        .ok_or_else(invalid)
 }
 
 /// The caller holds owner/device and root conversation control. Acquire child

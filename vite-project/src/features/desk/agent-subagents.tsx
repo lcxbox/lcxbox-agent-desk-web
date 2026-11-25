@@ -112,6 +112,10 @@ export function AgentSubagents({ agents, connected, canDecide, interactive, expo
         }
     }, [child?.sessionId, child?.permissionRequests, contentRef, focusPermissionId]);
     if (!task) return null;
+    const beginAnswer = () => {
+        if (connected && canDecide && question?.deadline_unix_ms != null)
+            void agents.control(task, { kind: 'begin_answer', question_id: question.question_id });
+    };
     const automaticApproval = child?.approvalDelegation?.status === 'active';
     const pendingDirectories = ownerPendingDirectories(child?.fileScope?.directories ?? [], child?.decisionPause, automaticApproval);
     const pendingPermissions = child?.permissionRequests?.filter(request => ['pending', 'needs_revalidation'].includes(request.state)
@@ -255,14 +259,21 @@ export function AgentSubagents({ agents, connected, canDecide, interactive, expo
             }
         }}>
             <AgentSubagentApprovalNotice agents={agents} />
-            {question && <p className="whitespace-pre-wrap text-sm">{question.text}</p>}
-            {!subagentIsTerminal(task) && <AgentComposerInput sendDisabled={sendDisabled}
-                aria-label={t(question ? 'pages.aiAgent.subagents.replyMessage' : 'pages.aiAgent.subagents.adjustMessage')}
-                placeholder={t(question ? 'pages.aiAgent.subagents.replyMessage' : 'pages.aiAgent.subagents.adjustMessage')}
-                value={draft} disabled={!canDecide || !connected || agents.updating}
-                onChange={event => question
-                    ? setReplyDraft({ questionId: question.question_id, text: event.target.value })
-                    : setAdjustment(event.target.value)} className="min-h-16 max-h-40 resize-y" />}
+            <div onClick={beginAnswer}>
+                {question && <p className="whitespace-pre-wrap text-sm">{question.text}</p>}
+                {question?.deadline_unix_ms != null && <p className="text-xs text-muted-foreground">
+                    {t('pages.aiAgent.questionDeadline', { time: new Date(question.deadline_unix_ms).toLocaleTimeString() })}</p>}
+                {!subagentIsTerminal(task) && <AgentComposerInput sendDisabled={sendDisabled}
+                    aria-label={t(question ? 'pages.aiAgent.subagents.replyMessage' : 'pages.aiAgent.subagents.adjustMessage')}
+                    placeholder={t(question ? 'pages.aiAgent.subagents.replyMessage' : 'pages.aiAgent.subagents.adjustMessage')}
+                    value={draft} disabled={!canDecide || !connected || agents.updating}
+                    onChange={event => {
+                        if (question) {
+                            beginAnswer();
+                            setReplyDraft({ questionId: question.question_id, text: event.target.value });
+                        } else setAdjustment(event.target.value);
+                    }} className="min-h-16 max-h-40 resize-y" />}
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-1">
                     <AgentSubagentMenu onSelect={setPanel} onDeviceSettings={onDeviceSettings} onApprovalSettings={onApprovalSettings} />

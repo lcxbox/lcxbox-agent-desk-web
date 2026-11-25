@@ -1035,7 +1035,7 @@ async fn owner_question_closes_once_at_its_server_deadline_and_resumes_the_same_
         owner_question,
     };
 
-    for (offset, expected) in [(-1, "answered"), (0, "timed_out")] {
+    for (offset, expected) in [(-1, "answered"), (0, "timed_out"), (2_000, "answered")] {
         let db = db().await;
         let now = desk_agent_data_store::datetime::utc_now();
         let cid = "owner-question-boundary";
@@ -1111,6 +1111,44 @@ async fn owner_question_closes_once_at_its_server_deadline_and_resumes_the_same_
             pause.id
         );
 
+        if offset > 0 {
+            let before = read_session(&db, cid).await;
+            let interact = OwnerQuestionAction::Interact {};
+            let response = |key| {
+                crate::decision_resume::settle_question(
+                    &db,
+                    "1",
+                    cid,
+                    &pause.id,
+                    Some((key, &interact)),
+                )
+            };
+            let (first, retry) = tokio::join!(response("first-touch"), response("retry-touch"));
+            assert_eq!(first.unwrap(), "interacting");
+            assert_eq!(retry.unwrap(), "interacting");
+            let editing = read_session(&db, cid).await;
+            assert_eq!(editing.version, before.version + 1);
+            assert_eq!(editing.conversation, before.conversation);
+            assert_eq!(editing.decision_pause, before.decision_pause);
+            assert!(editing.owner_question.as_ref().unwrap().open);
+            assert!(
+                editing
+                    .owner_question
+                    .as_ref()
+                    .unwrap()
+                    .view
+                    .deadline_unix_ms
+                    .is_none()
+            );
+            assert!(store::due_on(&db, i64::MAX, 1).await.unwrap().is_empty());
+            assert!(
+                decision_resume::pending_on(&db, 0, 1)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+
         let txn = crate::db::begin_write(&db, agent_session::Entity)
             .await
             .unwrap();
@@ -1175,7 +1213,7 @@ async fn owner_question_closes_once_at_its_server_deadline_and_resumes_the_same_
             GoalPermissionWake::Queued
         ));
         let session = read_session(&db, cid).await;
-        let next = claim_slice(
+        let mut next = claim_slice(
             &db,
             &params(&session, "second-slice", when),
             &goal.goal_id,
@@ -1203,6 +1241,51 @@ async fn owner_question_closes_once_at_its_server_deadline_and_resumes_the_same_
             assert!(value.get("answers").is_none());
         } else {
             assert_eq!(value["answers"][0]["value"], "UTC");
+        }
+        if offset > 0 {
+            let new_call = ToolCall {
+                id: "format-call".into(),
+                name: owner_question::TOOL.into(),
+                arguments_json: r#"{"questions":[{"question":"Which format?"}]}"#.into(),
+            };
+            let mut issued =
+                ChatMessage::agent_tool_calls("asked-format", "", vec![new_call.to_ref()]);
+            issued.turn_id = next.session.current_turn_id.clone();
+            next.session.conversation.push(issued);
+            let new_wait = owner_question::publish(
+                &mut next.session,
+                &new_call,
+                "asked-format",
+                "wait-format".into(),
+                now_ms as u64,
+                Some(60_000),
+                owner_question::parse(&new_call).unwrap(),
+            )
+            .unwrap();
+            next.session.decision_pause = Some(new_wait.clone());
+            next.session.finish_turn(TurnState::Idle, when.to_rfc3339());
+            settle_slice(
+                &db,
+                &mut next.session,
+                &GoalSegmentEnd::Control(GoalControl::Wait {
+                    reason: GoalWaitReason::OwnerQuestion,
+                    reference_id: new_wait.id.clone(),
+                }),
+                &[],
+                when,
+            )
+            .await
+            .unwrap();
+            let published_at = next
+                .session
+                .decision_pause
+                .as_ref()
+                .unwrap()
+                .requested_at_unix_ms as i64;
+            let due = store::due_on(&db, published_at + 60_000, 2).await.unwrap();
+            assert_eq!(due.len(), 1);
+            assert_eq!(due[0].wait_id, new_wait.id);
+            assert_eq!(due[0].deadline_ms, Some(published_at + 60_000));
         }
     }
 }
@@ -1299,6 +1382,24 @@ async fn directed_goal_reply_proposes_a_revision_and_requires_the_owner_decision
         )
         .await
         .unwrap();
+        assert_eq!(
+            crate::decision_resume::settle_question(
+                &db,
+                "1",
+                cid,
+                &pause.id,
+                Some(("typing-adjustment", &OwnerQuestionAction::Interact {}))
+            )
+            .await
+            .unwrap(),
+            "interacting"
+        );
+        assert!(
+            desk_agent_data_store::decision_resume::pending_on(&db, 0, 1)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         let revised_text = "Finish the report in French";
         let action = OwnerQuestionAction::Reply {
             text: if decision.is_some() {

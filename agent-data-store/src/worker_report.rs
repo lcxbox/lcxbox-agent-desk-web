@@ -121,11 +121,48 @@ fn retained_at(
     )
 }
 
+/// Return true while the selected question remains open. The host holds the
+/// root and child controls and settles an elapsed deadline in this transaction.
+pub async fn begin_answer_on(
+    db: &impl ConnectionTrait,
+    row: &crate::entity::agent_subagent_run::Model,
+    run: &SubAgentRun,
+    question_id: &str,
+    now_ms: i64,
+) -> Result<bool, DbErr> {
+    use crate::entity::agent_subagent_run as task;
+    if run.binding.source.goal_id().is_none()
+        || run.state != SubAgentState::WaitingInput
+        || run.pending_question_id.as_deref() != Some(question_id)
+        || now_ms >= run.binding.deadline_ms
+    {
+        return Err(DbErr::Custom(
+            desk_diagnose_core::subagent::report::QUESTION_NOT_OPEN.into(),
+        ));
+    }
+    let Some(deadline) = row.owner_question_deadline_ms else {
+        return Ok(true);
+    };
+    if now_ms >= deadline {
+        return Ok(false);
+    }
+    task::Entity::update_many()
+        .set(task::ActiveModel {
+            owner_question_deadline_ms: Set(None),
+            ..Default::default()
+        })
+        .filter(task::Column::Id.eq(row.id))
+        .exec(db)
+        .await?;
+    Ok(true)
+}
+
 /// The host has checked the owner and native parent. This view neither
 /// authorizes model egress nor changes report delivery state.
 pub async fn owner_result_on(
     db: &impl ConnectionTrait,
     run: &SubAgentRun,
+    question_deadline_ms: Option<i64>,
     before_seq: Option<u64>,
     now_ms: i64,
 ) -> Result<AiAgentSubAgentResult, DbErr> {
@@ -188,6 +225,7 @@ pub async fn owner_result_on(
     {
         result.open_question = Some(AiAgentSubAgentQuestion {
             question_id: question_id.into(),
+            deadline_unix_ms: question_deadline_ms,
             text: question.report.content.question.ok_or_else(invalid)?,
         });
     }

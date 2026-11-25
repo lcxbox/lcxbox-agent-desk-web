@@ -31,7 +31,39 @@ export function AgentOwnerQuestion({ session, wait, refresh }: {
     const [failed, setFailed] = useState(false);
     const attempt = useRef<{ signature: string; id: string } | null>(null);
     const pending = useRef(false);
+    const interactionPending = useRef(false);
+    const interactionId = useRef('');
+    const [interacting, setInteracting] = useState(false);
+    const settled = useRef(false);
+    const attemptKey = draftKey + '/submission';
+    const finish = (status: string | null | undefined) => {
+        if (settled.current) return;
+        settled.current = true;
+        if (status === 'timed_out') toast({ title: t('pages.aiAgent.ownerQuestionTimedOut') });
+        writeAgentDraft(draftKey, '');
+        writeAgentDraft(attemptKey, '');
+        setClosed(true);
+    };
+    const interact = async () => {
+        if (wait.deadlineUnixMs == null || interacting || interactionPending.current || pending.current || settled.current) return;
+        interactionPending.current = true;
+        interactionId.current ||= v4();
+        setFailed(false);
+        try {
+            const result = await respondToOwnerQuestion({ session, waitId: wait.waitId,
+                clientRequestId: interactionId.current, action: { kind: 'interact' } });
+            if (!result.success) throw new Error();
+            if (result.data === 'timed_out') finish(result.data);
+            else if (result.data === 'interacting') setInteracting(true);
+        } catch {
+            if (!pending.current && !settled.current) setFailed(true);
+        } finally {
+            interactionPending.current = false;
+            refresh();
+        }
+    };
     const setAnswer = (index: number, answer: OwnerAnswer) => {
+        void interact();
         const next = answers.map((item, i) => i === index ? answer : item);
         setAnswers(next);
         writeAgentDraft(draftKey, JSON.stringify(next));
@@ -42,7 +74,6 @@ export function AgentOwnerQuestion({ session, wait, refresh }: {
         setSending(true);
         setFailed(false);
         const signature = JSON.stringify(action);
-        const attemptKey = draftKey + '/submission';
         if (!attempt.current) {
             try { attempt.current = JSON.parse(readAgentDraft(attemptKey)); } catch { /* First submission. */ }
         }
@@ -52,10 +83,7 @@ export function AgentOwnerQuestion({ session, wait, refresh }: {
             const result = await respondToOwnerQuestion({ session, waitId: wait.waitId,
                 clientRequestId: attempt.current.id, action });
             if (!result.success) throw new Error();
-            if (result.data === 'timed_out') toast({ title: t('pages.aiAgent.ownerQuestionTimedOut') });
-            writeAgentDraft(draftKey, '');
-            writeAgentDraft(attemptKey, '');
-            setClosed(true);
+            finish(result.data);
         } catch {
             setFailed(true);
         } finally {
@@ -65,11 +93,14 @@ export function AgentOwnerQuestion({ session, wait, refresh }: {
         }
     };
     if (closed) return null;
-    return <section className="agent-owner-question space-y-3 rounded-md border bg-card p-3" aria-label={t('pages.aiAgent.ownerQuestions')}>
+    return <section className="agent-owner-question space-y-3 rounded-md border bg-card p-3" aria-label={t('pages.aiAgent.ownerQuestions')}
+        onClick={event => {
+            if (!(event.target instanceof Element && event.target.closest('[data-owner-decision]'))) void interact();
+        }}>
         {wait.prompt.kind === 'questions' ? <>
             <div className="flex items-center justify-between gap-2">
                 <strong>{t('pages.aiAgent.ownerQuestions')}</strong>
-                <Button type="button" size="icon" variant="ghost" disabled={sending} aria-label={t('pages.aiAgent.memory.close')}
+                <Button type="button" data-owner-decision size="icon" variant="ghost" disabled={sending} aria-label={t('pages.aiAgent.memory.close')}
                     onClick={() => void send({ kind: 'decline' })}><X /></Button>
             </div>
             {questions.map((q, i) => {
@@ -89,15 +120,15 @@ export function AgentOwnerQuestion({ session, wait, refresh }: {
                         onChange={e => setAnswer(i, { kind: 'text', value: e.target.value })} />
                 </fieldset>;
             })}
-            <Button type="button" size="sm" disabled={sending || answers.some(a => !a || (a.kind === 'text' && (!a.value.trim() || Array.from(a.value).length > 1024)))}
+            <Button type="button" data-owner-decision size="sm" disabled={sending || answers.some(a => !a || (a.kind === 'text' && (!a.value.trim() || Array.from(a.value).length > 1024)))}
                 onClick={() => void send({ kind: 'answer', answers: answers.filter((a): a is OwnerAnswer => !!a) })}>{t('pages.aiAgent.send')}</Button>
         </> : <>
             <label className="block space-y-2"><span>{wait.prompt.text}</span>
-                <Textarea value={reply} disabled={sending} onChange={e => { setReply(e.target.value); writeAgentDraft(draftKey, e.target.value); }} /></label>
-            <Button type="button" size="sm" disabled={sending || !reply.trim() || Array.from(reply).length > 1024}
+                <Textarea value={reply} disabled={sending} onChange={e => { void interact(); setReply(e.target.value); writeAgentDraft(draftKey, e.target.value); }} /></label>
+            <Button type="button" data-owner-decision size="sm" disabled={sending || !reply.trim() || Array.from(reply).length > 1024}
                 onClick={() => void send({ kind: 'reply', text: reply })}>{t('pages.aiAgent.subagents.sendReply')}</Button>
         </>}
-        {wait.deadlineUnixMs != null && <p className="text-xs text-muted-foreground">{t('pages.aiAgent.questionDeadline', { time: new Date(wait.deadlineUnixMs).toLocaleTimeString() })}</p>}
+        {!interacting && wait.deadlineUnixMs != null && <p className="text-xs text-muted-foreground">{t('pages.aiAgent.questionDeadline', { time: new Date(wait.deadlineUnixMs).toLocaleTimeString() })}</p>}
         {failed && <p role="alert" className="text-sm text-destructive">{t('pages.aiAgent.directories.submitUnavailable')}</p>}
     </section>;
 }

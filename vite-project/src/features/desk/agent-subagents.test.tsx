@@ -124,6 +124,17 @@ it('answers the exact Worker question and keeps the adjustment draft separate', 
         { kind: 'reply', question_id: 'original-question', message: 'Use staging.' }));
     await waitFor(() => expect(input).toHaveValue(''));
 });
+it.each(['question', 'input'])('begins a timed Worker answer only on a real %s interaction', async mode => {
+    const agents = agentsFor('child-1');
+    agents.detail!.result.open_question = { question_id: 'timed-question', text: 'Which environment?', deadline_unix_ms: 60_000 };
+    render(<AgentSubagents agents={agents} connected canDecide mainStopped={false} />);
+    const question = screen.getByText('Which environment?');
+    fireEvent.scroll(question);
+    expect(agents.control).not.toHaveBeenCalled();
+    if (mode === 'question') fireEvent.click(question);
+    else fireEvent.change(screen.getByRole('textbox', { name: 'Answer the Worker' }), { target: { value: 'Staging.' } });
+    expect(agents.control).toHaveBeenCalledExactlyOnceWith(agents.selected, { kind: 'begin_answer', question_id: 'timed-question' });
+});
 describe('subagent approval notice', () => {
     it('shows pending approvals outside the collapsed task list and opens the original child', () => {
         const agents = agentsFor('child-1');
