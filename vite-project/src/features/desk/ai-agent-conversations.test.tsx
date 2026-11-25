@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -142,6 +142,35 @@ it('restores the server selection in the same conversation on another client', a
     expect(asks).toEqual([[SIGNALING_TYPE_CODE_ASK_AI_AGENT,
         expect.objectContaining({ question: 'Compare these devices', target_refs: ['mac-ref'] }),
         undefined, expect.any(String)]]);
+});
+
+it('keeps every owner question and its send button in the scrollable conversation', async () => {
+    const session = 'mobile-questions';
+    const questions = Array.from({ length: 5 }, (_, i) => ({
+        question: `Question ${i + 1}?`, options: ['First option', 'Second option', 'Third option'],
+    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+        success: true, data: {
+            sessionId: session, seq: 1, inputRevision: 1, controlRevision: 1, mainStopped: false, messages: [],
+            approvalModelReadiness: { available: true },
+            decisionPause: { kind: 'owner_question', awaitingOwner: true, requestId: 'wait', toolCallId: 'call',
+                ownerQuestion: { waitId: 'wait', prompt: { kind: 'questions', questions } } },
+            subagents: { active_tasks: [], task: null, parent_session_id: null, attention_tasks: [], attention_count: 0 },
+        },
+    }) }));
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={[`/ai-agent/conversation?conversation=${session}`]}>
+        <Routes><Route path="/ai-agent/conversation" element={<PersonalAiAgentPage />} /></Routes>
+    </MemoryRouter></QueryClientProvider>);
+
+    const last = await screen.findByRole('group', { name: 'Question 5?' });
+    const scroller = screen.getByTestId('agent-scroll-area');
+    expect(scroller).toContainElement(last);
+    for (const question of questions) {
+        const group = within(scroller).getByRole('group', { name: question.question });
+        fireEvent.click(within(group).getByRole('button', { name: 'First option' }));
+    }
+    expect(within(scroller).getByRole('button', { name: 'Send' })).toBeEnabled();
 });
 
 it('points to the model settings while no model is configured', () => {

@@ -1110,6 +1110,7 @@ export function AiAgentWorkspace({
                             ) : chat.error === 'selected_context_expired' ? t('pages.aiAgent.selectedContextExpired') : chat.error}</AlertDescription>
                         </Alert>
                     )}
+                    {chat.sessionId && pause?.ownerQuestion && <AgentOwnerQuestion key={pause.ownerQuestion.waitId} session={chat.sessionId} wait={pause.ownerQuestion} refresh={chat.refreshSnapshot} />}
                     </div>
                     </div>
                     {showJumpToLatest && (
@@ -1153,7 +1154,6 @@ export function AiAgentWorkspace({
                                 </Link>
                             </p>
                         )}
-                        {chat.sessionId && pause?.ownerQuestion && <AgentOwnerQuestion key={pause.ownerQuestion.waitId} session={chat.sessionId} wait={pause.ownerQuestion} refresh={chat.refreshSnapshot} />}
                         <AgentComposerInput
                             ref={goalReplyRef}
                             sendDisabled={sendDisabled}

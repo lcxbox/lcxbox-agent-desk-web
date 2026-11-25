@@ -65,7 +65,7 @@ export function AgentOwnerQuestion({ session, wait, refresh }: {
         }
     };
     if (closed) return null;
-    return <section className="space-y-3 rounded-md border bg-card p-3" aria-label={t('pages.aiAgent.ownerQuestions')}>
+    return <section className="agent-owner-question space-y-3 rounded-md border bg-card p-3" aria-label={t('pages.aiAgent.ownerQuestions')}>
         {wait.prompt.kind === 'questions' ? <>
             <div className="flex items-center justify-between gap-2">
                 <strong>{t('pages.aiAgent.ownerQuestions')}</strong>
