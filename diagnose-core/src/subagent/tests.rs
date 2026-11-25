@@ -93,6 +93,50 @@ fn binding() -> DelegatedTaskBinding {
 }
 
 #[test]
+fn approved_goal_from_a_queued_request_uses_its_own_delegation_identity() {
+    use crate::{dynamic_run::AgentInputTarget, native_ids};
+    use creation::{AcceptedOwnerSource, CreationEnvelope};
+
+    let mut parent =
+        PersistedAgentSession::new("root", "owner", "", 1, scope(), "2026-09-30T00:00:00Z");
+    parent.surface = AgentSessionSurface::AiAgent;
+    parent.input_revision = 1;
+    let targets = [AgentInputTarget::fixed("device".into())];
+    parent.bind_agent_input_targets(&targets).unwrap();
+    let request = native_ids::stable(native_ids::Kind::AgentMainRequest, &"owner-input");
+    let input = CreationEnvelope::capture(
+        &parent,
+        DelegationSource::request_input(&parent),
+        completion_context().source.owner_requirement,
+        None,
+        AcceptedOwnerSource {
+            targets: &targets,
+            main_request_id: Some(&request),
+        },
+    )
+    .unwrap();
+    assert_eq!(input.main_request_id.as_ref(), Some(&request));
+
+    let goal = CreationEnvelope::capture(
+        &parent,
+        DelegationSource::Goal {
+            goal_id: "goal".into(),
+        },
+        input.owner_requirement.clone(),
+        input.original_read_context.clone(),
+        AcceptedOwnerSource {
+            targets: &input.targets,
+            main_request_id: input.main_request_id.as_deref(),
+        },
+    )
+    .unwrap();
+    assert!(goal.main_request_id.is_none());
+    assert_eq!(goal.owner_requirement, input.owner_requirement);
+    assert_eq!(goal.targets, targets);
+    assert_ne!(goal.group_id().unwrap(), input.group_id().unwrap());
+}
+
+#[test]
 fn personal_worker_follows_the_owner_devices_across_turns_and_adjustment() {
     use crate::dynamic_run::AgentInputTarget;
     use desk_agent_protocol::data_lineage::DestinationIdentity;

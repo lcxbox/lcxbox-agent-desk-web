@@ -457,7 +457,12 @@ impl CreationEnvelope {
                     session.device_id.clone(),
                 )]
             },
-            main_request_id: admitted.main_request_id.map(str::to_owned),
+            // The approved goal has its own identity, even when a queued request opened it.
+            main_request_id: if source.goal_id().is_some() {
+                None
+            } else {
+                admitted.main_request_id.map(str::to_owned)
+            },
             source,
             parent_input_revision: session.input_revision,
             parent_control_revision: session.control_revision,
