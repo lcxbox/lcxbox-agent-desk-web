@@ -1,5 +1,8 @@
 //! Child planning and root result delivery release independent session leases.
 use super::*;
+use crate::agent_subagent_store::{ParentWaitResolution, SubAgentStore};
+use desk_agent_data_store::entity::{agent_delegation_group, agent_subagent_run};
+use desk_diagnose_core::future::phase;
 use desk_diagnose_core::subagent::device_wait::DeviceWaitStatus;
 use std::time::Instant;
 
@@ -75,58 +78,11 @@ impl SignalScheduleExecutor {
                         } else {
                             0
                         };
-                        let mut tasks = stream::iter(candidates.into_iter().map(|row| {
-                            let store = &store;
-                            let executor = &self;
-                            async move {
-                                if !executor
-                                    .subagent_backoff
-                                    .is_ready(&row.task_id, Instant::now())
-                                {
-                                    return;
-                                }
-                                if row.state == "waiting_resource" {
-                                    let Ok(run) = crate::agent_subagent_store::decode_run(&row)
-                                    else {
-                                        return;
-                                    };
-                                    let device = run.resource_device_id();
-                                    let availability =
-                                        if let Some((target, _)) = run.waiting_target() {
-                                            executor
-                                                .selected_wait_device_status(&target.device_id)
-                                                .await
-                                        } else if let Some(device) = device
-                                            && executor.delegated_device_available(device).await
-                                        {
-                                            DeviceWaitStatus::Ready
-                                        } else {
-                                            DeviceWaitStatus::Waiting
-                                        };
-                                    if !store
-                                        .retry_resource_task(&row.task_id, device, availability)
-                                        .await
-                                        .unwrap_or(false)
-                                    {
-                                        return;
-                                    }
-                                }
-                                let succeeded =
-                                    match store.child_runtime_candidate(&row.task_id).await {
-                                        Ok(Some(runtime)) => executor.drive_subagent(runtime).await,
-                                        Ok(None) => true,
-                                        Err(error) => {
-                                            log::warn!(
-                                                "[subagent-executor] task {} unavailable: {}",
-                                                row.task_id,
-                                                error
-                                            );
-                                            false
-                                        }
-                                    };
-                                executor.settle_subagent_attempt(&row.task_id, succeeded);
-                            }
-                        }))
+                        let mut tasks = stream::iter(
+                            candidates
+                                .into_iter()
+                                .map(|row| phase(|| self.process_subagent_task(&store, row))),
+                        )
                         .buffer_unordered(LOCAL_CONCURRENCY);
                         while tasks.next().await.is_some() {}
                     }
@@ -153,7 +109,7 @@ impl SignalScheduleExecutor {
                         0
                     };
                     for row in rows {
-                        if let Err(error) = store.reconcile_task(&row.task_id).await {
+                        if let Err(error) = phase(|| store.reconcile_task(&row.task_id)).await {
                             log::warn!(
                                 "[subagent-executor] task {} reconciliation unavailable: {}",
                                 row.task_id,
@@ -179,37 +135,12 @@ impl SignalScheduleExecutor {
                 match store.root_wait_candidates(cursor, BATCH_SIZE).await {
                     Ok((candidates, next_cursor)) => {
                         cursor = next_cursor.unwrap_or(0);
-                        let mut tasks = stream::iter(candidates.into_iter().map(|row| {
-                            let store = &store;
-                            let executor = &self;
-                            async move {
-                                if !executor
-                                    .subagent_backoff
-                                    .is_ready(&row.root_conversation_id, Instant::now())
-                                {
-                                    return;
-                                }
-                                let subject = (&row.root_conversation_id, &row.actor_id, &row.device_id);
-                                let succeeded = match store.resolve_parent_wait(subject.0, subject.1, subject.2).await {
-                                    Ok(crate::agent_subagent_store::ParentWaitResolution::Ready(_) | crate::agent_subagent_store::ParentWaitResolution::NotWaiting) => {
-                                        match store.parent_runtime_candidate(subject.0, subject.1, subject.2).await {
-                                            Ok(Some(runtime)) => executor.drive_subagent(runtime).await,
-                                            Ok(None) => true,
-                                            Err(error) => {
-                                                log::warn!("[subagent-executor] root {} unavailable: {}", row.root_conversation_id, error);
-                                                false
-                                            }
-                                        }
-                                    }
-                                    Ok(_) => true,
-                                    Err(error) => {
-                                        log::warn!("[subagent-executor] root wait {} unavailable: {}", row.root_conversation_id, error);
-                                        false
-                                    }
-                                };
-                                executor.settle_subagent_attempt(&row.root_conversation_id, succeeded);
-                            }
-                        })).buffer_unordered(LOCAL_CONCURRENCY);
+                        let mut tasks = stream::iter(
+                            candidates
+                                .into_iter()
+                                .map(|row| phase(|| self.process_subagent_wait(&store, row))),
+                        )
+                        .buffer_unordered(LOCAL_CONCURRENCY);
                         while tasks.next().await.is_some() {}
                     }
                     Err(error) => {
@@ -256,6 +187,89 @@ impl SignalScheduleExecutor {
         targets.next().is_some() && targets.next().is_none()
     }
 
+    async fn process_subagent_task(&self, store: &SubAgentStore, row: agent_subagent_run::Model) {
+        if !self.subagent_backoff.is_ready(&row.task_id, Instant::now()) {
+            return;
+        }
+        if row.state == "waiting_resource" {
+            let Ok(run) = crate::agent_subagent_store::decode_run(&row) else {
+                return;
+            };
+            let device = run.resource_device_id();
+            let availability = if let Some((target, _)) = run.waiting_target() {
+                self.selected_wait_device_status(&target.device_id).await
+            } else if let Some(device) = device
+                && self.delegated_device_available(device).await
+            {
+                DeviceWaitStatus::Ready
+            } else {
+                DeviceWaitStatus::Waiting
+            };
+            if !phase(|| store.retry_resource_task(&row.task_id, device, availability))
+                .await
+                .unwrap_or(false)
+            {
+                return;
+            }
+        }
+        let succeeded = match phase(|| store.child_runtime_candidate(&row.task_id)).await {
+            Ok(Some(runtime)) => phase(|| self.drive_subagent(runtime)).await,
+            Ok(None) => true,
+            Err(error) => {
+                log::warn!(
+                    "[subagent-executor] task {} unavailable: {}",
+                    row.task_id,
+                    error
+                );
+                false
+            }
+        };
+        self.settle_subagent_attempt(&row.task_id, succeeded);
+    }
+
+    async fn process_subagent_wait(
+        &self,
+        store: &SubAgentStore,
+        row: agent_delegation_group::Model,
+    ) {
+        if !self
+            .subagent_backoff
+            .is_ready(&row.root_conversation_id, Instant::now())
+        {
+            return;
+        }
+        let subject = (&row.root_conversation_id, &row.actor_id, &row.device_id);
+        let succeeded =
+            match phase(|| store.resolve_parent_wait(subject.0, subject.1, subject.2)).await {
+                Ok(ParentWaitResolution::Ready(_) | ParentWaitResolution::NotWaiting) => {
+                    match phase(|| store.parent_runtime_candidate(subject.0, subject.1, subject.2))
+                        .await
+                    {
+                        Ok(Some(runtime)) => phase(|| self.drive_subagent(runtime)).await,
+                        Ok(None) => true,
+                        Err(error) => {
+                            log::warn!(
+                                "[subagent-executor] root {} unavailable: {}",
+                                row.root_conversation_id,
+                                error
+                            );
+                            false
+                        }
+                    }
+                }
+                Ok(_) => true,
+                Err(error) => {
+                    log::warn!(
+                        "[subagent-executor] root wait {} unavailable: {}",
+                        row.root_conversation_id,
+                        error
+                    );
+                    false
+                }
+            };
+        self.settle_subagent_attempt(&row.root_conversation_id, succeeded);
+    }
+
     fn settle_subagent_attempt(&self, key: &str, succeeded: bool) {
         if succeeded {
             self.subagent_backoff.record_success(key);
@@ -279,41 +293,48 @@ impl SignalScheduleExecutor {
                 .delegated_device_available(&runtime.session().device_id)
                 .await
         {
-            let _ = store
-                .defer_child_candidate(
+            let _ = phase(|| {
+                store.defer_child_candidate(
                     &runtime,
                     Some(desk_diagnose_core::subagent::SubAgentWaitReason::DeviceUnavailable),
                     None,
                 )
-                .await;
+            })
+            .await;
             return true;
         }
         let candidate = runtime.clone();
         let connections = self.connections.clone();
         let db = self.db.clone();
         let gate = self.gate.clone();
-        match owned_task::run(async move {
+        match owned_task::run(phase(|| async move {
             crate::ai_agent_orchestrator::resume_subagent_turn(connections, db, &gate, runtime)
                 .await
-        })
+        }))
         .await
         {
             Ok(Ok(_)) => true,
             Ok(Err(error)) => {
                 if error.kind == desk_agent_protocol::AgentErrorKind::ModelRejected {
-                    let _ = store
-                        .defer_child_candidate(&candidate, None, Some("delegated_model_rejected"))
-                        .await;
+                    let _ = phase(|| {
+                        store.defer_child_candidate(
+                            &candidate,
+                            None,
+                            Some("delegated_model_rejected"),
+                        )
+                    })
+                    .await;
                 } else if error.kind == desk_agent_protocol::AgentErrorKind::ModelUnavailable
                     && error.retryable
                 {
-                    let _ = store
-                        .defer_child_candidate(
+                    let _ = phase(|| {
+                        store.defer_child_candidate(
                             &candidate,
                             Some(desk_diagnose_core::subagent::SubAgentWaitReason::ModelCapacity),
                             None,
                         )
-                        .await;
+                    })
+                    .await;
                 }
                 log::warn!(
                     "[subagent-executor] turn {} deferred: {}",

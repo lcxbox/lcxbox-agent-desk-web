@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 """Stream rustc stack remarks into a compact, deterministic report."""
 import argparse
+from itertools import islice
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+import consumer
+import symbols
+
 HARD_FRAME_LIMIT = 128 * 1024
 
 REMARK = re.compile(r"(\d+) stack bytes in function '([^']+)'")
 ESCAPES = {'SP': '@', 'BP': '*', 'RF': '&', 'LT': '<', 'GT': '>', 'LP': '(', 'RP': ')', 'C': ','}
+
+
+class NoStackRecords(ValueError):
+    """No protected frame was present in the completed diagnostic stream."""
 
 
 def symbol_key(symbol):
@@ -39,7 +47,7 @@ def symbol_key(symbol):
 
 
 def protected(symbol):
-    return ('desk_signal_facade' in symbol and 'lease_heartbeat' in symbol) or ('desk_agent_protocol' in symbol and 'ai_agent' in symbol and 'validate' in symbol) or ('desk_signal_facade' in symbol and 'ai_agent_session' in symbol and any(
+    return consumer.protected(symbol) or ('desk_signal_facade' in symbol and 'lease_heartbeat' in symbol) or ('desk_agent_protocol' in symbol and 'ai_agent' in symbol and 'validate' in symbol) or ('desk_signal_facade' in symbol and 'ai_agent_session' in symbol and any(
         word in symbol for word in (
             'project_snapshot_message_page', 'project_snapshot_message_window',
             'SnapshotMessagePageProjection', 'snapshot_message_groups', 'visible_snapshot_message',
@@ -78,44 +86,60 @@ def protected(symbol):
     ))
 
 
-def collect(lines, error_constructor_frames=None):
-    frames = {}
-    records = 0
-    format_errors = []
+def stack_records(lines):
     for line in lines:
         try:
             item = json.loads(line)
         except ValueError:
             continue
         diagnostic = item['message'] if isinstance(item.get('message'), dict) else item
-        if not isinstance(diagnostic, dict):
-            continue
-        match = REMARK.search(diagnostic.get('message', ''))
-        if not match:
-            continue
-        records += 1
-        count, symbol = int(match[1]), match[2]
-        if error_constructor_frames is not None and re.search(
-            r'^_*ZN18desk_diagnose_core.*(?:7invalid|13invalid_input)17h[0-9a-f]{16}E$', symbol
-        ):
-            # Keep the mangled identity: different monomorphizations may have the same report name.
-            symbol_id = symbol.lstrip('_')
-            error_constructor_frames[symbol_id] = max(count, error_constructor_frames.get(symbol_id, 0))
-        if not protected(symbol):
-            continue
-        try:
-            key = symbol_key(symbol)
-        except ValueError as error:
-            if not format_errors:
-                format_errors.append(str(error))
-            continue
-        frames[key] = max(count, frames.get(key, 0))
-    if format_errors:
-        raise ValueError(format_errors[0])
-    if records == 0 or not frames:
-        raise ValueError('no stack records: require fresh codegen and a supported remark format')
-    return {'records': records, 'frames': dict(sorted(frames.items()))}
+        if isinstance(diagnostic, dict) and (match := REMARK.search(diagnostic.get('message', ''))):
+            yield int(match[1]), match[2]
 
+
+def collect_records(records, error_constructor_frames=None, scope=protected):
+    frames = {}
+    coverage = set()
+    count = 0
+    has_v0 = False
+    records = iter(records)
+    while batch := list(islice(records, 512)):
+        count += len(batch)
+        decoded = iter(symbols.decode_v0([s for _, s in batch if s.startswith(('_R', '__R'))]))
+        for size, raw in batch:
+            if raw.startswith(('_R', '__R')):
+                has_v0 = True
+                name = next(decoded)
+                if not (scope(name) or scope(raw) or
+                        (error_constructor_frames is not None and 'invalid' in name)):
+                    continue
+                execution = symbols.execution_name(name)
+            elif raw.startswith(('_ZN', '__ZN')):
+                name = symbol_key(raw)
+                execution = name
+            elif scope(raw):
+                raise ValueError('unsupported Rust symbol format: ' + raw[:1000])
+            else:
+                continue
+            if (error_constructor_frames is not None and execution and
+                    execution.startswith('desk_diagnose_core::') and
+                    execution.endswith(('::invalid', '::invalid_input'))):
+                key = raw.lstrip('_')
+                error_constructor_frames[key] = max(size, error_constructor_frames.get(key, 0))
+            if scope(name) or scope(raw):
+                frames[name] = max(size, frames.get(name, 0))
+                if execution:
+                    coverage.add(execution)
+    if not frames:
+        raise NoStackRecords('no protected stack frames: require fresh codegen and a supported remark format')
+    result = {'records': count, 'frames': dict(sorted(frames.items()))}
+    if has_v0:
+        result['execution_names'] = sorted(coverage)
+    return result
+
+
+def collect(lines, error_constructor_frames=None, scope=protected):
+    return collect_records(stack_records(lines), error_constructor_frames, scope)
 
 
 def retain_entity_identity(data, package):
@@ -129,19 +153,28 @@ def retain_entity_identity(data, package):
     prefix = ('desk_database::entity::' if package == 'lcxbox-agent-desk-manager'
               else 'desk_signal::entity::')
     current = 'desk_agent_data_store::entity::'
-    frames, origins = {}, {}
-    for symbol, size in data['frames'].items():
+    def canonical_name(symbol):
         # Signal's native quota model also contains local cleanup cursors, so
         # the common counter view is deliberately a distinct logical type.
-        canonical = re.sub(re.escape(current) + r'(\w+)::',
+        return re.sub(re.escape(current) + r'(\w+)::',
             lambda match: (match[0] if package == 'desk-signal' and match[1] == 'agent_quota'
                            else prefix + match[1] + '::'), symbol)
+    return remap_names(data, canonical_name, 'entity_symbol_relocations')
+
+
+def remap_names(data, canonical_name, origin_field):
+    frames, origins = {}, {}
+    for symbol, size in data['frames'].items():
+        canonical = canonical_name(symbol)
         if canonical in frames:
-            raise ValueError('entity report identity has two physical owners: ' + canonical)
+            raise ValueError('report identity has two physical owners: ' + canonical)
         frames[canonical] = size
         if canonical != symbol:
             origins[canonical] = symbol
-    return dict(data, frames=dict(sorted(frames.items())), entity_symbol_relocations=origins)
+    result = dict(data, frames=dict(sorted(frames.items())), **{origin_field: origins})
+    if 'execution_names' in data:
+        result['execution_names'] = sorted({canonical_name(name) for name in data['execution_names']})
+    return result
 
 
 def retain_operation_identity(data, package):
@@ -154,8 +187,7 @@ def retain_operation_identity(data, package):
         'desk_diagnose_core::tool_result::':
             'desk_diagnose_core::ai_agent::data_control::history_restricted::',
     }
-    frames, origins = {}, {}
-    for symbol, size in data['frames'].items():
+    def canonical_name(symbol):
         canonical = symbol
         for physical, original in moves.items():
             if physical.endswith('::'):
@@ -163,20 +195,28 @@ def retain_operation_identity(data, package):
             else:
                 canonical = re.sub(re.escape(physical) + r'(?=::|[<>, ]|$)',
                                    lambda _: original, canonical)
-        if canonical in frames:
-            raise ValueError('operation report identity has two physical owners: ' + canonical)
-        frames[canonical] = size
-        if canonical != symbol:
-            origins[canonical] = symbol
-    return dict(data, frames=dict(sorted(frames.items())), operation_symbol_relocations=origins)
+        return canonical
+    return remap_names(data, canonical_name, 'operation_symbol_relocations')
 
 
 def check_ceiling(report, ceiling, required):
     if ceiling <= 0:
         raise ValueError('stack ceiling must be positive')
     errors = [f'{actual} > {ceiling}: {key}' for key, actual in report['frames'].items() if actual > ceiling]
+    coverage = list(report.get('execution_names', report['frames']))
+    for name, size in report.get('external_polls', {}).items():
+        coverage.append('external poll: ' + name)
+        if size > ceiling:
+            errors.append(f'{size} > {ceiling}: external poll: {name}')
+    simple = [symbols.unparameterized_owner(name) for name in coverage] if 'execution_names' in report else coverage
     for pattern in required:
-        if not any(re.search(pattern, key) for key in report['frames']):
+        names = coverage if '<' in pattern else simple
+        if '^physical: ' in pattern:
+            # Only an explicitly required physical symbol may stand for an
+            # inlined body. Never offer generic arguments to broad expressions.
+            if any(re.search(pattern, 'physical: ' + name) for name in report['frames']):
+                continue
+        if not any(re.search(pattern, key) for key in names):
             errors.append(f'missing required family: {pattern}')
     return errors
 

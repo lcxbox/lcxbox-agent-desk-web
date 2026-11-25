@@ -14,12 +14,12 @@ use desk_agent_protocol::AgentError;
 #[allow(clippy::large_enum_variant)]
 pub enum RuntimeTurn {
     Child {
-        session: PersistedAgentSession,
+        session: Box<PersistedAgentSession>,
         run: SubAgentRun,
         creation: TaskCreationEnvelope,
     },
     ParentCompletion {
-        session: PersistedAgentSession,
+        session: Box<PersistedAgentSession>,
         source: CreationEnvelope,
     },
 }

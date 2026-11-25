@@ -168,7 +168,7 @@ impl SubAgentStore {
             .await?
             .ok_or_else(|| invalid())?;
         let current =
-            PersistedAgentSession::decode_json(&stored.state_json).map_err(|_| invalid())?;
+            PersistedAgentSession::decode_boxed_json(&stored.state_json).map_err(|_| invalid())?;
         if run.state != SubAgentState::Queued
             || run.fence() != expected.fence()
             || group.source_admission != SourceAdmission::Open
@@ -284,7 +284,7 @@ impl SubAgentStore {
             .await?
             .ok_or_else(|| invalid())?;
         let mut session =
-            PersistedAgentSession::decode_json(&stored.state_json).map_err(|_| invalid())?;
+            PersistedAgentSession::decode_boxed_json(&stored.state_json).map_err(|_| invalid())?;
         run.validate_session(&session).map_err(|_| invalid())?;
         if session.turn_state.is_active()
             || !session.unclosed_tool_call_ids().is_empty()

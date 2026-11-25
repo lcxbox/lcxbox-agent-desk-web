@@ -6,6 +6,7 @@ use crate::{
 };
 use desk_agent_data_store::{entity::agent_main_request, main_request::FrozenRequestInput};
 use desk_agent_protocol::ai_agent::MainRequestFailure;
+use desk_diagnose_core::future::{phase, send_phase};
 use desk_diagnose_core::session::PersistedAgentSession;
 use futures_util::{StreamExt, stream};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
@@ -56,7 +57,11 @@ impl SignalMainRequestExecutor {
     }
 
     pub async fn run(self) {
-        tokio::join!(self.run_requests(), self.run_replies(), self.run_sources());
+        tokio::join!(
+            phase(|| self.run_requests()),
+            phase(|| self.run_replies()),
+            send_phase(|| self.run_sources()),
+        );
     }
 
     async fn run_sources(&self) {
@@ -64,8 +69,12 @@ impl SignalMainRequestExecutor {
         let mut routing_cursor = 0;
         loop {
             let (scan, routing) = tokio::join!(
-                crate::issue_event_intake::scan_once(&self.db, &self.gate, cursor),
-                crate::issue_event_intake::scan_routing_once(&self.db, &self.gate, routing_cursor),
+                send_phase(|| crate::issue_event_intake::scan_once(&self.db, &self.gate, cursor)),
+                send_phase(|| crate::issue_event_intake::scan_routing_once(
+                    &self.db,
+                    &self.gate,
+                    routing_cursor
+                )),
             );
             cursor = scan.unwrap_or_else(|_| {
                 log::warn!("[issue-source] durable scan deferred");

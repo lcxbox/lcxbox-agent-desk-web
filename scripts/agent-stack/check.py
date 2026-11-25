@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build one protected target with fresh LLVM stack remarks and enforce its baseline."""
 import argparse
+from functools import cache
 import hashlib
 import re
 import shutil
@@ -12,11 +13,51 @@ import tempfile
 import tomllib
 import uuid
 from pathlib import Path
+import consumer
 import report
+import symbols
 
 ROOT = Path(__file__).resolve().parents[2]
 
 SCHEDULE_ERROR = 'desk_diagnose_core::schedule::proposal::invalid_input'
+
+
+FRESH_TASK_POLL = 'desk_diagnose_core::agent_loop::fresh_task::resume_claimed_fresh_task_turn::{closure#0}'
+
+
+@cache
+def llvm_tool(name):
+    host = next(line[6:] for line in subprocess.check_output(
+        ['rustc', '-Vv'], cwd=ROOT, text=True).splitlines() if line.startswith('host: '))
+    sysroot = Path(subprocess.check_output(['rustc', '--print', 'sysroot'], cwd=ROOT, text=True).strip())
+    binary = sysroot / 'lib' / 'rustlib' / host / 'bin' / ('llvm-' + name + ('.exe' if os.name == 'nt' else ''))
+    return str(binary) if binary.is_file() else shutil.which('llvm-' + name) or shutil.which(name)
+
+
+def external_fresh_task_poll(rlib):
+    # The non-generic poll is emitted by desk-diagnose-core. Only its exact
+    # undefined symbol proves the host refers to that body; a drop or boxing
+    # specialization that mentions the future in its type arguments cannot.
+    nm = llvm_tool('nm')
+    if not nm:
+        raise ValueError('stack coverage requires llvm-nm (rustup component add llvm-tools-preview)')
+    with subprocess.Popen([nm, '-g', '-P', rlib], stdout=subprocess.PIPE, text=True) as process:
+        found = has_external_fresh_task_poll(process.stdout)
+        if process.wait():
+            raise ValueError('could not inspect the host archive for external poll references')
+    return found
+
+
+def has_external_fresh_task_poll(lines):
+    undefined, defined = set(), set()
+    for line in lines:
+        if 'resume_claimed_fresh_task_turn' not in line:
+            continue
+        fields = line.split()
+        if len(fields) >= 2 and fields[0].startswith(('_R', '__R')):
+            (undefined if fields[1] == 'U' else defined).add(fields[0])
+    return FRESH_TASK_POLL in symbols.decode_v0(sorted(undefined - defined))
+
 
 
 def schedule_error_frame(lines, measured):
@@ -36,6 +77,8 @@ def schedule_error_frame(lines, measured):
         raw = fields[-1]
         symbol = raw.lstrip('_')
         is_required = re.fullmatch(r'ZN18desk_diagnose_core8schedule8proposal13invalid_input17h[0-9a-f]{16}E', symbol)
+        if symbol.startswith('R') and '13invalid_input' in raw:
+            is_required = symbols.decode_v0([raw])[0] == SCHEDULE_ERROR
         if symbol not in measured and not is_required:
             continue
         # ELF and Mach-O objdump tables report the section of a defined function.
@@ -66,17 +109,39 @@ def known_overflow_probe(workspace=None):
         result = subprocess.run([
             'rustc', str(source), '--crate-name', 'agent_stack_probe', '--emit=obj',
             '-o', str(Path(directory, 'probe.o')), '-C', 'opt-level=0',
-            '-C', 'remark=prologepilog', '--error-format=json',
+            '-C', 'remark=prolog-epilog', '--error-format=json',
         ], cwd=workspace, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         if result.returncode:
             raise ValueError('stack analysis positive control did not compile')
         parsed = report.collect(result.stdout.splitlines())
-        if max(parsed['frames'].values()) <= report.HARD_FRAME_LIMIT:
+        if parsed['frames'].get('agent_stack_probe::main', 0) <= report.HARD_FRAME_LIMIT:
             raise ValueError('stack analysis did not detect its known oversized frame')
 
 
-def collect_package(workspace, package, profile, target, features, no_defaults):
-    args = ['cargo', 'rustc', '-p', package, '--lib', '--message-format=json']
+def measure_external_core(workspace, profile, target, host_features):
+    metadata = json.loads(subprocess.check_output(
+        ['cargo', 'metadata', '--locked', '--no-deps', '--format-version', '1'],
+        cwd=workspace, text=True))
+    core_name = 'desk-diagnose-core'
+    member = any(package['name'] == core_name and package['id'] in metadata['workspace_members']
+                 for package in metadata['packages'])
+    # Cargo accepts feature flags only on workspace members. For a dependency
+    # selected by -p it still uses this workspace's lockfile and resolved graph.
+    core = collect_package(workspace, core_name, profile, target,
+                           ','.join(host_features) if member else '', member)
+    if set(core['resolved_features']) != set(host_features):
+        raise ValueError(f'external fresh-task poll requires host features {sorted(host_features)}, '
+                         f'but core reported {sorted(core["resolved_features"])}')
+    if FRESH_TASK_POLL not in core['frames']:
+        raise ValueError('external fresh-task poll is missing from the measured core')
+    return core
+
+
+def collect_package(workspace, package, profile, target, features, no_defaults, binary=False):
+    args = ['cargo', 'rustc', '--locked', '-p', package, '--message-format=json']
+    args.extend(['--bin', package] if binary else ['--lib'])
+    target_name = package if binary else package.replace('-', '_')
+    target_kind = 'bin' if binary else 'lib'
     if target:
         args.extend(['--target', target])
     if profile == 'release':
@@ -88,7 +153,7 @@ def collect_package(workspace, package, profile, target, features, no_defaults):
     # An unused, unique cfg changes only the selected rustc invocation, forcing
     # codegen without deleting package artifacts or invalidating dependencies.
     nonce = f'desk_stack_codegen_{uuid.uuid4().hex}'
-    args.extend(['--', '--cfg', nonce, '-C', 'remark=prologepilog'])
+    args.extend(['--', '--cfg', nonce, '-C', 'remark=prolog-epilog'])
     state = {'finished': False, 'fresh_artifact': False}
     constructors = {} if package == 'desk-diagnose-core' and profile == 'release' else None
     with subprocess.Popen(args, cwd=workspace, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -104,7 +169,9 @@ def collect_package(workspace, package, profile, target, features, no_defaults):
                     continue
                 if item.get('reason') == 'build-finished':
                     state['finished'] = item.get('success') is True
-                if item.get('reason') == 'compiler-artifact' and item.get('target', {}).get('name') == package.replace('-', '_'):
+                if item.get('reason') == 'compiler-artifact' and item.get('target', {}).get('name') == 'desk_diagnose_core':
+                    state['core_features'] = item['features']
+                if item.get('reason') == 'compiler-artifact' and item['target']['name'] == target_name and target_kind in item['target']['kind']:
                     state['fresh_artifact'] = item.get('fresh') is False
                     state['cargo_profile'] = item.get('profile', {})
                     state['resolved_features'] = item.get('features', [])
@@ -113,18 +180,38 @@ def collect_package(workspace, package, profile, target, features, no_defaults):
                 if isinstance(diagnostic, dict) and diagnostic.get('level') in ('error', 'warning'):
                     print(diagnostic.get('rendered', diagnostic.get('message', '')), file=sys.stderr)
                 yield line
-        parsed = report.collect(lines(), constructors)
+        scope = report.protected
+        if binary:
+            scope = consumer.manager_binary_frame
+        elif package == 'lcxbox-agent-desk-server':
+            scope = consumer.protected
+        try:
+            parsed = report.collect(lines(), constructors, scope)
+        except report.NoStackRecords as error:
+            code = process.wait()
+            if code or not state['finished']:
+                raise ValueError(f'cargo rustc did not finish the {package} {target_kind} build successfully (exit {code})') from error
+            raise
         code = process.wait()
     if code or not state['finished'] or not state['fresh_artifact']:
         raise ValueError('analysis requires a successful, freshly code-generated selected artifact')
+    if (not binary and package in ('desk-signal', 'lcxbox-agent-desk-manager')
+            and FRESH_TASK_POLL not in parsed['frames'] and external_fresh_task_poll(state['rlib'])):
+        # Use the host's workspace, target, profile and resolved core features.
+        # A reference by itself has no frame size and cannot satisfy coverage.
+        core = measure_external_core(workspace, profile, target, state['core_features'])
+        parsed['external_core_features'] = core['resolved_features']
+        parsed['external_polls'] = {symbols.execution_name(FRESH_TASK_POLL): core['frames'][FRESH_TASK_POLL]}
     if constructors and SCHEDULE_ERROR not in parsed['frames'] and state['rlib']:
-        objdump = shutil.which('llvm-objdump') or shutil.which('objdump')
+        objdump = llvm_tool('objdump')
         if objdump:
             with subprocess.Popen([objdump, '-t', state['rlib']], stdout=subprocess.PIPE, text=True) as table:
                 aliased = schedule_error_frame(table.stdout, constructors)
                 if table.wait() == 0 and aliased:
                     size, symbol = aliased
                     parsed['frames'][SCHEDULE_ERROR] = size
+                    if 'execution_names' in parsed:
+                        parsed['execution_names'].append(SCHEDULE_ERROR)
                     parsed['schedule_error_frame_symbol'] = symbol
     parsed.update(cargo_profile=state['cargo_profile'], resolved_features=state['resolved_features'])
     return parsed
@@ -169,6 +256,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--workspace', type=Path, default=ROOT)
     p.add_argument('--package', required=True)
+    p.add_argument('--bin', action='store_true', help='measure the production binary target of the same name')
     p.add_argument('--profile', choices=('debug', 'release'), default='debug')
     p.add_argument('--target')
     p.add_argument('--features', default='')
@@ -183,11 +271,11 @@ def main():
     toolchain = subprocess.check_output(['rustc', '-Vv'], cwd=a.workspace, text=True).strip()
     target = a.target or next(line[6:] for line in toolchain.splitlines() if line.startswith('host: '))
     known_overflow_probe(a.workspace)
-    parsed = collect_package(a.workspace, a.package, a.profile, a.target, a.features, a.no_default_features)
+    parsed = collect_package(a.workspace, a.package, a.profile, a.target, a.features, a.no_default_features, a.bin)
     parsed = report.retain_entity_identity(parsed, a.package)
     parsed = report.retain_operation_identity(parsed, a.package)
     parsed.update(**workspace_identity(a.workspace))
-    parsed.update(package=a.package, profile=a.profile, target=target, toolchain=toolchain,
+    parsed.update(package=a.package, target_kind='bin' if a.bin else 'lib', profile=a.profile, target=target, toolchain=toolchain,
                   features=a.features, no_default_features=a.no_default_features,
                   rustflags=os.environ.get('RUSTFLAGS', ''),
                   encoded_rustflags=os.environ.get('CARGO_ENCODED_RUSTFLAGS', ''),

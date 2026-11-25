@@ -17,7 +17,7 @@ impl<'t> TxnValidatedSession<'t> {
         #[cfg(test)]
         crate::stack_probe::observe(&row.conversation_id, "decode");
         let session =
-            Box::new(PersistedAgentSession::decode_json(&row.state_json).map_err(|_| invalid())?);
+            PersistedAgentSession::decode_boxed_json(&row.state_json).map_err(|_| invalid())?;
         Ok(Self { txn, row, session })
     }
 
@@ -128,9 +128,9 @@ impl<'a> SessionRead<'a> {
     }
     pub(super) fn decode(self, row: &session_row::Model) -> Result<DecodedSession<'a>, DbErr> {
         match self {
-            Self::Load(_) => Ok(DecodedSession::Owned(Box::new(
-                PersistedAgentSession::decode_json(&row.state_json).map_err(|_| invalid())?,
-            ))),
+            Self::Load(_) => Ok(DecodedSession::Owned(
+                PersistedAgentSession::decode_boxed_json(&row.state_json).map_err(|_| invalid())?,
+            )),
             Self::Reuse(proof) => Ok(DecodedSession::Borrowed(proof.reuse(row)?)),
         }
     }

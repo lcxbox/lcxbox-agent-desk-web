@@ -2,7 +2,9 @@
 
 检查目标是实际生成的构造、poll、visitor 和 drop 单帧，不能用 `size_of::<Box<_>>()` 或单次业务测试替代。共享循环按准备、上下文、模型和工具阶段驱动；宿主准备阶段返回拥有状态的执行 future，上一阶段返回后再 poll 下一阶段。继续使用原有任务所有者，不增加生产任务或线程，也不扩大栈。
 
-工具需要 Python 3.11+（CI 使用 3.12）和仓库钉死的 Rust 1.90。在 Web 根目录运行：
+工具需要 Python 3.11+（CI 使用 3.12）和仓库钉死的 Rust 1.100.0。在 Web 根目录运行：
+
+两仓使用相同的检查器。安装 `rustup component add llvm-tools-preview` 可使用工具链配套的对象符号工具。检查器首次处理 v0 符号时，Cargo 按 `demangle/Cargo.lock` 编译本机解码工具。首次构建需要可用的 Cargo registry 或已缓存的依赖。
 
 ```bash
 python3 -m unittest discover -s scripts/agent-stack -p test_report.py
@@ -14,6 +16,8 @@ python3 scripts/agent-stack/run.py --package desk-signal-facade --output target/
 python3 scripts/agent-stack/run.py --package desk-signal-facade --profile release --output target/agent-stack/agent-pages-release.json
 python3 scripts/agent-stack/run.py --package desk-signal --output target/agent-stack/signal-debug.json
 python3 scripts/agent-stack/run.py --package desk-signal --profile release --output target/agent-stack/signal-release.json
+python3 scripts/agent-stack/run.py --package lcxbox-agent-desk-server --output target/agent-stack/server-debug.json
+python3 scripts/agent-stack/run.py --package lcxbox-agent-desk-server --profile release --output target/agent-stack/server-release.json
 cargo test -p desk-diagnose-core -p desk-agent-data-store -p desk-signal --lib --features desk-diagnose-core/stack-budget -- --skip agent_data_store::tests::retrieval_native::memory_mutation:: --skip ai_agent_orchestrator::tests::desktop_permission:: --skip ai_agent_orchestrator::tests::permission_object::
 cargo test -p desk-signal --lib --features desk-diagnose-core/stack-budget ai_agent_orchestrator::tests::desktop_permission:: -- --test-threads=1
 cargo test -p desk-signal --lib --features desk-diagnose-core/stack-budget ai_agent_orchestrator::tests::permission_object:: -- --test-threads=1
@@ -32,10 +36,21 @@ python3 web/scripts/agent-stack/run.py --workspace . --package desk-signal-facad
 python3 web/scripts/agent-stack/run.py --workspace . --package desk-signal-facade --profile release --output target/agent-stack/agent-pages-release.json
 python3 web/scripts/agent-stack/run.py --workspace . --package lcxbox-agent-desk-manager --output target/agent-stack/manager-debug.json
 python3 web/scripts/agent-stack/run.py --workspace . --package lcxbox-agent-desk-manager --profile release --output target/agent-stack/manager-release.json
+python3 web/scripts/agent-stack/run.py --workspace . --package lcxbox-agent-desk-manager --bin --output target/agent-stack/manager-bin-debug.json
+python3 web/scripts/agent-stack/run.py --workspace . --package lcxbox-agent-desk-manager --bin --profile release --output target/agent-stack/manager-bin-release.json
 cargo test -p lcxbox-agent-desk-manager --lib --features desk-diagnose-core/stack-budget -- --skip agent_data_store::tests::retrieval_native::memory_mutation::
 cargo test -p lcxbox-agent-desk-manager --lib --features desk-diagnose-core/stack-budget agent_data_store::tests::retrieval_native::memory_mutation:: -- --test-threads=1
 LADM_TEST_REDIS_URL=redis://127.0.0.1:6379/15 cargo test -p lcxbox-agent-desk-manager --lib --features desk-diagnose-core/stack-budget automatic_ui_review_with_command_history_fits_small_stacks -- --ignored --nocapture
 ```
+
+两边宿主库的 debug 和 release 都测量会话领取的 `claim_turn`、`claim_existing`、`claim_new` 以及共享定时任务 `manage_on`、`create_task_on` 的实际 poll。每份 JSON 标记 Cargo 目标种类、工具链、profile 和 workspace 锁文件。
+
+- OSS 的调度、子任务、恢复和主请求 poll 在启动信令的 `lcxbox-agent-desk-server --lib` 生成；另保留 `desk-signal --lib` 的宿主检查。server 的平台依赖见[开发指南](../../DEVELOPMENT_CN.md)。
+- Manager 库包含上述业务 poll。debug 二进制测量驱动库的 `run` 和 `serve`，运行器的 Tokio 启动实例在库中测量。release 二进制还生成六个运行器的具体 poll 和两种并发流的轮询实例。优化内联时按具体 future 类型检查 `Instrumented<F>::poll`。
+
+权限审批的分派、批准备、领取、结算及拆分出的事务阶段分别检查。debug 在两边宿主库检查分派本体。release 的存储阶段仍在宿主库，OSS 分派由 server 的具体 boxed poll 驱动，Manager 分派由库中承载该 future 的 `ManagerDrain::admitted` 具体 poll 驱动。
+
+运行阶段按实际函数所有者、方法名和闭包层级判断。调度流的泛型实例按实际宿主、行类型、map 工厂和 `Stream::poll_next` 辨认。出现目标名字的 drop、构造、类型参数以及另一种行的 poll，仍按物理栈大小受限，各自不能替代业务执行覆盖。
 
 Redis 必须为隔离测试实例。Manager 的并发事务证明测试另使用 `LADM_TEST_PG_URL` 指向隔离 PostgreSQL；不要指向产品运行库。测试网关和设备回执均为合成数据。
 
@@ -44,6 +59,9 @@ Redis 必须为隔离测试实例。Manager 的并发事务证明测试另使用
 ## 报告与硬限制
 
 `check.py` 先编译一个已知超过 128 KiB 的局部数组，确认当前 rustc 支持栈报告。它只给指定 crate 注入 LLVM remark；未使用的唯一 cfg 强制该目标重新 codegen，不清空依赖缓存。解析流只保留紧凑报告。构建未成功、产物仍为 fresh、零记录、符号格式不支持、关键族缺失都会失败。编译备注不包含 prompt、会话或凭据。保护范围还包含共享 Facade 的会话分页、定位及引用装配，必须采到三个入口的实际函数帧，不能以 DTO 转换或析构帧替代；两个依赖上下文分别采集 debug/release。保护范围包含共享 `ai_agent` 纯逻辑、`ContextProtectionSet::validate_references`、两个宿主的全部 `agent_data_store` 与原输入台账 `agent_run_event_store`。报告必须实际包含保护引用校验、记忆提炼、worker、Goal 原收尾与当前会话快照接纳。新增记忆路径同样受单帧上限约束；旧范围的报告不能证明新路径通过。元数据 GC 必须包含原事务、收录清理及原生授权/发布查询的实际 poll 帧。只有 future 构造帧或析构帧不算覆盖，解析器包含两者的失败反证。GC 以调用方持有的执行阶段返回，保留原事务、Send 和取消所有权，不新增运行时任务；阶段擦除前仍检查 16 KiB 原始 future。
+
+Rust 1.100.0 使用 LLVM 的 `prolog-epilog` 报告。单帧大小按完整函数名统计，包含宿主实际实例化的泛型和析构函数。检查执行覆盖时使用函数所有者、方法和闭包层级，区分类型参数中提及的函数。报告中的 `external_polls` 记录宿主链接到共享包的执行函数，栈大小由实际生成该函数的编译单元提供。采集共享核心时沿用宿主 workspace、目标和 profile；检查器比对两次 Cargo 产物的特性，并在宿主报告记录 `external_core_features`。
+
 
 `run.py` 对当前构建只施加 `report.HARD_FRAME_LIMIT` 定义的 128 KiB 单帧硬上限及必检执行覆盖。阶段原始 future 上限为 16 KiB；默认线程栈保持 2 MiB，显式 1 MiB/2 MiB 组合回归仍须通过。不要求新代码比旧代码使用更少的栈，不执行单函数、调用族、提取谱系、历史基线或 HEAD 的相对预算比较。
 

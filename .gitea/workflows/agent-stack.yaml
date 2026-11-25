@@ -16,7 +16,8 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.90.0
+          toolchain: 1.100.0
+          components: llvm-tools-preview
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -69,3 +70,43 @@ jobs:
         with:
           name: agent-stack-${{ matrix.os }}
           path: target/agent-stack/*.json
+
+  server-stack:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        profile: [debug, release]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.100.0
+          components: llvm-tools-preview
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: server-stack-${{ matrix.profile }}
+      - name: Install Linux server dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libpipewire-0.3-dev libclang-dev libasound2-dev libssl-dev libvpx-dev libx264-dev cmake nasm libx11-dev libxcb1-dev libxcb-randr0-dev libxext-dev
+      - name: Select macOS SDK and install server dependencies
+        if: runner.os == 'macOS'
+        run: |
+          xcode_app=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          test -n "$xcode_app"
+          echo "DEVELOPER_DIR=$xcode_app/Contents/Developer" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+          brew install libvpx x264 nasm pkg-config
+      - name: Measure the production signaling server consumer
+        run: python scripts/agent-stack/run.py --package lcxbox-agent-desk-server --profile ${{ matrix.profile }} --output target/agent-stack/server-${{ matrix.profile }}.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-stack-${{ matrix.os }}-${{ matrix.profile }}
+          path: target/agent-stack/server-*.json

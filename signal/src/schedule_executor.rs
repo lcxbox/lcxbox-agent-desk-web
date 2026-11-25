@@ -16,6 +16,7 @@ use crate::{
     },
 };
 use actix_web::web;
+use desk_diagnose_core::future::phase;
 use desk_diagnose_core::{
     agent_loop::LoopOutcome,
     schedule::dispatch::{DispatchCandidate, DispatchResult},
@@ -87,6 +88,15 @@ impl SignalScheduleExecutor {
         &self,
         after_id: i64,
     ) -> Result<ContinuationScanReport, ScheduleStoreError> {
+        let mut report = phase(|| self.scan_scheduled_runs(after_id)).await?;
+        phase(|| self.scan_goals(&mut report)).await?;
+        Ok(report)
+    }
+
+    async fn scan_scheduled_runs(
+        &self,
+        after_id: i64,
+    ) -> Result<ContinuationScanReport, ScheduleStoreError> {
         let store = ScheduleStore::new(self.db.clone());
         let mut candidates = store.continuation_candidates(after_id, BATCH_SIZE).await?;
         candidates.extend(store.fresh_task_candidates(after_id, BATCH_SIZE).await?);
@@ -114,7 +124,7 @@ impl SignalScheduleExecutor {
             candidates
                 .into_iter()
                 // Keep the large dispatch future out of buffer_unordered's poll frame.
-                .map(|candidate| Box::pin(self.process(candidate))),
+                .map(|candidate| phase(|| self.process(candidate))),
         )
         .buffer_unordered(LOCAL_CONCURRENCY);
         while let Some(result) = tasks.next().await {
@@ -125,6 +135,13 @@ impl SignalScheduleExecutor {
                 DispatchResult::Reconcile => report.needs_reconciliation += 1,
             }
         }
+        Ok(report)
+    }
+
+    async fn scan_goals(
+        &self,
+        report: &mut ContinuationScanReport,
+    ) -> Result<(), ScheduleStoreError> {
         crate::agent_goal_open_store::expire_due(
             &self.db,
             desk_agent_data_store::datetime::utc_now(),
@@ -189,7 +206,7 @@ impl SignalScheduleExecutor {
         let mut goals = stream::iter(
             goal_candidates
                 .into_iter()
-                .map(|goal| Box::pin(self.process_goal(goal))),
+                .map(|goal| phase(|| self.process_goal(goal))),
         )
         .buffer_unordered(LOCAL_CONCURRENCY);
         while let Some(settled) = goals.next().await {
@@ -199,7 +216,7 @@ impl SignalScheduleExecutor {
                 report.goal_deferred += 1;
             }
         }
-        Ok(report)
+        Ok(())
     }
 
     async fn process_goal(&self, goal: desk_diagnose_core::goal::GoalRun) -> bool {
@@ -286,6 +303,10 @@ impl SignalScheduleExecutor {
                 return false;
             }
         }
+        phase(|| self.dispatch_goal(goal)).await
+    }
+
+    async fn dispatch_goal(&self, goal: desk_diagnose_core::goal::GoalRun) -> bool {
         let connections = self.connections.clone();
         let db = self.db.clone();
         let gate = self.gate.clone();
@@ -387,7 +408,7 @@ impl SignalScheduleExecutor {
         actix_web::rt::spawn(self.clone().run_approval_reviews());
         let mut cursor = 0;
         loop {
-            match self.scan_once(cursor).await {
+            match phase(|| self.scan_once(cursor)).await {
                 Ok(report) => {
                     cursor = report.next_cursor.unwrap_or(0);
                     if report.needs_reconciliation > 0 {

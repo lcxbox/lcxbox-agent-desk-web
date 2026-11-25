@@ -20,6 +20,51 @@ async fn candidate(db: &DatabaseConnection) -> (PersistedAgentSession, RuntimeTu
 }
 
 #[tokio::test]
+async fn child_candidate_requires_an_open_group_at_the_tasks_original_epoch() {
+    let db = database().await;
+    let (_, runtime) = candidate(&db).await;
+    let RuntimeTurn::Child { run, .. } = &runtime else {
+        panic!("expected a child");
+    };
+    let store = SubAgentStore::new(db.clone());
+    let row = group_row::Entity::find()
+        .filter(group_row::Column::GroupId.eq(&run.binding.group_id))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut group = decode_group(&row).unwrap();
+    for (admission, epoch) in [
+        (SourceAdmission::Closed, run.binding.source_epoch),
+        (SourceAdmission::Open, run.binding.source_epoch + 1),
+        (SourceAdmission::Open, run.binding.source_epoch),
+    ] {
+        group.source_admission = admission;
+        group.source_epoch = epoch;
+        group_row::Entity::update_many()
+            .set(group_row::ActiveModel {
+                state_json: Set(serde_json::to_string(&group).unwrap()),
+                source_admission: Set(admission_label(admission).into()),
+                source_epoch: Set(i64::try_from(epoch).unwrap()),
+                ..Default::default()
+            })
+            .filter(group_row::Column::Id.eq(row.id))
+            .exec(&db)
+            .await
+            .unwrap();
+        let candidate = desk_diagnose_core::future::send_phase(|| {
+            store.child_runtime_candidate(&run.binding.task_id)
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            candidate.is_some(),
+            admission == SourceAdmission::Open && epoch == run.binding.source_epoch
+        );
+    }
+}
+
+#[tokio::test]
 async fn scanning_prepares_no_lease_and_stale_resource_deferral_cannot_override_a_claim() {
     let db = database().await;
     let (_, runtime) = candidate(&db).await;

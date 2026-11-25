@@ -41,7 +41,7 @@ fn required_terminal_wakes(
 async fn admit_worker_request_on(
     txn: &crate::config::connection::DatabaseTransaction,
     stored: &session_row::Model,
-    session: &mut PersistedAgentSession,
+    session: &mut Box<PersistedAgentSession>,
     run: &SubAgentRun,
     creation: &TaskCreationEnvelope,
     parent: &PersistedAgentSession,
@@ -232,7 +232,8 @@ impl SubAgentStore {
                 }) else {
                     continue;
                 };
-                let Ok(session) = PersistedAgentSession::decode_json(&parent.state_json) else {
+                let Ok(session) = PersistedAgentSession::decode_boxed_json(&parent.state_json)
+                else {
                     continue;
                 };
                 if session.surface == AgentSessionSurface::AiAgent
@@ -283,25 +284,12 @@ impl SubAgentStore {
         {
             return Ok(None);
         }
-        let group_row = group_row::Entity::find()
-            .filter(group_row::Column::GroupId.eq(&run.binding.group_id))
-            .filter(group_row::Column::RootConversationId.eq(&run.binding.root_conversation_id))
-            .filter(group_row::Column::ActorId.eq(&run.actor_id))
-            .filter(group_row::Column::DeviceId.eq(&run.device_id))
-            .one(&txn)
-            .await?
-            .ok_or_else(|| invalid())?;
-        let group = decode_group(&group_row)?;
-        if group.source_admission != SourceAdmission::Open
-            || group.source_epoch != run.binding.source_epoch
-        {
+        let Some(creation) =
+            desk_agent_data_store::delegation_group::child_candidate_creation_on(&txn, &row, &run)
+                .await?
+        else {
             return Ok(None);
-        }
-        let creation: TaskCreationEnvelope =
-            serde_json::from_str(&row.creation_envelope_json).map_err(|_| invalid())?;
-        if creation.source != decode_creation(&group_row)? {
-            return Err(invalid());
-        }
+        };
         let row = session_row::Entity::find()
             .filter(session_row::Column::ConversationId.eq(&run.child_conversation_id))
             .filter(session_row::Column::ActorId.eq(&run.actor_id))
@@ -310,7 +298,7 @@ impl SubAgentStore {
             .await?
             .ok_or_else(|| invalid())?;
         let mut session =
-            PersistedAgentSession::decode_json(&row.state_json).map_err(|_| invalid())?;
+            PersistedAgentSession::decode_boxed_json(&row.state_json).map_err(|_| invalid())?;
         if session.version != row.version || session.turn_state.is_active() {
             return Ok(None);
         }
@@ -385,10 +373,7 @@ impl SubAgentStore {
         if group.source.request_input_revision().is_none() {
             return Ok(None);
         }
-        let candidate = RuntimeTurn::ParentCompletion {
-            session: *session,
-            source,
-        };
+        let candidate = RuntimeTurn::ParentCompletion { session, source };
         candidate.validate().map_err(|_| invalid())?;
         txn.commit().await?;
         Ok(Some(candidate))

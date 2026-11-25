@@ -597,79 +597,19 @@ impl SignalAgentRunEventStore {
                 .map_err(|error| internal(format!("commit first Worker dispatch: {error}")))?,
                 None => None,
             };
-            let state_json = session
-                .encode_json_for_storage()
-                .map_err(|error| internal(format!("encode user follow-up run: {error}")))?;
-            if let Some(row_id) = existing_row_id {
-                let new_version = session.version;
-                let result = agent_session::Entity::update_many()
-                    .col_expr(
-                        agent_session::Column::StateJson,
-                        sea_orm::sea_query::Expr::value(state_json),
-                    )
-                    .col_expr(
-                        agent_session::Column::Version,
-                        sea_orm::sea_query::Expr::value(new_version),
-                    )
-                    .col_expr(
-                        agent_session::Column::UpdatedAt,
-                        sea_orm::sea_query::Expr::value(now),
-                    )
-                    .filter(agent_session::Column::Id.eq(row_id))
-                    .filter(agent_session::Column::Version.eq(old_version))
-                    .exec(&txn)
-                    .await
-                    .map_err(|error| internal(format!("save user follow-up run: {error}")))?;
-                if result.rows_affected != 1 {
-                    txn.rollback().await.ok();
-                    continue;
-                }
-            } else {
-                let inserted = agent_session::ActiveModel {
-                    conversation_id: Set(params.run_id.clone()),
-                    actor_id: Set(params.actor_id.clone()),
-                    device_id: Set(params.device_id.clone()),
-                    conversation_schema_version: Set(Some(i32::from(
-                        desk_diagnose_core::session::CONVERSATION_SCHEMA_VERSION,
-                    ))),
-                    state_json: Set(state_json),
-                    version: Set(0),
-                    lease_token: Set(0),
-                    lease_deadline: Set(None),
-                    created_at: Set(now),
-                    updated_at: Set(now),
-                    ..Default::default()
-                }
-                .insert(&txn)
-                .await;
-                if inserted.is_err() {
-                    txn.rollback().await.ok();
-                    continue;
-                }
-            }
-
-            let payload_json =
-                input_context::encode_event(&followup, params.read_context.as_ref())?;
-            let event_row = agent_run_event::ActiveModel {
-                event_id: Set(event.event_id.clone()),
-                run_id: Set(event.run_id.clone()),
-                event_seq: Set(to_i64("event_seq", event.event_seq)?),
-                input_revision: Set(to_i64("input_revision", event.input_revision)?),
-                kind: Set(event.kind.as_str().into()),
-                correlation_id: Set(event.correlation_id.clone()),
-                input_seq: Set(Some(to_i64("input_seq", followup.input_seq)?)),
-                actor_id: Set(Some(params.actor_id.clone())),
-                source_envelope_ids_json: Set(serde_json::to_string(&event.source_envelope_ids)
-                    .map_err(|error| internal(format!("encode source envelope ids: {error}")))?),
-                result_envelope_ids_json: Set("[]".into()),
-                payload_json: Set(payload_json),
-                payload_schema_version: Set(input_context::payload_version(
-                    params.read_context.as_ref(),
-                )),
-                created_at: Set(now),
-                ..Default::default()
-            };
-            if event_row.insert(&txn).await.is_err() {
+            if !desk_diagnose_core::future::send_phase(|| {
+                persist_input_on(
+                    &txn,
+                    params,
+                    &session,
+                    existing_row_id,
+                    old_version,
+                    &followup,
+                    now,
+                )
+            })
+            .await?
+            {
                 txn.rollback().await.ok();
                 continue;
             }
@@ -793,6 +733,87 @@ fn new_input_session(
     });
     session.adopt_client_metadata(params.client_conversation_id.as_deref(), params.surface);
     Ok(session)
+}
+
+/// Return false when the original SQLite transaction must roll back and retry.
+async fn persist_input_on(
+    txn: &DatabaseTransaction,
+    params: &AppendUserFollowupParams,
+    session: &PersistedAgentSession,
+    row_id: Option<i64>,
+    old_version: i64,
+    followup: &UserFollowupEvent,
+    now: sea_orm::prelude::DateTimeUtc,
+) -> Result<bool, AgentError> {
+    let event = &followup.event;
+    let state_json = session
+        .encode_json_for_storage()
+        .map_err(|error| internal(format!("encode user follow-up run: {error}")))?;
+    if let Some(row_id) = row_id {
+        let new_version = session.version;
+        let result = agent_session::Entity::update_many()
+            .col_expr(
+                agent_session::Column::StateJson,
+                sea_orm::sea_query::Expr::value(state_json),
+            )
+            .col_expr(
+                agent_session::Column::Version,
+                sea_orm::sea_query::Expr::value(new_version),
+            )
+            .col_expr(
+                agent_session::Column::UpdatedAt,
+                sea_orm::sea_query::Expr::value(now),
+            )
+            .filter(agent_session::Column::Id.eq(row_id))
+            .filter(agent_session::Column::Version.eq(old_version))
+            .exec(txn)
+            .await
+            .map_err(|error| internal(format!("save user follow-up run: {error}")))?;
+        if result.rows_affected != 1 {
+            return Ok(false);
+        }
+    } else {
+        let inserted = agent_session::ActiveModel {
+            conversation_id: Set(params.run_id.clone()),
+            actor_id: Set(params.actor_id.clone()),
+            device_id: Set(params.device_id.clone()),
+            conversation_schema_version: Set(Some(i32::from(
+                desk_diagnose_core::session::CONVERSATION_SCHEMA_VERSION,
+            ))),
+            state_json: Set(state_json),
+            version: Set(0),
+            lease_token: Set(0),
+            lease_deadline: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(txn)
+        .await;
+        if inserted.is_err() {
+            return Ok(false);
+        }
+    }
+
+    let payload_json = input_context::encode_event(followup, params.read_context.as_ref())?;
+    let event_row = agent_run_event::ActiveModel {
+        event_id: Set(event.event_id.clone()),
+        run_id: Set(event.run_id.clone()),
+        event_seq: Set(to_i64("event_seq", event.event_seq)?),
+        input_revision: Set(to_i64("input_revision", event.input_revision)?),
+        kind: Set(event.kind.as_str().into()),
+        correlation_id: Set(event.correlation_id.clone()),
+        input_seq: Set(Some(to_i64("input_seq", followup.input_seq)?)),
+        actor_id: Set(Some(params.actor_id.clone())),
+        source_envelope_ids_json: Set(serde_json::to_string(&event.source_envelope_ids)
+            .map_err(|error| internal(format!("encode source envelope ids: {error}")))?),
+        result_envelope_ids_json: Set("[]".into()),
+        payload_json: Set(payload_json),
+        payload_schema_version: Set(input_context::payload_version(params.read_context.as_ref())),
+        created_at: Set(now),
+        ..Default::default()
+    };
+    Ok(event_row.insert(txn).await.is_ok())
 }
 
 // Owned Goal after-image for the original input transaction. Preparing this

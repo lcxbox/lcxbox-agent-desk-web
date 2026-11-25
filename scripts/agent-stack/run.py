@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Enforce current stack hard limits and required execution coverage."""
 import argparse
+import re
 import subprocess
 import sys
+import consumer
 import report
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REQUIRED = {
+    'lcxbox-agent-desk-server': [],
     'desk-agent-protocol': [
         '^desk_agent_protocol::ai_agent::memory.*MemoryDraft.*validate_with_limits$',
         '^desk_agent_protocol::ai_agent::memory.*MemoryWriteRequest.*validate_with_limits$',
@@ -56,15 +59,15 @@ REQUIRED = {
                            '^desk_diagnose_core::ai_agent::source_registry::snapshot::registered_inputs$',
                            '^desk_diagnose_core::ai_agent::source_registry::snapshot::native_control$',],
     'desk-signal': [r'^desk_signal::agent_data_store::memory_control::native::forget_on::_\{\{closure\}\}$',
-                    'ai_agent_orchestrator::prepare_composed_turn', 'remote_tool_edge::.*semantic',
+                    r'^desk_signal::ai_agent_orchestrator::prepare_composed_turn::_\{\{closure\}\}$', 'remote_tool_edge::.*semantic',
                     '^desk_signal::agent_subagent_store::observation::save_main_delegation_session.*closure',
                     '^desk_signal::agent_subagent_store::observation::save_main_history_on.*closure',
-                    '^desk_diagnose_core::agent_loop::fresh_task::resume_claimed_fresh_task_turn.*closure',
+                    r'^(?:external poll: )?desk_diagnose_core::agent_loop::fresh_task::resume_claimed_fresh_task_turn::_\{\{closure\}\}$',
                     '^desk_diagnose_core::schedule::dispatch::dispatch_continuation.*closure',
                     '^desk_diagnose_core::schedule::dispatch::dispatch_fresh.*closure',
                     'desk_signal::schedule_executor::continuation::ContinuationHost.*ContinuationDispatchHost.*run_turn.*closure',
                     'desk_signal::schedule_executor::fresh::FreshHost.*FreshDispatchHost.*run_turn.*closure',
-                    'review_budget::reserve_review_attempt_on', 'approval_reviewer::call_claimed',
+                    'review_budget::reserve_review_attempt_on', r'^desk_signal::approval_reviewer::call_claimed_permission_review(?:_inner)?::_\{\{closure\}\}$',
                     'agent_model', 'SignalModelSeam', 'capability_grant_store::task_authority::match_current_on',
                     '^desk_signal::agent_data_store::output_archive::gc::collect_actor_transaction.*closure',
                     '^desk_signal::agent_data_store::output_archive::gc::collect_archive_on.*closure',
@@ -73,7 +76,7 @@ REQUIRED = {
                     '^desk_signal::agent_data_store::history::staged::write::write_on.*closure',
                     '^desk_signal::agent_data_store::history::staged::write::write_conversation_on.*closure',
                     '^desk_signal::agent_data_store::history::staged::write::write_binding_on.*closure',
-                    '^desk_agent_data_store::schedule::create::create_task_on.*closure',
+                    r'^desk_agent_data_store::schedule::create::create_task_on::_\{\{closure\}\}$',
                     '^desk_agent_data_store::schedule::create::capture_retrieval_consent_on.*closure',
                     '^desk_agent_data_store::schedule::create::capture_definition_consent_on.*closure',
                     '^desk_signal::schedule_store::fresh_session::_<impl desk_signal::schedule_store::ScheduleStore>::insert_fresh_session_inner.*closure',
@@ -128,18 +131,18 @@ REQUIRED = {
                     '^desk_signal::agent_run_event_store::SignalAgentRunEventStore::admit_user_input.*closure',
                     '^desk_signal::agent_run_event_store::prepare_input_goals_on.*closure',
                     '^desk_signal::agent_run_event_store::write_input_goal_events_on.*closure',
-                    'agent_run_event_store::.*handled_outcome', 'agent_goal_store::settle_slice_afterimage',
+                    r'^desk_signal::agent_run_event_store::SignalAgentRunEventStore::handled_outcome::_\{\{closure\}\}$', 'agent_goal_store::settle_slice_afterimage',
                     'agent_goal_store::persist_slice_on', 'agent_goal_store::validate_slice_session_on'],
     'lcxbox-agent-desk-manager': [r'^lcxbox_agent_desk_manager::service::agent_data_store::memory_control::native::forget_on::_\{\{closure\}\}$',
-                               'agent_loop_driver::prepare_composed_turn', 'manager_provider_tools::.*prepare_execution',
+                               r'^lcxbox_agent_desk_manager::service::agent_loop_driver::prepare_composed_turn::_\{\{closure\}\}$', 'manager_provider_tools::.*prepare_execution',
                                '^lcxbox_agent_desk_manager::service::agent_subagent_store::observation::save_main_delegation_session.*closure',
                                '^lcxbox_agent_desk_manager::service::agent_subagent_store::observation::save_main_history_on.*closure',
-                    '^desk_diagnose_core::agent_loop::fresh_task::resume_claimed_fresh_task_turn.*closure',
+                    r'^(?:external poll: )?desk_diagnose_core::agent_loop::fresh_task::resume_claimed_fresh_task_turn::_\{\{closure\}\}$',
                     '^desk_diagnose_core::schedule::dispatch::dispatch_continuation.*closure',
                     '^desk_diagnose_core::schedule::dispatch::dispatch_fresh.*closure',
                     'lcxbox_agent_desk_manager::service::schedule_executor::continuation::ContinuationHost.*ContinuationDispatchHost.*run_turn.*closure',
                     'lcxbox_agent_desk_manager::service::schedule_executor::fresh::FreshHost.*FreshDispatchHost.*run_turn.*closure',
-                    'review_budget::reserve_review_attempt_on', 'agent_approval_reviewer::call_claimed',
+                    'review_budget::reserve_review_attempt_on', r'^lcxbox_agent_desk_manager::service::agent_approval_reviewer::call_claimed_permission_review(?:_inner)?::_\{\{closure\}\}$',
                     'agent_model::.*ModelSeam.*call', 'capability_provider_work::dispatch',
                     'capability_grant_store::task_authority::match_current_on',
                     '^lcxbox_agent_desk_manager::service::agent_data_store::output_archive::gc::collect_actor_transaction.*closure',
@@ -148,7 +151,7 @@ REQUIRED = {
                     '^lcxbox_agent_desk_manager::service::agent_data_store::model_sources::validate_history_on.*closure',
                     '^lcxbox_agent_desk_manager::service::agent_data_store::history::staged::write::write_on.*closure',
                     '^lcxbox_agent_desk_manager::service::agent_data_store::history::staged::write::write_conversation_on.*closure',
-                    '^desk_agent_data_store::schedule::create::create_task_on.*closure',
+                    r'^desk_agent_data_store::schedule::create::create_task_on::_\{\{closure\}\}$',
                     '^desk_agent_data_store::schedule::create::capture_retrieval_consent_on.*closure',
                     '^desk_agent_data_store::schedule::create::capture_definition_consent_on.*closure',
                     '^lcxbox_agent_desk_manager::service::schedule_store::fresh_session::_<impl lcxbox_agent_desk_manager::service::schedule_store::ScheduleStore>::insert_fresh_session_inner.*closure',
@@ -199,7 +202,7 @@ REQUIRED = {
                     '^lcxbox_agent_desk_manager::service::agent_run_event_store::file_scope::load_session_on.*closure',
                     '^lcxbox_agent_desk_manager::service::agent_run_event_store::file_scope::persist_update_on.*closure',
                     '^lcxbox_agent_desk_manager::service::agent_run_event_store::write_input_goal_events_on.*closure',
-                    'agent_run_event_store::.*read_user_input_state', 'agent_goal_store::settle_slice_afterimage',
+                    r'^lcxbox_agent_desk_manager::service::agent_run_event_store::ManagerRunEventStore::read_user_input_state::_\{\{closure\}\}$', 'agent_goal_store::settle_slice_afterimage',
                     'agent_goal_store::persist_slice_on', 'agent_goal_store::validate_slice_session_on'],
 }
 
@@ -295,21 +298,82 @@ for _package in ('desk-signal', 'lcxbox-agent-desk-manager'):
     REQUIRED[_package].append(r'^desk_signal_facade::service::lease_heartbeat::renew_until_lost::_\{\{closure\}\}::_\{\{closure\}\}$')
 
 
-def required_patterns(package, profile):
+def pinned_future_poll(future):
+    symbol = '<core::pin::Pin<alloc::boxed::Box<' + future + '>> as core::future::future::Future>::poll'
+    return '^physical: ' + re.escape(symbol) + '$'
+
+
+def include_v0_impl_paths(pattern, package):
+    # v0 prints the concrete self type and method. Legacy also prints the module
+    # that contains the impl block; both spellings identify the same method.
+    impl = r'((?:desk_signal|lcxbox_agent_desk_manager::service)::\w+)::\w+::_<impl (\1::\w+)>'
+    pattern = re.sub(impl, lambda match: '(?:' + match[0] + '|' + match[2] + ')', pattern)
+    host = 'desk_signal' if package == 'desk-signal' else 'lcxbox_agent_desk_manager::service'
+    store = 'SignalAgentSessionStore' if package == 'desk-signal' else 'AgentSessionStore'
+    for legacy, concrete in (
+        ('agent_session_store::title::.*', 'agent_session_store::' + store + '::'),
+        ('agent_subagent_store::candidates::.*', 'agent_subagent_store::SubAgentStore::'),
+        ('capability_grant_store::read_use::.*::', 'capability_grant_store::ManagerCapabilityGrantStore::'),
+    ):
+        if host + '::' + legacy in pattern:
+            pattern = pattern.replace(legacy, '(?:' + legacy + '|' + concrete + ')')
+    return pattern
+
+
+def required_patterns(package, profile, binary=False):
+    if binary or package == 'lcxbox-agent-desk-server':
+        return consumer.required_patterns(package, profile)
     patterns = list(REQUIRED[package])
+    if package in ('desk-signal', 'lcxbox-agent-desk-manager'):
+        patterns.append(consumer.claim_pattern(package))
+        host = 'desk_signal' if package == 'desk-signal' else 'lcxbox_agent_desk_manager::service'
+        store = 'SignalAgentSessionStore' if package == 'desk-signal' else 'AgentSessionStore'
+        patterns.extend(consumer.poll(host + '::agent_session_store::' + store, method)
+                        for method in ('claim_existing', 'claim_new'))
+        patterns.append(consumer.poll('desk_agent_data_store::schedule::proposal', 'manage_on'))
+        patterns.extend(consumer.approval_stage_polls(package == 'lcxbox-agent-desk-manager'))
+        if profile == 'debug':
+            patterns.extend(consumer.approval_polls(package == 'lcxbox-agent-desk-manager'))
+        else:
+            patterns.extend(consumer.approval_store_polls(package == 'lcxbox-agent-desk-manager'))
+            if package == 'lcxbox-agent-desk-manager':
+                # The optimized ManagerDrain poll constructs the exact dispatch
+                # state and invokes its prepare phase inside the existing task.
+                dispatch = host + '::agent_approval_dispatch::process_pending_permission_review'
+                future = ('<' + host + '::manager_drain::ManagerDrain>::admitted<' +
+                          dispatch + '::{closure#0}>::{closure#0}')
+                patterns.append('(?:' + consumer.poll(host + '::agent_approval_dispatch',
+                                                     'process_pending_permission_review') +
+                                '|' + pinned_future_poll(future) + ')')
+    if package == 'lcxbox-agent-desk-manager':
+        patterns.extend(consumer.debug_dispatch_patterns(package) if profile == 'debug' else consumer.business_polls(package))
     if package == 'desk-diagnose-core' and profile == 'debug':
         patterns.append(r'^desk_diagnose_core::agent_loop::task_permission::pause::_\{\{closure\}\}$')
     if package == 'desk-agent-protocol' and profile == 'debug':
         patterns.append('^desk_agent_protocol::ai_agent::memory::validate_draft_limits$')
     if profile != 'release' or package not in ('desk-signal', 'lcxbox-agent-desk-manager'):
-        return patterns
+        return [include_v0_impl_paths(pattern, package) for pattern in patterns]
     host = 'desk_signal' if package == 'desk-signal' else 'lcxbox_agent_desk_manager::service'
     # Optimized generic polls are inlined into their unchanged caller-owned phases.
     owners = {
         'memory_write::sources::load_on': '^' + host + r'::agent_data_store::memory_write::write_on::_\{\{closure\}\}$',
         'memory_write::receipts::collect_on': '^' + host + r'::agent_data_store::output_archive::gc::collect_actor_transaction::_\{\{closure\}\}$',
     }
+    if package == 'desk-signal':
+        # LLVM can inline handled_outcome's body into this concrete poll. The
+        # specialization calls validate_append_params, deleted_on, decode_session
+        # and ack_from_existing; boxing and drop do not execute the body.
+        future = '<desk_signal::agent_run_event_store::SignalAgentRunEventStore>::handled_outcome::{closure#0}'
+        owners['::handled_outcome::'] = pinned_future_poll(future)
     if package == 'lcxbox-agent-desk-manager':
+        # This poll contains fresh_task's authority checks, initial_session,
+        # validate_source_context and AgentDataSession::validate in release.
+        owners['::fresh_task::resume_claimed_fresh_task_turn::'] = pinned_future_poll(
+            'desk_diagnose_core::agent_loop::fresh_task::resume_claimed_fresh_task_turn::{closure#0}')
+        # input::drive awaits read_user_input_state. Its concrete poll contains
+        # lock_input_subject, decode, input_fingerprint, replay and commit.
+        owners['::read_user_input_state::'] = pinned_future_poll(
+            host + '::agent_loop_driver::input::drive::{closure#0}')
         module = host + '::schedule_store::'
         impl = '_<impl ' + module + 'ScheduleStore>::'
         trait = ('^_<' + module + 'session_host::ManagerScheduleHost as '
@@ -326,21 +390,27 @@ def required_patterns(package, profile):
             '::agent_data_store::accept_input_on':
                 '^' + host + '::agent_run_event_store::ManagerRunEventStore::admit_user_input' + poll,
         })
-    return ['(?:' + pattern + '|' + owner + ')' if (owner := next((owner for child, owner in owners.items() if child in pattern), None)) else pattern
+    patterns = ['(?:' + pattern + '|' + owner + ')' if (owner := next((owner for child, owner in owners.items() if child in pattern), None)) else pattern
             for pattern in patterns]
+    return [include_v0_impl_paths(pattern, package) for pattern in patterns]
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workspace', type=Path, default=HERE.parents[1])
     parser.add_argument('--package', choices=REQUIRED, required=True)
+    parser.add_argument('--bin', action='store_true', help='measure the Manager production binary')
     parser.add_argument('--profile', choices=['debug', 'release'], default='debug')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     command = [sys.executable, str(HERE / 'check.py'), '--workspace', str(args.workspace),
                '--package', args.package, '--profile', args.profile, '--ceiling', str(report.HARD_FRAME_LIMIT),
                '--output', str(args.output)]
-    for pattern in required_patterns(args.package, args.profile):
+    if args.bin:
+        if args.package != 'lcxbox-agent-desk-manager':
+            parser.error('--bin selects the Manager production binary')
+        command.append('--bin')
+    for pattern in required_patterns(args.package, args.profile, args.bin):
         command.extend(['--required', pattern])
     return subprocess.call(command)
 

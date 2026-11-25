@@ -296,7 +296,7 @@ pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
             Err(ScheduleStoreError::NotFound)
         };
     };
-    let mut session = PersistedAgentSession::decode_json(&row.state_json)
+    let mut session = PersistedAgentSession::decode_boxed_json(&row.state_json)
         .map_err(|_| ScheduleStoreError::Invalid)?;
     // A proposal's turn paused on it: the decision resumes that requirement.
     let paused = decider.is_some()
@@ -361,8 +361,15 @@ pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     .map_err(|_| ScheduleStoreError::Invalid)?
     .apply(&mut message);
     if paused {
-        return crate::decision_resume::record_decision_on(host, txn, &row, session, message, now)
-            .await;
+        return crate::decision_resume::record_decision_on(
+            host,
+            txn,
+            &row,
+            &mut session,
+            message,
+            now,
+        )
+        .await;
     }
     session.conversation.push(message);
     session.version = row

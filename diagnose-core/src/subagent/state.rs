@@ -469,6 +469,35 @@ impl SubAgentRun {
         Ok(())
     }
 
+    /// Reconcile durable dependencies after an expired planning lease has been released.
+    /// Return whether the deadline ended this task for permission settlement.
+    pub fn reconcile_dependencies(
+        &mut self,
+        session: &mut PersistedAgentSession,
+        group: &super::group::DelegationGroup,
+        dependencies: Vec<TaskDependency>,
+        now_ms: i64,
+        now: &str,
+    ) -> Result<bool, &'static str> {
+        let deadline_reached =
+            now_ms >= self.binding.deadline_ms || now_ms >= group.limits.deadline_ms;
+        let failure = if deadline_reached {
+            Some("delegation_deadline_reached")
+        } else if group.source_admission == super::group::SourceAdmission::Closed {
+            Some("delegation_source_closed")
+        } else {
+            None
+        };
+        if let Some(reason) = failure {
+            self.fail(reason, now)?;
+            session.finish_turn(crate::session::TurnState::Failed, now.to_owned());
+            session.pending_auto_triggers.clear();
+        } else {
+            self.synchronize_dependencies(dependencies, false, now)?;
+        }
+        Ok(deadline_reached)
+    }
+
     /// Durable facts may advance while planning holds its session lease. Empty
     /// dependencies preserve that running claim; they never imply completion.
     pub fn synchronize_dependencies(

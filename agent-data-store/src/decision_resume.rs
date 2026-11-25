@@ -37,7 +37,7 @@ pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     host: &H,
     txn: &C,
     row: &SessionRow<H::Row>,
-    mut session: PersistedAgentSession,
+    session: &mut PersistedAgentSession,
     event: ChatMessage,
     now_ms: i64,
 ) -> Result<(), ScheduleStoreError> {
@@ -73,7 +73,7 @@ pub async fn record_decision_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     if changed != 1 {
         return Err(ScheduleStoreError::Conflict);
     }
-    insert_on(txn, &session, &row.device_id, pause.kind, &pause.id, now_ms).await
+    insert_on(txn, session, &row.device_id, pause.kind, &pause.id, now_ms).await
 }
 
 /// Records the resume of `session`'s paused turn, in the transaction that

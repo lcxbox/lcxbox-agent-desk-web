@@ -5,3 +5,6 @@
 
 # style: format workspace with rustfmt 1.90.0 (edition 2024)
 c0547138bc5329552f44eeddab727ff88764ad9b
+
+# style: record the rustfmt 1.100.0 baseline
+a2eb8c660af65bcefeb53a60a47a5a4a8549ac6e

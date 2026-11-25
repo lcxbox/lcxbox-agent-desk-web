@@ -1,0 +1,11 @@
+[package]
+name = "desk-stack-demangle"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100.0"
+publish = false
+
+[dependencies]
+rustc-demangle = "=0.1.28"
+
+[workspace]

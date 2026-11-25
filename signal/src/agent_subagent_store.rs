@@ -2,7 +2,7 @@
 
 use crate::config::connection::DatabaseConnection;
 pub(crate) use desk_agent_data_store::delegation_group::{
-    admission_label, decode_group, group_children_on,
+    admission_label, decode_creation, decode_group, group_children_on,
 };
 mod control;
 mod issue_control;
@@ -83,8 +83,7 @@ pub(crate) use control::{
 };
 pub(crate) use creation::{first_dispatch_on, parent_planning_on};
 pub(crate) use initialization::{
-    decode_creation, initialize_continuation_group_on, initialize_goal_group_on,
-    initialize_input_group_on,
+    initialize_continuation_group_on, initialize_goal_group_on, initialize_input_group_on,
 };
 pub(crate) use presentation::presentation_on;
 pub(crate) use scheduled_control::close_scheduled_group_on;
@@ -185,7 +184,7 @@ async fn parent_on_inner<C: ConnectionTrait + crate::config::ConfigConnection>(
         .await?
         .ok_or_else(|| invalid())?;
     let session =
-        Box::new(PersistedAgentSession::decode_json(&row.state_json).map_err(|_| invalid())?);
+        PersistedAgentSession::decode_boxed_json(&row.state_json).map_err(|_| invalid())?;
     if !session.agent_role.is_main()
         || session.surface != AgentSessionSurface::AiAgent
         || session.conversation_id != root

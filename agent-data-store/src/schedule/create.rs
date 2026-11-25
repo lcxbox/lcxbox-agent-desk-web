@@ -27,6 +27,20 @@ pub async fn create_task_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         return Err(ScheduleStoreError::Invalid);
     }
     let request = normalize_creation(request).map_err(|_| ScheduleStoreError::Invalid)?;
+    desk_diagnose_core::future::send_phase(|| {
+        persist_normalized_task_on(host, db, owner, request, now_ms, original)
+    })
+    .await
+}
+
+async fn persist_normalized_task_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
+    host: &H,
+    db: &C,
+    owner: i32,
+    request: ScheduleCreation,
+    now_ms: i64,
+    original: Option<&desk_diagnose_core::session::PersistedAgentSession>,
+) -> Result<entity::Model, ScheduleStoreError> {
     // An AI fresh-task proposal waits in the turn that proposed it.
     let proposal_conversation_id = original
         .filter(|_| {
@@ -189,10 +203,8 @@ async fn capture_retrieval_consent_on<C: ConnectionTrait, H: ScheduleHostStores<
         )
         .await?
         .ok_or(ScheduleStoreError::NotFound)?;
-    let session = Box::new(
-        PersistedAgentSession::decode_json(&row.state_json)
-            .map_err(|_| ScheduleStoreError::Invalid)?,
-    );
+    let session = PersistedAgentSession::decode_boxed_json(&row.state_json)
+        .map_err(|_| ScheduleStoreError::Invalid)?;
     if session.actor_id != owner.to_string()
         || session.device_id != row.device_id
         || session.conversation_id != source

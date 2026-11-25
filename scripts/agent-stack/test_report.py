@@ -9,6 +9,9 @@ import io
 import check as stack_check
 import report
 import run as gate
+import consumer
+import symbols
+import subprocess
 
 
 def record(size, symbol='_ZN18desk_diagnose_core10agent_loop14run_inner_impl17h0123456789abcdefE'):
@@ -16,6 +19,231 @@ def record(size, symbol='_ZN18desk_diagnose_core10agent_loop14run_inner_impl17h0
 
 
 class Reports(unittest.TestCase):
+    def test_consumer_tracks_the_actual_claim_poll_and_limits_wrapper_frames(self):
+        raw = ('_RNCNvXsg_NtNtCsfaSKKrRj4oS_25lcxbox_agent_desk_manager7service19agent_session_store'
+               'NtB7_17AgentSessionStoreNtNtCs19gHUVhkbna_18desk_diagnose_core4seam11SessionSeam10claim_turn0Bb_')
+        data = report.collect_records([(299040, raw)], scope=consumer.protected)
+        required = [consumer.claim_pattern('lcxbox-agent-desk-manager')]
+        self.assertEqual(len(report.check_ceiling(data, report.HARD_FRAME_LIMIT, required)), 1)
+        self.assertIn('299040 > 131072', report.check_ceiling(data, report.HARD_FRAME_LIMIT, required)[0])
+        name = next(iter(data['frames']))
+        for other in [name.removesuffix('::{closure#0}'), 'core::ptr::drop_glue::<' + name + '>']:
+            self.assertTrue(consumer.protected(other))
+            key = symbols.execution_name(other)
+            self.assertTrue(report.check_ceiling({'frames': {other: 32}, 'execution_names': [key] if key else []},
+                                                report.HARD_FRAME_LIMIT, required))
+
+    def test_stream_poll_requires_matching_method_iterator_row_and_task_owner(self):
+        host, scheduler, _ = consumer.HOSTS['lcxbox-agent-desk-server']
+        patterns = consumer.stream_polls(host, scheduler, 'run_subagent_tasks', 'agent_subagent_run')
+        future = '<desk_signal::schedule_executor::SignalScheduleExecutor>::run_subagent_tasks::{closure#0}::{closure#3}'
+        iterator = ('futures_util::stream::iter::Iter<core::iter::adapters::map::Map<alloc::vec::into_iter::IntoIter<'
+                    'desk_agent_data_store::entity::agent_subagent_run::Model>, ' + future + '>>')
+        fuse = '<futures_util::stream::stream::fuse::Fuse<' + iterator + '> as futures_core::stream::Stream>::poll_next'
+        buffered = fuse.replace('fuse::Fuse', 'buffer_unordered::BufferUnordered')
+        frames = {fuse: 237056, buffered: 142272}
+        self.assertTrue(all(consumer.protected(name) for name in frames))
+        errors = report.check_ceiling({'frames': frames, 'execution_names': []}, report.HARD_FRAME_LIMIT, patterns)
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(all('> 131072' in error for error in errors))
+        for wrong in [fuse.replace('run_subagent_tasks', 'run_subagent_waits'), fuse.replace('agent_subagent_run', 'agent_delegation_group'),
+                      fuse.replace('::poll_next', '::size_hint'), 'core::ptr::drop_glue::<' + fuse + '>']:
+            self.assertTrue(report.check_ceiling({'frames': {wrong: 32, buffered: 32}, 'execution_names': []},
+                                                report.HARD_FRAME_LIMIT, patterns))
+
+    def test_consumer_spawn_measurement_is_the_actual_start_function(self):
+        scheduler = '<desk_signal::schedule_executor::SignalScheduleExecutor>::run::{closure#0}'
+        spawn = 'tokio::task::local::spawn_local_inner::<' + scheduler + '>::{closure#0}'
+        patterns = [p for p in consumer.debug_dispatch_patterns('lcxbox-agent-desk-server')
+                    if p == consumer.physical(spawn)]
+        self.assertEqual(len(patterns), 1)
+        for frame in (spawn, 'core::ptr::drop_glue::<' + spawn + '>', scheduler,
+                      spawn.replace('spawn_local_inner', 'unrelated'), spawn.replace('::run::', '::run_subagent_tasks::')):
+            errors = report.check_ceiling({'frames': {frame: 32}, 'execution_names': []}, report.HARD_FRAME_LIMIT, patterns)
+            self.assertEqual(not errors, frame == spawn)
+
+    def test_consumer_release_requires_the_real_instrumented_executor_poll(self):
+        owner = 'desk_signal::schedule_executor::SignalScheduleExecutor'
+        body = '<' + owner + '>::run::{closure#0}'
+        annotated = '<tracing::instrument::Instrumented<' + body + '> as core::future::future::Future>::poll'
+        pats = [p for p in consumer.required_patterns('lcxbox-agent-desk-server', 'release') if consumer.physical(annotated) in p]
+        self.assertEqual(len(pats), 1)
+        for name in (annotated, body, annotated.replace('::poll', '::drop'), annotated.replace('::run::', '::scan_once::'),
+                     'core::ptr::drop_glue::<' + annotated + '>'):
+            key = symbols.execution_name(name)
+            data = {'frames': {name: 32}, 'execution_names': [key] if key else []}
+            self.assertEqual(not report.check_ceiling(data, report.HARD_FRAME_LIMIT, pats), name in (annotated, body))
+
+    def test_permission_review_fails_on_the_original_host_frames_and_on_drop_only(self):
+        for manager, host, module, sizes in [
+                (False, 'desk_signal', 'approval_dispatch', (339952, 124432, 163904, 254688)),
+                (True, 'lcxbox_agent_desk_manager::service', 'agent_approval_dispatch', (365328, 193536, 231392, 293424))]:
+            frames = {host + '::' + module + '::process_pending_permission_review::{closure#0}': sizes[0],
+                      host + '::agent_approval_store::prepare_permission_review_batch::{closure#0}': sizes[1],
+                      host + '::agent_approval_store::claim_permission_review::{closure#0}': sizes[2],
+                      host + '::agent_approval_store::settle_permission_review::{closure#0}': sizes[3]}
+            self.assertTrue(all(consumer.protected(name) for name in frames))
+            required = consumer.approval_polls(manager)
+            data = {'frames': frames, 'execution_names': [symbols.execution_name(name) for name in frames]}
+            errors = report.check_ceiling(data, report.HARD_FRAME_LIMIT, required)
+            self.assertEqual(len(errors), sum(size > report.HARD_FRAME_LIMIT for size in sizes))
+            self.assertTrue(all(' > 131072:' in error for error in errors))
+            drops = {'core::ptr::drop_glue::<' + name + '>': 64 for name in frames}
+            errors = report.check_ceiling({'frames': drops, 'execution_names': []}, report.HARD_FRAME_LIMIT, required)
+            self.assertEqual(len(errors), len(required))
+            self.assertTrue(all('missing required' in error for error in errors))
+
+    def test_optimized_oss_permission_dispatch_requires_its_concrete_pinned_poll(self):
+        body = 'desk_signal::approval_dispatch::process_pending_permission_review::{closure#0}'
+        pinned = '<core::pin::Pin<alloc::boxed::Box<' + body + '>> as core::future::future::Future>::poll'
+        required = [p for p in gate.required_patterns('lcxbox-agent-desk-server', 'release')
+                    if 'process_pending_permission_review' in p]
+        self.assertEqual(len(required), 1)
+        for name in [body, pinned, pinned.replace('::poll', '::drop'), 'core::ptr::drop_glue::<' + pinned + '>']:
+            key = symbols.execution_name(name)
+            data = {'frames': {name: 3296}, 'execution_names': [key] if key else []}
+            self.assertEqual(not report.check_ceiling(data, report.HARD_FRAME_LIMIT, required), name in [body, pinned])
+        self.assertTrue(all(p in gate.required_patterns('desk-signal', 'release')
+                            for p in consumer.approval_store_polls(False)))
+
+    def test_manager_drain_requires_the_permission_dispatch_it_actually_polls(self):
+        host = 'lcxbox_agent_desk_manager::service'
+        dispatch = host + '::agent_approval_dispatch::process_pending_permission_review::{closure#0}'
+        admitted = '<' + host + '::manager_drain::ManagerDrain>::admitted<' + dispatch + '>::{closure#0}'
+        pinned = '<core::pin::Pin<alloc::boxed::Box<' + admitted + '>> as core::future::future::Future>::poll'
+        required = [p for p in gate.required_patterns('lcxbox-agent-desk-manager', 'release')
+                    if 'process_pending_permission_review' in p]
+        self.assertEqual(len(required), 1)
+        for name in [pinned, pinned.replace('admitted<', 'new<'), pinned.replace('::{closure#0}>', '::{closure#1}>'),
+                     'core::ptr::drop_glue::<' + pinned + '>']:
+            data = {'frames': {name: 64}, 'execution_names': []}
+            self.assertEqual(not report.check_ceiling(data, report.HARD_FRAME_LIMIT, required), name == pinned)
+
+    def test_recovery_polls_must_be_emitted_by_their_production_target(self):
+        for package, host in [('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service'),
+                              ('lcxbox-agent-desk-server', 'desk_signal')]:
+            for method in ['restore_dependencies_on', 'write_recovered_session_on',
+                           'rearm_exec_deliveries_on' if package.endswith('server') else 'fail_unavailable_subject_on']:
+                owner = host + '::agent_subagent_store::recovery'
+                pattern = consumer.poll(owner, method)
+                for profile in ['debug', 'release']:
+                    self.assertIn(pattern, gate.required_patterns(package, profile))
+                body = owner + '::' + method + '::{closure#0}'
+                for frame in (body, 'core::ptr::drop_glue::<' + body + '>', body + '::{closure#1}'):
+                    self.assertTrue(consumer.protected(frame))
+                    key = symbols.execution_name(frame)
+                    data = {'frames': {frame: 64}, 'execution_names': [key] if key else []}
+                    self.assertEqual(not report.check_ceiling(data, report.HARD_FRAME_LIMIT, [pattern]), frame == body)
+
+    def test_claim_and_schedule_storage_require_the_actual_first_poll(self):
+        for package, host, store in [('desk-signal', 'desk_signal', 'SignalAgentSessionStore'),
+                                     ('lcxbox-agent-desk-manager', 'lcxbox_agent_desk_manager::service', 'AgentSessionStore')]:
+            methods = [('<' + host + '::agent_session_store::' + store + '>::', method)
+                       for method in ('claim_existing', 'claim_new')]
+            methods.extend([('desk_agent_data_store::schedule::create::', 'create_task_on'),
+                            ('desk_agent_data_store::schedule::proposal::', 'manage_on')])
+            for base, method in methods:
+                name = base + method + '::{closure#0}'
+                required = [p for p in gate.required_patterns(package, 'release') if method + '::' in p]
+                self.assertEqual(len(required), 1)
+                for other in [name, base + method, 'core::ptr::drop_glue::<' + name + '>',
+                              name + '::{closure#1}']:
+                    key = symbols.execution_name(other)
+                    data = {'frames': {other: 16}, 'execution_names': [key] if key else []}
+                    self.assertEqual(not report.check_ceiling(data, report.HARD_FRAME_LIMIT, required), other == name)
+
+    def test_external_core_uses_the_host_lockfile_and_verifies_resolved_features(self):
+        host_features = ['default', 'content-safety-eval']
+        member = {'id': 'core-id', 'name': 'desk-diagnose-core'}
+        core = {'resolved_features': list(reversed(host_features)), 'frames': {stack_check.FRESH_TASK_POLL: 2048}}
+        for is_member in [True, False]:
+            meta = {'workspace_members': ['core-id'] if is_member else ['manager-id'],
+                    'packages': [member] if is_member else [{'id': 'manager-id', 'name': 'manager'}]}
+            with mock.patch.object(stack_check.subprocess, 'check_output', return_value=json.dumps(meta)), \
+                    mock.patch.object(stack_check, 'collect_package', return_value=core) as measured:
+                self.assertEqual(stack_check.measure_external_core(Path('host'), 'release', 'a-target', host_features), core)
+                measured.assert_called_once_with(Path('host'), 'desk-diagnose-core', 'release', 'a-target',
+                                                 ','.join(host_features) if is_member else '', is_member)
+                for wrong in [dict(core, resolved_features=['default']), dict(core, frames={})]:
+                    measured.return_value = wrong
+                    with self.assertRaisesRegex(ValueError, 'external fresh-task poll'):
+                        stack_check.measure_external_core(Path('host'), 'release', 'a-target', host_features)
+
+    def test_interrupted_cargo_build_is_distinguished_from_a_missing_frame_record(self):
+        with mock.patch.object(stack_check.subprocess, 'Popen') as popen:
+            process = popen.return_value.__enter__.return_value
+            for status, finished, message in [(-15, False, 'did not finish'), (0, True, 'no protected stack frames')]:
+                process.stdout = iter([json.dumps({'reason': 'build-finished', 'success': finished})])
+                process.wait.return_value = status
+                with self.assertRaisesRegex(ValueError, message):
+                    stack_check.collect_package(Path('.'), 'desk-signal', 'debug', None, '', False)
+
+    def test_installed_compiler_reads_the_large_and_small_probe_frames(self):
+        stack_check.known_overflow_probe()
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory, 'small.rs')
+            source.write_text('fn main() { std::hint::black_box(&[0u8; 64]); }')
+            result = subprocess.run(
+                ['rustc', str(source), '--crate-name', 'agent_stack_probe', '--emit=obj',
+                 '-o', str(source.with_suffix('.o')), '-C', 'opt-level=0',
+                 '-C', 'remark=prolog-epilog', '--error-format=json'],
+                check=True, capture_output=True, text=True)
+            data = report.collect(result.stderr.splitlines())
+            self.assertGreater(data['frames']['agent_stack_probe::main'], 0)
+            self.assertEqual(report.check_ceiling(data, report.HARD_FRAME_LIMIT,
+                                                 ['^agent_stack_probe::main$']), [])
+
+    def test_v0_coverage_requires_the_owner_and_actual_poll(self):
+        name = 'desk_signal::agent_data_store::memory_write::write'
+        poll = name + '::{closure#0}'
+        pattern = '^' + name + r'::_\{\{closure\}\}$'
+        for full_name, matches in [(name, False), (poll, True),
+                                   (name + '::<u32>::{closure#1}', True),
+                                   ('desk_signal::agent_data_store::wrap::<' + poll + '>', False),
+                                   ('core::ptr::drop_in_place::<' + poll + '>', False)]:
+            with self.subTest(full_name=full_name):
+                execution = symbols.execution_name(full_name)
+                data = {'frames': {full_name: 48}, 'execution_names': [execution] if execution else []}
+                self.assertEqual(not report.check_ceiling(data, report.HARD_FRAME_LIMIT, [pattern]), matches)
+                data['frames'][full_name] = report.HARD_FRAME_LIMIT + 1
+                self.assertTrue(report.check_ceiling(data, report.HARD_FRAME_LIMIT, []))
+
+    def test_v0_method_names_inside_receiver_arguments_and_future_shims_do_not_count(self):
+        callee = 'desk_signal::ai_agent_orchestrator::prepare_composed_turn'
+        receiver = '<desk_diagnose_core::stream::StreamingTurnSink<' + callee + '::{closure#0}> as desk_diagnose_core::seam::TurnSink>::send'
+        shim = '<' + callee + '::{closure#0} as core::future::into_future::IntoFuture>::into_future'
+        for name in (receiver, shim):
+            execution = symbols.execution_name(name)
+            data = {'frames': {name: 4096}, 'execution_names': [execution] if execution else []}
+            self.assertTrue(report.check_ceiling(data, report.HARD_FRAME_LIMIT, ['ai_agent_orchestrator::prepare_composed_turn']))
+
+    def test_v0_execution_names_follow_operation_relocations(self):
+        name = 'desk_diagnose_core::tool_result::project'
+        data = report.retain_operation_identity({'frames': {name: 64}, 'execution_names': [name]}, 'desk-diagnose-core')
+        expected = '^desk_diagnose_core::ai_agent::data_control::history_restricted::project$'
+        self.assertEqual(report.check_ceiling(data, report.HARD_FRAME_LIMIT, [expected]), [])
+
+    def test_release_handled_outcome_requires_the_exact_executor(self):
+        future = '<desk_signal::agent_run_event_store::SignalAgentRunEventStore>::handled_outcome::{closure#0}'
+        poll = '<core::pin::Pin<alloc::boxed::Box<' + future + '>> as core::future::future::Future>::poll'
+        patterns = [p for p in gate.required_patterns('desk-signal', 'release') if '::handled_outcome::' in p]
+        self.assertEqual(len(patterns), 1)
+        for physical in (poll, poll.replace('closure#0', 'closure#1'), 'desk_diagnose_core::future::boxed::<' + future + '>'):
+            data = {'frames': {physical: 2416}, 'execution_names': []}
+            self.assertEqual(not report.check_ceiling(data, report.HARD_FRAME_LIMIT, patterns), physical == poll)
+
+    def test_manager_release_inlined_polls_require_the_exact_owner(self):
+        for method, owner in [
+                ('read_user_input_state', 'lcxbox_agent_desk_manager::service::agent_loop_driver::input::drive'),
+                ('resume_claimed_fresh_task_turn', 'desk_diagnose_core::agent_loop::fresh_task::resume_claimed_fresh_task_turn')]:
+            patterns = [p for p in gate.required_patterns('lcxbox-agent-desk-manager', 'release') if method in p]
+            self.assertEqual(len(patterns), 1)
+            future = owner + '::{closure#0}'
+            poll = '<core::pin::Pin<alloc::boxed::Box<' + future + '>> as core::future::future::Future>::poll'
+            for physical in [poll, poll.replace('closure#0', 'closure#1'), 'core::ptr::drop_glue::<' + future + '>']:
+                data = {'frames': {physical: 4096}, 'execution_names': []}
+                self.assertEqual(not report.check_ceiling(data, report.HARD_FRAME_LIMIT, patterns), physical == poll)
+
     def test_lease_renewal_requires_the_real_shared_poll(self):
         constructor = 'desk_signal_facade::service::lease_heartbeat::renew_until_lost'
         poll = constructor + '::_{{closure}}::_{{closure}}'
@@ -127,6 +355,34 @@ class Reports(unittest.TestCase):
             self.assertTrue(report.check_ceiling({'frames': {symbol: report.HARD_FRAME_LIMIT + 1}}, report.HARD_FRAME_LIMIT, patterns))
             self.assertTrue(report.check_ceiling({'frames': {'core::ptr::drop_in_place::' + symbol: 32}}, report.HARD_FRAME_LIMIT, patterns))
         self.assertTrue(report.protected('lcxbox_agent_desk_manager::service::remote_tool_routing::read_grants::output_digest'))
+
+    def test_external_poll_is_undefined_in_the_entire_archive(self):
+        poll = '__RNCNvNtNtCsbKEYX2Woo77_18desk_diagnose_core10agent_loop10fresh_task30resume_claimed_fresh_task_turn0B7_'
+        ctor = '__RNvNtNtCsbKEYX2Woo77_18desk_diagnose_core10agent_loop10fresh_task30resume_claimed_fresh_task_turn'
+        self.assertTrue(stack_check.has_external_fresh_task_poll([poll + ' U 0 0']))
+        self.assertFalse(stack_check.has_external_fresh_task_poll([ctor + ' U 0 0']))
+        self.assertFalse(stack_check.has_external_fresh_task_poll([poll + ' U 0 0', poll + ' T 40 20']))
+
+    def test_v0_release_alias_requires_the_same_physical_location(self):
+        target = '_RNvNtNtCs5qpaZT4w7cE_18desk_diagnose_core8schedule8proposal13invalid_input'
+        measured = '_RNvNtCs5qpaZT4w7cE_18desk_diagnose_core23conversation_attachment7invalid'
+        sizes = {}
+        report.collect([record(80, measured), record(32)], sizes)
+        self.assertEqual(sizes, {measured.lstrip('_'): 80})
+        for file_format, section in [('elf64-x86-64', '.text.functions'), ('mach-o arm64', '__TEXT,__text')]:
+            table = [f'first.o: file format {file_format}', f'0010 g F {section} _{target}']
+            alias = f'0010 g F {section} _{measured}'
+            suffixed = [table[0], table[1] + '.llvm.12345', alias]
+            self.assertEqual(stack_check.schedule_error_frame(suffixed, sizes), (80, '_' + measured))
+            self.assertEqual(stack_check.schedule_error_frame(table + [alias], sizes), (80, '_' + measured))
+            self.assertIsNone(stack_check.schedule_error_frame(table + [alias.replace('0010', '0020')], sizes))
+            self.assertIsNone(stack_check.schedule_error_frame(table + ['other.o: file format ' + file_format, alias], sizes))
+        target_row = f'[0] (sec 3)(fl 0x00)(ty 20)(scl 2) (nx 0) 0x0010 {target}'
+        alias = f'[1] (sec 3)(fl 0x00)(ty 20)(scl 2) (nx 0) 0x0010 {measured}'
+        self.assertEqual(stack_check.schedule_error_frame(['first.obj: file format coff', target_row, alias], sizes),
+                         (80, measured))
+        self.assertIsNone(stack_check.schedule_error_frame(['first.obj: file format coff', target_row,
+                                                            alias.replace('sec 3', 'sec 4')], sizes))
 
     def test_release_schedule_error_alias_still_requires_the_real_constructor(self):
         patterns = [p for p in gate.required_patterns('desk-diagnose-core', 'release') if 'proposal::invalid_input' in p]
@@ -470,7 +726,7 @@ class Reports(unittest.TestCase):
                         if 'closure' in pattern and any(name in pattern for name in [
                             'agent_data_store::', 'schedule_store::', 'agent_goal_store::claim_slice',
                             'agent_run_event_store::', 'agent_subagent_store::observation::'])]
-            self.assertEqual(len(patterns), 76 if package == 'desk-signal' else 79)
+            self.assertEqual(len(patterns), 77 if package == 'desk-signal' else 80)
             for pattern in patterns:
                 constructor = pattern.removeprefix('^').split('.*', 1)[0].split(r'::_\{', 1)[0].rstrip(':')
                 depth = 2 if pattern.count('closure') == 2 else 1

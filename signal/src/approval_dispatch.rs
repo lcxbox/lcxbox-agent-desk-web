@@ -9,11 +9,12 @@ use desk_agent_protocol::ai_agent::AiAgentAsk;
 use desk_agent_protocol::capability_provider::ProductSurface;
 use desk_agent_protocol::computer_use::ObjectKind;
 use desk_diagnose_core::ai_agent::{ai_agent_provider_registry, provider_readiness_reports};
-use desk_diagnose_core::approval_review::PendingRequestKind;
 use desk_diagnose_core::approval_review::reviewer_billed_tokens;
+use desk_diagnose_core::approval_review::{ApprovalReviewCandidate, PendingRequestKind};
 use desk_diagnose_core::capability_availability::{
     CapabilityAvailability, project_capability_availability,
 };
+use desk_diagnose_core::future::{phase, send_phase};
 use desk_diagnose_core::provider_registry::ProviderRegistry;
 use desk_signal_facade::model::{
     auth_context::AuthKind, connection::SharedConnectionMap, signal::RemoteDeskTypeEnum,
@@ -225,59 +226,67 @@ pub async fn process_pending_permission_review(
     let Some(device) = current_device_context(&db, connections.as_ref(), &subject, now).await
     else {
         if subject.kind == PendingRequestKind::Goal {
-            return crate::agent_approval_store::deny_goal_unavailable(
-                &db,
-                &subject.conversation_id,
-                &subject.owner_id,
-                &subject.device_id,
-                &subject.request_id,
-                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
-                desk_diagnose_core::approval_observation::ReviewReason::Policy,
-            )
+            return send_phase(|| {
+                crate::agent_approval_store::deny_goal_unavailable(
+                    &db,
+                    &subject.conversation_id,
+                    &subject.owner_id,
+                    &subject.device_id,
+                    &subject.request_id,
+                    u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
+                    desk_diagnose_core::approval_observation::ReviewReason::Policy,
+                )
+            })
             .await
             .unwrap_or(false);
         }
         if subject.kind == PendingRequestKind::Directory {
-            return crate::agent_approval_store::deny_directory_unavailable(
-                &db,
-                &subject.conversation_id,
-                &subject.owner_id,
-                &subject.device_id,
-                &subject.request_id,
-                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
-                true,
-            )
+            return send_phase(|| {
+                crate::agent_approval_store::deny_directory_unavailable(
+                    &db,
+                    &subject.conversation_id,
+                    &subject.owner_id,
+                    &subject.device_id,
+                    &subject.request_id,
+                    u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
+                    true,
+                )
+            })
             .await
             .is_ok();
         }
         return false;
     };
     let now_unix_ms = u64::try_from(now.as_millisecond()).unwrap_or(0);
-    let candidates = match crate::agent_approval_store::prepare_permission_review_batch(
-        &db,
-        &subject.conversation_id,
-        &subject.owner_id,
-        &subject.device_id,
-        &subject.request_id,
-        subject.kind,
-        &device.registry,
-        ProductSurface::OssPersonalOwner,
-        device.readiness_revision,
-        now_unix_ms,
-    )
+    let candidates = match send_phase(|| {
+        crate::agent_approval_store::prepare_permission_review_batch(
+            &db,
+            &subject.conversation_id,
+            &subject.owner_id,
+            &subject.device_id,
+            &subject.request_id,
+            subject.kind,
+            &device.registry,
+            ProductSurface::OssPersonalOwner,
+            device.readiness_revision,
+            now_unix_ms,
+        )
+    })
     .await
     {
         Ok(candidates) => candidates,
         Err(_) if subject.kind == PendingRequestKind::Goal => {
-            return crate::agent_approval_store::deny_goal_unavailable(
-                &db,
-                &subject.conversation_id,
-                &subject.owner_id,
-                &subject.device_id,
-                &subject.request_id,
-                now_unix_ms,
-                desk_diagnose_core::approval_observation::ReviewReason::Processing,
-            )
+            return send_phase(|| {
+                crate::agent_approval_store::deny_goal_unavailable(
+                    &db,
+                    &subject.conversation_id,
+                    &subject.owner_id,
+                    &subject.device_id,
+                    &subject.request_id,
+                    now_unix_ms,
+                    desk_diagnose_core::approval_observation::ReviewReason::Processing,
+                )
+            })
             .await
             .unwrap_or(false);
         }
@@ -296,15 +305,17 @@ pub async fn process_pending_permission_review(
     let mut retry_required = false;
     for candidate in &candidates {
         let lease_owner = format!("oss-review-{}", uuid::Uuid::new_v4());
-        let claim = match crate::agent_approval_store::claim_permission_review(
-            &db,
-            candidate,
-            &device.registry,
-            ProductSurface::OssPersonalOwner,
-            &lease_owner,
-            device.readiness_revision,
-            u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
-        )
+        let claim = match send_phase(|| {
+            crate::agent_approval_store::claim_permission_review(
+                &db,
+                candidate,
+                &device.registry,
+                ProductSurface::OssPersonalOwner,
+                &lease_owner,
+                device.readiness_revision,
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
+            )
+        })
         .await
         {
             Ok(claim) => claim,
@@ -320,15 +331,17 @@ pub async fn process_pending_permission_review(
                     return true;
                 }
                 if subject.kind == PendingRequestKind::Goal {
-                    return crate::agent_approval_store::deny_goal_unavailable(
-                        &db,
-                        &subject.conversation_id,
-                        &subject.owner_id,
-                        &subject.device_id,
-                        &subject.request_id,
-                        u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
-                        reason,
-                    )
+                    return send_phase(|| {
+                        crate::agent_approval_store::deny_goal_unavailable(
+                            &db,
+                            &subject.conversation_id,
+                            &subject.owner_id,
+                            &subject.device_id,
+                            &subject.request_id,
+                            u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
+                            reason,
+                        )
+                    })
                     .await
                     .unwrap_or(false);
                 }
@@ -358,21 +371,40 @@ pub async fn process_pending_permission_review(
         let Some(claim) = claim else {
             continue;
         };
-        let response =
-            crate::approval_reviewer::call_claimed_permission_review(&db, candidate, &claim).await;
-        let current_revision =
-            current_device_context(&db, connections.as_ref(), &subject, jiff::Timestamp::now())
-                .await
-                .map_or(0, |device| device.readiness_revision);
-        let (decision, tokens) = match &response {
-            Ok(response) => (
-                response.decision.as_ref(),
-                reviewer_billed_tokens(response.usage),
-            ),
-            Err(_) => (None, None),
-        };
-        if crate::agent_approval_store::settle_permission_review(
-            &db,
+        if !phase(|| review_and_settle(&db, &connections, &subject, candidate, &claim)).await {
+            return false;
+        }
+    }
+    if retry_required {
+        return false;
+    }
+    phase(|| finish_permission_review(db, connections, subject, candidates, unstarted_failures))
+        .await
+}
+
+async fn review_and_settle(
+    db: &DatabaseConnection,
+    connections: &web::Data<SharedConnectionMap>,
+    subject: &PendingPermissionReview,
+    candidate: &ApprovalReviewCandidate,
+    claim: &crate::agent_approval_store::ClaimedPermissionReview,
+) -> bool {
+    let response =
+        crate::approval_reviewer::call_claimed_permission_review(db, candidate, claim).await;
+    let current_revision =
+        current_device_context(db, connections.as_ref(), subject, jiff::Timestamp::now())
+            .await
+            .map_or(0, |device| device.readiness_revision);
+    let (decision, tokens) = match &response {
+        Ok(response) => (
+            response.decision.as_ref(),
+            reviewer_billed_tokens(response.usage),
+        ),
+        Err(_) => (None, None),
+    };
+    send_phase(|| {
+        crate::agent_approval_store::settle_permission_review(
+            db,
             candidate,
             &claim.lease_owner,
             claim.lease_epoch,
@@ -382,28 +414,33 @@ pub async fn process_pending_permission_review(
             u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
             claim.statistics.try_lock().ok().map(|value| value.clone()),
         )
-        .await
-        .is_err()
-        {
-            return false;
-        }
-    }
-    if retry_required {
-        return false;
-    }
+    })
+    .await
+    .is_ok()
+}
+
+async fn finish_permission_review(
+    db: DatabaseConnection,
+    connections: web::Data<SharedConnectionMap>,
+    subject: PendingPermissionReview,
+    candidates: Vec<ApprovalReviewCandidate>,
+    unstarted_failures: Vec<desk_diagnose_core::dynamic_run::SystemPermissionDecisionEvidence>,
+) -> bool {
     if subject.kind == PendingRequestKind::Goal || subject.kind.is_turn_proposal() {
         return true;
     }
     if subject.kind == PendingRequestKind::Directory {
-        return crate::agent_approval_store::deny_directory_unavailable(
-            &db,
-            &subject.conversation_id,
-            &subject.owner_id,
-            &subject.device_id,
-            &subject.request_id,
-            u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
-            false,
-        )
+        return send_phase(|| {
+            crate::agent_approval_store::deny_directory_unavailable(
+                &db,
+                &subject.conversation_id,
+                &subject.owner_id,
+                &subject.device_id,
+                &subject.request_id,
+                u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or(0),
+                false,
+            )
+        })
         .await
         .is_ok();
     }
@@ -414,8 +451,9 @@ pub async fn process_pending_permission_review(
     };
     let now_unix_ms = u64::try_from(now.as_millisecond()).unwrap_or(0);
     let store = SignalAgentSessionStore::new(db.clone());
-    let outcome = store
-        .decide_permission_request_by_ai(
+    let issued_at = desk_utils::datetime::rfc3339(now);
+    let outcome = send_phase(|| {
+        store.decide_permission_request_by_ai(
             PermissionDecisionSubject {
                 conversation_id: &subject.conversation_id,
                 actor_id: &subject.owner_id,
@@ -432,9 +470,10 @@ pub async fn process_pending_permission_review(
                 now_unix_ms,
                 implicit_fresh_object_refs: &device.implicit_fresh_object_refs,
             },
-            &desk_utils::datetime::rfc3339(now),
+            &issued_at,
         )
-        .await;
+    })
+    .await;
     let outcome = match outcome {
         Ok(outcome) => outcome,
         Err(error) => {
@@ -451,7 +490,8 @@ pub async fn process_pending_permission_review(
     if !outcome.newly_recorded {
         return true;
     }
-    resume_permission_decision(db, store, connections, subject, device.connection_id).await
+    phase(|| resume_permission_decision(db, store, connections, subject, device.connection_id))
+        .await
 }
 
 async fn resume_permission_decision(

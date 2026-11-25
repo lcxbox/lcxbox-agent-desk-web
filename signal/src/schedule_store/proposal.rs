@@ -27,18 +27,20 @@ impl ScheduleStore {
         if owner != crate::control_authorizer::SINGLE_ACCOUNT_USER_ID {
             return Err(ScheduleStoreError::NotFound);
         }
-        let (receipt, next) = desk_agent_data_store::schedule::manage_on(
-            &super::SignalScheduleHost,
-            &txn,
-            owner,
-            session,
-            call,
-            action,
-            observation,
-        )
+        let (receipt, next) = desk_diagnose_core::future::send_phase(|| {
+            desk_agent_data_store::schedule::manage_on(
+                &super::SignalScheduleHost,
+                &txn,
+                owner,
+                session,
+                call,
+                action,
+                observation,
+            )
+        })
         .await?;
         txn.commit().await?;
-        *session = next;
+        *session = *next;
         Ok(receipt)
     }
 }

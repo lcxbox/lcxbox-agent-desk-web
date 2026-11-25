@@ -1,7 +1,11 @@
 //! Delegation group rows: decoded only when the stored columns agree with the
 //! group state, with all of a group's child runs read in bounded pages.
 use crate::entity::{agent_delegation_group as group_row, agent_subagent_run as run_row};
-use desk_diagnose_core::subagent::group::{DelegationGroup, SourceAdmission};
+use desk_diagnose_core::subagent::{
+    creation::{CreationEnvelope, TaskCreationEnvelope},
+    group::{DelegationGroup, SourceAdmission},
+    state::SubAgentRun,
+};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
 };
@@ -69,4 +73,60 @@ pub async fn group_children_on<C: ConnectionTrait>(
         children.extend(page);
     }
     Ok(children)
+}
+
+#[inline(never)]
+pub fn decode_creation(row: &group_row::Model) -> Result<CreationEnvelope, DbErr> {
+    creation_for_group(row, &decode_group(row)?)
+}
+
+fn creation_for_group(
+    row: &group_row::Model,
+    group: &DelegationGroup,
+) -> Result<CreationEnvelope, DbErr> {
+    let creation: CreationEnvelope =
+        serde_json::from_str(&row.creation_envelope_json).map_err(|_| invalid())?;
+    creation.validate().map_err(|_| invalid())?;
+    let model: desk_agent_protocol::data_lineage::DestinationIdentity =
+        serde_json::from_str(&row.model_binding_json).map_err(|_| invalid())?;
+    if creation.root_conversation_id != group.root_conversation_id
+        || creation.actor_id != group.actor_id
+        || creation.device_id != group.device_id
+        || creation.source != group.source
+        || creation.parent_input_revision != group.parent_input_revision
+        || creation.parent_control_revision > group.parent_control_revision
+        || creation.group_id().map_err(|_| invalid())? != row.group_id
+        || !desk_diagnose_core::model_egress::same_gateway(&model, &creation.model_destination)
+    {
+        return Err(invalid());
+    }
+    Ok(creation)
+}
+
+/// Recheck the task's group and immutable creation source on the caller's transaction.
+pub async fn child_candidate_creation_on<C: ConnectionTrait>(
+    txn: &C,
+    row: &run_row::Model,
+    run: &SubAgentRun,
+) -> Result<Option<TaskCreationEnvelope>, DbErr> {
+    let group_row = group_row::Entity::find()
+        .filter(group_row::Column::GroupId.eq(&run.binding.group_id))
+        .filter(group_row::Column::RootConversationId.eq(&run.binding.root_conversation_id))
+        .filter(group_row::Column::ActorId.eq(&run.actor_id))
+        .filter(group_row::Column::DeviceId.eq(&run.device_id))
+        .one(txn)
+        .await?
+        .ok_or_else(invalid)?;
+    let group = decode_group(&group_row)?;
+    if group.source_admission != SourceAdmission::Open
+        || group.source_epoch != run.binding.source_epoch
+    {
+        return Ok(None);
+    }
+    let creation: TaskCreationEnvelope =
+        serde_json::from_str(&row.creation_envelope_json).map_err(|_| invalid())?;
+    if creation.source != creation_for_group(&group_row, &group)? {
+        return Err(invalid());
+    }
+    Ok(Some(creation))
 }

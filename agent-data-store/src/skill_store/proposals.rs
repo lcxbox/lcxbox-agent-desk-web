@@ -396,7 +396,7 @@ async fn save_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
         },
     )
     .await?;
-    Ok((receipt_id, next))
+    Ok((receipt_id, *next))
 }
 
 /// Saves a proposal to disable or delete an agent-written personal skill.
@@ -858,7 +858,7 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     else {
         return Ok(());
     };
-    let session = PersistedAgentSession::decode_json(&session_row.state_json)
+    let mut session = PersistedAgentSession::decode_boxed_json(&session_row.state_json)
         .map_err(|_| ScheduleStoreError::Invalid)?;
     if !crate::decision_resume::paused_on(&session, DecisionKind::Skill, &row.proposal_id) {
         return Ok(());
@@ -927,7 +927,7 @@ async fn write_receipt_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     )
     .map_err(|_| ScheduleStoreError::Invalid)?
     .apply(&mut message);
-    crate::decision_resume::record_decision_on(host, txn, &session_row, session, message, now)
+    crate::decision_resume::record_decision_on(host, txn, &session_row, &mut session, message, now)
         .await?;
     Ok(())
 }

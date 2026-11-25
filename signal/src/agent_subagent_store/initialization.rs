@@ -10,28 +10,6 @@ use desk_diagnose_core::{
 };
 use sea_orm::ActiveModelTrait;
 
-#[inline(never)]
-pub(crate) fn decode_creation(row: &group_row::Model) -> Result<CreationEnvelope, DbErr> {
-    let creation: CreationEnvelope =
-        serde_json::from_str(&row.creation_envelope_json).map_err(|_| invalid())?;
-    creation.validate().map_err(|_| invalid())?;
-    let group = decode_group(row)?;
-    let model: desk_agent_protocol::data_lineage::DestinationIdentity =
-        serde_json::from_str(&row.model_binding_json).map_err(|_| invalid())?;
-    if creation.root_conversation_id != group.root_conversation_id
-        || creation.actor_id != group.actor_id
-        || creation.device_id != group.device_id
-        || creation.source != group.source
-        || creation.parent_input_revision != group.parent_input_revision
-        || creation.parent_control_revision > group.parent_control_revision
-        || creation.group_id().map_err(|_| invalid())? != row.group_id
-        || !desk_diagnose_core::model_egress::same_gateway(&model, &creation.model_destination)
-    {
-        return Err(invalid());
-    }
-    Ok(creation)
-}
-
 /// A goal approved after an ordinary input must establish its own source group
 /// before claiming any model work. Later segments reuse the same allocation.
 pub(crate) async fn initialize_goal_group_on(

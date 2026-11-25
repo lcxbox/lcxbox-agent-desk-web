@@ -958,7 +958,7 @@ async fn child_read_binding_is_narrowed_and_parent_completion_keeps_its_original
     assert!(context.object_attachments.is_empty() && context.live_targets.is_empty());
     let source = runtime.source().clone();
     let completion = desk_diagnose_core::subagent::runtime::RuntimeTurn::ParentCompletion {
-        session: parent,
+        session: Box::new(parent),
         source,
     };
     let (parent_revision, original) = completion.read_context_binding().unwrap();
