@@ -150,7 +150,7 @@ bollard = { version = "0.19", default-features = false, features = [
     "pipe",
 ] }
 yuv = "0.8"
-x264 = { git = "https://github.com/lcxl/x264.git", tag = "v0.8.0" }
+x264 = { git = "https://github.com/lcxl/x264.git", tag = "v0.8.1" }
 openh264 = "0.9.3"
 # Direct dependency on the -sys crate (same version family as openh264)
 # for the runtime bitrate-cap path: the safe openh264 wrapper exposes no
@@ -158,7 +158,7 @@ openh264 = "0.9.3"
 # through Encoder::raw_api().
 openh264-sys2 = "0.9.6"
 shiguredo_svt_av1 = "2026.1.0"
-vpx-encode = { git = "https://github.com/lcxl/vpx-encode.git", tag = "v0.8.0", features = [
+vpx-encode = { git = "https://github.com/lcxl/vpx-encode.git", tag = "v0.8.1", features = [
     "vp9",
 ] }
 opusic-c = "1.5"
