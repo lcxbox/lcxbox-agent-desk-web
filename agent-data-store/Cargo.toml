@@ -17,7 +17,7 @@ desk-agent-protocol = { workspace = true }
 desk-utils.workspace = true
 desk-diagnose-core = { workspace = true }
 # Hosts select their SQL driver and runtime; this crate does not select either.
-sea-orm = { version = "2.0.0-rc", default-features = false, features = ["macros", "with-chrono"] }
+sea-orm = { version = "2.0.4", default-features = false, features = ["macros", "with-chrono"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -26,6 +26,6 @@ yaml-rust2 = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]
-sea-orm = { version = "2.0.0-rc", default-features = false, features = ["sqlx-sqlite", "runtime-tokio-rustls", "schema-sync"] }
+sea-orm = { version = "2.0.4", default-features = false, features = ["sqlx-sqlite", "runtime-tokio-rustls", "schema-sync"] }
 tokio = { workspace = true }
 tempfile = { workspace = true }

@@ -246,6 +246,47 @@ fn file_edits_change_only_relevant_revisions_and_format_changes_do_not() {
 }
 
 #[tokio::test]
+async fn immediate_transaction_reserves_the_sqlite_writer_until_rollback() {
+    use sea_orm::{ConnectionTrait, SqliteTransactionMode, TransactionOptions};
+
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("settings.db");
+    let url = format!("sqlite://{}?mode=rwc", file.display());
+    let db = test_support::Database::connect(url.clone()).await.unwrap();
+    let mut options = sea_orm::ConnectOptions::new(url);
+    options.max_connections(1);
+    let other = sea_orm::Database::connect(options).await.unwrap();
+    other
+        .execute_unprepared("PRAGMA busy_timeout = 0")
+        .await
+        .unwrap();
+    other
+        .execute_unprepared("CREATE TABLE probe (id INTEGER)")
+        .await
+        .unwrap();
+
+    let txn = db
+        .begin_with_options(TransactionOptions {
+            sqlite_transaction_mode: Some(SqliteTransactionMode::Immediate),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let insert = "INSERT INTO probe VALUES (1)";
+    let error = other.execute_unprepared(insert).await.unwrap_err();
+    assert!(error.to_string().contains("database is locked"), "{error}");
+    txn.rollback().await.unwrap();
+    assert_eq!(
+        other
+            .execute_unprepared(insert)
+            .await
+            .unwrap()
+            .rows_affected(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn transaction_reuses_its_snapshot_when_a_configuration_writer_is_waiting() {
     let db = test_support::Database::connect("sqlite::memory:")
         .await

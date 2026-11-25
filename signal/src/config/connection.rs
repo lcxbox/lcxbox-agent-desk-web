@@ -4,7 +4,7 @@ use super::{ConfigConnection, ConfigContext, ConfigRead};
 use async_trait::async_trait;
 use sea_orm::{
     AccessMode, ConnectionTrait, DbBackend, DbErr, ExecResult, IsolationLevel, QueryResult,
-    Statement, TransactionError, TransactionSession, TransactionTrait,
+    Statement, TransactionError, TransactionOptions, TransactionSession, TransactionTrait,
 };
 use std::{
     future::Future,
@@ -225,15 +225,26 @@ macro_rules! transactions {
         impl TransactionTrait for $kind {
             type Transaction = DatabaseTransaction;
             async fn begin(&self) -> Result<Self::Transaction, DbErr> {
-                self.begin_with_config(None, None).await
+                self.begin_with_options(TransactionOptions::default()).await
             }
             async fn begin_with_config(
                 &self,
                 isolation: Option<IsolationLevel>,
                 access: Option<AccessMode>,
             ) -> Result<Self::Transaction, DbErr> {
+                self.begin_with_options(TransactionOptions {
+                    isolation_level: isolation,
+                    access_mode: access,
+                    ..Default::default()
+                })
+                .await
+            }
+            async fn begin_with_options(
+                &self,
+                options: TransactionOptions,
+            ) -> Result<Self::Transaction, DbErr> {
                 let snapshot = ($snapshot)(self).await;
-                let inner = self.inner.begin_with_config(isolation, access).await?;
+                let inner = self.inner.begin_with_options(options).await?;
                 Ok(DatabaseTransaction {
                     inner,
                     configuration: self.configuration.clone(),

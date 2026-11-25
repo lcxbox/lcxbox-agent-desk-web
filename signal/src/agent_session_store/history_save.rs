@@ -100,7 +100,7 @@ pub(crate) async fn persist_on<C: ConnectionTrait>(
             .one(db)
             .await?
         else {
-            return Ok(sea_orm::UpdateResult { rows_affected: 0 });
+            return Ok(sea_orm::UpdateResult::default());
         };
         let persisted = Box::new(
             PersistedAgentSession::decode_json(&row.state_json)

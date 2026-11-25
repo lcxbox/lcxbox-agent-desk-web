@@ -13,6 +13,11 @@ all-features = true
 version = 2
 yanked = "deny"
 ignore = [
+    # Temporary exceptions for Actix runtime dependencies. Remove each entry
+    # when the locked dependency graph no longer includes the affected versions.
+    { id = "RUSTSEC-2026-0258", reason = "actix-http and awc require h2 0.3. The HTTP/2 fix is available in h2 0.4.16." },
+    { id = "RUSTSEC-2026-0594", reason = "actix-web and awc use cookie 0.16. The private cookie fix is available in cookie 0.18.3." },
+
     # Tauri's Linux WebView backend (webkit2gtk) pulls the unmaintained gtk-rs
     # GTK3 bindings. No fix until upstream moves off GTK3; only affects the
     # Linux desktop build.
