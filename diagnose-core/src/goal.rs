@@ -9,6 +9,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const GOAL_POLICY_CHANGED: &str = "goal_policy_changed";
 
+mod claim_failure;
+pub use claim_failure::{GOAL_CONTINUATION_FAILED, GoalStartFailure};
+
 pub fn cancelled_goal_input_error() -> desk_agent_protocol::AgentError {
     desk_agent_protocol::AgentError {
         kind: desk_agent_protocol::AgentErrorKind::SessionUnavailable,
@@ -1810,6 +1813,7 @@ impl GoalRun {
         self.lease_epoch = lease_epoch;
         self.reserved.slices = reserved_slices;
         self.device_unavailable_since_unix_ms = None;
+        self.next_attempt_unix_ms = None;
         self.state = GoalState::Running;
         self.state_version = state_version;
         self.status_reason = None;
@@ -3092,7 +3096,7 @@ mod tests {
         assert_eq!(event.request.state, GoalOpenRequestState::Denied);
     }
 
-    fn goal() -> GoalRun {
+    pub(super) fn goal() -> GoalRun {
         let mut goal = GoalRun::new(
             "goal".into(),
             "run".into(),

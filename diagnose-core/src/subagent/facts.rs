@@ -134,6 +134,18 @@ impl RuntimeFacts {
         succeeded: bool,
         verification_complete: bool,
     ) -> Result<(), &'static str> {
+        self.accept(receipt, required, succeeded, verification_complete)?;
+        self.result_envelopes.push(receipt.envelope.clone());
+        Ok(())
+    }
+
+    fn accept(
+        &mut self,
+        receipt: &ActionResultReceipt,
+        required: bool,
+        succeeded: bool,
+        verification_complete: bool,
+    ) -> Result<(), &'static str> {
         receipt
             .envelope
             .validate()
@@ -150,7 +162,6 @@ impl RuntimeFacts {
                 verification_complete,
             });
         }
-        self.result_envelopes.push(receipt.envelope.clone());
         self.completion.validate()
     }
 
@@ -168,6 +179,23 @@ impl RuntimeFacts {
             return Err("invalid original receipt call identity");
         }
         self.receipt(receipt, required, succeeded, verification_complete)?;
+        self.native_result_call_ids.insert(call_id.into());
+        Ok(())
+    }
+
+    /// A verified receipt for an action the host rejected before it reached a
+    /// worker. The original call was closed by a session status message, not
+    /// by this receipt's result, so the receipt is accepted and its call
+    /// registered while its envelope is not offered as a projection source.
+    pub fn unstarted_receipt_for_call(
+        &mut self,
+        call_id: &str,
+        receipt: &ActionResultReceipt,
+    ) -> Result<(), &'static str> {
+        if !valid_id(call_id) {
+            return Err("invalid original receipt call identity");
+        }
+        self.accept(receipt, false, false, false)?;
         self.native_result_call_ids.insert(call_id.into());
         Ok(())
     }

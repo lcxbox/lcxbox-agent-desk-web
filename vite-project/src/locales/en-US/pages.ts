@@ -2311,6 +2311,7 @@ export default {
   'pages.aiAgent.goalReasons.budget_exhausted': 'The goal budget is exhausted. Increase it to continue.',
   'pages.aiAgent.goalReasons.model_temporarily_unavailable': 'The model is temporarily unavailable. Retrying later.',
   'pages.aiAgent.goalReasons.model_request_rejected': 'The model rejected this request. Check the model configuration and context.',
+  'pages.aiAgent.goalReasons.continuation_failed': 'The next segment could not start. Retry the goal or cancel it.',
   'pages.aiAgent.goalReasons.device_unavailable': 'The device is temporarily unavailable. Retrying later.',
   'pages.aiAgent.goalReasons.owner': 'You paused this goal.',
   'pages.aiAgent.goalReasons.stalled': 'Several segments made no new progress. Decide whether to retry.',

@@ -126,25 +126,32 @@ pub(crate) async fn runtime_facts_on(
                         task.disposition_json.as_deref().ok_or_else(|| invalid())?,
                     )
                     .map_err(|_| invalid())?;
-                let (success, required) = match disposition {
+                match disposition {
                     desk_agent_protocol::edge_exec::EdgeExecDisposition::Executed { outcome } => {
                         let required = !matches!(&outcome, desk_agent_protocol::AgentOutcome::Ok(desk_agent_protocol::OperationOutput::Exec(output)) if !output.started);
-                        (command_succeeded(&outcome), required)
+                        let success = command_succeeded(&outcome);
+                        facts
+                            .receipt_for_call(
+                                &origin.tool_call_id,
+                                &receipt,
+                                row.is_side_effecting && required,
+                                success,
+                                success,
+                            )
+                            .map_err(|_| invalid())?;
                     }
+                    // The confirming turn consumed this event and closed the
+                    // call with an execution status message; the receipt's
+                    // result never entered the child history.
                     desk_agent_protocol::edge_exec::EdgeExecDisposition::RejectedBeforeDispatch { .. }
                     | desk_agent_protocol::edge_exec::EdgeExecDisposition::DispatchFailedBeforeWorker { .. }
-                    | desk_agent_protocol::edge_exec::EdgeExecDisposition::HostAtCapacity { .. } => (false, false),
+                    | desk_agent_protocol::edge_exec::EdgeExecDisposition::HostAtCapacity { .. } => {
+                        facts
+                            .unstarted_receipt_for_call(&origin.tool_call_id, &receipt)
+                            .map_err(|_| invalid())?;
+                    }
                     desk_agent_protocol::edge_exec::EdgeExecDisposition::ExecutionStateUnknown { .. } => { return Err(invalid()); }
-                };
-                facts
-                    .receipt_for_call(
-                        &origin.tool_call_id,
-                        &receipt,
-                        row.is_side_effecting && required,
-                        success,
-                        success,
-                    )
-                    .map_err(|_| invalid())?;
+                }
             } else if row.manual_resolved_at.is_some() {
                 facts.incomplete(id).map_err(|_| invalid())?;
             } else if matches!(

@@ -2,6 +2,7 @@
 #[cfg(test)]
 use desk_agent_data_store::entity_table::EntityTableExt;
 mod completion;
+mod rejected;
 mod sandbox;
 mod snapshot;
 use super::*;
@@ -85,6 +86,38 @@ async fn approved_child_with_source_on(
     ToolCall,
     CapabilityGrant,
 ) {
+    Box::pin(approved_child_decided_on(
+        db,
+        proposed,
+        destination,
+        sensitivity,
+        true,
+        None,
+    ))
+    .await
+}
+
+/// The owner approves the child's command. With `claim_resume` the permission
+/// resume turn is also claimed; otherwise it stays pending for the caller.
+/// `proposal_model` labels the proposal as the output of the model that
+/// issued it, so the history can be sent to that model again.
+async fn approved_child_decided_on(
+    db: DatabaseConnection,
+    proposed: Option<ToolCall>,
+    destination: desk_agent_protocol::data_lineage::DestinationIdentity,
+    sensitivity: desk_agent_protocol::data_lineage::Sensitivity,
+    claim_resume: bool,
+    proposal_model: Option<(
+        &desk_diagnose_core::model_egress::ModelEgressPolicy,
+        desk_diagnose_core::replay::SourceContextKey,
+    )>,
+) -> (
+    DatabaseConnection,
+    SubAgentRun,
+    PersistedAgentSession,
+    ToolCall,
+    CapabilityGrant,
+) {
     super::input_sources::add_input_tables(&db).await;
     let schema = Schema::new(db.get_database_backend());
     for mut table in [
@@ -151,38 +184,27 @@ async fn approved_child_with_source_on(
         false,
     )
     .unwrap();
+    if let Some((policy, source_context_key)) = proposal_model {
+        let turn = desk_diagnose_core::chat::ModelTurn {
+            text: proposal.text.clone(),
+            tool_calls: vec![with_target_ref(&call, &child.device_id)],
+            stop_reason: desk_diagnose_core::chat::StopReason::ToolUse,
+            usage: Default::default(),
+            provider_meta: Default::default(),
+        };
+        let inputs = [child
+            .conversation
+            .last()
+            .unwrap()
+            .data_envelope
+            .clone()
+            .unwrap()];
+        proposal.data_envelope = Some(policy.derive_model_output_envelope(&turn, &inputs).unwrap());
+        proposal.replay_disposition =
+            Some(desk_diagnose_core::replay::ReplayDisposition::NotRequired { source_context_key });
+    }
     child.conversation.push(proposal);
-    let policy = CommandPolicyContext {
-        actor_id: child.actor_id.clone(),
-        target_device_id: child.device_id.clone(),
-        target_session_id: "host:session-1".into(),
-        policy_revision: child.policy_revision,
-        admission_policy: ExecAdmissionPolicy::OwnerInteractive,
-        execution_mode: ExecutionMode::ConfirmEachAction,
-        max_risk: RiskLevel::Critical,
-        available_shells: vec!["bash".into()],
-        max_runtime_ms: 60000,
-        operator_templates: vec![],
-        effective_blocklist: desk_agent_protocol::exec_policy::builtin_blocklist().to_vec(),
-        // What the OSS host policy reports for this fixture's device.
-        policy_version: "oss-owner:1".into(),
-        exec_pty: false,
-        exec_pty_elevation: false,
-        directory_grants: desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
-            &child,
-            &child.device_id,
-            jiff::Timestamp::now().as_millisecond() as u64,
-        ),
-        exec_sandbox: desk_diagnose_core::command_confirmation::DeviceExecSandbox::for_test(
-            desk_agent_protocol::exec::ExecSandboxSupport::Supported,
-            desk_agent_protocol::exec::ExecIdentity {
-                elevated: false,
-                system: false,
-                root: false,
-            },
-            "linux",
-        ),
-    };
+    let policy = child_command_policy(&child);
     let registry = desk_diagnose_core::ai_agent::ai_agent_provider_registry()
         .with_command_policy(policy.clone());
     let capability = registry.capability_for_tool(&call.name).unwrap();
@@ -285,7 +307,9 @@ async fn approved_child_with_source_on(
         )
         .await
         .unwrap();
-    super::paused_permission::assert_claim(&db, &child.conversation_id, true).await;
+    if claim_resume {
+        super::paused_permission::assert_claim(&db, &child.conversation_id, true).await;
+    }
     let child = super::paused_permission::session(&db, &child.conversation_id).await;
     CommandConfirmation::approved_request_for_call(&child, &child.device_id, &call.arguments_json)
         .unwrap();
@@ -305,6 +329,41 @@ async fn approved_child_with_source_on(
 }
 
 use sha2::Digest;
+
+/// The OSS owner policy the fixture device reports for confirmed commands.
+fn child_command_policy(child: &PersistedAgentSession) -> CommandPolicyContext {
+    CommandPolicyContext {
+        actor_id: child.actor_id.clone(),
+        target_device_id: child.device_id.clone(),
+        target_session_id: "host:session-1".into(),
+        policy_revision: child.policy_revision,
+        admission_policy: ExecAdmissionPolicy::OwnerInteractive,
+        execution_mode: ExecutionMode::ConfirmEachAction,
+        max_risk: RiskLevel::Critical,
+        available_shells: vec!["bash".into()],
+        max_runtime_ms: 60000,
+        operator_templates: vec![],
+        effective_blocklist: desk_agent_protocol::exec_policy::builtin_blocklist().to_vec(),
+        // What the OSS host policy reports for this fixture's device.
+        policy_version: "oss-owner:1".into(),
+        exec_pty: false,
+        exec_pty_elevation: false,
+        directory_grants: desk_diagnose_core::file_scope::TrustedDirectoryGrants::from_session(
+            child,
+            &child.device_id,
+            jiff::Timestamp::now().as_millisecond() as u64,
+        ),
+        exec_sandbox: desk_diagnose_core::command_confirmation::DeviceExecSandbox::for_test(
+            desk_agent_protocol::exec::ExecSandboxSupport::Supported,
+            desk_agent_protocol::exec::ExecIdentity {
+                elevated: false,
+                system: false,
+                root: false,
+            },
+            "linux",
+        ),
+    }
+}
 
 fn prepared<'a>(
     child: &'a PersistedAgentSession,

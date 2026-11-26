@@ -2,6 +2,8 @@
 use crate::config::connection::DatabaseConnection;
 mod continuation;
 mod fresh;
+#[cfg(test)]
+mod goal_start_tests;
 mod subagents;
 use crate::owned_task;
 use crate::{
@@ -66,6 +68,8 @@ pub struct SignalScheduleExecutor {
     goal_cursor: Arc<std::sync::Mutex<Option<crate::agent_goal_store::ContinuationCursor>>>,
     /// Paces subagent candidates that keep failing; a hint, not an authorization.
     subagent_backoff: Arc<desk_diagnose_core::retry_backoff::RetryBackoff>,
+    /// Paces goals whose failed start could not be recorded in the database.
+    goal_backoff: Arc<desk_diagnose_core::retry_backoff::RetryBackoff>,
 }
 
 impl SignalScheduleExecutor {
@@ -81,6 +85,7 @@ impl SignalScheduleExecutor {
             approval_cursor: Arc::new(AtomicI64::new(0)),
             goal_cursor: Arc::new(std::sync::Mutex::new(None)),
             subagent_backoff: Arc::default(),
+            goal_backoff: Arc::default(),
         }
     }
 
@@ -222,6 +227,12 @@ impl SignalScheduleExecutor {
     async fn process_goal(&self, goal: desk_diagnose_core::goal::GoalRun) -> bool {
         use desk_diagnose_core::goal::{GoalState, GoalWaitReason};
 
+        if !self
+            .goal_backoff
+            .is_ready(&goal.goal_id, std::time::Instant::now())
+        {
+            return false;
+        }
         if !matches!(
             goal.state,
             GoalState::Queued
@@ -299,11 +310,74 @@ impl SignalScheduleExecutor {
             Ok(Some(_)) => return false,
             Ok(None) => {}
             Err(error) => {
-                log::warn!("[goal-executor] goal context preflight failed: {error}");
+                // The preflight decodes the stored session; any failure here is
+                // a storage fault, not a property of the goal's input.
+                self.settle_start_failure(
+                    &goal,
+                    desk_diagnose_core::goal::GoalStartFailure::Transient,
+                    &error.to_string(),
+                )
+                .await;
                 return false;
             }
         }
         phase(|| self.dispatch_goal(goal)).await
+    }
+
+    /// Record why a queued goal could not start, conditioned on the goal the
+    /// attempt observed. A changed goal makes every write a no-op. When the
+    /// database cannot record the outcome, this node alone paces the goal.
+    async fn settle_start_failure(
+        &self,
+        goal: &desk_diagnose_core::goal::GoalRun,
+        failure: desk_diagnose_core::goal::GoalStartFailure,
+        reason: &str,
+    ) {
+        use desk_diagnose_core::goal::GoalStartFailure;
+        let now = desk_agent_data_store::datetime::utc_now();
+        let transition = match failure {
+            GoalStartFailure::ModelWait => {
+                crate::agent_goal_store::wait_for_model(&self.db, goal, None, now).await
+            }
+            GoalStartFailure::ModelBlocked => {
+                crate::agent_goal_store::block_model_before_claim(&self.db, goal, now).await
+            }
+            GoalStartFailure::Deterministic => {
+                crate::agent_goal_store::pause_for_start_failure(&self.db, goal, now).await
+            }
+            GoalStartFailure::Transient => Ok(None),
+            GoalStartFailure::Stale => return,
+        };
+        // A transition the session or a storage fault did not admit still
+        // must not leave the goal runnable on the next scan.
+        let written = match transition {
+            Ok(Some(next)) => Ok(Some(next)),
+            Ok(None) | Err(_) => crate::agent_goal_store::defer_start(&self.db, goal, now).await,
+        };
+        match written {
+            Ok(Some(next)) => {
+                self.goal_backoff.record_success(&goal.goal_id);
+                log::warn!(
+                    "[goal-executor] goal {} could not start ({failure:?}); now {}{}: {reason}",
+                    goal.goal_id,
+                    next.status_code(),
+                    next.next_attempt_unix_ms
+                        .map(|at| format!(" until {at}"))
+                        .unwrap_or_default(),
+                );
+            }
+            // Another node or the owner already changed this goal.
+            Ok(None) => {}
+            Err(error) => {
+                let delay = self
+                    .goal_backoff
+                    .record_failure(&goal.goal_id, std::time::Instant::now());
+                log::warn!(
+                    "[goal-executor] goal {} start failure could not be recorded; retrying in {delay:?}: {error}",
+                    goal.goal_id
+                );
+            }
+        }
     }
 
     async fn dispatch_goal(&self, goal: desk_diagnose_core::goal::GoalRun) -> bool {
@@ -325,28 +399,12 @@ impl SignalScheduleExecutor {
             }
             Ok(Ok(_)) => true,
             Ok(Err(error)) => {
-                log::warn!(
-                    "[goal-executor] queued goal could not continue: {}",
-                    error.message
-                );
-                if error.retryable
-                    && error.kind == desk_agent_protocol::AgentErrorKind::ModelUnavailable
-                {
-                    let _ = crate::agent_goal_store::wait_for_model(
-                        &self.db,
-                        &observed_goal,
-                        None,
-                        desk_agent_data_store::datetime::utc_now(),
-                    )
-                    .await;
-                } else if error.kind == desk_agent_protocol::AgentErrorKind::ModelRejected {
-                    let _ = crate::agent_goal_store::block_model_before_claim(
-                        &self.db,
-                        &observed_goal,
-                        desk_agent_data_store::datetime::utc_now(),
-                    )
-                    .await;
-                }
+                self.settle_start_failure(
+                    &observed_goal,
+                    desk_diagnose_core::goal::GoalStartFailure::classify(&error),
+                    &error.message,
+                )
+                .await;
                 false
             }
             Err(_) => false,

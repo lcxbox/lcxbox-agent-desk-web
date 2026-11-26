@@ -8,6 +8,7 @@ mod creation;
 mod funding;
 mod goal_approval;
 mod goal_role_guard;
+mod goal_start;
 mod input_sources;
 mod issue_replies;
 mod lifecycle;

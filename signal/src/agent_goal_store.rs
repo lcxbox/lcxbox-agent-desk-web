@@ -1275,6 +1275,56 @@ pub async fn pause_if_unresolved_work(
     scheduler_transition(db, expected, SchedulerTransition::RecoveryPause, now).await
 }
 
+/// Pause a queued goal whose next segment cannot start for its current input.
+/// Child requests of the goal stop being admitted in the same transaction.
+pub async fn pause_for_start_failure(
+    db: &DatabaseConnection,
+    expected: &GoalRun,
+    now: sea_orm::prelude::DateTimeUtc,
+) -> Result<Option<GoalRun>, DbErr> {
+    scheduler_transition(db, expected, SchedulerTransition::StartFailurePause, now).await
+}
+
+/// Defer the next start of the exact queued goal a failed start observed.
+/// Only the goal row is read and written; a changed goal makes this a no-op.
+pub async fn defer_start(
+    db: &DatabaseConnection,
+    expected: &GoalRun,
+    now: sea_orm::prelude::DateTimeUtc,
+) -> Result<Option<GoalRun>, DbErr> {
+    let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?;
+    let txn = crate::db::begin_write(db, goal_row::Entity).await?;
+    let Some(row) = goal_row::Entity::find()
+        .filter(goal_row::Column::GoalId.eq(&expected.goal_id))
+        .one(&txn)
+        .await?
+    else {
+        return Ok(None);
+    };
+    let mut goal = decode(&row)?;
+    if !goal.is_observed_queued(expected, now_ms) {
+        return Ok(None);
+    }
+    goal.defer_start(now_ms).map_err(|_| invalid())?;
+    let changed = goal_row::Entity::update_many()
+        .set(goal_row::ActiveModel {
+            state_json: Set(serde_json::to_string(&goal).map_err(|_| invalid())?),
+            next_attempt_at: Set(goal.next_attempt_unix_ms.map(as_i64).transpose()?),
+            updated_at: Set(as_i64(goal.updated_at_unix_ms)?),
+            ..Default::default()
+        })
+        .filter(goal_row::Column::Id.eq(row.id))
+        .filter(goal_row::Column::StateVersion.eq(row.state_version))
+        .filter(goal_row::Column::UpdatedAt.eq(row.updated_at))
+        .exec(&txn)
+        .await?;
+    if changed.rows_affected != 1 {
+        return Ok(None);
+    }
+    txn.commit().await?;
+    Ok(Some(goal))
+}
+
 pub async fn pause_if_goal_context_invalid(
     db: &DatabaseConnection,
     expected: &GoalRun,
@@ -1323,6 +1373,7 @@ enum SchedulerTransition {
     WorkWake,
     RecoveryPause,
     ContextCheck,
+    StartFailurePause,
 }
 
 async fn scheduler_transition(
@@ -1438,10 +1489,14 @@ async fn scheduler_transition(
         (GoalState::Waiting(GoalWaitReason::Device), SchedulerTransition::Device(true)) => {
             goal.wake_from(GoalWaitReason::Device, now_ms)
         }
-        (GoalState::Queued, SchedulerTransition::ModelWait(retry_after)) => {
+        (GoalState::Queued, SchedulerTransition::ModelWait(retry_after))
+            if goal.is_observed_queued(expected, now_ms) =>
+        {
             goal.wait_for_model(now_ms, retry_after)
         }
-        (GoalState::Queued, SchedulerTransition::ModelBlock) => {
+        (GoalState::Queued, SchedulerTransition::ModelBlock)
+            if goal.is_observed_queued(expected, now_ms) =>
+        {
             goal.block_model_before_claim(now_ms)
         }
         (GoalState::Waiting(GoalWaitReason::Model), SchedulerTransition::ModelWake)
@@ -1497,6 +1552,11 @@ async fn scheduler_transition(
                     goal.status_reason = Some("attachment_missing".into());
                     goal.validate()
                 })
+        }
+        (GoalState::Queued, SchedulerTransition::StartFailurePause)
+            if goal.is_observed_queued(expected, now_ms) =>
+        {
+            goal.pause_for_start_failure(now_ms)
         }
         (GoalState::Queued, SchedulerTransition::ContextCheck)
             if desk_diagnose_core::agent_policy::require_current_policy(
@@ -1571,10 +1631,31 @@ async fn scheduler_transition(
         Ok::<(), DbErr>(())
     })
     .await?;
+    // A paused source admits no child request until its owner resumes it.
+    let permission_ends = if matches!(transition, SchedulerTransition::StartFailurePause) {
+        desk_diagnose_core::future::boxed(|| {
+            crate::agent_subagent_store::apply_goal_source_on(
+                &txn,
+                &goal.conversation_id,
+                &goal.owner_id,
+                &goal.device_id,
+                &goal.goal_id,
+                goal.state,
+                now.timestamp_millis(),
+            )
+        })
+        .await?
+    } else {
+        Default::default()
+    };
     if let Some(history) = &history {
         desk_diagnose_core::future::boxed(|| history.capture_on(&txn)).await?;
     }
     txn.commit().await?;
+    permission_ends.submit(
+        now.timestamp_millis(),
+        crate::model_metrics::runtime::submit,
+    );
     Ok(Some(goal))
 }
 

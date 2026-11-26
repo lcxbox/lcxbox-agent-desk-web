@@ -2308,6 +2308,7 @@ export default {
   'pages.aiAgent.goalReasons.budget_exhausted': '目标预算已用完，可增加预算后继续。',
   'pages.aiAgent.goalReasons.model_temporarily_unavailable': '模型暂时不可用，稍后自动重试。',
   'pages.aiAgent.goalReasons.model_request_rejected': '模型拒绝了当前请求，请检查模型配置和上下文。',
+  'pages.aiAgent.goalReasons.continuation_failed': '下一段无法启动。请重试或取消该目标。',
   'pages.aiAgent.goalReasons.device_unavailable': '设备暂时不可用，稍后自动重试。',
   'pages.aiAgent.goalReasons.owner': '您已暂停目标。',
   'pages.aiAgent.goalReasons.stalled': '连续多个片段没有新进展，需要您决定是否重试。',

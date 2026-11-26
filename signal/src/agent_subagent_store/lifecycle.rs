@@ -642,7 +642,15 @@ impl SubAgentStore {
             u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?,
             group.limits.max_context_bytes,
         )
-        .map_err(|_| invalid())?;
+        .map_err(|error| {
+            log::warn!(
+                "[ai-agent] delegated runtime projection unavailable: conversation={}, kind={:?}, message={}",
+                held.conversation_id,
+                error.kind,
+                error.message
+            );
+            invalid()
+        })?;
         txn.commit().await?;
         Ok(projection)
     }
