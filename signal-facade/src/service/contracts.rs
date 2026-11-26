@@ -39,7 +39,6 @@ pub fn signaling_role(t: SignalingType) -> SignalingRole {
         | SignalingType::StartTerminal
         | SignalingType::ListTerminalCommands
         | SignalingType::InvokeAgentCapability
-        | SignalingType::CollectEvidence
         | SignalingType::PreviewExecution
         | SignalingType::ResolveExecution
         | SignalingType::ExecuteEdgePlan
@@ -79,7 +78,6 @@ pub fn signaling_role(t: SignalingType) -> SignalingRole {
         | SignalingType::TerminalStarted
         | SignalingType::TerminalCommandsListed
         | SignalingType::AgentCapabilityCompleted
-        | SignalingType::EvidenceCollectionUpdated
         | SignalingType::ExecutionPreviewGenerated
         | SignalingType::ExecutionCompleted
         | SignalingType::EdgeExecutionCompleted
@@ -158,7 +156,6 @@ pub fn response_type_for_request(t: SignalingType) -> Option<SignalingType> {
         SignalingType::StartTerminal => SignalingType::TerminalStarted,
         SignalingType::ListTerminalCommands => SignalingType::TerminalCommandsListed,
         SignalingType::InvokeAgentCapability => SignalingType::AgentCapabilityCompleted,
-        SignalingType::CollectEvidence => SignalingType::EvidenceCollectionUpdated,
         SignalingType::PreviewExecution => SignalingType::ExecutionPreviewGenerated,
         SignalingType::ResolveExecution => SignalingType::ExecutionCompleted,
         SignalingType::ExecuteEdgePlan => SignalingType::EdgeExecutionCompleted,
@@ -207,7 +204,6 @@ pub fn response_types_for_request(t: SignalingType) -> &'static [SignalingType] 
         StartTerminal => &[TerminalStarted],
         ListTerminalCommands => &[TerminalCommandsListed],
         InvokeAgentCapability => &[AgentCapabilityCompleted],
-        CollectEvidence => &[EvidenceCollectionUpdated],
         PreviewExecution => &[ExecutionPreviewGenerated],
         ResolveExecution => &[ExecutionCompleted],
         ExecuteEdgePlan => &[EdgeExecutionCompleted],
@@ -367,10 +363,10 @@ pub enum ControlFrameOutcome {
 
 /// Authorizes (and optionally wraps) the control-end AI frames
 /// (`AgentRequest` / `Diagnose` / `ConfirmExec`) during relay. The manager
-/// implements this as the fleet policy decision point: it resolves the actor
+/// implements this as the central policy decision point: it resolves the actor
 /// (the sending `actor` connection) and the target host (looked up in
 /// `connection_map`), evaluates the policy matrix, and wraps the frame in an
-/// `AuthorizedControlPayload`. The signal server leaves this unset (no fleet
+/// `AuthorizedControlPayload`. The signal server leaves this unset (no central
 /// PDP), so frames relay unwrapped.
 pub trait ControlFrameAuthorizer: Send + Sync {
     fn authorize<'a>(
@@ -495,24 +491,15 @@ pub trait AuditObserver: Send + Sync {
 
 // ====== EdgeExecObserver trait ======
 
-/// Consumes enterprise fleet evidence responses from a desk-server daemon.
-pub trait CollectObserver: Send + Sync {
-    fn on_collect_response<'a>(
-        &'a self,
-        source: &'a ConnectionState,
-        model: &'a SignalingModel,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
-}
-
 /// Consumes inbound `EdgeExecResult` frames (a structured
-/// `EdgeExecDisposition` for one central-agent or fleet execution attempt) from
+/// `EdgeExecDisposition` for one central-agent execution attempt) from
 /// a desk-server daemon. Manager and OSS Signal route the result into their
 /// respective durable task stores, keyed by the per-attempt `request_id` and
 /// validated against the connection that received the matching
 /// `EdgeExecRequest`. `source` is the reporting connection (a
 /// token-authenticated desk server).
 pub trait EdgeExecObserver: Send + Sync {
-    fn on_fleet_exec_result<'a>(
+    fn on_edge_exec_result<'a>(
         &'a self,
         source: &'a ConnectionState,
         model: &'a SignalingModel,
@@ -666,7 +653,6 @@ pub(crate) fn remote_access_frame_requires_unlocked(t: SignalingType) -> bool {
             | SignalingType::FileDeleted
             | SignalingType::TerminalCommandsListed
             | SignalingType::ReportAiAuditEvent
-            | SignalingType::EvidenceCollectionUpdated
             | SignalingType::EdgeExecutionCompleted
             | SignalingType::ExecutionStateReported
             | SignalingType::RemoteToolOutputUpdated

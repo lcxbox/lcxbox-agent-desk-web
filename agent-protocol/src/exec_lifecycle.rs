@@ -6,9 +6,9 @@
 //! says when it accepted an execution, that it is still running, and — on demand
 //! — what it currently believes about any generation it was ever told about.
 //!
-//! The types are defined once and carried by all three envelopes (the agentic
-//! edge, the fleet edge, and the relayed control-end channel) so the three cannot
-//! drift into three dialects of the same conversation.
+//! The types are defined once and carried by both envelopes (the agentic edge
+//! and the relayed control-end channel) so the two cannot drift into two
+//! dialects of the same conversation.
 //!
 //! # No sequence numbers
 //!

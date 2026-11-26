@@ -1,20 +1,11 @@
-//! Central wrapper and fleet-exec authorization gates.
+//! Central wrapper and edge-exec authorization gates.
 
 use super::*;
 
-/// True for the central plumbing frames that drive an evidence
-/// collection or a remote read-tool call. Unlike the AI control frames these may
-/// arrive either bare or wrapped, so they get the optional-wrapper gate rather
-/// than [`gate_authz_frame`]'s require-wrapper rule.
-pub(super) fn is_central_plumbing_frame(t: SignalingType) -> bool {
-    matches!(
-        t,
-        SignalingType::CollectEvidence | SignalingType::InvokeRemoteTool
-    )
-}
-
-/// Optional-wrapper gate for central plumbing (`CollectRequest` /
-/// `RemoteToolRequest`). These frames may arrive either:
+/// Optional-wrapper gate for the central remote read-tool call
+/// (`RemoteToolRequest`). Unlike the AI control frames it may arrive either bare
+/// or wrapped, so it gets this gate rather than [`gate_authz_frame`]'s
+/// require-wrapper rule. The frame may arrive either:
 ///
 /// - **bare** — the enterprise manager emits the raw payload; the configured
 ///   link's authentication is the trust anchor, so a bare frame passes through
@@ -25,7 +16,7 @@ pub(super) fn is_central_plumbing_frame(t: SignalingType) -> bool {
 ///   defense-in-depth), then unwrapped to its inner payload for the router.
 ///
 /// A wrapper that fails validation is dropped (no denied-result protocol exists
-/// for these read-only frames; the central reaper times the pending entry out).
+/// for this read-only frame; the central reaper times the pending entry out).
 pub(super) fn gate_optional_central_wrapper(
     model: SignalingModel,
     expected_audience: &str,
@@ -71,7 +62,7 @@ pub(super) fn gate_optional_central_wrapper(
 
 /// Outcome of the dedicated `EdgeExecRequest` authorization gate. Unlike the
 /// generic [`gate_authz_frame`] (which drops a frame whose wrapper fails to
-/// validate), a fleet request that fails
+/// validate), an edge-exec request that fails
 /// validation is answered with a synthesized denied result so the central
 /// pending entry resolves rather than hanging. Only a frame that cannot be
 /// correlated at all (no `request_id`) is dropped outright.
@@ -80,8 +71,8 @@ pub(super) fn gate_optional_central_wrapper(
     clippy::large_enum_variant,
     reason = "moved once per message; boxing variants would change matches on every platform"
 )]
-pub(super) enum FleetExecGateOutcome {
-    /// Validated: the unwrapped frame (data = inner `ExecPlan`) plus the
+pub(super) enum EdgeExecGateOutcome {
+    /// Validated: the unwrapped frame (data = inner `EdgeExecRequestPayload`) plus the
     /// validated authorization block to thread into the router handler.
     Pass(SignalingModel, AuthorizationBlock),
     /// Trusted source but the request is unauthorized / malformed; answer the
@@ -92,16 +83,16 @@ pub(super) enum FleetExecGateOutcome {
 }
 
 /// Dedicated authorization gate for `EdgeExecRequest` (central → daemon). Validates the
-/// `AuthorizedControlPayload<ExecPlan>` wrapper; on success unwraps the inner
-/// plan and returns the validated authorization block.
-pub(super) fn gate_fleet_exec_frame(
+/// `AuthorizedControlPayload<EdgeExecRequestPayload>` wrapper; on success unwraps
+/// the inner payload and returns the validated authorization block.
+pub(super) fn gate_edge_exec_frame(
     model: SignalingModel,
     expected_audience: &str,
     now_rfc3339: &str,
-) -> FleetExecGateOutcome {
+) -> EdgeExecGateOutcome {
     let request_id = model.request_id.clone();
     if request_id.is_empty() {
-        return FleetExecGateOutcome::Drop(
+        return EdgeExecGateOutcome::Drop(
             "EdgeExecRequest without request_id (cannot correlate a result)".to_string(),
         );
     }
@@ -109,7 +100,7 @@ pub(super) fn gate_fleet_exec_frame(
     let raw = match model.get_raw_data().clone() {
         Some(v) => v,
         None => {
-            return FleetExecGateOutcome::Denied {
+            return EdgeExecGateOutcome::Denied {
                 request_id,
                 reason: "pep_rejected:authz:missing_payload".to_string(),
             };
@@ -118,7 +109,7 @@ pub(super) fn gate_fleet_exec_frame(
     let wrapper: AuthorizedControlPayload<serde_json::Value> = match serde_json::from_value(raw) {
         Ok(w) => w,
         Err(e) => {
-            return FleetExecGateOutcome::Denied {
+            return EdgeExecGateOutcome::Denied {
                 request_id,
                 reason: format!("pep_rejected:authz:malformed_wrapper:{e}"),
             };
@@ -129,7 +120,7 @@ pub(super) fn gate_fleet_exec_frame(
         .authz
         .validate(&request_id, expected_audience, now_rfc3339)
     {
-        return FleetExecGateOutcome::Denied {
+        return EdgeExecGateOutcome::Denied {
             request_id,
             reason: format!("pep_rejected:authz:{e:?}"),
         };
@@ -143,5 +134,5 @@ pub(super) fn gate_fleet_exec_frame(
         Some(wrapper.inner),
         model.response_state.clone(),
     );
-    FleetExecGateOutcome::Pass(unwrapped, wrapper.authz)
+    EdgeExecGateOutcome::Pass(unwrapped, wrapper.authz)
 }

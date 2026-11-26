@@ -7,8 +7,6 @@
 //! down until it fits a byte budget. This runs host-side, after redaction and
 //! before the request is built.
 
-use desk_agent_protocol::evidence::EvidenceSnapshot;
-use desk_agent_protocol::{AgentOutcome, OperationOutput, ReadContextOutput};
 use image::ImageError;
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
@@ -109,49 +107,6 @@ pub fn fit_screenshot_to_budget(
     Err(ScreenshotFitError::BudgetExceeded)
 }
 
-/// Refit every screenshot entry in an evidence snapshot into a model-ready data
-/// URL, in place. This is the **edge-side** step: the raw screen capture is
-/// scaled + JPEG-recompressed into a small `data:image/jpeg;base64,...` string
-/// stored on the entry's `image_data_url`, so the central orchestrator can attach
-/// it as a vision image without ever handling raw bytes (and the multi-MiB
-/// original never travels off the machine).
-///
-/// A screenshot that fails to decode is left without a data URL (the diagnosis
-/// proceeds without the image rather than aborting). The raw bytes in the
-/// entry's `outcome` are left untouched for the edge's own audit/eval; callers
-/// shipping the snapshot off-machine clear them separately.
-pub fn refit_snapshot_screenshots(snapshot: &mut EvidenceSnapshot) {
-    for entry in &mut snapshot.contexts {
-        if entry.image_data_url.is_some() {
-            continue;
-        }
-        if let AgentOutcome::Ok(OperationOutput::ReadContext(
-            ReadContextOutput::ScreenCaptureCurrent(shot),
-        )) = &entry.outcome
-            && let Ok(fitted) =
-                fit_screenshot_to_budget(&shot.image, DEFAULT_MAX_DIMENSION, DEFAULT_MAX_BYTES)
-        {
-            entry.image_data_url = Some(fitted.to_data_url());
-        }
-    }
-}
-
-/// Drop the raw screenshot bytes from every screen entry, in place, keeping the
-/// model-ready `image_data_url`. Called before shipping a snapshot off-machine
-/// (the remote-collect response): the full-resolution capture (up to 12 MiB) must
-/// never travel, only the refit data URL the central brain attaches as a vision
-/// image. Run [`refit_snapshot_screenshots`] first so the data URL exists.
-pub fn strip_raw_screenshots(snapshot: &mut EvidenceSnapshot) {
-    for entry in &mut snapshot.contexts {
-        if let AgentOutcome::Ok(OperationOutput::ReadContext(
-            ReadContextOutput::ScreenCaptureCurrent(shot),
-        )) = &mut entry.outcome
-        {
-            shot.image = Vec::new();
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,111 +184,5 @@ mod tests {
         let url = fitted.to_data_url();
         assert!(url.starts_with("data:image/jpeg;base64,"));
         assert!(url.len() > "data:image/jpeg;base64,".len());
-    }
-
-    /// Refitting a snapshot turns the raw screen capture into a model-ready data
-    /// URL on the entry, leaving non-screen entries untouched.
-    #[test]
-    fn refit_populates_image_data_url() {
-        use desk_agent_protocol::{Capability, ImageFormat as ProtoFmt, ScreenCaptureOutput};
-        let png = noisy_png(64, 64);
-        let shot = AgentOutcome::Ok(OperationOutput::ReadContext(
-            ReadContextOutput::ScreenCaptureCurrent(ScreenCaptureOutput {
-                frame_observation: None,
-                window_geometry: None,
-                display: r"\\.\DISPLAY1".into(),
-                format: ProtoFmt::Png,
-                width: 64,
-                height: 64,
-                dpi_x: 96,
-                dpi_y: 96,
-                window: None,
-                image: png,
-                truncated: false,
-            }),
-        ));
-        let mut snap = EvidenceSnapshot::record(
-            "live",
-            "q",
-            "2026-06-16T00:00:00Z",
-            vec![(Capability::ScreenCaptureCurrent, shot)],
-        );
-        assert!(snap.contexts[0].image_data_url.is_none());
-        refit_snapshot_screenshots(&mut snap);
-        let url = snap.contexts[0]
-            .image_data_url
-            .as_ref()
-            .expect("refit produced a data URL");
-        assert!(url.starts_with("data:image/jpeg;base64,"));
-    }
-
-    /// Stripping raw bytes empties the screen capture while preserving the refit
-    /// data URL, so the off-machine snapshot carries only the small image.
-    #[test]
-    fn strip_clears_raw_bytes_keeps_data_url() {
-        use desk_agent_protocol::{Capability, ImageFormat as ProtoFmt, ScreenCaptureOutput};
-        let png = noisy_png(64, 64);
-        let shot = AgentOutcome::Ok(OperationOutput::ReadContext(
-            ReadContextOutput::ScreenCaptureCurrent(ScreenCaptureOutput {
-                frame_observation: None,
-                window_geometry: None,
-                display: r"\\.\DISPLAY1".into(),
-                format: ProtoFmt::Png,
-                width: 64,
-                height: 64,
-                dpi_x: 96,
-                dpi_y: 96,
-                window: None,
-                image: png,
-                truncated: false,
-            }),
-        ));
-        let mut snap = EvidenceSnapshot::record(
-            "live",
-            "q",
-            "2026-06-16T00:00:00Z",
-            vec![(Capability::ScreenCaptureCurrent, shot)],
-        );
-        refit_snapshot_screenshots(&mut snap);
-        strip_raw_screenshots(&mut snap);
-        assert!(snap.contexts[0].image_data_url.is_some());
-        if let AgentOutcome::Ok(OperationOutput::ReadContext(
-            ReadContextOutput::ScreenCaptureCurrent(shot),
-        )) = &snap.contexts[0].outcome
-        {
-            assert!(shot.image.is_empty(), "raw bytes must be stripped");
-        } else {
-            panic!("expected a screen capture outcome");
-        }
-    }
-
-    /// A screenshot entry that fails to decode is left without a data URL rather
-    /// than aborting.
-    #[test]
-    fn refit_skips_undecodable_screenshot() {
-        use desk_agent_protocol::{Capability, ImageFormat as ProtoFmt, ScreenCaptureOutput};
-        let shot = AgentOutcome::Ok(OperationOutput::ReadContext(
-            ReadContextOutput::ScreenCaptureCurrent(ScreenCaptureOutput {
-                frame_observation: None,
-                window_geometry: None,
-                display: r"\\.\DISPLAY1".into(),
-                format: ProtoFmt::Png,
-                width: 1,
-                height: 1,
-                dpi_x: 96,
-                dpi_y: 96,
-                window: None,
-                image: b"not an image".to_vec(),
-                truncated: false,
-            }),
-        ));
-        let mut snap = EvidenceSnapshot::record(
-            "live",
-            "q",
-            "2026-06-16T00:00:00Z",
-            vec![(Capability::ScreenCaptureCurrent, shot)],
-        );
-        refit_snapshot_screenshots(&mut snap);
-        assert!(snap.contexts[0].image_data_url.is_none());
     }
 }

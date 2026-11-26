@@ -82,7 +82,7 @@ pub(crate) fn survives_remote_access_lock(msg: &ServiceToWorker) -> bool {
 
 /// How often a running command reports that it is still running.
 ///
-/// Long enough that a fleet of busy hosts does not flood the link, short enough
+/// Long enough that many busy hosts do not flood the link, short enough
 /// that an operator watching a long command sees it move. Losing a beat costs
 /// nothing: the authoritative answer is a state query against the ledger.
 const EXEC_HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);

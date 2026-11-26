@@ -27,8 +27,6 @@ pub enum ContentSafetySurface {
     TerminalAiAgent,
     AiAgent,
     TerminalCompletion,
-    FleetDiagnosis,
-    FleetExecution,
     Automation,
     ProviderProbe,
     DocumentationSupport,

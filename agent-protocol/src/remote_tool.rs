@@ -37,8 +37,7 @@ pub const MAX_REMOTE_TOOL_RESULT_BYTES: u64 = 8 * 1024 * 1024;
 /// Upper bound on the base64 `payload_b64` slice in a single
 /// [`RemoteToolResponseChunk`]. Held below the signaling WebSocket's per-frame
 /// continuation cap ([`SIGNALING_FRAME_LIMIT`]) with headroom for
-/// the surrounding JSON + `SignalingModel` envelope, exactly as the collect chunk
-/// budget is.
+/// the surrounding JSON + `SignalingModel` envelope.
 pub const REMOTE_TOOL_CHUNK_PAYLOAD_LIMIT: usize = 768 * 1024;
 
 /// How long the manager waits for an edge to answer a [`RemoteToolRequest`]
@@ -304,7 +303,7 @@ mod tests {
     /// A maximally-sized chunk, serialized as a `RemoteToolResponse`, stays under
     /// the signaling WebSocket's continuation cap with room for the
     /// `SignalingModel` envelope — so a full chunk frame cannot overflow the WS
-    /// codec, exactly as the collect chunk budget guarantees.
+    /// codec.
     #[test]
     fn max_chunk_frame_stays_under_signaling_cap() {
         let chunk = RemoteToolResponseChunk {
@@ -317,10 +316,10 @@ mod tests {
         };
         let json = serde_json::to_string(&RemoteToolResponse::Chunk(chunk)).expect("encode");
         assert!(
-            json.len() + 4096 < crate::diagnose::SIGNALING_FRAME_LIMIT,
+            json.len() + 4096 < SIGNALING_FRAME_LIMIT,
             "serialized chunk frame ({} bytes) too close to the {}-byte cap",
             json.len(),
-            crate::diagnose::SIGNALING_FRAME_LIMIT
+            SIGNALING_FRAME_LIMIT
         );
     }
 }

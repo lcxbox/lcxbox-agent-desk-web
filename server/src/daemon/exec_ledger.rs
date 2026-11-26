@@ -17,8 +17,8 @@
 //! - `execution_generation` identifies one dispatch of it, and is what the ledger
 //!   keys on. Retrying a task is legitimate; re-running a generation is not.
 //!
-//! The wire field carrying these has historically meant opposite things on the
-//! agentic and fleet paths, which is exactly the confusion this split removes.
+//! The wire field carrying these has historically meant opposite things on
+//! different paths, which is exactly the confusion this split removes.
 //! Never infer an axis from a field's name alone.
 //!
 //! # The tombstone is permanent

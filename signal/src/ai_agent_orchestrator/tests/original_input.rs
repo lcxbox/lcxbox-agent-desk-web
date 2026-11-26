@@ -2755,9 +2755,7 @@ async fn respond_to_selected_command(
     );
     let payload: serde_json::Value = frame.get_data().unwrap();
     let request: EdgeExecRequestPayload = serde_json::from_value(payload["inner"].clone()).unwrap();
-    let EdgeExecRequestPayload::Agentic { plan, .. } = request else {
-        panic!("expected exact command")
-    };
+    let EdgeExecRequestPayload::Agentic { plan, .. } = request;
     assert_eq!(plan.argv.last().map(String::as_str), Some("df -h"));
     // A read-only command has no snapshot roots and names no backup namespace.
     assert!(plan.snapshot_roots.is_empty());
@@ -2819,7 +2817,7 @@ async fn respond_to_selected_command(
         crate::agent_exec::global_agent_exec_pending(),
         db,
     )
-    .on_fleet_exec_result(&source, &frame)
+    .on_edge_exec_result(&source, &frame)
     .await;
 }
 

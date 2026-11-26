@@ -356,7 +356,6 @@ fn only_the_manager_syncs_are_manager_only() {
     for t in [
         SignalingType::ExecuteEdgePlan,
         SignalingType::InvokeRemoteTool,
-        SignalingType::CollectEvidence,
         SignalingType::RequestSupportCode,
         SignalingType::RevokeSupportCode,
         SignalingType::RequestRemoteAccess,
@@ -605,7 +604,6 @@ pub(super) async fn make_router_ctx() -> (RouterContext, broadcast::Sender<Strin
         physical_display: Arc::new(
             crate::daemon::physical_display::PhysicalDisplaySupervisor::new(),
         ),
-        diagnose_orchestrator: None,
         remote_read: None,
         exec_supported: false,
         exec_approvals: Arc::new(crate::daemon::exec_approval::PendingApprovalStore::new()),
@@ -792,7 +790,7 @@ fn ten_thousand_expiry_redials_fit_the_frozen_one_second_bucket_gate() {
 }
 
 #[test]
-fn fleet_jitter_windows_can_meet_all_frozen_one_second_bucket_gates() {
+fn host_population_jitter_windows_can_meet_all_frozen_one_second_bucket_gates() {
     fn evenly_spaced_sample(host: u64, window_ms: u64) -> u64 {
         (host * window_ms) / 10_000
     }
@@ -1208,31 +1206,52 @@ fn wrapped_confirm_exec_is_unwrapped_to_router() {
 
 // ====== EdgeExecRequest dedicated gate ======
 
-fn fleet_exec_plan() -> desk_agent_protocol::exec::ExecPlan {
+fn edge_exec_validation_input() -> desk_agent_protocol::ExecInput {
+    desk_agent_protocol::ExecInput {
+        target: desk_agent_protocol::ExecTarget::Shell {
+            shell: "powershell".into(),
+        },
+        command: "net stop spooler".into(),
+        cwd: None,
+        io_mode: desk_agent_protocol::exec::ExecIoMode::NonInteractive,
+        timeout_ms: 0,
+        max_stdout_bytes: 0,
+        max_stderr_bytes: 0,
+        snapshot_roots: Vec::new(),
+        sandbox_mode: desk_agent_protocol::exec::ExecSandboxMode::Unrestricted,
+    }
+}
+
+fn edge_exec_payload() -> desk_agent_protocol::edge_exec::EdgeExecRequestPayload {
     let template = desk_agent_protocol::command_template::SyncedCommandTemplate {
         template_id: "svc_restart".into(),
         argv: vec!["net".into(), "stop".into(), "spooler".into()],
         effect: desk_agent_protocol::exec::ExecEffect::Mutating,
         containment: Default::default(),
     };
-    let draft = desk_agent_protocol::exec_policy::build_exact_argv_draft(
-        &template,
-        None,
-        desk_agent_protocol::exec_policy::DEFAULT_OUTPUT_BYTES,
-        desk_agent_protocol::exec_policy::DEFAULT_OUTPUT_BYTES,
-        None,
-    );
-    desk_agent_protocol::exec::ExecPlan::from_draft(
-        desk_agent_protocol::exec::ExecRequestId("target-1".into()),
-        "a1",
-        desk_agent_protocol::exec::ApprovalId("appr-1".into()),
-        draft,
+    let draft = desk_diagnose_core::exec_classify::classify_command_with_all(
+        &edge_exec_validation_input(),
+        std::slice::from_ref(&template),
+        desk_agent_protocol::exec_policy::builtin_blocklist(),
     )
+    .draft
+    .expect("operator template input classifies");
+    desk_agent_protocol::edge_exec::EdgeExecRequestPayload::Agentic {
+        plan: desk_agent_protocol::exec::ExecPlan::from_draft(
+            desk_agent_protocol::exec::ExecRequestId("exec_task_1".into()),
+            "a1",
+            desk_agent_protocol::exec::ApprovalId("appr-1".into()),
+            draft,
+        ),
+        validation_input: edge_exec_validation_input(),
+        session_connection_id: Some("controller-1".into()),
+        carrier_id: None,
+    }
 }
 
-fn wrapped_fleet_exec_model(request_id: &str, audience: &str) -> SignalingModel {
+fn wrapped_edge_exec_model(request_id: &str, audience: &str) -> SignalingModel {
     let wrapper = AuthorizedControlPayload {
-        inner: fleet_exec_plan(),
+        inner: edge_exec_payload(),
         authz: block(request_id, audience),
     };
     SignalingModel::new(
@@ -1246,28 +1265,39 @@ fn wrapped_fleet_exec_model(request_id: &str, audience: &str) -> SignalingModel 
 }
 
 #[test]
-fn fleet_gate_passes_a_valid_wrapper_and_unwraps_the_plan() {
-    let model = wrapped_fleet_exec_model("a1", "dev-1");
-    match gate_fleet_exec_frame(model, "dev-1", NOW) {
-        FleetExecGateOutcome::Pass(unwrapped, authz) => {
-            // The inner ExecPlan is now the frame data (the wrapper is gone).
-            let plan = unwrapped
-                .get_data::<desk_agent_protocol::exec::ExecPlan>()
-                .expect("inner ExecPlan");
-            assert_eq!(plan.template_id, "svc_restart");
+fn edge_exec_gate_passes_a_valid_wrapper_and_unwraps_the_payload() {
+    let model = wrapped_edge_exec_model("a1", "dev-1");
+    match gate_edge_exec_frame(model, "dev-1", NOW) {
+        EdgeExecGateOutcome::Pass(unwrapped, authz) => {
             assert_eq!(authz.request_id, "a1");
+            // The router decodes the unwrapped frame data as the source-tagged
+            // payload, with the daemon-only validation input intact.
+            let payload = unwrapped
+                .get_data::<desk_agent_protocol::edge_exec::EdgeExecRequestPayload>()
+                .expect("router decodes the inner payload");
+            assert_eq!(payload, edge_exec_payload());
+            let desk_agent_protocol::edge_exec::EdgeExecRequestPayload::Agentic {
+                plan,
+                validation_input,
+                session_connection_id,
+                ..
+            } = payload;
+            assert_eq!(plan.template_id, "svc_restart");
+            assert_eq!(plan.execution_generation, "a1");
+            assert_eq!(validation_input.command, "net stop spooler");
+            assert_eq!(session_connection_id.as_deref(), Some("controller-1"));
         }
         other => panic!("expected Pass, got {other:?}"),
     }
 }
 
 #[test]
-fn fleet_gate_denies_an_audience_mismatch() {
+fn edge_exec_gate_denies_an_audience_mismatch() {
     // Validation fails (wrong audience) → a denied result is synthesized so
     // the central pending entry resolves, rather than a silent drop.
-    let model = wrapped_fleet_exec_model("a1", "dev-1");
-    match gate_fleet_exec_frame(model, "other-device", NOW) {
-        FleetExecGateOutcome::Denied { request_id, reason } => {
+    let model = wrapped_edge_exec_model("a1", "dev-1");
+    match gate_edge_exec_frame(model, "other-device", NOW) {
+        EdgeExecGateOutcome::Denied { request_id, reason } => {
             assert_eq!(request_id, "a1");
             assert!(reason.contains("pep_rejected:authz"), "{reason}");
         }
@@ -1276,7 +1306,7 @@ fn fleet_gate_denies_an_audience_mismatch() {
 }
 
 #[test]
-fn fleet_gate_denies_a_malformed_wrapper() {
+fn edge_exec_gate_denies_a_malformed_wrapper() {
     // A EdgeExecRequest whose body is not an AuthorizedControlPayload is
     // still correlatable (it has a request_id) → denied, not dropped.
     let model = SignalingModel::new(
@@ -1287,8 +1317,8 @@ fn fleet_gate_denies_a_malformed_wrapper() {
         Some(serde_json::json!({ "not": "a wrapper" })),
         None,
     );
-    match gate_fleet_exec_frame(model, "dev-1", NOW) {
-        FleetExecGateOutcome::Denied { request_id, reason } => {
+    match gate_edge_exec_frame(model, "dev-1", NOW) {
+        EdgeExecGateOutcome::Denied { request_id, reason } => {
             assert_eq!(request_id, "a1");
             assert!(reason.contains("malformed_wrapper"), "{reason}");
         }
@@ -1297,12 +1327,12 @@ fn fleet_gate_denies_a_malformed_wrapper() {
 }
 
 #[test]
-fn fleet_gate_drops_an_uncorrelatable_request() {
+fn edge_exec_gate_drops_an_uncorrelatable_request() {
     // No request_id → no result can be attributed → drop.
-    let model = wrapped_fleet_exec_model("", "dev-1");
+    let model = wrapped_edge_exec_model("", "dev-1");
     assert!(matches!(
-        gate_fleet_exec_frame(model, "dev-1", NOW),
-        FleetExecGateOutcome::Drop(_)
+        gate_edge_exec_frame(model, "dev-1", NOW),
+        EdgeExecGateOutcome::Drop(_)
     ));
 }
 
@@ -1415,7 +1445,7 @@ fn wrapped_remote_tool_model(
 
 #[test]
 fn bare_central_plumbing_frame_passes_through() {
-    // The enterprise-manager path emits bare CollectRequest; the trusted-
+    // The enterprise-manager path emits a bare RemoteToolRequest; the trusted-
     // central link authentication is the trust anchor, so it passes through.
     let model = bare_remote_tool_model("r1");
     match gate_optional_central_wrapper(model, "dev-1", NOW) {
@@ -1435,7 +1465,7 @@ fn wrapped_central_plumbing_frame_is_unwrapped_to_inner() {
         AuthzGateOutcome::Pass(m, authz) => {
             assert!(authz.is_some(), "validated wrapper yields an authz block");
             let obj = m.get_raw_data().as_ref().unwrap().as_object().unwrap();
-            // Inner CollectRequest is exposed bare to the router.
+            // Inner RemoteToolRequest is exposed bare to the router.
             assert!(!obj.contains_key("authz"));
             assert!(obj.contains_key("request"));
         }

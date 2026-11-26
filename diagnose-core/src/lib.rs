@@ -1,8 +1,8 @@
 //! Model-agnostic AI Agent logic shared by the thin edge and central brain.
 //!
-//! Splitting this out of `server` lets the manager run the same capability
-//! selection, prompt assembly, response parsing, and evidence chunking the edge
-//! used to run in-process, so the two sides can never drift. The crate is pure
+//! Splitting this out of `server` lets the manager run the same prompt
+//! assembly, response parsing, and result chunking as the open-source signal
+//! server, so the two sides can never drift. The crate is pure
 //! logic: it depends only on `desk-agent-protocol` (wire types), serde, base64,
 //! sha2, and async-trait (for the [`seam`] contract). Anything with a heavy or
 //! platform dependency — screenshot re-encoding, the model transport adapters —
@@ -10,8 +10,8 @@
 //!
 //! - [`prompt`]: redacted evidence → neutral chat messages (text only; the edge
 //!   has already turned any screenshot into a model-ready data URL).
-//! - [`chunk`]: serialize / reassemble an [`desk_agent_protocol::evidence::EvidenceSnapshot`]
-//!   across the chunked remote-collect response.
+//! - [`chunk`]: split / reassemble a serialized remote-tool result across
+//!   signaling-sized response chunks.
 //! - [`chat`]: provider-agnostic chat / tool-calling contracts (messages, tools,
 //!   model turn, stop-reason validation) the model adapters and agentic loop share.
 //! - [`exec_classify`]: pure exec command classification (blocklist, tokenizer,
@@ -124,7 +124,6 @@ pub mod result_model_ids;
 pub mod retry_backoff;
 pub mod schedule;
 pub mod seam;
-pub mod selection;
 pub mod session;
 pub mod session_reclaim;
 #[cfg(any(test, feature = "test-support"))]

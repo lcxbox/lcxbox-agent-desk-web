@@ -7,7 +7,6 @@ use desk_signal_facade::model::peer::{
 pub mod agent_adapter;
 pub mod controller;
 pub mod daemon;
-pub mod diagnose;
 pub mod durable_file;
 pub mod error;
 pub mod exec;
@@ -988,7 +987,7 @@ pub async fn run_with_hub(
     // Shared "should the manager link be connected" gate: driven by the settings
     // controllers (host toggling the manager connection) and observed by the
     // signaling proxy (tears the current manager / support upstream down on
-    // disable) and the fleet audit sink (stays purely local when disabled). Its
+    // disable) and the remote audit sink (stays purely local when disabled). Its
     // initial value is derived from the persisted settings.
     let manager_link_gate = {
         let s = shared_settings_data.read().await;

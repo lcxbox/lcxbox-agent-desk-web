@@ -4,8 +4,8 @@ use super::*;
 /// The frame has already passed the proxy's dedicated authz gate (which
 /// unwrapped the inner [`ExecPlan`] and set `ctx.inbound_authz`). This re-
 /// validates the plan (PEP) and, on success, dispatches it to the worker
-/// correlated as a fleet execution; every exit emits exactly one
-/// `EdgeExecResult` so the manager's pending entry always resolves.
+/// correlated as an edge execution; every exit emits exactly one
+/// `EdgeExecResult` so the central pending entry always resolves.
 pub(super) async fn handle_edge_exec_request_inbound(
     ctx: &RouterContext,
     model: &SignalingModel,
@@ -31,10 +31,9 @@ pub(super) async fn handle_edge_exec_request_inbound(
         return Ok(());
     };
 
-    // The frame carries a source-tagged envelope (`Fleet` / `Agentic`), never a
-    // bare `ExecPlan`: the two sources need different re-validation (fleet re-renders
-    // an operator template with fixed defaults; agentic re-classifies the original
-    // input). A missing tag / missing agentic input is a decode error → rejected.
+    // The frame carries a source-tagged envelope, never a bare `ExecPlan`: the
+    // daemon re-classifies the original agent input to reproduce the plan. A
+    // missing or unknown tag / missing agentic input is a decode error → rejected.
     let payload = match model.get_data::<EdgeExecRequestPayload>() {
         Ok(p) => p,
         Err(e) => {
@@ -53,9 +52,7 @@ pub(super) async fn handle_edge_exec_request_inbound(
             return Ok(());
         }
     };
-    if matches!(&payload, EdgeExecRequestPayload::Agentic { .. })
-        && !ctx.settings.read().await.ai_agent.enabled
-    {
+    if !ctx.settings.read().await.ai_agent.enabled {
         send_edge_execution_completed(
             &ctx.outbound_tx,
             &request_id,
@@ -72,13 +69,7 @@ pub(super) async fn handle_edge_exec_request_inbound(
     }
 
     let carrier_id = payload.carrier_id().map(str::to_string);
-    let carrier_shape_valid = match &payload {
-        EdgeExecRequestPayload::Fleet { plan } => !plan.io_mode.is_pty(),
-        EdgeExecRequestPayload::Agentic {
-            plan, carrier_id, ..
-        } => plan.io_mode.is_pty() == carrier_id.as_ref().is_some_and(|id| !id.is_empty()),
-    };
-    if !carrier_shape_valid {
+    if payload.plan().io_mode.is_pty() != carrier_id.as_ref().is_some_and(|id| !id.is_empty()) {
         send_edge_execution_completed(
             &ctx.outbound_tx,
             &request_id,
@@ -186,7 +177,6 @@ pub(super) async fn handle_edge_exec_request_inbound(
     if let desk_agent_protocol::exec::ExecAuthorization::OwnerNoReview(proof) =
         &payload.plan().authorization
         && (proof.validate().is_err()
-            || !matches!(&payload, EdgeExecRequestPayload::Agentic { .. })
             || payload.plan().io_mode.is_pty()
             || authz.exec_admission_policy
                 != desk_agent_protocol::authz::ExecAdmissionPolicy::OwnerInteractive
@@ -228,32 +218,26 @@ pub(super) async fn handle_edge_exec_request_inbound(
 
     let templates = ctx.command_templates.snapshot();
     let effective_blocklist = ctx.command_blocklist.snapshot();
-    let rejection = match &payload {
-        EdgeExecRequestPayload::Fleet { plan } => {
-            validate_fleet_edge_exec(plan, authz.max_risk, &templates, &effective_blocklist)
-        }
-        EdgeExecRequestPayload::Agentic {
-            plan,
-            validation_input,
-            ..
-        } => {
-            let mut validation_input = validation_input.clone();
-            desk_diagnose_core::exec_tools::apply_exec_runtime_ceiling(
-                &mut validation_input,
-                local_policy
-                    .max_command_runtime_seconds
-                    .saturating_mul(1_000),
-            );
-            validate_agentic_edge_exec(
-                plan,
-                &validation_input,
-                authz.exec_admission_policy,
-                authz.max_risk,
-                &templates,
-                &effective_blocklist,
-            )
-        }
-    };
+    let EdgeExecRequestPayload::Agentic {
+        plan,
+        validation_input,
+        ..
+    } = &payload;
+    let mut validation_input = validation_input.clone();
+    desk_diagnose_core::exec_tools::apply_exec_runtime_ceiling(
+        &mut validation_input,
+        local_policy
+            .max_command_runtime_seconds
+            .saturating_mul(1_000),
+    );
+    let rejection = validate_agentic_edge_exec(
+        plan,
+        &validation_input,
+        authz.exec_admission_policy,
+        authz.max_risk,
+        &templates,
+        &effective_blocklist,
+    );
     if let Some(reason) = rejection {
         log::warn!("[edge-exec] PEP rejected plan for request {request_id}: {reason}");
         send_edge_execution_completed(
@@ -272,7 +256,7 @@ pub(super) async fn handle_edge_exec_request_inbound(
     // platform session key.
     let session_connection_id = payload.session_connection_id().map(str::to_string);
     let file_recovery = exec_file_recovery_binding(ctx, &authz, payload.plan());
-    dispatch_fleet_exec_plan(
+    dispatch_edge_exec_plan(
         ctx,
         &request_id,
         payload.into_plan(),
@@ -327,12 +311,12 @@ pub(super) fn exec_file_recovery_binding(
     })
 }
 
-/// Dispatch a PEP-validated fleet [`ExecPlan`] to the worker, correlated so the
+/// Dispatch a PEP-validated edge [`ExecPlan`] to the worker, correlated so the
 /// worker's `WorkerToService::ExecutionCompleted` is relayed back to the trusted central as a
 /// `EdgeExecResult(Executed{..})` (see the proxy's `ExecutionCompleted` handler). On a
 /// send failure the plan never reached the worker, so the change definitely did
 /// not run → `DispatchFailedBeforeWorker`.
-pub(super) async fn dispatch_fleet_exec_plan(
+pub(super) async fn dispatch_edge_exec_plan(
     ctx: &RouterContext,
     request_id: &str,
     plan: ExecPlan,
@@ -497,7 +481,7 @@ pub(super) async fn dispatch_fleet_exec_plan(
     }
     #[cfg(target_os = "linux")]
     if plan.requires_root_pty_containment() {
-        let dispatch = dispatch_root_fleet_pty(
+        let dispatch = dispatch_root_edge_exec_pty(
             ctx,
             request_id,
             plan,
@@ -593,7 +577,7 @@ pub(super) async fn dispatch_fleet_exec_plan(
     } else {
         let payload = ExecPlanPayload {
             request_id: request_id.to_string(),
-            // No browser connection: a fleet result is routed by `request_id`, not a
+            // No browser connection: an edge result is routed by `request_id`, not a
             // control-end connection id.
             connection_id: None,
             plan,
@@ -644,7 +628,7 @@ pub(super) async fn dispatch_fleet_exec_plan(
 
 #[cfg(target_os = "linux")]
 #[allow(clippy::too_many_arguments)]
-async fn dispatch_root_fleet_pty(
+async fn dispatch_root_edge_exec_pty(
     ctx: &RouterContext,
     request_id: &str,
     plan: ExecPlan,
@@ -954,7 +938,7 @@ pub(super) async fn handle_invoke_agent_capability_inbound(
     };
 
     // Authorize against the server-computed scope. On the manager link the
-    // injected policy decision replaces the local default read scope (fleet
+    // injected policy decision replaces the local default read scope (central
     // PDP); without it (single-machine / remote-signaling) the local read scope
     // applies.
     let scope = match &ctx.inbound_authz {

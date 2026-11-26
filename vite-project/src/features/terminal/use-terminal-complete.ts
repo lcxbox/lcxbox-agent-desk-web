@@ -128,7 +128,7 @@ type UseTerminalCompleteProps = {
  * prefix the operator has already typed past, are discarded). The result carries
  * the prefix it was computed for via `completionPrefix`, so the component shows
  * ghost text only while the current input still equals that prefix. A failed
- * result (disabled fleet / quota) simply clears the suggestion — completion is a
+ * result (completion disabled / quota) simply clears the suggestion — completion is a
  * best-effort assist, never an error the operator must act on.
  */
 export function useTerminalComplete({

@@ -55,7 +55,6 @@ pub mod exec_pty;
 pub mod exec_pty_wire;
 pub mod external_tools;
 pub mod file_recovery;
-pub mod model_proxy;
 pub mod native_diagnostic;
 pub mod provenance;
 pub mod remote_tool;
@@ -71,19 +70,19 @@ use crate::exec::{CommandClassification, ExecDecision, ExecEffect, ExecIoMode};
 // ============================ Envelope ============================
 
 /// Single envelope for every AI capability call. Structurally identical
-/// across the single-machine (signaling) and fleet (manager fan-out) paths —
-/// only the outer transport wrapper differs.
+/// across the local signaling and manager-relayed paths — only the outer
+/// transport wrapper differs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SchemaWrite, SchemaRead, ToSchema)]
 pub struct AgentEnvelope {
     /// Protocol version for consumer-side negotiation. Server-stamped.
     pub protocol_version: ProtocolVersion,
     /// Server-generated / server-validated. A control-end value is ignored.
     pub request_id: RequestId,
-    /// Correlates all child calls of one AI task (fleet fan-out, multi-step
-    /// diagnose). Server-owned.
+    /// Correlates all child calls of one AI task (multi-step diagnose).
+    /// Server-owned.
     pub parent_task_id: Option<TaskId>,
     /// Routing target. **Server-resolved** (single machine: from the current
-    /// connection/session; fleet: from the manager device selector). Never
+    /// connection/session; manager: from the authorized target device). Never
     /// self-reported by the control end.
     pub target: TargetRef,
     /// **Server-injected** from session/manager auth.
@@ -205,7 +204,7 @@ pub struct RequestId(pub String);
 pub struct TaskId(pub String);
 
 /// Which device/session/worker this call lands on. `session_id` / `worker_id`
-/// are `None` on the fleet path where resolution happens later.
+/// are `None` on paths where resolution happens later.
 #[derive(
     Debug,
     Clone,

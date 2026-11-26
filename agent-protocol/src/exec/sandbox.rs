@@ -8,7 +8,7 @@
 //! [`super::ExecPlan`] and the plan fingerprint. A sandboxed command may write
 //! only its write roots, a per-execution temporary directory and the
 //! [`ExecSandboxImplicitWritable`] locations of its platform; reads and the
-//! network are not restricted. Non-AI executions (fleet, local and browser
+//! network are not restricted. Non-AI executions (local and browser
 //! `ConfirmExec`, Manager PTY proxy) always carry
 //! [`ExecSandboxMode::Unrestricted`].
 //!

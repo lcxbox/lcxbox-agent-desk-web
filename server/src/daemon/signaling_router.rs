@@ -27,9 +27,6 @@ use std::time::Duration;
 
 use actix_web::web;
 use desk_agent_protocol::audit::{AuditEvent, AuditSink};
-use desk_agent_protocol::diagnose::{
-    COLLECT_CHUNK_PAYLOAD_LIMIT, CollectRequest, CollectResponse, CollectResponseError,
-};
 use desk_agent_protocol::edge_exec::{
     EdgeExecDisposition, EdgeExecRequestPayload, EdgeExecResultPayload,
 };
@@ -37,7 +34,6 @@ use desk_agent_protocol::exec::{
     ConfirmExecData, ExecDecision, ExecEffect, ExecPlan, ExecPreview, ExecResultPayload,
     ResolveExecData,
 };
-use desk_agent_protocol::exec_policy::DEFAULT_OUTPUT_BYTES;
 
 use crate::terminal_ai_agent::agent_signaling_sink;
 use desk_agent_protocol::exec_lifecycle::{ExecControlAction, ExecControlPayload};
@@ -89,7 +85,6 @@ use crate::daemon::pc_manager::{
 use crate::daemon::physical_display::PhysicalDisplaySupervisor;
 use crate::daemon::virtual_display::{EnsureAttachedOutcome, VirtualDisplaySupervisor};
 use crate::daemon::worker_manager::WorkerManager;
-use crate::diagnose::DiagnoseOrchestrator;
 
 /// Bound on how long the `RequestRemoteAccess` branch waits for the IDD to
 /// finish bring-up before falling through to a capabilities-without-IDD
@@ -296,10 +291,6 @@ pub fn classify(signaling_type: SignalingType) -> RouteOwnership {
         // classifier's Step 0 reads it); never forwarded to the worker.
         SignalingType::SyncCommandBlocklist => RouteOwnership::Daemon,
 
-        SignalingType::CollectEvidence | SignalingType::EvidenceCollectionUpdated => {
-            RouteOwnership::Daemon
-        }
-
         // Temporary-support code: manager → daemon, pushed over the host's regular
         // `Server` upstream after the manager issues a code for that connection.
         // The daemon consumes it locally (surfaces the code to the local user);
@@ -320,17 +311,10 @@ pub fn classify(signaling_type: SignalingType) -> RouteOwnership {
         // locally; never forwarded to the worker.
         SignalingType::RevokeAccessGrant => RouteOwnership::Daemon,
 
-        // Remote-collect request: manager → daemon. In the thin-edge model the
-        // daemon runs its read-only collectors on behalf of the central
-        // orchestrator and streams a chunked CollectResponse back; handled inline
-        // against the daemon's collector, never forwarded to the worker.
-        // CollectResponse is daemon-emitted toward the manager and never received
-        // inbound here, so a stray inbound copy is swallowed daemon-side.
-
-        // Fleet batch-execution: `EdgeExecRequest` is manager → daemon (the
-        // daemon PEP re-validates the manager-sealed `ExecPlan` and dispatches it
+        // Central edge execution: `EdgeExecRequest` is central host → daemon (the
+        // daemon PEP re-validates the centrally sealed `ExecPlan` and dispatches it
         // to the worker); handled inline against the daemon's worker, never
-        // forwarded as-is. `EdgeExecResult` is daemon-emitted toward the manager
+        // forwarded as-is. `EdgeExecResult` is daemon-emitted toward the central host
         // and never received inbound here, so a stray inbound copy is swallowed
         // daemon-side.
         SignalingType::ExecuteEdgePlan | SignalingType::EdgeExecutionCompleted => RouteOwnership::Daemon,
@@ -496,14 +480,6 @@ pub struct RouterContext {
     pub virtual_display: Option<Arc<VirtualDisplaySupervisor>>,
     /// Physical display state is host-local and shared by all connection lanes.
     pub physical_display: Arc<PhysicalDisplaySupervisor>,
-    /// Enterprise fleet evidence collector.
-    pub diagnose_orchestrator: Option<Arc<DiagnoseOrchestrator>>,
-    /// `Some(...)` in modes with an in-process worker (Default / DeskServer),
-    /// where the host can collect read-only evidence locally. AI diagnosis is
-    /// orchestrated by the central signaling brain, so this serves the
-    /// remote-collect edge path (`collect_for_remote`): the central server pushes a
-    /// `CollectRequest` and this host streams the redacted evidence back. `None` in
-    /// ServiceDaemon mode, where a `CollectRequest` replies with a wholesale error.
     /// Who serves a central read tool call (§8.3) on this host. Always present in
     /// production; `None` replies to every `RemoteToolRequest` with an error.
     pub remote_read: Option<RemoteReadExecutor>,
@@ -521,7 +497,7 @@ pub struct RouterContext {
     /// or the connection ending revokes it. Always present (in-memory state);
     /// only populated when the active mode is `SessionApproved`.
     pub session_approvals: Arc<crate::daemon::session_approval::SessionApprovalStore>,
-    /// Operator command templates synced from the manager (fleet only). The
+    /// Operator command templates synced from the manager (manager link only). The
     /// exec classifier unions these with the built-in baseline; empty on
     /// single-machine / remote-signaling links. Replaced wholesale on each
     /// `CommandTemplateSync` from the manager.
@@ -543,8 +519,7 @@ pub struct RouterContext {
     /// connection. Entries remove themselves on natural completion.
     /// Central-injected authorization for the current inbound AI frame, set per
     /// call by the proxy when a validated `AuthorizedControlPayload` arrives.
-    /// `None` for a bare `CollectEvidence` / `InvokeRemoteTool` (the manager
-    /// sends those unwrapped), where the handlers fall back to the local default
+    /// `None` for a bare `InvokeRemoteTool` (the manager may send it unwrapped), where the handlers fall back to the local default
     /// scope. Threaded through the context (rather than the handler signatures)
     /// so the existing `route()` / handler call sites stay untouched.
     pub inbound_authz: Option<desk_agent_protocol::authz::AuthorizationBlock>,
@@ -567,11 +542,12 @@ pub struct RouterContext {
     /// `RequestRemoteAccess`).
     pub inbound_start_terminal_authz:
         Option<desk_signal_facade::model::request_remote_authz::RequestRemoteAuthz>,
-    /// Per-attempt `request_id`s of fleet executions currently dispatched to the
+    /// Per-attempt `request_id`s of edge executions currently dispatched to the
     /// worker. When the worker replies with `WorkerToService::ExecutionCompleted` whose
     /// `request_id` is in this set, the proxy emits a `EdgeExecResult(614)`
-    /// toward the manager instead of an `ExecutionCompleted(609)` toward a browser.
-    /// Always present (in-memory state); only populated on the fleet exec path.
+    /// toward the central host instead of an `ExecutionCompleted(609)` toward a
+    /// browser. Always present (in-memory state); only populated on the edge exec
+    /// path.
     pub edge_exec_pending: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// On-demand temporary-support lifecycle. `handle_support_code_issued_inbound`
     /// records the manager-issued code here for the local UI and arms a teardown
@@ -1324,8 +1300,6 @@ pub async fn route(model: &SignalingModel, ctx: &RouterContext) -> Result<(), Ro
         // Command-blocklist sync from the manager. The proxy accepts it only on
         // the manager link; this only applies the validated set.
         SignalingType::SyncCommandBlocklist => handle_command_blocklist_sync_inbound(ctx, model),
-        SignalingType::CollectEvidence => handle_collect_request_inbound(ctx, model).await,
-        SignalingType::EvidenceCollectionUpdated => Ok(()),
         // Temporary-support code issued by the manager over this host's dedicated
         // Support upstream. The daemon surfaces it to the local user, who reads it
         // out to a supporter. The proxy accepts it only on the manager link.
@@ -1338,11 +1312,6 @@ pub async fn route(model: &SignalingModel, ctx: &RouterContext) -> Result<(), Ro
         // The proxy accepts it only on the manager link; the daemon direct-closes
         // every grant it holds at a superseded generation.
         SignalingType::RevokeAccessGrant => handle_revoke_access_grant_inbound(ctx, model).await,
-        // Remote-collect request from a central: run the daemon-side read-only
-        // collectors and stream a chunked CollectResponse back. Any wrapper has
-        // already been validated and unwrapped by the proxy.
-        // CollectResponse is emitted by this daemon toward the manager; a stray
-        // inbound frame is swallowed (the daemon never consumes its own stream).
         // Sealed execution request from a central: PEP re-validate the sealed
         // `ExecPlan` and dispatch it to the worker, correlating the worker's
         // result back as an `EdgeExecResult`. The proxy's dedicated authz gate

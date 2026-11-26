@@ -13,8 +13,8 @@ import { ERROR_SELECTORS } from './format';
 export type MetricsQuery = GetModelMetricsOverviewQueryParams;
 
 const CLOSED_FILTERS = {
-    surface: ['agent', 'diagnose', 'terminal', 'fleet', 'support', 'safety', 'probe', 'platform'],
-    purpose: ['agent', 'approval', 'completion', 'context_compression', 'conversation_title', 'safety', 'probe', 'fleet_natural_language', 'support'],
+    surface: ['agent', 'diagnose', 'terminal', 'support', 'safety', 'probe', 'platform'],
+    purpose: ['agent', 'approval', 'completion', 'context_compression', 'conversation_title', 'safety', 'probe', 'support'],
     origin: ['user', 'permission_resume', 'work_completion', 'subagent', 'goal_continuation', 'scheduled_task', 'system', 'unknown'],
 } as const;
 

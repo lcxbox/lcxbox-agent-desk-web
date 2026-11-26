@@ -307,6 +307,17 @@ mod tests {
         }
     }
 
+    /// The read-only tool set combined with the exec registry exposes the read
+    /// tools plus the exec tool.
+    #[test]
+    fn read_and_exec_registries_combine() {
+        let mut reg = crate::read_tools::read_tool_registry();
+        reg.extend(exec_tool_registry());
+        let names: Vec<_> = reg.iter().map(|t| t.name().to_string()).collect();
+        assert!(names.contains(&"exec_command".to_string()));
+        assert!(names.contains(&"read_system_info".to_string()));
+    }
+
     /// The registry exposes exactly one mutating tool gated on the confirmed-exec
     /// capability.
     #[test]

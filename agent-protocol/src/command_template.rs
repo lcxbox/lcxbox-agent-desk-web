@@ -41,7 +41,7 @@ use crate::exec::{ExecEffect, RequiredEnforcement};
 ///
 /// During a rolling upgrade an old daemon (which only knows v1) receives a newer
 /// payload and safely ignores it — it keeps its prior template set rather than
-/// misapplying an unknown shape; a fleet exec request it cannot template-match is
+/// misapplying an unknown shape; an edge exec request it cannot template-match is
 /// then refused by its PEP, never mis-executed.
 pub const COMMAND_TEMPLATE_SYNC_VERSION: u16 = 4;
 

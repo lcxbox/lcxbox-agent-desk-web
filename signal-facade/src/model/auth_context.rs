@@ -4,7 +4,7 @@
 //! any wire type and is never populated from client-supplied fields. The
 //! signaling endpoint resolves it from a validated API token (DB lookup) or an
 //! authenticated session cookie, then attaches it to the connection. Downstream
-//! authorization (the fleet policy decision point) and audit attribution read
+//! authorization (the central policy decision point) and audit attribution read
 //! it instead of trusting anything the control end reports.
 
 use crate::grant::GrantPrincipal;

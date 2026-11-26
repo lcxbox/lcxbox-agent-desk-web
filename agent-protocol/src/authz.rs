@@ -1,6 +1,6 @@
 //! Manager → daemon authorization carrier.
 //!
-//! In the fleet topology the manager is the policy decision point (PDP) and the
+//! When a desk server is linked to a manager, the manager is the policy decision point (PDP) and the
 //! desk-server daemon is the policy enforcement point (PEP). The manager relays
 //! the control-end AI frames to the daemon; to carry the authorization decision
 //! without polluting the public control payloads (which must structurally not
@@ -65,7 +65,7 @@ pub struct AuthorizationBlock {
     pub version: u16,
     /// Granted device capabilities + execution mode (frozen scope shape).
     pub scope: AgentScope,
-    /// Allowed orchestrator-layer permissions (e.g. `ai.diagnose`, `shell.plan`)
+    /// Allowed orchestrator-layer permissions (e.g. `ai.terminal_ai_agent`, `shell.plan`)
     /// that cannot be expressed in the closed `Capability` enum.
     pub orchestrator_grants: Vec<String>,
     /// Maximum risk the exec path may reach (ConfirmExec gate).
@@ -168,7 +168,7 @@ mod tests {
                 expires_at: None,
                 policy_name: Some("p1".to_string()),
             },
-            orchestrator_grants: vec!["ai.diagnose".to_string()],
+            orchestrator_grants: vec!["shell.plan".to_string()],
             max_risk: RiskLevel::Medium,
             exec_admission_policy: ExecAdmissionPolicy::TemplateOnly,
             actor: AuthzActor { user_id: Some(7) },

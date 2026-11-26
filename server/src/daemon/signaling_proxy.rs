@@ -6,8 +6,6 @@ use super::support_link_state::SupportLinkState;
 use super::virtual_display::VirtualDisplaySupervisor;
 use super::worker_manager::{WorkerManager, WorkerMessageReceiver};
 use crate::agent_adapter::redaction::RegexRedactor;
-use crate::diagnose::DiagnoseOrchestrator;
-use crate::diagnose::collector::AgentContextCollector;
 use crate::host_control::HostControlHub;
 use crate::model::settings::{SharedSettings, StartupMode};
 use crate::worker::agent::LocalDeviceAgent;
@@ -202,7 +200,7 @@ pub async fn run_signaling_proxy(
     support_link_state: Arc<SupportLinkState>,
     // Shared "should the manager link be connected" gate. Flipping it to `false`
     // (host UI disabling the manager connection) tears the current manager /
-    // link down and puts the fleet audit sink back to purely-local.
+    // link down and puts the remote audit sink back to purely-local.
     manager_link_gate: Arc<ManagerLinkGate>,
     inprocess_computer_use_broker: Option<
         Arc<crate::worker::agent::computer_use_broker::ComputerUseBroker>,
@@ -235,12 +233,9 @@ pub async fn run_signaling_proxy(
     let command_blocklist =
         Arc::new(crate::daemon::command_blocklist::CommandBlocklistCache::new());
     // Default / DeskServer read in this process; a ServiceDaemon has the session
-    // user's worker read. The local diagnose orchestrator is in-process only.
-    let (diagnose_orchestrator, remote_read) = match settings.read().await.args.startup_mode {
-        StartupMode::ServiceDaemon => (
-            None,
-            Some(signaling_router::RemoteReadExecutor::SessionWorker),
-        ),
+    // user's worker read.
+    let remote_read = match settings.read().await.args.startup_mode {
+        StartupMode::ServiceDaemon => Some(signaling_router::RemoteReadExecutor::SessionWorker),
         _ => {
             let audit: Arc<dyn AuditSink> = Arc::new(LogAuditSink);
             let agent = Arc::new(match inprocess_computer_use_broker.clone() {
@@ -253,14 +248,6 @@ pub async fn run_signaling_proxy(
                     LocalDeviceAgent::with_settings(settings.clone().into_inner()).with_audit(audit)
                 }
             });
-            let collector = Arc::new(AgentContextCollector::new(
-                agent.clone(),
-                settings.clone().into_inner(),
-            ));
-            let orchestrator = Arc::new(DiagnoseOrchestrator::new(
-                collector,
-                Arc::new(RegexRedactor::new()),
-            ));
             // Serves a central read-tool call against the same in-process
             // agent, redacting fail-closed.
             let edge_read = Arc::new(crate::agent_adapter::remote_read::EdgeReadInvoker::new(
@@ -268,10 +255,7 @@ pub async fn run_signaling_proxy(
                 Arc::new(RegexRedactor::new()),
                 settings.clone().into_inner(),
             ));
-            (
-                Some(orchestrator),
-                Some(signaling_router::RemoteReadExecutor::InProcess(edge_read)),
-            )
+            Some(signaling_router::RemoteReadExecutor::InProcess(edge_read))
         }
     };
 
@@ -317,7 +301,6 @@ pub async fn run_signaling_proxy(
         physical_display: Arc::new(
             crate::daemon::physical_display::PhysicalDisplaySupervisor::new(),
         ),
-        diagnose_orchestrator,
         remote_read: remote_read.clone(),
         // Confirmed execution is available wherever an in-process worker can
         // execute (Default / DeskServer), using the same in-process availability.
@@ -329,17 +312,17 @@ pub async fn run_signaling_proxy(
         session_approvals: Arc::new(crate::daemon::session_approval::SessionApprovalStore::new()),
         command_templates: command_templates.clone(),
         command_blocklist: command_blocklist.clone(),
-        // Audit sink: in fleet mode (a manager is configured) report events to
-        // the manager for DB persistence; otherwise keep the local log sink.
+        // Audit sink: when a manager is configured, report events to the
+        // manager for DB persistence; otherwise keep the local log sink.
         audit: audit_sink.clone(),
         // Per-call central authorization is injected by the inbound
         // dispatcher; the shared base context carries none.
         inbound_authz: None,
         inbound_request_remote_authz: None,
         inbound_start_terminal_authz: None,
-        // Fleet exec correlation set, shared with the worker-message loop below so
-        // a worker `ExecutionCompleted` for an in-flight fleet attempt is relayed to the
-        // manager as a `EdgeExecResult`.
+        // Edge exec correlation set, shared with the worker-message loop below so
+        // a worker `ExecutionCompleted` for an in-flight edge attempt is relayed to
+        // the central host as a `EdgeExecResult`.
         edge_exec_pending: Default::default(),
         // On-demand temporary-support lifecycle, shared with the support loop.
         support_link_state: support_link_state.clone(),

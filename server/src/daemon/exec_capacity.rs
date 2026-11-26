@@ -1,6 +1,6 @@
 //! The host's own ceiling on how many commands may run at once.
 //!
-//! The manager schedules executions across a fleet and can cap them centrally,
+//! The manager schedules executions across many hosts and can cap them centrally,
 //! but that cap only binds work the manager dispatched. A control end talking to
 //! an open-source signal server reaches this host directly, and a host that
 //! trusted the central cap alone would accept as many concurrent commands as it

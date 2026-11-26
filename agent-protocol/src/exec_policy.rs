@@ -4,9 +4,9 @@
 //! be applied in three places that live in different crates:
 //!
 //! - the desk-server **daemon**, when it classifies a command (`ConfirmExec`)
-//!   and when it re-validates a manager-sealed plan (PEP, fleet exec);
+//!   and when it re-validates a centrally sealed plan (PEP, edge exec);
 //! - the **manager**, when it saves an operator template (CRUD) and when it
-//!   builds a fleet preview draft (PDP);
+//!   seals an agent execution plan (PDP);
 //!
 //! Keeping these as one implementation in `desk-agent-protocol` (already on the
 //! manager's allowed-dependency list) is what guarantees the preview never
@@ -49,8 +49,8 @@ pub const PRODUCT_MAX_BACKGROUND_MS: u32 = 7_200_000; // 2 h
 ///
 /// The template's configured runtime is the baseline; a request only ever *lowers*
 /// it (a caller asking for less than the template allows), and each present policy
-/// / device ceiling clamps it further. Fleet has no per-request value (`request_ms
-/// = None`); a `None` policy / device layer does not constrain. The result is
+/// / device ceiling clamps it further. A `None` request (`request_ms = None`) or
+/// a `None` policy / device layer does not constrain. The result is
 /// finally clamped to the product ceiling for the template's foreground /
 /// background class and floored at [`MIN_TIMEOUT_MS`], so it is always finite and
 /// never zero. A foreground template therefore can never exceed
@@ -109,17 +109,6 @@ impl ExecLimits {
             max_stderr_bytes: clamp_output(input.max_stderr_bytes),
         }
     }
-
-    /// The fixed limits a fleet batch execution uses. Fleet exec has no
-    /// per-request limit input (the operator selects a template, not a free-form
-    /// command), so it always runs at the defaults.
-    pub fn defaults() -> Self {
-        ExecLimits {
-            timeout_ms: DEFAULT_TIMEOUT_MS,
-            max_stdout_bytes: DEFAULT_OUTPUT_BYTES,
-            max_stderr_bytes: DEFAULT_OUTPUT_BYTES,
-        }
-    }
 }
 
 // ============================ Draft construction ============================
@@ -159,39 +148,19 @@ pub fn resolve_template_containment(
     (wall, snapshot)
 }
 
-#[cfg(any(test, feature = "test-support"))]
 /// Build the immutable [`ExecPlanDraft`] for an exact-argv operator template.
 ///
 /// The template's `argv[0]` is the program and the rest are its arguments,
 /// executed verbatim as a direct spawn (no shell wrapping, no parameter
 /// substitution). Risk derives from the template's effect. Wall time is the
 /// layered [`effective_wall_ms`] over the template's declared cap and `request_wall_ms`
-/// (fleet passes `None` — it has no per-request limit). The fingerprint is computed
+/// (`None` when there is no per-request limit). The fingerprint is computed
 /// over the rendered plan + limits + containment so the manager's preview draft and
 /// the daemon's PEP re-validation produce the identical value.
 ///
 /// The caller is responsible for having validated the template's argv shape
 /// ([`crate::command_template::validate_template_argv`]); a zero-length argv
 /// would panic on `argv[0]`, which a validated template can never have.
-pub fn build_exact_argv_draft(
-    template: &SyncedCommandTemplate,
-    request_wall_ms: Option<u32>,
-    max_stdout_bytes: u32,
-    max_stderr_bytes: u32,
-    cwd: Option<String>,
-) -> ExecPlanDraft {
-    build_exact_argv_draft_with_io_mode(
-        template,
-        request_wall_ms,
-        max_stdout_bytes,
-        max_stderr_bytes,
-        cwd,
-        ExecIoMode::NonInteractive,
-    )
-}
-
-/// As [`build_exact_argv_draft`], with an explicit sealed I/O mode for an
-/// interactive AI Agent execution.
 pub fn build_exact_argv_draft_with_io_mode(
     template: &SyncedCommandTemplate,
     request_wall_ms: Option<u32>,
@@ -209,8 +178,8 @@ pub fn build_exact_argv_draft_with_io_mode(
         max_stdout_bytes,
         max_stderr_bytes,
     };
-    // Operator templates seal no snapshot roots and run unrestricted: fleet
-    // and other non-AI executions are never snapshotted or sandboxed.
+    // Operator templates seal no snapshot roots and run unrestricted: non-AI
+    // executions are never snapshotted or sandboxed.
     let fingerprint = fingerprint_with_io_mode(
         &program,
         &argv,
@@ -252,8 +221,8 @@ pub fn build_exact_argv_draft_with_io_mode(
 /// *classification* fields (`risk` / effect / `shell`). Those fields are derived
 /// from the template and can change without argv or authority changing (an `effect`
 /// edited read_only → mutating lifts the risk but leaves this fingerprint identical).
-/// Callers that must reject classification drift — the single-device PEP and the
-/// fleet approval / dispatch re-checks — compare the **whole rebuilt
+/// Callers that must reject classification drift — such as the daemon PEP —
+/// compare the **whole rebuilt
 /// [`ExecPlanDraft`]** (which also carries `risk` / `shell` / `template_id`), not
 /// just this hash.
 ///
@@ -583,7 +552,7 @@ pub fn blocked_raw_command(command: &str) -> Option<&'static str> {
 }
 
 /// Returns the prohibited category an **exact argv** matches, or `None`. Used by
-/// the manager template CRUD / fleet preview and the daemon PEP, which deal in
+/// the manager template CRUD and the daemon PEP, which deal in
 /// already-tokenized, metachar-free argv (validated by
 /// [`crate::command_template::validate_template_argv`]).
 ///
@@ -652,15 +621,32 @@ mod tests {
         assert_eq!(ExecLimits::clamped(&input).timeout_ms, MIN_TIMEOUT_MS);
     }
 
-    #[test]
-    fn defaults_are_the_fleet_fixed_limits() {
-        let d = ExecLimits::defaults();
-        assert_eq!(d.timeout_ms, DEFAULT_TIMEOUT_MS);
-        assert_eq!(d.max_stdout_bytes, DEFAULT_OUTPUT_BYTES);
-        assert_eq!(d.max_stderr_bytes, DEFAULT_OUTPUT_BYTES);
+    // ---- draft + fingerprint ----
+
+    fn default_limits() -> ExecLimits {
+        ExecLimits {
+            timeout_ms: DEFAULT_TIMEOUT_MS,
+            max_stdout_bytes: DEFAULT_OUTPUT_BYTES,
+            max_stderr_bytes: DEFAULT_OUTPUT_BYTES,
+        }
     }
 
-    // ---- draft + fingerprint ----
+    fn build_exact_argv_draft(
+        template: &SyncedCommandTemplate,
+        request_wall_ms: Option<u32>,
+        max_stdout_bytes: u32,
+        max_stderr_bytes: u32,
+        cwd: Option<String>,
+    ) -> ExecPlanDraft {
+        build_exact_argv_draft_with_io_mode(
+            template,
+            request_wall_ms,
+            max_stdout_bytes,
+            max_stderr_bytes,
+            cwd,
+            ExecIoMode::NonInteractive,
+        )
+    }
 
     fn template(id: &str, argv: &[&str], effect: ExecEffect) -> SyncedCommandTemplate {
         SyncedCommandTemplate {
@@ -714,8 +700,8 @@ mod tests {
         // A template edited in place from read_only to mutating — same id, same argv —
         // keeps the identical fingerprint (which hashes only program/argv/cwd/limits)
         // but lifts the derived risk. A drift check that compares only the fingerprint
-        // would miss this; a whole-draft comparison (used by the PEP and the fleet
-        // approval / dispatch re-checks) catches it — which is exactly why those paths
+        // would miss this; a whole-draft comparison (used by the PEP) catches it —
+        // which is exactly why those paths
         // compare every draft field rather than trusting the fingerprint alone.
         let argv = &["custom-tool", "--flag"];
         let read_only = build_exact_argv_draft(
@@ -745,7 +731,7 @@ mod tests {
 
     #[test]
     fn fingerprint_is_stable_and_target_sensitive() {
-        let limits = ExecLimits::defaults();
+        let limits = default_limits();
         let c = ExecContainmentSnapshot::default();
         let a = fingerprint("docker", &["logs".into(), "web1".into()], None, &limits, &c);
         let a2 = fingerprint("docker", &["logs".into(), "web1".into()], None, &limits, &c);
@@ -800,8 +786,8 @@ mod tests {
 
     #[test]
     fn wall_defaults_when_nothing_is_specified() {
-        // Fleet baseline: no request, no template cap → the default timeout, not
-        // the product ceiling. This preserves the previous fleet runtime.
+        // Baseline: no request, no template cap → the default timeout, not the
+        // product ceiling.
         assert_eq!(
             effective_wall_ms(None, None, None, None, false),
             DEFAULT_TIMEOUT_MS
@@ -886,7 +872,7 @@ mod tests {
         // Two snapshots that differ only in a declared resource cap must produce
         // distinct fingerprints, so the PEP's full-draft compare rejects a plan
         // whose envelope was tampered with.
-        let limits = ExecLimits::defaults();
+        let limits = default_limits();
         let base = ExecContainmentSnapshot::default();
         let with_mem = ExecContainmentSnapshot {
             required_enforcement: RequiredEnforcement::NativeHard,

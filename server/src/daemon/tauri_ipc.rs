@@ -2,7 +2,7 @@
 //! control hub endpoint.
 //!
 //! The legacy `TauriIpcBridge` once owned a private WebSocket endpoint
-//! (`/ws/tauri_ipc`) and a fleet of background `std::thread::spawn` forwarders
+//! (`/ws/tauri_ipc`) and a set of background `std::thread::spawn` forwarders
 //! that proxied mpsc commands across the link. After the host-control-hub
 //! unification (Steps 4 and 6) all of that is gone — `/ws/tauri_ipc` and
 //! `/ws/host_upstream` are now served by [`crate::host_control::endpoint`] and

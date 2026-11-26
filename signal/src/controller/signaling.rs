@@ -251,8 +251,8 @@ pub async fn open_signaling_handle(
 
     let stream = stream
         // Raise the per-frame ceiling above the actix-ws 64 KiB default: a chunked
-        // diagnose `CollectResponse` rides the signaling socket as a single
-        // (unfragmented) WS text frame up to `COLLECT_CHUNK_PAYLOAD_LIMIT`, which
+        // `RemoteToolResponse` rides the signaling socket as a single
+        // (unfragmented) WS text frame up to `REMOTE_TOOL_CHUNK_PAYLOAD_LIMIT`, which
         // the default would reject with `ProtocolError::Overflow` before
         // continuation aggregation, dropping the edge connection. Mirrors the
         // manager signaling endpoint.

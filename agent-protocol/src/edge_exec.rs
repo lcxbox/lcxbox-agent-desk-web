@@ -1,25 +1,25 @@
-//! Fleet batch-execution wire payloads (manager ↔ desk-server daemon).
+//! Central edge-execution wire payloads (central signaling ↔ desk-server daemon).
 //!
-//! The manager is the policy decision point (PDP): it previews, approves, and
-//! seals an [`crate::exec::ExecPlan`] per device, then ships it to the desk
+//! The central signaling host is the policy decision point (PDP): it classifies
+//! the agent's confirmed command, obtains the approval, and seals an
+//! [`crate::exec::ExecPlan`] for the target device, then ships it to the desk
 //! server over `EdgeExecRequest` wrapped in an
 //! [`crate::authz::AuthorizedControlPayload`]. The daemon is the policy
 //! enforcement point (PEP): it independently re-validates the plan (authz,
-//! blocklist, exact-argv whitelist, fingerprint, `risk <= max_risk`) before
+//! blocklist, template classification, fingerprint, `risk <= max_risk`) before
 //! handing the argv to the worker.
 //!
 //! The reply rides `EdgeExecResult` carrying a structured
 //! [`EdgeExecDisposition`] rather than a bare [`AgentOutcome`]. The structured
-//! variants let the manager decide the terminal status **without parsing an
+//! variants let the central host decide the terminal status **without parsing an
 //! `AgentErrorKind` or a message string**: only `RejectedBeforeDispatch` /
 //! `DispatchFailedBeforeWorker` prove the change was *not* executed, so a
 //! mutating plan that ends in `ExecutionStateUnknown` (or yields no result at
-//! all) is held for human review instead of being falsely reported as failed.
+//! all) is never reported as a clean failure.
 //!
-//! At-most-once safety lives in the manager's intent-before-send ledger; these
-//! wire types only carry the per-attempt correlation `request_id` (the manager
-//! writes results back by `request_id` + claim token + attempt). No execution id
-//! is on the wire in v1.
+//! These wire types only carry the per-attempt correlation `request_id`; the
+//! central host settles its pending attempt by that id. No execution id is on
+//! the wire.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -31,22 +31,15 @@ use crate::{AgentError, AgentErrorKind, AgentOutcome, ExecInput};
 /// source-specific context the daemon PEP needs to re-validate it. Wrapped in an
 /// [`crate::authz::AuthorizedControlPayload`] on the wire.
 ///
-/// The `source` tag is **required**: a frame without it — or an `Agentic` frame
-/// missing `validation_input` — is rejected. There is no legacy bare-`ExecPlan`
-/// form; both the fleet executor and the agentic edge sender always emit a tagged
-/// variant, and the daemon dispatches on the tag to the matching validator.
+/// The `source` tag is **required**: a frame without it, with an unknown tag, or
+/// an `Agentic` frame missing `validation_input` is rejected. There is no bare
+/// `ExecPlan` form; the agentic edge sender always emits the tagged variant.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum EdgeExecRequestPayload {
-    /// Fleet batch execution. The plan was sealed from an **operator** template
-    /// rendered with the fixed fleet limits (no per-request input, no cwd), so the
-    /// daemon re-validates it by reproducing that authoritative render from its
-    /// operator snapshot — never a per-turn classification.
-    Fleet { plan: ExecPlan },
     /// Agentic confirmed execution. The plan was sealed from a per-turn
     /// classification of `validation_input` (a built-in **or** operator template,
-    /// clamped per-turn limits + the input's cwd), which the fleet render cannot
-    /// reproduce. The daemon re-runs the same classifier over `validation_input`
+    /// clamped per-turn limits + the input's cwd). The daemon re-runs the same classifier over `validation_input`
     /// to reproduce the plan field-for-field.
     ///
     /// `validation_input` is a **daemon-only validation envelope**: it is used to
@@ -75,7 +68,6 @@ impl EdgeExecRequestPayload {
     /// The sealed plan, regardless of source.
     pub fn plan(&self) -> &ExecPlan {
         match self {
-            EdgeExecRequestPayload::Fleet { plan } => plan,
             EdgeExecRequestPayload::Agentic { plan, .. } => plan,
         }
     }
@@ -86,14 +78,12 @@ impl EdgeExecRequestPayload {
     /// past the PEP.
     pub fn into_plan(self) -> ExecPlan {
         match self {
-            EdgeExecRequestPayload::Fleet { plan } => plan,
             EdgeExecRequestPayload::Agentic { plan, .. } => plan,
         }
     }
 
     pub fn session_connection_id(&self) -> Option<&str> {
         match self {
-            EdgeExecRequestPayload::Fleet { .. } => None,
             EdgeExecRequestPayload::Agentic {
                 session_connection_id,
                 ..
@@ -103,14 +93,13 @@ impl EdgeExecRequestPayload {
 
     pub fn carrier_id(&self) -> Option<&str> {
         match self {
-            EdgeExecRequestPayload::Fleet { .. } => None,
             EdgeExecRequestPayload::Agentic { carrier_id, .. } => carrier_id.as_deref(),
         }
     }
 }
 
-/// Daemon → manager: the structured outcome class for one fleet execution
-/// attempt. Drives the manager's terminal-status mapping directly; the manager
+/// Daemon → central host: the structured outcome class for one edge execution
+/// attempt. Drives the central host's terminal-status mapping directly; the central host
 /// never inspects `AgentErrorKind` or a message string to decide whether the
 /// change ran.
 ///
@@ -640,34 +629,29 @@ mod tests {
     }
 
     #[test]
-    fn request_payload_variants_round_trip_and_expose_plan() {
-        let fleet = EdgeExecRequestPayload::Fleet {
-            plan: sample_plan(),
-        };
+    fn request_payload_round_trips_and_rejects_unknown_sources() {
         let agentic = EdgeExecRequestPayload::Agentic {
             plan: sample_plan(),
             validation_input: sample_input(),
             session_connection_id: Some("controller-1".into()),
             carrier_id: None,
         };
-        for payload in [fleet.clone(), agentic.clone()] {
-            let json = serde_json::to_string(&payload).expect("encode");
-            let back: EdgeExecRequestPayload = serde_json::from_str(&json).expect("decode");
-            assert_eq!(payload, back);
-            assert_eq!(back.plan(), &sample_plan());
-            assert_eq!(back.into_plan(), sample_plan());
-        }
-        // The tag distinguishes the two sources.
-        assert!(
-            serde_json::to_string(&fleet)
-                .unwrap()
-                .contains("\"source\":\"fleet\"")
-        );
+        let json = serde_json::to_string(&agentic).expect("encode");
+        let back: EdgeExecRequestPayload = serde_json::from_str(&json).expect("decode");
+        assert_eq!(agentic, back);
+        assert_eq!(back.plan(), &sample_plan());
+        assert_eq!(back.into_plan(), sample_plan());
         assert!(
             serde_json::to_string(&agentic)
                 .unwrap()
                 .contains("\"source\":\"agentic\"")
         );
+        // A removed source tag no longer decodes, so a bare plan cannot slip
+        // past the daemon's `validation_input` re-classification.
+        let mut removed: serde_json::Value = serde_json::from_str(&json).expect("value");
+        removed["source"] = serde_json::Value::from("fleet");
+        removed.as_object_mut().unwrap().remove("validation_input");
+        assert!(serde_json::from_value::<EdgeExecRequestPayload>(removed).is_err());
     }
 
     /// A command lost with its worker settles exactly like an unavailable

@@ -73,8 +73,8 @@ pub(super) async fn handle_inbound_signaling_text(
     // invalid request is answered with a synthesized denied result (so the
     // central pending entry resolves) rather than silently dropped.
     if parsed.signaling_type == SignalingType::ExecuteEdgePlan {
-        match gate_fleet_exec_frame(parsed, &expected_audience, &now) {
-            FleetExecGateOutcome::Pass(unwrapped, block) => {
+        match gate_edge_exec_frame(parsed, &expected_audience, &now) {
+            EdgeExecGateOutcome::Pass(unwrapped, block) => {
                 let effective_ctx = RouterContext {
                     inbound_authz: Some(block),
                     ..router_ctx.clone()
@@ -83,7 +83,7 @@ pub(super) async fn handle_inbound_signaling_text(
                     warn!("[Proxy] router handler failed for EdgeExecRequest: {e}");
                 }
             }
-            FleetExecGateOutcome::Denied { request_id, reason } => {
+            EdgeExecGateOutcome::Denied { request_id, reason } => {
                 warn!("[Proxy] EdgeExecRequest denied ({reason}); replying denied result");
                 signaling_router::send_edge_execution_completed(
                     &router_ctx.outbound_tx,
@@ -97,19 +97,19 @@ pub(super) async fn handle_inbound_signaling_text(
                     },
                 );
             }
-            FleetExecGateOutcome::Drop(reason) => {
+            EdgeExecGateOutcome::Drop(reason) => {
                 warn!("[Proxy] Dropping EdgeExecRequest: {reason}");
             }
         }
         return InboundOutcome::Continue;
     }
 
-    // `CollectRequest` / `RemoteToolRequest` carry an optional authorization
+    // `RemoteToolRequest` carries an optional authorization
     // wrapper: bare from the enterprise-manager path, wrapped from an OSS signal
     // central brain. Validate-and-unwrap when wrapped, pass through when bare.
     // The router handlers parse the inner payload either way, so unwrapping here
     // keeps them untouched.
-    if is_central_plumbing_frame(parsed.signaling_type) {
+    if parsed.signaling_type == SignalingType::InvokeRemoteTool {
         match gate_optional_central_wrapper(parsed, &expected_audience, &now) {
             AuthzGateOutcome::Pass(unwrapped, authz) => {
                 let effective_ctx;

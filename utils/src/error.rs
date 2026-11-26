@@ -116,37 +116,6 @@ desk_error_codes! {
     /// business-level outcome carried in the `RestResponse.code`, never an HTTP
     /// status code.
     REVISION_CONFLICT = 13,
-    /// A fleet (multi-device) request resolved to zero diagnosable targets after
-    /// applying the caller's policy visibility. Returned uniformly whether the
-    /// selector matched nothing or every match was policy-invisible, so it leaks
-    /// no information about devices the caller cannot see. Carried in
-    /// `RestResponse.code`, never an HTTP status.
-    NO_VISIBLE_TARGETS = 14,
-
-    // ---- Fleet batch execution (write path) ----
-    /// A batch approval no longer matches the previewed plan: the draft fingerprint
-    /// set, `preview_generation`, or one of the bound revisions
-    /// (policy / template / guardrail) drifted between preview and the approval /
-    /// execution attempt. The whole batch is stale and must be re-previewed; never
-    /// a partial silent drop. Carried in `RestResponse.code`, never an HTTP status.
-    FLEET_APPROVAL_STALE = 15,
-    /// A high-risk batch did not satisfy the guardrail (blast-radius cap exceeded,
-    /// or the required two-person review was not met). Carried in
-    /// `RestResponse.code`, never an HTTP status.
-    FLEET_HIGH_RISK_BLOCKED = 16,
-    /// A batch execution preview resolved to zero executable targets (every device
-    /// was not-executable / blocked / denied), so no execution task is created.
-    /// Carried in `RestResponse.code`, never an HTTP status.
-    FLEET_NOT_EXECUTABLE = 17,
-    /// An approve / execute action was attempted on a dry-run task, which has no
-    /// execution path by construction. Carried in `RestResponse.code`, never an
-    /// HTTP status.
-    FLEET_DRY_RUN_NOT_APPROVABLE = 18,
-    /// The approver lacks `shell.exec.confirmed` on at least one covered device, so
-    /// the whole approval fails (the approved set must equal exactly the previewed
-    /// draft set — never silently narrowed). Distinct from a stale approval.
-    /// Carried in `RestResponse.code`, never an HTTP status.
-    FLEET_APPROVAL_FORBIDDEN = 19,
     /// A device lookup in the owner-scoped personal API found no live device with
     /// the given id owned by the requesting user. Returned uniformly whether the
     /// device does not exist, was soft-deleted, or belongs to another owner, so a
@@ -276,7 +245,7 @@ desk_error_codes! {
     /// never an HTTP status.
     PLAN_IN_USE = 49,
 
-    /// The Terminal AI Agent is turned off for this deployment (the fleet-wide
+    /// The Terminal AI Agent is turned off for this deployment (the deployment-wide
     /// enable flag is unset), so a agent ask is refused. The control end maps
     /// this code to a localized message; the backend never sends a localized
     /// string. Rides the agent-error wire, not an HTTP status.
@@ -722,45 +691,6 @@ mod tests {
             DeskErrorCode::NOT_ALLOW_DELETE_FILE.code(),
         ];
         assert!(!others.contains(&DeskErrorCode::REVISION_CONFLICT.code()));
-    }
-
-    /// Lock the numeric wire value of `NO_VISIBLE_TARGETS`. The manager returns it
-    /// and the console branches on it, so the value is a contract.
-    #[test]
-    fn no_visible_targets_code_is_stable_and_distinct() {
-        assert_eq!(DeskErrorCode::NO_VISIBLE_TARGETS.code(), 14);
-        let others = [
-            DeskErrorCode::REVISION_CONFLICT.code(),
-            DeskErrorCode::PRECONDITION_FAILED.code(),
-            DeskErrorCode::FILE_PATH_NOT_FOUND.code(),
-            DeskErrorCode::CLIENT_ID_NOT_FOUND.code(),
-        ];
-        assert!(!others.contains(&DeskErrorCode::NO_VISIBLE_TARGETS.code()));
-    }
-
-    /// Lock the numeric wire values of the fleet batch-execution codes. The
-    /// manager returns them and the console branches on each, so the values are a
-    /// contract; they must also be mutually distinct.
-    #[test]
-    fn fleet_exec_codes_are_stable_and_distinct() {
-        assert_eq!(DeskErrorCode::FLEET_APPROVAL_STALE.code(), 15);
-        assert_eq!(DeskErrorCode::FLEET_HIGH_RISK_BLOCKED.code(), 16);
-        assert_eq!(DeskErrorCode::FLEET_NOT_EXECUTABLE.code(), 17);
-        assert_eq!(DeskErrorCode::FLEET_DRY_RUN_NOT_APPROVABLE.code(), 18);
-        assert_eq!(DeskErrorCode::FLEET_APPROVAL_FORBIDDEN.code(), 19);
-        let codes = [
-            DeskErrorCode::FLEET_APPROVAL_STALE.code(),
-            DeskErrorCode::FLEET_HIGH_RISK_BLOCKED.code(),
-            DeskErrorCode::FLEET_NOT_EXECUTABLE.code(),
-            DeskErrorCode::FLEET_DRY_RUN_NOT_APPROVABLE.code(),
-            DeskErrorCode::FLEET_APPROVAL_FORBIDDEN.code(),
-        ];
-        let mut sorted = codes.to_vec();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), codes.len(), "fleet codes must be distinct");
-        // Distinct from the adjacent NO_VISIBLE_TARGETS contract value.
-        assert!(!codes.contains(&DeskErrorCode::NO_VISIBLE_TARGETS.code()));
     }
 
     /// Lock the numeric wire values of the login/registration anti-abuse codes.

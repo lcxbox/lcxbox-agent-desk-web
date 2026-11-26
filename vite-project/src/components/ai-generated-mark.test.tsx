@@ -39,7 +39,7 @@ describe("AiGeneratedMark", () => {
     });
 
     it("falls back to the generic tooltip when the model is unknown", () => {
-        // The fleet rollup does not persist a model name; the mark must still render
+        // Some provenance records carry no model name; the mark must still render
         // with the generic label rather than a blank model tooltip.
         render(
             <AiGeneratedMark

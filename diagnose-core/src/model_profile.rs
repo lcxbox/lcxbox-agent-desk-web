@@ -162,7 +162,6 @@ pub enum ModelUseCase {
     Approval,
     Agent,
     Completion,
-    FleetNaturalLanguage,
     /// Inline portable checkpoint-summary compressor.
     ContextCompression,
     /// Independent validation, reconstruction and relation checks for memory.

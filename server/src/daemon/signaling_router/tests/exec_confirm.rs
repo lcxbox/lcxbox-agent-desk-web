@@ -81,7 +81,7 @@ pub(super) fn read_preview(rx: &mut broadcast::Receiver<String>) -> ExecPreview 
         .expect("ExecPreview payload")
 }
 
-// ====== Fleet policy injection (manager-link authorization) ======
+// ====== Central policy injection (manager-link authorization) ======
 
 use desk_agent_protocol::authz::{
     AUTHORIZATION_BLOCK_VERSION, AuthorizationBlock, AuthzActor, AuthzDevice,
@@ -550,7 +550,7 @@ pub(super) async fn owner_interactive_cannot_bypass_readonly_mode_or_blocklist()
     assert_eq!(blocked.risk, desk_agent_protocol::RiskLevel::Blocked);
 }
 
-// ====== Fleet exec PEP + dispatch ======
+// ====== Edge exec PEP + dispatch ======
 
 /// Snapshot roots are derived by the trusted central for AI commands only. A
 /// control end that supplies them gets a non-executable preview and nothing

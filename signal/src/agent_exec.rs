@@ -1483,7 +1483,7 @@ impl SignalEdgeExecObserver {
 }
 
 impl EdgeExecObserver for SignalEdgeExecObserver {
-    fn on_fleet_exec_result<'a>(
+    fn on_edge_exec_result<'a>(
         &'a self,
         source: &'a ConnectionState,
         model: &'a SignalingModel,
@@ -1745,5 +1745,106 @@ mod tests {
             }
         ));
         assert_eq!(next.await.unwrap().state, ExecState::Running);
+    }
+
+    /// A result frame whose envelope id differs from its payload id is dropped at
+    /// the shared facade receive branch, so it cannot settle the payload's
+    /// pending attempt; the matching frame then completes it.
+    #[actix_web::test]
+    async fn facade_drops_an_edge_result_whose_frame_and_payload_ids_disagree() {
+        use actix_web::{FromRequest, test::TestRequest, web};
+        use desk_server_user::model::CurrentUser;
+        use desk_signal_facade::model::{
+            auth_context::AuthContext, peer::PeerQuery, signal::RemoteDeskTypeEnum,
+            version::VersionInfo,
+        };
+        use desk_signal_facade::service::{CredentialPolicy, SignalingHandler};
+
+        let db = crate::config::test_support::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::initialize_schema(&db).await.unwrap();
+        let req = TestRequest::get()
+            .insert_header(("upgrade", "websocket"))
+            .insert_header(("connection", "upgrade"))
+            .insert_header(("sec-websocket-version", "13"))
+            .insert_header(("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ=="))
+            .to_http_request();
+        let payload = web::Payload::from_request(&req, &mut actix_web::dev::Payload::None)
+            .await
+            .unwrap();
+        let (_response, session, _) = actix_ws::handle(&req, payload).unwrap();
+        let query: PeerQuery = serde_urlencoded::from_str(
+            "remote_desk_type=server&client_id=edge-client&available_exec_shells=&exec_pty=false&exec_pty_elevation=false&max_ai_command_runtime_ms=60000&ai_agent_revision=0&ai_agent_enabled=false",
+        )
+        .unwrap();
+        let peer = query
+            .into_peer(
+                Some(VersionInfo {
+                    api_version: 1,
+                    build_number: 1,
+                    commit_hash: String::new(),
+                    debug_build: false,
+                }),
+                RemoteDeskTypeEnum::Server,
+                None,
+            )
+            .unwrap();
+        let pending = Arc::new(SignalAgentExecPending::new());
+        let mut handler = SignalingHandler::init(
+            "edge-a".into(),
+            peer,
+            web::Data::new(SharedConnectionMap::new_oss()),
+            session,
+            CurrentUser::new_admin("fixture"),
+            None,
+            None,
+            None,
+            AuthContext::token_auth(1, 1, RemoteDeskTypeEnum::Server),
+            CredentialPolicy::Plain,
+            1,
+            None,
+        )
+        .await
+        .unwrap()
+        .with_edge_exec_observer(Arc::new(SignalEdgeExecObserver::new(pending.clone(), db)));
+
+        let mut rx = pending
+            .register_result("g1".into(), "edge-a".into())
+            .unwrap();
+        let result = EdgeExecResultPayload {
+            request_id: "g1".into(),
+            disposition: EdgeExecDisposition::RejectedBeforeDispatch {
+                error: EdgeExecDisposition::safe_error(
+                    AgentErrorKind::PermissionDenied,
+                    "test",
+                    false,
+                ),
+            },
+        };
+        let frame = |request_id: &str| {
+            serde_json::to_string(&SignalingModel::new(
+                request_id,
+                SignalingType::EdgeExecutionCompleted,
+                None,
+                None,
+                Some(serde_json::to_value(&result).unwrap()),
+                None,
+            ))
+            .unwrap()
+        };
+
+        handler.handle_message(frame("other").into()).await.unwrap();
+        assert!(matches!(
+            rx.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        assert!(pending.results.lock().unwrap().contains_key("g1"));
+
+        handler.handle_message(frame("g1").into()).await.unwrap();
+        assert!(matches!(
+            rx.await.unwrap(),
+            EdgeExecDisposition::RejectedBeforeDispatch { .. }
+        ));
     }
 }

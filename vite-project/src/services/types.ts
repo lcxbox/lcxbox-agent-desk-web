@@ -6749,7 +6749,7 @@ export type CapabilityGrantRevokeBody = {
 };
 
 /**
- * @description Persisted edge collection policy. Mirrors the runtime\n[`desk_diagnose_core::selection::CollectionPolicy`] gate, read live at\ncollection time.
+ * @description Persisted edge collection policy, read live by the remote read gate\n(`agent_adapter::remote_read`) at collection time.
 */
 export type CollectionPolicySettings = {
     /**
@@ -7400,12 +7400,6 @@ export const deskErrorCodeEnum = {
     FILE_PATH_NOT_FOUND: 11,
     CLIENT_ID_NOT_FOUND: 12,
     REVISION_CONFLICT: 13,
-    NO_VISIBLE_TARGETS: 14,
-    FLEET_APPROVAL_STALE: 15,
-    FLEET_HIGH_RISK_BLOCKED: 16,
-    FLEET_NOT_EXECUTABLE: 17,
-    FLEET_DRY_RUN_NOT_APPROVABLE: 18,
-    FLEET_APPROVAL_FORBIDDEN: 19,
     DEVICE_NOT_FOUND: 20,
     NOT_ALLOW_DELETE_FILE: 21,
     FILE_CHANGED: 22,
@@ -14324,7 +14318,7 @@ export type RestResponseCollectionPolicySettings = {
     */
     code: number;
     /**
-     * @description Persisted edge collection policy. Mirrors the runtime\n[`desk_diagnose_core::selection::CollectionPolicy`] gate, read live at\ncollection time.
+     * @description Persisted edge collection policy, read live by the remote read gate\n(`agent_adapter::remote_read`) at collection time.
      * @type object | undefined
     */
     data?: {

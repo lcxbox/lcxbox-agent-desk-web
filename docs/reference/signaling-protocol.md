@@ -23,7 +23,7 @@ See the [Module Map](/reference/modules#adding-a-new-signaling-type) for the cro
 
 ## Connection discovery
 
-`GET /api/desk/connections` returns the same `RestResponse` envelope on OSS and Manager: successful discovery has `success: true` and `data: []` for an empty list. A failed read has `success: false` and must not be displayed as an offline device or an empty fleet. Manager reports shared-store unavailability with code `109` and corrupt records or database failures with code `1`. The WebSocket `FetchConnections` operation returns a correlated `ConnectionsFetched` on both success and failure; clients check `response_state` before decoding the list.
+`GET /api/desk/connections` returns the same `RestResponse` envelope on OSS and Manager: successful discovery has `success: true` and `data: []` for an empty list. A failed read has `success: false` and must not be displayed as an offline device or an empty device list. Manager reports shared-store unavailability with code `109` and corrupt records or database failures with code `1`. The WebSocket `FetchConnections` operation returns a correlated `ConnectionsFetched` on both success and failure; clients check `response_state` before decoding the list.
 
 ## Peer reports
 

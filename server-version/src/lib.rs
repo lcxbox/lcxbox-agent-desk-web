@@ -6,7 +6,7 @@
 pub const SERVER_API_VERSION: i32 = 1;
 
 /// The minimum [`SERVER_API_VERSION`] a desk server must report for the manager to
-/// dispatch an edge execution (fleet **or** agentic) to it. The manager checks the
+/// dispatch an agentic edge execution to it. The manager checks the
 /// target connection's reported `api_version` against this floor **before** sending,
 /// so an unversioned server is terminated as `unsupported` rather than sent a
 /// confirmed-execution payload.

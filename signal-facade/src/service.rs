@@ -193,7 +193,7 @@ pub struct SignalingHandler<U: SignalingUser> {
     pub user: U,
     pub turn: Option<Arc<dyn TurnProvider>>,
     pub credential_policy: CredentialPolicy,
-    /// Fleet policy decision point for the control-end AI frames. `Some` only in
+    /// Central policy decision point for the control-end AI frames. `Some` only in
     /// the manager (which wraps the frames with an authorization decision);
     /// `None` in the signal server, where the frames relay unwrapped.
     pub control_authorizer: Option<Arc<dyn ControlFrameAuthorizer>>,
@@ -212,8 +212,6 @@ pub struct SignalingHandler<U: SignalingUser> {
     /// in the manager (which persists them); `None` elsewhere, where they are
     /// ignored.
     pub audit_observer: Option<Arc<dyn AuditObserver>>,
-    /// Enterprise fleet evidence response consumer.
-    pub collect_observer: Option<Arc<dyn CollectObserver>>,
     /// Central-agent execution result consumer for inbound `EdgeExecResult`
     /// frames. Manager feeds its distributed execution ledger; OSS Signal feeds
     /// its single-node SQLite task ledger.
@@ -470,7 +468,6 @@ impl<U: SignalingUser> SignalingHandler<U> {
             request_remote_authorizer: None,
             owner_plane_authorizer: None,
             audit_observer: None,
-            collect_observer: None,
             edge_exec_observer: None,
             binary_frame_observer: None,
             exec_state_reply_observer: None,
@@ -487,7 +484,7 @@ impl<U: SignalingUser> SignalingHandler<U> {
         })
     }
 
-    /// Attach a fleet control-frame authorizer (the manager PDP). The signal
+    /// Attach a central control-frame authorizer (the manager PDP). The signal
     /// server never calls this, leaving AI frames relayed unwrapped.
     pub fn with_control_authorizer(mut self, authorizer: Arc<dyn ControlFrameAuthorizer>) -> Self {
         self.control_authorizer = Some(authorizer);
@@ -523,14 +520,8 @@ impl<U: SignalingUser> SignalingHandler<U> {
         self
     }
 
-    pub fn with_collect_observer(mut self, observer: Arc<dyn CollectObserver>) -> Self {
-        self.collect_observer = Some(observer);
-        self
-    }
-
-    /// Attach a fleet-execution result consumer (the manager execution pending
-    /// store). The signal server never calls this, so inbound `EdgeExecResult`
-    /// frames are ignored there.
+    /// Attach a central-agent execution result consumer (the host's execution
+    /// pending store). Without one, inbound `EdgeExecResult` frames are ignored.
     pub fn with_edge_exec_observer(mut self, observer: Arc<dyn EdgeExecObserver>) -> Self {
         self.edge_exec_observer = Some(observer);
         self
@@ -1300,7 +1291,7 @@ impl<U: SignalingUser> SignalingHandler<U> {
             }
 
             // AI control-end → host request frames. In the manager these pass
-            // through the fleet policy decision point, which authorizes and
+            // through the central policy decision point, which authorizes and
             // wraps them in an `AuthorizedControlPayload`; in the signal server
             // (no authorizer) they relay unwrapped, exactly like before.
             //
@@ -1381,27 +1372,14 @@ impl<U: SignalingUser> SignalingHandler<U> {
                     self.connection_state.model.connection_id
                 );
             }
-            SignalingType::CollectEvidence => {
-                log::warn!(
-                    "Received fleet evidence request from client {}, ignoring",
-                    self.connection_state.model.connection_id
-                );
-            }
-            SignalingType::EvidenceCollectionUpdated => {
-                if let Some(observer) = self.collect_observer.clone() {
-                    observer
-                        .on_collect_response(&self.connection_state, &signaling_model)
-                        .await;
-                }
-            }
             SignalingType::ExecuteEdgePlan => {
-                // Manager → daemon only, originated server-side and written
-                // directly to the desk-server's session (the manager is the PDP).
+                // Central host → daemon only, originated server-side and written
+                // directly to the desk-server's session (the central host is the PDP).
                 // A client sending it inbound to the signaling server is a
                 // protocol error; swallow it so a control end cannot forge a
                 // sealed execution plan.
                 log::warn!(
-                    "Received fleet-exec request from client {}, ignoring",
+                    "Received edge-exec request from client {}, ignoring",
                     self.connection_state.model.connection_id
                 );
             }
@@ -1426,14 +1404,28 @@ impl<U: SignalingUser> SignalingHandler<U> {
                 }
             }
             SignalingType::EdgeExecutionCompleted => {
-                // Desk-server daemon → manager only. Consumed by the manager
+                // Desk-server daemon → central host only. Consumed by the central
                 // execution pending store; never relayed to a peer (it must not
                 // re-enter the control-end broadcast lane). Ignored where no
-                // execution consumer is attached (the signal server).
+                // execution consumer is attached. The daemon writes the same
+                // per-attempt id into the frame and the payload; a frame whose
+                // ids disagree is dropped before it can settle a pending attempt.
                 if let Some(observer) = self.edge_exec_observer.clone() {
-                    observer
-                        .on_fleet_exec_result(&self.connection_state, &signaling_model)
-                        .await;
+                    let payload_request_id = signaling_model
+                        .get_raw_data()
+                        .as_ref()
+                        .and_then(|data| data.get("request_id"))
+                        .and_then(serde_json::Value::as_str);
+                    if payload_request_id == Some(signaling_model.request_id.as_str()) {
+                        observer
+                            .on_edge_exec_result(&self.connection_state, &signaling_model)
+                            .await;
+                    } else {
+                        log::warn!(
+                            "Dropping edge-exec result from client {}: frame request_id does not match its payload",
+                            self.connection_state.model.connection_id
+                        );
+                    }
                 }
             }
             SignalingType::Error => {

@@ -15,7 +15,7 @@
 //! Two consumers share it:
 //!   - the always-on manager upstream and the on-demand support upstream tear the
 //!     current WebSocket down the moment this flips to `false`;
-//!   - the fleet audit sink skips its best-effort manager report (and stays purely
+//!   - the remote audit sink skips its best-effort manager report (and stays purely
 //!     local) whenever this is `false`, so a host with the manager link disabled
 //!     does not emit audit frames onto the outbound lane.
 //!

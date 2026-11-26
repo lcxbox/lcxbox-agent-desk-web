@@ -788,8 +788,8 @@ async fn central_cancel_uses_original_worker_without_browser_connection() {
     let (ctx, mut rx) = make_ctx_with_rx().await;
     let (tx, mut worker) = tokio::sync::mpsc::unbounded_channel();
     ctx.worker_mgr.install_active_for_test(tx).await;
-    let plan = super::exec_edge::fleet_plan(&super::exec_edge::fleet_template(), "gen-1");
-    super::super::edge_exec::dispatch_fleet_exec_plan(&ctx, "gen-1", plan, None, None, None).await;
+    let plan = super::exec_edge::operator_plan(&super::exec_edge::operator_template(), "gen-1");
+    super::super::edge_exec::dispatch_edge_exec_plan(&ctx, "gen-1", plan, None, None, None).await;
     assert!(matches!(
         worker.try_recv().unwrap(),
         ServiceToWorker::ExecPlan(_)
@@ -861,16 +861,9 @@ async fn redelivered_execution_does_not_erase_original_stop_binding_or_capacity(
     let (ctx, _rx) = make_ctx_with_rx().await;
     let (tx, mut worker) = tokio::sync::mpsc::unbounded_channel();
     ctx.worker_mgr.install_active_for_test(tx).await;
-    let plan = super::exec_edge::fleet_plan(&super::exec_edge::fleet_template(), "gen-1");
-    super::super::edge_exec::dispatch_fleet_exec_plan(
-        &ctx,
-        "gen-1",
-        plan.clone(),
-        None,
-        None,
-        None,
-    )
-    .await;
+    let plan = super::exec_edge::operator_plan(&super::exec_edge::operator_template(), "gen-1");
+    super::super::edge_exec::dispatch_edge_exec_plan(&ctx, "gen-1", plan.clone(), None, None, None)
+        .await;
     assert!(matches!(
         worker.try_recv().unwrap(),
         ServiceToWorker::ExecPlan(_)

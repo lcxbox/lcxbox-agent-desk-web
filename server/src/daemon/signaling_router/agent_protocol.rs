@@ -109,7 +109,7 @@ pub(super) fn authorize(capability: Capability, granted: &[Capability]) -> bool 
 /// structurally cannot express it — `AgentRequestData` carries no actor
 /// field). The single-machine path has no session identity plumbed into the
 /// router, so the local operator is represented as a `System` actor;
-/// fleet / authenticated paths will inject the real principal here.
+/// authenticated paths will inject the real principal here.
 pub(super) fn server_actor() -> ActorRef {
     ActorRef {
         actor_type: ActorType::System,

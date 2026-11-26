@@ -32,6 +32,13 @@ pub const LATENCY_BUCKETS_MS: [u64; 14] = [
 ];
 
 macro_rules! closed_enum {
+    ($name:ident { #[default] $default:ident $(, $variant:ident)* $(,)? }) => {
+        #[derive(
+            Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+        )]
+        #[serde(rename_all = "snake_case")]
+        pub enum $name { #[default] $default $(, $variant)* }
+    };
     ($name:ident { $($variant:ident),+ $(,)? }) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
         #[serde(rename_all = "snake_case")]
@@ -64,7 +71,6 @@ closed_enum!(Surface {
     Agent,
     Diagnose,
     Terminal,
-    Fleet,
     Support,
     Safety,
     Probe,
@@ -78,7 +84,6 @@ closed_enum!(Purpose {
     ConversationTitle,
     Safety,
     Probe,
-    FleetNaturalLanguage,
     Support
 });
 closed_enum!(Origin {
@@ -243,6 +248,7 @@ closed_enum!(RuntimeCategory {
     BusinessProcessing
 });
 closed_enum!(ObjectKind {
+    #[default]
     Call,
     Attempt,
     Tool,
@@ -250,12 +256,6 @@ closed_enum!(ObjectKind {
     Runtime,
     Approval
 });
-
-impl Default for ObjectKind {
-    fn default() -> Self {
-        Self::Call
-    }
-}
 
 impl From<ModelUseCase> for Purpose {
     fn from(value: ModelUseCase) -> Self {
@@ -265,7 +265,6 @@ impl From<ModelUseCase> for Purpose {
             ModelUseCase::Approval => Self::Approval,
             ModelUseCase::Agent => Self::Agent,
             ModelUseCase::Completion => Self::Completion,
-            ModelUseCase::FleetNaturalLanguage => Self::FleetNaturalLanguage,
             ModelUseCase::ContextCompression => Self::ContextCompression,
             ModelUseCase::ConversationTitle => Self::ConversationTitle,
         }

@@ -24,7 +24,7 @@ pub(super) enum ProxyConnectionOutcome {
     /// on a slow bounded lane; it must not park forever or reissue the token.
     CredentialSuspended { error_code: i32, message: String },
     /// The host-local credential lease expired. Use a wider first-redial jitter
-    /// so a shared backend outage cannot synchronize a fleet onto handshakes.
+    /// so a shared backend outage cannot synchronize many hosts onto handshakes.
     CredentialExpired,
 }
 

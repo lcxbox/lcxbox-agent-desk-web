@@ -15,9 +15,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// Persisted edge collection policy. Mirrors the runtime
-/// [`desk_diagnose_core::selection::CollectionPolicy`] gate, read live at
-/// collection time.
+/// Persisted edge collection policy, read live by the remote read gate
+/// (`agent_adapter::remote_read`) at collection time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
 pub struct CollectionPolicySettings {

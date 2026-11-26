@@ -141,10 +141,6 @@ pub enum RuntimeDefinition {
     CompressionStarted,
     #[serde(rename = "compression_succeeded")]
     CompressionSucceeded,
-    #[serde(rename = "content_safety_fleet_global_queue_full")]
-    ContentSafetyFleetGlobalQueueFull,
-    #[serde(rename = "content_safety_fleet_org_rate_limited")]
-    ContentSafetyFleetOrgRateLimited,
     #[serde(rename = "content_safety_global_queue_full")]
     ContentSafetyGlobalQueueFull,
     #[serde(rename = "content_safety_interactive_admission_timeout")]
@@ -227,12 +223,6 @@ pub enum RuntimeDefinition {
     SafetyDisabled,
     #[serde(rename = "safety_failure")]
     SafetyFailure,
-    #[serde(rename = "safety_fleet_global_admission_wait_ms")]
-    SafetyFleetGlobalAdmissionWaitMs,
-    #[serde(rename = "safety_fleet_global_queue_depth")]
-    SafetyFleetGlobalQueueDepth,
-    #[serde(rename = "safety_fleet_global_queue_full")]
-    SafetyFleetGlobalQueueFull,
     #[serde(rename = "safety_global_admission_wait_ms")]
     SafetyGlobalAdmissionWaitMs,
     #[serde(rename = "safety_global_queue_depth")]
@@ -330,8 +320,6 @@ impl RuntimeDefinition {
             Self::CompressionFailed => RuntimeCategory::Compression,
             Self::CompressionStarted => RuntimeCategory::Compression,
             Self::CompressionSucceeded => RuntimeCategory::Compression,
-            Self::ContentSafetyFleetGlobalQueueFull => RuntimeCategory::Safety,
-            Self::ContentSafetyFleetOrgRateLimited => RuntimeCategory::Safety,
             Self::ContentSafetyGlobalQueueFull => RuntimeCategory::Safety,
             Self::ContentSafetyInteractiveAdmissionTimeout => RuntimeCategory::Safety,
             Self::ContentSafetyPartialReleaseTimeout => RuntimeCategory::Safety,
@@ -373,9 +361,6 @@ impl RuntimeDefinition {
             Self::SafetyDecision => RuntimeCategory::Safety,
             Self::SafetyDisabled => RuntimeCategory::Safety,
             Self::SafetyFailure => RuntimeCategory::Safety,
-            Self::SafetyFleetGlobalAdmissionWaitMs => RuntimeCategory::Admission,
-            Self::SafetyFleetGlobalQueueDepth => RuntimeCategory::Admission,
-            Self::SafetyFleetGlobalQueueFull => RuntimeCategory::Admission,
             Self::SafetyGlobalAdmissionWaitMs => RuntimeCategory::Admission,
             Self::SafetyGlobalQueueDepth => RuntimeCategory::Admission,
             Self::SafetyGlobalQueueFull => RuntimeCategory::Admission,

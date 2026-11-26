@@ -19,7 +19,7 @@ use crate::daemon::manager_link_gate::ManagerLinkGate;
 /// greppable; the raw artifact never appears (see module docs).
 pub struct LogAuditSink;
 
-/// Fleet-mode audit sink: logs locally **and**, when the manager link should be
+/// Manager-linked audit sink: logs locally **and**, when the manager link should be
 /// connected, reports each event to the manager as an `AiAuditEvent(608)`
 /// signaling frame over the outbound lane, where the manager observer persists it
 /// into `ai_audit_event`. The manager is the only consumer — the signal server
@@ -50,7 +50,7 @@ impl RemoteAuditSink {
 #[async_trait::async_trait]
 impl AuditSink for RemoteAuditSink {
     async fn record(&self, event: AuditEvent) {
-        // Keep the local greppable line too, so a fleet host's log still shows
+        // Keep the local greppable line too, so a manager-linked host's log still shows
         // its audit trail even if the manager link is momentarily down.
         log::info!("{}", format_audit_line(&event));
         // Stay purely local when the manager link should not be connected, so a

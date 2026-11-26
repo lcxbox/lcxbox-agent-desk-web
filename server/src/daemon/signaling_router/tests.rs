@@ -90,7 +90,6 @@ async fn make_ctx() -> RouterContext {
         physical_display: Arc::new(
             crate::daemon::physical_display::PhysicalDisplaySupervisor::new(),
         ),
-        diagnose_orchestrator: None,
         remote_read: None,
         exec_supported: false,
         exec_approvals: Arc::new(crate::daemon::exec_approval::PendingApprovalStore::new()),

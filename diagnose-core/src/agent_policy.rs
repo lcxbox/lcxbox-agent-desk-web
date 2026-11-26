@@ -1,6 +1,6 @@
 //! Compiled personal-owner Agent policy shared by OSS and Manager.
 //!
-//! This is not the organization/fleet policy counter or a grant schema version.
+//! This is not the organization policy counter or a grant schema version.
 //! Bump it when the compiled personal Agent authorization contract changes.
 //! A new user turn may adopt it; old grants, decisions and action receipts must
 //! retain their original authority. Runtime readiness and revocation are still

@@ -146,7 +146,7 @@ pub struct ConnectionState {
     pub device_code: Option<String>,
     /// Server-resolved authentication identity for this connection. Filled from
     /// validated token/session state at connection setup; never from
-    /// client-supplied fields. Used by fleet authorization and audit attribution.
+    /// client-supplied fields. Used by central authorization and audit attribution.
     pub auth_context: crate::model::auth_context::AuthContext,
 }
 

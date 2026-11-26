@@ -185,7 +185,7 @@ pub(super) async fn handle_confirm_exec_inbound(
     // Classify against the built-in baseline unioned with the operator
     // templates synced from the manager (empty on single-machine links), using
     // the effective blocklist (built-in floor on single-machine / unsynced links,
-    // the manager's built-in-minus-disabled ∪ custom set on a fleet link).
+    // the manager's built-in-minus-disabled ∪ custom set on a manager link).
     let operator_templates = ctx.command_templates.snapshot();
     let effective_blocklist = ctx.command_blocklist.snapshot();
     let admission_policy = ctx
@@ -201,7 +201,7 @@ pub(super) async fn handle_confirm_exec_inbound(
     );
     let classification = outcome.classification;
 
-    // Fleet PDP risk ceiling (manager link): refuse a command whose classified
+    // Central PDP risk ceiling (manager link): refuse a command whose classified
     // risk exceeds the policy's `max_risk`, regardless of execution mode.
     if let Some(authz) = &ctx.inbound_authz
         && classification.risk > authz.max_risk
@@ -231,7 +231,7 @@ pub(super) async fn handle_confirm_exec_inbound(
         return Ok(());
     }
 
-    // Fleet PDP capability gate (manager link): the command's required exec
+    // Central PDP capability gate (manager link): the command's required exec
     // capability — the `shell.exec.readonly` vs `shell.exec.confirmed` split
     // decided by the server-side classification — must be in the policy-granted
     // scope. This mirrors the InvokeAgentCapability read path: a policy that grants only
@@ -1076,7 +1076,6 @@ pub(crate) fn send_edge_execution_completed(
 
 /// Whether the sealed plan's own render matches the [`ExecPlanDraft`] a validator
 /// authoritatively reconstructed, including its I/O mode and snapshot roots.
-/// Shared by the fleet and agentic PEP paths.
 pub(super) fn plan_matches_draft(
     plan: &ExecPlan,
     expected: &desk_agent_protocol::exec::ExecPlanDraft,
@@ -1086,8 +1085,8 @@ pub(super) fn plan_matches_draft(
 
 /// Source-agnostic PEP checks that every sealed [`ExecPlan`] must pass regardless
 /// of how it was rendered: the effective blocklist over the full argv, and the
-/// `risk <= max_risk` ceiling. The template-reproduction check differs by source
-/// and lives in the per-source validators.
+/// `risk <= max_risk` ceiling. The plan-reproduction check lives in
+/// [`validate_agentic_edge_exec`].
 pub(super) fn pep_common_checks(
     plan: &ExecPlan,
     max_risk: desk_agent_protocol::RiskLevel,
@@ -1122,7 +1121,7 @@ pub(super) fn pep_policy_checks(
     }
     // The blocklist operates over the full argv (program is `argv[0]`), matched
     // against the effective set (built-in floor on an unsynced link, the manager's
-    // built-in-minus-disabled ∪ custom set on a fleet link) — never a second
+    // built-in-minus-disabled ∪ custom set on a manager link) — never a second
     // compiled-in pass, so an admin-disabled rule is genuinely gone here too.
     let lc = full_argv.join(" ").to_ascii_lowercase();
     if let Some(rule) = desk_agent_protocol::command_blocklist::blocklist_match(blocklist, &lc) {
@@ -1140,68 +1139,6 @@ pub(super) fn pep_policy_checks(
     None
 }
 
-/// Re-validate a trusted-central-sealed **fleet** [`ExecPlan`] against this daemon's
-/// own view (defense in depth — the central draft is never trusted). Returns the
-/// model-safe rejection reason on the first failure, or `None` when the plan
-/// passes. Order: common checks (blocklist, risk ceiling) → exact-argv whitelist
-/// + fingerprint.
-///
-/// Fleet exec has no per-request limit input, so the authoritative render is
-/// always the fixed fleet defaults with no cwd (identical to the sealing side in
-/// `fleet_approval::verify_template_unchanged`). The plan's own `cwd` /
-/// `timeout_ms` / output caps are therefore compared *against those authoritative
-/// values* — never fed back into the expected render. If the render used the
-/// plan's own limits, a tampered limit would be hashed into both sides and the
-/// fingerprint would still agree (self-consistent tamper); rebuilding from the
-/// fixed authority is what makes a widened timeout / output cap detectable. A
-/// `template_id` is unique only per-org, so several synced **operator** templates
-/// can share it; try every candidate and accept if any one reproduces the plan
-/// exactly. This path never consults the built-in templates — a fleet plan must
-/// come from an operator template.
-pub(super) fn validate_fleet_edge_exec(
-    plan: &ExecPlan,
-    max_risk: desk_agent_protocol::RiskLevel,
-    templates: &[desk_agent_protocol::command_template::SyncedCommandTemplate],
-    blocklist: &[desk_agent_protocol::command_blocklist::BlocklistRule],
-) -> Option<String> {
-    if plan.execution_basis != desk_agent_protocol::exec::ExecExecutionBasis::Template {
-        return Some("pep_rejected:fleet_requires_template_basis".to_string());
-    }
-    if let Some(reason) = pep_common_checks(plan, max_risk, blocklist) {
-        return Some(reason);
-    }
-
-    let mut saw_candidate = false;
-    let mut faithful = false;
-    for template in templates
-        .iter()
-        .filter(|t| t.template_id == plan.template_id)
-    {
-        saw_candidate = true;
-        let expected = desk_agent_protocol::exec_policy::build_exact_argv_draft_with_io_mode(
-            template,
-            None,
-            DEFAULT_OUTPUT_BYTES,
-            DEFAULT_OUTPUT_BYTES,
-            None,
-            desk_agent_protocol::exec::ExecIoMode::NonInteractive,
-        );
-        if plan_matches_draft(plan, &expected) {
-            faithful = true;
-            break;
-        }
-    }
-    if !faithful {
-        return Some(if saw_candidate {
-            "pep_rejected:template_drift".to_string()
-        } else {
-            "pep_rejected:template_not_in_allowlist".to_string()
-        });
-    }
-
-    None
-}
-
 /// Re-validate a trusted-central-sealed **agentic** [`ExecPlan`] by re-running the
 /// shared command classifier over the daemon-only `validation_input` envelope.
 /// Returns the model-safe rejection reason on the first failure, or `None` when
@@ -1210,9 +1147,7 @@ pub(super) fn validate_fleet_edge_exec(
 ///
 /// The agentic plan was sealed at the trusted central from a per-turn classification of
 /// this exact input (built-in **or** operator template, clamped per-turn limits +
-/// the input's cwd), which the fixed fleet render cannot reproduce. So instead of
-/// re-rendering a template with fleet defaults, the daemon feeds `validation_input`
-/// back through the policy-aware classifier with its own operator snapshot and
+/// the input's cwd). The daemon feeds `validation_input` back through the policy-aware classifier with its own operator snapshot and
 /// effective blocklist — the same function and tables the central used — and
 /// requires the result to be `ConfirmRequired` with a draft that reproduces the
 /// sealed plan field-for-field. This naturally covers templates and the explicit

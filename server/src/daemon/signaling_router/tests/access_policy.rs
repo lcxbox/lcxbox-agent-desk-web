@@ -43,7 +43,7 @@ pub(super) fn classify_daemon_owned_types() {
         SignalingType::Unknown,
         // AgentCapabilityCompleted only flows worker → control end.
         SignalingType::AgentCapabilityCompleted,
-        // Fleet exec: request handled inline (PEP + dispatch); result is
+        // Edge exec: request handled inline (PEP + dispatch); result is
         // daemon-emitted toward the manager.
         SignalingType::ExecuteEdgePlan,
         SignalingType::EdgeExecutionCompleted,
@@ -164,7 +164,6 @@ pub(super) fn capped_session_permits_matrix_over_all_signaling_types() {
         PreviewExecution,
         ResolveExecution,
         AskTerminalAiAgent,
-        CollectEvidence,
         ExecuteEdgePlan,
         InvokeRemoteTool,
     ] {

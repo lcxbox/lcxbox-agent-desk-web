@@ -295,28 +295,24 @@ pub enum SignalingType {
     /// (`response_state = None`).
     #[wincode(tag = 610)]
     SyncCommandTemplates = 610,
-    /// Fleet evidence collection request (manager → desk-server daemon only).
-    #[wincode(tag = 611)]
-    CollectEvidence = 611,
-    /// Fleet evidence collection response (desk-server daemon → manager only).
-    #[wincode(tag = 612)]
-    EvidenceCollectionUpdated = 612,
-    /// Fleet batch-execution request (manager → desk-server daemon only).
-    /// Carries `AuthorizedControlPayload<desk_agent_protocol::exec::ExecPlan>` —
-    /// a manager-sealed, approved execution plan plus the
+    /// Central edge-execution request (central signaling → desk-server daemon
+    /// only). Carries
+    /// `AuthorizedControlPayload<desk_agent_protocol::edge_exec::EdgeExecRequestPayload>`
+    /// — a centrally sealed, approved agent execution plan plus the
     /// `desk_agent_protocol::authz::AuthorizationBlock` that scopes it (max_risk,
     /// actor/device, per-attempt request_id binding, audience, and expiry). The
     /// daemon re-validates (PEP) before handing the argv to the worker. Accepted
-    /// only from the trusted manager link (the inbound source gate drops it from
+    /// only from a trusted central link (the inbound source gate drops it from
     /// any other source); a client sending it inbound to the signaling server is
     /// a protocol error and is swallowed. Notification-style
     /// (`response_state = None`).
     #[wincode(tag = 613)]
     ExecuteEdgePlan = 613,
-    /// Fleet batch-execution result (desk-server daemon → manager only). Carries
+    /// Central edge-execution result (desk-server daemon → central signaling
+    /// only). Carries
     /// `desk_agent_protocol::edge_exec::EdgeExecResultPayload` (the per-attempt
     /// `request_id` + a structured `EdgeExecDisposition`). Consumed by the
-    /// manager's execution pending store, never relayed to a browser or another
+    /// central host's execution pending store, never relayed to a browser or another
     /// peer. Notification-style (`response_state = None`).
     #[wincode(tag = 614)]
     EdgeExecutionCompleted = 614,

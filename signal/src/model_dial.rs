@@ -977,9 +977,6 @@ impl ModelSeam for SignalModelSeam {
                 desk_diagnose_core::model_profile::ModelUseCase::Probe => Surface::Probe,
                 desk_diagnose_core::model_profile::ModelUseCase::Completion => Surface::Terminal,
                 desk_diagnose_core::model_profile::ModelUseCase::Safety => Surface::Safety,
-                desk_diagnose_core::model_profile::ModelUseCase::FleetNaturalLanguage => {
-                    Surface::Fleet
-                }
                 _ => Surface::Agent,
             },
             purpose: use_case.into(),

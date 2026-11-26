@@ -8,8 +8,8 @@
 //! `FilePatchAction::RestoreCommandChanges` puts protected entries back.
 //!
 //! Snapshots are protection, not authority: a root never widens what the
-//! command may write. Non-AI executions (fleet, local `ConfirmExec`, Manager
-//! PTY proxy) always carry no roots.
+//! command may write. Non-AI executions (local `ConfirmExec`, Manager PTY
+//! proxy) always carry no roots.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
