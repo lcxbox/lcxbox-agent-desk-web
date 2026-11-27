@@ -287,11 +287,6 @@ impl SubAgentStore {
             {
                 run.binding.targets.clone_from(targets);
             }
-            // It also uses the directories its owner approved in that conversation.
-            session.refresh_delegated_directories(
-                &owner,
-                u64::try_from(now.timestamp_millis()).map_err(|_| invalid())?,
-            );
             session
                 .begin_turn(
                     &params.turn_id,

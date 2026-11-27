@@ -764,89 +764,7 @@ fn conversion_directory_boundary_accepts_two_exact_resources_and_still_rejects_w
 }
 
 #[test]
-fn a_child_uses_the_directories_its_owner_approved_in_the_main_conversation() {
-    let scope = AgentScope {
-        granted: Vec::new(),
-        mode: ExecutionMode::ReadOnly,
-        expires_at: None,
-        policy_name: None,
-    };
-    let mut root =
-        PersistedAgentSession::new("conversation", "owner", "device", 1, scope.clone(), "now");
-    root.surface = AgentSessionSurface::AiAgent;
-    root.file_scope = approved();
-    let mut child = PersistedAgentSession::new_subagent(
-        "sa_child",
-        "owner",
-        "device",
-        1,
-        scope,
-        crate::subagent::DelegatedTaskBinding {
-            targets: vec![crate::dynamic_run::AgentInputTarget::fixed("device".into())],
-            root_conversation_id: "conversation".into(),
-            group_id: "group".into(),
-            task_id: "task".into(),
-            source: crate::subagent::DelegationSource::UserInput { input_revision: 1 },
-            objective: "Write the report".into(),
-            acceptance_criteria: vec!["Report".into()],
-            input_revision: 1,
-            control_revision: 1,
-            source_epoch: 1,
-            deadline_ms: 1_799_999_999_999,
-        },
-        "now",
-    )
-    .unwrap();
-    child.surface = AgentSessionSurface::AiAgent;
-    let named = crate::chat::ToolCall {
-        id: "write".into(),
-        name: "create_text_file".into(),
-        arguments_json: serde_json::json!({"directory_request_id":"directory-request"}).to_string(),
-    };
-    let labels = crate::capability_grant::fresh_object_resource_scope(&[proposal().directory]);
-    // Nothing until the child's turn picks up the main conversation's consent.
-    assert!(select_device_directory(&child, "device", &named, 1).is_err());
-    child.refresh_delegated_directories(&root, 1);
-    assert_eq!(
-        approved_device_directories(&child, "device", 1).unwrap(),
-        vec![proposal().directory]
-    );
-    assert_eq!(
-        select_device_directory(&child, "device", &named, 1).unwrap(),
-        proposal().directory
-    );
-    let unnamed = crate::chat::ToolCall {
-        arguments_json: "{}".into(),
-        ..named.clone()
-    };
-    assert_eq!(
-        select_device_directory(&child, "device", &unnamed, 1).unwrap(),
-        proposal().directory
-    );
-    validate_device_artifact_scope(&child, "device", "create_text_file", &labels, 1).unwrap();
-    // Consent stays with the device it was given for.
-    assert!(
-        approved_device_directories(&child, "other", 1)
-            .is_ok_and(|directories| directories.is_empty())
-            || approved_device_directories(&child, "other", 1).is_err()
-    );
-    // The child cannot change the main conversation's consent; the owner can.
-    assert!(child.file_scope.records().is_empty());
-    root.file_scope
-        .revoke(&subject(), root.file_scope.revision(), "directory-request")
-        .unwrap();
-    child.refresh_delegated_directories(&root, 1);
-    assert!(select_device_directory(&child, "device", &named, 1).is_err());
-    assert!(
-        validate_device_artifact_scope(&child, "device", "create_text_file", &labels, 1).is_err()
-    );
-    // A main conversation has no delegated view.
-    root.refresh_delegated_directories(&child, 1);
-    assert!(root.delegated_directories.is_empty());
-}
-
-#[test]
-fn trusted_directory_grants_follow_current_approvals_and_delegations() {
+fn trusted_directory_grants_follow_current_approvals() {
     let mut session = PersistedAgentSession::new(
         "conversation",
         "owner",
@@ -883,31 +801,16 @@ fn trusted_directory_grants_follow_current_approvals_and_delegations() {
         .decide(&subject, 3, "a-second-request", true, 1)
         .unwrap();
     session.file_scope = scope;
-    session.delegated_directories.push(DelegatedDirectory {
-        device_id: device.clone(),
-        request_id: "main-request".into(),
-        canonical_path: "/private/tmp/main".into(),
-        directory: ObjectRef {
-            token: "main-reference".into(),
-            ..proposal().directory
-        },
-    });
-    session.delegated_directories.push(DelegatedDirectory {
-        device_id: "other-device".into(),
-        request_id: "elsewhere".into(),
-        canonical_path: "/elsewhere".into(),
-        directory: proposal().directory,
-    });
     let grants = TrustedDirectoryGrants::from_session(&session, &device, 1);
     assert_eq!(grants.device_id(), device);
-    // Own and delegated approvals, ordered by request id; other devices excluded.
+    // Own approvals, ordered by request id.
     assert_eq!(
         grants
             .grants()
             .iter()
             .map(|grant| grant.directory_request_id.as_str())
             .collect::<Vec<_>>(),
-        ["a-second-request", "directory-request", "main-request"]
+        ["a-second-request", "directory-request"]
     );
     assert_eq!(grants.grants()[0].canonical_path, "/private/tmp/second");
     assert!(
@@ -926,13 +829,12 @@ fn trusted_directory_grants_follow_current_approvals_and_delegations() {
         .revoke(&subject, 4, "a-second-request")
         .unwrap();
     let grants = TrustedDirectoryGrants::from_session(&session, &device, 1);
-    assert_eq!(grants.grants().len(), 2);
+    assert_eq!(grants.grants().len(), 1);
     assert!(grants.find("a-second-request", &second.directory).is_none());
-    // A device outside the file scope contributes only its delegations.
-    assert_eq!(
+    // A device outside the file scope contributes nothing.
+    assert!(
         TrustedDirectoryGrants::from_session(&session, "other-device", 1)
             .grants()
-            .len(),
-        1
+            .is_empty()
     );
 }

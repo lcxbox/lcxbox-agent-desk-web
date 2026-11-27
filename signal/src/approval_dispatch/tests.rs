@@ -2,7 +2,7 @@
 //! readiness: an owner or AI decision on a command approved under another
 //! sandbox support, execution identity or worker incarnation is refused.
 use super::*;
-use crate::command_policy::tests::{STANDARD_USER, delegated, mark_ready_with, owner_host};
+use crate::command_policy::tests::{STANDARD_USER, approve, mark_ready_with, owner_host};
 use desk_agent_protocol::exec::{
     ExecIdentity, ExecSandboxMode, ExecSandboxSupport, ExecSandboxUnsupportedReason,
 };
@@ -29,7 +29,7 @@ async fn store_session(db: &DatabaseConnection) -> PersistedAgentSession {
         },
         "2026-11-17T00:00:00Z",
     );
-    session.delegated_directories = vec![delegated(DEVICE, "a")];
+    approve(&mut session, DEVICE, "a");
     let now = desk_agent_data_store::datetime::utc_now();
     agent_session::ActiveModel {
         conversation_id: Set(session.conversation_id.clone()),

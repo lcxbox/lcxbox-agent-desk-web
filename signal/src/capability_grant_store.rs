@@ -935,17 +935,8 @@ impl SignalCapabilityGrantStore {
             .await
         })
         .await?;
-        let directories = desk_diagnose_core::future::boxed(|| async {
-            crate::agent_subagent_store::current_directory_view_on(
-                &txn,
-                &session,
-                request.call.now_unix_ms,
-            )
-            .await
-        })
-        .await?;
         desk_diagnose_core::file_scope::validate_device_artifact_scope(
-            &directories,
+            &session,
             request.call.target_device_id,
             &grant.tool_name,
             &grant.resource_scope,
@@ -1191,13 +1182,8 @@ impl SignalCapabilityGrantStore {
             {
                 return Err(DbErr::Custom("file dispatch authority changed".into()));
             }
-            let directories = desk_diagnose_core::future::boxed(|| async {
-                crate::agent_subagent_store::current_directory_view_on(&txn, &session, now_unix_ms)
-                    .await
-            })
-            .await?;
             desk_diagnose_core::file_scope::validate_device_artifact_scope(
-                &directories,
+                &session,
                 &grant.target_device_id,
                 &grant.tool_name,
                 &grant.resource_scope,

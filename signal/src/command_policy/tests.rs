@@ -7,7 +7,6 @@ use desk_agent_protocol::exec::{
     ExecIdentity, ExecSandboxAttention, ExecSandboxMode, ExecSandboxSupport,
     ExecSandboxUnsupportedReason, ExecSnapshotRoot,
 };
-use desk_diagnose_core::file_scope::DelegatedDirectory;
 use desk_signal_facade::model::auth_context::AuthContext;
 use desk_signal_facade::model::connection::{ConnectionModel, ConnectionState};
 use desk_signal_facade::model::peer::{
@@ -161,19 +160,23 @@ pub(crate) fn mark_ready_with(
         .unwrap();
 }
 
-/// A main conversation's directory approval delegated to `session`.
-pub(crate) fn delegated(device: &str, request_id: &str) -> DelegatedDirectory {
-    DelegatedDirectory {
-        device_id: device.into(),
-        request_id: request_id.into(),
-        canonical_path: format!("/work/{request_id}"),
-        directory: ObjectRef {
-            token: format!("directory-{request_id}"),
-            snapshot_id: "generation-1".into(),
-            object_kind: ObjectKind::Directory,
-            expires_at: String::new(),
-        },
+pub(crate) fn directory(request_id: &str) -> ObjectRef {
+    ObjectRef {
+        token: format!("directory-{request_id}"),
+        snapshot_id: "generation-1".into(),
+        object_kind: ObjectKind::Directory,
+        expires_at: String::new(),
     }
+}
+
+/// Approve `request_id` as a directory of `session` on `device`.
+pub(crate) fn approve(session: &mut PersistedAgentSession, device: &str, request_id: &str) {
+    desk_diagnose_core::file_scope::approve_for_test(
+        session,
+        device,
+        request_id,
+        directory(request_id),
+    );
 }
 
 struct Fixture {
@@ -224,7 +227,9 @@ fn session(grants: &[&str]) -> PersistedAgentSession {
         },
         "2026-11-16T00:00:00Z",
     );
-    session.delegated_directories = grants.iter().map(|id| delegated(DEVICE, id)).collect();
+    for id in grants {
+        approve(&mut session, DEVICE, id);
+    }
     session
 }
 
@@ -254,10 +259,7 @@ fn command(shell: &str, command: &str) -> String {
 #[actix_web::test]
 async fn current_policy_takes_directory_approvals_from_the_session_for_its_device() {
     let fixture = fixture().await;
-    let mut session = session(&["b", "a"]);
-    session
-        .delegated_directories
-        .push(delegated("other-device", "c"));
+    let session = session(&["b", "a"]);
     let policy = fixture.policy(&session).await;
     assert_eq!(policy.target_device_id, DEVICE);
     assert_eq!(policy.directory_grants.device_id(), DEVICE);
@@ -284,7 +286,7 @@ async fn a_mutating_command_needs_new_approval_after_any_directory_approval_chan
         confirmation.plan.snapshot_roots,
         [ExecSnapshotRoot::Grant {
             directory_request_id: "a".into(),
-            directory: delegated(DEVICE, "a").directory,
+            directory: directory("a"),
         }]
     );
     fixture
@@ -512,7 +514,7 @@ async fn stored_session_reads_the_subject_row_only() {
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(loaded.delegated_directories, stored.delegated_directories);
+    assert_eq!(loaded.file_scope, stored.file_scope);
     assert!(
         stored_session(&fixture.db, &stored.conversation_id, &stored.actor_id, "")
             .await

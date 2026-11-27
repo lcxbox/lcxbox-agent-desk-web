@@ -286,16 +286,7 @@ fn original_directory(
         .records()
         .iter()
         .filter(|record| record.proposal.directory == *directory)
-        .map(|record| record.proposal.request_id.as_str())
-        .chain(
-            session
-                .delegated_directories
-                .iter()
-                .filter(|delegated| {
-                    delegated.device_id == device_id && delegated.directory == *directory
-                })
-                .map(|delegated| delegated.request_id.as_str()),
-        );
+        .map(|record| record.proposal.request_id.as_str());
     for id in ids {
         let selector = ToolCall {
             id: "restore-directory".into(),

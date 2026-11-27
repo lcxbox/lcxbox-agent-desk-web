@@ -3,7 +3,7 @@
 //! admitted only against the approved plan, and `restore_command_changes`
 //! reaches its own preflight.
 use super::*;
-use crate::command_policy::tests::{delegated, mark_ready, owner_host};
+use crate::command_policy::tests::{approve, mark_ready, owner_host};
 use desk_agent_protocol::exec::{
     EXEC_SNAPSHOT_TIME_BUDGET_MS, ExecFileChange, ExecFileChangeKind, ExecFileChangeRoot,
     ExecFileChanges, ExecSnapshotOutcome, ExecSnapshotRoot,
@@ -129,9 +129,8 @@ async fn an_approved_mutating_command_is_not_sent_after_a_directory_approval_is_
     let (_host, connections) = owner_host_for(&child).await;
     // With unchanged approvals the approval matches the current policy.
     assert_still_current(&db, &connections, &child, &call).await;
-    child
-        .delegated_directories
-        .push(delegated(&child.device_id, "added-after-approval"));
+    let device = child.device_id.clone();
+    approve(&mut child, &device, "added-after-approval");
     save_child_session(&db, &mut child).await.unwrap();
 
     let error = agent_tools(&db, &child, connections)
@@ -192,9 +191,7 @@ async fn dispatch_revalidates_the_plan_against_the_sessions_directory_approvals(
         "confirmed command has no durable execution task"
     );
     let mut added = child.clone();
-    added
-        .delegated_directories
-        .push(delegated(&child.device_id, "added-before-dispatch"));
+    approve(&mut added, &child.device_id, "added-before-dispatch");
     assert_eq!(dispatch(added).await.message, PLAN_CHANGED);
 }
 

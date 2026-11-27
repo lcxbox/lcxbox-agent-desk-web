@@ -20,22 +20,14 @@ pub fn approved_directories(
     approved_device_directories(session, &session.device_id, now_unix_ms)
 }
 
-/// The conversation's own approved directories plus, for a child, those its
-/// main conversation's owner approved for the same device.
+/// The conversation's own approved directories on a device. A child and its
+/// main conversation approve directories independently.
 pub fn approved_device_directories(
     session: &PersistedAgentSession,
     device_id: &str,
     now_unix_ms: u64,
 ) -> Result<Vec<ObjectRef>, FileScopeError> {
-    let mut directories = own_device_directories(session, device_id, now_unix_ms)?;
-    directories.extend(
-        session
-            .delegated_directories
-            .iter()
-            .filter(|delegated| delegated.device_id == device_id)
-            .map(|delegated| delegated.directory.clone()),
-    );
-    Ok(directories)
+    own_device_directories(session, device_id, now_unix_ms)
 }
 
 /// One directory a session currently has approved on a device, as trusted
@@ -47,9 +39,7 @@ pub struct TrustedDirectoryGrant {
     pub directory: ObjectRef,
 }
 
-/// The session's currently approved directories on one device: its own
-/// approved records plus, for a child, those delegated by its main
-/// conversation. Built only from an authoritative session, so a caller
+/// The session's currently approved directories on one device. Built only from an authoritative session, so a caller
 /// without one cannot produce it; command policy requires it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrustedDirectoryGrants {
@@ -86,17 +76,6 @@ impl TrustedDirectoryGrants {
                 }
             }
         }
-        grants.extend(
-            session
-                .delegated_directories
-                .iter()
-                .filter(|delegated| delegated.device_id == device_id)
-                .map(|delegated| TrustedDirectoryGrant {
-                    directory_request_id: delegated.request_id.clone(),
-                    canonical_path: delegated.canonical_path.clone(),
-                    directory: delegated.directory.clone(),
-                }),
-        );
         grants.sort_by(|a, b| a.directory_request_id.cmp(&b.directory_request_id));
         grants.dedup_by(|a, b| a.directory_request_id == b.directory_request_id);
         Self {
@@ -133,46 +112,6 @@ impl TrustedDirectoryGrants {
     }
 }
 
-/// A main conversation's owner-approved directory, usable by its child.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DelegatedDirectory {
-    pub device_id: String,
-    pub request_id: String,
-    pub canonical_path: String,
-    pub directory: ObjectRef,
-}
-
-pub fn delegated_directories(
-    root: &PersistedAgentSession,
-    devices: &[String],
-    now_unix_ms: u64,
-) -> Vec<DelegatedDirectory> {
-    let mut delegated = Vec::new();
-    for device in devices {
-        let Ok(subject) = root.file_scope_subject(&root.actor_id, device, &root.conversation_id)
-        else {
-            continue;
-        };
-        for record in root.file_scope.records() {
-            if let Ok(directory) = root.file_scope.approved_directory(
-                &subject,
-                root.file_scope.revision(),
-                &record.proposal.request_id,
-                now_unix_ms,
-            ) {
-                delegated.push(DelegatedDirectory {
-                    device_id: device.clone(),
-                    request_id: record.proposal.request_id.clone(),
-                    canonical_path: record.proposal.canonical_path.clone(),
-                    directory: directory.clone(),
-                });
-            }
-        }
-    }
-    delegated
-}
-
 fn own_device_directories(
     session: &PersistedAgentSession,
     device_id: &str,
@@ -197,6 +136,43 @@ fn own_device_directories(
                 .cloned()
         })
         .collect())
+}
+
+/// Record an owner-approved directory on `session` the way an owner decision
+/// would, for host tests that need an approved conversation directory.
+#[cfg(any(test, feature = "test-support"))]
+pub fn approve_for_test(
+    session: &mut PersistedAgentSession,
+    device_id: &str,
+    request_id: &str,
+    directory: ObjectRef,
+) {
+    session.surface = AgentSessionSurface::AiAgent;
+    let subject = session
+        .file_scope_subject(&session.actor_id, device_id, &session.conversation_id)
+        .expect("test session owns its file scope");
+    let path = format!("/work/{request_id}");
+    let revision = session.file_scope.revision();
+    session
+        .file_scope
+        .propose(
+            &subject,
+            revision,
+            DirectoryProposal {
+                request_id: request_id.into(),
+                requested_path: path.clone(),
+                canonical_path: path,
+                directory,
+                purpose: "Test directory".into(),
+                source: DirectoryConsentSource::ModelProposal,
+            },
+            1,
+        )
+        .expect("valid test proposal");
+    session
+        .file_scope
+        .decide(&subject, revision + 1, request_id, true, 1)
+        .expect("test approval");
 }
 
 pub fn requires_directory_scope(tool_name: &str) -> bool {
@@ -238,24 +214,12 @@ pub fn select_device_directory(
             .as_str()
             .filter(|id| valid_id(id))
             .ok_or(FileScopeError::InvalidProposal)?;
-        // A child may also name a directory its owner approved in the main
-        // conversation for the same device.
         return session
             .file_scope
             .approved_directory(&subject, session.file_scope.revision(), id, now_unix_ms)
-            .cloned()
-            .or_else(|error| {
-                session
-                    .delegated_directories
-                    .iter()
-                    .find(|delegated| {
-                        delegated.device_id == device_id && delegated.request_id == id
-                    })
-                    .map(|delegated| delegated.directory.clone())
-                    .ok_or(error)
-            });
+            .cloned();
     }
-    let own = session.file_scope.records().iter().filter_map(|record| {
+    let mut refs = session.file_scope.records().iter().filter_map(|record| {
         session
             .file_scope
             .approved_directory(
@@ -266,12 +230,6 @@ pub fn select_device_directory(
             )
             .ok()
     });
-    let delegated = session
-        .delegated_directories
-        .iter()
-        .filter(|delegated| delegated.device_id == device_id)
-        .map(|delegated| &delegated.directory);
-    let mut refs = own.chain(delegated);
     let selected = refs.next().ok_or(FileScopeError::NotApproved)?.clone();
     if refs.next().is_some() {
         return Err(FileScopeError::InvalidProposal);
@@ -345,12 +303,7 @@ pub fn validate_device_artifact_scope(
             )
             .ok()
     });
-    let delegated = session
-        .delegated_directories
-        .iter()
-        .filter(|delegated| delegated.device_id == device_id)
-        .map(|delegated| &delegated.directory);
-    for reference in own.chain(delegated) {
+    for reference in own {
         let labels =
             crate::capability_grant::fresh_object_resource_scope(std::slice::from_ref(reference));
         if labels.len() == 1

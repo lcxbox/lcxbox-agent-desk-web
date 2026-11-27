@@ -75,27 +75,6 @@ pub fn scope_prompt(
         ));
         entries.push(entry);
     }
-    for delegated in session
-        .delegated_directories
-        .iter()
-        .filter(|delegated| delegated.device_id == session.device_id)
-    {
-        let entry = json!({"directory_request_id":delegated.request_id,
-            "path":delegated.canonical_path,"reference_ready":true,
-            "directory":delegated.directory,"approved_in":"main_conversation"});
-        let len = entry.to_string().len();
-        if bytes + len > DIRECTORY_PROMPT_MAX_BYTES {
-            break;
-        }
-        bytes += len;
-        cites.push(StoredSpec::device_reported(
-            "directory",
-            delegated.request_id.clone(),
-            "path",
-            delegated.canonical_path.clone(),
-        ));
-        entries.push(entry);
-    }
     // The paths are cited as the device reported them.
     cites
         .into_iter()

@@ -886,13 +886,9 @@ impl RequestDevice {
                 session.file_scope.records().iter().any(|record| {
                     record.device_id == target.device_id
                         && record.state == crate::file_scope::DirectoryConsentState::Approved
-                }) || session
-                    .delegated_directories
-                    .iter()
-                    .any(|delegated| delegated.device_id == target.device_id)
-                    || original.is_some_and(|selection| {
-                        selection.has_device_objects_for_tool(name, &target.device_id)
-                    })
+                }) || original.is_some_and(|selection| {
+                    selection.has_device_objects_for_tool(name, &target.device_id)
+                })
             });
         }
         descriptor.exposure != crate::tool_exposure::ExposureRequirement::SelectedContext
@@ -1106,13 +1102,9 @@ pub(crate) fn catalogue(
                 }) {
                     cites.push(StoredSpec::device_reported("directory", record.proposal.request_id.clone(), "path", record.proposal.canonical_path.clone()));
                 }
-                for delegated in session.delegated_directories.iter().filter(|delegated| delegated.device_id == target.device_id) {
-                    cites.push(StoredSpec::device_reported("directory", delegated.request_id.clone(), "path", delegated.canonical_path.clone()));
-                }
                 let dirs = session.file_scope.records().iter().filter(|record| {
                     record.device_id == target.device_id && record.state == crate::file_scope::DirectoryConsentState::Approved
                 }).map(|record| serde_json::json!({"directory_request_id": record.proposal.request_id, "path": record.proposal.canonical_path}))
-                .chain(session.delegated_directories.iter().filter(|delegated| delegated.device_id == target.device_id).map(|delegated| serde_json::json!({"directory_request_id": delegated.request_id, "path": delegated.canonical_path, "approved_in": "main_conversation"})))
                 .take_while(|entry| {
                     directory_bytes += entry.to_string().len();
                     directory_bytes <= crate::directory_tools::DIRECTORY_PROMPT_MAX_BYTES

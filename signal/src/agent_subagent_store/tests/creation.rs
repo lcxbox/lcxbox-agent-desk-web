@@ -973,10 +973,9 @@ async fn child_read_binding_is_narrowed_and_parent_completion_keeps_its_original
     assert!(absent.object_attachments.is_empty() && absent.live_targets.is_empty());
 }
 
-/// A child uses the directories its owner approved in the main conversation:
-/// its turn starts with them, and dispatch re-reads the owner's current consent.
+/// A child and its main conversation approve directories independently.
 #[tokio::test]
-async fn a_child_uses_the_main_conversations_approved_directories_until_revoked() {
+async fn a_child_does_not_use_the_main_conversations_approved_directories() {
     use desk_diagnose_core::file_scope::{DirectoryConsentSource, DirectoryProposal};
     let db = database().await;
     let (mut parent, calls) = runnable_parent(&db).await;
@@ -1037,28 +1036,17 @@ async fn a_child_uses_the_main_conversations_approved_directories_until_revoked(
         panic!("child claim");
     };
     let child = claimed.session;
-    assert_eq!(child.delegated_directories.len(), 1);
-    assert_eq!(child.delegated_directories[0].directory, directory);
+    let device = child
+        .admitted_agent_request_targets()
+        .and_then(|targets| targets.first())
+        .map_or_else(
+            || child.device_id.clone(),
+            |target| target.device_id.clone(),
+        );
     let now = jiff::Timestamp::now().as_millisecond() as u64;
-    let txn = db.begin().await.unwrap();
-    let view = crate::agent_subagent_store::current_directory_view_on(&txn, &child, now)
-        .await
-        .unwrap();
-    assert_eq!(view.delegated_directories, child.delegated_directories);
-    txn.rollback().await.unwrap();
-    // The owner revokes it in the main conversation: the next dispatch check
-    // no longer sees it, although the child's turn snapshot still lists it.
-    parent
-        .file_scope
-        .revoke(&subject, parent.file_scope.revision(), "directory-request")
-        .unwrap();
-    crate::agent_subagent_store::save_main_delegation_session(&db, &mut parent)
-        .await
-        .unwrap();
-    let txn = db.begin().await.unwrap();
-    let view = crate::agent_subagent_store::current_directory_view_on(&txn, &child, now)
-        .await
-        .unwrap();
-    assert!(view.delegated_directories.is_empty());
-    assert!(!child.delegated_directories.is_empty());
+    assert!(child.file_scope.records().is_empty());
+    assert!(!matches!(
+        desk_diagnose_core::file_scope::approved_device_directories(&child, &device, now),
+        Ok(directories) if directories.contains(&directory)
+    ));
 }
