@@ -606,6 +606,7 @@ async fn fresh_task_turn_rejects_extra_state_and_drives_without_reclaiming() {
     let prompt = "Produce the scheduled report";
     let contract = ScheduledTaskDefinition {
         schedule_id: "task".into(),
+        approved_by_ai: false,
         task_revision: 1,
         target_device_id: "device".into(),
         prompt: prompt.into(),

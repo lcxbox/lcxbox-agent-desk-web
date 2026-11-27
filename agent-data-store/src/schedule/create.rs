@@ -118,6 +118,7 @@ async fn persist_normalized_task_on<C: ConnectionTrait, H: ScheduleHostStores<C>
         next_run_at: Set(None),
         recurrence_cursor_at: Set(None),
         grace_seconds: Set(3600),
+        approved_by_ai: Set(false),
         creation_source: Set(json(&request.creation_source)?
             .trim_matches('"')
             .to_string()),

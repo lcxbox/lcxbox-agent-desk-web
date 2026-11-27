@@ -489,6 +489,7 @@ mod tests {
             next_run_at: Set(None),
             recurrence_cursor_at: Set(None),
             grace_seconds: Set(300),
+            approved_by_ai: Set(false),
             creation_source: Set("owner".into()),
             creation_identity: Set("create-1".into()),
             creation_payload_sha256: Set(digest("create-1")),

@@ -103,6 +103,7 @@ async fn fresh_task_gateway_accounts_usage_and_rejects_invalid_authority() {
         let published_contract =
             desk_diagnose_core::schedule::definition::ScheduledTaskDefinition {
                 schedule_id: task.schedule_id.clone(),
+                approved_by_ai: task.approved_by_ai,
                 task_revision: task.task_revision as u64,
                 target_device_id: task.target_device_id.clone(),
                 prompt: task.prompt.clone(),

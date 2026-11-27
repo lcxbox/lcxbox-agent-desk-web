@@ -43,6 +43,7 @@ fn fixture_with_tokens(
 ) {
     let definition = ScheduledTaskDefinition {
         schedule_id: "schedule-test".into(),
+        approved_by_ai: false,
         task_revision: 2,
         target_device_id: "device-test".into(),
         prompt: PROMPT.into(),

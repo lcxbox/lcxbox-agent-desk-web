@@ -675,6 +675,7 @@ pub(crate) async fn continuation_rows(
         prompt_retention_json: None,
         field_sources_json: None,
         proposal_conversation_id: None,
+        approved_by_ai: false,
         failure_state_json: serde_json::to_string(
             &desk_diagnose_core::schedule::lifecycle::FailureState::default(),
         )
@@ -770,6 +771,7 @@ pub(crate) async fn fresh_rows(db: &DatabaseConnection, lease_deadline: i64) {
         revision: Set(2),
         task_revision: Set(1),
         grace_seconds: Set(300),
+        approved_by_ai: Set(false),
         creation_source: Set("manual".into()),
         creation_identity: Set("c".into()),
         creation_payload_sha256: Set("0".repeat(64)),

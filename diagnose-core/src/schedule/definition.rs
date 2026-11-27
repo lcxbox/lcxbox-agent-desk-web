@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct ScheduledTaskDefinition {
     pub schedule_id: String,
+    /// The approval AI approved the task, so its runs cannot use no-review.
+    pub approved_by_ai: bool,
     pub task_revision: u64,
     pub target_device_id: String,
     pub prompt: String,
@@ -56,6 +58,7 @@ mod tests {
     fn definition() -> ScheduledTaskDefinition {
         ScheduledTaskDefinition {
             schedule_id: "sc1".into(),
+            approved_by_ai: false,
             task_revision: 1,
             target_device_id: "device".into(),
             prompt: "Report the disk usage".into(),

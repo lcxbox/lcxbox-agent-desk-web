@@ -53,6 +53,9 @@ pub fn initial_session(
     let client_id = format!("task_{:x}", Sha256::digest(input.run_id.as_bytes()));
     session.adopt_client_metadata(Some(&client_id), AgentSessionSurface::AiAgent);
     session.response_locale = input.locale.map(str::to_owned);
+    if definition.approved_by_ai {
+        session.forbid_no_review();
+    }
     session.begin_focus_epoch(1, Vec::<String>::new())?;
     session.input_revision = 1;
     session.latest_input_seq = 1;
@@ -77,4 +80,47 @@ pub fn initial_session(
         .with_turn_id(turn_id),
     );
     Ok(session)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(approved_by_ai: bool) -> PersistedAgentSession {
+        let definition = ScheduledTaskDefinition {
+            schedule_id: "schedule".into(),
+            approved_by_ai,
+            task_revision: 1,
+            target_device_id: "device".into(),
+            prompt: "Report the disk usage".into(),
+            locale: None,
+            model_id: None,
+            policy_revision: 0,
+            budget: crate::schedule::DEFAULT_TASK_BUDGET,
+        };
+        initial_session(
+            &definition,
+            FreshSessionInput {
+                run_id: "schedule-run-1",
+                actor_id: "1",
+                prompt: "Report the disk usage",
+                locale: None,
+                policy_revision: crate::agent_policy::PERSONAL_AGENT_POLICY_REVISION,
+                scope: AgentScope {
+                    granted: vec![],
+                    mode: desk_agent_protocol::ExecutionMode::ReadOnly,
+                    expires_at: None,
+                    policy_name: None,
+                },
+                now: "2026-11-26T00:00:00Z",
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_run_of_a_task_the_approval_ai_approved_cannot_use_no_review() {
+        assert!(run(false).has_direct_approval_origin());
+        assert!(!run(true).has_direct_approval_origin());
+    }
 }

@@ -52,6 +52,7 @@ async fn native_reclaim_retains_the_actual_expired_timer_state_before_execution_
         task_revision: Set(1),
         next_run_at: Set(Some(at + 86400000)),
         grace_seconds: Set(60),
+        approved_by_ai: Set(false),
         creation_source: Set("manual".into()),
         creation_identity: Set("native-expiry-identity".into()),
         creation_payload_sha256: Set("0".repeat(64)),

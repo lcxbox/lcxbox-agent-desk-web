@@ -323,6 +323,44 @@ async fn rejection_records_a_durable_decision_and_cannot_activate() {
     );
 }
 
+/// The task records whether the approval AI approved it, so its runs
+/// cannot use no-review.
+#[tokio::test]
+async fn an_ai_approval_is_recorded_on_the_task() {
+    let ai = || {
+        ProposalDecider::Ai(
+            desk_diagnose_core::proposal_review::provenance::AiDecisionReason {
+                reason: "The owner asked for it".into(),
+                reason_code: "owner_requested".into(),
+                provenance: desk_diagnose_core::proposal_review::provenance::ReviewProvenance {
+                    verifiable: false,
+                    evidence: Vec::new(),
+                    stored: Vec::new(),
+                },
+            },
+        )
+    };
+    for (decider, by_ai) in [(ProposalDecider::Owner, false), (ai(), true)] {
+        let (store, _, _, session) = fixture().await;
+        let task = fresh_proposal(&store, &session).await;
+        assert!(!task.approved_by_ai);
+        let approved = store
+            .decide_proposal(1, &task.schedule_id, task.revision, true, decider)
+            .await
+            .unwrap();
+        assert_eq!(approved.status, "active");
+        assert_eq!(approved.approved_by_ai, by_ai);
+        assert_eq!(
+            store
+                .read(1, &task.schedule_id)
+                .await
+                .unwrap()
+                .approved_by_ai,
+            by_ai
+        );
+    }
+}
+
 #[tokio::test]
 async fn orphan_proposal_can_still_be_rejected() {
     let (store, _, row, session) = fixture().await;

@@ -316,6 +316,7 @@ async fn lock_authority_for<C: ConnectionTrait>(
     .map_err(|_| ScheduleStoreError::Invalid)?;
     let definition = ScheduledTaskDefinition {
         schedule_id: task.schedule_id.clone(),
+        approved_by_ai: task.approved_by_ai,
         task_revision: u64::try_from(task.task_revision)
             .map_err(|_| ScheduleStoreError::Invalid)?,
         target_device_id: task.target_device_id.clone(),

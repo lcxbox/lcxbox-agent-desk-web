@@ -53,6 +53,7 @@ fn task(kind: &str, status: &str) -> entity::Model {
         prompt_retention_json: None,
         field_sources_json: None,
         proposal_conversation_id: None,
+        approved_by_ai: false,
         failure_state_json: "{}".into(),
         active_run_id: None,
         created_at: 0,

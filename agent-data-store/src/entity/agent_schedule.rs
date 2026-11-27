@@ -43,6 +43,9 @@ pub struct Model {
     /// The conversation whose AI proposal awaits a decision; used only to write
     /// the decision back. Continuations use `source_conversation_id` instead.
     pub proposal_conversation_id: Option<String>,
+    /// The approval AI, not the owner, approved this AI proposal. Its runs
+    /// never use the no-review approval mode.
+    pub approved_by_ai: bool,
     /// Validated shared FailureState, including its recovery epoch and blockers.
     pub failure_state_json: String,
     /// One slot fences calendar runs, manual runs, and pending approval.

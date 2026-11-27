@@ -363,8 +363,10 @@ mod tests {
             evaluate(&session, "device-1", ExecutionMode::Automated, true),
             Some("owner-confirmed")
         );
-        session.adopt_trigger(TriggerOrigin::IssueSubscription, "comment");
-        session.adopt_trigger(TriggerOrigin::PermissionDecision, "reply");
+        // Eligibility belongs to the conversation: one created without the
+        // owner never qualifies, whatever its turn origin.
+        session.forbid_no_review();
+        session.adopt_trigger(TriggerOrigin::User, "next");
         assert!(decide(&session, &proposal).is_none());
         assert_eq!(
             evaluate(&session, "device-1", ExecutionMode::Automated, true),

@@ -221,6 +221,7 @@ impl ScheduleStore {
             .map_err(|_| ScheduleStoreError::Invalid)?;
         let definition = desk_diagnose_core::schedule::definition::ScheduledTaskDefinition {
             schedule_id: task.schedule_id.clone(),
+            approved_by_ai: task.approved_by_ai,
             task_revision: u64::try_from(task.task_revision)
                 .map_err(|_| ScheduleStoreError::Invalid)?,
             target_device_id: device.into(),
@@ -616,6 +617,7 @@ pub(crate) mod tests {
                 .unwrap();
             let contract = desk_diagnose_core::schedule::definition::ScheduledTaskDefinition {
                 schedule_id: task.schedule_id.clone(),
+                approved_by_ai: task.approved_by_ai,
                 task_revision: task.task_revision as u64,
                 target_device_id: task.target_device_id.clone(),
                 prompt: task.prompt.clone(),

@@ -49,7 +49,21 @@ pub async fn decide_proposal_on<C: ConnectionTrait, H: ScheduleHostStores<C>>(
     // conversation lock before the task revision CAS.
     host.lock_conversation(txn, conversation).await?;
     let result = if approve {
-        activate_on(host, txn, owner, &task, false).await?
+        let mut active = activate_on(host, txn, owner, &task, false).await?;
+        if matches!(decider, ProposalDecider::Ai(_)) {
+            // The activation CAS above holds the row; record who approved it.
+            entity::Entity::update_many()
+                .set(entity::ActiveModel {
+                    approved_by_ai: Set(true),
+                    ..Default::default()
+                })
+                .filter(entity::Column::Id.eq(active.id))
+                .filter(entity::Column::Revision.eq(active.revision))
+                .exec(txn)
+                .await?;
+            active.approved_by_ai = true;
+        }
+        active
     } else {
         let now = authority_now(txn).await?;
         let changed = entity::Entity::update_many()
