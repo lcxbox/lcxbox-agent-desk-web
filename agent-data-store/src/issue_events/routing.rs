@@ -290,6 +290,9 @@ pub async fn release_attachment_on(
 
 /// The host checked the live round and root in this transaction. Snapshot,
 /// first input, and trigger consumption commit together.
+/// How long an admitted issue work's authorization stays valid.
+pub const ISSUE_WORK_VALIDITY_MS: i64 = 120 * 60_000;
+
 pub async fn enqueue_on(
     db: &impl ConnectionTrait,
     pending: &PendingEvent,

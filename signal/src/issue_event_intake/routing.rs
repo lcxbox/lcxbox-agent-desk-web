@@ -160,12 +160,7 @@ pub(super) async fn commit_route(
     } else {
         vec![]
     };
-    let minutes = crate::subagent_policy::read(&txn)
-        .await
-        .map_err(|_| unavailable())?
-        .limits
-        .max_task_duration_minutes;
-    let deadline = now.saturating_add(i64::from(minutes) * 60_000);
+    let deadline = now.saturating_add(routing::ISSUE_WORK_VALIDITY_MS);
     routing::enqueue_on(&txn, &pending, &root, &targets, destination, now, deadline)
         .await
         .map_err(store)?;

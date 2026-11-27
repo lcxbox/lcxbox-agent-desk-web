@@ -296,6 +296,14 @@ async fn frozen_comment_uses_native_queue_and_cannot_claim_as_owner() {
         admitted.workset.comments[0].body,
         "Third-party regression report"
     );
+    // The authorization stays valid for a fixed period from admission.
+    assert_eq!(
+        admitted.expires_at_ms,
+        Some(
+            admitted.admitted_at_ms
+                + desk_agent_data_store::issue_events::routing::ISSUE_WORK_VALIDITY_MS
+        )
+    );
 
     let scope = AgentScope {
         granted: vec![],
