@@ -15,6 +15,10 @@ Password-login thresholds are fixed. The IPv6 grouping prefix and bounded
 login/redemption capacity tier are configurable. Access-code redemption has its
 own protection settings, described below.
 
+A login stays valid in that browser until it goes unused for 30 days; each use
+renews it, and restarting the browser or the server does not end it. Signing
+out, changing the password or resetting it ends the login immediately.
+
 ## Forgotten password
 
 Select **Forgot password** on the account login page. When you connect through a domain name or LAN IP address, the page shows instructions for local recovery and the CLI command. To reset in the browser, open the page through a loopback address on the machine running the service, then follow the prompts to obtain the code and set a new password. Each reset generates a new random salt and requires existing browser sessions to sign in again. On a remote host, use SSH to run `lcxbox-agent-desk-server reset-password` as the deployment account. [Configuration and recovery codes](/config/config-toml) · [Deployment and CLI reset](/guide/deployment)

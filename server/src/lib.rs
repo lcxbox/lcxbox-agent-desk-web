@@ -1,4 +1,3 @@
-#[cfg(test)]
 use actix_web::cookie::Key;
 #[cfg(test)]
 use desk_signal_facade::model::peer::{
@@ -634,6 +633,36 @@ fn parse_cookie_secure(raw: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
+/// Idle lifetime of the browser login cookie: every request carrying a
+/// session renews it, so only a login left unused this long expires.
+const SESSION_COOKIE_TTL: actix_web::cookie::time::Duration =
+    actix_web::cookie::time::Duration::days(30);
+
+/// Session middleware shared by every desk-server HTTP app.
+///
+/// The cookie is encrypted (not just signed) because the code-session
+/// principal it carries must be neither readable nor forgeable by the client,
+/// and HttpOnly keeps it out of page JavaScript. It carries an explicit
+/// `Max-Age`: mobile browsers such as iOS Safari discard expiry-less cookies
+/// when the page is suspended or the browser process is reclaimed.
+pub(crate) fn session_middleware(
+    key: Key,
+    cookie_secure: bool,
+) -> SessionMiddleware<CookieSessionStore> {
+    SessionMiddleware::builder(CookieSessionStore::default(), key)
+        .cookie_secure(cookie_secure)
+        .cookie_content_security(actix_session::config::CookieContentSecurity::Private)
+        .cookie_http_only(true)
+        .session_lifecycle(
+            actix_session::config::PersistentSession::default()
+                .session_ttl(SESSION_COOKIE_TTL)
+                .session_ttl_extension_policy(
+                    actix_session::config::TtlExtensionPolicy::OnEveryRequest,
+                ),
+        )
+        .build()
+}
+
 pub fn build_openapi() -> utoipa::openapi::OpenApi {
     let (_app, mut api) = App::new()
         .into_utoipa_app()
@@ -1189,16 +1218,7 @@ pub async fn run_with_hub(
             // unauthenticated public attack surface to a self-hosted server.
             .into_app()
             .wrap(actix_web::middleware::from_fn(crate::service::password::enforce_revision))
-            .wrap(
-                SessionMiddleware::builder(CookieSessionStore::default(), secret_key.clone())
-                    .cookie_secure(cookie_secure_from_env())
-                    // Encrypt (not just sign) the session cookie: the code-session
-                    // principal it carries must be neither readable nor forgeable by
-                    // the client. HttpOnly keeps it out of page JavaScript.
-                    .cookie_content_security(actix_session::config::CookieContentSecurity::Private)
-                    .cookie_http_only(true)
-                    .build(),
-            )
+            .wrap(session_middleware(secret_key.clone(), cookie_secure_from_env()))
             .service(
                 crate::service::static_assets::files(static_file_path.clone(), protected_config.clone())
                     .default_handler(fn_service(move |req: ServiceRequest| {
@@ -1298,6 +1318,67 @@ mod tests {
         assert!(parse_cookie_secure(Some("true")));
         assert!(parse_cookie_secure(Some("TRUE")));
         assert!(parse_cookie_secure(Some("yes")));
+    }
+
+    #[actix_web::test]
+    async fn login_cookie_outlives_the_browser_session_and_slides_on_use() {
+        use actix_session::Session;
+        use actix_web::{HttpResponse, test};
+
+        let app = test::init_service(
+            App::new()
+                .wrap(session_middleware(Key::generate(), false))
+                .route(
+                    "/login",
+                    web::post().to(|session: Session| async move {
+                        session.insert("user", "owner").unwrap();
+                        HttpResponse::Ok().finish()
+                    }),
+                )
+                .route(
+                    "/me",
+                    web::get().to(|session: Session| async move {
+                        let user = session.get::<String>("user").unwrap().unwrap_or_default();
+                        HttpResponse::Ok().body(user)
+                    }),
+                ),
+        )
+        .await;
+
+        let login =
+            test::call_service(&app, test::TestRequest::post().uri("/login").to_request()).await;
+        let cookie = login
+            .response()
+            .cookies()
+            .next()
+            .expect("login sets the session cookie")
+            .into_owned();
+        assert_eq!(cookie.max_age(), Some(SESSION_COOKIE_TTL));
+        assert_eq!(cookie.http_only(), Some(true));
+        assert_ne!(cookie.secure(), Some(true));
+
+        // A request that only reads the session renews the cookie lifetime.
+        let read = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/me")
+                .cookie(cookie)
+                .to_request(),
+        )
+        .await;
+        let renewed = read
+            .response()
+            .cookies()
+            .next()
+            .expect("an authenticated request renews the session cookie")
+            .into_owned();
+        assert_eq!(renewed.max_age(), Some(SESSION_COOKIE_TTL));
+        assert_eq!(test::read_body(read).await, "owner");
+
+        // An anonymous request does not mint a cookie.
+        let anonymous =
+            test::call_service(&app, test::TestRequest::get().uri("/me").to_request()).await;
+        assert_eq!(anonymous.response().cookies().count(), 0);
     }
 
     #[test]
@@ -1427,19 +1508,7 @@ mod tests {
                     )
                 })
                 .into_app()
-                .wrap(
-                    SessionMiddleware::builder(CookieSessionStore::default(), secret_key)
-                        .cookie_secure(cookie_secure_from_env())
-                        // Encrypt (not just sign) the session cookie: the
-                        // code-session principal it carries must be neither readable
-                        // nor forgeable by the client. HttpOnly keeps it out of page
-                        // JavaScript.
-                        .cookie_content_security(
-                            actix_session::config::CookieContentSecurity::Private,
-                        )
-                        .cookie_http_only(true)
-                        .build(),
-                ),
+                .wrap(session_middleware(secret_key, cookie_secure_from_env())),
         )
         .await;
 
@@ -1758,19 +1827,7 @@ mod tests {
                     )
                 })
                 .into_app()
-                .wrap(
-                    SessionMiddleware::builder(CookieSessionStore::default(), secret_key)
-                        .cookie_secure(cookie_secure_from_env())
-                        // Encrypt (not just sign) the session cookie: the
-                        // code-session principal it carries must be neither readable
-                        // nor forgeable by the client. HttpOnly keeps it out of page
-                        // JavaScript.
-                        .cookie_content_security(
-                            actix_session::config::CookieContentSecurity::Private,
-                        )
-                        .cookie_http_only(true)
-                        .build(),
-                ),
+                .wrap(session_middleware(secret_key, cookie_secure_from_env())),
         )
         .await;
 

@@ -6,7 +6,6 @@ use crate::{
     service::signaling::LocalNodeTokenValidator,
 };
 use actix_service::fn_service;
-use actix_session::{SessionMiddleware, storage::CookieSessionStore};
 use actix_web::{App, HttpServer, dev::ServiceResponse, middleware::Logger, web};
 use desk_signal::model::SharedConnectionMap;
 use desk_signal_facade::service::NodeTokenValidator;
@@ -228,15 +227,7 @@ pub async fn run_local_api(
             .wrap(actix_web::middleware::from_fn(
                 crate::service::password::enforce_revision,
             ))
-            .wrap(
-                SessionMiddleware::builder(CookieSessionStore::default(), secret_key.clone())
-                    .cookie_secure(false)
-                    // Encrypt (not just sign) the session cookie and keep it out of
-                    // page JavaScript, matching the portable / daemon HTTP apps.
-                    .cookie_content_security(actix_session::config::CookieContentSecurity::Private)
-                    .cookie_http_only(true)
-                    .build(),
-            )
+            .wrap(crate::session_middleware(secret_key.clone(), false))
             .service(
                 crate::service::static_assets::files(
                     static_file_path.clone(),
